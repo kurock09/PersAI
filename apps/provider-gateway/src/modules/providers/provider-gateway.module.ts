@@ -12,6 +12,7 @@ import { ProviderWebSearchController } from "./interface/http/provider-web-searc
 import { ProviderWarmupController } from "./interface/http/provider-warmup.controller";
 import { ElevenLabsProviderClient } from "./elevenlabs/elevenlabs-provider.client";
 import { AnthropicProviderClient } from "./anthropic/anthropic-provider.client";
+import { HeyGenProviderClient } from "./heygen/heygen-provider.client";
 import { KlingProviderClient } from "./kling/kling-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
@@ -52,6 +53,7 @@ import { RunwayProviderClient } from "./runway/runway-provider.client";
     AnthropicProviderClient,
     RunwayProviderClient,
     KlingProviderClient,
+    HeyGenProviderClient,
     YandexProviderClient,
     PdfMonkeyProviderClient,
     GammaProviderClient,

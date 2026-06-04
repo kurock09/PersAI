@@ -3125,6 +3125,14 @@ export interface ProviderGatewayVideoGenerateRequest {
   personaId?: string | null;
   portraitImageAlias?: string | null;
   voiceKey?: string | null;
+  // ADR-109 Slice 6: HeyGen-specific fields for talking-avatar execution.
+  // Optional so Kling/Runway/OpenAI requests ignore them.
+  /** @adr109-slice6 Non-null = use directly as HeyGen avatar_id (Scenario C cached). Null + personaId non-null = lazy-create avatar first (Scenario C lazy). Null + personaId null = ad-hoc Scenario A. */
+  cachedHeygenAvatarId?: string | null;
+  /** @adr109-slice6 Portrait image bytes (base64-encoded) for Scenario A (ad-hoc) and Scenario C lazy-create. Distinct from referenceImage which is for cinematic generation semantics. */
+  portraitImageBytesBase64?: string | null;
+  /** @adr109-slice6 MIME type companion to portraitImageBytesBase64 (e.g. "image/jpeg"). */
+  portraitImageMimeType?: string | null;
 }
 
 export interface RuntimeAcceptedVideoProviderTask {
@@ -3152,6 +3160,8 @@ export interface ProviderGatewayVideoGenerateResult {
   usage: RuntimeUsageSnapshot | null;
   billingFacts?: RuntimeBillingFacts | null;
   warning: string | null;
+  /** @adr109-slice6 Non-null only when Scenario C lazy avatar creation occurred. Slice 7 persists this onto the persona row. */
+  lazyCreatedHeygenAvatarId?: string | null;
 }
 
 export interface ProviderGatewayWebSearchRequest {

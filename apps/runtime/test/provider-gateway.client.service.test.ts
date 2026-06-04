@@ -707,6 +707,18 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       portraitImageAlias: null,
       voiceKey: "anya-warm"
     });
+    // ADR-109 Slice 6: new HeyGen-specific fields are JSON-serialized into the body.
+    const heygenFieldsVideoGenerate = await service.generateVideo({
+      ...createVideoGenerateRequest(),
+      mode: "talking_avatar",
+      speechText: "HeyGen field test.",
+      speechLanguage: "en-US",
+      personaId: null,
+      cachedHeygenAvatarId: null,
+      portraitImageBytesBase64: "cG9ydHJhaXQtYnl0ZXM=",
+      portraitImageMimeType: "image/jpeg",
+      voiceKey: "voice-heygen-ru-1"
+    });
     assert.equal(transcription.text, "hello from audio");
     assert.equal(imageGenerate.model, "gpt-image-1");
     assert.equal(imageGenerate.images[0]?.mimeType, "image/png");
@@ -723,6 +735,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(klingVideoGenerate.provider, "kling");
     assert.equal(klingVideoGenerate.model, "kling-v3");
     assert.equal(talkingAvatarVideoGenerate.provider, "openai");
+    assert.equal(heygenFieldsVideoGenerate.provider, "openai");
     assert.equal(speechGenerate.model, "gpt-4o-mini-tts");
     assert.equal(speechGenerate.mimeType, "audio/ogg");
     assert.equal(documentGenerate.provider, "pdfmonkey");
@@ -731,7 +744,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(webFetch.provider, "firecrawl");
     assert.equal(webSearch.provider, "tavily");
     assert.equal(browserAction.provider, "browserless");
-    assert.equal(requests.length, 16);
+    assert.equal(requests.length, 17);
     assert.equal(requests[0]?.url, "http://provider-gateway.local/ready");
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
@@ -803,6 +816,17 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(talkingAvatarBody.personaId, "persona-anya");
     assert.equal(talkingAvatarBody.portraitImageAlias, null);
     assert.equal(talkingAvatarBody.voiceKey, "anya-warm");
+    // ADR-109 Slice 6: new HeyGen-specific fields serialized into HTTP body.
+    assert.equal(
+      requests[16]?.url,
+      "http://provider-gateway.local/api/v1/providers/generate-video"
+    );
+    assert.equal(requests[16]?.init?.method, "POST");
+    const heygenFieldsBody = JSON.parse(String(requests[16]?.init?.body ?? "{}"));
+    assert.equal(heygenFieldsBody.cachedHeygenAvatarId, null);
+    assert.equal(heygenFieldsBody.portraitImageBytesBase64, "cG9ydHJhaXQtYnl0ZXM=");
+    assert.equal(heygenFieldsBody.portraitImageMimeType, "image/jpeg");
+    assert.equal(heygenFieldsBody.voiceKey, "voice-heygen-ru-1");
 
     const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();

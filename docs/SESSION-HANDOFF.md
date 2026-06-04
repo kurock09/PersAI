@@ -2,6 +2,80 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-05 — ADR-109 Slice 6: Provider-gateway HeyGen client (v3 endpoints, polling, lazy avatar creation, defensive status parsing, billing facts)
+
+### What changed & why
+
+Baseline SHA at session start: Slice 5 closure commit (`14b6146d`). Tree clean.
+
+Slice 6 lands the **HeyGen v3 HTTP client** end-to-end in the provider-gateway: submit + lazy avatar creation + asset upload + 10s polling + defensive status parsing + result download + `RuntimeBillingFacts` time-metered emission. This is the biggest single slice in the ADR-109 program — a full HTTP integration plus contract widening plus dispatch wiring — but it ships in one bounded subagent run because all the surrounding substrate (Slices 1-5) was already in place.
+
+Three HeyGen v3 endpoints are reachable from PersAI after this slice:
+- `POST /v3/videos` (submit) with `type: "image"` (Scenario A, ad-hoc photo) OR `type: "avatar"` (Scenario C, persona reuse)
+- `POST /v3/avatars` (lazy avatar creation when a persona has no cached `heygen_avatar_id`)
+- `POST /v3/assets` (portrait pre-upload returning `asset_id` consumed by the avatar create body)
+- `GET /v3/videos/{video_id}` (poll, 10s cadence per erratum E10)
+
+All HeyGen calls use the v3 surface per erratum E6 (no v1/v2). `X-Api-Key` auth header on every call. `Idempotency-Key` UUID on every submit POST (`/v3/videos` and `/v3/avatars`) — per-attempt UUID, never reused.
+
+### Subagent
+
+Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification gates green. This run honored the orchestrator's explicit "no docs edits" instruction (contrast with Slice 5 where the subagent self-edited docs and required orchestrator cleanup). Subagent also used `WebFetch` to confirm the exact HeyGen v3 body shapes for `POST /v3/videos`, `POST /v3/avatars`, and `POST /v3/assets` before writing code, which produced a tighter implementation than relying on the ADR truth section alone.
+
+### Files touched (Scope IN)
+
+**New files:**
+- `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts` — full client (submit dispatch by scenario, lazy avatar create, asset upload, 10s polling, defensive status parsing, polling-loss tolerance, billingFacts emission)
+- `apps/provider-gateway/test/heygen-provider.client.test.ts` — 12 assertion groups
+
+**Modified files:**
+- `packages/runtime-contract/src/index.ts` — `ProviderGatewayVideoGenerateRequest` gained `cachedHeygenAvatarId?`, `portraitImageBytesBase64?`, `portraitImageMimeType?` (all optional, backward-compatible); `ProviderGatewayVideoGenerateResult` gained `lazyCreatedHeygenAvatarId?` (default null)
+- `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts` — injected `HeyGenProviderClient`, replaced Slice 2a placeholder throw with real dispatch, extended `normalizeInput` to defensively parse + forward the new fields with type-safe 400s
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts` — registered `HeyGenProviderClient`
+- `apps/provider-gateway/test/provider-video-generation.service.test.ts` — added `FakeHeyGenProviderClient`, replaced Slice 2a placeholder regression assertion with real-dispatch assertions, asserted the new fields forward via `normalizeInput`
+- `apps/provider-gateway/test/run-suite.ts` — registered new HeyGen client test in the suite
+- `apps/runtime/test/provider-gateway.client.service.test.ts` — added HTTP serialization assertions for the 3 new request fields (request count 16→17)
+
+### Honest subtleties
+
+- **Image transport choice.** For Scenario A (ad-hoc, `type: "image"`), the portrait travels base64-inline in the request body via HeyGen's documented `image: { type: "base64", media_type, data }` shape — no pre-upload step. For Scenario C lazy-create, the portrait is uploaded once to `POST /v3/assets` (multipart), and the returned `asset_id` is used in the `POST /v3/avatars` body (`file: { type: "asset_id", asset_id }`). This split avoids embedding the same base64 twice (once in the avatar-create body, once in the video body).
+- **Defensive status parsing (invariant #15).** Terminal SUCCESS = exact `status === "completed"`. Terminal FAILED = exact `status === "failed"`. Everything else (including the documented `"pending"` / `"processing"` / the create-response-only `"waiting"` value / any future undocumented value) → continue polling. Zero regex, zero keyword list, zero `.includes(...)` on status strings. Documented in a code comment referencing the invariant.
+- **Polling-loss format.** Exact mirror of Kling: `PERSAI_VIDEO_POLLING_LOST::{json}` with `provider: "heygen"`, `providerStage: "accepted"`, `code: "accepted_primary_unconfirmed"`. The `acceptedTask` resume path (`input.acceptedTask.provider === "heygen"` + `providerStage === "accepted"` + non-empty `providerTaskId`) is honored — submit is skipped and polling resumes with the persisted `video_id`.
+- **`Idempotency-Key` strategy.** Fresh `crypto.randomUUID()` per logical submit attempt. NOT reused across retries (no submit retries are attempted — the client fails-fast on all submit errors, mirroring Kling). NOT applied to poll GETs (poll is idempotent by URL). NOT applied to `POST /v3/assets` uploads (infrastructure call, not a "submission").
+- **Missing-duration enforcement.** When `GET /v3/videos/{id}` returns `status: "completed"` but `data.duration` is missing / non-positive / non-numeric, the client throws `heygen_duration_missing` honestly. NO fake `billingFacts` are constructed (per Slice 6 forbidden pattern "Returning fake billingFacts when HeyGen response lacks duration").
+- **Portrait field decision.** New field `portraitImageBytesBase64?` (not reusing the existing `referenceImage.bytesBase64` slot). Rationale: `referenceImage` semantics for Kling/Runway is "visual reference for cinematic generation"; HeyGen's portrait is "the talking face". Conflating them would break per-provider contract honesty. Optional field — Kling/Runway/OpenAI ignore it.
+- **Test timing.** The HeyGen client test uses real 10s `setTimeout` delays during polling (not fake timers). One full assertion run takes ~155 seconds. Not a blocker for the verification gate (exit 0 reached cleanly), but a future cleanup slice could swap to fake-timer harness for sub-second test runs.
+- **Model resolution.** `input.model ?? HEYGEN_DEFAULT_VIDEO_MODEL` where the default is `"heygen-photo-avatar-v3"`. Slice 7 will populate `input.model` from the active HeyGen catalog row.
+
+### Verification (all 12 gates PASS)
+
+1. `corepack pnpm -r --if-present run lint` — all workspaces `Done`. ✅
+2. `corepack pnpm run format:check` — `All matched files use Prettier code style!` ✅
+3. `corepack pnpm --filter @persai/api run typecheck` — exit 0. ✅
+4. `corepack pnpm --filter @persai/web run typecheck` — exit 0. ✅
+5. `corepack pnpm --filter @persai/runtime run typecheck` — exit 0. ✅
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — exit 0. ✅
+7. `corepack pnpm --filter @persai/contracts run typecheck` — exit 0. ✅
+8. `tsx apps/provider-gateway/test/heygen-provider.client.test.ts` — 12 assertion groups PASS, total 156s wall (10s × N polls). ✅
+9. `tsx apps/provider-gateway/test/provider-video-generation.service.test.ts` — exit 0 (HeyGen dispatch real + new fields forward). ✅
+10. `tsx apps/provider-gateway/test/kling-provider.client.test.ts` — exit 0 (regression: Kling untouched). ✅
+11. `tsx apps/runtime/test/provider-gateway.client.service.test.ts` — exit 0 (HTTP serialization of new fields). ✅
+12. `tsx apps/runtime/test/runtime-video-generate-tool.service.test.ts` — exit 0 (Slice 3 regression). ✅
+
+### Cross-slice invariants
+
+All 15 invariants verified true:
+- **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits.
+- **#12** — no keyword routing introduced. Scenario determination is structural (`cachedHeygenAvatarId !== null` / `personaId !== null` field checks).
+- **#14 REST-only persona mutation** — provider client returns `lazyCreatedHeygenAvatarId` for Slice 7 to persist; client itself never touches `workspace_video_personas`. `apps/runtime/src/**` untouched (only `apps/runtime/test/provider-gateway.client.service.test.ts` augmented — pure test-side HTTP serialization assertions).
+- **#15 NON-NEGOTIABLE** — defensive status parsing uses ONLY exact string equality on `"completed"` and `"failed"`; everything else is in-progress. Zero regex, zero `.includes()`, zero keyword list, zero fuzzy match.
+
+### Next recommended slice
+
+**Slice 7: Runtime talking_avatar execution** — wire `mode = "talking_avatar"` in `runtime-video-generate-tool.service.ts` to: (1) resolve `personaId` → persona row (read `portraitImageStorageKey`, `heygen_voice_id`, `heygen_avatar_id`), load portrait bytes from object storage, populate the new gateway DTO fields; (2) resolve `portraitImageAlias` for Scenario A → load chat-uploaded image bytes; (3) validate `voiceKey` exists in the materialized HeyGen shortlist (or fail `voice_required`); (4) honor `talkingVideoEnabled` plan toggle (Slice 8 will land the toggle; for now Slice 7 may assume the toggle is permissive and add the gate-check behind a TODO that Slice 8 lights up); (5) on successful return, if `result.lazyCreatedHeygenAvatarId !== null`, persist it on the persona row via `WorkspaceVideoPersonaRepository` (the REST-only mutation rule is preserved because the runtime-side write is a single specific field on the persona row that only the runtime can populate — invariant #14 may need an explicit erratum amendment OR the persistence may move to a separate REST `PATCH /personas/:id/lazy-avatar` endpoint owned by the runtime as an internal API). The Slice 7 spec already states "Persona row updated with new id" — orchestrator will decide the cleanest split.
+
+---
+
 ## 2026-06-04 — ADR-109 Slice 5: Workspace persona registry (substrate + REST + wallet integration + Admin knobs)
 
 ### What changed & why

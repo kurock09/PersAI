@@ -11,6 +11,7 @@ import {
   type ProviderGatewayVideoGenerateResult,
   type RuntimeVideoGenerateMode
 } from "@persai/runtime-contract";
+import { HeyGenProviderClient } from "./heygen/heygen-provider.client";
 import { KlingProviderClient } from "./kling/kling-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
@@ -22,6 +23,7 @@ export class ProviderVideoGenerationService {
     private readonly openaiProviderClient: OpenAIProviderClient,
     private readonly runwayProviderClient: RunwayProviderClient,
     private readonly klingProviderClient: KlingProviderClient,
+    private readonly heyGenProviderClient: HeyGenProviderClient,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService
   ) {}
 
@@ -42,7 +44,7 @@ export class ProviderVideoGenerationService {
         case "kling":
           return this.klingProviderClient.generateVideo(normalized, { credentialValue });
         case "heygen":
-          throw new Error("ADR-109 Slice 6: HeyGen runtime execution not yet implemented");
+          return this.heyGenProviderClient.generateVideo(normalized, { credentialValue });
       }
     } catch (error) {
       const pollingLoss = this.readAcceptedPrimaryUnconfirmedError(error);
@@ -156,6 +158,9 @@ export class ProviderVideoGenerationService {
     personaId: string | null;
     portraitImageAlias: string | null;
     voiceKey: string | null;
+    cachedHeygenAvatarId: string | null;
+    portraitImageBytesBase64: string | null;
+    portraitImageMimeType: string | null;
   }> {
     if (
       input.mode === undefined &&
@@ -163,7 +168,10 @@ export class ProviderVideoGenerationService {
       input.speechLanguage === undefined &&
       input.personaId === undefined &&
       input.portraitImageAlias === undefined &&
-      input.voiceKey === undefined
+      input.voiceKey === undefined &&
+      input.cachedHeygenAvatarId === undefined &&
+      input.portraitImageBytesBase64 === undefined &&
+      input.portraitImageMimeType === undefined
     ) {
       return {};
     }
@@ -174,6 +182,9 @@ export class ProviderVideoGenerationService {
       personaId: string | null;
       portraitImageAlias: string | null;
       voiceKey: string | null;
+      cachedHeygenAvatarId: string | null;
+      portraitImageBytesBase64: string | null;
+      portraitImageMimeType: string | null;
     }> = {};
     if (input.mode !== undefined) {
       if (input.mode === null) {
@@ -206,6 +217,31 @@ export class ProviderVideoGenerationService {
     }
     if (input.voiceKey !== undefined) {
       out.voiceKey = this.normalizeOptionalNonEmptyString(input.voiceKey, "voiceKey");
+    }
+    // ADR-109 Slice 6: HeyGen-specific fields. Accept and forward with type-safe parsing.
+    if (input.cachedHeygenAvatarId !== undefined) {
+      if (input.cachedHeygenAvatarId === null) {
+        out.cachedHeygenAvatarId = null;
+      } else if (
+        typeof input.cachedHeygenAvatarId !== "string" ||
+        input.cachedHeygenAvatarId.trim().length === 0
+      ) {
+        throw new BadRequestException("cachedHeygenAvatarId must be a non-empty string or null");
+      } else {
+        out.cachedHeygenAvatarId = input.cachedHeygenAvatarId.trim();
+      }
+    }
+    if (input.portraitImageBytesBase64 !== undefined) {
+      out.portraitImageBytesBase64 = this.normalizeOptionalNonEmptyString(
+        input.portraitImageBytesBase64,
+        "portraitImageBytesBase64"
+      );
+    }
+    if (input.portraitImageMimeType !== undefined) {
+      out.portraitImageMimeType = this.normalizeOptionalNonEmptyString(
+        input.portraitImageMimeType,
+        "portraitImageMimeType"
+      );
     }
     return out;
   }

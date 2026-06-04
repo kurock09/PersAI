@@ -4,6 +4,7 @@ import type {
   ProviderGatewayVideoGenerateResult
 } from "@persai/runtime-contract";
 import { ProviderVideoGenerationService } from "../src/modules/providers/provider-video-generation.service";
+import type { HeyGenProviderClient } from "../src/modules/providers/heygen/heygen-provider.client";
 import type { KlingProviderClient } from "../src/modules/providers/kling/kling-provider.client";
 import type { OpenAIProviderClient } from "../src/modules/providers/openai/openai-provider.client";
 import type { PersaiInternalApiClientService } from "../src/modules/providers/persai-internal-api.client.service";
@@ -134,6 +135,46 @@ class FakeKlingProviderClient {
   }
 }
 
+class FakeHeyGenProviderClient {
+  calls: Array<{
+    input: ProviderGatewayVideoGenerateRequest;
+    credentialValue: string | undefined;
+  }> = [];
+
+  async generateVideo(
+    input: ProviderGatewayVideoGenerateRequest,
+    options?: { credentialValue?: string }
+  ): Promise<ProviderGatewayVideoGenerateResult> {
+    this.calls.push({ input, credentialValue: options?.credentialValue });
+    return {
+      provider: "heygen",
+      model: input.model ?? "heygen-photo-avatar-v3",
+      prompt: input.prompt,
+      size: input.size,
+      seconds: 8.5,
+      video: {
+        bytesBase64: "aGV5Z2VuLXZpZGVvLWJ5dGVz",
+        mimeType: "video/mp4"
+      },
+      respondedAt: "2026-06-05T00:00:00.000Z",
+      usage: null,
+      billingFacts: {
+        providerKey: "heygen",
+        modelKey: input.model ?? "heygen-photo-avatar-v3",
+        capability: "video",
+        occurredAt: "2026-06-05T00:00:00.000Z",
+        metering: {
+          meteringKind: "time_metered",
+          durationMs: 8500,
+          durationSeconds: 8.5
+        }
+      },
+      warning: null,
+      lazyCreatedHeygenAvatarId: null
+    };
+  }
+}
+
 class FakePersaiInternalApiClientService {
   secretIds: string[] = [];
 
@@ -147,11 +188,13 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
   const openaiProviderClient = new FakeOpenAIProviderClient();
   const runwayProviderClient = new FakeRunwayProviderClient();
   const klingProviderClient = new FakeKlingProviderClient();
+  const heyGenProviderClient = new FakeHeyGenProviderClient();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const service = new ProviderVideoGenerationService(
     openaiProviderClient as unknown as OpenAIProviderClient,
     runwayProviderClient as unknown as RunwayProviderClient,
     klingProviderClient as unknown as KlingProviderClient,
+    heyGenProviderClient as unknown as HeyGenProviderClient,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
 
@@ -283,6 +326,7 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
     openaiProviderClient as unknown as OpenAIProviderClient,
     runwayProviderClient as unknown as RunwayProviderClient,
     new ThrowingKlingProviderClient() as unknown as KlingProviderClient,
+    heyGenProviderClient as unknown as HeyGenProviderClient,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
   await assert.rejects(
@@ -362,22 +406,76 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
     /speechText must be a non-empty string or null/i
   );
 
-  // ADR-109 Slice 2a: HeyGen runtime execution remains the documented placeholder
-  // throw until Slice 6 wires the HeyGen client. Slice 3 must not regress that.
+  // ADR-109 Slice 6: HeyGen dispatch routes to HeyGenProviderClient.
+  const heyGenResult = await service.generateVideo({
+    ...createRequest({ model: null }),
+    mode: "talking_avatar",
+    speechText: "Welcome to PersAI.",
+    speechLanguage: "en-US",
+    personaId: "persona-anya",
+    voiceKey: "voice-ru-female-1",
+    cachedHeygenAvatarId: "ava-cached-123",
+    credential: {
+      ...createRequest().credential,
+      secretId: "tool/video_generate/heygen/api-key",
+      providerId: "heygen"
+    }
+  });
+  assert.equal(heyGenResult.provider, "heygen");
+  assert.equal(heyGenProviderClient.calls[0]?.credentialValue, "resolved-tool-secret");
+  assert.equal(heyGenProviderClient.calls[0]?.input.mode, "talking_avatar");
+  assert.equal(heyGenProviderClient.calls[0]?.input.speechText, "Welcome to PersAI.");
+  assert.equal(heyGenProviderClient.calls[0]?.input.personaId, "persona-anya");
+  assert.equal(heyGenProviderClient.calls[0]?.input.voiceKey, "voice-ru-female-1");
+  assert.equal(heyGenProviderClient.calls[0]?.input.cachedHeygenAvatarId, "ava-cached-123");
+
+  // ADR-109 Slice 6: normalizeInput accepts and forwards new HeyGen fields.
+  const heyGenWithPortraitResult = await service.generateVideo({
+    ...createRequest({ model: null }),
+    mode: "talking_avatar",
+    speechText: "Welcome.",
+    personaId: null,
+    cachedHeygenAvatarId: null,
+    portraitImageBytesBase64: "cG9ydHJhaXQ=",
+    portraitImageMimeType: "image/jpeg",
+    credential: {
+      ...createRequest().credential,
+      secretId: "tool/video_generate/heygen/api-key",
+      providerId: "heygen"
+    }
+  });
+  assert.equal(heyGenWithPortraitResult.provider, "heygen");
+  assert.equal(heyGenProviderClient.calls[1]?.input.portraitImageBytesBase64, "cG9ydHJhaXQ=");
+  assert.equal(heyGenProviderClient.calls[1]?.input.portraitImageMimeType, "image/jpeg");
+  assert.equal(heyGenProviderClient.calls[1]?.input.cachedHeygenAvatarId, null);
+
+  // ADR-109 Slice 6: normalizeInput rejects non-string values for new HeyGen fields.
   await assert.rejects(
     () =>
       service.generateVideo({
         ...createRequest({ model: null }),
         mode: "talking_avatar",
-        speechText: "Welcome to PersAI.",
-        speechLanguage: "en-US",
-        personaId: "persona-anya",
+        cachedHeygenAvatarId: 123 as never,
         credential: {
           ...createRequest().credential,
           secretId: "tool/video_generate/heygen/api-key",
           providerId: "heygen"
         }
       }),
-    /HeyGen runtime execution not yet implemented/i
+    /cachedHeygenAvatarId must be a non-empty string or null/i
+  );
+  await assert.rejects(
+    () =>
+      service.generateVideo({
+        ...createRequest({ model: null }),
+        mode: "talking_avatar",
+        portraitImageBytesBase64: 456 as never,
+        credential: {
+          ...createRequest().credential,
+          secretId: "tool/video_generate/heygen/api-key",
+          providerId: "heygen"
+        }
+      }),
+    /portraitImageBytesBase64 must be a non-empty string or null/i
   );
 }
