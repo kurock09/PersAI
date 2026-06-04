@@ -184,6 +184,8 @@ function providerLabel(provider: ManagedRuntimeProvider | ManagedRuntimeCatalogP
       return "Runway";
     case "kling":
       return "Kling";
+    case "heygen":
+      return "HeyGen";
   }
 }
 
@@ -191,11 +193,12 @@ const MANAGED_CATALOG_PROVIDERS = [
   "openai",
   "anthropic",
   "runway",
-  "kling"
+  "kling",
+  "heygen"
 ] as const satisfies readonly ManagedRuntimeCatalogProvider[];
 
 function isVideoOnlyCatalogProvider(provider: ManagedRuntimeCatalogProvider): boolean {
-  return provider === "runway" || provider === "kling";
+  return provider === "runway" || provider === "kling" || provider === "heygen";
 }
 
 function createDefaultVideoModelParameters(
@@ -349,7 +352,8 @@ function normalizeCatalogForSlice2(
     openai: normalizeProviderCatalog("openai"),
     anthropic: normalizeProviderCatalog("anthropic"),
     runway: normalizeProviderCatalog("runway"),
-    kling: normalizeProviderCatalog("kling")
+    kling: normalizeProviderCatalog("kling"),
+    heygen: normalizeProviderCatalog("heygen")
   };
 }
 
@@ -676,7 +680,8 @@ function createEmptyCatalog(): RuntimeProviderModelCatalogByProviderState {
     openai: { models: [] },
     anthropic: { models: [] },
     runway: { models: [] },
-    kling: { models: [] }
+    kling: { models: [] },
+    heygen: { models: [] }
   };
 }
 
@@ -855,6 +860,11 @@ function withDerivedCatalogWeights(
       models: catalog.kling.models.map((profile) =>
         applyDerivedTokenMeteredWeights(withVideoModelParameters(profile, "kling"))
       )
+    },
+    heygen: {
+      models: catalog.heygen.models.map((profile) =>
+        applyDerivedTokenMeteredWeights(withVideoModelParameters(profile, "heygen"))
+      )
     }
   };
 }
@@ -879,6 +889,9 @@ function buildCatalogFallback(
       models: []
     },
     kling: {
+      models: []
+    },
+    heygen: {
       models: []
     }
   };
@@ -998,10 +1011,10 @@ export default function AdminRuntimePage() {
     useState<RuntimeProviderModelCatalogByProviderState>(createEmptyCatalog());
   const [selectedCatalogIndexByProvider, setSelectedCatalogIndexByProvider] = useState<
     Record<ManagedRuntimeCatalogProvider, number>
-  >({ openai: 0, anthropic: 0, runway: 0, kling: 0 });
+  >({ openai: 0, anthropic: 0, runway: 0, kling: 0, heygen: 0 });
   const [newCatalogCapabilityByProvider, setNewCatalogCapabilityByProvider] = useState<
     Record<ManagedRuntimeCatalogProvider, RuntimeProviderModelProfileState["capabilities"][number]>
-  >({ openai: "chat", anthropic: "chat", runway: "video", kling: "video" });
+  >({ openai: "chat", anthropic: "chat", runway: "video", kling: "video", heygen: "video" });
   modelCatalogRef.current = modelCatalogByProvider;
 
   useEffect(() => {
@@ -1012,7 +1025,8 @@ export default function AdminRuntimePage() {
         modelCatalogByProvider.anthropic.models.length
       ),
       runway: clampCatalogIndex(current.runway, modelCatalogByProvider.runway.models.length),
-      kling: clampCatalogIndex(current.kling, modelCatalogByProvider.kling.models.length)
+      kling: clampCatalogIndex(current.kling, modelCatalogByProvider.kling.models.length),
+      heygen: clampCatalogIndex(current.heygen, modelCatalogByProvider.heygen.models.length)
     }));
   }, [modelCatalogByProvider]);
 
@@ -1562,9 +1576,11 @@ export default function AdminRuntimePage() {
                   )}
 
                   <p className="text-[10px] text-text-subtle">
-                    {videoOnlyProvider
-                      ? `${providerLabel(provider)} rows stay video-only here and do not appear in primary, fallback, or router chat selectors. Catalog readiness in this page does not enable live execution by itself.`
-                      : "Active `chat` rows feed the same downstream model picks as before. Inactive rows stay in the catalog for version history and do not appear in selectors. Archive versions instead of deleting historical truth."}
+                    {provider === "heygen"
+                      ? "Talking-avatar video provider for ADR-109. Catalog rows arrive in Slice 2b (capability axis pending). Save is supported now; rows remain empty."
+                      : videoOnlyProvider
+                        ? `${providerLabel(provider)} rows stay video-only here and do not appear in primary, fallback, or router chat selectors. Catalog readiness in this page does not enable live execution by itself.`
+                        : "Active `chat` rows feed the same downstream model picks as before. Inactive rows stay in the catalog for version history and do not appear in selectors. Archive versions instead of deleting historical truth."}
                   </p>
                 </div>
               </Card>

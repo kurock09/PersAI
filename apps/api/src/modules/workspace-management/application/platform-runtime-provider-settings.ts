@@ -225,7 +225,8 @@ export function createEmptyAvailableModelCatalogByProvider(): RuntimeProviderMod
     openai: { models: [] },
     anthropic: { models: [] },
     runway: { models: [] },
-    kling: { models: [] }
+    kling: { models: [] },
+    heygen: { models: [] }
   };
 }
 
@@ -672,7 +673,8 @@ export function normalizeAvailableModelCatalogByProvider(
       openai: { models: createDefaultModelProfiles(chatFallback.openai, ["chat"]) },
       anthropic: { models: createDefaultModelProfiles(chatFallback.anthropic, ["chat"]) },
       runway: { models: [] },
-      kling: { models: [] }
+      kling: { models: [] },
+      heygen: { models: [] }
     };
   }
   const normalizeProviderCatalog = (
@@ -713,7 +715,8 @@ export function normalizeAvailableModelCatalogByProvider(
     openai: normalizeProviderCatalog("openai"),
     anthropic: normalizeProviderCatalog("anthropic"),
     runway: normalizeProviderCatalog("runway"),
-    kling: normalizeProviderCatalog("kling")
+    kling: normalizeProviderCatalog("kling"),
+    heygen: normalizeProviderCatalog("heygen")
   };
 }
 

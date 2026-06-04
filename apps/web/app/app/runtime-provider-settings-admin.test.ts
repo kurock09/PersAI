@@ -176,6 +176,9 @@ describe("runtime-provider-settings-admin", () => {
               notes: null
             }
           ]
+        },
+        heygen: {
+          models: []
         }
       },
       providerKeys: {
@@ -235,7 +238,8 @@ describe("runtime-provider-settings-admin", () => {
             "sora-2 | video | 1 | 1 | 1",
           anthropic: "claude-sonnet-4-5 | chat | 1 | 1 | 1",
           runway: "runway-gen-4 | video | 1 | 1 | 1 | Runway Gen 4",
-          kling: "kling-v2 | video | 1 | 1 | 1 | Kling V2"
+          kling: "kling-v2 | video | 1 | 1 | 1 | Kling V2",
+          heygen: ""
         },
         providerKeys: {
           openai: "",
@@ -312,7 +316,8 @@ describe("runtime-provider-settings-admin", () => {
           openai: "gpt-4.1 | chat | 1 | 1 | 1",
           anthropic: "",
           runway: "",
-          kling: ""
+          kling: "",
+          heygen: ""
         },
         providerKeys: {
           openai: "",
@@ -339,7 +344,8 @@ describe("runtime-provider-settings-admin", () => {
             openai: "gpt-5.4 | chat | 1 | 1 | 1",
             anthropic: "",
             runway: "",
-            kling: ""
+            kling: "",
+            heygen: ""
           },
           providerKeys: {
             openai: "",
@@ -378,7 +384,8 @@ describe("runtime-provider-settings-admin", () => {
           openai: "",
           anthropic: "",
           runway: "",
-          kling: ""
+          kling: "",
+          heygen: ""
         },
         providerKeys: {
           openai: "",
@@ -404,7 +411,8 @@ describe("runtime-provider-settings-admin", () => {
           openai: "gpt-5.4 | chat | 1 | 1 | 1",
           anthropic: "",
           runway: "runway-gen-4 | video | 1 | 1 | 1",
-          kling: "kling-v2 | video | 1 | 1 | 1"
+          kling: "kling-v2 | video | 1 | 1 | 1",
+          heygen: ""
         },
         providerKeys: {
           openai: "",

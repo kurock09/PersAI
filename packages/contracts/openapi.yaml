@@ -14208,6 +14208,7 @@ components:
         - anthropic
         - runway
         - kling
+        - heygen
     RuntimeProviderSelection:
       type: object
       required:
@@ -14671,6 +14672,7 @@ components:
         - anthropic
         - runway
         - kling
+        - heygen
       properties:
         openai:
           $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
@@ -14679,6 +14681,8 @@ components:
         runway:
           $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
         kling:
+          $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
+        heygen:
           $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
     AdminRuntimeProviderSettingsMode:
       type: string

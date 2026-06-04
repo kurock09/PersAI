@@ -18,8 +18,14 @@ import {
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 export const CHAT_ROUTING_PROVIDERS = ["openai", "anthropic"] as const;
-export const MANAGED_CATALOG_PROVIDERS = ["openai", "anthropic", "runway", "kling"] as const;
-export const VIDEO_GENERATE_PROVIDERS = ["openai", "runway", "kling"] as const;
+export const MANAGED_CATALOG_PROVIDERS = [
+  "openai",
+  "anthropic",
+  "runway",
+  "kling",
+  "heygen"
+] as const;
+export const VIDEO_GENERATE_PROVIDERS = ["openai", "runway", "kling", "heygen"] as const;
 
 export type ChatRoutingRuntimeProvider = (typeof CHAT_ROUTING_PROVIDERS)[number];
 export type ManagedRuntimeCatalogProvider = (typeof MANAGED_CATALOG_PROVIDERS)[number];
@@ -241,7 +247,7 @@ function isChatRoutingProvider(value: string): value is ChatRoutingRuntimeProvid
 }
 
 function isVideoOnlyCatalogProvider(value: ManagedRuntimeCatalogProvider): boolean {
-  return value === "runway" || value === "kling";
+  return value === "runway" || value === "kling" || value === "heygen";
 }
 
 const MAX_MODEL_LENGTH = 256;
@@ -315,7 +321,8 @@ function createEmptyModelCatalogByProvider(): RuntimeProviderModelCatalogByProvi
     openai: { models: [] },
     anthropic: { models: [] },
     runway: { models: [] },
-    kling: { models: [] }
+    kling: { models: [] },
+    heygen: { models: [] }
   };
 }
 
@@ -843,7 +850,8 @@ function parseModelCatalogByProvider(
       openai: { models: createDefaultModelProfiles(chatFallback.openai, ["chat"]) },
       anthropic: { models: createDefaultModelProfiles(chatFallback.anthropic, ["chat"]) },
       runway: { models: [] },
-      kling: { models: [] }
+      kling: { models: [] },
+      heygen: { models: [] }
     };
   }
   for (const provider of MANAGED_CATALOG_PROVIDERS) {

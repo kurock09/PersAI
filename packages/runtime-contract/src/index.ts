@@ -1618,7 +1618,12 @@ export interface RuntimeImageEditToolResult {
   expectedResultCount?: number | null;
 }
 
-export const PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS = ["openai", "runway", "kling"] as const;
+export const PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS = [
+  "openai",
+  "runway",
+  "kling",
+  "heygen"
+] as const;
 
 export type PersaiRuntimeVideoGenerateProviderId =
   (typeof PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS)[number];

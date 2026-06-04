@@ -110,6 +110,9 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
       },
       kling: {
         models: []
+      },
+      heygen: {
+        models: []
       }
     },
     providerKeys: {
@@ -549,6 +552,18 @@ describe("AdminRuntimePage decimal pricing", () => {
     await waitFor(() => {
       expect(screen.getByText("1 USD = 20 VC")).toBeInTheDocument();
     });
+  });
+
+  it("renders the HeyGen catalog card with the empty-rows placeholder copy", async () => {
+    render(<AdminRuntimePage />);
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+
+    expect(screen.getByText("HeyGen")).toBeInTheDocument();
+    expect(screen.getByText(/Catalog rows arrive in Slice 2b/i)).toBeInTheDocument();
   });
 });
 

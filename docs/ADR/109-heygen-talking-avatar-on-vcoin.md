@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-06-03). Depends on ADR-108 at minimum through slice 3 (settle path debit + monthly grant). Parallel to ADR-102. **Slice 0 Completed (2026-06-04)** — baseline SHA, HeyGen v3 API truth, and 6 binding UX decisions recorded; see `## Slice 0 erratum (2026-06-04)` at the bottom of this ADR for the binding amendments that supersede the original slice specs where they conflict. **Slice 1 Completed (2026-06-04)** — HeyGen API key credential slot landed in `tool-credential-settings.ts` + `/admin/tools` Video Providers section; 7 verification gates green; no HeyGen HTTP calls yet (Slice 6 owns the client). ADR-108 (Vcoin substrate) is fully closed and verified live.
+Proposed (2026-06-03). Depends on ADR-108 at minimum through slice 3 (settle path debit + monthly grant). Parallel to ADR-102. **Slice 0 Completed (2026-06-04)** — baseline SHA, HeyGen v3 API truth, and 6 binding UX decisions recorded; see `## Slice 0 erratum (2026-06-04)` at the bottom of this ADR for the binding amendments that supersede the original slice specs where they conflict. **Slice 1 Completed (2026-06-04)** — HeyGen API key credential slot landed in `tool-credential-settings.ts` + `/admin/tools` Video Providers section; 7 verification gates green; no HeyGen HTTP calls yet (Slice 6 owns the client). **Slice 2a Completed (2026-06-04)** — HeyGen recognized as video catalog provider symmetric to Runway/Kling: union/contract widening, Admin Runtime UI card with empty round-trip, placeholder branches where exhaustive switches demanded; 8/8 verification gates green; Slice 2 split into 2a (substrate) + 2b (capability axis + plan validation); Slice 2b pending. ADR-108 (Vcoin substrate) is fully closed and verified live.
 
 ## Context
 
@@ -313,24 +313,29 @@ Persona-aware path requires slice 5. Ad-hoc-only path can in principle launch at
 
 ### Slice 2 - HeyGen catalog row + Admin Runtime UI
 
+**Note (2026-06-04):** This slice has been split into **2a (substrate widening)** and **2b (capability axis + plan validation)** during orchestrator planning. The original combined spec is preserved below; deliverable boundaries are recorded in the Status stamp.
+
 **Scope**
 
 - Extend `MANAGED_CATALOG_PROVIDERS` and `VIDEO_GENERATE_PROVIDERS` with `heygen`.
 - Extend `PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS` in `packages/runtime-contract/src/index.ts`.
 - Add empty default catalog bucket `heygen: { models: [] }`.
 - Admin Runtime renders the HeyGen card with the same video-only constraint applied to Runway/Kling.
-- Add a per-row capability flag on catalog rows to indicate talking-avatar-only models (so plan validation cannot select them for cinematic).
-- Plan validation: accept HeyGen rows only for `videoGenerateModelKey` / fallback when the model is marked talking-avatar-capable.
+- Add a per-row capability flag on catalog rows to indicate talking-avatar-only models (so plan validation cannot select them for cinematic). _(Slice 2b)_
+- Plan validation: accept HeyGen rows only for `videoGenerateModelKey` / fallback when the model is marked talking-avatar-capable. _(Slice 2b)_
 
 **Required tests**
 
-- Catalog accepts HeyGen rows video-only.
-- Chat selectors do not see HeyGen.
-- Talking-avatar-only catalog rows cannot be selected as cinematic primary/fallback.
+- Catalog accepts HeyGen rows video-only. _(2a)_
+- Chat selectors do not see HeyGen. _(2b — capability-axis-driven)_
+- Talking-avatar-only catalog rows cannot be selected as cinematic primary/fallback. _(2b)_
 
 **Exit**
 
-- Admin can configure HeyGen models and pricing.
+- 2a: Admin sees a HeyGen card in `/admin/runtime` with empty catalog round-trip clean.
+- 2b: Admin can configure HeyGen models with `talking_avatar` capability flag, and plan validation refuses cinematic selection of talking-avatar-only rows.
+
+**Status (2026-06-04): Slice 2a Completed.** Baseline SHA `d18d0064...` (Slice 1 closure). Subagent: Claude Sonnet 4.6 medium thinking — first hire under the operator directive to retire Opus 4.8 from implementation slices. Single subagent run, no resume needed; Sonnet honestly self-reported a 5-file implicit scope expansion (`platform-runtime-provider-settings.ts`, `runtime-provider-settings-admin.ts`, `runtime-provider-settings-admin.test.ts`, `knowledge/page.test.tsx`, `assistant-api-client.test.ts`) as pure-additive `heygen: { models: [] }` data defaults symmetric to existing `kling: { models: [] }` sites, with no behavioral logic — pattern matches Slice 1 `loadToolKeyMetadata()` precedent. Orchestrator diff-reviewed every implicit-scope edit; all confirmed pure data-default. Substrate widening landed in: `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts` (`MANAGED_CATALOG_PROVIDERS`, `VIDEO_GENERATE_PROVIDERS`, `isVideoOnlyCatalogProvider`, 2 catalog default blocks); `packages/runtime-contract/src/index.ts` (`PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS`); `apps/web/app/admin/runtime/page.tsx` (~11 sites including `providerLabel()`, local `MANAGED_CATALOG_PROVIDERS`, `isVideoOnlyCatalogProvider()`, `normalizeCatalogForSlice2()`, `createEmptyCatalog()`, `withDerivedCatalogWeights()`, `buildCatalogFallback()`, `selectedCatalogIndexByProvider`, `newCatalogCapabilityByProvider`, `clampCatalogIndex` useEffect, card-footer copy branch). Placeholder branches added in 2 of 5 anticipated sites: `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts::generateVideo()` (`throw new Error("ADR-109 Slice 6: HeyGen runtime execution not yet implemented")`) and `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts::VIDEO_PROVIDER_CREDENTIAL_KEY` (`heygen: "tool_video_generate_heygen"` — references the Slice 1 credential symmetric to Runway/Kling); other 3 (`runtime-video-generate-tool.service.ts`, `runtime-tool-policy.ts`, `native-tool-projection.ts`) untouched because typecheck passed without modification. Contracts package updated: `packages/contracts/openapi.yaml` (added `"heygen"` to `ManagedRuntimeCatalogProvider` enum + `RuntimeProviderModelCatalogByProviderState` required array + properties); `packages/contracts/src/generated/model/managedRuntimeCatalogProvider.ts` + `packages/contracts/src/generated/model/runtimeProviderModelCatalogByProviderState.ts` (targeted Slice 2a additions only — orchestrator deliberately rolled back unrelated repo-wide generated-files drift surfaced by `pnpm --filter @persai/contracts run generate` so the Slice 2a commit stays clean; pre-existing contracts/generated drift is independent repo tech debt and not addressed in this slice). 15 files modified total (+111/−28); zero new files. All 8 verification gates PASS via orchestrator's own shell: `pnpm -r lint`, `pnpm format:check`, api/web/runtime/provider-gateway typechecks, `vitest run app/admin/runtime/page.test.tsx` (17 tests including new "renders the HeyGen catalog card with the empty-rows placeholder copy"), `tsx test/runtime-provider-profile.test.ts`. Cross-slice invariants 1–15 verified true: no HeyGen URL / HTTP detail anywhere (Slice 6 owns the HTTP layer), no keyword routing / message-body parsing introduced, no Prisma schema or migration changes, no plan-validation logic changes (deferred to 2b), no capability-axis field on catalog rows (deferred to 2b), no behavioral change for OpenAI/Runway/Kling rows. Deploy: API + WEB. No migration. No feature flag. **Slice 2b pending.**
 
 ### Slice 3 - Mode contract + tool projection
 

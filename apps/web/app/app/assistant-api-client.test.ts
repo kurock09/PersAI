@@ -318,7 +318,8 @@ describe("admin rollout client", () => {
           },
           anthropic: { models: [] },
           runway: { models: [] },
-          kling: { models: [] }
+          kling: { models: [] },
+          heygen: { models: [] }
         },
         providerKeys: {
           openai: "sk-openai-new"

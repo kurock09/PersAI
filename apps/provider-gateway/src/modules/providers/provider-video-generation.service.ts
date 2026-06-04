@@ -38,6 +38,8 @@ export class ProviderVideoGenerationService {
           return this.runwayProviderClient.generateVideo(normalized, { apiKey: credentialValue });
         case "kling":
           return this.klingProviderClient.generateVideo(normalized, { credentialValue });
+        case "heygen":
+          throw new Error("ADR-109 Slice 6: HeyGen runtime execution not yet implemented");
       }
     } catch (error) {
       const pollingLoss = this.readAcceptedPrimaryUnconfirmedError(error);

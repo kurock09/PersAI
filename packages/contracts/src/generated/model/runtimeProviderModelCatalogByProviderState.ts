@@ -11,4 +11,5 @@ export interface RuntimeProviderModelCatalogByProviderState {
   anthropic: RuntimeProviderModelCatalogState;
   runway: RuntimeProviderModelCatalogState;
   kling: RuntimeProviderModelCatalogState;
+  heygen: RuntimeProviderModelCatalogState;
 }

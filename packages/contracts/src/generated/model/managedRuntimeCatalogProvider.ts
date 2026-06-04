@@ -13,5 +13,6 @@ export const ManagedRuntimeCatalogProvider = {
   openai: "openai",
   anthropic: "anthropic",
   runway: "runway",
-  kling: "kling"
+  kling: "kling",
+  heygen: "heygen"
 } as const;

@@ -76,7 +76,8 @@ export function createDefaultRuntimeProviderSettingsAdminDraft(): RuntimeProvide
       openai: "",
       anthropic: "",
       runway: "",
-      kling: ""
+      kling: "",
+      heygen: ""
     },
     providerKeys: {
       openai: "",
@@ -347,6 +348,9 @@ export function resolveRuntimeProviderSettingsAdminFormState(
     ),
     kling: formatRuntimeProviderModelProfilesText(
       settings.availableModelCatalogByProvider.kling.models
+    ),
+    heygen: formatRuntimeProviderModelProfilesText(
+      settings.availableModelCatalogByProvider.heygen.models
     )
   };
 
@@ -421,6 +425,9 @@ export function buildRuntimeProviderSettingsRequest(params: {
   const klingProfiles = parseRuntimeProviderModelProfilesText(
     params.draft.modelProfilesTextByProvider.kling
   );
+  const heygenProfiles = parseRuntimeProviderModelProfilesText(
+    params.draft.modelProfilesTextByProvider.heygen
+  );
   const availableModelsByProvider = {
     openai: openaiProfiles
       .filter((profile) => profile.capabilities.includes("chat"))
@@ -441,6 +448,9 @@ export function buildRuntimeProviderSettingsRequest(params: {
     },
     kling: {
       models: klingProfiles
+    },
+    heygen: {
+      models: heygenProfiles
     }
   };
 

@@ -238,7 +238,8 @@ export function resolveVideoGenerateProviderSelection(params: {
 const VIDEO_PROVIDER_CREDENTIAL_KEY: Record<VideoGenerateRuntimeProvider, ToolCredentialKey> = {
   openai: "tool_image_generate",
   runway: "tool_video_generate_runway",
-  kling: "tool_video_generate_kling"
+  kling: "tool_video_generate_kling",
+  heygen: "tool_video_generate_heygen"
 };
 
 function cloneToolCredentialRef(

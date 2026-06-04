@@ -92,6 +92,9 @@ describe("admin knowledge page helpers", () => {
           },
           kling: {
             models: []
+          },
+          heygen: {
+            models: []
           }
         }
       })
@@ -190,6 +193,9 @@ describe("admin knowledge page helpers", () => {
             models: []
           },
           kling: {
+            models: []
+          },
+          heygen: {
             models: []
           }
         }

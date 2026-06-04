@@ -92,12 +92,14 @@ async function run(): Promise<void> {
   });
   assert.deepEqual(Object.keys(managed.availableModelCatalogByProvider).sort(), [
     "anthropic",
+    "heygen",
     "kling",
     "openai",
     "runway"
   ]);
   assert.deepEqual(managed.availableModelCatalogByProvider.runway.models, []);
   assert.deepEqual(managed.availableModelCatalogByProvider.kling.models, []);
+  assert.deepEqual(managed.availableModelCatalogByProvider.heygen.models, []);
 
   const catalogOnlyManaged = resolveRuntimeProviderProfileState({
     policyEnvelope: {
