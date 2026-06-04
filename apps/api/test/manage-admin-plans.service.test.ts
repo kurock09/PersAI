@@ -131,7 +131,6 @@ async function run(): Promise<void> {
       activeWebChatsLimit: 12,
       imageGenerateMonthlyUnitsLimit: 20,
       imageEditMonthlyUnitsLimit: 10,
-      videoGenerateMonthlyUnitsLimit: 4,
       knowledgeStorageBytesLimit: 4096
     },
     skillPolicy: {
@@ -250,7 +249,6 @@ async function run(): Promise<void> {
     activeWebChatsLimit: 12,
     imageGenerateMonthlyUnitsLimit: 20,
     imageEditMonthlyUnitsLimit: 10,
-    videoGenerateMonthlyUnitsLimit: 4,
     knowledgeStorageBytesLimit: 4096
   });
   assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).skillPolicy, {
@@ -289,7 +287,6 @@ async function run(): Promise<void> {
           activeWebChatsLimit: number | null;
           imageGenerateMonthlyUnitsLimit: number | null;
           imageEditMonthlyUnitsLimit: number | null;
-          videoGenerateMonthlyUnitsLimit: number | null;
           knowledgeStorageBytesLimit: number | null;
         };
         skillPolicy: { maxEnabledSkills: number | null };
@@ -408,7 +405,6 @@ async function run(): Promise<void> {
   assert.equal(state.quotaLimits.activeWebChatsLimit, 12);
   assert.equal(state.quotaLimits.imageGenerateMonthlyUnitsLimit, 20);
   assert.equal(state.quotaLimits.imageEditMonthlyUnitsLimit, 10);
-  assert.equal(state.quotaLimits.videoGenerateMonthlyUnitsLimit, 4);
   assert.equal(state.quotaLimits.knowledgeStorageBytesLimit, 4096);
   assert.equal(state.skillPolicy.maxEnabledSkills, 2);
   assert.equal(state.assistantPolicy.maxAssistants, 1);
@@ -1670,8 +1666,7 @@ async function run(): Promise<void> {
             highlightItems: { ru: ["30 картинок"], en: ["30 images"] }
           },
           quotaAccounting: {
-            imageGenerateMonthlyUnitsLimit: 30,
-            videoGenerateMonthlyUnitsLimit: 8
+            imageGenerateMonthlyUnitsLimit: 30
           },
           skillPolicy: { maxEnabledSkills: 10 },
           assistantPolicy: { maxAssistants: 3 },

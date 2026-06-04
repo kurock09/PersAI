@@ -288,7 +288,6 @@ class FakePersaiInternalApiClientService {
           messagesPerChat: 40,
           imageGenerateMonthlyUnitsLimit: 0,
           imageEditMonthlyUnitsLimit: 0,
-          videoGenerateMonthlyUnitsLimit: 0,
           documentMonthlyUnitsLimit: null
         }
       },
@@ -319,7 +318,6 @@ class FakePersaiInternalApiClientService {
           messagesPerChat: null,
           imageGenerateMonthlyUnitsLimit: 30,
           imageEditMonthlyUnitsLimit: 10,
-          videoGenerateMonthlyUnitsLimit: 5,
           documentMonthlyUnitsLimit: null
         }
       }
@@ -598,7 +596,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.visiblePlans[0]?.title.ru, "Старт");
   assert.equal(success.payload.visiblePlans[0]?.amountMajor, 990);
   assert.equal(normalizeSpacing(success.payload.visiblePlans[1]?.priceLabel.ru), "1 990 ₽ / месяц");
-  assert.equal(success.payload.visiblePlans[1]?.limits.videoGenerateMonthlyUnitsLimit, 5);
+  assert.equal(success.payload.visiblePlans[1]?.limits.imageEditMonthlyUnitsLimit, 10);
   assert.equal(success.payload.advisoryCandidates[0]?.limitCode, "quota_bucket:token_budget");
   assert.equal(success.payload.tools[0]?.toolCode, "web_search");
   assert.equal(success.payload.buckets[0]?.bucketCode, "token_budget");

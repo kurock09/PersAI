@@ -549,17 +549,51 @@ Verification: PASS `corepack pnpm --filter @persai/api run typecheck`; PASS `cor
 
 ---
 
-### Slice 8 - Manual migration playbook
+### Slice 8 - Full retirement of `videoGenerateMonthlyUnitsLimit`
+
+**Status (2026-06-04): Completed (expanded scope).** The original Slice 8 was a docs-only migration playbook with the legacy unit field kept as rollback insurance. After the 2026-06-04 hotfix (`32ce5408`) the active video path is fully VC-priced and the legacy plan limit was already nominally inert for `video_generate`, but live admin saves on `agse-pro` proved that the field still re-enabled per-unit gating in `enqueue-runtime-deferred-media-job` whenever an operator (or an old persisted JSON row) set it back to a positive integer. To prevent that operator footgun and to leave a clean substrate for ADR-109 (HeyGen talking-avatar), the user (`Thursday, Jun 4, 2026, 2:37 AM`) directed a full retirement of the field instead of a soft deprecation. This expands Slice 8 from "playbook + deprecation" to "remove the field from every contract, projection, UI, and persisted JSON row" while keeping the runtime invariants intact.
 
 **Scope**
 
-- Write `docs/runbooks/vcoin-plan-migration.md` (or equivalent) explaining the manual admin walk: for each of the 5 production plans, choose `videoVcoinMonthlyGrant` based on existing `videoGenerateMonthlyUnitsLimit` and the platform average video cost.
-- Mark `videoGenerateMonthlyUnitsLimit` as deprecated in plan editor copy.
-- Update ADR-106 with a small note that Slice 9's "media quota settlement unchanged" rule is now superseded for `video_generate` only.
+- API types: drop `videoGenerateMonthlyUnitsLimit` from `WorkspaceQuotaPlan`, `AdminPlanInput.quotaLimits`, `AdminPlanState.quotaLimits`, `PlanQuotaHints`, and the `MONTHLY_TOOL_QUOTA_TOOLS` definition for `video_generate` (now `limitKey: null` because it is VC-priced and has no per-month unit counter).
+- Projections: drop the field from `read-internal-runtime-quota-status.service.ts`, `resolve-plan-visibility.service.ts`, `quota-offers.ts`. `quota-grounded-limit-copy.service.ts` continues to render the vcoin branch added in Slice 7.
+- Contracts: remove the field from `packages/runtime-contract/src/index.ts` (`RuntimeQuotaStatusVisiblePlanLimits`), `packages/contracts/openapi.yaml`, and the runtime API client validator in `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`. Regenerate the contract package.
+- Web UI: remove the deprecated input row, `PlanDraft.videoGenerateMonthlyUnitsLimit`, the `NumericDraftField` union member, the `NUMERIC_DRAFT_RULES` entry, the `planToDraft` / `draftToPayload` mappings, and the dirty-state field from `apps/web/app/admin/plans/page.tsx`. Drop the legacy `else if` fallback in `derivePlanFacts` so the chip is sourced exclusively from `videoVcoinMonthlyGrant` (+ optional `videoVcoinApproxVideosPerMonth`). Update `app/admin/plans/page.test.tsx` and `app/_components/pricing-page-view.test.tsx`.
+- DB cleanup migration `apps/api/prisma/migrations/20260604030000_adr108_drop_video_generate_monthly_units_limit/migration.sql`: strips `videoGenerateMonthlyUnitsLimit` from the `billing_provider_hints` JSONB column on `plan_catalog_plans` (top-level + nested `quotaAccounting`) for every row. Idempotent (`#-` no-op when the path is absent). No table or column drop — the field never had its own column, only a JSON path inside `billing_provider_hints`.
+- Tests: `track-workspace-quota-usage` no longer reserves / settles / reconciles a unit counter for `video_generate`; the affected suites (`assistant-media-job-scheduler.service.test.ts`, `media-delivery-video-vcoin-settle.test.ts`, `media-delivery.service.test.ts`, `quota-accounting.test.ts`) now assert zero legacy-counter operations on the video path. Cross-suite fixtures (`manage-admin-plans`, `plan-visibility`, `quota-offers`, `read-internal-runtime-quota-status`, `runtime-quota-status-tool`, `turn-execution`, `manage-assistant-payment-intents`) had the field stripped.
+
+**Forbidden patterns**
+
+- Reading `videoGenerateMonthlyUnitsLimit` anywhere on the active path (it is gone from every type — there is nothing to read). The field is allowed only inside the cleanup migration's JSON-path strip.
+- Re-introducing the legacy unit counter on the `video_generate` row in any quota-status projection. The vcoin variant landed in Slice 7 is the sole source of truth.
+- Writing a `WorkspaceMediaPackageGrant` row for a `video_generate` package purchase — Slice 4 already inverted that to a wallet credit and that inversion stays.
+- Touching image / image-edit / TTS / STT plan limits, projections, or settle paths.
+
+**Required tests**
+
+- `corepack pnpm --filter @persai/api run test` — full suite green; the four affected video tests assert the zero-counter behavior.
+- `corepack pnpm --filter @persai/runtime run test` — full suite green; runtime-side fixtures no longer carry the deprecated field.
+- `corepack pnpm --filter @persai/web exec vitest run` — full suite green; `pricing-page-view.test.tsx` exercises both VC branches (with approx, without approx) and the zero-grant case (no chip); `app/admin/plans/page.test.tsx` no longer contains the legacy field.
+- `corepack pnpm --filter @persai/api run typecheck`, `--filter @persai/web run typecheck`, `--filter @persai/runtime run typecheck`.
+- `corepack pnpm -r --if-present run lint`.
+- `corepack pnpm run format:check`.
+
+**Verification result (2026-06-04)**
+
+- API typecheck: PASS.
+- Web typecheck: PASS.
+- Runtime typecheck: PASS.
+- `pnpm -r --if-present run lint`: PASS.
+- `pnpm run format:check`: PASS (after one prettier rewrite of `apps/web/app/_components/pricing-page-view.test.tsx`).
+- `pnpm --filter @persai/api run test`: PASS (full suite, exit 0).
+- `pnpm --filter @persai/runtime run test`: PASS (full suite, exit 0).
+- `pnpm --filter @persai/web run test`: PASS (636 tests, all suites).
 
 **Exit**
 
-- Operator can perform the migration without guessing.
+- The deprecated field is gone from every TypeScript type, contract, OpenAPI schema, projection, web UI, and test fixture on the active path.
+- Existing `plan_catalog_plans.billing_provider_hints` JSON rows have their stale entries stripped on the next prisma migration apply (Dev Image Publish migration approval gate).
+- `video_generate` enqueue + settle reads only `workspace_vcoin_balance` + the catalog row; no legacy unit counter is consulted.
 
 ### Slice 9 - Tests + docs + verification gate
 
@@ -597,7 +631,7 @@ corepack pnpm --filter @persai/provider-gateway run typecheck
 7. Enqueue pre-check rejects `vcoin_balance_exhausted` when `balance <= 0`. Settle is the authoritative debit.
 8. Failed jobs do not debit VC. USD COGS ledger may still record provider cost.
 9. ADR-106 Slice 9 "media quota settlement unchanged" is superseded for `video_generate` only. Other media remains under Slice 9.
-10. Existing `videoGenerateMonthlyUnitsLimit` plan field stays present in schema for one release cycle as rollback insurance.
+10. ~~Existing `videoGenerateMonthlyUnitsLimit` plan field stays present in schema for one release cycle as rollback insurance.~~ **Superseded by Slice 8 (2026-06-04):** the field is fully retired from every type, contract, projection, UI, and persisted JSON row. `video_generate` reads only `workspace_vcoin_balance` + the catalog row.
 
 ## Risks
 
@@ -653,7 +687,7 @@ Rejected. Forces a recomputation on every balance read and couples user-visible 
 - [ ] `workspace_vc_balance` table exists and is wired into settle path.
 - [ ] `vcoinExchangeRate` is in `PlatformRuntimeProviderSettings`, default 20.
 - [ ] `videoVcoinMonthlyGrant` is on plan `billingProviderHints`.
-- [ ] `videoGenerateMonthlyUnitsLimit` is marked deprecated in source and admin UI copy.
+- [x] `videoGenerateMonthlyUnitsLimit` is fully retired from every type / contract / projection / UI / persisted JSON row (Slice 8, 2026-06-04, expanded scope).
 - [ ] `media-delivery.service.ts` debits VC on successful `video_generate` settle.
 - [ ] Image / TTS / STT settle paths remain unchanged (test-proven).
 - [ ] Enqueue rejects `vcoin_balance_exhausted` when `balance <= 0` for `video_generate`.

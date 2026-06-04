@@ -224,7 +224,6 @@ export class ReadInternalRuntimeQuotaStatusService {
         messagesPerChat: number | null;
         imageGenerateMonthlyUnitsLimit: number | null;
         imageEditMonthlyUnitsLimit: number | null;
-        videoGenerateMonthlyUnitsLimit: number | null;
         documentMonthlyUnitsLimit: number | null;
       };
     }>;
@@ -397,9 +396,9 @@ export class ReadInternalRuntimeQuotaStatusService {
         limits: {
           imageGenerateMonthlyUnitsLimit: plan.quotaLimits.imageGenerateMonthlyUnitsLimit,
           imageEditMonthlyUnitsLimit: plan.quotaLimits.imageEditMonthlyUnitsLimit,
-          videoGenerateMonthlyUnitsLimit: plan.quotaLimits.videoGenerateMonthlyUnitsLimit,
           documentMonthlyUnitsLimit: plan.quotaLimits.documentMonthlyUnitsLimit
-        }
+        },
+        videoVcoinMonthlyGrant: plan.videoVcoinMonthlyGrant
       })),
       currentActiveToolCodes: activeToolCodes,
       publicPackages
@@ -472,9 +471,6 @@ export class ReadInternalRuntimeQuotaStatusService {
               : null,
             imageEditMonthlyUnitsLimit: plan.enabledToolCodes.includes("image_edit")
               ? plan.quotaLimits.imageEditMonthlyUnitsLimit
-              : null,
-            videoGenerateMonthlyUnitsLimit: plan.enabledToolCodes.includes("video_generate")
-              ? plan.quotaLimits.videoGenerateMonthlyUnitsLimit
               : null,
             documentMonthlyUnitsLimit: plan.enabledToolCodes.includes("document")
               ? plan.quotaLimits.documentMonthlyUnitsLimit

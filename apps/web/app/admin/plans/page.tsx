@@ -107,8 +107,7 @@ export type PlanDraft = {
   messagesPerChat: string;
   imageGenerateMonthlyUnitsLimit: string;
   imageEditMonthlyUnitsLimit: string;
-  videoGenerateMonthlyUnitsLimit: string;
-  /** ADR-108 Slice 5 — replaces videoGenerateMonthlyUnitsLimit in the UI; top-level on AdminPlanInputBase, not nested under quotaLimits. */
+  /** ADR-108 Slice 8 — sole `video_generate` quota knob; top-level on AdminPlanInputBase, not nested under quotaLimits. */
   videoVcoinMonthlyGrant: string;
   documentMonthlyUnitsLimit: string;
   mediaStorageMb: string;
@@ -199,7 +198,6 @@ type NumericDraftField =
   | "messagesPerChat"
   | "imageGenerateMonthlyUnitsLimit"
   | "imageEditMonthlyUnitsLimit"
-  | "videoGenerateMonthlyUnitsLimit"
   | "videoVcoinMonthlyGrant"
   | "documentMonthlyUnitsLimit"
   | "mediaStorageMb"
@@ -488,12 +486,6 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
     allowBlank: true
   },
   {
-    field: "videoGenerateMonthlyUnitsLimit",
-    label: "Monthly video generations",
-    min: 1,
-    allowBlank: true
-  },
-  {
     field: "videoVcoinMonthlyGrant",
     label: "Monthly VC grant",
     min: 0,
@@ -743,7 +735,6 @@ function emptyDraft(): PlanDraft {
     messagesPerChat: "",
     imageGenerateMonthlyUnitsLimit: "",
     imageEditMonthlyUnitsLimit: "",
-    videoGenerateMonthlyUnitsLimit: "",
     videoVcoinMonthlyGrant: "",
     documentMonthlyUnitsLimit: "",
     mediaStorageMb: "",
@@ -851,8 +842,6 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     imageGenerateMonthlyUnitsLimit:
       plan.quotaLimits?.imageGenerateMonthlyUnitsLimit?.toString() ?? "",
     imageEditMonthlyUnitsLimit: plan.quotaLimits?.imageEditMonthlyUnitsLimit?.toString() ?? "",
-    videoGenerateMonthlyUnitsLimit:
-      plan.quotaLimits?.videoGenerateMonthlyUnitsLimit?.toString() ?? "",
     videoVcoinMonthlyGrant: (plan.videoVcoinMonthlyGrant ?? 0).toString(),
     documentMonthlyUnitsLimit:
       (
@@ -1010,14 +999,6 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     min: 1,
     allowBlank: true
   });
-  const videoGenerateMonthlyUnitsLimit = parseStrictIntegerDraft(
-    draft.videoGenerateMonthlyUnitsLimit,
-    {
-      label: "Monthly video generations",
-      min: 1,
-      allowBlank: true
-    }
-  );
   const videoVcoinMonthlyGrant =
     parseStrictIntegerDraft(draft.videoVcoinMonthlyGrant, {
       label: "Monthly VC grant",
@@ -1136,7 +1117,6 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       messagesPerChat,
       imageGenerateMonthlyUnitsLimit,
       imageEditMonthlyUnitsLimit,
-      videoGenerateMonthlyUnitsLimit,
       documentMonthlyUnitsLimit,
       mediaStorageBytesLimit: mediaStorageMb === null ? null : mediaStorageMb * 1048576,
       knowledgeStorageBytesLimit: knowledgeStorageMb === null ? null : knowledgeStorageMb * 1048576,
@@ -1658,7 +1638,7 @@ function buildMonthlyMediaQuotaRows(plan: AdminPlanState): MonthlyMediaQuotaRow[
     { label: "Image edit", value: formatMonthlyQuotaLimit(limits?.imageEditMonthlyUnitsLimit) },
     {
       label: "Video generate",
-      value: formatMonthlyQuotaLimit(limits?.videoGenerateMonthlyUnitsLimit)
+      value: `${(plan.videoVcoinMonthlyGrant ?? 0).toString()} VC / mo`
     },
     {
       label: "Document generate",
@@ -2705,30 +2685,6 @@ export function PlanForm({
                   />
                 </label>
                 <FieldError message={validationErrors.imageEditMonthlyUnitsLimit} />
-                <div className="opacity-60">
-                  <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                    <span title="Monthly video generation units for the subscription period. Blank = unlimited. Reserved before provider work and settled only after delivery succeeds.">
-                      <s>Monthly video generations</s>
-                      <span className="ml-1 text-text-subtle">
-                        (deprecated — use Monthly VC grant)
-                      </span>
-                    </span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={draft.videoGenerateMonthlyUnitsLimit}
-                      onChange={(e) => onPatch({ videoGenerateMonthlyUnitsLimit: e.target.value })}
-                      placeholder="unlimited"
-                      className={cn(
-                        "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
-                        validationErrors.videoGenerateMonthlyUnitsLimit
-                          ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
-                          : "border-border focus:border-accent focus:ring-accent/50"
-                      )}
-                    />
-                  </label>
-                  <FieldError message={validationErrors.videoGenerateMonthlyUnitsLimit} />
-                </div>
                 <div>
                   <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
                     <span title="Monthly Vcoin (VC) grant credited to the workspace wallet at subscription period rollover. Blank or 0 = no monthly grant; users must purchase VC packages to generate videos.">

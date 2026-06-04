@@ -214,8 +214,7 @@ async function run(): Promise<void> {
               tokenBudgetLimit: 100,
               activeWebChatsLimit: 2,
               imageGenerateMonthlyUnitsLimit: 0,
-              imageEditMonthlyUnitsLimit: 0,
-              videoGenerateMonthlyUnitsLimit: 0
+              imageEditMonthlyUnitsLimit: 0
             }
           },
           {
@@ -245,7 +244,6 @@ async function run(): Promise<void> {
               activeWebChatsLimit: 10,
               imageGenerateMonthlyUnitsLimit: 30,
               imageEditMonthlyUnitsLimit: 10,
-              videoGenerateMonthlyUnitsLimit: 5,
               documentMonthlyUnitsLimit: 8
             }
           }
@@ -329,7 +327,6 @@ async function run(): Promise<void> {
   assert.deepEqual(result.visiblePlans[1]?.enabledToolCodes, ["web_search", "image_generate"]);
   assert.equal(result.visiblePlans[1]?.title.ru, "Про");
   assert.equal(result.visiblePlans[1]?.highlightItems.ru[0], "Больше лимитов");
-  assert.equal(result.visiblePlans[1]?.limits.videoGenerateMonthlyUnitsLimit, null);
   assert.equal(result.tools.find((tool) => tool.toolCode === "web_search")?.currentCount, 2);
   assert.equal(
     result.tools.find((tool) => tool.toolCode === "web_search")?.displayName,
@@ -1008,8 +1005,7 @@ async function run(): Promise<void> {
               tokenBudgetLimit: 500,
               activeWebChatsLimit: 10,
               imageGenerateMonthlyUnitsLimit: 30,
-              imageEditMonthlyUnitsLimit: 10,
-              videoGenerateMonthlyUnitsLimit: 5
+              imageEditMonthlyUnitsLimit: 10
             }
           }
         ];

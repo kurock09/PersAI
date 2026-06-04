@@ -585,7 +585,7 @@ describe("AssistantMediaJobSchedulerService", () => {
     });
   });
 
-  test("releases a single video unit on terminal failure", async () => {
+  test("ADR-108 Slice 8 — video_generate no longer reserves a monthly unit, so terminal failure releases nothing", async () => {
     const { service, finalUpdates, releaseCalls } = createService({
       queryRows: [
         {
@@ -630,12 +630,10 @@ describe("AssistantMediaJobSchedulerService", () => {
 
     assert.equal(processed, 1);
     assert.equal(finalUpdates[0]?.data?.status, "failed");
-    assert.equal(releaseCalls.length, 1);
-    assert.deepEqual(releaseCalls[0], {
-      assistant: { id: "assistant-1" },
-      toolCode: "video_generate",
-      units: 1
-    });
+    // ADR-108 Slice 8 — `video_generate` is VC-priced; no monthly unit
+    // is reserved at enqueue, so a terminal failure has nothing to
+    // release on the legacy unit-counter path.
+    assert.equal(releaseCalls.length, 0);
   });
 
   test("fails unsupported video audio/input requests terminally instead of requeueing them", async () => {
@@ -689,12 +687,10 @@ describe("AssistantMediaJobSchedulerService", () => {
     assert.equal(finalUpdates[0]?.data?.status, "failed");
     assert.equal(finalUpdates[0]?.data?.lastErrorCode, "requested_mode_unsupported");
     assert.equal(finalUpdates[0]?.data?.nextRetryAt, undefined);
-    assert.equal(releaseCalls.length, 1);
-    assert.deepEqual(releaseCalls[0], {
-      assistant: { id: "assistant-1" },
-      toolCode: "video_generate",
-      units: 1
-    });
+    // ADR-108 Slice 8 — `video_generate` no longer reserves a monthly
+    // unit, so a terminal-mode-unsupported failure has nothing to
+    // release on the legacy unit-counter path.
+    assert.equal(releaseCalls.length, 0);
   });
 
   test("does not process claimed rows when userId is missing from the claim query", async () => {

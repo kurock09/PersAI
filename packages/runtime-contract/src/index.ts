@@ -1240,17 +1240,6 @@ export interface RuntimeQuotaStatusVisiblePlanLimits {
   messagesPerChat: number | null;
   imageGenerateMonthlyUnitsLimit: number | null;
   imageEditMonthlyUnitsLimit: number | null;
-  /**
-   * @deprecated ADR-108 Slice 1 — superseded by the platform Vcoin (VC)
-   * wallet for `video_generate`. Read paths still surface the legacy
-   * per-unit value because the plan field stays present on the row for
-   * one release cycle as rollback insurance (ADR-108 Non-goals). New
-   * user-facing surfaces should consume the workspace VC balance and
-   * `videoVcoinMonthlyGrant` instead (Slices 5/6/7 own those surfaces).
-   * Image / image-edit / TTS / STT / document quotas remain per-unit and
-   * are unaffected.
-   */
-  videoGenerateMonthlyUnitsLimit: number | null;
   documentMonthlyUnitsLimit: number | null;
 }
 

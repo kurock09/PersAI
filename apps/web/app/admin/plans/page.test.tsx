@@ -81,7 +81,6 @@ function createPlanState(): AdminPlanState {
       tokenBudgetLimit: 1000,
       imageGenerateMonthlyUnitsLimit: 20,
       imageEditMonthlyUnitsLimit: 10,
-      videoGenerateMonthlyUnitsLimit: 4,
       mediaStorageBytesLimit: null,
       knowledgeStorageBytesLimit: 128 * 1024 * 1024,
       workspaceStorageBytesLimit: null
@@ -194,7 +193,6 @@ describe("admin plans page helpers", () => {
     expect(draft.retrievalModelKey).toBe("gpt-5.4-nano");
     expect(draft.imageGenerateMonthlyUnitsLimit).toBe("20");
     expect(draft.imageEditMonthlyUnitsLimit).toBe("10");
-    expect(draft.videoGenerateMonthlyUnitsLimit).toBe("4");
     expect(draft.maxAssistants).toBe("3");
     expect(draft.trialFallbackPlanCode).toBe("");
     expect(draft.paidFallbackPlanCode).toBe("starter");
@@ -215,7 +213,6 @@ describe("admin plans page helpers", () => {
     expect(draftToPayload(draft).videoGenerateFallbackModelKey).toBe("sora-2");
     expect(draftToPayload(draft).quotaLimits?.imageGenerateMonthlyUnitsLimit).toBe(20);
     expect(draftToPayload(draft).quotaLimits?.imageEditMonthlyUnitsLimit).toBe(10);
-    expect(draftToPayload(draft).quotaLimits?.videoGenerateMonthlyUnitsLimit).toBe(4);
     expect(draftToPayload(draft).quotaLimits?.knowledgeStorageBytesLimit).toBe(128 * 1024 * 1024);
     expect(draftToPayload(draft).toolActivations?.at(0)?.dailyCallLimit).toBeNull();
     expect(draftToPayload({ ...draft, maxEnabledSkills: "0" }).skillPolicy?.maxEnabledSkills).toBe(
@@ -443,7 +440,6 @@ describe("admin plans page helpers", () => {
     } as AdminPlanState);
     const payload = draftToPayload({ ...draft, videoVcoinMonthlyGrant: "1000" });
     expect(payload.videoVcoinMonthlyGrant).toBe(1000);
-    expect(payload.quotaLimits?.videoGenerateMonthlyUnitsLimit).toBe(4);
 
     const payloadBlank = draftToPayload({ ...draft, videoVcoinMonthlyGrant: "" });
     expect(payloadBlank.videoVcoinMonthlyGrant).toBe(0);

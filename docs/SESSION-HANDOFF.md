@@ -2,6 +2,84 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-04 — ADR-108 Slice 8: Full retirement of `videoGenerateMonthlyUnitsLimit` (expanded scope)
+
+### What changed & why
+
+Baseline SHA at session start (after the 2026-06-04 hotfix `32ce5408 fix(api): video_generate bypasses legacy monthly_media_quota gate`): runtime path was VC-only, but the legacy `videoGenerateMonthlyUnitsLimit` plan field was still admin-editable and still re-enabled per-unit gating in `enqueue-runtime-deferred-media-job` whenever an operator (or a stale persisted JSON row) wrote a positive integer back into `billing_provider_hints`. The user (`02:37 MSK, 2026-06-04`) demanded a full retirement instead of the soft-deprecation that the original Slice 8 carved out, plus a strict verification gate (`agents.md` + lint + format + full per-app test suites) before push.
+
+This slice expands the original "manual migration playbook" Slice 8 into a complete removal of the field from every active-path type, contract, projection, UI, and persisted JSON row. The hotfix already fixed the user-visible regression on `agse-pro`; this slice removes the underlying re-entry surface.
+
+- **API types:** `WorkspaceQuotaPlan`, `AdminPlanInput.quotaLimits`, `AdminPlanState.quotaLimits`, and `PlanQuotaHints` no longer carry the field. `MONTHLY_TOOL_QUOTA_TOOLS` for `video_generate` is now `limitKey: null` (VC-priced, no per-month unit counter). `track-workspace-quota-usage.service.ts::resolveBaseLimitUnits` short-circuits when `limitKey === null`.
+- **Projections:** `read-internal-runtime-quota-status.service.ts`, `resolve-plan-visibility.service.ts`, `quota-offers.ts` no longer emit/read the field. `quota-grounded-limit-copy.service.ts` continues to render the vcoin branch added in Slice 7.
+- **Contracts:** `packages/runtime-contract/src/index.ts::RuntimeQuotaStatusVisiblePlanLimits`, `packages/contracts/openapi.yaml`, and `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts::isMonthlyToolQuotaStatusVisiblePlanLimits` no longer carry the field. Contracts package regenerated.
+- **Web UI:** `apps/web/app/admin/plans/page.tsx` removed `PlanDraft.videoGenerateMonthlyUnitsLimit`, the `NumericDraftField` union member, `NUMERIC_DRAFT_RULES` entry, `planToDraft` / `draftToPayload` mappings, the dirty-state slot, and the visually-muted deprecated input row. `videoVcoinMonthlyGrant` is the sole knob for `video_generate`. `apps/web/app/_components/pricing-page-view.tsx::derivePlanFacts` dropped the legacy `else if` fallback branch — the chip is now sourced exclusively from `videoVcoinMonthlyGrant` (+ optional `videoVcoinApproxVideosPerMonth`).
+- **DB cleanup:** new idempotent migration `apps/api/prisma/migrations/20260604030000_adr108_drop_video_generate_monthly_units_limit/migration.sql` uses `#-` to strip `videoGenerateMonthlyUnitsLimit` from `billing_provider_hints` JSONB on `plan_catalog_plans` (both top-level and nested `quotaAccounting` paths). No table/column drop — the field never had its own column.
+- **Tests:** `track-workspace-quota-usage` no longer reserves / settles / reconciles a unit counter for `video_generate`. The four affected behavioral suites (`assistant-media-job-scheduler.service.test.ts`, `media-delivery-video-vcoin-settle.test.ts`, `media-delivery.service.test.ts`, `quota-accounting.test.ts`) now assert zero legacy-counter operations on the video path; cross-suite fixtures (`manage-admin-plans`, `plan-visibility`, `quota-offers`, `read-internal-runtime-quota-status`, `runtime-quota-status-tool`, `turn-execution`, `manage-assistant-payment-intents`) had the field stripped; `pricing-page-view.test.tsx` covers both VC branches plus the zero-grant case (no chip). ADR-108 cross-slice invariant 10 (rollback insurance) was rewritten as superseded.
+
+### Files touched
+
+Modified:
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/src/modules/workspace-management/application/quota-offers.ts`
+- `apps/api/src/modules/workspace-management/application/read-internal-runtime-quota-status.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts`
+- `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts`
+- `apps/api/test/assistant-media-job-scheduler.service.test.ts`
+- `apps/api/test/enqueue-runtime-deferred-media-job.service.test.ts`
+- `apps/api/test/manage-admin-plans.service.test.ts`
+- `apps/api/test/manage-assistant-payment-intents.service.test.ts`
+- `apps/api/test/media-delivery-video-vcoin-settle.test.ts`
+- `apps/api/test/media-delivery.service.test.ts`
+- `apps/api/test/plan-visibility.service.test.ts`
+- `apps/api/test/quota-accounting.test.ts`
+- `apps/api/test/quota-offers.test.ts`
+- `apps/api/test/read-internal-runtime-quota-status.service.test.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/test/runtime-quota-status-tool.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/web/app/_components/pricing-page-view.test.tsx`
+- `apps/web/app/_components/pricing-page-view.tsx`
+- `apps/web/app/admin/plans/page.test.tsx`
+- `apps/web/app/admin/plans/page.tsx`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/model/adminPlanQuotaLimits.ts`
+- `packages/contracts/src/generated/model/index.ts`
+- `packages/runtime-contract/src/index.ts`
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+New:
+- `apps/api/prisma/migrations/20260604030000_adr108_drop_video_generate_monthly_units_limit/migration.sql`
+
+### Tests run
+
+- PASS `corepack pnpm --filter @persai/api run typecheck`
+- PASS `corepack pnpm --filter @persai/web run typecheck`
+- PASS `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS `corepack pnpm -r --if-present run lint`
+- PASS `corepack pnpm run format:check` (after one prettier rewrite of `apps/web/app/_components/pricing-page-view.test.tsx`)
+- PASS `corepack pnpm --filter @persai/api run test` (full suite, exit 0)
+- PASS `corepack pnpm --filter @persai/runtime run test` (full suite, exit 0)
+- PASS `corepack pnpm --filter @persai/web run test` (636 tests, all suites)
+
+### Risks / residuals
+
+- New Prisma migration `20260604030000_adr108_drop_video_generate_monthly_units_limit` must run via the `Dev Image Publish` migration approval gate per AGENTS.md before the next admin save against an old persisted plan row, otherwise the projection layer will silently ignore a stale entry but the JSON column will still carry it (cosmetic only — no functional regression).
+- ADR-106 Slice 9's "media quota settlement unchanged" invariant is now formally superseded for `video_generate`. Image / image-edit / TTS / STT continue to settle through the legacy unit counter.
+- No runbook (`docs/runbooks/vcoin-plan-migration.md`) was written: the original Slice 8 deliverable. Operator action remains: walk each of the 5 production plans and set `videoVcoinMonthlyGrant` explicitly before announcing VC to users.
+
+### Deploy
+
+API + WEB + CONTRACTS + RUNTIME. Migration `20260604030000_adr108_drop_video_generate_monthly_units_limit` must run via the `persai-dev-migrations` approval gate.
+
+### Next recommended slice
+
+**ADR-108 Slice 9 — Tests + docs + verification gate.** E2E test for enqueue + worker + delivery + VC debit on success across OpenAI/Runway/Kling; negative E2E that image and TTS produce no VC debit; update `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`; cross-ref ADR-105/106/107 in all updated docs. Slice 9 closes the ADR-108 program and unblocks ADR-109 (HeyGen talking-avatar).
+
 ## 2026-06-04 — ADR-108 Slice 7: Quota status tool + runtime advisor (vcoin variant)
 
 ### What changed & why

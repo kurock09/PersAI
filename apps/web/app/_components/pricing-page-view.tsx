@@ -138,12 +138,6 @@ export function derivePlanFacts(
         ? t("factVideosVcWithApprox", { vc: plan.videoVcoinMonthlyGrant, count: approxVideos })
         : t("factVideosVc", { vc: plan.videoVcoinMonthlyGrant })
     );
-  } else if (
-    enabledTools.has("video_generate") &&
-    plan.quotaLimits.videoGenerateMonthlyUnitsLimit != null &&
-    plan.quotaLimits.videoGenerateMonthlyUnitsLimit > 0
-  ) {
-    facts.push(t("factVideos", { count: plan.quotaLimits.videoGenerateMonthlyUnitsLimit }));
   }
   if (plan.skillPolicy.maxEnabledSkills != null && plan.skillPolicy.maxEnabledSkills > 0) {
     facts.push(t("factSkills", { count: plan.skillPolicy.maxEnabledSkills }));

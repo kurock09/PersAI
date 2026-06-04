@@ -755,7 +755,7 @@ export * from "./userPlanVisibilityPackageToolOffersToolCode";
 export * from "./userPlanVisibilityPackagesPurchase";
 export * from "./userPlanVisibilityPackagesPurchasePaymentMethodClassesItem";
 export * from "./userPlanVisibilityState";
+export * from "./userPlanVisibilityStateWorkspaceVcoinBalance";
 export * from "./workspaceSummary";
 export * from "./workspaceSummaryRole";
 export * from "./workspaceSummaryStatus";
-export * from "./userPlanVisibilityStateWorkspaceVcoinBalance";

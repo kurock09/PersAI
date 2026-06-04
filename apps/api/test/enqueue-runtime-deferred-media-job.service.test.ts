@@ -411,10 +411,12 @@ async function run(): Promise<void> {
     assert.equal(enqueueCalls.count, 0, "rejected enqueue must not insert a job");
   }
 
-  // ── ADR-108 Slice 2: positive balance proceeds through reservation ───────
+  // ── ADR-108 Slice 8: video_generate has retired the legacy unit counter ──
+  // Positive balance proceeds, but the VC wallet is the SOLE accounting
+  // surface; no monthly_media_quota reservation is taken anymore.
   {
     const vcoinReadCalls: string[] = [];
-    const { service, reserveCalls, enqueueCalls } = buildService({
+    const { service, reserveCalls, releaseCalls, enqueueCalls } = buildService({
       toolCode: "video_generate",
       vcoinBalance: 5,
       vcoinReadCalls
@@ -423,9 +425,12 @@ async function run(): Promise<void> {
 
     assert.equal(result.accepted, true);
     assert.deepEqual(vcoinReadCalls, ["workspace-1"], "wallet read once on the happy path");
-    assert.equal(reserveCalls.length, 1, "video_generate still reserves the legacy unit counter");
-    assert.equal(reserveCalls[0]!.toolCode, "video_generate");
-    assert.equal(reserveCalls[0]!.units, 1, "video_generate reserves exactly 1 unit");
+    assert.equal(
+      reserveCalls.length,
+      0,
+      "video_generate no longer reserves the legacy unit counter"
+    );
+    assert.equal(releaseCalls.length, 0, "nothing to release when nothing was reserved");
     assert.equal(enqueueCalls.count, 1);
   }
 

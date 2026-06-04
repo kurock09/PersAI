@@ -428,8 +428,7 @@ async function run(): Promise<void> {
               activeWebChatsLimit: 1,
               messagesPerChat: 20,
               imageGenerateMonthlyUnitsLimit: 0,
-              imageEditMonthlyUnitsLimit: 0,
-              videoGenerateMonthlyUnitsLimit: 0
+              imageEditMonthlyUnitsLimit: 0
             }
           },
           {
@@ -456,8 +455,7 @@ async function run(): Promise<void> {
               activeWebChatsLimit: 5,
               messagesPerChat: 100,
               imageGenerateMonthlyUnitsLimit: 0,
-              imageEditMonthlyUnitsLimit: 0,
-              videoGenerateMonthlyUnitsLimit: 0
+              imageEditMonthlyUnitsLimit: 0
             }
           },
           {
@@ -485,7 +483,6 @@ async function run(): Promise<void> {
               messagesPerChat: 200,
               imageGenerateMonthlyUnitsLimit: 100,
               imageEditMonthlyUnitsLimit: 100,
-              videoGenerateMonthlyUnitsLimit: 20,
               documentMonthlyUnitsLimit: 12
             }
           }

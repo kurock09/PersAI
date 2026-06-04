@@ -863,6 +863,10 @@ async function run(): Promise<void> {
     { operation: "reconcile", toolCode: "image_edit" },
     { operation: "reconcile", toolCode: "image_generate" }
   ]);
+  // ADR-108 Slice 8 — `settleUserStoppedArtifacts` for `video_generate`
+  // is a no-op on the legacy unit-counter; the VC wallet is the SOLE
+  // surface and there is no per-unit refund to issue. Below we confirm
+  // the legacy settle list is unchanged after a video-only call.
   await failedSettlementService.settleUserStoppedArtifacts({
     assistantId: "assistant-1",
     reason: "test_user_stop",
@@ -881,8 +885,7 @@ async function run(): Promise<void> {
   assert.deepEqual(monthlyQuotaCalls, [
     { operation: "settle", toolCode: "image_generate" },
     { operation: "reconcile", toolCode: "image_edit" },
-    { operation: "reconcile", toolCode: "image_generate" },
-    { operation: "settle", toolCode: "video_generate" }
+    { operation: "reconcile", toolCode: "image_generate" }
   ]);
   globalThis.fetch = originalFetch;
 }

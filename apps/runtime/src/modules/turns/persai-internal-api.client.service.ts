@@ -113,7 +113,6 @@ export type InternalQuotaStatusOutcome = {
       messagesPerChat: number | null;
       imageGenerateMonthlyUnitsLimit: number | null;
       imageEditMonthlyUnitsLimit: number | null;
-      videoGenerateMonthlyUnitsLimit: number | null;
       documentMonthlyUnitsLimit: number | null;
     };
   }>;
@@ -2122,8 +2121,6 @@ export class PersaiInternalApiClientService {
         this.isNonNegativeInteger(limits.imageGenerateMonthlyUnitsLimit)) &&
       (limits.imageEditMonthlyUnitsLimit === null ||
         this.isNonNegativeInteger(limits.imageEditMonthlyUnitsLimit)) &&
-      (limits.videoGenerateMonthlyUnitsLimit === null ||
-        this.isNonNegativeInteger(limits.videoGenerateMonthlyUnitsLimit)) &&
       (limits.documentMonthlyUnitsLimit === null ||
         this.isNonNegativeInteger(limits.documentMonthlyUnitsLimit))
     );

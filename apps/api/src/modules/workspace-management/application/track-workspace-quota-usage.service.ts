@@ -38,6 +38,14 @@ import {
 import { resolveRecurringQuotaPeriod, type RecurringQuotaPeriod } from "./recurring-quota-period";
 import { ManageMediaPackagePurchaseService } from "./manage-media-package-purchase.service";
 
+/**
+ * ADR-108 Slice 8 — `videoGenerateMonthlyUnitsLimit` was removed from
+ * the plan-side hints once `video_generate` switched to the VC wallet
+ * as its sole user-facing accounting surface. Plan rows that still
+ * carry the legacy hint are tolerated by the parser (the field is
+ * silently ignored); the matching cleanup migration strips it from the
+ * stored `billing_provider_hints` JSON.
+ */
 type PlanQuotaHints = {
   tokenBudgetLimit: bigint | null;
   costOrTokenDrivingToolClassUnitsLimit: number | null;
@@ -45,7 +53,6 @@ type PlanQuotaHints = {
   messagesPerChat: number | null;
   imageGenerateMonthlyUnitsLimit: number | null;
   imageEditMonthlyUnitsLimit: number | null;
-  videoGenerateMonthlyUnitsLimit: number | null;
   documentMonthlyUnitsLimit: number | null;
   mediaStorageBytesLimit: bigint | null;
   knowledgeStorageBytesLimit: bigint | null;
@@ -269,9 +276,9 @@ function parsePlanQuotaHints(
     asPositiveInteger(quotaHints?.imageEditMonthlyUnitsLimit) ??
     readQuotaHintFromLimitsPermissions(limitsPermissions, "image_edit_monthly_units_limit");
 
-  const videoGenerateMonthlyUnitsLimit =
-    asPositiveInteger(quotaHints?.videoGenerateMonthlyUnitsLimit) ??
-    readQuotaHintFromLimitsPermissions(limitsPermissions, "video_generate_monthly_units_limit");
+  // ADR-108 Slice 8 — `videoGenerateMonthlyUnitsLimit` and the matching
+  // `video_generate_monthly_units_limit` permission row are intentionally
+  // not parsed: video_generate is VC-priced and gates on the wallet.
 
   const documentMonthlyUnitsLimit =
     asPositiveInteger(quotaHints?.documentMonthlyUnitsLimit) ??
@@ -296,7 +303,6 @@ function parsePlanQuotaHints(
     messagesPerChat,
     imageGenerateMonthlyUnitsLimit,
     imageEditMonthlyUnitsLimit,
-    videoGenerateMonthlyUnitsLimit,
     documentMonthlyUnitsLimit,
     mediaStorageBytesLimit: mediaStorageLimit === null ? null : BigInt(mediaStorageLimit),
     knowledgeStorageBytesLimit:
@@ -333,14 +339,26 @@ function defaultTokenWeights(): Pick<
   };
 }
 
+/**
+ * ADR-108 Slice 8 — `video_generate` is VC-priced and has no plan-side
+ * unit limit, so its `limitKey` is `null`. Consumers that index
+ * `planQuotaHints` must guard the null case and treat it as
+ * "unlimited / not unit-tracked"; the VC wallet is the actual gate.
+ *
+ * `packageBonusEligible` for `video_generate` stays `true` because
+ * the `WorkspaceMediaPackagePurchase` lookup path is still routed
+ * through this list, but the resolved bonus units are NOT consulted
+ * by the VC wallet — VC packages credit `WorkspaceVcoinBalance`
+ * directly via `manage-media-package-purchase.service.ts`.
+ */
 const MONTHLY_TOOL_QUOTA_TOOLS: Array<{
   toolCode: WorkspaceMonthlyToolQuotaToolCode;
   displayName: string;
   limitKey:
     | "imageGenerateMonthlyUnitsLimit"
     | "imageEditMonthlyUnitsLimit"
-    | "videoGenerateMonthlyUnitsLimit"
-    | "documentMonthlyUnitsLimit";
+    | "documentMonthlyUnitsLimit"
+    | null;
   packageBonusEligible: boolean;
 }> = [
   {
@@ -358,7 +376,7 @@ const MONTHLY_TOOL_QUOTA_TOOLS: Array<{
   {
     toolCode: "video_generate",
     displayName: "Video generation",
-    limitKey: "videoGenerateMonthlyUnitsLimit",
+    limitKey: null,
     packageBonusEligible: true
   },
   {
@@ -1067,7 +1085,12 @@ export class TrackWorkspaceQuotaUsageService {
     const tools: AssistantMonthlyToolQuotaToolSnapshot[] = [];
 
     for (const tool of MONTHLY_TOOL_QUOTA_TOOLS) {
-      const baseLimitUnits = quotaContext.planQuotaHints[tool.limitKey];
+      // ADR-108 Slice 8 — `limitKey === null` ⇒ VC-priced tool
+      // (`video_generate` today). The raw snapshot row carries no plan
+      // unit limit; the kind="vcoin" projection fills in balance + cost
+      // downstream and ignores `effectiveLimitUnits`.
+      const baseLimitUnits =
+        tool.limitKey === null ? null : quotaContext.planQuotaHints[tool.limitKey];
       const bonus = tool.packageBonusEligible ? bonuses[tool.toolCode] : undefined;
       const bonusUnits = bonus?.bonusUnits ?? 0;
       const effectiveLimitUnits = baseLimitUnits === null ? null : baseLimitUnits + bonusUnits;
@@ -1297,7 +1320,12 @@ export class TrackWorkspaceQuotaUsageService {
       throw new Error(`Unsupported monthly media quota tool code "${toolCode}".`);
     }
     const period = resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
-    const baseLimitUnits = quotaContext.planQuotaHints[tool.limitKey];
+    // ADR-108 Slice 8 — `limitKey === null` ⇒ VC-priced tool, no plan
+    // unit limit. The reservation seam never calls this path for
+    // `video_generate` (it is short-circuited at enqueue), but if a
+    // future caller does, we report a null limit consistently.
+    const baseLimitUnits =
+      tool.limitKey === null ? null : quotaContext.planQuotaHints[tool.limitKey];
     if (baseLimitUnits === null) {
       return { period, limitUnits: null };
     }

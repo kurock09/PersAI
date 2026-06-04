@@ -14,9 +14,9 @@ test("buildQuotaOfferState exposes amountMajor and priceLabel for media packages
         limits: {
           imageGenerateMonthlyUnitsLimit: null,
           imageEditMonthlyUnitsLimit: null,
-          videoGenerateMonthlyUnitsLimit: null,
           documentMonthlyUnitsLimit: 5
-        }
+        },
+        videoVcoinMonthlyGrant: 0
       }
     ],
     currentActiveToolCodes: new Set(["document"]),

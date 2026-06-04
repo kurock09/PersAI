@@ -256,10 +256,7 @@ export class MediaDeliveryService {
   private resolveMonthlyMediaQuotaToolCode(
     artifact: MediaArtifact
   ): WorkspaceMonthlyToolQuotaToolCode | null {
-    if (
-      artifact.sourceToolCode === "image_generate" ||
-      artifact.sourceToolCode === "image_edit"
-    ) {
+    if (artifact.sourceToolCode === "image_generate" || artifact.sourceToolCode === "image_edit") {
       return artifact.sourceToolCode;
     }
     return null;

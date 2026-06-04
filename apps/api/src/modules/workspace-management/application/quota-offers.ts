@@ -51,9 +51,16 @@ type VisiblePlanOfferInput = {
   limits: {
     imageGenerateMonthlyUnitsLimit: number | null;
     imageEditMonthlyUnitsLimit: number | null;
-    videoGenerateMonthlyUnitsLimit: number | null;
     documentMonthlyUnitsLimit: number | null;
   };
+  /**
+   * ADR-108 Slice 8 — `video_generate` is gated by VC wallet, not a
+   * unit-priced monthly counter, so the legacy
+   * `videoGenerateMonthlyUnitsLimit` was removed. The plan-based
+   * package upgrade comparison for `video_generate` now uses
+   * `videoVcoinMonthlyGrant` instead.
+   */
+  videoVcoinMonthlyGrant: number;
 };
 
 const PACKAGE_TOOL_CODES = ["image_generate", "image_edit", "video_generate", "document"] as const;
@@ -78,6 +85,12 @@ function resolvePurchaseUrl(path: string): string | null {
   return new URL(path, `${baseUrl}/`).toString();
 }
 
+/**
+ * ADR-108 Slice 8 — for `video_generate`, the "limit" the upgrade
+ * comparison uses is the monthly VC grant (`videoVcoinMonthlyGrant`)
+ * rather than a unit-counter limit. A grant of `0` is treated like a
+ * `null` per-unit limit (no monthly capacity at all on this plan).
+ */
 function resolveCurrentToolLimit(
   toolCode: MediaPackageType,
   currentPlan: VisiblePlanOfferInput | null
@@ -91,7 +104,7 @@ function resolveCurrentToolLimit(
     case "image_edit":
       return currentPlan.limits.imageEditMonthlyUnitsLimit;
     case "video_generate":
-      return currentPlan.limits.videoGenerateMonthlyUnitsLimit;
+      return currentPlan.videoVcoinMonthlyGrant > 0 ? currentPlan.videoVcoinMonthlyGrant : null;
     case "document":
       return currentPlan.limits.documentMonthlyUnitsLimit;
   }

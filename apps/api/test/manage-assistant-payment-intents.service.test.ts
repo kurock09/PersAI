@@ -206,7 +206,6 @@ async function run(): Promise<void> {
               activeWebChatsLimit: 20,
               imageGenerateMonthlyUnitsLimit: 40,
               imageEditMonthlyUnitsLimit: 20,
-              videoGenerateMonthlyUnitsLimit: 10,
               mediaStorageBytesLimit: null,
               knowledgeStorageBytesLimit: null,
               workspaceStorageBytesLimit: null
@@ -264,7 +263,6 @@ async function run(): Promise<void> {
               activeWebChatsLimit: 10,
               imageGenerateMonthlyUnitsLimit: 10,
               imageEditMonthlyUnitsLimit: 5,
-              videoGenerateMonthlyUnitsLimit: 2,
               mediaStorageBytesLimit: null,
               knowledgeStorageBytesLimit: null,
               workspaceStorageBytesLimit: null
@@ -559,7 +557,6 @@ async function run(): Promise<void> {
               activeWebChatsLimit: 25,
               imageGenerateMonthlyUnitsLimit: 30,
               imageEditMonthlyUnitsLimit: 10,
-              videoGenerateMonthlyUnitsLimit: 5,
               mediaStorageBytesLimit: null,
               knowledgeStorageBytesLimit: null,
               workspaceStorageBytesLimit: null
@@ -964,7 +961,6 @@ async function run(): Promise<void> {
               activeWebChatsLimit: 10,
               imageGenerateMonthlyUnitsLimit: 10,
               imageEditMonthlyUnitsLimit: 5,
-              videoGenerateMonthlyUnitsLimit: 2,
               mediaStorageBytesLimit: null,
               knowledgeStorageBytesLimit: null,
               workspaceStorageBytesLimit: null

@@ -82,8 +82,7 @@ function makePlan(overrides: Partial<PublicPricingPlanState> = {}): PublicPricin
       mediaStorageBytesLimit: 1000000,
       knowledgeStorageBytesLimit: 1000000,
       imageGenerateMonthlyUnitsLimit: 30,
-      imageEditMonthlyUnitsLimit: 10,
-      videoGenerateMonthlyUnitsLimit: 8
+      imageEditMonthlyUnitsLimit: 10
     },
     skillPolicy: {
       maxEnabledSkills: 12
@@ -841,6 +840,10 @@ describe("PricingPageView", () => {
           return `${values?.count} images / month`;
         case "factVideos":
           return `${values?.count} videos / month`;
+        case "factVideosVc":
+          return `${values?.vc} VC / month`;
+        case "factVideosVcWithApprox":
+          return `${values?.vc} VC / month ≈ ${values?.count} videos`;
         case "factSkills":
           return `${values?.count} skills`;
         default:
@@ -848,12 +851,15 @@ describe("PricingPageView", () => {
       }
     }) as unknown as Parameters<typeof derivePlanFacts>[1];
 
-    expect(derivePlanFacts(makePlan(), t)).toEqual([
-      "20,000 tokens",
-      "30 images / month",
-      "8 videos / month",
-      "12 skills"
-    ]);
+    // ADR-108 Slice 8 — `video_generate` is VC-priced, so the chip is
+    // sourced from `videoVcoinMonthlyGrant` (+ optional approx) rather
+    // than a per-unit `videoGenerateMonthlyUnitsLimit` value.
+    expect(
+      derivePlanFacts(
+        makePlan({ videoVcoinMonthlyGrant: 1000, videoVcoinApproxVideosPerMonth: 8 }),
+        t
+      )
+    ).toEqual(["20,000 tokens", "30 images / month", "1000 VC / month ≈ 8 videos", "12 skills"]);
   });
 
   it("hides disabled or zero-value facts", () => {
@@ -882,8 +888,7 @@ describe("PricingPageView", () => {
             mediaStorageBytesLimit: 1000000,
             knowledgeStorageBytesLimit: 1000000,
             imageGenerateMonthlyUnitsLimit: 30,
-            imageEditMonthlyUnitsLimit: 10,
-            videoGenerateMonthlyUnitsLimit: 1
+            imageEditMonthlyUnitsLimit: 10
           },
           skillPolicy: {
             maxEnabledSkills: 0
@@ -926,8 +931,7 @@ describe("PricingPageView", () => {
             mediaStorageBytesLimit: 1000000,
             knowledgeStorageBytesLimit: 1000000,
             imageGenerateMonthlyUnitsLimit: null,
-            imageEditMonthlyUnitsLimit: null,
-            videoGenerateMonthlyUnitsLimit: null
+            imageEditMonthlyUnitsLimit: null
           },
           skillPolicy: { maxEnabledSkills: 0 }
         }),
@@ -961,8 +965,7 @@ describe("PricingPageView", () => {
             mediaStorageBytesLimit: 1000000,
             knowledgeStorageBytesLimit: 1000000,
             imageGenerateMonthlyUnitsLimit: null,
-            imageEditMonthlyUnitsLimit: null,
-            videoGenerateMonthlyUnitsLimit: null
+            imageEditMonthlyUnitsLimit: null
           },
           skillPolicy: { maxEnabledSkills: 0 }
         }),
@@ -971,7 +974,7 @@ describe("PricingPageView", () => {
     ).toEqual(["1000 VC / month"]);
   });
 
-  it("ADR-108 Slice 6b: derivePlanFacts falls back to legacy factVideos when videoVcoinMonthlyGrant is 0 and legacy limit is set", () => {
+  it("ADR-108 Slice 8: derivePlanFacts emits no video fact when grant is 0 (legacy unit limit fully retired)", () => {
     const t = ((key: string, values?: Record<string, string | number>) => {
       switch (key) {
         case "factVideosVcWithApprox":
@@ -996,43 +999,7 @@ describe("PricingPageView", () => {
             mediaStorageBytesLimit: 1000000,
             knowledgeStorageBytesLimit: 1000000,
             imageGenerateMonthlyUnitsLimit: null,
-            imageEditMonthlyUnitsLimit: null,
-            videoGenerateMonthlyUnitsLimit: 8
-          },
-          skillPolicy: { maxEnabledSkills: 0 }
-        }),
-        t
-      )
-    ).toEqual(["8 videos / month"]);
-  });
-
-  it("ADR-108 Slice 6b: derivePlanFacts emits no video fact when grant is 0 and legacy units limit is null", () => {
-    const t = ((key: string, values?: Record<string, string | number>) => {
-      switch (key) {
-        case "factVideosVcWithApprox":
-          return `${values?.vc} VC / month ≈ ${values?.count} videos`;
-        case "factVideosVc":
-          return `${values?.vc} VC / month`;
-        case "factVideos":
-          return `${values?.count} videos / month`;
-        default:
-          return key;
-      }
-    }) as unknown as Parameters<typeof derivePlanFacts>[1];
-
-    expect(
-      derivePlanFacts(
-        makePlan({
-          enabledToolCodes: ["video_generate"],
-          videoVcoinMonthlyGrant: 0,
-          quotaLimits: {
-            tokenBudgetLimit: null,
-            activeWebChatsLimit: 0,
-            mediaStorageBytesLimit: 1000000,
-            knowledgeStorageBytesLimit: 1000000,
-            imageGenerateMonthlyUnitsLimit: null,
-            imageEditMonthlyUnitsLimit: null,
-            videoGenerateMonthlyUnitsLimit: null
+            imageEditMonthlyUnitsLimit: null
           },
           skillPolicy: { maxEnabledSkills: 0 }
         }),

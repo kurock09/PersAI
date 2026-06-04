@@ -270,9 +270,9 @@ export class ResolvePlanVisibilityService {
           limits: {
             imageGenerateMonthlyUnitsLimit: visiblePlan.quotaLimits.imageGenerateMonthlyUnitsLimit,
             imageEditMonthlyUnitsLimit: visiblePlan.quotaLimits.imageEditMonthlyUnitsLimit,
-            videoGenerateMonthlyUnitsLimit: visiblePlan.quotaLimits.videoGenerateMonthlyUnitsLimit,
             documentMonthlyUnitsLimit: visiblePlan.quotaLimits.documentMonthlyUnitsLimit
-          }
+          },
+          videoVcoinMonthlyGrant: visiblePlan.videoVcoinMonthlyGrant
         })),
         currentActiveToolCodes: new Set(
           (plan?.toolActivations ?? [])

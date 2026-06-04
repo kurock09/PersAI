@@ -119,6 +119,13 @@ type DebitCall = {
 };
 
 function buildVideoSettleService(opts?: {
+  /**
+   * ADR-108 Slice 8 — pre-Slice-8 this flag made the legacy unit-counter
+   * settle throw inside the wrapping `prisma.$transaction`. Slice 8
+   * removed the unit-counter settle for `video_generate`, so this flag
+   * now makes the VC wallet `debit` throw instead, exercising the same
+   * "transaction rolls back" rollback path against the new code shape.
+   */
   reservationFails?: boolean;
   catalogEntries?: ProviderModelEntry[];
 }): {
@@ -194,14 +201,13 @@ function buildVideoSettleService(opts?: {
       units: number;
       tx?: unknown;
     }) {
+      // ADR-108 Slice 8 — image / image-edit still hit this branch.
+      // `video_generate` no longer reaches it.
       settleCalls.push({
         toolCode: params.toolCode,
         units: params.units,
         hasTx: params.tx !== undefined
       });
-      if (opts?.reservationFails) {
-        throw new Error("simulated unit-counter settle failure");
-      }
     },
     async markAssistantMonthlyMediaQuotaReconciliationRequired(params: {
       toolCode: string;
@@ -239,6 +245,9 @@ function buildVideoSettleService(opts?: {
         amountVc: input.amountVc,
         hasTx: input.tx !== undefined
       });
+      if (opts?.reservationFails) {
+        throw new Error("simulated VC wallet debit failure inside tx");
+      }
       return {
         previousBalanceVc: 100,
         balanceVc: 100 - input.amountVc,
@@ -317,17 +326,16 @@ async function runVideoGenerateSettleDebitsInTx(): Promise<void> {
     workspaceId: "workspace-1"
   });
 
-  assert.equal(ctx.txCalls.count, 1, "exactly one prisma.$transaction must wrap settle + debit");
+  assert.equal(ctx.txCalls.count, 1, "exactly one prisma.$transaction must wrap the debit");
   assert.equal(ctx.platformSettingsReads.count, 1, "platform settings resolved exactly once");
-  assert.equal(ctx.settleCalls.length, 1);
-  assert.equal(ctx.settleCalls[0]!.toolCode, "video_generate");
-  assert.equal(ctx.settleCalls[0]!.units, 1);
-  assert.equal(ctx.settleCalls[0]!.hasTx, true, "settle must run inside the caller transaction");
+  // ADR-108 Slice 8 — video_generate is VC-priced and no longer settles
+  // a legacy monthly_media_quota unit counter. Only the VC debit runs.
+  assert.equal(ctx.settleCalls.length, 0, "video_generate must NOT settle the legacy unit counter");
   assert.equal(ctx.debitCalls.length, 1);
   assert.equal(ctx.debitCalls[0]!.workspaceId, "workspace-1");
   // 5s × $0.05/s × 20 VC/USD = ceil(5) = 5 VC
   assert.equal(ctx.debitCalls[0]!.amountVc, 5);
-  assert.equal(ctx.debitCalls[0]!.hasTx, true, "debit must run inside the same transaction");
+  assert.equal(ctx.debitCalls[0]!.hasTx, true, "debit must run inside a transaction");
   assert.equal(ctx.reconcileCalls.length, 0, "successful settle must not reconcile");
   const auditLine = ctx.loggedLines.find((line) => line.startsWith("adr108_video_settle"));
   assert.ok(auditLine, "audit log line must be emitted");
@@ -374,8 +382,9 @@ async function runKlingVideoSettleDebitsCorrectly(): Promise<void> {
   assert.equal(ctx.debitCalls.length, 1);
   assert.equal(ctx.debitCalls[0]!.amountVc, 10);
   assert.equal(ctx.debitCalls[0]!.hasTx, true);
-  assert.equal(ctx.settleCalls[0]!.toolCode, "video_generate");
-  assert.equal(ctx.settleCalls[0]!.hasTx, true);
+  // ADR-108 Slice 8 — `video_generate` no longer touches the legacy
+  // monthly-unit-counter; only the VC wallet debit runs.
+  assert.equal(ctx.settleCalls.length, 0);
 }
 
 async function runOpenAIVideoSettleDebitsCorrectly(): Promise<void> {
@@ -451,11 +460,12 @@ async function runImageGenerateDoesNotConsultVcoin(): Promise<void> {
   assert.equal(ctx.reconcileCalls.length, 0);
 }
 
-async function runVideoSettleFailureRollsBackAndReconciles(): Promise<void> {
-  // Simulate the unit-counter settle throwing inside the transaction. The
-  // outer deliver() catch must run reconciliation, and the wallet debit
-  // must NOT be invoked (the transaction never reaches the debit call
-  // because settle is awaited first inside the cb).
+async function runVideoSettleFailureRollsBackWithoutLegacyReconciliation(): Promise<void> {
+  // ADR-108 Slice 8 — `video_generate` is VC-priced. Simulate the wallet
+  // debit (the only step inside the transaction now) throwing. The
+  // transaction rolls back and the outer deliver() catch logs the
+  // failure, but the legacy monthly_media_quota reconciliation MUST NOT
+  // fire because there is no unit counter to reconcile for video.
   const ctx = buildVideoSettleService({ reservationFails: true });
   await ctx.service.deliver({
     artifacts: [
@@ -478,16 +488,22 @@ async function runVideoSettleFailureRollsBackAndReconciles(): Promise<void> {
   });
 
   assert.equal(ctx.txCalls.count, 1, "transaction was opened");
-  assert.equal(ctx.settleCalls.length, 1, "settle was attempted inside the tx");
-  assert.equal(ctx.settleCalls[0]!.hasTx, true);
+  assert.equal(
+    ctx.settleCalls.length,
+    0,
+    "video_generate must NOT touch the legacy monthly-unit-counter"
+  );
   assert.equal(
     ctx.debitCalls.length,
-    0,
-    "debit must NOT run when settle throws (transaction rolls back)"
+    1,
+    "debit was attempted inside the tx (and threw, rolling back)"
   );
-  assert.equal(ctx.reconcileCalls.length, 1, "outer catch must trigger reconciliation");
-  assert.equal(ctx.reconcileCalls[0]!.toolCode, "video_generate");
-  assert.equal(ctx.reconcileCalls[0]!.units, 1);
+  assert.equal(ctx.debitCalls[0]!.hasTx, true);
+  assert.equal(
+    ctx.reconcileCalls.length,
+    0,
+    "video_generate is VC-priced — legacy reconciliation must be skipped"
+  );
   assert.equal(
     ctx.loggedLines.filter((line) => line.startsWith("adr108_video_settle")).length,
     0,
@@ -495,7 +511,11 @@ async function runVideoSettleFailureRollsBackAndReconciles(): Promise<void> {
   );
 }
 
-async function runVideoSettleMissingBillingFactsReconciles(): Promise<void> {
+async function runVideoSettleMissingBillingFactsSkipsLegacyReconciliation(): Promise<void> {
+  // ADR-108 Slice 8 — when billingFacts is missing for a video artifact,
+  // the settle helper throws; the deliver() catch logs the failure but
+  // does NOT reconcile the legacy monthly_media_quota counter (there is
+  // no unit row to reconcile for video). The wallet stays untouched.
   const ctx = buildVideoSettleService();
   await ctx.service.deliver({
     artifacts: [
@@ -525,8 +545,11 @@ async function runVideoSettleMissingBillingFactsReconciles(): Promise<void> {
   assert.equal(ctx.txCalls.count, 0, "no transaction is opened when billingFacts is missing");
   assert.equal(ctx.settleCalls.length, 0, "settle was not invoked");
   assert.equal(ctx.debitCalls.length, 0, "debit was not invoked");
-  assert.equal(ctx.reconcileCalls.length, 1, "reconciliation must fire — silent 0-VC is forbidden");
-  assert.equal(ctx.reconcileCalls[0]!.toolCode, "video_generate");
+  assert.equal(
+    ctx.reconcileCalls.length,
+    0,
+    "video_generate is VC-priced — legacy reconciliation must be skipped"
+  );
 }
 
 async function run(): Promise<void> {
@@ -534,8 +557,8 @@ async function run(): Promise<void> {
   await runKlingVideoSettleDebitsCorrectly();
   await runOpenAIVideoSettleDebitsCorrectly();
   await runImageGenerateDoesNotConsultVcoin();
-  await runVideoSettleFailureRollsBackAndReconciles();
-  await runVideoSettleMissingBillingFactsReconciles();
+  await runVideoSettleFailureRollsBackWithoutLegacyReconciliation();
+  await runVideoSettleMissingBillingFactsSkipsLegacyReconciliation();
   console.log("media-delivery-video-vcoin-settle: all assertions passed");
 }
 

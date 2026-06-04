@@ -106,7 +106,6 @@ async function run(): Promise<void> {
             costOrTokenDrivingToolClassUnitsLimit: 600,
             imageGenerateMonthlyUnitsLimit: 12,
             imageEditMonthlyUnitsLimit: 6,
-            videoGenerateMonthlyUnitsLimit: 2,
             knowledgeStorageBytesLimit: 32
           }
         },
@@ -663,10 +662,13 @@ async function run(): Promise<void> {
         limitUnits: 6
       },
       {
+        // ADR-108 Slice 8 — `video_generate` has no plan-side unit
+        // limit anymore; the limit threaded into the reconcile call is
+        // null because the tool is VC-priced.
         operation: "reconcile",
         toolCode: "video_generate",
         units: 1,
-        limitUnits: 2
+        limitUnits: null
       }
     ]
   );
