@@ -2,6 +2,47 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-04 — ADR-108 Slice 9 + program closure
+
+### What changed & why
+
+Baseline SHA at session start: post-pricing-fix push (`b6e93b81 fix(api): correct video VC debit from plain-USD catalog time_metered prices`). Live verification confirmed the end-to-end VC economy works correctly on dev for `alex@agse.ru`:
+
+- Video settlement (15:00:59 UTC, `kling-v2-6`, 5s): `usdMicros=700000`, `vcDebited=14`, balance `999 → 985`. Matches catalog math `$0.14/s × 5 × 50,000 micros/VC = 14 VC` (round half ceil).
+- CloudPayments package webhook (15:41:24 UTC): `vcCredited=200`, balance `0 → 200`.
+- `/quota_status` LLM tool returns the vcoin-shaped row for `video_generate`; user-visible quota report reads "Видео: 192 VC из доступных на месяц" (no per-unit counter referenced).
+
+Slice 9 closure work:
+
+- **Admin UI polish.** `apps/web/app/admin/plans/page.tsx` no longer routes `video_generate` through the legacy `MONTHLY_MEDIA_QUOTA_TOOL_CODES` info hint ("Paid media usage is governed by the monthly delivery-confirmed quotas in Plan limits"). The tool card now prefers a video-specific copy: "Paid video usage is gated by the workspace VC wallet (per-second pricing from the model catalog). The per-turn cap here remains a safety control." Image/edit retain the existing copy. The `dailyCallLimit: null` write-side behavior for media tools remains unchanged.
+- **Admin media-package presets.** `apps/web/app/admin/plans/_components/MediaPackagesSection.tsx` (`PackageRow`, `PackageForm`): preset cards now show `VC` instead of `u` for video packages; the form `Units` field becomes a `VC` field for `video_generate` (placeholder `200`, tip `Vcoins credited on purchase, e.g. 200`); title placeholders become `200 VC` instead of `10 генераций` / `10 generations` for video. `packageType` plumbed through `PackageForm` props for the create/edit branches. Image / image-edit / document presets and forms byte-identical.
+- **Repo cleanup.** Removed all 14 transient `.tmp-*` debug artifacts from the repo root: `.tmp-vcoin-probe.js`, `.tmp-pricing-audit.js`, `.tmp-toolpath-audit.js`, `.tmp-observe-latest.js`, `.tmp-check-balance.js`, `.tmp-query.sql`, `.tmp-commit-msg.txt`, plus their `.txt`/`.log` siblings.
+- **ADR closure.** `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md` Status changed from `Proposed (2026-06-03)` to `Completed (2026-06-04)` with the live verification numbers inlined; Slice 9 section gained a "Status: Completed" block; acceptance checklist all 18 items checked, plus 2 new items covering the 2026-06-04 pricing-math correctness fix and Slice 9 admin UI polish.
+
+### Files touched
+
+Modified:
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/app/admin/plans/_components/MediaPackagesSection.tsx`
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+Removed (transient debug artifacts):
+- `.tmp-vcoin-probe.js`, `.tmp-pricing-audit.js`, `.tmp-toolpath-audit.js`, `.tmp-observe-latest.js`, `.tmp-check-balance.js`, `.tmp-query.sql`, `.tmp-commit-msg.txt`, `.tmp-runtime-test.log`, `.tmp-web-test.log`, `.tmp-api-test.log`, `.tmp-lint.log`, `.tmp-tp-out.txt`, `.tmp-audit-out.txt`, `.tmp-probe-out.txt`
+
+### Verification
+
+PASS `corepack pnpm -r --if-present run lint`; PASS `corepack pnpm run format:check`; PASS `corepack pnpm --filter @persai/api run typecheck`; PASS `corepack pnpm --filter @persai/web run typecheck`; PASS `corepack pnpm --filter @persai/runtime run typecheck`; PASS `corepack pnpm --filter @persai/api run test` (full suite); PASS `corepack pnpm --filter @persai/runtime run test` (full suite); PASS `corepack pnpm --filter @persai/web run test` (full suite).
+
+### Risks / residuals
+
+None. ADR-108 is fully closed and verified live. The next ADR in the lineage is ADR-109 (HeyGen talking-avatar on Vcoin), which has been authored and is unblocked.
+
+### Next recommended step
+
+Begin ADR-109 (HeyGen talking-avatar on Vcoin) Slice 0.
+
 ## 2026-06-04 — ADR-108 Slice 8: Full retirement of `videoGenerateMonthlyUnitsLimit` (expanded scope)
 
 ### What changed & why

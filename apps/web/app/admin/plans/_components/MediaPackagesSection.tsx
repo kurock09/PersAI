@@ -183,6 +183,7 @@ function PackageRow({
   disabled: boolean;
   deleting: boolean;
 }) {
+  const unitsLabel = item.packageType === "video_generate" ? "VC" : "u";
   return (
     <div
       className={cn(
@@ -194,7 +195,7 @@ function PackageRow({
     >
       <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
         <span className="text-sm font-semibold tabular-nums text-text">{item.units}</span>
-        <span className="text-[9px] uppercase tracking-[0.1em] text-text-subtle">u</span>
+        <span className="text-[9px] uppercase tracking-[0.1em] text-text-subtle">{unitsLabel}</span>
         <span className="text-text-subtle/40">·</span>
         <span className="truncate text-[11px] font-medium text-text">
           {formatPrice(item.amountMinor, item.currency)}
@@ -244,7 +245,8 @@ function PackageForm({
   onCancel,
   saving,
   error,
-  mode
+  mode,
+  packageType
 }: {
   draft: PackageDraft;
   onPatch: (patch: Partial<PackageDraft>) => void;
@@ -253,7 +255,12 @@ function PackageForm({
   saving: boolean;
   error: string | null;
   mode: "create" | "edit";
+  packageType: PackageType;
 }) {
+  const isVideo = packageType === "video_generate";
+  const unitsLabel = isVideo ? "VC" : "Units";
+  const unitsTip = isVideo ? "Vcoins credited on purchase, e.g. 200" : "e.g. 10";
+  const unitsPlaceholder = isVideo ? "200" : "10";
   return (
     <form
       onSubmit={onSubmit}
@@ -263,11 +270,11 @@ function PackageForm({
         {mode === "create" ? "New preset" : "Edit preset"}
       </div>
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-        <Field label="Units" tip="e.g. 10">
+        <Field label={unitsLabel} tip={unitsTip}>
           <TextInput
             value={draft.units}
             onChange={(v) => onPatch({ units: v })}
-            placeholder="10"
+            placeholder={unitsPlaceholder}
             type="number"
           />
         </Field>
@@ -293,14 +300,14 @@ function PackageForm({
           <TextInput
             value={draft.titleRu}
             onChange={(v) => onPatch({ titleRu: v })}
-            placeholder="10 генераций"
+            placeholder={isVideo ? "200 VC" : "10 генераций"}
           />
         </Field>
         <Field label="Title EN">
           <TextInput
             value={draft.titleEn}
             onChange={(v) => onPatch({ titleEn: v })}
-            placeholder="10 generations"
+            placeholder={isVideo ? "200 VC" : "10 generations"}
           />
         </Field>
         <Field label="Order">
@@ -483,6 +490,7 @@ function PackageTypeSection({
           saving={saving}
           error={error}
           mode="edit"
+          packageType={type.value}
         />
       )}
 
@@ -518,6 +526,7 @@ function PackageTypeSection({
           saving={saving}
           error={error}
           mode="create"
+          packageType={type.value}
         />
       )}
     </div>

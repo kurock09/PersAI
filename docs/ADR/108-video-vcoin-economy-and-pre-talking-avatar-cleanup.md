@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-06-03). Parallel program to ADR-102, does not block the ADR-102 pre-PROD path `0 -> 1 -> 2 -> 9 -> 10`.
+Completed (2026-06-04). All slices 0-9 landed and deployed to dev; live verification (`alex@agse.ru`, Kling kling-v2-6, 5s clip, 14 VC debited at $0.14/s, package purchase 200 VC credited) confirmed end-to-end VC economy on 2026-06-04. ADR-109 (HeyGen talking-avatar) is the next ADR in this program lineage.
 
 ## Context
 
@@ -620,6 +620,15 @@ corepack pnpm --filter @persai/provider-gateway run typecheck
 - Full verification gate passes.
 - ADR-109 (HeyGen) can start safely.
 
+**Status: Completed (2026-06-04).** Live verification on dev cluster (`alex@agse.ru`):
+
+- Kling kling-v2-6 5-second clip: `usdMicros=700000`, `vcDebited=14`, balance `999 → 985`. Matches catalog price `$0.14/s × 5 × 50,000 micros/VC = 14 VC` (rounded ceil).
+- Package purchase via CloudPayments webhook: `vcCredited=200`, balance `0 → 200`.
+- `/quota_status` LLM tool reports VC-shaped row for `video_generate` (skill-side observed: "Видео: 192 VC из доступных на месяц"); no legacy unit counter is referenced.
+- Admin Plans UI no longer shows the legacy "monthly delivery-confirmed quotas" hint for the `video_generate` tool card (Slice 9 polish, 2026-06-04). Admin media-package preset cards and form labels surface `VC` for video and `units` for image/edit/document.
+
+ADR-109 (HeyGen talking-avatar on Vcoin) is the next ADR in this lineage and is unblocked.
+
 ## Cross-slice invariants
 
 1. VC applies only to `video_generate`. Image, TTS, STT, and other media keep per-unit quotas.
@@ -684,23 +693,25 @@ Rejected. Forces a recomputation on every balance read and couples user-visible 
 
 ## Acceptance checklist
 
-- [ ] `workspace_vc_balance` table exists and is wired into settle path.
-- [ ] `vcoinExchangeRate` is in `PlatformRuntimeProviderSettings`, default 20.
-- [ ] `videoVcoinMonthlyGrant` is on plan `billingProviderHints`.
+- [x] `workspace_vc_balance` table exists and is wired into settle path.
+- [x] `vcoinExchangeRate` is in `PlatformRuntimeProviderSettings`, default 20.
+- [x] `videoVcoinMonthlyGrant` is on plan `billingProviderHints`.
 - [x] `videoGenerateMonthlyUnitsLimit` is fully retired from every type / contract / projection / UI / persisted JSON row (Slice 8, 2026-06-04, expanded scope).
-- [ ] `media-delivery.service.ts` debits VC on successful `video_generate` settle.
-- [ ] Image / TTS / STT settle paths remain unchanged (test-proven).
-- [ ] Enqueue rejects `vcoin_balance_exhausted` when `balance <= 0` for `video_generate`.
-- [ ] Monthly grant credits idempotently on period boundary.
-- [ ] Successful `video_generate` package purchase credits VC instead of granting per-unit bonus.
-- [ ] Admin Plans UI shows "Monthly VC grant" with hint and course.
-- [ ] Settings shows "Remaining N VC" for `video_generate`.
-- [ ] Pricing page shows VC line on VC-enabled plans.
-- [ ] Packages page shows VC labels for video packages.
-- [ ] `quota_status` tool returns VC shape for `video_generate`.
-- [ ] Advisor copy reads workspace VC balance correctly.
-- [ ] Migration runbook exists and 5 production plans were walked.
-- [ ] ADR-106 Slice 9 supersession (video-only) noted in both ADRs.
-- [ ] ADR-107 closed as a program in its `## Program closure` section; deferred items listed; no further ADR-107 work scheduled and no enum cleanup performed.
-- [ ] `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md` updated.
-- [ ] Full verification gate PASS.
+- [x] `media-delivery.service.ts` debits VC on successful `video_generate` settle.
+- [x] Image / TTS / STT settle paths remain unchanged (test-proven).
+- [x] Enqueue rejects `vcoin_balance_exhausted` when `balance <= 0` for `video_generate`.
+- [x] Monthly grant credits idempotently on period boundary.
+- [x] Successful `video_generate` package purchase credits VC instead of granting per-unit bonus.
+- [x] Admin Plans UI shows "Monthly VC grant" with hint and course.
+- [x] Settings shows "Remaining N VC" for `video_generate`.
+- [x] Pricing page shows VC line on VC-enabled plans.
+- [x] Packages page shows VC labels for video packages.
+- [x] `quota_status` tool returns VC shape for `video_generate`.
+- [x] Advisor copy reads workspace VC balance correctly.
+- [x] Migration runbook exists and 5 production plans were walked.
+- [x] ADR-106 Slice 9 supersession (video-only) noted in both ADRs.
+- [x] ADR-107 closed as a program in its `## Program closure` section; deferred items listed; no further ADR-107 work scheduled and no enum cleanup performed.
+- [x] `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md` updated.
+- [x] Full verification gate PASS.
+- [x] Pricing math correctness fix (2026-06-04): `time_metered` model-catalog `pricePerUnit` is treated as plain USD (scaled to micros via `MICROS_PER_USD`) in both VC compute and COGS ledger; tool-path catalog convention preserved via explicit `timeMeteredConvention` parameter. Live verification: Kling kling-v2-6 5s clip → 14 VC debited.
+- [x] Slice 9 admin-UI polish (2026-06-04): admin Plans page renders VC-specific hint for `video_generate` ("VC wallet, per-second pricing") instead of legacy "monthly delivery-confirmed quotas" copy; admin media-package preset rows and form labels show `VC` for video and `units` for image/document.

@@ -1878,7 +1878,12 @@ export function ToolActivationsEdit({
                   </FieldRow>
                 </>
               ) : null}
-              {MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) ? (
+              {ta.toolCode === "video_generate" ? (
+                <p className="rounded border border-border/70 bg-bg/60 px-2 py-1 text-[10px] text-text-subtle">
+                  Paid video usage is gated by the workspace VC wallet (per-second pricing from the
+                  model catalog). The per-turn cap here remains a safety control.
+                </p>
+              ) : MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) ? (
                 <p className="rounded border border-border/70 bg-bg/60 px-2 py-1 text-[10px] text-text-subtle">
                   Paid media usage is governed by the monthly delivery-confirmed quotas in Plan
                   limits. The per-turn cap here remains a safety control.
