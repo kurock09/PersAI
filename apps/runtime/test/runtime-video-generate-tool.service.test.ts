@@ -57,12 +57,12 @@ const BROWSER_CONFIG = {
 
 function createBundle(options?: {
   configured?: boolean;
-  providerId?: "openai" | "runway" | "kling";
+  providerId?: "openai" | "runway" | "kling" | "heygen";
   secretId?: string;
   modelKey?: string;
   videoModelParameters?: RuntimeVideoModelParameters | null;
   videoVoiceCatalog?: {
-    provider: "kling";
+    provider: "kling" | "heygen";
     fetchedAt: string;
     shortlist: Array<{
       voiceKey: string;
@@ -305,6 +305,21 @@ const RUNWAY_VEO31_VIDEO_MODEL_PARAMETERS: RuntimeVideoModelParameters = {
   providerParameters: null
 };
 
+const HEYGEN_VIDEO_MODEL_PARAMETERS: RuntimeVideoModelParameters = {
+  duration: {
+    kind: "allowed_list" as const,
+    values: [15, 30, 60]
+  },
+  aspectRatios: [
+    { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "1280x720" },
+    { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720x1280" }
+  ],
+  referenceImageSupported: false,
+  audioCapabilities: ["silent"],
+  inputCapabilities: ["text"],
+  providerParameters: null
+};
+
 const KLING_VIDEO_MODEL_PARAMETERS: RuntimeVideoModelParameters = {
   duration: {
     kind: "range" as const,
@@ -392,6 +407,15 @@ class FakeProviderGatewayClientService {
   }
 }
 
+type FakePersona = {
+  id: string;
+  displayName: string;
+  heygenAvatarId: string;
+  heygenVoiceId: string;
+  heygenVoiceLabel: string;
+  portraitImageStorageKey: string;
+};
+
 class FakePersaiInternalApiClientService {
   dailyQuotaCalls: Array<{
     assistantId: string;
@@ -399,6 +423,10 @@ class FakePersaiInternalApiClientService {
     dailyCallLimit: number | null;
     units?: number;
   }> = [];
+
+  // Maps "workspaceId:personaId" → FakePersona (or null to simulate not-found).
+  personaMap = new Map<string, FakePersona | null>();
+  personaFetchError: Error | null = null;
 
   async consumeToolDailyLimit(input: {
     assistantId: string;
@@ -412,6 +440,16 @@ class FakePersaiInternalApiClientService {
       currentCount: 1,
       limit: input.dailyCallLimit
     };
+  }
+
+  async fetchWorkspaceVideoPersona(input: {
+    workspaceId: string;
+    personaId: string;
+  }): Promise<FakePersona | null> {
+    if (this.personaFetchError !== null) {
+      throw this.personaFetchError;
+    }
+    return this.personaMap.get(`${input.workspaceId}:${input.personaId}`) ?? null;
   }
 }
 
@@ -524,6 +562,37 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
           gender: "male",
           description: "en | calm, narrator",
           styleTags: ["calm", "narrator"]
+        }
+      ]
+    }
+  });
+  // ADR-109 Slice 7: HeyGen bundle for talking_avatar execution tests.
+  const heygenBundle = createBundle({
+    providerId: "heygen",
+    secretId: "tool/video_generate/heygen/api-key",
+    modelKey: "heygen-photo-avatar-v3",
+    videoModelParameters: HEYGEN_VIDEO_MODEL_PARAMETERS,
+    videoVoiceCatalog: {
+      provider: "heygen",
+      fetchedAt: "2026-06-05T00:00:00.000Z",
+      shortlist: [
+        {
+          voiceKey: "anya-warm",
+          providerVoiceId: "heygen-voice-warm-001",
+          displayName: "Anya Warm",
+          locale: "en-US",
+          gender: "female",
+          description: "Warm, inviting English voice",
+          styleTags: ["warm", "inviting"]
+        },
+        {
+          voiceKey: "voice-other",
+          providerVoiceId: "heygen-voice-other-002",
+          displayName: "Voice Other",
+          locale: "en-US",
+          gender: "male",
+          description: "Another voice",
+          styleTags: []
         }
       ]
     }
@@ -1409,24 +1478,33 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(providerGatewayClientService.videoCalls.at(-1)?.input.seconds, 5);
   assert.equal(providerGatewayClientService.videoCalls.at(-1)?.input.size, "1280x720");
 
-  // ADR-109 Slice 3: talking-avatar request fields. The runtime parses + the
-  // structural validates the new fields without inspecting message bodies
-  // (invariant #15) and forwards them to the provider gateway only when
-  // mode === "talking_avatar". Symmetric echoes appear in the tool result.
-  // No multi-character refusal lives in code; that constraint is documented in
+  // ADR-109 Slice 3 (structural validation) + Slice 7 (execution) —
+  // talking-avatar request fields. The runtime parses + structurally validates
+  // without inspecting message bodies (invariant #15). Slice 7 adds real persona
+  // resolution and dispatch. No multi-character refusal in code; that lives in
   // the LLM-facing tool description (Slice 8 territory).
 
+  // ── Slice 7: Test 1 — Persona path happy path (voiceKey uses persona default) ──
+  // Register a fake persona so fetchWorkspaceVideoPersona returns it.
+  persaiInternalApiClientService.personaMap.set("workspace-1:persona-anya", {
+    id: "persona-anya",
+    displayName: "Anya",
+    heygenAvatarId: "ava-cached-1",
+    heygenVoiceId: "heygen-voice-warm-001",
+    heygenVoiceLabel: "Anya Warm",
+    portraitImageStorageKey: "workspaces/workspace-1/personas/persona-anya/portrait/current"
+  });
+
   const talkingAvatarPersonaCall = await service.executeToolCall({
-    bundle,
+    bundle: heygenBundle,
     toolCall: createToolCall({
       prompt: "Render a short narrated greeting from Anya",
       mode: "talking_avatar",
       speechText: "Hello, welcome to PersAI.",
       speechLanguage: "en-US",
       personaId: "persona-anya",
-      voiceKey: "anya-warm",
-      seconds: 4,
-      size: "720x1280"
+      seconds: 15,
+      size: "1280x720"
     }),
     availableAttachments: [],
     sessionId: "session-1",
@@ -1438,24 +1516,94 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(talkingAvatarPersonaCall.payload.requestedSpeechLanguage, "en-US");
   assert.equal(talkingAvatarPersonaCall.payload.requestedPersonaId, "persona-anya");
   assert.equal(talkingAvatarPersonaCall.payload.requestedPortraitImageAlias, null);
-  assert.equal(talkingAvatarPersonaCall.payload.requestedVoiceKey, "anya-warm");
+  assert.equal(talkingAvatarPersonaCall.payload.requestedVoiceKey, null);
+  // Gateway call: cachedHeygenAvatarId from persona, voiceKey = persona.heygenVoiceId, no portrait bytes.
   const personaGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
   assert.equal(personaGatewayCall?.mode, "talking_avatar");
   assert.equal(personaGatewayCall?.speechText, "Hello, welcome to PersAI.");
   assert.equal(personaGatewayCall?.speechLanguage, "en-US");
   assert.equal(personaGatewayCall?.personaId, "persona-anya");
   assert.equal(personaGatewayCall?.portraitImageAlias, null);
-  assert.equal(personaGatewayCall?.voiceKey, "anya-warm");
+  assert.equal(personaGatewayCall?.cachedHeygenAvatarId, "ava-cached-1");
+  assert.equal(personaGatewayCall?.portraitImageBytesBase64, null);
+  assert.equal(personaGatewayCall?.voiceKey, "heygen-voice-warm-001"); // persona.heygenVoiceId
 
+  // ── Slice 7: Test 2 — Persona path with explicit voiceKey override ─────────
+  const talkingAvatarPersonaExplicitVoiceCall = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Render Anya with a different voice",
+      mode: "talking_avatar",
+      speechText: "Good morning.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya",
+      voiceKey: "voice-other", // explicit override — must be in HeyGen shortlist
+      seconds: 15,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-persona-explicit-voice"
+  });
+  assert.equal(talkingAvatarPersonaExplicitVoiceCall.payload.action, "generated");
+  assert.equal(talkingAvatarPersonaExplicitVoiceCall.payload.requestedVoiceKey, "voice-other");
+  const personaExplicitVoiceGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
+  assert.equal(personaExplicitVoiceGatewayCall?.voiceKey, "heygen-voice-other-002"); // providerVoiceId
+
+  // ── Slice 7: Test 2b — Persona path with invalid voiceKey override → voice_not_found ──
+  const talkingAvatarInvalidVoiceKey = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Render Anya",
+      mode: "talking_avatar",
+      speechText: "Hello.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya",
+      voiceKey: "no-such-voice",
+      seconds: 15,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-invalid-voice-key"
+  });
+  assert.equal(talkingAvatarInvalidVoiceKey.payload.action, "skipped");
+  assert.equal(talkingAvatarInvalidVoiceKey.payload.reason, "voice_not_found");
+
+  // ── Slice 7: Test 3 — Persona not found → persona_not_found ──────────────
+  const talkingAvatarPersonaNotFound = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Render unknown persona",
+      mode: "talking_avatar",
+      speechText: "Hello.",
+      speechLanguage: "en-US",
+      personaId: "persona-does-not-exist",
+      seconds: 15,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-persona-not-found"
+  });
+  assert.equal(talkingAvatarPersonaNotFound.payload.action, "skipped");
+  assert.equal(talkingAvatarPersonaNotFound.payload.reason, "persona_not_found");
+
+  // ── Slice 7: Test 4 — Portrait alias path happy path ──────────────────────
+  mediaObjectStorage.sourceObjects.set(
+    "media/reference-1.png",
+    Buffer.from("portrait-image-binary")
+  );
   const talkingAvatarPortraitCall = await service.executeToolCall({
-    bundle,
+    bundle: heygenBundle,
     toolCall: createToolCall({
       prompt: "Render a portrait talking video from the attached photo",
       mode: "talking_avatar",
       speechText: "Welcome aboard.",
       speechLanguage: "ru-RU",
       portraitImageAlias: "current image #1",
-      seconds: 4,
+      voiceKey: "anya-warm", // required for portrait path
+      seconds: 15,
       size: "720x1280"
     }),
     availableAttachments: [createReferenceAttachment()],
@@ -1466,11 +1614,142 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(talkingAvatarPortraitCall.payload.requestedMode, "talking_avatar");
   assert.equal(talkingAvatarPortraitCall.payload.requestedPersonaId, null);
   assert.equal(talkingAvatarPortraitCall.payload.requestedPortraitImageAlias, "current image #1");
+  assert.equal(talkingAvatarPortraitCall.payload.requestedVoiceKey, "anya-warm");
   const portraitGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
   assert.equal(portraitGatewayCall?.mode, "talking_avatar");
   assert.equal(portraitGatewayCall?.personaId, null);
-  assert.equal(portraitGatewayCall?.portraitImageAlias, "current image #1");
+  assert.equal(portraitGatewayCall?.cachedHeygenAvatarId, null);
+  assert.ok(
+    typeof portraitGatewayCall?.portraitImageBytesBase64 === "string" &&
+      portraitGatewayCall.portraitImageBytesBase64.length > 0,
+    "portraitImageBytesBase64 must be populated for ad-hoc portrait path"
+  );
+  assert.equal(portraitGatewayCall?.voiceKey, "heygen-voice-warm-001"); // providerVoiceId
 
+  // ── Slice 7: Test 5 — Portrait alias path without voiceKey → voice_required ──
+  const talkingAvatarPortraitNoVoice = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Render portrait no voice",
+      mode: "talking_avatar",
+      speechText: "Hello.",
+      speechLanguage: "en-US",
+      portraitImageAlias: "current image #1"
+      // voiceKey intentionally absent
+    }),
+    availableAttachments: [createReferenceAttachment()],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-portrait-no-voice"
+  });
+  assert.equal(talkingAvatarPortraitNoVoice.payload.action, "skipped");
+  assert.equal(talkingAvatarPortraitNoVoice.payload.reason, "voice_required");
+
+  // ── Slice 7: Test 6 — Portrait alias unavailable (alias not in attachments) ──
+  const talkingAvatarPortraitBadAlias = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Render portrait bad alias",
+      mode: "talking_avatar",
+      speechText: "Hello.",
+      speechLanguage: "en-US",
+      portraitImageAlias: "nonexistent-alias",
+      voiceKey: "anya-warm"
+    }),
+    availableAttachments: [createReferenceAttachment()], // has aliases but not "nonexistent-alias"
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-portrait-bad-alias"
+  });
+  assert.equal(talkingAvatarPortraitBadAlias.payload.action, "skipped");
+  assert.equal(talkingAvatarPortraitBadAlias.payload.reason, "portrait_alias_unavailable");
+
+  // ── Slice 7: Test 7 — Plan toggle off → talking_avatar_plan_disabled ───────
+  // Synthetic bundle with talkingVideoEnabled: false on the tool policy.
+  const planDisabledBundle = createBundle({
+    providerId: "heygen",
+    secretId: "tool/video_generate/heygen/api-key",
+    modelKey: "heygen-photo-avatar-v3",
+    videoModelParameters: HEYGEN_VIDEO_MODEL_PARAMETERS,
+    videoVoiceCatalog: {
+      provider: "heygen",
+      fetchedAt: "2026-06-05T00:00:00.000Z",
+      shortlist: []
+    }
+  });
+  // Inject talkingVideoEnabled: false onto the tool policy (Slice 8 field).
+  const videoPolicy = planDisabledBundle.governance.toolPolicies.find(
+    (p) => p.toolCode === "video_generate"
+  );
+  if (videoPolicy !== undefined) {
+    (videoPolicy as unknown as Record<string, unknown>).talkingVideoEnabled = false;
+  }
+  const planDisabledResult = await service.executeToolCall({
+    bundle: planDisabledBundle,
+    toolCall: createToolCall({
+      prompt: "Render a greeting",
+      mode: "talking_avatar",
+      speechText: "Hello.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya",
+      seconds: 15,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-plan-disabled"
+  });
+  assert.equal(planDisabledResult.payload.action, "skipped");
+  assert.equal(planDisabledResult.payload.reason, "talking_avatar_plan_disabled");
+
+  // ── Slice 7: Test 8 — Plan toggle field missing (Slice 8 not landed) → permissive ──
+  // Normal heygenBundle has no talkingVideoEnabled → request proceeds normally.
+  persaiInternalApiClientService.personaMap.set("workspace-1:persona-anya", {
+    id: "persona-anya",
+    displayName: "Anya",
+    heygenAvatarId: "ava-cached-1",
+    heygenVoiceId: "heygen-voice-warm-001",
+    heygenVoiceLabel: "Anya Warm",
+    portraitImageStorageKey: "workspaces/workspace-1/personas/persona-anya/portrait/current"
+  });
+  const planToggleMissingResult = await service.executeToolCall({
+    bundle: heygenBundle, // no talkingVideoEnabled field → default permissive
+    toolCall: createToolCall({
+      prompt: "Render a greeting",
+      mode: "talking_avatar",
+      speechText: "Hello.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya",
+      seconds: 15,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-plan-toggle-missing"
+  });
+  assert.equal(planToggleMissingResult.payload.action, "generated");
+
+  // ── Slice 7: Test 9 — HeyGen credential missing (non-HeyGen provider) → talking_avatar_provider_unavailable ──
+  const talkingAvatarProviderUnavailable = await service.executeToolCall({
+    bundle, // OpenAI bundle — not HeyGen
+    toolCall: createToolCall({
+      prompt: "Render a greeting",
+      mode: "talking_avatar",
+      speechText: "Hello.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya",
+      seconds: 4,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-provider-unavailable"
+  });
+  assert.equal(talkingAvatarProviderUnavailable.payload.action, "skipped");
+  assert.equal(
+    talkingAvatarProviderUnavailable.payload.reason,
+    "talking_avatar_provider_unavailable"
+  );
+
+  // ── Slice 7: Test 10 — Cinematic path regression: unaffected by talking_avatar branch ──
   const cinematicIgnoresExtraFields = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({
@@ -1500,6 +1779,40 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     Object.prototype.hasOwnProperty.call(cinematicGatewayCall ?? {}, "portraitImageAlias"),
     false
   );
+
+  // ── Slice 7: Test 11 — Result echo: all requested* fields round-trip correctly ──
+  persaiInternalApiClientService.personaMap.set("workspace-1:persona-echo-test", {
+    id: "persona-echo-test",
+    displayName: "Echo",
+    heygenAvatarId: "ava-echo-123",
+    heygenVoiceId: "heygen-voice-warm-001",
+    heygenVoiceLabel: "Anya Warm",
+    portraitImageStorageKey: "workspaces/workspace-1/personas/persona-echo-test/portrait/current"
+  });
+  const echoTestResult = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Echo test",
+      mode: "talking_avatar",
+      speechText: "Echo speech.",
+      speechLanguage: "zh-CN",
+      personaId: "persona-echo-test",
+      voiceKey: "anya-warm",
+      seconds: 30,
+      size: "720x1280"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-echo"
+  });
+  assert.equal(echoTestResult.payload.requestedMode, "talking_avatar");
+  assert.equal(echoTestResult.payload.requestedSpeechText, "Echo speech.");
+  assert.equal(echoTestResult.payload.requestedSpeechLanguage, "zh-CN");
+  assert.equal(echoTestResult.payload.requestedPersonaId, "persona-echo-test");
+  assert.equal(echoTestResult.payload.requestedPortraitImageAlias, null);
+  assert.equal(echoTestResult.payload.requestedVoiceKey, "anya-warm");
+
+  // ── Structural validation tests (Slice 3 — unchanged by Slice 7) ─────────
 
   // Validation: missing speechText → invalid_arguments.
   const missingSpeechText = await service.executeToolCall({

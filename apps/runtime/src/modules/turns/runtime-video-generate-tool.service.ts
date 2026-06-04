@@ -9,12 +9,16 @@ import type {
   AssistantRuntimeBundle,
   AssistantRuntimeBundleToolCredentialRef
 } from "@persai/runtime-bundle";
+
+// Alias for use in private method signatures.
+type BundleRef = AssistantRuntimeBundleToolCredentialRef;
 import {
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   RUNTIME_VIDEO_AUDIO_MODES,
   RUNTIME_VIDEO_GENERATE_MODES,
   RUNTIME_VIDEO_INPUT_MODES,
+  isTalkingAvatarVideoProvider,
   type RuntimeVideoAudioCapability,
   type RuntimeVideoAudioMode,
   type RuntimeVideoGenerateMode,
@@ -275,6 +279,27 @@ export class RuntimeVideoGenerateToolService {
         isError: true
       };
     }
+    // ADR-109 Slice 7: talking_avatar execution path. Branches before the cinematic
+    // fallback loop; no fallback for talking_avatar (fail honestly with
+    // talking_avatar_provider_unavailable rather than falling through to Kling/Runway/OpenAI).
+    if (request.mode === "talking_avatar") {
+      return await this.executeTalkingAvatarDispatch({
+        bundle: params.bundle,
+        request: request as RuntimeVideoGenerateRequest & {
+          mode: "talking_avatar";
+          speechText: string;
+          speechLanguage: string;
+        },
+        normalizedRequest,
+        credential,
+        providerId,
+        model: primaryModel,
+        availableAttachments: params.availableAttachments,
+        sessionId: params.sessionId,
+        requestId: params.requestId
+      });
+    }
+
     const credentialAttempts: ResolvedVideoCredentialAttempt[] = [
       {
         credential,
@@ -1840,6 +1865,509 @@ export class RuntimeVideoGenerateToolService {
 
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  // ADR-109 Slice 7: talking_avatar execution path. Persona + portrait-alias
+  // resolution, voice validation, gateway dispatch — no fallback providers and
+  // no writes to workspace_video_personas (invariant #14).
+  private async executeTalkingAvatarDispatch(params: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeVideoGenerateRequest & {
+      mode: "talking_avatar";
+      speechText: string;
+      speechLanguage: string;
+    };
+    normalizedRequest: NormalizedVideoExecutionRequest;
+    credential: BundleRef;
+    providerId: PersaiRuntimeVideoGenerateProviderId;
+    model: ProviderGatewayVideoGenerateRequest["model"];
+    availableAttachments: RuntimeAttachmentRef[];
+    sessionId: string;
+    requestId: string;
+  }): Promise<RuntimeVideoGenerateToolExecutionResult> {
+    const {
+      bundle,
+      request,
+      normalizedRequest,
+      credential,
+      providerId,
+      model,
+      availableAttachments,
+      sessionId,
+      requestId
+    } = params;
+
+    // ── 1. HeyGen provider check ─────────────────────────────────────────────
+    // talking_avatar is HeyGen-only; no fallback to Kling/Runway/OpenAI.
+    if (!isTalkingAvatarVideoProvider(providerId)) {
+      return {
+        payload: {
+          toolCode: VIDEO_GENERATE_TOOL_CODE,
+          executionMode: "worker",
+          provider: providerId,
+          model: null,
+          prompt: request.prompt,
+          requestedSeconds: normalizedRequest.request.seconds,
+          requestedAudioMode: normalizedRequest.request.audioMode,
+          requestedInputMode: normalizedRequest.request.inputMode,
+          ...this.buildRequestedTalkingAvatarEchoes(request),
+          size: normalizedRequest.request.size,
+          referenceImageAlias: null,
+          referenceFilename: null,
+          artifact: null,
+          usage: null,
+          action: "skipped",
+          reason: "talking_avatar_provider_unavailable",
+          warning:
+            "talking_avatar mode requires a HeyGen credential. The current configured provider cannot generate talking-avatar videos."
+        },
+        artifacts: [],
+        isError: true
+      };
+    }
+
+    // ── 2. Plan toggle — TODO(slice8) ────────────────────────────────────────
+    // Slice 8 will add `talkingVideoEnabled` to the tool policy / credential
+    // fields in the materialized bundle. Until Slice 8 lands, the field will be
+    // absent; default to permissive (do not block). When present and false,
+    // fail honestly with `talking_avatar_plan_disabled`.
+    const policy = this.resolveAllowedWorkerToolPolicy(bundle, VIDEO_GENERATE_TOOL_CODE);
+    const talkingVideoEnabled = (policy as unknown as Record<string, unknown>)?.talkingVideoEnabled;
+    if (talkingVideoEnabled === false) {
+      return {
+        payload: {
+          toolCode: VIDEO_GENERATE_TOOL_CODE,
+          executionMode: "worker",
+          provider: providerId,
+          model: null,
+          prompt: request.prompt,
+          requestedSeconds: normalizedRequest.request.seconds,
+          requestedAudioMode: normalizedRequest.request.audioMode,
+          requestedInputMode: normalizedRequest.request.inputMode,
+          ...this.buildRequestedTalkingAvatarEchoes(request),
+          size: normalizedRequest.request.size,
+          referenceImageAlias: null,
+          referenceFilename: null,
+          artifact: null,
+          usage: null,
+          action: "skipped",
+          reason: "talking_avatar_plan_disabled",
+          warning: "talking_avatar is not enabled on the current plan."
+        },
+        artifacts: [],
+        isError: false
+      };
+    }
+
+    // ── 3. Branch on personaId vs portraitImageAlias ─────────────────────────
+    const personaId = request.personaId ?? null;
+    const portraitImageAlias = request.portraitImageAlias ?? null;
+    const voiceKeyRaw = request.voiceKey ?? null;
+    const shortlist = credential.videoVoiceCatalog?.shortlist ?? [];
+    const byKey = new Map(
+      shortlist.map((entry) => [entry.voiceKey.toLowerCase(), entry.providerVoiceId] as const)
+    );
+
+    let resolvedVoiceId: string;
+    let gatewayExtra: Pick<
+      ProviderGatewayVideoGenerateRequest,
+      "cachedHeygenAvatarId" | "portraitImageBytesBase64" | "portraitImageMimeType"
+    >;
+
+    if (personaId !== null) {
+      // ── Scenario C (cached): persona path ────────────────────────────────
+      let persona: {
+        id: string;
+        displayName: string;
+        heygenAvatarId: string;
+        heygenVoiceId: string;
+        heygenVoiceLabel: string;
+        portraitImageStorageKey: string;
+      } | null;
+      try {
+        persona = await this.persaiInternalApiClientService.fetchWorkspaceVideoPersona({
+          workspaceId: bundle.metadata.workspaceId,
+          personaId
+        });
+      } catch (fetchError) {
+        const msg =
+          fetchError instanceof Error ? fetchError.message : "Persona lookup request failed.";
+        this.logger.warn(
+          `[talking-avatar] Persona fetch failed requestId=${requestId} personaId=${personaId}: ${msg}`
+        );
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: normalizedRequest.request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "talking_avatar_persona_unavailable",
+            warning: msg
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+
+      if (persona === null) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: normalizedRequest.request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "persona_not_found",
+            warning: `Persona "${personaId}" not found in this workspace or is archived.`
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+
+      // Defensive log: cachedHeygenAvatarId should never be "unset_legacy" in
+      // normal post-E12 flow. If it is, the gateway Scenario C (cached) path
+      // will fail when submitting to HeyGen — fail honestly here instead.
+      if (persona.heygenAvatarId === "unset_legacy" || persona.heygenAvatarId.trim().length === 0) {
+        this.logger.warn(
+          `[talking-avatar] Persona ${personaId} has an unset/legacy heygenAvatarId. ` +
+            `This persona was created before E12 and cannot be used for talking_avatar. ` +
+            `requestId=${requestId}`
+        );
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: normalizedRequest.request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "talking_avatar_persona_unavailable",
+            warning: `Persona "${personaId}" does not have a HeyGen avatar ID. Re-create the persona to generate a talking avatar.`
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+
+      // Voice resolution: explicit voiceKey overrides persona default.
+      if (voiceKeyRaw !== null) {
+        const providerVoiceId = byKey.get(voiceKeyRaw.toLowerCase());
+        if (providerVoiceId === undefined) {
+          return {
+            payload: {
+              toolCode: VIDEO_GENERATE_TOOL_CODE,
+              executionMode: "worker",
+              provider: providerId,
+              model: null,
+              prompt: request.prompt,
+              requestedSeconds: normalizedRequest.request.seconds,
+              requestedAudioMode: normalizedRequest.request.audioMode,
+              requestedInputMode: normalizedRequest.request.inputMode,
+              ...this.buildRequestedTalkingAvatarEchoes(request),
+              size: normalizedRequest.request.size,
+              referenceImageAlias: null,
+              referenceFilename: null,
+              artifact: null,
+              usage: null,
+              action: "skipped",
+              reason: "voice_not_found",
+              warning: `Voice key "${voiceKeyRaw}" not found in the HeyGen voice catalog.`
+            },
+            artifacts: [],
+            isError: true
+          };
+        }
+        resolvedVoiceId = providerVoiceId;
+      } else {
+        // Fall back to the persona's stored HeyGen voice ID (validated at create time).
+        resolvedVoiceId = persona.heygenVoiceId;
+      }
+
+      gatewayExtra = {
+        cachedHeygenAvatarId: persona.heygenAvatarId,
+        portraitImageBytesBase64: null,
+        portraitImageMimeType: null
+      };
+    } else {
+      // ── Scenario A (ad-hoc): portrait alias path ──────────────────────────
+      if (portraitImageAlias === null) {
+        // Structural invariant: Slice 3 XOR check prevents this.
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: normalizedRequest.request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "invalid_arguments",
+            warning: "portraitImageAlias is required when personaId is not provided."
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+
+      // voiceKey is REQUIRED for ad-hoc portrait path (no persona to fall back to).
+      if (voiceKeyRaw === null) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: normalizedRequest.request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "voice_required",
+            warning:
+              "voiceKey is required when portraitImageAlias is used (no persona voice fallback)."
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+
+      // Validate voiceKey against HeyGen catalog shortlist.
+      const providerVoiceId = byKey.get(voiceKeyRaw.toLowerCase());
+      if (providerVoiceId === undefined) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: normalizedRequest.request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "voice_not_found",
+            warning: `Voice key "${voiceKeyRaw}" not found in the HeyGen voice catalog.`
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+      resolvedVoiceId = providerVoiceId;
+
+      // Resolve portrait alias → bytes from available image attachments.
+      // Reuses the same alias-lookup + object-storage-load path as cinematic.
+      const imageAttachments = availableAttachments.filter(
+        (attachment) => attachment.kind === "image"
+      );
+      const portraitAttachment = this.findAttachmentByAlias(imageAttachments, portraitImageAlias);
+      if (portraitAttachment === null) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: normalizedRequest.request.size,
+            referenceImageAlias: portraitImageAlias,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "portrait_alias_unavailable",
+            warning: `Portrait alias "${portraitImageAlias}" does not match any available image attachment.`
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+
+      const loadedPortrait = await this.loadReferenceImage(portraitAttachment);
+      if (!loadedPortrait.ok) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: normalizedRequest.request.size,
+            referenceImageAlias: portraitImageAlias,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "portrait_alias_unavailable",
+            warning: loadedPortrait.warning
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+
+      gatewayExtra = {
+        cachedHeygenAvatarId: null,
+        portraitImageBytesBase64: loadedPortrait.image.bytesBase64,
+        portraitImageMimeType: loadedPortrait.image.mimeType
+      };
+    }
+
+    // ── 4. Dispatch to HeyGen via provider gateway ────────────────────────────
+    this.logger.log(
+      `[talking-avatar] dispatch requestId=${requestId} personaId=${personaId ?? "ad-hoc"} voiceId=${resolvedVoiceId}`
+    );
+    try {
+      const providerResult = await this.providerGatewayClientService.generateVideo(
+        {
+          prompt: request.prompt,
+          model,
+          size: normalizedRequest.request.size,
+          seconds: normalizedRequest.request.seconds,
+          referenceImage: null,
+          referenceTailImage: null,
+          voiceIds: null,
+          acceptedTask: null,
+          providerParameters: null,
+          credential: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            secretId: credential.secretRef.id,
+            providerId
+          },
+          mode: "talking_avatar",
+          speechText: request.speechText,
+          speechLanguage: request.speechLanguage,
+          personaId: request.personaId ?? null,
+          portraitImageAlias: null,
+          voiceKey: resolvedVoiceId,
+          ...gatewayExtra
+        },
+        { timeoutMs: this.resolveWorkerTimeoutMs(bundle) }
+      );
+
+      const artifact = await this.persistGeneratedArtifact({
+        assistantId: bundle.metadata.assistantId,
+        workspaceId: bundle.metadata.workspaceId,
+        sessionId,
+        requestId,
+        filenameHint: request.filename,
+        requestPrompt: request.prompt,
+        referenceFilename: null,
+        video: providerResult.video,
+        billingFacts: providerResult.billingFacts
+      });
+
+      return {
+        payload: {
+          toolCode: VIDEO_GENERATE_TOOL_CODE,
+          executionMode: "worker",
+          provider: providerResult.provider,
+          model: providerResult.model,
+          prompt: request.prompt,
+          requestedSeconds: normalizedRequest.request.seconds,
+          requestedAudioMode: normalizedRequest.request.audioMode,
+          requestedInputMode: normalizedRequest.request.inputMode,
+          ...this.buildRequestedTalkingAvatarEchoes(request),
+          size: providerResult.size ?? normalizedRequest.request.size,
+          referenceImageAlias: null,
+          referenceFilename: null,
+          artifact,
+          usage: providerResult.usage,
+          action: "generated",
+          reason: null,
+          warning: providerResult.warning
+        },
+        artifacts: [artifact],
+        isError: false
+      };
+    } catch (dispatchError) {
+      const failureMessage =
+        dispatchError instanceof Error ? dispatchError.message : "HeyGen video generation failed.";
+      this.logger.warn(
+        `[talking-avatar] dispatch failed requestId=${requestId} personaId=${personaId ?? "ad-hoc"}: ${failureMessage}`
+      );
+      return {
+        payload: {
+          toolCode: VIDEO_GENERATE_TOOL_CODE,
+          executionMode: "worker",
+          provider: providerId,
+          model: null,
+          prompt: request.prompt,
+          requestedSeconds: normalizedRequest.request.seconds,
+          requestedAudioMode: normalizedRequest.request.audioMode,
+          requestedInputMode: normalizedRequest.request.inputMode,
+          ...this.buildRequestedTalkingAvatarEchoes(request),
+          size: normalizedRequest.request.size,
+          referenceImageAlias: null,
+          referenceFilename: null,
+          artifact: null,
+          usage: null,
+          action: "skipped",
+          reason: "video_generation_failed",
+          warning: failureMessage
+        },
+        artifacts: [],
+        isError: true
+      };
+    }
   }
 
   // ADR-109 Slice 3: symmetric echoes of the talking-avatar request fields, so

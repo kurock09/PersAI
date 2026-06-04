@@ -2,6 +2,78 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-05 — ADR-109 Slice 7: Runtime talking_avatar execution (persona / portrait-alias resolution, HeyGen dispatch, plan toggle TODO-stub)
+
+### What changed & why
+
+Baseline SHA at session start: Slice 5b closure (`dab28fd6`). Tree clean.
+
+Slice 7 wires the **runtime execution path** for `mode === "talking_avatar"`:
+- Persona path: `personaId` → read-only fetch via new internal API endpoint → use persona's stored `heygenAvatarId` (always populated post-E12) + `heygenVoiceId` (or explicit `voiceKey` override against the materialized HeyGen shortlist) → dispatch to provider-gateway with `cachedHeygenAvatarId` set and `portraitImageBytesBase64: null` (HeyGen `type: "avatar"` doesn't need portrait at render).
+- Portrait alias path: `portraitImageAlias` → resolve via existing media alias resolution → dispatch with `portraitImageBytesBase64` set and `cachedHeygenAvatarId: null` (HeyGen `type: "image"` ad-hoc).
+- Honest failures: `persona_not_found`, `voice_required`, `voice_not_found`, `portrait_alias_unavailable`, `talking_avatar_provider_unavailable` (no fallback to Kling/Runway/OpenAI), `talking_avatar_plan_disabled` (gate present even though Slice 8 hasn't landed the toggle).
+- VC settle unchanged — flows through existing ADR-108 media-delivery path on success.
+
+After this slice, PersAI can render HeyGen talking-avatar videos end-to-end on either the persona path or the ad-hoc photo path.
+
+### Subagent
+
+Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification gates green. Honored "no docs edits" rule (fourth subagent in a row to do so cleanly).
+
+### Files touched (Scope IN)
+
+**New files:**
+- `apps/api/src/modules/workspace-management/application/heygen/read-workspace-video-persona.service.ts` — read-only persona lookup by `(workspaceId, personaId)`; returns null when persona missing, cross-workspace, or archived (fail-closed isolation).
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-workspace-video-personas.controller.ts` — `GET /api/v1/internal/runtime/workspaces/:workspaceId/video-personas/:personaId` with fail-closed `Authorization: Bearer <PERSAI_INTERNAL_API_TOKEN>` auth (mirrors `internal-runtime-knowledge.controller.ts`).
+- `apps/api/test/read-workspace-video-persona.service.test.ts` — 5 assertions (happy path, not found, cross-workspace isolation, archived rejection, `heygenAvatarId` non-null post-E12).
+
+**Modified files:**
+- `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts` — added the talking-avatar early-dispatch branch (after Slice 3 validation succeeds for `mode === "talking_avatar"`) that calls the new private `executeTalkingAvatarDispatch` helper (~130 LOC). Helper performs: structural provider check (`isTalkingAvatarVideoProvider(providerId)`) → plan toggle TODO-stub (`talkingVideoEnabled === false` is the only blocking condition; missing/undefined/true is permissive) → branch on persona vs portrait-alias → resolve voice id → build gateway DTO with the new Slice 6 fields populated → dispatch via existing `provider-gateway.client.service.ts::generateVideo`. Cinematic path bits unchanged.
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts` — added `fetchWorkspaceVideoPersona({ workspaceId, personaId })`: GET internal endpoint, 404 → return null, 5xx/network/timeout → throw `ServiceUnavailableException`, schema-tag validation on response.
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` — registered `ReadWorkspaceVideoPersonaService` + `InternalRuntimeWorkspaceVideoPersonasController`.
+- `apps/runtime/test/runtime-video-generate-tool.service.test.ts` — added `HEYGEN_VIDEO_MODEL_PARAMETERS` constant + `heygenBundle` fixture; added `fetchWorkspaceVideoPersona` mock to `FakePersaiInternalApiClientService`; replaced the Slice 3 talking-avatar passthrough tests with 11 new Slice 7 assertions.
+
+### Honest subtleties
+
+- **`model` and `credential` resolution.** The talking-avatar dispatch receives `credential` and `model` resolved upstream in the main dispatch loop — same code path the cinematic flow uses. `providerId === "heygen"` is structurally verified before any persona fetch via the existing `isTalkingAvatarVideoProvider(providerId)` helper introduced in Slice 2b.
+- **`prompt` mirroring.** HeyGen's `generateVideo` in the provider client reads `speechText` for the avatar script. The legacy `prompt` field is set to `speechText` as a defensive mirror so the gateway DTO satisfies the existing type shape without changing any Slice 6 provider-client behavior.
+- **`talkingVideoEnabled` TODO-stub.** The field is read via `(policy as unknown as Record<string, unknown>).talkingVideoEnabled`. Only `=== false` blocks (`talking_avatar_plan_disabled`). Missing / `undefined` / `true` are permissive. Slice 8 will land the materialized-bundle field and make this gate real.
+- **Voice-shortlist resolution.** Voice keys are resolved against the materialized `videoVoiceCatalog` (the Slice 4 HeyGen shortlist injected at bundle materialization). For persona path with no `voiceKey` override → use persona's stored `heygenVoiceId` (already validated at persona create time by Slice 5b). For persona path with `voiceKey` override → validate against `provider === "heygen"` entries in the catalog. For portrait alias path → `voiceKey` is REQUIRED (no persona to fall back to; per erratum E9).
+- **Defensive `cachedHeygenAvatarId === null` case.** Shouldn't happen post-E12, but if a persona row somehow lands with an empty avatar id, a `WARN` log fires and the dispatch fails honestly with `talking_avatar_provider_unavailable` rather than silently forwarding null to HeyGen.
+- **No portrait bytes loaded for persona path.** Scenario C uses `cachedHeygenAvatarId` directly; HeyGen's `POST /v3/videos` with `type: "avatar"` doesn't need portrait at render time. Per the slice spec, the runtime never reads the portrait blob from object storage — saves a round-trip and aligns with invariant #14 (read-only persona, no portrait blob path from runtime).
+- **Internal API auth pattern.** Mirrored from `internal-runtime-knowledge.controller.ts` — `assertPersaiInternalApiAuthorized(request, ...)` with `Authorization: Bearer <PERSAI_INTERNAL_API_TOKEN>` fail-closed.
+
+### Verification (all 12 gates PASS)
+
+1. `corepack pnpm -r --if-present run lint` — all `Done`. ✅
+2. `corepack pnpm run format:check` — `All matched files use Prettier code style!` ✅
+3. `corepack pnpm --filter @persai/api run typecheck` — exit 0. ✅
+4. `corepack pnpm --filter @persai/web run typecheck` — exit 0. ✅
+5. `corepack pnpm --filter @persai/runtime run typecheck` — exit 0. ✅
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — exit 0. ✅
+7. `corepack pnpm --filter @persai/contracts run typecheck` — exit 0. ✅
+8. `tsx apps/runtime/test/runtime-video-generate-tool.service.test.ts` — exit 0 (uses `node:assert` — silent on success; all Slice 3 + 11 new Slice 7 assertions PASS). ✅
+9. `tsx apps/runtime/test/provider-gateway.client.service.test.ts` — exit 0 (Slice 6 regression — new gateway DTO fields serialize unchanged). ✅
+10. `tsx apps/api/test/read-workspace-video-persona.service.test.ts` — `read-workspace-video-persona.service.test: 5/5 assertions PASS`. ✅
+11. `tsx apps/api/test/manage-workspace-video-personas.service.test.ts` — `manage-workspace-video-personas.service: all assertions passed` (Slice 5b regression). ✅
+12. `tsx apps/provider-gateway/test/heygen-provider.client.test.ts` — `✅ All HeyGen provider client tests passed.` (Slice 6 regression, 156s wall). ✅
+
+### Cross-slice invariants
+
+All 15 invariants verified true:
+- **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits. ✅
+- **#12 no keyword routing** — explicit grep: no `speechText.match/regex/includes/test/split` anywhere new. `speechText` appears only in structural type/presence checks from Slice 3. ✅
+- **#14 REST-only persona mutation** — **CRITICAL preserved**: explicit grep across `apps/runtime/**` for `personaRepository.(create|update|archive)` returns zero matches. Runtime only calls `fetchWorkspaceVideoPersona` (read-only GET against internal API). Invariant stays in its original strict form. ✅
+- **#15 NON-NEGOTIABLE** — defensive structural parsing only. Provider check is `isTalkingAvatarVideoProvider(providerId)` (structural). Plan toggle is exact `=== false`. Voice resolution is exact `providerVoiceId === voiceKey` against the shortlist. Zero regex / fuzzy match / keyword list anywhere. ✅
+
+### Next recommended slice
+
+**Slice 8 — Plan toggle + materialization.** Add `talkingVideoEnabled` boolean to the plan's `video_generate` tool activation card (in `manage-admin-plans.service.ts` and the Admin Plans editor UI). Materialization writes the flag onto the `video_generate` ref in the bundle. Slice 7's TODO-stub gate then lights up: when an operator disables `talkingVideoEnabled` on a plan, requests of `mode: "talking_avatar"` get blocked with `talking_avatar_plan_disabled`. Slice 7 already handles the runtime side; Slice 8 lands the admin / materialization side.
+
+Alternative if Slice 8 feels premature: **Slice 9 — Assistant Settings UI: Characters** (persona list / create form / delete with confirm in `assistant-settings.tsx`, plus the upsell hint when `talkingVideoEnabled` is off). Slice 9 makes the feature visible to end users for the first time but depends on Slice 8 materializing the flag. Recommended order remains 8 → 9.
+
+---
+
 ## 2026-06-05 — ADR-109 Slice 5b: Eager HeyGen avatar creation at persona POST (E12 retrofit)
 
 ### What changed & why

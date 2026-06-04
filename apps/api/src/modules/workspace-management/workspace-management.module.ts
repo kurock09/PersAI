@@ -232,7 +232,9 @@ import { KlingVoiceCatalogService } from "./application/kling/kling-voice-catalo
 import { HeyGenVoiceCatalogService } from "./application/heygen/heygen-voice-catalog.service";
 import { HeyGenProviderGatewayClient } from "./application/heygen/heygen-provider-gateway.client";
 import { ManageWorkspaceVideoPersonasService } from "./application/heygen/manage-workspace-video-personas.service";
+import { ReadWorkspaceVideoPersonaService } from "./application/heygen/read-workspace-video-persona.service";
 import { WorkspaceVideoPersonasController } from "./interface/http/workspace-video-personas.controller";
+import { InternalRuntimeWorkspaceVideoPersonasController } from "./interface/http/internal-runtime-workspace-video-personas.controller";
 import { WORKSPACE_VIDEO_PERSONA_REPOSITORY } from "./domain/workspace-video-persona.repository";
 import { PrismaWorkspaceVideoPersonaRepository } from "./infrastructure/persistence/prisma-workspace-video-persona.repository";
 import { EnqueueRuntimeDeferredMediaJobService } from "./application/enqueue-runtime-deferred-media-job.service";
@@ -409,7 +411,8 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AdminForceReapplyController,
     MediaAttachmentController,
     TelegramWebhookController,
-    WorkspaceVideoPersonasController
+    WorkspaceVideoPersonasController,
+    InternalRuntimeWorkspaceVideoPersonasController
   ],
   providers: [
     {
@@ -767,6 +770,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageMediaPackagePurchaseService,
     HeyGenProviderGatewayClient,
     ManageWorkspaceVideoPersonasService,
+    ReadWorkspaceVideoPersonaService,
     {
       provide: WORKSPACE_VIDEO_PERSONA_REPOSITORY,
       useClass: PrismaWorkspaceVideoPersonaRepository

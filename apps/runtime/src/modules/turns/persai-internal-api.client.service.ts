@@ -1598,6 +1598,82 @@ export class PersaiInternalApiClientService {
     );
   }
 
+  /**
+   * ADR-109 Slice 7 — fetch a workspace video persona by id for the talking-avatar
+   * runtime execution path. Read-only (invariant #14 — no writes from runtime).
+   *
+   * Returns null when:
+   *  - The persona does not exist in the given workspace.
+   *  - The persona is archived.
+   *  - The internal API returns 404.
+   *
+   * Throws `ServiceUnavailableException` on 5xx / network / timeout errors so
+   * the calling tool-service can surface `talking_avatar_persona_unavailable`
+   * honestly instead of silently swallowing failures.
+   */
+  async fetchWorkspaceVideoPersona(input: { workspaceId: string; personaId: string }): Promise<{
+    id: string;
+    displayName: string;
+    heygenAvatarId: string;
+    heygenVoiceId: string;
+    heygenVoiceLabel: string;
+    portraitImageStorageKey: string;
+  } | null> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const urlPath = `/api/v1/internal/runtime/workspaces/${encodeURIComponent(input.workspaceId)}/video-personas/${encodeURIComponent(input.personaId)}`;
+    const response = await this.fetchJson(urlPath, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`
+      }
+    });
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const persona = this.asObject(payload?.persona);
+      if (
+        payload?.schema === "persai.internalRuntimeWorkspaceVideoPersonaResponse.v1" &&
+        persona !== null &&
+        typeof persona.id === "string" &&
+        typeof persona.displayName === "string" &&
+        typeof persona.heygenAvatarId === "string" &&
+        typeof persona.heygenVoiceId === "string" &&
+        typeof persona.heygenVoiceLabel === "string" &&
+        typeof persona.portraitImageStorageKey === "string"
+      ) {
+        return {
+          id: persona.id,
+          displayName: persona.displayName,
+          heygenAvatarId: persona.heygenAvatarId,
+          heygenVoiceId: persona.heygenVoiceId,
+          heygenVoiceLabel: persona.heygenVoiceLabel,
+          portraitImageStorageKey: persona.portraitImageStorageKey
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid workspace video persona response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API workspace video persona request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the workspace video persona request."
+    );
+  }
+
   private buildUrl(pathname: string): string {
     const baseUrl = this.config.PERSAI_API_BASE_URL?.trim();
     if (!baseUrl) {
