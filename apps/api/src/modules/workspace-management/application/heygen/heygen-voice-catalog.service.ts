@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import type {
   RuntimeVideoVoiceCatalog,
@@ -9,17 +8,9 @@ import { TOOL_CREDENTIAL_IDS } from "../tool-credential-settings";
 import { PlatformRuntimeProviderSecretStoreService } from "../platform-runtime-provider-secret-store.service";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
-const KLING_API_BASE_URL = "https://api-singapore.klingai.com";
-const KLING_PRESETS_VOICES_PATH = "/v1/general/presets-voices";
-const KLING_VOICE_CACHE_KEY = "kling-presets-voices";
-const KLING_VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const KLING_JWT_TTL_SECONDS = 1_800;
-const KLING_JWT_NOT_BEFORE_SKEW_SECONDS = 5;
-
-type KlingCredentials = {
-  accessKey: string;
-  secretKey: string;
-};
+const HEYGEN_VOICES_URL = "https://api.heygen.com/v3/voices";
+const HEYGEN_VOICE_CACHE_KEY = "heygen-voices";
+const HEYGEN_VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 type CachedVoiceCatalogRow = {
   voices: RuntimeVideoVoiceCatalogEntry[];
@@ -27,8 +18,8 @@ type CachedVoiceCatalogRow = {
 };
 
 @Injectable()
-export class KlingVoiceCatalogService {
-  private readonly logger = new Logger(KlingVoiceCatalogService.name);
+export class HeyGenVoiceCatalogService {
+  private readonly logger = new Logger(HeyGenVoiceCatalogService.name);
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
@@ -39,7 +30,7 @@ export class KlingVoiceCatalogService {
     const cached = await this.readCacheRow();
     if (cached !== null && !this.isExpired(cached.fetchedAt)) {
       return {
-        provider: "kling",
+        provider: "heygen",
         fetchedAt: cached.fetchedAt.toISOString(),
         shortlist: cached.voices
       };
@@ -48,28 +39,27 @@ export class KlingVoiceCatalogService {
   }
 
   private async refreshVoiceCatalog(): Promise<RuntimeVideoVoiceCatalog | null> {
-    const credentialValue = await this.platformRuntimeProviderSecretStoreService
-      .resolveSecretValueById(TOOL_CREDENTIAL_IDS.tool_video_generate_kling)
+    const apiKey = await this.platformRuntimeProviderSecretStoreService
+      .resolveSecretValueById(TOOL_CREDENTIAL_IDS.tool_video_generate_heygen)
       .catch(() => null);
-    if (credentialValue === null) {
+    if (apiKey === null || apiKey.trim().length === 0) {
       this.logger.warn(
-        "[kling-voice-catalog] Kling credentials are not configured; voice catalog is empty."
+        "[heygen-voice-catalog] HeyGen API key is not configured; voice catalog is empty."
       );
       return this.toCatalog(await this.readCacheRow());
     }
 
     try {
-      const credentials = this.resolveCredentials(credentialValue);
-      const shortlist = await this.fetchVoiceCatalog(credentials);
+      const shortlist = await this.fetchVoiceCatalog(apiKey.trim());
       if (shortlist.length === 0) {
-        this.logger.warn("[kling-voice-catalog] refresh returned an empty shortlist.");
+        this.logger.warn("[heygen-voice-catalog] refresh returned an empty shortlist.");
         return this.toCatalog(await this.readCacheRow());
       }
       const fetchedAt = new Date();
-      await this.prisma.platformKlingVoiceCatalogCache.upsert({
-        where: { cacheKey: KLING_VOICE_CACHE_KEY },
+      await this.prisma.platformHeygenVoiceCatalogCache.upsert({
+        where: { cacheKey: HEYGEN_VOICE_CACHE_KEY },
         create: {
-          cacheKey: KLING_VOICE_CACHE_KEY,
+          cacheKey: HEYGEN_VOICE_CACHE_KEY,
           voicesJson: shortlist as never,
           fetchedAt
         },
@@ -79,37 +69,31 @@ export class KlingVoiceCatalogService {
         }
       });
       this.logger.log(
-        `[kling-voice-catalog] refreshed shortlist count=${String(shortlist.length)} fetchedAt=${fetchedAt.toISOString()}`
+        `[heygen-voice-catalog] refreshed shortlist count=${String(shortlist.length)} fetchedAt=${fetchedAt.toISOString()}`
       );
       return {
-        provider: "kling",
+        provider: "heygen",
         fetchedAt: fetchedAt.toISOString(),
         shortlist
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`[kling-voice-catalog] refresh failed: ${message}`);
+      this.logger.warn(`[heygen-voice-catalog] refresh failed: ${message}`);
       return this.toCatalog(await this.readCacheRow());
     }
   }
 
-  private async fetchVoiceCatalog(
-    credentials: KlingCredentials
-  ): Promise<RuntimeVideoVoiceCatalogEntry[]> {
-    const authToken = this.createAuthToken(credentials);
-    const url = new URL(KLING_PRESETS_VOICES_PATH, KLING_API_BASE_URL);
-    url.searchParams.set("pageNum", "1");
-    url.searchParams.set("pageSize", "100");
-    const response = await fetch(url, {
+  private async fetchVoiceCatalog(apiKey: string): Promise<RuntimeVideoVoiceCatalogEntry[]> {
+    const response = await fetch(HEYGEN_VOICES_URL, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${authToken}`,
+        "X-Api-Key": apiKey,
         Accept: "application/json"
       }
     });
     const body = (await response.json().catch(() => null)) as unknown;
     if (!response.ok) {
-      throw new Error(`Kling presets-voices HTTP ${String(response.status)}`);
+      throw new Error(`HeyGen voices HTTP ${String(response.status)}`);
     }
     return this.parseVoiceCatalog(body);
   }
@@ -131,7 +115,7 @@ export class KlingVoiceCatalogService {
       return [];
     }
     const record = value as Record<string, unknown>;
-    const candidates = [record.data, record.rows, record.list, record.voice_list, record.voices];
+    const candidates = [record.data, record.rows, record.list, record.voices, record.voice_list];
     for (const candidate of candidates) {
       if (Array.isArray(candidate)) {
         return this.extractVoiceRowsFromArray(candidate);
@@ -183,18 +167,25 @@ export class KlingVoiceCatalogService {
       this.asNonEmptyString(row.voiceId) ??
       this.asNonEmptyString(row.id);
     const displayName =
+      this.asNonEmptyString(row.name) ??
       this.asNonEmptyString(row.voice_name) ??
       this.asNonEmptyString(row.voiceName) ??
-      this.asNonEmptyString(row.name) ??
       providerVoiceId;
     if (providerVoiceId === null || displayName === null) {
       return null;
     }
     const locale =
+      this.asNonEmptyString(row.language) ??
       this.asNonEmptyString(row.voice_language) ??
       this.asNonEmptyString(row.voiceLanguage) ??
-      this.asNonEmptyString(row.language);
+      this.asNonEmptyString(row.locale);
     const styleTags = this.readStyleTags(row);
+    const previewAudioUrl =
+      this.asNonEmptyString(row.preview_audio) ??
+      this.asNonEmptyString(row.previewAudio) ??
+      this.asNonEmptyString(row.preview_audio_url) ??
+      this.asNonEmptyString(row.previewAudioUrl) ??
+      null;
     return {
       voiceKey: this.buildVoiceKey(displayName, providerVoiceId),
       providerVoiceId,
@@ -203,16 +194,12 @@ export class KlingVoiceCatalogService {
       gender: this.normalizeGender(row.gender ?? row.voice_gender ?? row.sex),
       description: this.buildDescription(locale, styleTags),
       styleTags,
-      previewAudioUrl:
-        this.asNonEmptyString(row.preview_audio_url) ??
-        this.asNonEmptyString(row.preview_audio) ??
-        this.asNonEmptyString(row.previewAudioUrl) ??
-        null
+      previewAudioUrl
     };
   }
 
   private readStyleTags(row: Record<string, unknown>): string[] {
-    const raw = row.style_tags ?? row.tags ?? row.styles ?? row.style;
+    const raw = row.tags ?? row.style_tags ?? row.styles ?? row.style;
     if (Array.isArray(raw)) {
       return raw
         .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
@@ -257,8 +244,8 @@ export class KlingVoiceCatalogService {
   }
 
   private async readCacheRow(): Promise<CachedVoiceCatalogRow | null> {
-    const row = await this.prisma.platformKlingVoiceCatalogCache.findUnique({
-      where: { cacheKey: KLING_VOICE_CACHE_KEY },
+    const row = await this.prisma.platformHeygenVoiceCatalogCache.findUnique({
+      where: { cacheKey: HEYGEN_VOICE_CACHE_KEY },
       select: { voicesJson: true, fetchedAt: true }
     });
     if (row === null) {
@@ -312,64 +299,14 @@ export class KlingVoiceCatalogService {
       return null;
     }
     return {
-      provider: "kling",
+      provider: "heygen",
       fetchedAt: row.fetchedAt.toISOString(),
       shortlist: row.voices
     };
   }
 
   private isExpired(fetchedAt: Date): boolean {
-    return Date.now() - fetchedAt.getTime() > KLING_VOICE_CACHE_TTL_MS;
-  }
-
-  private resolveCredentials(credentialValue: string): KlingCredentials {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(credentialValue);
-    } catch {
-      throw new Error(
-        'Kling credentials must be valid JSON: {"accessKey":"...","secretKey":"..."}.'
-      );
-    }
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error(
-        'Kling credentials must be a JSON object with "accessKey" and "secretKey" string fields.'
-      );
-    }
-    const accessKey =
-      this.asNonEmptyString((parsed as Record<string, unknown>).accessKey) ??
-      this.asNonEmptyString((parsed as Record<string, unknown>).access_key);
-    const secretKey =
-      this.asNonEmptyString((parsed as Record<string, unknown>).secretKey) ??
-      this.asNonEmptyString((parsed as Record<string, unknown>).secret_key);
-    if (accessKey === null || secretKey === null) {
-      throw new Error(
-        'Kling credentials JSON must include non-empty "accessKey" and "secretKey" string fields.'
-      );
-    }
-    return {
-      accessKey,
-      secretKey
-    };
-  }
-
-  private createAuthToken(credentials: KlingCredentials): string {
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const header = {
-      alg: "HS256",
-      typ: "JWT"
-    };
-    const payload = {
-      iss: credentials.accessKey,
-      exp: nowSeconds + KLING_JWT_TTL_SECONDS,
-      nbf: nowSeconds - KLING_JWT_NOT_BEFORE_SKEW_SECONDS
-    };
-    const encodedHeader = Buffer.from(JSON.stringify(header), "utf8").toString("base64url");
-    const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-    const signature = createHmac("sha256", credentials.secretKey)
-      .update(`${encodedHeader}.${encodedPayload}`)
-      .digest("base64url");
-    return `${encodedHeader}.${encodedPayload}.${signature}`;
+    return Date.now() - fetchedAt.getTime() > HEYGEN_VOICE_CACHE_TTL_MS;
   }
 
   private asNonEmptyString(value: unknown): string | null {

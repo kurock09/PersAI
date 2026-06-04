@@ -2,6 +2,69 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-04 — ADR-109 Slice 4: HeyGen voice catalog cache (substrate, symmetric with Kling)
+
+### What changed & why
+
+Baseline SHA at session start: Slice 3 closure commit. Tree clean.
+
+Slice 4 lands the **HeyGen voice catalog cache substrate**, symmetric with the existing Kling voice catalog pattern. This is pure data-plane substrate: a new `PlatformHeygenVoiceCatalogCache` Prisma model + 24h TTL service that fetches `GET https://api.heygen.com/v3/voices` with `X-Api-Key` auth and materializes the shortlist into the assistant runtime bundle when a video-generate tool credential resolves to `providerId === "heygen"`. The voice catalog is then exposed to the LLM through the same `RuntimeVideoVoiceCatalog` channel Kling already uses — so when the model picks a `voiceKey` (Slice 3 contract field), the picker is uniform across providers.
+
+NO HeyGen render wiring (Slice 6 owns). NO portrait/persona handling (Slice 5 + 6 own). NO LLM tool-description text (Slice 8 owns). NO plan toggle (Slice 9). Pure substrate.
+
+### Subagent honesty: pre-existing Slice 2a fixture omission discovered + fixed
+
+The Slice 4 subagent (Sonnet 4.6 medium thinking) found that `apps/api/test/materialize-assistant-published-version.service.test.ts` was already failing at HEAD: when Slice 2a added `"heygen"` to `MANAGED_CATALOG_PROVIDERS`, the test fixture's `availableModelCatalogByProvider` literal was not updated to include a `heygen: { models: [] }` branch, causing `getRuntimeProviderCatalogModelsByCapability(undefined, ...)` to throw inside the materialization assertion path.
+
+**Important orchestrator clarification (no false-PASS in Slice 3):** Slice 3 verification did NOT include running this specific test (Slice 3's focused tests were `runtime-video-generate-tool.service.test.ts`, `provider-gateway.client.service.test.ts`, `provider-video-generation.service.test.ts`). So this is not a false-positive Slice 3 reporting — it is a latent fixture omission from Slice 2a's implicit-scope expansion that survived because no slice 2a–3 gate exercised this particular test path. Slice 4 hit it because Slice 4 explicitly added gate #9 for this file (to assert that adding the heygen materialization branch did not break the existing fixture). The fix is a 3-line addition: `heygen: { models: [] }`. Honest catch — included in Scope IN.
+
+### Files touched (6 modified + 4 new, all Scope IN)
+
+- `packages/runtime-contract/src/index.ts` — added `previewAudioUrl?: string | null` to `RuntimeVideoVoiceCatalogEntry` (optional, backward-compatible); widened `RuntimeVideoVoiceCatalog.provider` from `"kling"` to `"kling" | "heygen"` (substrate widening, mirrors Slice 2a's video provider widening).
+- `apps/api/prisma/schema.prisma` — added `PlatformHeygenVoiceCatalogCache` model, mapped to `platform_heygen_voice_catalog_cache`, structurally identical to `PlatformKlingVoiceCatalogCache`.
+- `apps/api/prisma/migrations/20260604220000_slice4_heygen_voice_catalog_cache/migration.sql` (NEW) — `CREATE TABLE` DDL for the new cache table, hand-authored to mirror the Kling migration.
+- `apps/api/src/modules/workspace-management/application/heygen/heygen-voice-catalog.service.ts` (NEW) — new `HeyGenVoiceCatalogService` injectable with the same surface as Kling's service: `getMaterializedVoiceCatalog()`, lazy refresh on TTL expiry, defensive multi-alias parsing of HeyGen's `GET /v3/voices` v3 response (handles `voice_id` / `voiceId`, `language` / `voice_language`, `gender` / `voice_gender` / `sex`, `preview_audio_url` / `preview_audio` / `previewAudioUrl`, plus flat-array vs `{data:[]}` wrapper). Authenticates with `X-Api-Key`. Reuses `TOOL_CREDENTIAL_IDS.tool_video_generate_heygen` registered in Slice 1.
+- `apps/api/src/modules/workspace-management/application/kling/kling-voice-catalog.service.ts` — augmented `parseVoiceRow` to extract `previewAudioUrl` (tries `preview_audio_url`, `preview_audio`, `previewAudioUrl`; null fallback) and `parseCachedVoices` to hydrate it from the cached JSON. Pure additive, Kling regression test confirms existing behavior intact.
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — added `HeyGenVoiceCatalogService` constructor injection; replaced the `if (ref.providerId !== "kling") return ref` early-return with explicit parallel branches for `"kling"` and `"heygen"`, each calling its own service's `getMaterializedVoiceCatalog()` and attaching `videoVoiceCatalog` to the ref on non-empty shortlist.
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` — registered `HeyGenVoiceCatalogService` provider.
+- `apps/api/test/materialize-assistant-published-version.service.test.ts` — pre-existing fixture omission fix (see honesty section above): added `heygen: { models: [] }` to `availableModelCatalogByProvider`.
+- `apps/api/test/heygen-voice-catalog.service.test.ts` (NEW) — 7 assertions: fresh-cache network+upsert, warm cache no-network, expired refresh, missing API key returns null without throw, HTTP 401 falls back to stale, flat-array response, `voiceId` field alias.
+- `apps/api/test/materialize-heygen-voice-catalog.test.ts` (NEW) — 5 assertions: heygen service produces `provider: "heygen"` catalog with `previewAudioUrl`, heygen ref gets `videoVoiceCatalog` attached, runway/openai refs do NOT trigger catalog attachment, null catalog leaves ref unchanged, Kling regression including `previewAudioUrl` presence.
+
+### Verification (all 10 gates PASS)
+
+1. `corepack pnpm -r --if-present run lint` — `apps/api lint: Done`, `apps/runtime lint: Done`, `apps/provider-gateway lint: Done`, `apps/web lint: Done`, sandbox + scripts: Done. ✅
+2. `corepack pnpm run format:check` — `All matched files use Prettier code style!` ✅
+3. `corepack pnpm --filter @persai/api run typecheck` — `Generated Prisma Client (v6.19.2)` (confirms `platformHeygenVoiceCatalogCache` model is structurally valid) + `tsc --noEmit` exit 0. ✅
+4. `corepack pnpm --filter @persai/web run typecheck` — exit 0. ✅
+5. `corepack pnpm --filter @persai/runtime run typecheck` — exit 0. ✅
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — exit 0. ✅
+7. `tsx apps/api/test/heygen-voice-catalog.service.test.ts` — all 7 `PASS:` lines + `All HeyGen voice catalog tests PASSED`. ✅
+8. `tsx apps/api/test/kling-voice-catalog.service.test.ts` — exit 0, both refresh log lines visible, Kling regression clean. ✅
+9. `tsx apps/api/test/materialize-assistant-published-version.service.test.ts` — exit 0 (pre-existing fixture omission fixed). ✅
+10. `tsx apps/api/test/materialize-heygen-voice-catalog.test.ts` — all 5 `PASS:` lines + `All materialization heygen voice catalog tests PASSED`. ✅
+
+### Honest subtleties
+
+- **HeyGen `GET /v3/voices` response shape** is defensively parsed against multiple aliases because HeyGen's published response shape may vary across documentation versions (`{ data: [...] }` wrapper vs flat array; `voice_id` vs `voiceId`; `preview_audio` vs `preview_audio_url`). The parser tries the documented snake_case forms first, then camelCase, then null fallback. Tests assert both wrapped and flat shapes.
+- **Migration was hand-authored, not generated.** Local Postgres is not running in the operator's session. The SQL exactly mirrors `PlatformKlingVoiceCatalogCache`'s shape with renamed table and constraint. Prisma `generate` succeeded against the updated schema, confirming the model is structurally valid TypeScript-side. The migration will run on first dev/PROD deploy via `prisma migrate deploy`.
+- **`RuntimeVideoVoiceCatalogEntry.previewAudioUrl` is optional**, deliberately. Existing Kling fixtures and live cached data may not contain the field; backward-compat means the LLM-facing surface remains stable. New cached entries (Kling or HeyGen) will populate it; legacy cached rows hydrate to `null`.
+- **No regex on user input.** All parsing in the new service is purely structural JSON field extraction from the HeyGen API response. Zero keyword routing, zero message-body inspection. Invariant #15 fully honored.
+- **Slice 6 placeholder unchanged.** `provider-video-generation.service.ts` still throws `"ADR-109 Slice 6: HeyGen runtime execution not yet implemented"` on the `heygen` case. Slice 4 only lights up the voice catalog substrate; render wiring is Slice 6.
+
+### Cross-slice invariants
+
+All 15 invariants honored. Specifically:
+- #11 (ADR-107 carve-out) — heygen recognized as talking-avatar provider, Slice 2b `kind=talking_avatar` constraint untouched.
+- #12 / #15 — no keyword routing, no parsing of user message bodies or speech text.
+- #14 — persona REST-only (no persona code touched in this slice).
+
+### Next recommended slice
+
+**Slice 5: Workspace persona registry** — Prisma `Persona` model (workspace-scoped, soft-delete), REST CRUD (admin + assistant settings page), portrait + voice-binding fields, `archived` flag. No HeyGen `avatar_id` creation yet (lazy on first use per Slice 6). Anti-keyword-routing remains the binding constraint: persona binding always explicit via UI / API, never derived from chat content.
+
+---
+
 ## 2026-06-04 — ADR-109 Slice 3: Mode contract + talking-avatar request fields + structural validation
 
 ### What changed & why

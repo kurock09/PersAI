@@ -939,6 +939,14 @@ model PlatformKlingVoiceCatalogCache {
   @@map("platform_kling_voice_catalog_cache")
 }
 
+model PlatformHeygenVoiceCatalogCache {
+  cacheKey    String   @id @map("cache_key") @db.VarChar(64)
+  voicesJson  Json     @map("voices_json") @db.JsonB
+  fetchedAt   DateTime @map("fetched_at") @db.Timestamptz(6)
+
+  @@map("platform_heygen_voice_catalog_cache")
+}
+
 model PlatformRuntimeProviderSettings {
   id                              String                          @id @default("global") @db.VarChar(32)
   primaryProvider                 String                          @map("primary_provider") @db.VarChar(32)

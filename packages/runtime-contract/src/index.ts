@@ -1717,10 +1717,11 @@ export interface RuntimeVideoVoiceCatalogEntry {
   gender: RuntimeVideoVoiceGender;
   description: string | null;
   styleTags: string[];
+  previewAudioUrl?: string | null;
 }
 
 export interface RuntimeVideoVoiceCatalog {
-  provider: "kling";
+  provider: "kling" | "heygen";
   fetchedAt: string;
   shortlist: RuntimeVideoVoiceCatalogEntry[];
 }

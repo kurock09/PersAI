@@ -212,6 +212,9 @@ async function run(): Promise<void> {
             }
           }
         ]
+      },
+      heygen: {
+        models: []
       }
     },
     primary: {

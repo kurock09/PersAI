@@ -90,6 +90,7 @@ import {
   type VoiceDnaResolved
 } from "./voice-dna-modulator";
 import { KlingVoiceCatalogService } from "./kling/kling-voice-catalog.service";
+import { HeyGenVoiceCatalogService } from "./heygen/heygen-voice-catalog.service";
 import type { PersonaArchetype } from "../domain/persona-archetype.entity";
 import type { AssistantPublishedVersionSnapshotVoiceDna } from "../domain/assistant-published-version.entity";
 import { buildSyntheticPromptToolOverrideMap } from "./prompt-constructor-tool-metadata";
@@ -380,7 +381,8 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly compilePromptConstructorService: CompilePromptConstructorService,
     private readonly managePersonaArchetypesService: ManagePersonaArchetypesService,
-    private readonly klingVoiceCatalogService: KlingVoiceCatalogService
+    private readonly klingVoiceCatalogService: KlingVoiceCatalogService,
+    private readonly heyGenVoiceCatalogService: HeyGenVoiceCatalogService
   ) {}
 
   async execute(
@@ -1039,17 +1041,27 @@ export class MaterializeAssistantPublishedVersionService {
   private async attachMaterializedVideoVoiceCatalog(
     ref: AssistantRuntimeBundleToolCredentialRef
   ): Promise<AssistantRuntimeBundleToolCredentialRef> {
-    if (ref.providerId !== "kling") {
-      return ref;
+    if (ref.providerId === "kling") {
+      const catalog = await this.klingVoiceCatalogService.getMaterializedVoiceCatalog();
+      if (catalog === null || catalog.shortlist.length === 0) {
+        return ref;
+      }
+      return {
+        ...ref,
+        videoVoiceCatalog: catalog
+      };
     }
-    const catalog = await this.klingVoiceCatalogService.getMaterializedVoiceCatalog();
-    if (catalog === null || catalog.shortlist.length === 0) {
-      return ref;
+    if (ref.providerId === "heygen") {
+      const catalog = await this.heyGenVoiceCatalogService.getMaterializedVoiceCatalog();
+      if (catalog === null || catalog.shortlist.length === 0) {
+        return ref;
+      }
+      return {
+        ...ref,
+        videoVoiceCatalog: catalog
+      };
     }
-    return {
-      ...ref,
-      videoVoiceCatalog: catalog
-    };
+    return ref;
   }
 
   private async resolveDocumentProviderConfig(): Promise<MaterializedDocumentProviderConfig> {
