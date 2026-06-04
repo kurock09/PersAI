@@ -691,6 +691,22 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     const browserAction = await service.browserAction(createBrowserActionRequest(), {
       timeoutMs: 120000
     });
+    // ADR-109 Slice 3: structurally widened request must carry the talking-avatar
+    // fields through to the JSON body sent to the provider gateway. The runtime
+    // tool service only forwards them when mode === "talking_avatar" (a runtime
+    // test asserts cinematic does NOT carry them); here we just verify the
+    // gateway client serializes them faithfully. We use providerId="openai" so
+    // the existing fake-fetch happy path / response validator accepts the stub
+    // response — the new fields are pure pass-through and provider-agnostic.
+    const talkingAvatarVideoGenerate = await service.generateVideo({
+      ...createVideoGenerateRequest(),
+      mode: "talking_avatar",
+      speechText: "Hello, welcome to PersAI.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya",
+      portraitImageAlias: null,
+      voiceKey: "anya-warm"
+    });
     assert.equal(transcription.text, "hello from audio");
     assert.equal(imageGenerate.model, "gpt-image-1");
     assert.equal(imageGenerate.images[0]?.mimeType, "image/png");
@@ -706,6 +722,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(runwayVideoGenerate.seconds, 5);
     assert.equal(klingVideoGenerate.provider, "kling");
     assert.equal(klingVideoGenerate.model, "kling-v3");
+    assert.equal(talkingAvatarVideoGenerate.provider, "openai");
     assert.equal(speechGenerate.model, "gpt-4o-mini-tts");
     assert.equal(speechGenerate.mimeType, "audio/ogg");
     assert.equal(documentGenerate.provider, "pdfmonkey");
@@ -714,7 +731,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(webFetch.provider, "firecrawl");
     assert.equal(webSearch.provider, "tavily");
     assert.equal(browserAction.provider, "browserless");
-    assert.equal(requests.length, 15);
+    assert.equal(requests.length, 16);
     assert.equal(requests[0]?.url, "http://provider-gateway.local/ready");
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
@@ -774,6 +791,18 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       "http://provider-gateway.local/api/v1/providers/browser-action"
     );
     assert.equal(requests[14]?.init?.method, "POST");
+    assert.equal(
+      requests[15]?.url,
+      "http://provider-gateway.local/api/v1/providers/generate-video"
+    );
+    assert.equal(requests[15]?.init?.method, "POST");
+    const talkingAvatarBody = JSON.parse(String(requests[15]?.init?.body ?? "{}"));
+    assert.equal(talkingAvatarBody.mode, "talking_avatar");
+    assert.equal(talkingAvatarBody.speechText, "Hello, welcome to PersAI.");
+    assert.equal(talkingAvatarBody.speechLanguage, "en-US");
+    assert.equal(talkingAvatarBody.personaId, "persona-anya");
+    assert.equal(talkingAvatarBody.portraitImageAlias, null);
+    assert.equal(talkingAvatarBody.voiceKey, "anya-warm");
 
     const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();

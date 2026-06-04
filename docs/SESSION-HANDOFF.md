@@ -2,6 +2,101 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-04 — ADR-109 Slice 3: Mode contract + talking-avatar request fields + structural validation
+
+### What changed & why
+
+Baseline SHA at session start: `1331c2e9` (Slice 2b closure commit). Tree clean.
+
+Slice 3 lands the **request-mode axis** for video_generate: `RuntimeVideoGenerateMode = "cinematic" | "talking_avatar"`. Together with the 6 new optional fields on the request (`mode`, `speechText`, `speechLanguage`, `personaId`, `portraitImageAlias`, `voiceKey`) plus symmetric `requested*` echoes on the result, this defines the complete structural contract that the LLM will use to invoke talking-avatar renders once Slice 8 writes the tool description and Slice 9 lights up the plan toggle.
+
+Pure structural contract widening + tool-execution validation. NO HeyGen HTTP wiring (Slice 6 owns). NO tool projection JSON Schema or tool description text changes (Slice 8 + 9 own). NO plan toggle (Slice 9). NO multi-character refusal in code (operator directive — see below).
+
+### Operator-supersedence note (binding amendment to Slice 3 spec)
+
+The original ADR-109 Slice 3 spec included: "Multi-character heuristic at request validation: refuse `>1 personaId` or **detection of more than one named speaker pattern in speech text**. Honest error code `multi_character_not_supported`." The second half (parsing speech text) would constitute keyword/regex parsing of user-input content, directly violating cross-slice invariant #15 (no keyword routing / no message-body parsing for behavior decisions).
+
+**Operator decision (2026-06-04 21:34 MSK):** "Без роутинга и ничего не предусматривать пока просто в дескрипторе и инструкциях tool указать для модели что только 1 персона и все. Не выдумывать больше ничего и в код не ложить не усложнять." → NO multi-character refusal in code anywhere. The `personaId` field is single-valued by type (multi-character is structurally impossible at the type level). The single-speaker rule lives ONLY in the LLM-facing tool description that Slice 8 will write. The model decides via instruction, not via code-side regex or counting.
+
+This decision strengthens invariant #15 by preventing a precedent of "structurally counting + parsing user text just this once". The slice 3 spec stamp in ADR-109 records the supersedence.
+
+### Subagent observation: GPT-5.4 medium vs Sonnet 4.6 medium thinking — first contrast
+
+Subagent: GPT-5.4 medium (first hire of this model on the project). Operator's prior directive was "пробовать Sonnet или GPT-5.4" — Slice 3 was the first opportunity to try GPT-5.4 for contrast.
+
+**First run honestly stopped on a false-positive "dirty tree" blocker.** The subagent interpreted the COMMITTED Slice 2b changes in `runtime-contract/src/index.ts` and `native-tool-projection.ts` (visible in `git log --oneline` / file modification timestamps) as uncommitted working-directory drift, refused to proceed, and self-reported the perceived blocker. Orchestrator confirmed `git status: nothing to commit, working tree clean`, and resumed the subagent with explicit clarification that the files were Slice 2b's committed substrate (the exact substrate Slice 3 was supposed to build on). Second run delivered cleanly within Scope IN, all 10 verification gates pass.
+
+**Useful contrast data point for future slice planning:** Sonnet 4.6 medium thinking handled Slices 2a + 2b without any false-positive blockers — correctly distinguished `git log` (committed history) from `git status` (working-directory state). GPT-5.4 is honest (no silent scope expansion, refuses to proceed on perceived blockers, structured stop-report) but less precise on git mental model. Both models honored invariant #15 carefully when explicitly briefed.
+
+For Slice 4+ planning: prefer Sonnet 4.6 medium thinking by default unless the slice involves a domain where GPT-5.4's strengths matter more (e.g. complex business-logic reasoning where Sonnet sometimes over-formats). Resume cost on GPT-5.4 is acceptable but adds an orchestrator round-trip.
+
+### Files touched (6 total, +568 / −6, all Scope IN)
+
+- `packages/runtime-contract/src/index.ts` — added `RUNTIME_VIDEO_GENERATE_MODES = ["cinematic", "talking_avatar"] as const`, `RuntimeVideoGenerateMode` type, `isRuntimeVideoGenerateMode(value)` type guard; extended `RuntimeVideoGenerateRequest` with 6 optional new fields; extended `RuntimeVideoGenerateToolResult` with 6 symmetric `requested*` echoes; extended `ProviderGatewayVideoGenerateRequest` for transport pass-through.
+- `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts` — defensive structural parsing of new args using existing `asNonEmptyString` helper (no regex / no string matching / no message-body parsing); structural XOR validation `hasPersonaId === hasPortrait` for personaId/portraitImageAlias mutual exclusion; mode-gated forwarding to gateway request payload ONLY when `mode === "talking_avatar"`; new private helpers `buildRequestedTalkingAvatarEchoes` and `buildGatewayTalkingAvatarFields`; symmetric `requested*` echo additions to all 14 `payload:` sites in the file.
+- `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts` — `normalizeInput` accepts new fields with defensive type-rejection returning honest 400s for malformed values; HeyGen `case` retains the Slice 2a placeholder throw `"ADR-109 Slice 6: HeyGen runtime execution not yet implemented"`.
+- `apps/runtime/test/runtime-video-generate-tool.service.test.ts` — 7 focused scenarios.
+- `apps/runtime/test/provider-gateway.client.service.test.ts` — assertion that new fields serialize into HTTP body.
+- `apps/provider-gateway/test/provider-video-generation.service.test.ts` — pass-through assertions + cinematic non-injection + defensive type-rejections + Slice 2a HeyGen-placeholder regression test.
+
+No implicit-scope expansion this slice (notable cleanness — narrow contract change without ripple).
+
+### Structural validation logic (for orchestrator + future diff-review)
+
+```ts
+if (mode === "talking_avatar") {
+  if (speechText === null) return new Error("speechText is required when mode is talking_avatar");
+  if (speechLanguage === null)
+    return new Error("speechLanguage is required when mode is talking_avatar");
+  const hasPersonaId = personaId !== null;
+  const hasPortrait = portraitImageAlias !== null;
+  if (hasPersonaId === hasPortrait) {
+    return new Error(
+      "Exactly one of personaId or portraitImageAlias is required when mode is talking_avatar"
+    );
+  }
+}
+```
+
+XOR check is `hasPersonaId === hasPortrait` (when both true OR both false → error). Pure boolean equality on `null`-vs-non-`null` field presence; no regex, no string introspection, no counting of multi-character speakers. `mode` is set explicitly by the LLM, never inferred from text content.
+
+### Tests run (all 10 PASS via orchestrator's own shell)
+
+- PASS `corepack pnpm -r --if-present run lint`
+- PASS `corepack pnpm run format:check`
+- PASS `corepack pnpm --filter @persai/api run typecheck`
+- PASS `corepack pnpm --filter @persai/web run typecheck`
+- PASS `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- PASS `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
+- PASS `corepack pnpm --filter @persai/runtime exec tsx test/provider-gateway.client.service.test.ts`
+- PASS `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-video-generation.service.test.ts`
+- PASS `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts` (Slice 2b sanity — still green; tool projection filter unchanged)
+
+### Cross-slice invariants verified (1–15)
+
+- ✅ #1–#5 — N/A (no cinematic / image / TTS / STT / chat / media-job behavior touched).
+- ✅ #6–#10 — N/A (no persona, no VC settle, no render path).
+- ✅ #11 ADR-107 line 39-40 carve-out preserved (Slice 2b structural enforcement still in place).
+- ✅ #12 No keyword routing introduced.
+- ✅ #13 ADR-106/107 invariants preserved.
+- ✅ #14 Persona REST-only — N/A (no persona code).
+- ✅ #15 **NON-NEGOTIABLE** — zero regex, zero string matching, zero message-body parsing introduced anywhere in this slice. Validation is purely structural (`null` vs non-`null` field presence, boolean XOR). `mode` is set explicitly by the LLM, never inferred from text content. No multi-character refusal anywhere in code (operator directive).
+
+### Risks / residuals
+
+- **Request contract is talking-avatar-ready, but the path is not callable end-to-end yet.** Slice 6 lands HeyGen HTTP client; Slice 7 wires execution. Until then, sending a `mode: "talking_avatar"` request would pass structural validation but hit the Slice 2a placeholder throw `"ADR-109 Slice 6: HeyGen runtime execution not yet implemented"` at the provider-gateway HeyGen branch. Honest-fail behavior is acceptable substrate-only.
+- **Tool projection JSON Schema for the new fields is NOT yet exposed to the LLM.** Slice 8 will write the tool description + add the new fields to the projected `video_generate` JSON Schema, gated by Slice 9 plan toggle. Until then, an LLM cannot meaningfully populate the new fields because they're not in the tool schema. This is correct sequencing — the contract is ready, but the surface stays cinematic-only until the plan toggle lights it up.
+- **`voiceKey` resolution to provider voice_id requires Slice 3 voice cache (different from this slice's "Slice 3" — naming collision in the ADR-109 numbering vs the per-feature slice description).** This slice's Slice 3 = mode contract. The HeyGen voice catalog cache that resolves `voiceKey` → provider `voice_id` is ADR-109 Slice 4 per the ADR text. In Slice 3 (this slice), `voiceKey` is just a transport string passed through to the provider-gateway.
+
+### Deploy
+
+- **RUNTIME + PROVIDER-GATEWAY.** No Prisma migration. No new feature flag. API + WEB unchanged (no schema or UI change).
+
+### Next recommended slice
+
+**ADR-109 Slice 4 — HeyGen voice catalog cache** per the ADR text. This is the cache that resolves `voiceKey` ↔ provider `voice_id` for HeyGen, populated from `GET /v3/voices` and consumed by Slice 6 HTTP client when invoking HeyGen with the resolved provider voice id. Likely scope: new service (`heygen-voice-catalog.service.ts` or similar, mirroring `kling-voice-catalog.service.ts`), Prisma model or in-memory cache (read ADR-109 Slice 4 spec carefully — operator should confirm cache backing before subagent), background refresh strategy, and admin-side endpoint to invalidate or browse the cache. Subagent model: Sonnet 4.6 medium thinking by default for next slice unless operator wants more contrast data on GPT-5.4 with a corrected prompt.
+
 ## 2026-06-04 — ADR-109 Slice 2b: capability axis + plan validation + chat tool projection filter + Admin UI badge
 
 ### What changed & why

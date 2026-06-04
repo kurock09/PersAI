@@ -1408,4 +1408,172 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.match(normalized.payload.warning ?? "", /Used default video size 1280x720/i);
   assert.equal(providerGatewayClientService.videoCalls.at(-1)?.input.seconds, 5);
   assert.equal(providerGatewayClientService.videoCalls.at(-1)?.input.size, "1280x720");
+
+  // ADR-109 Slice 3: talking-avatar request fields. The runtime parses + the
+  // structural validates the new fields without inspecting message bodies
+  // (invariant #15) and forwards them to the provider gateway only when
+  // mode === "talking_avatar". Symmetric echoes appear in the tool result.
+  // No multi-character refusal lives in code; that constraint is documented in
+  // the LLM-facing tool description (Slice 8 territory).
+
+  const talkingAvatarPersonaCall = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      prompt: "Render a short narrated greeting from Anya",
+      mode: "talking_avatar",
+      speechText: "Hello, welcome to PersAI.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya",
+      voiceKey: "anya-warm",
+      seconds: 4,
+      size: "720x1280"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-persona"
+  });
+  assert.equal(talkingAvatarPersonaCall.payload.action, "generated");
+  assert.equal(talkingAvatarPersonaCall.payload.requestedMode, "talking_avatar");
+  assert.equal(talkingAvatarPersonaCall.payload.requestedSpeechText, "Hello, welcome to PersAI.");
+  assert.equal(talkingAvatarPersonaCall.payload.requestedSpeechLanguage, "en-US");
+  assert.equal(talkingAvatarPersonaCall.payload.requestedPersonaId, "persona-anya");
+  assert.equal(talkingAvatarPersonaCall.payload.requestedPortraitImageAlias, null);
+  assert.equal(talkingAvatarPersonaCall.payload.requestedVoiceKey, "anya-warm");
+  const personaGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
+  assert.equal(personaGatewayCall?.mode, "talking_avatar");
+  assert.equal(personaGatewayCall?.speechText, "Hello, welcome to PersAI.");
+  assert.equal(personaGatewayCall?.speechLanguage, "en-US");
+  assert.equal(personaGatewayCall?.personaId, "persona-anya");
+  assert.equal(personaGatewayCall?.portraitImageAlias, null);
+  assert.equal(personaGatewayCall?.voiceKey, "anya-warm");
+
+  const talkingAvatarPortraitCall = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      prompt: "Render a portrait talking video from the attached photo",
+      mode: "talking_avatar",
+      speechText: "Welcome aboard.",
+      speechLanguage: "ru-RU",
+      portraitImageAlias: "current image #1",
+      seconds: 4,
+      size: "720x1280"
+    }),
+    availableAttachments: [createReferenceAttachment()],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-portrait"
+  });
+  assert.equal(talkingAvatarPortraitCall.payload.action, "generated");
+  assert.equal(talkingAvatarPortraitCall.payload.requestedMode, "talking_avatar");
+  assert.equal(talkingAvatarPortraitCall.payload.requestedPersonaId, null);
+  assert.equal(talkingAvatarPortraitCall.payload.requestedPortraitImageAlias, "current image #1");
+  const portraitGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
+  assert.equal(portraitGatewayCall?.mode, "talking_avatar");
+  assert.equal(portraitGatewayCall?.personaId, null);
+  assert.equal(portraitGatewayCall?.portraitImageAlias, "current image #1");
+
+  const cinematicIgnoresExtraFields = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      prompt: "Animate a quiet riverside scene",
+      mode: "cinematic",
+      seconds: 4,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-cinematic-mode-ignores-extra-fields"
+  });
+  assert.equal(cinematicIgnoresExtraFields.payload.action, "generated");
+  assert.equal(cinematicIgnoresExtraFields.payload.requestedMode, "cinematic");
+  // Cinematic mode does NOT carry talking-avatar fields to the gateway: those
+  // keys must remain absent so existing cinematic providers stay untouched.
+  const cinematicGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(cinematicGatewayCall ?? {}, "speechText"),
+    false
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(cinematicGatewayCall ?? {}, "personaId"),
+    false
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(cinematicGatewayCall ?? {}, "portraitImageAlias"),
+    false
+  );
+
+  // Validation: missing speechText → invalid_arguments.
+  const missingSpeechText = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      prompt: "Render a greeting",
+      mode: "talking_avatar",
+      speechLanguage: "en-US",
+      personaId: "persona-anya"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-missing-speech-text"
+  });
+  assert.equal(missingSpeechText.payload.action, "skipped");
+  assert.equal(missingSpeechText.payload.reason, "invalid_arguments");
+  assert.match(missingSpeechText.payload.warning ?? "", /speechText is required/i);
+
+  // Validation: missing speechLanguage → invalid_arguments.
+  const missingSpeechLanguage = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      prompt: "Render a greeting",
+      mode: "talking_avatar",
+      speechText: "Hello.",
+      personaId: "persona-anya"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-missing-speech-language"
+  });
+  assert.equal(missingSpeechLanguage.payload.action, "skipped");
+  assert.equal(missingSpeechLanguage.payload.reason, "invalid_arguments");
+  assert.match(missingSpeechLanguage.payload.warning ?? "", /speechLanguage is required/i);
+
+  // Validation: both personaId AND portraitImageAlias → invalid_arguments.
+  const bothPersonaAndPortrait = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      prompt: "Render a greeting",
+      mode: "talking_avatar",
+      speechText: "Hello.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya",
+      portraitImageAlias: "current image #1"
+    }),
+    availableAttachments: [createReferenceAttachment()],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-both-persona-and-portrait"
+  });
+  assert.equal(bothPersonaAndPortrait.payload.action, "skipped");
+  assert.equal(bothPersonaAndPortrait.payload.reason, "invalid_arguments");
+  assert.match(
+    bothPersonaAndPortrait.payload.warning ?? "",
+    /Exactly one of personaId or portraitImageAlias/i
+  );
+
+  // Validation: neither personaId nor portraitImageAlias → invalid_arguments.
+  const neitherPersonaNorPortrait = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      prompt: "Render a greeting",
+      mode: "talking_avatar",
+      speechText: "Hello.",
+      speechLanguage: "en-US"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-neither-persona-nor-portrait"
+  });
+  assert.equal(neitherPersonaNorPortrait.payload.action, "skipped");
+  assert.equal(neitherPersonaNorPortrait.payload.reason, "invalid_arguments");
+  assert.match(
+    neitherPersonaNorPortrait.payload.warning ?? "",
+    /Exactly one of personaId or portraitImageAlias/i
+  );
 }

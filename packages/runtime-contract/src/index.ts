@@ -1639,6 +1639,19 @@ export function isTalkingAvatarVideoProvider(providerId: string | null | undefin
   );
 }
 
+// ADR-109 Slice 3: distinguish cinematic video generation (current behavior) from
+// the new talking-avatar mode (HeyGen). Routing uses this enum + provider catalog
+// capability; no message-body parsing is involved (invariant #15).
+export const RUNTIME_VIDEO_GENERATE_MODES = ["cinematic", "talking_avatar"] as const;
+
+export type RuntimeVideoGenerateMode = (typeof RUNTIME_VIDEO_GENERATE_MODES)[number];
+
+export function isRuntimeVideoGenerateMode(value: unknown): value is RuntimeVideoGenerateMode {
+  return (
+    typeof value === "string" && (RUNTIME_VIDEO_GENERATE_MODES as readonly string[]).includes(value)
+  );
+}
+
 export const PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS = ["sora-2", "sora-2-pro"] as const;
 
 export type PersaiRuntimeVideoGenerateModelKey =
@@ -1768,6 +1781,14 @@ export interface RuntimeVideoGenerateRequest {
   voiceKeys?: string[] | null;
   voiceIds?: string[] | null;
   acceptedProviderTask?: RuntimeAcceptedVideoProviderTask | null;
+  // ADR-109 Slice 3: talking-avatar fields. All optional; only meaningful when
+  // mode === "talking_avatar". For mode === "cinematic" or absent, ignored.
+  mode?: RuntimeVideoGenerateMode | null;
+  speechText?: string | null;
+  speechLanguage?: string | null;
+  personaId?: string | null;
+  portraitImageAlias?: string | null;
+  voiceKey?: string | null;
 }
 
 export interface RuntimeVideoGenerateToolResult {
@@ -1794,6 +1815,15 @@ export interface RuntimeVideoGenerateToolResult {
   messageToUser?: string | null;
   requestedCount?: number | null;
   expectedResultCount?: number | null;
+  // ADR-109 Slice 3: symmetric echoes of the talking-avatar request fields, so
+  // observability and diagnostics see exactly what the LLM asked for. Always
+  // optional; populated only when the runtime parsed the corresponding field.
+  requestedMode?: RuntimeVideoGenerateMode | null;
+  requestedSpeechText?: string | null;
+  requestedSpeechLanguage?: string | null;
+  requestedPersonaId?: string | null;
+  requestedPortraitImageAlias?: string | null;
+  requestedVoiceKey?: string | null;
 }
 
 export interface RuntimeDocumentToolResult {
@@ -3086,6 +3116,14 @@ export interface ProviderGatewayVideoGenerateRequest {
     secretId: string;
     providerId: PersaiRuntimeVideoGenerateProviderId | null;
   };
+  // ADR-109 Slice 3: pass-through of talking-avatar fields. Slice 6 will wire
+  // these into the HeyGen provider client; Slices 3-5 only carry them.
+  mode?: RuntimeVideoGenerateMode | null;
+  speechText?: string | null;
+  speechLanguage?: string | null;
+  personaId?: string | null;
+  portraitImageAlias?: string | null;
+  voiceKey?: string | null;
 }
 
 export interface RuntimeAcceptedVideoProviderTask {

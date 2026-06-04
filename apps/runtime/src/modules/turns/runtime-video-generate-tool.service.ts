@@ -13,9 +13,11 @@ import {
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   RUNTIME_VIDEO_AUDIO_MODES,
+  RUNTIME_VIDEO_GENERATE_MODES,
   RUNTIME_VIDEO_INPUT_MODES,
   type RuntimeVideoAudioCapability,
   type RuntimeVideoAudioMode,
+  type RuntimeVideoGenerateMode,
   type RuntimeVideoInputCapability,
   type RuntimeVideoInputMode,
   type PersaiRuntimeVideoGenerateProviderId,
@@ -147,6 +149,7 @@ export class RuntimeVideoGenerateToolService {
           requestedSeconds: null,
           requestedAudioMode: null,
           requestedInputMode: null,
+          ...this.buildRequestedTalkingAvatarEchoes(null),
           size: null,
           referenceImageAlias: null,
           referenceFilename: null,
@@ -173,6 +176,7 @@ export class RuntimeVideoGenerateToolService {
           requestedSeconds: request.seconds,
           requestedAudioMode: request.audioMode ?? null,
           requestedInputMode: request.inputMode ?? null,
+          ...this.buildRequestedTalkingAvatarEchoes(request),
           size: request.size,
           referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
@@ -199,6 +203,7 @@ export class RuntimeVideoGenerateToolService {
           requestedSeconds: request.seconds,
           requestedAudioMode: request.audioMode ?? null,
           requestedInputMode: request.inputMode ?? null,
+          ...this.buildRequestedTalkingAvatarEchoes(request),
           size: request.size,
           referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
@@ -225,6 +230,7 @@ export class RuntimeVideoGenerateToolService {
           requestedSeconds: request.seconds,
           requestedAudioMode: request.audioMode ?? null,
           requestedInputMode: request.inputMode ?? null,
+          ...this.buildRequestedTalkingAvatarEchoes(request),
           size: request.size,
           referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
@@ -255,6 +261,7 @@ export class RuntimeVideoGenerateToolService {
           requestedSeconds: request.seconds,
           requestedAudioMode: request.audioMode ?? null,
           requestedInputMode: request.inputMode ?? null,
+          ...this.buildRequestedTalkingAvatarEchoes(request),
           size: request.size,
           referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
@@ -292,6 +299,7 @@ export class RuntimeVideoGenerateToolService {
           requestedSeconds: request.seconds,
           requestedAudioMode: normalizedRequest.request.audioMode,
           requestedInputMode: normalizedRequest.request.inputMode,
+          ...this.buildRequestedTalkingAvatarEchoes(request),
           size: request.size,
           referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
@@ -322,6 +330,7 @@ export class RuntimeVideoGenerateToolService {
           requestedSeconds: normalizedRequest.request.seconds,
           requestedAudioMode: normalizedRequest.request.audioMode,
           requestedInputMode: normalizedRequest.request.inputMode,
+          ...this.buildRequestedTalkingAvatarEchoes(request),
           size: normalizedRequest.request.size,
           referenceImageAlias: selection.referenceImageAlias,
           referenceFilename: selection.referenceFilename,
@@ -359,6 +368,7 @@ export class RuntimeVideoGenerateToolService {
               requestedSeconds: normalizedRequest.request.seconds,
               requestedAudioMode: normalizedRequest.request.audioMode,
               requestedInputMode: normalizedRequest.request.inputMode,
+              ...this.buildRequestedTalkingAvatarEchoes(request),
               size: normalizedRequest.request.size,
               referenceImageAlias: selection.referenceImageAlias,
               referenceFilename: selection.referenceFilename,
@@ -384,6 +394,7 @@ export class RuntimeVideoGenerateToolService {
             requestedSeconds: normalizedRequest.request.seconds,
             requestedAudioMode: normalizedRequest.request.audioMode,
             requestedInputMode: normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
             size: normalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
@@ -413,6 +424,7 @@ export class RuntimeVideoGenerateToolService {
             requestedSeconds: normalizedRequest.request.seconds,
             requestedAudioMode: normalizedRequest.request.audioMode,
             requestedInputMode: normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
             size: normalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
@@ -509,7 +521,8 @@ export class RuntimeVideoGenerateToolService {
               toolCode: VIDEO_GENERATE_TOOL_CODE,
               secretId: attempt.credential.secretRef.id,
               providerId: attempt.providerId
-            }
+            },
+            ...this.buildGatewayTalkingAvatarFields(attemptNormalizedRequest.request)
           },
           {
             timeoutMs: this.resolveWorkerTimeoutMs(params.bundle)
@@ -543,6 +556,7 @@ export class RuntimeVideoGenerateToolService {
             requestedSeconds: attemptNormalizedRequest.request.seconds,
             requestedAudioMode: attemptNormalizedRequest.request.audioMode,
             requestedInputMode: attemptNormalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
             size: providerResult.size ?? attemptNormalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
@@ -601,6 +615,7 @@ export class RuntimeVideoGenerateToolService {
                 attemptNormalizedRequest?.request.audioMode ?? normalizedRequest.request.audioMode,
               requestedInputMode:
                 attemptNormalizedRequest?.request.inputMode ?? normalizedRequest.request.inputMode,
+              ...this.buildRequestedTalkingAvatarEchoes(request),
               size: attemptNormalizedRequest?.request.size ?? normalizedRequest.request.size,
               referenceImageAlias: selection.referenceImageAlias,
               referenceFilename: selection.referenceFilename,
@@ -632,6 +647,7 @@ export class RuntimeVideoGenerateToolService {
               attemptNormalizedRequest?.request.audioMode ?? normalizedRequest.request.audioMode,
             requestedInputMode:
               attemptNormalizedRequest?.request.inputMode ?? normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
             size: attemptNormalizedRequest?.request.size ?? normalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
@@ -657,6 +673,7 @@ export class RuntimeVideoGenerateToolService {
         requestedSeconds: normalizedRequest.request.seconds,
         requestedAudioMode: normalizedRequest.request.audioMode,
         requestedInputMode: normalizedRequest.request.inputMode,
+        ...this.buildRequestedTalkingAvatarEchoes(request),
         size: normalizedRequest.request.size,
         referenceImageAlias: selection.referenceImageAlias,
         referenceFilename: selection.referenceFilename,
@@ -825,7 +842,14 @@ export class RuntimeVideoGenerateToolService {
         key !== "referenceImageAlias" &&
         key !== "referenceImageAliases" &&
         key !== "voiceIds" &&
-        key !== "voiceKeys"
+        key !== "voiceKeys" &&
+        // ADR-109 Slice 3: talking-avatar fields.
+        key !== "mode" &&
+        key !== "speechText" &&
+        key !== "speechLanguage" &&
+        key !== "personaId" &&
+        key !== "portraitImageAlias" &&
+        key !== "voiceKey"
     );
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
@@ -960,6 +984,88 @@ export class RuntimeVideoGenerateToolService {
       }
     }
 
+    // ADR-109 Slice 3: talking-avatar fields. Defensive structural parsing.
+    // No regex / string-matching / message-body parsing (invariant #15).
+    const mode =
+      args.mode === undefined || args.mode === null
+        ? null
+        : typeof args.mode === "string" &&
+            (RUNTIME_VIDEO_GENERATE_MODES as readonly string[]).includes(args.mode)
+          ? (args.mode as RuntimeVideoGenerateMode)
+          : null;
+    if ("mode" in args && args.mode !== null && mode === null) {
+      return new Error(
+        `mode must be one of ${RUNTIME_VIDEO_GENERATE_MODES.join(", ")} when provided`
+      );
+    }
+
+    const speechText =
+      args.speechText === undefined || args.speechText === null
+        ? null
+        : this.asNonEmptyString(args.speechText);
+    if ("speechText" in args && args.speechText !== null && speechText === null) {
+      return new Error("speechText must be a non-empty string when provided");
+    }
+
+    const speechLanguage =
+      args.speechLanguage === undefined || args.speechLanguage === null
+        ? null
+        : this.asNonEmptyString(args.speechLanguage);
+    if ("speechLanguage" in args && args.speechLanguage !== null && speechLanguage === null) {
+      return new Error("speechLanguage must be a non-empty string when provided");
+    }
+
+    const personaId =
+      args.personaId === undefined || args.personaId === null
+        ? null
+        : this.asNonEmptyString(args.personaId);
+    if ("personaId" in args && args.personaId !== null && personaId === null) {
+      return new Error("personaId must be a non-empty string when provided");
+    }
+
+    const portraitImageAlias =
+      args.portraitImageAlias === undefined || args.portraitImageAlias === null
+        ? null
+        : this.asNonEmptyString(args.portraitImageAlias);
+    if (
+      "portraitImageAlias" in args &&
+      args.portraitImageAlias !== null &&
+      portraitImageAlias === null
+    ) {
+      return new Error("portraitImageAlias must be a non-empty string when provided");
+    }
+
+    const voiceKey =
+      args.voiceKey === undefined || args.voiceKey === null
+        ? null
+        : this.asNonEmptyString(args.voiceKey);
+    if ("voiceKey" in args && args.voiceKey !== null && voiceKey === null) {
+      return new Error("voiceKey must be a non-empty string when provided");
+    }
+
+    // Talking-avatar mode: structural requirements.
+    // - speechText: required, non-empty
+    // - speechLanguage: required, non-empty
+    // - exactly one of (personaId, portraitImageAlias)
+    // For mode === "cinematic" or mode absent/null we silently ignore the new
+    // fields. (No multi-character refusal in code; that constraint lives in the
+    // LLM-facing tool description per Slice 8 territory.)
+    if (mode === "talking_avatar") {
+      if (speechText === null) {
+        return new Error("speechText is required when mode is talking_avatar");
+      }
+      if (speechLanguage === null) {
+        return new Error("speechLanguage is required when mode is talking_avatar");
+      }
+      const hasPersonaId = personaId !== null;
+      const hasPortrait = portraitImageAlias !== null;
+      if (hasPersonaId === hasPortrait) {
+        return new Error(
+          "Exactly one of personaId or portraitImageAlias is required when mode is talking_avatar"
+        );
+      }
+    }
+
     return {
       toolCode: VIDEO_GENERATE_TOOL_CODE,
       prompt,
@@ -973,7 +1079,13 @@ export class RuntimeVideoGenerateToolService {
         referenceImageAliases?.map((entry) => this.asNonEmptyString(entry)!).filter(Boolean) ??
         null,
       voiceKeys: voiceKeys?.map((entry) => this.asNonEmptyString(entry)!).filter(Boolean) ?? null,
-      voiceIds: voiceIds?.map((entry) => this.asNonEmptyString(entry)!).filter(Boolean) ?? null
+      voiceIds: voiceIds?.map((entry) => this.asNonEmptyString(entry)!).filter(Boolean) ?? null,
+      mode,
+      speechText,
+      speechLanguage,
+      personaId,
+      portraitImageAlias,
+      voiceKey
     };
   }
 
@@ -1728,6 +1840,54 @@ export class RuntimeVideoGenerateToolService {
 
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  // ADR-109 Slice 3: symmetric echoes of the talking-avatar request fields, so
+  // observability and downstream debugging see exactly what the LLM asked for.
+  // Pass `null` from the invalid-arguments path; otherwise the parsed request
+  // is in scope at every payload site.
+  private buildRequestedTalkingAvatarEchoes(request: RuntimeVideoGenerateRequest | null): {
+    requestedMode: RuntimeVideoGenerateMode | null;
+    requestedSpeechText: string | null;
+    requestedSpeechLanguage: string | null;
+    requestedPersonaId: string | null;
+    requestedPortraitImageAlias: string | null;
+    requestedVoiceKey: string | null;
+  } {
+    return {
+      requestedMode: request?.mode ?? null,
+      requestedSpeechText: request?.speechText ?? null,
+      requestedSpeechLanguage: request?.speechLanguage ?? null,
+      requestedPersonaId: request?.personaId ?? null,
+      requestedPortraitImageAlias: request?.portraitImageAlias ?? null,
+      requestedVoiceKey: request?.voiceKey ?? null
+    };
+  }
+
+  // ADR-109 Slice 3: forward the talking-avatar fields to the provider gateway
+  // ONLY when mode === "talking_avatar". For mode === "cinematic" or absent,
+  // these fields are silently ignored and the gateway request is unchanged. The
+  // HeyGen branch in the provider gateway still throws the Slice 2a placeholder
+  // until Slice 6 implements runtime execution.
+  private buildGatewayTalkingAvatarFields(
+    request: RuntimeVideoGenerateRequest
+  ): Partial<
+    Pick<
+      ProviderGatewayVideoGenerateRequest,
+      "mode" | "speechText" | "speechLanguage" | "personaId" | "portraitImageAlias" | "voiceKey"
+    >
+  > {
+    if (request.mode !== "talking_avatar") {
+      return {};
+    }
+    return {
+      mode: "talking_avatar",
+      speechText: request.speechText ?? null,
+      speechLanguage: request.speechLanguage ?? null,
+      personaId: request.personaId ?? null,
+      portraitImageAlias: request.portraitImageAlias ?? null,
+      voiceKey: request.voiceKey ?? null
+    };
   }
 
   private findAttachmentByAlias(

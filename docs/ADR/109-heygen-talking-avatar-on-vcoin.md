@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-06-03). Depends on ADR-108 at minimum through slice 3 (settle path debit + monthly grant). Parallel to ADR-102. **Slice 0 Completed (2026-06-04)** — baseline SHA, HeyGen v3 API truth, and 6 binding UX decisions recorded; see `## Slice 0 erratum (2026-06-04)` at the bottom of this ADR for the binding amendments that supersede the original slice specs where they conflict. **Slice 1 Completed (2026-06-04)** — HeyGen API key credential slot landed in `tool-credential-settings.ts` + `/admin/tools` Video Providers section; 7 verification gates green; no HeyGen HTTP calls yet (Slice 6 owns the client). **Slice 2a Completed (2026-06-04)** — HeyGen recognized as video catalog provider symmetric to Runway/Kling: union/contract widening, Admin Runtime UI card with empty round-trip, placeholder branches where exhaustive switches demanded; 8/8 verification gates green; Slice 2 split into 2a (substrate) + 2b (capability axis + plan validation). **Slice 2b Completed (2026-06-04)** — `RuntimeVideoModelKind = "cinematic" | "talking_avatar"` structural field on every `RuntimeProviderModelProfileBase`, provider-locked at parser level (HeyGen→talking_avatar, others→cinematic) with throw-on-incompatibility; plan validation refuses talking_avatar rows for `videoGenerateModelKey`/fallback; chat tool projection filters HeyGen out of cinematic `video_generate` surface via structural `isTalkingAvatarVideoProvider(providerId)` helper; Admin UI shows read-only "Cinematic"/"Talking Avatar" badge per row; 10/10 verification gates green; capability derivation is purely structural (invariant #15 preserved). ADR-108 (Vcoin substrate) is fully closed and verified live.
+Proposed (2026-06-03). Depends on ADR-108 at minimum through slice 3 (settle path debit + monthly grant). Parallel to ADR-102. **Slice 0 Completed (2026-06-04)** — baseline SHA, HeyGen v3 API truth, and 6 binding UX decisions recorded; see `## Slice 0 erratum (2026-06-04)` at the bottom of this ADR for the binding amendments that supersede the original slice specs where they conflict. **Slice 1 Completed (2026-06-04)** — HeyGen API key credential slot landed in `tool-credential-settings.ts` + `/admin/tools` Video Providers section; 7 verification gates green; no HeyGen HTTP calls yet (Slice 6 owns the client). **Slice 2a Completed (2026-06-04)** — HeyGen recognized as video catalog provider symmetric to Runway/Kling: union/contract widening, Admin Runtime UI card with empty round-trip, placeholder branches where exhaustive switches demanded; 8/8 verification gates green; Slice 2 split into 2a (substrate) + 2b (capability axis + plan validation). **Slice 2b Completed (2026-06-04)** — `RuntimeVideoModelKind = "cinematic" | "talking_avatar"` structural field on every `RuntimeProviderModelProfileBase`, provider-locked at parser level (HeyGen→talking_avatar, others→cinematic) with throw-on-incompatibility; plan validation refuses talking_avatar rows for `videoGenerateModelKey`/fallback; chat tool projection filters HeyGen out of cinematic `video_generate` surface via structural `isTalkingAvatarVideoProvider(providerId)` helper; Admin UI shows read-only "Cinematic"/"Talking Avatar" badge per row; 10/10 verification gates green; capability derivation is purely structural (invariant #15 preserved). **Slice 3 Completed (2026-06-04)** — `RuntimeVideoGenerateMode = "cinematic" | "talking_avatar"` request-mode contract with new optional fields (`mode`, `speechText`, `speechLanguage`, `personaId`, `portraitImageAlias`, `voiceKey`) on `RuntimeVideoGenerateRequest` + symmetric `requested*` echoes on `RuntimeVideoGenerateToolResult` + pass-through on `ProviderGatewayVideoGenerateRequest`. Structural validation in runtime tool service: `mode === "talking_avatar"` requires speechText + speechLanguage + XOR(personaId, portraitImageAlias); `mode === "cinematic"` or absent ignores new fields. Provider-gateway DTO accepts and forwards new fields; HeyGen branch retains Slice 2a placeholder throw. NO multi-character refusal in code (operator-superseded original spec clause; single-speaker rule moves to Slice 8 tool description). Tool projection JSON Schema unchanged (Slice 8 + 9 will wire). 10/10 verification gates green; invariant #15 verified (XOR is pure boolean, no regex/parsing). ADR-108 (Vcoin substrate) is fully closed and verified live.
 
 ## Context
 
@@ -341,37 +341,44 @@ Persona-aware path requires slice 5. Ad-hoc-only path can in principle launch at
 
 ### Slice 3 - Mode contract + tool projection
 
-**Scope**
+**Note (2026-06-04):** Original spec contained "Multi-character heuristic at request validation: refuse `>1 personaId` or detection of more than one named speaker pattern in speech text. Honest error code `multi_character_not_supported`." — the second half (parsing speech text) violates cross-slice invariant #15 (no keyword routing / no message-body parsing). **Operator superseded this clause: NO multi-character refusal in code anywhere. The `personaId` field is single-valued by type (multi-character is structurally impossible). The single-speaker rule lives ONLY in the LLM-facing tool description that Slice 8 will write — the model decides via instruction, not via code-side regex or counting.** Original "tool projection exposes new fields when plan has `talkingVideoEnabled` or `mode` is `cinematic`" wording was also imprecise; revised approach: Slice 3 lands types + structural validation + gateway pass-through ONLY. Tool projection JSON Schema for the new fields is deferred to Slice 8 (which owns tool description) + Slice 9 (which owns the plan toggle that lights up the talking-avatar tool surface).
 
-- Add `RuntimeVideoGenerateMode = "cinematic" | "talking_avatar"`.
-- Add new request fields (`speechText`, `speechLanguage`, `personaId`, `portraitImageAlias`, `voiceKey`).
-- Tool projection in `apps/runtime/src/modules/turns/native-tool-projection.ts` exposes the new fields only when the plan has `talkingVideoEnabled` or `mode` is `cinematic`.
-- Validation: `talking_avatar` requires speech text + language + (personaId XOR portraitImageAlias).
-- Multi-character heuristic at request validation: refuse `>1 personaId` or detection of more than one named speaker pattern in speech text. Honest error code `multi_character_not_supported`.
+**Scope (revised)**
+
+- Add `RuntimeVideoGenerateMode = "cinematic" | "talking_avatar"` const + type + type guard in `packages/runtime-contract/src/index.ts`.
+- Add new optional request fields (`mode`, `speechText`, `speechLanguage`, `personaId`, `portraitImageAlias`, `voiceKey`) to `RuntimeVideoGenerateRequest` and symmetric `requested*` echoes on `RuntimeVideoGenerateToolResult`.
+- Symmetric pass-through fields on `ProviderGatewayVideoGenerateRequest` so the runtime → provider-gateway transport carries them.
+- Structural validation in `runtime-video-generate-tool.service.ts`: when `mode === "talking_avatar"`, require non-empty `speechText` + non-empty `speechLanguage` + exactly one of `personaId` / `portraitImageAlias`. When `mode === "cinematic"` or absent, silently ignore new fields (legacy behavior preserved).
+- Provider-gateway DTO acceptance of the new fields (defensive type-rejection of malformed values with honest 400; HeyGen branch retains the Slice 2a placeholder throw).
 
 **Scope OUT (forbidden in this slice)**
 
-- Any provider-gateway code (Slice 6 owns it).
-- Any runtime execution path for `talking_avatar` (Slice 7 owns it).
-- Persona table or persona service (Slice 5).
+- Tool projection JSON Schema for new fields and any tool description text (Slice 8 + 9 territory).
+- Plan toggle `talkingVideoEnabled` (Slice 9).
+- Any runtime execution path for `talking_avatar` rendering (Slice 7).
+- Persona table or persona service (Slices 4-5).
 - ADR-108 wallet code paths.
 - Cinematic request shape — must round-trip identical bits.
+- Multi-character refusal in code (operator directive — Slice 8 tool description holds the single-speaker rule).
 
 **Forbidden patterns**
 
 - Auto-defaulting `mode` to `"talking_avatar"` if `speechText` is present — `mode` must be an explicit top-level field set by the model.
-- Pattern-matching speech text for named speakers via regex outside the documented multi-character heuristic (which is a structural count, not a keyword list).
+- ANY regex / string matching / keyword detection / message-body parsing of `speechText`, `prompt`, or user input (invariant #15 NON-NEGOTIABLE).
+- Counting `personaIds` for multi-character refusal — the type is single-valued, multi-character is structurally impossible.
 - Hiding cinematic fields when `mode = "cinematic"` — the cinematic surface must remain unchanged.
 
 **Required tests**
 
 - `mode = "cinematic"` round-trips unchanged.
 - `mode = "talking_avatar"` validates required fields.
-- Multi-character refusal returns a stable error code.
+- ~~Multi-character refusal returns a stable error code.~~ Superseded by operator directive (see note above): no multi-character refusal in code; single-speaker rule lives in Slice 8 tool description.
 
 **Exit**
 
-- Tool schema is talking-avatar-ready (still not callable until slice 7).
+- Request contract is talking-avatar-ready and structurally validated (still not callable end-to-end until Slice 6 lands HeyGen HTTP client + Slice 7 wires the execution path).
+
+**Status (2026-06-04): Completed.** Baseline SHA `1331c2e9` (Slice 2b closure). Subagent: GPT-5.4 medium (first hire on this project). Initial run honestly stopped on a false-positive "dirty tree" blocker (subagent interpreted the COMMITTED Slice 2b changes in `runtime-contract/src/index.ts` + `native-tool-projection.ts` as uncommitted working-directory drift); orchestrator confirmed `git status: nothing to commit, working tree clean` and resumed the subagent with clarification. Second run delivered cleanly. 6 files modified, all Scope IN (+568 / -6): `packages/runtime-contract/src/index.ts` (`RUNTIME_VIDEO_GENERATE_MODES`, `RuntimeVideoGenerateMode`, `isRuntimeVideoGenerateMode`, extended `RuntimeVideoGenerateRequest` with 6 optional new fields, extended `RuntimeVideoGenerateToolResult` with 6 symmetric `requested*` echoes, extended `ProviderGatewayVideoGenerateRequest` for transport pass-through); `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts` (defensive structural parsing of new args via existing `asNonEmptyString` helper; structural XOR validation `hasPersonaId === hasPortrait` for personaId/portraitImageAlias; mode-gated forwarding to gateway request `ONLY when mode === "talking_avatar"`; new private helpers `buildRequestedTalkingAvatarEchoes` and `buildGatewayTalkingAvatarFields`; symmetric echo additions to 14 `payload:` sites); `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts` (`normalizeInput` accepts new fields with defensive type-rejection 400s; HeyGen `case` keeps Slice 2a placeholder throw). Tests augmented: `runtime-video-generate-tool.service.test.ts` 7 focused scenarios (persona happy path, portrait happy path, cinematic-ignores-extras, missing-speechText-throws, missing-speechLanguage-throws, both-persona-and-portrait-throws-XOR, neither-persona-nor-portrait-throws-XOR); `provider-gateway.client.service.test.ts` assertion that new fields serialize into HTTP body; `provider-video-generation.service.test.ts` pass-through assertions + cinematic non-injection + defensive type-rejections + Slice 2a HeyGen-placeholder regression test. Verification (all 10 PASS): recursive lint, root format:check, api/web/runtime/provider-gateway typechecks, 4 focused tests, Slice 2b sanity test on `native-tool-projection.test.ts`. Cross-slice invariants 1–15 verified true; specifically #15 NON-NEGOTIABLE — zero regex, zero string matching, zero message-body parsing introduced; XOR check is pure boolean equality on `null`-vs-non-`null` field presence; `mode` is an explicit field set by the LLM, never inferred from any text content. NO multi-character refusal in code anywhere (operator directive). Tool projection JSON Schema and tool description text remain unchanged (Slice 8 + 9 will wire them with the plan toggle). Deploy: RUNTIME + PROVIDER-GATEWAY. No migration. No feature flag.
 
 ### Slice 4 - HeyGen voice catalog cache
 

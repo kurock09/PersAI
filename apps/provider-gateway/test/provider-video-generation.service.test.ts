@@ -298,4 +298,86 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
       }),
     /accepted_primary_unconfirmed/i
   );
+
+  // ADR-109 Slice 3: structurally accept talking-avatar fields and pass them
+  // through to the provider client. Slice 6 will wire them into HeyGen's HTTP
+  // surface; today the gateway just forwards them faithfully without coercing
+  // cinematic-only requests to carry empty fields.
+  const talkingAvatarPassThroughCalls = openaiProviderClient.calls.length;
+  const talkingAvatarPassThrough = await service.generateVideo({
+    ...createRequest({ model: "sora-2-pro" }),
+    mode: "talking_avatar",
+    speechText: "Welcome to PersAI.",
+    speechLanguage: "en-US",
+    personaId: "persona-anya",
+    portraitImageAlias: null,
+    voiceKey: "anya-warm"
+  });
+  assert.equal(talkingAvatarPassThrough.provider, "openai");
+  const talkingAvatarPassThroughInput =
+    openaiProviderClient.calls[talkingAvatarPassThroughCalls]?.input;
+  assert.equal(talkingAvatarPassThroughInput?.mode, "talking_avatar");
+  assert.equal(talkingAvatarPassThroughInput?.speechText, "Welcome to PersAI.");
+  assert.equal(talkingAvatarPassThroughInput?.speechLanguage, "en-US");
+  assert.equal(talkingAvatarPassThroughInput?.personaId, "persona-anya");
+  assert.equal(talkingAvatarPassThroughInput?.portraitImageAlias, null);
+  assert.equal(talkingAvatarPassThroughInput?.voiceKey, "anya-warm");
+
+  // ADR-109 Slice 3: cinematic / unspecified mode must NOT inject talking-avatar
+  // keys into the normalized payload. This protects existing pass-through tests
+  // and confirms the gateway does not silently add talking-avatar surface where
+  // none was requested.
+  const cinematicPassThroughCalls = openaiProviderClient.calls.length;
+  await service.generateVideo({
+    ...createRequest({ model: "sora-2-pro" }),
+    mode: "cinematic"
+  });
+  const cinematicPassThroughInput = openaiProviderClient.calls[cinematicPassThroughCalls]?.input;
+  assert.equal(cinematicPassThroughInput?.mode, "cinematic");
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(cinematicPassThroughInput ?? {}, "speechText"),
+    false
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(cinematicPassThroughInput ?? {}, "personaId"),
+    false
+  );
+
+  // ADR-109 Slice 3: defensive type checks. Hostile mode / non-string speechText
+  // must surface as honest 400s, not silently coerce.
+  await assert.rejects(
+    () =>
+      service.generateVideo({
+        ...createRequest({ model: "sora-2-pro" }),
+        mode: "talking_garbage" as never
+      }),
+    /mode must be one of/i
+  );
+  await assert.rejects(
+    () =>
+      service.generateVideo({
+        ...createRequest({ model: "sora-2-pro" }),
+        speechText: 123 as never
+      }),
+    /speechText must be a non-empty string or null/i
+  );
+
+  // ADR-109 Slice 2a: HeyGen runtime execution remains the documented placeholder
+  // throw until Slice 6 wires the HeyGen client. Slice 3 must not regress that.
+  await assert.rejects(
+    () =>
+      service.generateVideo({
+        ...createRequest({ model: null }),
+        mode: "talking_avatar",
+        speechText: "Welcome to PersAI.",
+        speechLanguage: "en-US",
+        personaId: "persona-anya",
+        credential: {
+          ...createRequest().credential,
+          secretId: "tool/video_generate/heygen/api-key",
+          providerId: "heygen"
+        }
+      }),
+    /HeyGen runtime execution not yet implemented/i
+  );
 }

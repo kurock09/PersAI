@@ -3,10 +3,13 @@ import {
   PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS,
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
+  RUNTIME_VIDEO_GENERATE_MODES,
   isPersaiRuntimeVideoGenerateModelKey,
+  isRuntimeVideoGenerateMode,
   type PersaiRuntimeVideoGenerateProviderId,
   type ProviderGatewayVideoGenerateRequest,
-  type ProviderGatewayVideoGenerateResult
+  type ProviderGatewayVideoGenerateResult,
+  type RuntimeVideoGenerateMode
 } from "@persai/runtime-contract";
 import { KlingProviderClient } from "./kling/kling-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
@@ -116,6 +119,10 @@ export class ProviderVideoGenerationService {
         : this.normalizeReferenceImage(input.referenceTailImage);
     const model = this.normalizeModel(input.model, providerId);
     const voiceIds = this.normalizeVoiceIds(input.voiceIds);
+    // ADR-109 Slice 3: structural pass-through of talking-avatar fields. The
+    // gateway accepts and forwards them; HeyGen-specific runtime execution is
+    // Slice 6 (the case branch still throws the Slice 2a placeholder).
+    const talkingAvatarFields = this.normalizeTalkingAvatarFields(input);
 
     return {
       prompt: input.prompt.trim(),
@@ -131,8 +138,86 @@ export class ProviderVideoGenerationService {
         toolCode: "video_generate",
         secretId: input.credential.secretId.trim(),
         providerId
-      }
+      },
+      ...talkingAvatarFields
     };
+  }
+
+  // ADR-109 Slice 3: defensive structural parsing of talking-avatar fields. The
+  // runtime side already validates the talking_avatar XOR (personaId vs
+  // portraitImageAlias) and required speech fields. This layer only enforces
+  // simple type/length invariants so a hostile or malformed payload cannot
+  // smuggle non-string values through. Conditional spread keeps the shape
+  // identical for cinematic requests so existing pass-through tests stay green.
+  private normalizeTalkingAvatarFields(input: ProviderGatewayVideoGenerateRequest): Partial<{
+    mode: RuntimeVideoGenerateMode | null;
+    speechText: string | null;
+    speechLanguage: string | null;
+    personaId: string | null;
+    portraitImageAlias: string | null;
+    voiceKey: string | null;
+  }> {
+    if (
+      input.mode === undefined &&
+      input.speechText === undefined &&
+      input.speechLanguage === undefined &&
+      input.personaId === undefined &&
+      input.portraitImageAlias === undefined &&
+      input.voiceKey === undefined
+    ) {
+      return {};
+    }
+    const out: Partial<{
+      mode: RuntimeVideoGenerateMode | null;
+      speechText: string | null;
+      speechLanguage: string | null;
+      personaId: string | null;
+      portraitImageAlias: string | null;
+      voiceKey: string | null;
+    }> = {};
+    if (input.mode !== undefined) {
+      if (input.mode === null) {
+        out.mode = null;
+      } else if (isRuntimeVideoGenerateMode(input.mode)) {
+        out.mode = input.mode;
+      } else {
+        throw new BadRequestException(
+          `mode must be one of ${RUNTIME_VIDEO_GENERATE_MODES.join(", ")} or null`
+        );
+      }
+    }
+    if (input.speechText !== undefined) {
+      out.speechText = this.normalizeOptionalNonEmptyString(input.speechText, "speechText");
+    }
+    if (input.speechLanguage !== undefined) {
+      out.speechLanguage = this.normalizeOptionalNonEmptyString(
+        input.speechLanguage,
+        "speechLanguage"
+      );
+    }
+    if (input.personaId !== undefined) {
+      out.personaId = this.normalizeOptionalNonEmptyString(input.personaId, "personaId");
+    }
+    if (input.portraitImageAlias !== undefined) {
+      out.portraitImageAlias = this.normalizeOptionalNonEmptyString(
+        input.portraitImageAlias,
+        "portraitImageAlias"
+      );
+    }
+    if (input.voiceKey !== undefined) {
+      out.voiceKey = this.normalizeOptionalNonEmptyString(input.voiceKey, "voiceKey");
+    }
+    return out;
+  }
+
+  private normalizeOptionalNonEmptyString(value: unknown, fieldName: string): string | null {
+    if (value === null) {
+      return null;
+    }
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new BadRequestException(`${fieldName} must be a non-empty string or null`);
+    }
+    return value.trim();
   }
 
   private normalizeReferenceImage(input: ProviderGatewayVideoGenerateRequest["referenceImage"]): {
