@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-06-03). Depends on ADR-108 at minimum through slice 3 (settle path debit + monthly grant). Parallel to ADR-102.
+Proposed (2026-06-03). Depends on ADR-108 at minimum through slice 3 (settle path debit + monthly grant). Parallel to ADR-102. **Slice 0 Completed (2026-06-04)** — baseline SHA, HeyGen v3 API truth, and 6 binding UX decisions recorded; see `## Slice 0 erratum (2026-06-04)` at the bottom of this ADR for the binding amendments that supersede the original slice specs where they conflict. ADR-108 (Vcoin substrate) is fully closed and verified live.
 
 ## Context
 
@@ -286,6 +286,8 @@ Persona-aware path requires slice 5. Ad-hoc-only path can in principle launch at
 **Exit**
 
 - Provider truth is written down. No code change.
+
+**Status (2026-06-04): Completed.** HeyGen v3 API truth (8 sections) + 6 binding UX decisions recorded. Baseline SHA `24d1d6ca89b92149a94d77c87c4c3af18cbbbd6c`. Source-of-truth landed in `docs/SESSION-HANDOFF.md` (`2026-06-04 — ADR-109 Slice 0` block). Binding amendments to the original slice specs (E1–E6, plus new Slice 10b for time-based talking-video banner UX, plus cross-slice invariants #14 and #15) recorded in `## Slice 0 erratum (2026-06-04)` at the bottom of this ADR. Later slices read both the original spec and the erratum; on conflict, **erratum wins**.
 
 ### Slice 1 - HeyGen credential + Admin Tools UI
 
@@ -677,3 +679,227 @@ Deferred. Requires either a HeyGen multi-scene API (if/when available) or PersAI
 - [ ] ADR-107 line 39-40 exception for HeyGen recorded in this ADR and cross-referenced in ADR-107 if needed.
 - [ ] Full verification gate PASS.
 - [ ] Live smoke in `persai-dev` recorded for one ad-hoc and one persona-based talking video.
+
+## Slice 0 erratum (2026-06-04)
+
+The original ADR-109 (Proposed 2026-06-03) drafted slice specs before HeyGen API truth was empirically confirmed and before the user-facing UX gestures were agreed. Slice 0 closed both gaps. This erratum records the binding amendments. **Later slices read both the original spec and this erratum; on conflict, the erratum wins.** Slice specs above are not edited in place so the diff history of the original plan stays legible.
+
+### E1 — Scenario B retired from runtime
+
+**Supersedes:** § Decision § "User scenarios" § Scenario B; § Slice 5 spec; § Slice 7 spec; § Slice 10 spec.
+
+**Decision:** persona creation is **REST-only**. The only mutator surface is the HTTP endpoint hit by the Settings → Characters create form. Runtime never creates a persona during tool execution. The model, when it detects an explicit "save as <name>" intent, **advises** the user in chat to create the persona via Settings → Characters; it does not have a `create_persona` tool to call.
+
+**Why:** simpler runtime, smaller surface area, no need for runtime to learn "save as" intent, no risk of phantom personas from misclassified intents, no runtime-side VC debit path (the REST endpoint owns the transaction).
+
+**Slice impact:**
+
+- **Slice 5** stays as planned: `workspace_video_personas` table + CRUD service + HTTP endpoints + per-workspace limit (`heygenPersonaWorkspaceLimit`, default 10) + creation cost (`heygenPersonaCreationVcoin`, default 20 VC). Only the **REST endpoint** triggers it. No runtime caller. The endpoint runs the create + VC debit in ONE Prisma transaction (rollback persona row if debit fails).
+- **Slice 7** is narrowed to Scenarios **A** (ad-hoc photo, no persona persistence) and **C** (persona reuse by `personaId`). Scenario B is removed from runtime entirely.
+- **Slice 10** tool description teaches the model to advise persona creation in Settings when it detects intent; never to call a non-existent `create_persona` tool.
+
+### E2 — Voice preview as a hard requirement everywhere `voice_id` appears
+
+**Supersedes:** § Slice 4 spec; § Slice 9 spec.
+
+**Decision:** every surface that displays or selects a `voice_id` must offer audio preview playback via a shared `<VoicePreviewButton voiceId={...} />` component. Surfaces:
+
+- Settings → Characters → create form (voice picker; preview per voice option).
+- Settings → Characters → persona card list (preview the persona's voice).
+- Chat → disambiguation card list (preview each candidate's voice when names collide).
+- Future chat surfaces that show voice metadata.
+
+**Primary path:** consume `preview_audio_url` straight from `GET /v3/voices` (HeyGen-hosted). No re-hosting, no transcoding.
+
+**Fallback path** (when `preview_audio_url === null` for a voice): Slice 4's cache refresh generates a short preview ("Hello, I can talk" or locale-appropriate equivalent) once per 24h TTL via `POST /v3/voices/speech` (Starfish-compatible voices only — filter `?engine=starfish`). Mp3 stored in PersAI blob storage. URL served to the client. **Cost is platform-paid** ($0.000667/sec × ~3s ≈ $0.002 per voice per refresh), never debited to the user wallet.
+
+**Slice impact:**
+
+- **Slice 4** scope expands: cache shape gains `previewAudioUrl: string` per voice (always non-null after first refresh); the cache row stores both HeyGen-native preview URLs and PersAI-generated fallback URLs uniformly so callers do not branch.
+- **Slice 9** scope expands: voice picker UI includes preview button per option; persona card list includes preview button per row.
+- New shared web component: `apps/web/app/_components/voice-preview-button.tsx` (audio play/pause with loading state). Built in Slice 9 alongside Characters UI.
+
+**Cost guard:** if HeyGen reports voice has `engine != "starfish"` AND `preview_audio_url === null`, the cache row carries `previewAudioUrl: null` and the UI hides the preview button for that voice (rather than generating an empty/silent fallback). This is degraded UX, not a failure — confirmed acceptable in MVP.
+
+### E3 — Talking-video banner UX is time-based (not phase-mapped) — NEW Slice 10b
+
+**Supersedes:** § Decision § "User scenarios" (banner mentioned implicitly); § Slice 10 spec (Slice 10 still owns tool description only).
+
+**Why this is needed:** HeyGen poll endpoint (`GET /v3/videos/{id}`) returns only `status: "pending" | "processing" | "completed" | "failed"`. No `progress: 0..100`, no `eta_seconds`, no nested `stage`/`phase`. Third-party signals indicate "1–3 minutes to render a 1-minute video" and HeyGen recommends webhooks over polling in production. A static "video processing…" banner on a 5-minute render reads as a hang.
+
+**Decision:** add a **new Slice 10b — Talking-video banner UX (time-based)**. Pure-web slice. No backend changes. No `media_jobs.phase` column. No new contract fields.
+
+**New Slice 10b specification:**
+
+```
+### Slice 10b - Talking-video banner UX (time-based)
+
+Type: WEB only. No deploy of API/runtime/contracts.
+
+Scope
+- Detect that the active media job is talking-avatar (vs cinematic) on the client side, from the existing job snapshot (e.g. the `video_generate` ref provider key visible on the persisted artifact metadata, or a new optional `displayKind: "talking_avatar"` field on the active job DTO that the runtime can set when it accepts the job).
+- Add a time-based banner copy rotation that swaps the user-visible banner text as elapsed time crosses thresholds. Suggested thresholds (locale-overridable):
+  - 0–30s: "Готовим аватар…" / "Preparing avatar…"
+  - 30s–2min: "Синтезируем голос…" / "Synthesizing voice…"
+  - 2–5min: "Видео рендерится…" / "Rendering video…"
+  - 5+ min: "Финальный проход, скоро будет готово…" / "Final pass, almost there…"
+- Cinematic banner stays as today (preserves cross-slice invariant 1). The rotation applies only when the active job is talking-avatar.
+- Banner copy lives in `apps/web/messages/en.json` and `ru.json` under a stable namespace (e.g. `chat.talkingAvatarBanner.stage1` … `stage4`).
+- No timer in the i18n strings themselves; the React component owns the elapsed-time tracking and reads the localized strings.
+
+Scope OUT
+- Backend changes (runtime, API, contracts, provider-gateway).
+- Cinematic banner copy or behavior.
+- Real progress / ETA estimation (HeyGen does not surface it).
+- Persisting elapsed-time stamps in the database.
+
+Forbidden patterns
+- Querying provider status more aggressively to extract phase info — none exists.
+- Adding phase strings to runtime job snapshot that the runtime cannot honestly populate from HeyGen.
+- Hard-coding banner copy strings outside the i18n catalog.
+
+Required tests
+- Web component test: given a mock active talking-avatar job with elapsed time X seconds, asserts the correct banner stage string is rendered.
+- Web component test: given a cinematic job, asserts the legacy banner copy renders unchanged.
+
+Exit
+- Long HeyGen renders feel alive instead of hung.
+
+Deploy
+- WEB only.
+```
+
+Slice 10b lands after Slice 10 (tool description) and before Slice 11 (smoke). It can in principle land earlier if the active-job DTO already carries enough information to distinguish talking-avatar from cinematic on the web.
+
+### E4 — Settings Characters section: locked-with-upsell when plan toggle is off
+
+**Supersedes:** § Slice 9 spec ("Hidden when plan `talkingVideoEnabled` is false").
+
+**Decision:** when `talkingVideoEnabled = false` on the active plan, the Characters section is **visible but disabled**, not hidden. Disabled state shows:
+
+- The section title and position (between Character #1 and Limits #2) so users know the feature exists.
+- A quiet upsell hint, e.g. "Доступно на тарифе X+" / "Available on Plan X+", with an inactive-style link to `/pricing`.
+- Any persona cards the workspace already owns (e.g. created during an upgrade trial) remain visible but disabled: no edit, no delete, no use. A small banner explains "Эти персонажи будут доступны снова при активации тарифа" / "These characters will be usable again when the plan is reactivated".
+- No create form, no upload affordances.
+
+**Tone:** quiet conversion hint, not a sales banner. Aligns with "не шумно" (user directive 2026-06-04). Runtime still hard-rejects talking-avatar render with `feature_unavailable` when the toggle is off (existing Slice 7 plan-gate validation).
+
+**Slice impact:** Slice 9 must produce two visual states (enabled + disabled) and a tiny i18n entry for the upsell hint.
+
+### E5 — Persona creation is REST-only — new cross-slice invariant #14
+
+Reinforces E1 as a permanent constraint:
+
+> **#14. Persona creation is REST-only.** Runtime tool calls never create personas. The only mutator surface for `workspace_video_personas` is the HTTP endpoint hit by the Settings → Characters form. Any future "create persona via chat" feature requires a new ADR.
+
+### E6 — HeyGen integration targets v3 only
+
+**Supersedes:** § Slice 1 spec (credential setup), § Slice 6 spec (provider client implementation).
+
+**Decision:** every HeyGen API call PersAI makes uses **v3** endpoints against `https://api.heygen.com`. Auth header: `X-Api-Key: <key>`. Submit requests always carry an `Idempotency-Key` header (UUID per logical attempt). PersAI never calls v1/v2 endpoints (e.g. `POST /v2/video/generate` with `character.type: "talking_photo"`, `POST /v1/talking_photo`, `GET /v1/video_status.get`) even though they remain accepted until 2026-10-31. This avoids inheriting the v1/v2 sunset deadline and the documented v2 `talking_photo` lip-sync/billing bugs.
+
+**Slice impact:**
+
+- Slice 6 provider client uses `POST /v3/videos` (with `type: "image"` for Scenario A and `type: "avatar"` for Scenario C), `GET /v3/videos/{video_id}` for poll, `POST /v3/avatars` for lazy avatar create, `DELETE /v3/avatars/looks/{look_id}` + `DELETE /v3/avatars/{group_id}` for persona delete cascade.
+- Slice 4 voice cache uses `GET /v3/voices` and (fallback) `POST /v3/voices/speech`.
+
+### E7 — Defensive status parsing — new cross-slice invariant #15 (anti-keyword-routing reinforcement)
+
+Reinforces user directive (2026-06-04) that PersAI must never keyword-route or parse message bodies:
+
+> **#15. No keyword routing, no message-body parsing, no string-matching for behavior decisions, anywhere in PersAI code.** The model decides via tool description; PersAI code only handles structural data. This includes:
+> - Mode selection (`mode: "cinematic" | "talking_avatar"`) is set explicitly by the model, never inferred from `speechText` content, photo presence, or any other request body inspection.
+> - Persona resolution is exact-name equality (case-insensitive Unicode) against the workspace registry; no fuzzy match, no regex, no keyword list.
+> - Multi-character detection uses **structural** signals only (e.g. `>1 personaId` field, or strict structural parse like "more than one named-speaker block in the speech script"). Never a keyword list of names.
+> - Persona-creation intent ("save this as Masha") is detected by the model (tool description) and surfaced as advice; PersAI code does not parse this string.
+> - Disambiguation choice: structured tool result `{status: "needs_disambiguation", candidates: [...]}` lets the chat render cards; the user clicks; the model re-issues `video_generate` with the chosen `personaId`. The chat code does not parse anything.
+> - HeyGen poll status: defensive parsing treats any non-terminal status value as "in progress" (the documented `pending`/`processing`/`completed`/`failed` enum plus the `waiting` value seen in create responses; any future undocumented value follows the same rule).
+
+This invariant binds every slice from this point on. A subagent that introduces keyword/regex/string-match routing must have its diff rejected.
+
+### E8 — Tool result shape: `needs_disambiguation` variant
+
+**Supersedes:** § Slice 7 spec (implicit).
+
+**Decision:** the `video_generate` tool result type gets a new discriminated-union member returned when persona name resolves to more than one row:
+
+```ts
+type RuntimeVideoGenerateResult =
+  | { status: "accepted"; jobId: string; /* existing fields */ }
+  | { status: "failed"; reason: string; code: string }
+  | { status: "needs_disambiguation"; candidates: Array<{
+      personaId: string;
+      displayName: string;
+      portraitUrl: string;
+      voiceId: string;
+      voiceLabel: string;
+      voicePreviewUrl: string | null;
+      createdAtIso: string;
+    }> };
+```
+
+When the chat sees `status: "needs_disambiguation"`, it renders the candidate list as cards (shared `<PersonaCard>` component built in Slice 9). User clicks one card → next model turn calls `video_generate` with the chosen `personaId` → resolves uniquely → proceeds normally. The model receives the candidate list in the tool result and can also render the disambiguation as text if the UI does not enable cards (graceful degradation).
+
+**Slice impact:** Slice 3 (contract) defines the union member. Slice 7 (runtime) returns it on ambiguous lookup. Slice 9 / Slice 10 / Slice 10b extend the chat rendering layer to display cards (lives in `apps/web/app/app/_components/chat-message.tsx` or a new sibling component).
+
+### E9 — Ad-hoc voice selection (revised 2026-06-04 20:18 MSK)
+
+**Supersedes:** an earlier draft of this erratum item that proposed runtime picking the first RU preset as a hardcoded default. Rejected after user feedback — that would be runtime "guessing", which violates cross-slice invariant #15 (no behavior decisions in PersAI code) and diverges from the proven ADR-107 Slice 4 Kling `voice_control` pattern.
+
+**Decision:** the **model picks `voiceKey` explicitly**, the same way it already picks Kling `voiceIds[]` / `voiceKeys[]` under ADR-107 Slice 4 `audioMode: "voice_control"`.
+
+- **Scenario A (ad-hoc):** the materialized tool bundle exposes the HeyGen voice shortlist (Slice 4 cache, attached as `videoVoiceCatalog` per Slice 4 spec). Each shortlist entry carries `voice_id`, `name`, `language`, `gender`, `preview_audio_url`, and (where present) tag/style metadata. The tool description teaches the model to pick a voice that fits the user's context (brand persona, requested gender/mood, language). The model passes the chosen `voiceKey` (= HeyGen `voice_id`) in the `video_generate` tool call. **Runtime does NOT pick a default.** If `mode = "talking_avatar"` is Scenario A and `voiceKey` is missing, runtime fails honestly with `voice_required` so the model retries the same tool call with an explicit pick. This is exactly the Kling `voice_control` failure honesty pattern (`requested_mode_unsupported` for missing voice ids).
+- **Scenario C (persona reuse):** voice is already fixed on the persona row (`heygen_voice_id`, chosen by the user in Settings → Characters → Create). The model does not override it. If the user explicitly says "use a different voice" and the model passes an explicit `voiceKey`, runtime accepts the per-call override without mutating the persona row.
+
+**Why this is better than the hardcoded default:**
+
+- Honest. Code never "guesses" — the model decides based on the actual request context (e.g. "женский нежный для парфюмерии", "мужской низкий для рекламы автосалона", "детский для мультика про игрушки").
+- Consistent with the ADR-107 Slice 4 pattern PersAI already ships and validates for Kling — no new architectural muscle, just reuse.
+- Failure mode is loud, not silent. If the model misses the field, the user sees an honest retry, not the wrong voice playing.
+- No assistant-level default-voice setting needed for MVP. A future ADR may add one if usage shows heavy ad-hoc traffic with predictable voice preference per assistant.
+
+**Slice impact:**
+
+- **Slice 3 (tool projection):** `voiceKey` field on `talking_avatar` request shape; tool description includes the voice shortlist (mirrors how the bundle already injects voice catalog for Kling under `voice_control`).
+- **Slice 4 (voice cache):** shortlist shape is the same as Kling's `videoVoiceCatalog` attach (provider key `heygen`, voice list with metadata + preview URL). Slice 4 spec already calls for this — E2 just adds `preview_audio_url` guarantee on top.
+- **Slice 7 (runtime execution):** validation for Scenario A requires `voiceKey` to be present in the request; missing → `voice_required` honest error; runtime never reads a default from constants or env. For Scenario C, runtime reads `heygen_voice_id` from the persona row unless `voiceKey` was explicitly set in the request (per-call override).
+- **Slice 10 (tool description):** teaches the model how to pick from the shortlist by context — gender, language, tags. Same template the Kling voice_control description already uses.
+
+### E10 — Webhook vs polling: polling for MVP (consistent with Runway/Kling)
+
+**Adds clarification not in original ADR.**
+
+HeyGen recommends webhooks (`callback_url` in create body or `POST /v3/webhooks/endpoints`) over polling in production. PersAI's existing Runway/Kling/OpenAI video providers all use polling via `pollMediaJobs` scheduler. For MVP, **HeyGen also uses polling** for consistency. Webhook adoption is a separate optimization slice after the program lands and produces real traffic data.
+
+**Slice impact:** Slice 6 provider client uses polling. Polling cadence default = 10s (matching HeyGen v3 quick-start), tolerant to the 5–30s spread documented across HeyGen sources. Polling-loss tolerance follows the existing Runway/Kling pattern.
+
+### E11 — "Tool description" terminology + Admin Presets editor (added 2026-06-04 20:21 MSK)
+
+**Clarifies what "tool description" means across this ADR (no new behavior, terminology pinning only).**
+
+Throughout this ADR (notably § Decision § "Cost model", § Slice 10 spec, and erratum items E1/E7/E8/E9) the phrase "tool description" refers to the text that LLMs see in the function/tool JSON schema for `video_generate`, NOT a user-visible UI string. Concretely:
+
+- **Code default** lives in `apps/runtime/src/modules/turns/native-tool-projection.ts::createVideoGenerateToolDefinition` (and the sibling `voiceCatalogHint` helper). This is what Slice 10 and Slice 4 (voice shortlist hint) actually edit.
+- **Admin live override** is available via the existing `/admin/presets` editor (`apps/web/app/admin/presets/page.tsx::ToolPromptState`), which exposes per-tool `codeDefaultModelDescription`, `modelDescription` (override), `modelUsageGuidance` (override), and `modelDescriptionOverridden` / `modelUsageGuidanceOverridden` flags. The runtime resolver `resolveToolDefinitionDescription(policy, codeDefault)` returns the override when present, otherwise the code default. Same pattern already governs every other native tool.
+- **Implication for Slice 10:** Slice 10 only changes the code default in `native-tool-projection.ts`. The `/admin/presets` editor automatically picks up the new code default in its "Code default" column and lets operators override per-deployment without a code change. No new admin UI is needed for ADR-109 — `/admin/presets` already covers it.
+- **Implication for Slice 4:** the HeyGen voice shortlist hint (analogous to the existing Kling `voiceCatalogHint`) is generated at projection time inside `native-tool-projection.ts` and concatenated into the same `description` string. Slice 4 cache supplies the shortlist data; Slice 10 wires the hint string.
+
+This is terminology pinning. No prior erratum item changes substantively because of E11 — the architecture was already correct, the word "tool description" was just under-specified.
+
+---
+
+### Erratum-induced acceptance checklist additions
+
+Append to § Acceptance checklist above when implementation lands:
+
+- [ ] No `apps/runtime/**` file mutates `workspace_video_personas` (E1, invariant #14).
+- [ ] Every `voice_id`-rendering UI surface uses the shared `<VoicePreviewButton>` component (E2).
+- [ ] Voice cache populates `previewAudioUrl` from HeyGen native URL OR PersAI-generated fallback (E2).
+- [ ] Talking-video banner copy rotates by elapsed time on talking-avatar jobs only (E3, Slice 10b).
+- [ ] Cinematic banner copy unchanged (E3, invariant #1).
+- [ ] Settings Characters section is visible-with-upsell (not hidden) when toggle is off (E4).
+- [ ] PersAI code calls only HeyGen v3 endpoints (E6).
+- [ ] `Idempotency-Key` header present on every `POST /v3/videos` submit (E6).
+- [ ] HeyGen poll defensively treats any non-terminal status as in-progress (E7, invariant #15).
+- [ ] `video_generate` result type includes `needs_disambiguation` variant (E8).
+- [ ] No keyword routing / message-body parsing introduced anywhere (E7, invariant #15).

@@ -2,6 +2,95 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-04 — ADR-109 Slice 0: Baseline + HeyGen API truth + UX erratum
+
+### What changed & why
+
+Baseline SHA at session start: `24d1d6ca89b92149a94d77c87c4c3af18cbbbd6c` (post-ADR-108 closure). Tree clean. ADR-109 Slice 0 is the docs-only baseline slice that records HeyGen API source-of-truth and the UX decisions agreed with the user **before** any ADR-109 code lands, so later slices (provider-gateway client, voice cache, persona registry, runtime execution, banner UX) implement against real shapes, not guesses.
+
+This slice landed via the ADR-109 orchestrator execution model: read-only orchestrator + one read-only explore subagent (Claude Opus 4.8 thinking high) that audited `developers.heygen.com` and `docs.heygen.com` and returned a fully cited 8-section report. No code changed. Doc edits limited to `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`, and `docs/ADR/109-heygen-talking-avatar-on-vcoin.md`.
+
+### HeyGen API truth (8 sections)
+
+1. **Photo Avatar Video endpoint.** Current/recommended: `POST /v3/videos` against `https://api.heygen.com`, auth header `X-Api-Key: <key>` (also accepts `Authorization: Bearer`). Two shapes:
+   - `type: "image"` — one-off, no avatar entity created first. Body: `image: {type:"url"|"asset_id"|"base64", ...}`, `script` (1–5000 chars), `voice_id`, `resolution: "4k"|"1080p"|"720p"`, `aspect_ratio: "16:9"|"9:16"` (default 16:9). Optional: `background`, `motion_prompt`, `expressiveness`, `voice_settings: {speed, pitch, volume, locale, engine_settings}`, `output_format: "mp4"|"webm"`, `callback_url`, `callback_id`, `Idempotency-Key` header. Duration is **not user-controlled** — derived from script/audio length. Response on accepted: `{data: {video_id: string, status: string, output_format: string}}`. Initial status seen in example: `"waiting"` (note: not in poll enum — see §5 inconsistency).
+   - `type: "avatar"` — reuse a pre-created HeyGen `avatar_id` (Scenario C reuse path). Same endpoint, body switches `image` → `avatar_id`.
+   - Legacy `POST /v2/video/generate` with `character.type: "talking_photo"` exists but is supported only through 2026-10-31, has community-reported lip-sync/billing issues, and is **NOT** the target.
+
+2. **Voices listing endpoint.** Current: `GET /v3/voices` (legacy `GET /v2/voices`, `GET /v1/voice.list` still exist). Cursor-pagination: `limit` (default 20, max 100), `token`, response `has_more` + `next_token`. Filter params: `language` (e.g. `"Russian"`), `gender`, `type`, `engine`. Voice item shape (v3 `AudioVoiceItem`): `{voice_id, name, language, gender: "male"|"female", preview_audio_url: string|null, support_pause, support_locale, type: "public"|"private"}`. **`preview_audio_url` IS present in v3 schema** — preview works without TTS-generation for most voices. Russian officially supported ("Russian (Russia)"); specific RU `voice_id` and RU voice count are NOT documented (must be enumerated empirically against the live endpoint in Slice 4 or Slice 11).
+
+3. **Sync TTS-only endpoint** (preview fallback when `preview_audio_url === null`): `POST /v3/voices/speech`. Body: `{text (1–5000), voice_id, input_type: "text"|"ssml", speed (0.5–2.0), language, locale}`. Response: `{data: {audio_url, duration, request_id, word_timestamps[]}}`. Returns a URL (not raw bytes). **Only works with Starfish-compatible voices** — filter via `GET /v3/voices?engine=starfish`. Pricing: $0.000667/sec self-serve (≈$0.002 for a 3-second preview — negligible).
+
+4. **Photo avatar lifecycle (lazy create).** Current: `POST /v3/avatars` body `{type: "photo", name: string, file: {type:"url"|"asset_id", ...}, avatar_group_id?}`. Returns `data.avatar_item.id` (this is the `avatar_id` to pass to `POST /v3/videos` with `type:"avatar"`). Examples show synchronous return — readiness latency NOT documented (verify empirically). TTL/retention: NO documented expiration; avatars persist until explicitly deleted; community reports storage-quota pain but no time-based TTL. Delete: `DELETE /v3/avatars/looks/{look_id}` for individual look + `DELETE /v3/avatars/{group_id}` for the parent group; deleting a look alone does NOT auto-delete the group (cascade caveat for Slice 5 persona-delete). Legacy `POST /v1/talking_photo` and `POST /v2/talking_photo` (returning `talking_photo_id`) are deprecated.
+
+5. **Poll endpoint (CRITICAL for banner UX).** `GET /v3/videos/{video_id}`. Status field: `status` with documented values `pending | processing | completed | failed` only. **NO `progress: 0..100` field. NO `eta_seconds`. NO nested `stage`/`phase` sub-field.** Create response uses `"waiting"` which is not in the poll enum — defensive parsing required: any non-terminal value = "in progress". Polling cadence docs inconsistent (5s legacy, 10s v3 quick-start, 15–30s third-party). HeyGen strongly **recommends webhooks over polling** in production: `callback_url` on create body, or register `POST /v3/webhooks/endpoints` with events `avatar_video.success` / `avatar_video.fail`, de-dupe on `Heygen-Event-Id`. Result shape on completion: `{id, status, video_url: string|null (presigned, ≈7-day expiry), thumbnail_url, gif_url, captioned_video_url, subtitle_url, duration: number|null, created_at, completed_at, failure_code, failure_message, video_page_url}`. Typical render time NOT officially documented; third-party signals "1–3 min to render a 1-min video" — banner must be sized for **multi-minute** waits.
+
+6. **Pricing.** **Per-second** billing in **USD** on self-serve pay-as-you-go API tier (deducted from prepaid wallet). Photo Avatar (Avatar IV / default) 720p/1080p = **$0.05/sec**; 4K = $0.0667/sec; Avatar III (legacy v1/v2) = $0.0167/sec (deprecated path, do not use). Avatar creation = **$1.00/call** (separate billable event from the render — this is the cost backing Scenario C lazy-create and matches the default `heygenPersonaCreationVcoin = 20 VC` at default `vcoinExchangeRate = 20`). TTS preview = $0.000667/sec (negligible). Pay-as-you-go credits expire after 12 months. **Poll/result response does NOT return a `credits_used` cost field** — cost must be computed client-side as `duration × rate` (matches existing `record-model-cost-ledger.service.ts::calculateTimeMeteredCostMicros` shape from ADR-099/108). Account balance available via `GET /v3/users/me`. Enterprise: credits-based, "credits consumed only when a job completes successfully" (matches PersAI's settle-on-success rule).
+
+7. **Rate limits and regions.** Concurrency: **10 concurrent video jobs on pay-as-you-go**, 20+ on Enterprise. Exceeding → `429` with `Retry-After` header (`rate_limit_exceeded` error code). Per-minute RPM caps NOT publicly documented (community reports daily caps existing). `Idempotency-Key` header supported on `POST /v3/videos` (1–255 chars, replays original response within 24h; in-flight retry → 409 `request_in_progress`). **Regions / data residency: NOT documented** (flag for HeyGen support if EU/RU residency becomes a requirement). **No free API tier since Feb 2026** — Slice 11 smoke tests cost real USD.
+
+8. **Open questions / empirical follow-ups for later slices.**
+   - Status enum mismatch (`waiting` vs poll's 4 values): treat any non-terminal status as "in progress". Confirm empirically in Slice 11.
+   - Russian voice inventory (count, specific `voice_id`s, Starfish overlap): enumerate live in Slice 4 cache refresh.
+   - `preview_audio_url` null-rate: empirical; fallback to `POST /v3/voices/speech` per Slice 4 erratum.
+   - Photo-avatar create sync vs async readiness latency: verify in Slice 6.
+   - Delete cascade (look + group): verify in Slice 5/6 end-to-end.
+   - `GET /v3/users/me` shape for balance: detail in Slice 6 if we ever expose HeyGen account balance to admins.
+   - Typical render time for ~30s talking-avatar video: empirical timing in Slice 11.
+   - `image-to-video` (`type:"image"`) vs `avatar` (`type:"avatar"`): use `image` for Scenario A (ad-hoc, one-off), `avatar` for Scenario C (persona reuse) — decision rooted in $1 avatar-creation cost being one-time per reuse-able persona.
+
+### UX erratum applied to ADR-109 (recorded in § "Slice 0 erratum (2026-06-04)" inside the ADR)
+
+The orchestrator + user discussion on 2026-06-04 produced 6 binding UX decisions that update the original ADR-109 plan. They are recorded in a dedicated erratum section inside `docs/ADR/109-heygen-talking-avatar-on-vcoin.md` so the original slice specs stay untouched for diff history; the erratum block declares the final intent that supersedes those specs.
+
+- **E1 — Scenario B retired from runtime.** Persona creation is REST-only (Settings form → HTTP endpoint → service). Runtime never creates a persona during tool execution. Model in chat *advises* the user to save a persona via Settings; it does not call a `create_persona` tool. Affects Slice 5 (CRUD service stays, no runtime caller), Slice 7 (runtime handles only Scenarios A + C), Slice 10 (tool description teaches advise-only behavior).
+- **E2 — Voice preview is a hard requirement everywhere `voice_id` appears.** Settings create form, Settings persona list, chat disambiguation cards, chat voice-picker. Implementation: shared `<VoicePreviewButton voiceId={...} />` component. Primary path: `preview_audio_url` straight from `GET /v3/voices` (HeyGen-hosted). Fallback: when `preview_audio_url === null`, Slice 4 cache refresh generates a short preview via `POST /v3/voices/speech` once per 24h TTL, stores the mp3 in PersAI blob storage, and serves the URL. **Preview generation is platform-paid, never debited to the user.**
+- **E3 — Talking-video banner UX is time-based (not phase-mapped).** HeyGen poll returns only `pending|processing|completed|failed` with no `progress`/`eta`/`stage` field. The banner cannot map real phases. Implementation will be a pure-web JS timer that swaps the banner copy in stages by elapsed time (e.g. 0–30s "Готовим аватар…", 30s–2min "Синтезируем голос…", 2–5min "Видео рендерится…", 5+ min "Финальный проход…"). No new backend fields, no `media_jobs.phase` column. Applied only to talking-avatar jobs; cinematic banner copy stays as today (preserves cross-slice invariant 1). Wired in a new **Slice 10b** specified in the erratum.
+- **E4 — Settings Characters section is locked-with-upsell when plan toggle is off.** ADR-109 Slice 9 originally said "Hidden when plan `talkingVideoEnabled` is false". Changed to "Visible with disabled state + quiet upsell hint" ("Доступно на тарифе X+", inactive link to `/pricing`). Existing persona cards (created during an upgrade period) remain visible but disabled (no edit, no delete, no use). Tone: quiet conversion hint, not a banner.
+- **E5 — Persona creation is REST-only (cross-slice invariant #14 added).** No runtime tool call ever creates a persona. The only mutator surface is the HTTP endpoint hit by the Settings form.
+- **E6 — HeyGen integration targets v3 API only.** No v1/v2 endpoints in PersAI code. Auth header normalized to `X-Api-Key` (case-insensitive in practice but standardized for grep-ability). `Idempotency-Key` header on submit. v1/v2 are sunset 2026-10-31; we will not inherit that deadline.
+- **E9 (revised 2026-06-04 20:18 MSK) — ad-hoc voice selection is model-driven, NOT runtime-defaulted.** An earlier draft of E9 proposed runtime hardcoding the first RU preset as a default for Scenario A. Rejected after user feedback — that would be runtime "guessing", violating cross-slice invariant #15. Replaced with the proven ADR-107 Slice 4 Kling `voice_control` pattern: the materialized bundle exposes the HeyGen voice shortlist; the tool description teaches the model to pick `voiceKey` (= HeyGen `voice_id`) by context (gender, language, tags, brand fit); runtime fails honestly with `voice_required` when `mode = "talking_avatar"` Scenario A request omits `voiceKey`. Scenario C (persona reuse) keeps the persona's `heygen_voice_id` unless the model passes an explicit `voiceKey` per-call override. Full text and slice impact recorded in the ADR-109 erratum block § E9. No assistant-level default-voice setting needed for MVP.
+
+### Anti-keyword-routing reinforcement
+
+Per user directive (2026-06-04): no keyword routing or message-body parsing anywhere in PersAI code. The model decides (via tool description) what to do; PersAI code only handles structural data. The erratum reinforces this as cross-slice invariant #15. This applies to:
+
+- Mode selection (`mode: "cinematic" | "talking_avatar"`): set by model, never inferred from `speechText` substring or photo presence.
+- Persona resolution: name equality lookup against the workspace registry only; no fuzzy/keyword/regex match.
+- Multi-character detection: structural (`>1 personaId` or strict named-speaker structural pattern), not keyword list.
+- Settings advice ("save this as Masha"): tool description teaches the model when to suggest, but the assistant never has a `create_persona` tool to call.
+- Disambiguation choice: structured tool-result `{status: "needs_disambiguation", candidates: [...]}` lets the chat render cards; the user selects, the model re-calls `video_generate` with the chosen `personaId`. No code-side keyword routing.
+
+### Files touched
+
+Modified:
+
+- `docs/SESSION-HANDOFF.md` (this entry)
+- `docs/CHANGELOG.md` (one-line bullet)
+- `docs/ADR/109-heygen-talking-avatar-on-vcoin.md` (new `## Slice 0 erratum (2026-06-04)` section appended after `## Acceptance checklist`; Slice 0 spec stamped with `Status (2026-06-04): Completed.`; `## Status` line updated to reflect Slice 0 closure pointer)
+
+### Tests run
+
+Docs-only slice. No tests required. Verification = `git diff` confirms only the three docs files above are touched.
+
+- PASS `git diff --stat` (only `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`, `docs/ADR/109-heygen-talking-avatar-on-vcoin.md` modified; zero changes under `apps/`, `packages/`, `prisma/`, `infra/`, `scripts/`).
+
+### Risks / residuals
+
+- **Empirical gaps in HeyGen docs that block no slice now but must be closed before that slice lands:** Russian voice inventory + Starfish overlap (Slice 4), `preview_audio_url` null-rate (Slice 4), photo-avatar create readiness latency (Slice 6), delete cascade behavior (Slice 5/6), typical render time for sizing banner copy (Slice 10b/11), `GET /v3/users/me` shape (deferred — only relevant if we surface HeyGen wallet to admins).
+- **Webhook vs polling decision deferred to Slice 6/7.** HeyGen recommends webhooks in production, but Runway/Kling currently use polling. Decision: MVP uses polling for consistency with existing providers; webhook adoption is a separate optimization slice after the program lands.
+- **Concurrency limit 10/account.** Operational risk if many workspaces fire simultaneous talking-video jobs. Mitigation: existing `MAX_OPEN_MEDIA_JOBS_PER_CHAT = 2` chat-level guard limits damage; per-workspace queueing is future work.
+- **No documented data-residency.** Flagged for HeyGen support if EU/RU residency becomes a customer requirement. Not blocking the program.
+- **No free API tier.** Slice 11 smoke costs real USD. Budget a small prepaid HeyGen balance before Slice 11.
+
+### Deploy
+
+- **NO deploy.** Docs-only slice.
+
+### Next recommended step
+
+**ADR-109 Slice 1 — HeyGen credential + Admin Tools UI.** Add `tool_video_generate_heygen: "tool/video_generate/heygen/api-key"` to `TOOL_CREDENTIAL_IDS`, render in the existing Video Providers section in `Admin > Tools` alongside Runway and Kling, reuse `PlatformRuntimeProviderSecretStoreService`. Deploy: API + WEB. No migration. Required tests: API save/load of HeyGen key metadata; web Tools page renders HeyGen row.
+
 ## 2026-06-04 — ADR-108 Slice 9 + program closure
 
 ### What changed & why
