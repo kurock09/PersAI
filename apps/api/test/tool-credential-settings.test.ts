@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import type { PlatformRuntimeProviderKeyMetadata } from "../src/modules/workspace-management/application/platform-runtime-provider-settings";
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
+  CREDENTIAL_KEY_BY_SECRET_ID,
+  TOOL_CODE_BY_CREDENTIAL_KEY,
+  TOOL_CREDENTIAL_IDS,
   buildAdminToolCredentialsState,
   buildToolCredentialSecretRef,
   parseUpdateToolCredentialsInput
@@ -79,7 +82,7 @@ async function run(): Promise<void> {
     }
   });
 
-  assert.equal(state.credentials.length, 13); // 11 visible tool credentials + 2 notification credentials
+  assert.equal(state.credentials.length, 14); // 12 visible tool credentials + 2 notification credentials
   assert.equal(
     state.credentials.find((credential) => credential.credentialKey === "tool_memory_search"),
     undefined
@@ -142,4 +145,26 @@ async function run(): Promise<void> {
   );
 }
 
+async function runHeygenCredentialRegistration(): Promise<void> {
+  assert.equal(
+    TOOL_CREDENTIAL_IDS.tool_video_generate_heygen,
+    "tool/video_generate/heygen/api-key"
+  );
+  assert.equal(TOOL_CODE_BY_CREDENTIAL_KEY.tool_video_generate_heygen, "video_generate");
+  assert.ok(ALL_TOOL_CREDENTIAL_KEYS.includes("tool_video_generate_heygen"));
+  assert.equal(
+    CREDENTIAL_KEY_BY_SECRET_ID["tool/video_generate/heygen/api-key"],
+    "tool_video_generate_heygen"
+  );
+  assert.deepEqual(buildToolCredentialSecretRef("tool_video_generate_heygen"), {
+    refKey: "persai:persai-runtime:tool/video_generate/heygen/api-key",
+    secretRef: {
+      source: "persai",
+      provider: "persai-runtime",
+      id: "tool/video_generate/heygen/api-key"
+    }
+  });
+}
+
 void run();
+void runHeygenCredentialRegistration();

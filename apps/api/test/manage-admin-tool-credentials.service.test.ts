@@ -38,7 +38,8 @@ async function run(): Promise<void> {
       keys: {
         tool_browser: "browserless-secret",
         tool_video_generate_runway: "runway-secret",
-        tool_video_generate_kling: "kling-secret"
+        tool_video_generate_kling: "kling-secret",
+        tool_video_generate_heygen: "heygen-secret"
       },
       providers: {
         tool_browser: "browserless"
@@ -66,7 +67,8 @@ async function run(): Promise<void> {
       updatedCredentials: [
         "tool_browser",
         "tool_video_generate_runway",
-        "tool_video_generate_kling"
+        "tool_video_generate_kling",
+        "tool_video_generate_heygen"
       ],
       updatedProviders: [
         {

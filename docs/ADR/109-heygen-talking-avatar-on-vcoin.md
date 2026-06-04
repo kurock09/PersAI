@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-06-03). Depends on ADR-108 at minimum through slice 3 (settle path debit + monthly grant). Parallel to ADR-102. **Slice 0 Completed (2026-06-04)** — baseline SHA, HeyGen v3 API truth, and 6 binding UX decisions recorded; see `## Slice 0 erratum (2026-06-04)` at the bottom of this ADR for the binding amendments that supersede the original slice specs where they conflict. ADR-108 (Vcoin substrate) is fully closed and verified live.
+Proposed (2026-06-03). Depends on ADR-108 at minimum through slice 3 (settle path debit + monthly grant). Parallel to ADR-102. **Slice 0 Completed (2026-06-04)** — baseline SHA, HeyGen v3 API truth, and 6 binding UX decisions recorded; see `## Slice 0 erratum (2026-06-04)` at the bottom of this ADR for the binding amendments that supersede the original slice specs where they conflict. **Slice 1 Completed (2026-06-04)** — HeyGen API key credential slot landed in `tool-credential-settings.ts` + `/admin/tools` Video Providers section; 7 verification gates green; no HeyGen HTTP calls yet (Slice 6 owns the client). ADR-108 (Vcoin substrate) is fully closed and verified live.
 
 ## Context
 
@@ -26,7 +26,7 @@ Per the 2026-06-03 audit synthesis, the user-confirmed shape is:
 - Workspace persona registry: separate PersAI entity. HeyGen avatar id is provider metadata stored on the persona row, created lazily on first use. Persona limit is configurable, default 10 per workspace.
 - Plan toggle: boolean on the `video_generate` tool activation card in plans.
 - Persona creation costs a fixed VC amount (configurable in Admin Tools) and is debited only on creation success.
-- Render cost: catalog $/sec * seconds * `vcoinExchangeRate` per ADR-108 settle path.
+- Render cost: catalog $/sec _ seconds _ `vcoinExchangeRate` per ADR-108 settle path.
 - Multi-character in a single clip is deferred. MVP supports one persona per clip; the assistant proposes splitting a multi-character request into multiple clips.
 
 ## Decision
@@ -53,13 +53,13 @@ Add HeyGen as the fourth `video_generate` provider. Add `mode: "cinematic" | "ta
 ```ts
 // workspace_video_personas
 {
-  id: string;                    // uuid
-  workspace_id: string;          // FK workspaces
-  display_name: string;          // unique within workspace, case-insensitive
-  portrait_asset_id: string;     // FK assistant_files (uploaded portrait)
-  heygen_voice_id: string;       // chosen at creation, from HeyGen presets
+  id: string; // uuid
+  workspace_id: string; // FK workspaces
+  display_name: string; // unique within workspace, case-insensitive
+  portrait_asset_id: string; // FK assistant_files (uploaded portrait)
+  heygen_voice_id: string; // chosen at creation, from HeyGen presets
   heygen_avatar_id: string | null; // null until first talking_avatar render with this persona
-  vc_cost_paid: number;          // VC debited at creation
+  vc_cost_paid: number; // VC debited at creation
   created_at: Date;
   updated_at: Date;
 }
@@ -81,9 +81,9 @@ interface RuntimeVideoGenerateRequest {
   // talking_avatar fields
   speechText?: string;
   speechLanguage?: string; // ISO code, e.g. "ru"
-  personaId?: string;          // workspace persona, optional
+  personaId?: string; // workspace persona, optional
   portraitImageAlias?: string; // ad-hoc photo when no persona
-  voiceKey?: string;           // explicit HeyGen preset voice id; overrides persona/default
+  voiceKey?: string; // explicit HeyGen preset voice id; overrides persona/default
   // common
   seconds?: number;
   size?: { width: number; height: number };
@@ -250,20 +250,20 @@ If a subagent return violates any of these, the slice is rolled back.
 
 ## Execution ledger
 
-| Slice | Title | Purpose | Deploy |
-| ----- | ----- | ------- | ------ |
-| 0 | Baseline + HeyGen API confirm | Re-read HeyGen Photo Avatar Video API + Voices listing. Confirm Russian preset voice availability. Confirm pricing and avatar creation semantics. Record baseline SHA. | NO |
-| 1 | HeyGen credential + Admin Tools UI | `tool_video_generate_heygen` -> `tool/video_generate/heygen/api-key`. Secret store integration. Display in Admin Tools Video Providers section alongside Runway and Kling. | API + WEB |
-| 2 | HeyGen catalog row + Admin Runtime UI | Add `heygen` to `VIDEO_GENERATE_PROVIDERS` / `MANAGED_CATALOG_PROVIDERS`. Add catalog rows for `heygen` talking-avatar models with `capabilities: ["video"]`, `billingMode: "time_metered"`. Admin Runtime renders the HeyGen card video-only. Catalog can mark a row as talking-avatar-only (so cinematic plan selection cannot pick it). | API + WEB |
-| 3 | Mode contract + tool projection | Add `RuntimeVideoGenerateMode = "cinematic" \| "talking_avatar"` to runtime contract. Add `speechText`, `speechLanguage`, `personaId`, `portraitImageAlias`, `voiceKey` fields. Native tool projection extends `video_generate` schema with new fields, conditional on plan toggle. | CONTRACT + RUNTIME + WEB |
-| 4 | HeyGen voice catalog cache | New `HeyGenVoiceCatalogService` and `platform_heygen_voice_catalog_cache` Prisma table. 24h TTL. Lazy refresh on materialization. Bundle attach when ref provider is `heygen`. | API |
-| 5 | Workspace persona registry | New `workspace_video_personas` table. CRUD service. Per-workspace persona limit setting (default 10, configurable in Admin Tools). VC debit on persona creation success (uses ADR-108 wallet). | API |
-| 6 | Provider-gateway HeyGen client | New `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts`. Submit Photo Avatar Video request, poll status, download result. Lazy avatar creation when persona reuse path requires it. Emit `billingFacts` time-metered. | PROVIDER-GATEWAY |
-| 7 | Runtime talking_avatar execution | Runtime `runtime-video-generate-tool.service.ts` routes `mode = "talking_avatar"` to HeyGen. Resolves persona or ad-hoc photo. Validates plan toggle. Validates one-persona-per-clip. Calls provider gateway. Persists artifact. VC settle through ADR-108 path. | RUNTIME + API |
-| 8 | Plan toggle + materialization gate | Add `talkingVideoEnabled` boolean on plan `video_generate` tool activation. Admin Plans UI exposes it. Materialization writes the flag onto the bundle so runtime can fail honestly when off. | API + WEB |
-| 9 | Assistant Settings UI: Characters | New section between Character (order 1) and Limits (order 2) in `apps/web/app/app/_components/assistant-settings.tsx`. Workspace personas list, create form (upload portrait + select voice + name), delete with confirm. Section hidden when plan `talkingVideoEnabled` is false. | WEB |
-| 10 | Chat UX for talking video | Tool description updated so the model knows when to ask "save as a reusable persona?" vs ad-hoc. No keyword routing. Tool description encodes multi-character refusal: split into multiple calls. Active media job pill and final artifact rendering reuse existing UX (Slice 6 of ADR-108 already adjusted balance display). | RUNTIME (tool description) |
-| 11 | Tests + docs + verification + smoke | E2E tests for ad-hoc, persona create, persona reuse, multi-character refusal. Docs updates (ARCHITECTURE, API-BOUNDARY, DATA-MODEL, TEST-PLAN). Full verification gate. Live smoke in `persai-dev` with a real HeyGen credential. | DOCS + ALL |
+| Slice | Title                                 | Purpose                                                                                                                                                                                                                                                                                                                                    | Deploy                     |
+| ----- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
+| 0     | Baseline + HeyGen API confirm         | Re-read HeyGen Photo Avatar Video API + Voices listing. Confirm Russian preset voice availability. Confirm pricing and avatar creation semantics. Record baseline SHA.                                                                                                                                                                     | NO                         |
+| 1     | HeyGen credential + Admin Tools UI    | `tool_video_generate_heygen` -> `tool/video_generate/heygen/api-key`. Secret store integration. Display in Admin Tools Video Providers section alongside Runway and Kling.                                                                                                                                                                 | API + WEB                  |
+| 2     | HeyGen catalog row + Admin Runtime UI | Add `heygen` to `VIDEO_GENERATE_PROVIDERS` / `MANAGED_CATALOG_PROVIDERS`. Add catalog rows for `heygen` talking-avatar models with `capabilities: ["video"]`, `billingMode: "time_metered"`. Admin Runtime renders the HeyGen card video-only. Catalog can mark a row as talking-avatar-only (so cinematic plan selection cannot pick it). | API + WEB                  |
+| 3     | Mode contract + tool projection       | Add `RuntimeVideoGenerateMode = "cinematic" \| "talking_avatar"` to runtime contract. Add `speechText`, `speechLanguage`, `personaId`, `portraitImageAlias`, `voiceKey` fields. Native tool projection extends `video_generate` schema with new fields, conditional on plan toggle.                                                        | CONTRACT + RUNTIME + WEB   |
+| 4     | HeyGen voice catalog cache            | New `HeyGenVoiceCatalogService` and `platform_heygen_voice_catalog_cache` Prisma table. 24h TTL. Lazy refresh on materialization. Bundle attach when ref provider is `heygen`.                                                                                                                                                             | API                        |
+| 5     | Workspace persona registry            | New `workspace_video_personas` table. CRUD service. Per-workspace persona limit setting (default 10, configurable in Admin Tools). VC debit on persona creation success (uses ADR-108 wallet).                                                                                                                                             | API                        |
+| 6     | Provider-gateway HeyGen client        | New `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts`. Submit Photo Avatar Video request, poll status, download result. Lazy avatar creation when persona reuse path requires it. Emit `billingFacts` time-metered.                                                                                           | PROVIDER-GATEWAY           |
+| 7     | Runtime talking_avatar execution      | Runtime `runtime-video-generate-tool.service.ts` routes `mode = "talking_avatar"` to HeyGen. Resolves persona or ad-hoc photo. Validates plan toggle. Validates one-persona-per-clip. Calls provider gateway. Persists artifact. VC settle through ADR-108 path.                                                                           | RUNTIME + API              |
+| 8     | Plan toggle + materialization gate    | Add `talkingVideoEnabled` boolean on plan `video_generate` tool activation. Admin Plans UI exposes it. Materialization writes the flag onto the bundle so runtime can fail honestly when off.                                                                                                                                              | API + WEB                  |
+| 9     | Assistant Settings UI: Characters     | New section between Character (order 1) and Limits (order 2) in `apps/web/app/app/_components/assistant-settings.tsx`. Workspace personas list, create form (upload portrait + select voice + name), delete with confirm. Section hidden when plan `talkingVideoEnabled` is false.                                                         | WEB                        |
+| 10    | Chat UX for talking video             | Tool description updated so the model knows when to ask "save as a reusable persona?" vs ad-hoc. No keyword routing. Tool description encodes multi-character refusal: split into multiple calls. Active media job pill and final artifact rendering reuse existing UX (Slice 6 of ADR-108 already adjusted balance display).              | RUNTIME (tool description) |
+| 11    | Tests + docs + verification + smoke   | E2E tests for ad-hoc, persona create, persona reuse, multi-character refusal. Docs updates (ARCHITECTURE, API-BOUNDARY, DATA-MODEL, TEST-PLAN). Full verification gate. Live smoke in `persai-dev` with a real HeyGen credential.                                                                                                          | DOCS + ALL                 |
 
 Minimum useful path for catalog-only HeyGen (admin can configure but feature not live): `0 -> 1 -> 2 -> 3`.
 
@@ -308,6 +308,8 @@ Persona-aware path requires slice 5. Ad-hoc-only path can in principle launch at
 **Exit**
 
 - Admin can store the HeyGen API key.
+
+**Status (2026-06-04): Completed.** Baseline SHA `c4fa3825f64827ca21ffb10703fc2dc8a7456f9b` (post-Slice 0 closure commit). Landed via orchestrator-execution model with one Claude Opus 4.8 implementation subagent (first run) + same subagent resumed once to apply a derive-based refactor in `manage-admin-tool-credentials.service.ts:loadToolKeyMetadata()` after a Scope OUT typecheck blocker was surfaced. Future Slice subagents will use Sonnet 4.6 / GPT-5.4 per operator directive (Opus is cost-overkill for implementation slices). 6 files modified inside expanded Scope IN: `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts` (added `tool_video_generate_heygen` to `TOOL_CREDENTIAL_IDS`, `TOOL_CODE_BY_CREDENTIAL_KEY`, display labels, and updated operator notes), `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts` (derive-based refactor of `loadToolKeyMetadata()` `Record<ToolCredentialKey, …>` initializer using `Object.fromEntries(ALL_TOOL_CREDENTIAL_KEYS.map(...))` — semantic-preserving, removes the need for future provider slices to touch this file), `apps/web/app/admin/tools/page.tsx` (added third element to `VIDEO_PROVIDER_CREDENTIAL_KEYS`, updated Video Providers section copy), plus 3 augmented test files (`tool-credential-settings.test.ts` with `runHeygenCredentialRegistration` function asserting secret id / tool code / `ALL_TOOL_CREDENTIAL_KEYS` membership / reverse-resolve / secret ref shape; `manage-admin-tool-credentials.service.test.ts` with HeyGen save input + `updatedCredentials` assertion symmetric to Runway/Kling; `page.test.tsx` with new focused test asserting HeyGen row renders with default `"Enter API key..."` placeholder, not the Kling JSON placeholder). All 7 verification gates PASS via orchestrator's own shell: recursive lint, root format:check, `@persai/api` typecheck, `@persai/web` typecheck, `tool-credential-settings.test.ts`, `manage-admin-tool-credentials.service.test.ts`, `vitest run app/admin/tools/page.test.tsx` (3 tests). Cross-slice invariants 1–15 verified to remain true: no HeyGen URL / HTTP detail anywhere (pure storage), no keyword routing introduced, no behavioral change for Runway/Kling/OpenAI rows, no `Scope OUT` file outside the one-line expansion in `manage-admin-tool-credentials.service.ts` touched, no docs files touched by subagent (orchestrator writes docs). Deploy: API + WEB. No migration. No feature flag. Admin can now store the HeyGen API key in `/admin/tools` Video Providers section.
 
 ### Slice 2 - HeyGen catalog row + Admin Runtime UI
 
@@ -808,6 +810,7 @@ Reinforces E1 as a permanent constraint:
 Reinforces user directive (2026-06-04) that PersAI must never keyword-route or parse message bodies:
 
 > **#15. No keyword routing, no message-body parsing, no string-matching for behavior decisions, anywhere in PersAI code.** The model decides via tool description; PersAI code only handles structural data. This includes:
+>
 > - Mode selection (`mode: "cinematic" | "talking_avatar"`) is set explicitly by the model, never inferred from `speechText` content, photo presence, or any other request body inspection.
 > - Persona resolution is exact-name equality (case-insensitive Unicode) against the workspace registry; no fuzzy match, no regex, no keyword list.
 > - Multi-character detection uses **structural** signals only (e.g. `>1 personaId` field, or strict structural parse like "more than one named-speaker block in the speech script"). Never a keyword list of names.
@@ -825,17 +828,20 @@ This invariant binds every slice from this point on. A subagent that introduces 
 
 ```ts
 type RuntimeVideoGenerateResult =
-  | { status: "accepted"; jobId: string; /* existing fields */ }
+  | { status: "accepted"; jobId: string /* existing fields */ }
   | { status: "failed"; reason: string; code: string }
-  | { status: "needs_disambiguation"; candidates: Array<{
-      personaId: string;
-      displayName: string;
-      portraitUrl: string;
-      voiceId: string;
-      voiceLabel: string;
-      voicePreviewUrl: string | null;
-      createdAtIso: string;
-    }> };
+  | {
+      status: "needs_disambiguation";
+      candidates: Array<{
+        personaId: string;
+        displayName: string;
+        portraitUrl: string;
+        voiceId: string;
+        voiceLabel: string;
+        voicePreviewUrl: string | null;
+        createdAtIso: string;
+      }>;
+    };
 ```
 
 When the chat sees `status: "needs_disambiguation"`, it renders the candidate list as cards (shared `<PersonaCard>` component built in Slice 9). User clicks one card → next model turn calls `video_generate` with the chosen `personaId` → resolves uniquely → proceeds normally. The model receives the candidate list in the tool result and can also render the disambiguation as text if the UI does not enable cards (graceful degradation).

@@ -2,6 +2,86 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-04 — ADR-109 Slice 1: HeyGen credential + Admin Tools UI
+
+### What changed & why
+
+Baseline SHA at session start: `c4fa3825f64827ca21ffb10703fc2dc8a7456f9b` (post-Slice 0 closure commit `docs(adr-109): close Slice 0 - HeyGen v3 API truth + UX erratum (E1-E11) + invariants #14-#15`). Tree clean.
+
+Slice 1 lands the HeyGen API key storage slot. Pure substrate. No HeyGen HTTP calls anywhere, no catalog rows, no runtime callable behavior. Admin can save a HeyGen API key in `/admin/tools` Video Providers section starting now. Slices 2–11 progressively wire catalog row, contract, voice cache, persona registry, provider client, runtime execution, plan toggle, Settings UI, tool description, banner UX, and live smoke on top of this foundation.
+
+Executed under the ADR-109 orchestrator execution model. One implementation subagent (Claude Opus 4.8 thinking high, first run + resumed once). The resume happened because the subagent's first run honestly surfaced a Scope OUT typecheck blocker (`manage-admin-tool-credentials.service.ts:205` had a hardcoded exhaustive `Record<ToolCredentialKey, …>` literal that broke when the union widened) and refused to touch the Scope OUT file. Orchestrator expanded Scope IN by one file and asked for a derive-based refactor; resume succeeded with semantic-preserving substitution. **Operator directive going forward: future implementation subagents use Sonnet 4.6 / GPT-5.4 instead of Opus 4.8 — Opus is cost-overkill for implementation slices.**
+
+### HeyGen credential mechanics
+
+- New credential id: `tool_video_generate_heygen` → secret store id `tool/video_generate/heygen/api-key`.
+- Tool code mapping: `video_generate` (shared with Runway, Kling, and OpenAI image — runtime resolves the actual provider by materialized bundle, not by credential).
+- Display label: `"Video Generation API Key (HeyGen)"`.
+- Placeholder shape: default `"Enter API key..."` (single API key, unlike Kling which uses JSON-shape placeholder for its Access Key + Secret Key pair).
+- Persists through the same `PlatformRuntimeProviderSecretStoreService` — no store-side code change needed; the store is provider-agnostic.
+
+### Durable refactor: `loadToolKeyMetadata()` derive-based initializer
+
+Replaced the previously-hardcoded 14-entry `Record<ToolCredentialKey, PlatformRuntimeProviderKeyMetadata>` literal with derived `Object.fromEntries(ALL_TOOL_CREDENTIAL_KEYS.map(...))` shape using the uniform default `{ configured: false, lastFour: null, updatedAt: null }`. All 14 prior entries used the same default (verified by direct read of the original literal), so this is strict semantic-preserving substitution. Side benefit: every future provider credential addition (Slice 2+ of this ADR, future ADR-110+) no longer requires a corresponding edit in this file.
+
+### Files touched
+
+Modified (all within expanded Scope IN):
+
+- `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts` — registered HeyGen credential in 3 places: `TOOL_CREDENTIAL_IDS`, `TOOL_CODE_BY_CREDENTIAL_KEY`, display labels; updated operator-facing `notes` array.
+- `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts` — derive-based refactor of `loadToolKeyMetadata()` initializer (Scope IN expanded after first subagent run surfaced the blocker).
+- `apps/web/app/admin/tools/page.tsx` — added `"tool_video_generate_heygen"` to `VIDEO_PROVIDER_CREDENTIAL_KEYS`, updated Video Providers section copy.
+- `apps/api/test/tool-credential-settings.test.ts` — new `runHeygenCredentialRegistration` function + bumped credentials count assertion 13 → 14.
+- `apps/api/test/manage-admin-tool-credentials.service.test.ts` — augmented save input and `updatedCredentials` assertion with HeyGen entry.
+- `apps/web/app/admin/tools/page.test.tsx` — added HeyGen entry to `credentialsPayload`, updated copy assertion, added new focused test for HeyGen row rendering with default placeholder.
+
+### Tests run (all 7 PASS via orchestrator's own shell)
+
+- PASS `corepack pnpm -r --if-present run lint` (apps/web, apps/api, apps/runtime, apps/provider-gateway, apps/sandbox, scripts/smoke — all Done)
+- PASS `corepack pnpm run format:check` ("All matched files use Prettier code style!")
+- PASS `corepack pnpm --filter @persai/api run typecheck` (Prisma generate + tsc --noEmit clean exit 0)
+- PASS `corepack pnpm --filter @persai/web run typecheck` (tsc --noEmit clean exit 0)
+- PASS `corepack pnpm --filter @persai/api exec tsx test/tool-credential-settings.test.ts` (exit 0)
+- PASS `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-credentials.service.test.ts` (exit 0)
+- PASS `corepack pnpm --filter @persai/web exec vitest run app/admin/tools/page.test.tsx` (3 tests pass, 1.77s — including new "renders the HeyGen video credential row with the default API key placeholder")
+
+### Cross-slice invariants verified (1–15)
+
+- ✅ #1 Cinematic mode unchanged.
+- ✅ #2 ADR-106 invariants preserved (Runway/Kling video-only, chat routing OpenAI/Anthropic-only, OpenAI image untouched).
+- ✅ #3 ADR-107 line 39-40 still applies to Runway and OpenAI.
+- ✅ #4 ADR-105 media-job durability untouched.
+- ✅ #5 Image / TTS / STT / chat behavior unchanged.
+- ✅ #6, #7, #8, #9, #10 — N/A in this slice (no persona, no render).
+- ✅ #11 ADR-107 line 39-40 carve-out for HeyGen recorded in ADR text only; no code execution path yet.
+- ✅ #12 No keyword routing introduced.
+- ✅ #13 ADR-106/107 invariants preserved.
+- ✅ #14 Persona creation REST-only — N/A (no persona code).
+- ✅ #15 No keyword routing / message-body parsing / string-match for behavior decisions anywhere.
+
+### Risks / residuals
+
+- HeyGen credential slot is now persistable but completely inert — saving a key has no effect until Slice 2 lands the catalog row, Slice 6 lands the provider client, etc. This is expected substrate-first behavior.
+- The Kling JSON-shape placeholder branch in `ToolCredentialCard` remains a special case. If a future provider needs the same JSON shape, copy that branch; do not retrofit a generic placeholder system in this slice's spec.
+- Operator-facing `notes` string was updated symmetrically; if more video providers land later (e.g. Pika, Luma), the note string will need similar one-line updates — acceptable cost for operator clarity.
+
+### Deploy
+
+- **API + WEB.** No migration. No new feature flag. Deployment of either app independently is safe; the contract is additive on both sides.
+
+### Next recommended slice
+
+**ADR-109 Slice 2 — HeyGen catalog row + Admin Runtime UI** (API + WEB deploy):
+
+- Extend `MANAGED_CATALOG_PROVIDERS` and `VIDEO_GENERATE_PROVIDERS` with `heygen`.
+- Extend `PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS` in `packages/runtime-contract/src/index.ts` with `heygen`.
+- Add empty default catalog bucket `heygen: { models: [] }`.
+- Admin Runtime renders the HeyGen card with the same video-only constraint applied to Runway/Kling.
+- Add a per-row capability flag on catalog rows to indicate talking-avatar-only models (so plan validation cannot select them for cinematic).
+- Plan validation: accept HeyGen rows only for `videoGenerateModelKey` / fallback when the model is marked talking-avatar-capable.
+
+Required tests: catalog accepts HeyGen rows video-only; chat selectors do not see HeyGen; talking-avatar-only catalog rows cannot be selected as cinematic primary/fallback. Subagent model: Sonnet 4.6 or GPT-5.4 per operator directive.
+
 ## 2026-06-04 — ADR-109 Slice 0: Baseline + HeyGen API truth + UX erratum
 
 ### What changed & why
@@ -43,7 +123,7 @@ This slice landed via the ADR-109 orchestrator execution model: read-only orches
 
 The orchestrator + user discussion on 2026-06-04 produced 6 binding UX decisions that update the original ADR-109 plan. They are recorded in a dedicated erratum section inside `docs/ADR/109-heygen-talking-avatar-on-vcoin.md` so the original slice specs stay untouched for diff history; the erratum block declares the final intent that supersedes those specs.
 
-- **E1 — Scenario B retired from runtime.** Persona creation is REST-only (Settings form → HTTP endpoint → service). Runtime never creates a persona during tool execution. Model in chat *advises* the user to save a persona via Settings; it does not call a `create_persona` tool. Affects Slice 5 (CRUD service stays, no runtime caller), Slice 7 (runtime handles only Scenarios A + C), Slice 10 (tool description teaches advise-only behavior).
+- **E1 — Scenario B retired from runtime.** Persona creation is REST-only (Settings form → HTTP endpoint → service). Runtime never creates a persona during tool execution. Model in chat _advises_ the user to save a persona via Settings; it does not call a `create_persona` tool. Affects Slice 5 (CRUD service stays, no runtime caller), Slice 7 (runtime handles only Scenarios A + C), Slice 10 (tool description teaches advise-only behavior).
 - **E2 — Voice preview is a hard requirement everywhere `voice_id` appears.** Settings create form, Settings persona list, chat disambiguation cards, chat voice-picker. Implementation: shared `<VoicePreviewButton voiceId={...} />` component. Primary path: `preview_audio_url` straight from `GET /v3/voices` (HeyGen-hosted). Fallback: when `preview_audio_url === null`, Slice 4 cache refresh generates a short preview via `POST /v3/voices/speech` once per 24h TTL, stores the mp3 in PersAI blob storage, and serves the URL. **Preview generation is platform-paid, never debited to the user.**
 - **E3 — Talking-video banner UX is time-based (not phase-mapped).** HeyGen poll returns only `pending|processing|completed|failed` with no `progress`/`eta`/`stage` field. The banner cannot map real phases. Implementation will be a pure-web JS timer that swaps the banner copy in stages by elapsed time (e.g. 0–30s "Готовим аватар…", 30s–2min "Синтезируем голос…", 2–5min "Видео рендерится…", 5+ min "Финальный проход…"). No new backend fields, no `media_jobs.phase` column. Applied only to talking-avatar jobs; cinematic banner copy stays as today (preserves cross-slice invariant 1). Wired in a new **Slice 10b** specified in the erratum.
 - **E4 — Settings Characters section is locked-with-upsell when plan toggle is off.** ADR-109 Slice 9 originally said "Hidden when plan `talkingVideoEnabled` is false". Changed to "Visible with disabled state + quiet upsell hint" ("Доступно на тарифе X+", inactive link to `/pricing`). Existing persona cards (created during an upgrade period) remain visible but disabled (no edit, no delete, no use). Tone: quiet conversion hint, not a banner.
@@ -111,6 +191,7 @@ Slice 9 closure work:
 ### Files touched
 
 Modified:
+
 - `apps/web/app/admin/plans/page.tsx`
 - `apps/web/app/admin/plans/_components/MediaPackagesSection.tsx`
 - `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`
@@ -118,6 +199,7 @@ Modified:
 - `docs/SESSION-HANDOFF.md`
 
 Removed (transient debug artifacts):
+
 - `.tmp-vcoin-probe.js`, `.tmp-pricing-audit.js`, `.tmp-toolpath-audit.js`, `.tmp-observe-latest.js`, `.tmp-check-balance.js`, `.tmp-query.sql`, `.tmp-commit-msg.txt`, `.tmp-runtime-test.log`, `.tmp-web-test.log`, `.tmp-api-test.log`, `.tmp-lint.log`, `.tmp-tp-out.txt`, `.tmp-audit-out.txt`, `.tmp-probe-out.txt`
 
 ### Verification
@@ -150,6 +232,7 @@ This slice expands the original "manual migration playbook" Slice 8 into a compl
 ### Files touched
 
 Modified:
+
 - `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
 - `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
 - `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
@@ -183,6 +266,7 @@ Modified:
 - `docs/SESSION-HANDOFF.md`
 
 New:
+
 - `apps/api/prisma/migrations/20260604030000_adr108_drop_video_generate_monthly_units_limit/migration.sql`
 
 ### Tests run
@@ -227,6 +311,7 @@ Baseline SHA at session start (after Slice 6b commit): `174f2787`. Tree was clea
 ### Files touched
 
 Modified:
+
 - `packages/runtime-contract/src/index.ts`
 - `apps/api/src/modules/workspace-management/application/read-internal-runtime-quota-status.service.ts`
 - `apps/api/src/modules/workspace-management/application/quota-grounded-limit-copy.service.ts`
@@ -241,6 +326,7 @@ Modified:
 - `docs/API-BOUNDARY.md`
 
 New:
+
 - `apps/api/src/modules/workspace-management/application/vcoin/compute-typical-video-vcoin-cost.service.ts`
 
 ### Tests run
@@ -285,6 +371,7 @@ Baseline SHA at session start (after Slice 6a commit): `fc02efed`. Tree was clea
 ### Files touched
 
 Modified:
+
 - `apps/web/app/app/_components/assistant-settings.tsx`
 - `apps/web/app/app/_components/assistant-settings.test.tsx`
 - `apps/web/app/_components/pricing-page-view.tsx`
@@ -297,6 +384,7 @@ Modified:
 - `docs/SESSION-HANDOFF.md`
 
 New:
+
 - `apps/web/app/app/packages/page.test.tsx`
 
 ### Tests run

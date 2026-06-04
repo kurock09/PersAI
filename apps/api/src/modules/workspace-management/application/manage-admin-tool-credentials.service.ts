@@ -202,22 +202,13 @@ export class ManageAdminToolCredentialsService {
   private async loadToolKeyMetadata(): Promise<
     Record<ToolCredentialKey, PlatformRuntimeProviderKeyMetadata>
   > {
-    const result: Record<ToolCredentialKey, PlatformRuntimeProviderKeyMetadata> = {
-      tool_web_search: { configured: false, lastFour: null, updatedAt: null },
-      tool_web_fetch: { configured: false, lastFour: null, updatedAt: null },
-      tool_image_generate: { configured: false, lastFour: null, updatedAt: null },
-      tool_video_generate_runway: { configured: false, lastFour: null, updatedAt: null },
-      tool_video_generate_kling: { configured: false, lastFour: null, updatedAt: null },
-      tool_document_pdfmonkey: { configured: false, lastFour: null, updatedAt: null },
-      tool_document_gamma: { configured: false, lastFour: null, updatedAt: null },
-      tool_browser: { configured: false, lastFour: null, updatedAt: null },
-      tool_tts_elevenlabs: { configured: false, lastFour: null, updatedAt: null },
-      tool_tts_yandex: { configured: false, lastFour: null, updatedAt: null },
-      tool_tts_openai: { configured: false, lastFour: null, updatedAt: null },
-      tool_memory_search: { configured: false, lastFour: null, updatedAt: null },
-      notification_email_postmark: { configured: false, lastFour: null, updatedAt: null },
-      notification_email_postmark_webhook: { configured: false, lastFour: null, updatedAt: null }
-    };
+    const result: Record<ToolCredentialKey, PlatformRuntimeProviderKeyMetadata> =
+      Object.fromEntries(
+        ALL_TOOL_CREDENTIAL_KEYS.map((key) => [
+          key,
+          { configured: false, lastFour: null, updatedAt: null }
+        ])
+      ) as Record<ToolCredentialKey, PlatformRuntimeProviderKeyMetadata>;
     const allMetadata =
       await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys(
         ALL_TOOL_CREDENTIAL_KEYS

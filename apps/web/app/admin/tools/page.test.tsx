@@ -70,6 +70,16 @@ const credentialsPayload = {
       updatedAt: null,
       providerId: null,
       providerOptions: null
+    },
+    {
+      credentialKey: "tool_video_generate_heygen",
+      toolCode: "video_generate",
+      displayName: "Video Generation API Key (HeyGen)",
+      configured: false,
+      lastFour: null,
+      updatedAt: null,
+      providerId: null,
+      providerOptions: null
     }
   ],
   documentProviderConfigs: [],
@@ -192,8 +202,23 @@ describe("AdminToolsPage economics", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "Separate encrypted credentials for Runway and Kling video providers. Kling uses official Access Key + Secret Key JSON, and these do not change the existing OpenAI image/edit credential slot."
+        "Separate encrypted credentials for Runway, Kling, and HeyGen video providers. Kling uses official Access Key + Secret Key JSON, and these do not change the existing OpenAI image/edit credential slot."
       )
     ).toBeTruthy();
+  });
+
+  it("renders the HeyGen video credential row with the default API key placeholder", async () => {
+    render(<AdminToolsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Video Providers")).toBeTruthy();
+    });
+
+    const heygenLabel = screen.getByText("Video Generation API Key (HeyGen)");
+    const card = heygenLabel.closest("div.rounded-lg");
+    expect(card).toBeTruthy();
+    const input = card?.querySelector("input");
+    expect(input).toBeTruthy();
+    expect(input?.getAttribute("placeholder")).toBe("Enter API key...");
   });
 });

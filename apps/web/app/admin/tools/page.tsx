@@ -110,7 +110,8 @@ const TTS_CREDENTIAL_KEYS = ["tool_tts_elevenlabs", "tool_tts_yandex", "tool_tts
 const MEDIA_CREDENTIAL_KEYS = ["tool_image_generate"] as const;
 const VIDEO_PROVIDER_CREDENTIAL_KEYS = [
   "tool_video_generate_runway",
-  "tool_video_generate_kling"
+  "tool_video_generate_kling",
+  "tool_video_generate_heygen"
 ] as const;
 const DOCUMENT_GENERATION_CREDENTIAL_KEYS = [
   "tool_document_pdfmonkey",
@@ -1148,8 +1149,8 @@ export default function AdminToolsPage() {
                   <div>
                     <p className="text-sm font-semibold text-text">Video Providers</p>
                     <p className="text-[11px] text-text-muted">
-                      Separate encrypted credentials for Runway and Kling video providers. Kling
-                      uses official Access Key + Secret Key JSON, and these do not change the
+                      Separate encrypted credentials for Runway, Kling, and HeyGen video providers.
+                      Kling uses official Access Key + Secret Key JSON, and these do not change the
                       existing OpenAI image/edit credential slot.
                     </p>
                   </div>
