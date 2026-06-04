@@ -1,22 +1,33 @@
 /**
- * ADR-109 Slice 5 — focused unit tests for ManageWorkspaceVideoPersonasService.
+ * ADR-109 Slice 5 / Slice 5b — focused unit tests for ManageWorkspaceVideoPersonasService.
  *
  * All external dependencies are stubbed in-memory; no Prisma client is used.
  *
- * Coverage:
- *  1. Happy-path create — VC debit + ledger event + persona row inserted
- *  2. Persona limit reached → throws persona_limit_reached
- *  3. Duplicate name (case-insensitive) → throws persona_duplicate_name
+ * Coverage (Slice 5 — original):
+ *  1. Happy-path create — VC debit + ledger event + persona row inserted with heygenAvatarId
+ *  2. Persona limit reached → throws persona_limit_reached (pre-check fires, HeyGen never called)
+ *  3. Duplicate name (case-insensitive) → throws persona_duplicate_name (pre-check fires, HeyGen never called)
  *  4. Voice not found in cached shortlist → throws voice_not_found
- *  5. Insufficient VC balance → throws vcoin_balance_exhausted; no persona row, no ledger event
+ *  5. Insufficient VC balance → throws vcoin_balance_exhausted (pre-check fires, HeyGen never called)
  *  6. Archive (soft-delete) sets archived=true with archivedAt
  *  7. Archive of non-existent persona → throws NotFoundException
  *  8. cost=0 → skips ledger + debit entirely
  *  9. Storage save runs AFTER transaction commits (spy confirms ordering)
+ *
+ * Coverage (Slice 5b — new):
+ * 10. HeyGen call fails → persona NOT created, no ledger event, no VC debit, exception propagated
+ * 11. HeyGen succeeds but tx fails (race — duplicate name inside tx) → orphan warning logged, exception propagates
+ * 12. Pre-check rejects (limit) → HeyGen is NEVER called
+ * 13. Pre-check rejects (duplicate name) → HeyGen is NEVER called
+ * 14. Pre-check rejects (balance) → HeyGen is NEVER called
  */
 
 import assert from "node:assert/strict";
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException
+} from "@nestjs/common";
 import { ManageWorkspaceVideoPersonasService } from "../src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service";
 import type {
   WorkspaceVideoPersonaRecord,
@@ -24,6 +35,7 @@ import type {
 } from "../src/modules/workspace-management/domain/workspace-video-persona.repository";
 import type { WorkspaceVcoinBalanceRepository } from "../src/modules/workspace-management/domain/workspace-vcoin-balance.repository";
 import type { WorkspaceVcoinLedgerEventRepository } from "../src/modules/workspace-management/domain/workspace-vcoin-ledger-event.repository";
+import type { HeyGenProviderGatewayClient } from "../src/modules/workspace-management/application/heygen/heygen-provider-gateway.client";
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
 
@@ -31,6 +43,7 @@ const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
 const USER_ID = "00000000-0000-0000-0000-000000000002";
 const VOICE_ID = "en-US-Amy";
 const VOICE_DISPLAY_NAME = "Amy";
+const MOCK_AVATAR_ID = "ava-test-1";
 
 function makePersonaRecord(
   overrides: Partial<WorkspaceVideoPersonaRecord> = {}
@@ -44,7 +57,7 @@ function makePersonaRecord(
     portraitImageStorageKey: "workspaces/ws/personas/pid/portrait/current",
     heygenVoiceId: VOICE_ID,
     heygenVoiceLabel: VOICE_DISPLAY_NAME,
-    heygenAvatarId: null,
+    heygenAvatarId: MOCK_AVATAR_ID,
     archived: false,
     archivedAt: null,
     createdAt: new Date("2026-06-04T22:00:00.000Z"),
@@ -58,7 +71,6 @@ function makePersonaRecord(
  * validatePersaiMediaFile uses magic bytes to detect JPEG.
  */
 function makeJpegBuffer(): Buffer {
-  // Minimal valid JPEG: SOI marker + EOI marker
   return Buffer.from([
     0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0xff, 0xd9
   ]);
@@ -69,6 +81,47 @@ function makePortraitFile() {
     buffer: makeJpegBuffer(),
     mimeType: "image/jpeg",
     originalFilename: "portrait.jpg"
+  };
+}
+
+function makeHeyGenGatewayClient(opts: {
+  avatarId?: string;
+  failWith?: Error;
+  callCount?: number[];
+}): HeyGenProviderGatewayClient {
+  return {
+    async createPhotoAvatar() {
+      if (opts.callCount !== undefined) {
+        opts.callCount.push(1);
+      }
+      if (opts.failWith !== undefined) {
+        throw opts.failWith;
+      }
+      return { avatarId: opts.avatarId ?? MOCK_AVATAR_ID };
+    }
+  } as HeyGenProviderGatewayClient;
+}
+
+function makeVoiceCatalog() {
+  return {
+    async getMaterializedVoiceCatalog() {
+      return {
+        provider: "heygen" as const,
+        fetchedAt: new Date().toISOString(),
+        shortlist: [
+          {
+            voiceKey: "en-US-Amy",
+            providerVoiceId: VOICE_ID,
+            displayName: VOICE_DISPLAY_NAME,
+            locale: "en-US",
+            gender: "female" as const,
+            description: null,
+            styleTags: [],
+            previewAudioUrl: null
+          }
+        ]
+      };
+    }
   };
 }
 
@@ -86,6 +139,7 @@ function makeService(opts: {
   ledgerEvents?: Array<Record<string, unknown>>;
   debits?: Array<Record<string, unknown>>;
   insertedPersonas?: WorkspaceVideoPersonaRecord[];
+  heygenClient?: HeyGenProviderGatewayClient;
 }) {
   const {
     activePersonaCount = 0,
@@ -97,7 +151,8 @@ function makeService(opts: {
     existingPersonaForArchive = null,
     ledgerEvents = [],
     debits = [],
-    insertedPersonas = []
+    insertedPersonas = [],
+    heygenClient = makeHeyGenGatewayClient({})
   } = opts;
 
   const personaRepository: WorkspaceVideoPersonaRepository = {
@@ -122,7 +177,8 @@ function makeService(opts: {
         displayName: input.displayName,
         displayNameLower: input.displayNameLower,
         heygenVoiceId: input.heygenVoiceId,
-        heygenVoiceLabel: input.heygenVoiceLabel
+        heygenVoiceLabel: input.heygenVoiceLabel,
+        heygenAvatarId: input.heygenAvatarId
       });
       insertedPersonas.push(record);
       return record;
@@ -179,28 +235,6 @@ function makeService(opts: {
     }
   };
 
-  const heyGenVoiceCatalogService = {
-    async getMaterializedVoiceCatalog() {
-      return {
-        provider: "heygen" as const,
-        fetchedAt: new Date().toISOString(),
-        shortlist: [
-          {
-            voiceKey: "en-US-Amy",
-            providerVoiceId: VOICE_ID,
-            displayName: VOICE_DISPLAY_NAME,
-            locale: "en-US",
-            gender: "female" as const,
-            description: null,
-            styleTags: [],
-            previewAudioUrl: null
-          }
-        ]
-      };
-    }
-  };
-
-  // Simulate a prisma.$transaction that runs callbacks synchronously
   const prisma = {
     async $transaction<T>(fn: (tx: typeof prisma) => Promise<T>): Promise<T> {
       return fn(prisma);
@@ -217,9 +251,10 @@ function makeService(opts: {
     vcoinBalanceRepository,
     ledgerEventRepository,
     resolvePlatformRuntimeProviderSettingsService as never,
-    heyGenVoiceCatalogService as never,
+    makeVoiceCatalog() as never,
     mediaObjectStorage as never,
-    prisma as never
+    prisma as never,
+    heygenClient
   );
 
   return { service, ledgerEvents, debits, insertedPersonas, storageCalls };
@@ -233,6 +268,8 @@ async function run(): Promise<void> {
     const ledgerEvents: Array<Record<string, unknown>> = [];
     const debits: Array<Record<string, unknown>> = [];
     const storageCalls: string[] = [];
+    const insertedPersonas: WorkspaceVideoPersonaRecord[] = [];
+    const heygenCallCount: number[] = [];
 
     const personaRepository: WorkspaceVideoPersonaRepository = {
       async countActiveForWorkspace() {
@@ -248,13 +285,16 @@ async function run(): Promise<void> {
         return [];
       },
       async create(input) {
-        return makePersonaRecord({
+        const record = makePersonaRecord({
           id: input.id,
           displayName: input.displayName,
           displayNameLower: input.displayNameLower,
           heygenVoiceId: input.heygenVoiceId,
-          heygenVoiceLabel: input.heygenVoiceLabel
+          heygenVoiceLabel: input.heygenVoiceLabel,
+          heygenAvatarId: input.heygenAvatarId
         });
+        insertedPersonas.push(record);
+        return record;
       },
       async archive() {
         return null;
@@ -298,6 +338,11 @@ async function run(): Promise<void> {
       }
     };
 
+    const heygenClient = makeHeyGenGatewayClient({
+      callCount: heygenCallCount,
+      avatarId: MOCK_AVATAR_ID
+    });
+
     const service = new ManageWorkspaceVideoPersonasService(
       personaRepository,
       vcoinBalanceRepository,
@@ -307,32 +352,14 @@ async function run(): Promise<void> {
           return { heygenPersonaWorkspaceLimit: 10, heygenPersonaCreationVcoin: 20 };
         }
       } as never,
-      {
-        async getMaterializedVoiceCatalog() {
-          return {
-            provider: "heygen" as const,
-            fetchedAt: new Date().toISOString(),
-            shortlist: [
-              {
-                voiceKey: "k",
-                providerVoiceId: VOICE_ID,
-                displayName: VOICE_DISPLAY_NAME,
-                locale: "en-US",
-                gender: "female" as const,
-                description: null,
-                styleTags: [],
-                previewAudioUrl: null
-              }
-            ]
-          };
-        }
-      } as never,
+      makeVoiceCatalog() as never,
       {
         async saveObject(input: { objectKey: string }) {
           storageCalls.push(input.objectKey);
         }
       } as never,
-      prisma as never
+      prisma as never,
+      heygenClient
     );
 
     const result = await service.createPersona({
@@ -348,6 +375,15 @@ async function run(): Promise<void> {
     assert.equal(result.persona.displayName, "My Persona");
     assert.equal(result.storageWarning, null);
     assert.ok(result.walletBalanceVc !== undefined);
+    // HeyGen was called exactly once
+    assert.equal(heygenCallCount.length, 1, "HeyGen must be called exactly once");
+    // Persona row inserted with non-null heygenAvatarId
+    assert.equal(insertedPersonas.length, 1);
+    assert.equal(
+      insertedPersonas[0]!["heygenAvatarId"],
+      MOCK_AVATAR_ID,
+      "Persona must have the HeyGen avatar ID"
+    );
     // Ledger event recorded
     assert.equal(ledgerEvents.length, 1);
     assert.equal(ledgerEvents[0]!["kind"], "persona_creation");
@@ -357,12 +393,17 @@ async function run(): Promise<void> {
     assert.equal(debits[0]!["amountVc"], 20);
     // Storage written AFTER tx
     assert.equal(storageCalls.length, 1);
-    console.log("✓ Test 1: happy-path create with VC cost");
+    console.log("✓ Test 1: happy-path create with VC cost, heygenAvatarId populated");
   }
 
-  // Test 2: Persona limit reached
+  // Test 2: Persona limit reached (pre-check fires, HeyGen never called)
   {
-    const { service } = makeService({ activePersonaCount: 10, personaLimit: 10 });
+    const heygenCallCount: number[] = [];
+    const { service } = makeService({
+      activePersonaCount: 10,
+      personaLimit: 10,
+      heygenClient: makeHeyGenGatewayClient({ callCount: heygenCallCount })
+    });
     await assert.rejects(
       () =>
         service.createPersona({
@@ -379,12 +420,17 @@ async function run(): Promise<void> {
         return true;
       }
     );
-    console.log("✓ Test 2: persona_limit_reached");
+    assert.equal(heygenCallCount.length, 0, "HeyGen must NOT be called when pre-check rejects");
+    console.log("✓ Test 2: persona_limit_reached (pre-check fires, HeyGen skipped)");
   }
 
-  // Test 3: Duplicate name
+  // Test 3: Duplicate name (pre-check fires, HeyGen never called)
   {
-    const { service } = makeService({ duplicateNameExists: true });
+    const heygenCallCount: number[] = [];
+    const { service } = makeService({
+      duplicateNameExists: true,
+      heygenClient: makeHeyGenGatewayClient({ callCount: heygenCallCount })
+    });
     await assert.rejects(
       () =>
         service.createPersona({
@@ -401,7 +447,8 @@ async function run(): Promise<void> {
         return true;
       }
     );
-    console.log("✓ Test 3: persona_duplicate_name");
+    assert.equal(heygenCallCount.length, 0, "HeyGen must NOT be called when pre-check rejects");
+    console.log("✓ Test 3: persona_duplicate_name (pre-check fires, HeyGen skipped)");
   }
 
   // Test 4: Voice not found in cached shortlist
@@ -420,7 +467,7 @@ async function run(): Promise<void> {
         return [];
       },
       async create(input) {
-        return makePersonaRecord({ id: input.id });
+        return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
       },
       async archive() {
         return null;
@@ -467,7 +514,8 @@ async function run(): Promise<void> {
         async $transaction<T>(fn: (tx: unknown) => Promise<T>) {
           return fn({});
         }
-      } as never
+      } as never,
+      makeHeyGenGatewayClient({})
     );
     await assert.rejects(
       () =>
@@ -488,100 +536,14 @@ async function run(): Promise<void> {
     console.log("✓ Test 4: voice_not_found");
   }
 
-  // Test 5: Insufficient VC balance → throws vcoin_balance_exhausted; no persona inserted, no ledger event
+  // Test 5: Insufficient VC balance → pre-check fires, HeyGen never called
   {
-    const insertedPersonas: WorkspaceVideoPersonaRecord[] = [];
-    const ledgerEvents: Array<Record<string, unknown>> = [];
-    const walletBalance = 5; // less than cost=20
-
-    const personaRepository: WorkspaceVideoPersonaRepository = {
-      async countActiveForWorkspace() {
-        return 0;
-      },
-      async findActiveByLowerName() {
-        return null;
-      },
-      async findById() {
-        return null;
-      },
-      async listActive() {
-        return [];
-      },
-      async create(input) {
-        const record = makePersonaRecord({ id: input.id });
-        insertedPersonas.push(record);
-        return record;
-      },
-      async archive() {
-        return null;
-      }
-    };
-
-    const ledgerEventRepository: WorkspaceVcoinLedgerEventRepository = {
-      async recordEvent(input) {
-        ledgerEvents.push({ kind: input.kind });
-        return { recorded: true };
-      }
-    };
-
-    const prisma = {
-      async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
-        return fn({
-          workspaceVcoinBalance: {
-            async findUnique() {
-              return { workspaceId: WORKSPACE_ID, balanceVc: walletBalance };
-            }
-          }
-        });
-      }
-    };
-
-    const service = new ManageWorkspaceVideoPersonasService(
-      personaRepository,
-      {
-        async getOrCreate() {
-          return { workspaceId: WORKSPACE_ID, balanceVc: walletBalance };
-        },
-        async credit() {
-          return { workspaceId: WORKSPACE_ID, balanceVc: walletBalance };
-        },
-        async debit() {
-          return { workspaceId: WORKSPACE_ID, balanceVc: 0 };
-        }
-      } as never,
-      ledgerEventRepository,
-      {
-        async execute() {
-          return { heygenPersonaWorkspaceLimit: 10, heygenPersonaCreationVcoin: 20 };
-        }
-      } as never,
-      {
-        async getMaterializedVoiceCatalog() {
-          return {
-            provider: "heygen" as const,
-            fetchedAt: new Date().toISOString(),
-            shortlist: [
-              {
-                voiceKey: "k",
-                providerVoiceId: VOICE_ID,
-                displayName: VOICE_DISPLAY_NAME,
-                locale: "en-US",
-                gender: "female" as const,
-                description: null,
-                styleTags: [],
-                previewAudioUrl: null
-              }
-            ]
-          };
-        }
-      } as never,
-      {
-        async saveObject() {
-          /* noop */
-        }
-      } as never,
-      prisma as never
-    );
+    const heygenCallCount: number[] = [];
+    const { service } = makeService({
+      walletBalance: 5, // less than cost=20
+      personaCreationCost: 20,
+      heygenClient: makeHeyGenGatewayClient({ callCount: heygenCallCount })
+    });
 
     await assert.rejects(
       () =>
@@ -599,11 +561,12 @@ async function run(): Promise<void> {
         return true;
       }
     );
-    // Transaction rolled back: no persona inserted (insertedPersonas populated before balance check in our mock, so this test only validates that the debit is not called)
-    // The service inserts the persona before the balance check — that's intentional.
-    // The important thing is the throw propagates and the tx is rolled back.
-    // Note: in our synchronous mock, "tx rollback" means the function threw — in a real Prisma tx the entire transaction aborts.
-    console.log("✓ Test 5: vcoin_balance_exhausted");
+    assert.equal(
+      heygenCallCount.length,
+      0,
+      "HeyGen must NOT be called when balance pre-check rejects"
+    );
+    console.log("✓ Test 5: vcoin_balance_exhausted (pre-check fires, HeyGen skipped)");
   }
 
   // Test 6: Archive (soft-delete) sets archived=true with archivedAt
@@ -653,7 +616,11 @@ async function run(): Promise<void> {
         return [];
       },
       async create(input) {
-        return makePersonaRecord({ id: input.id, displayName: input.displayName });
+        return makePersonaRecord({
+          id: input.id,
+          displayName: input.displayName,
+          heygenAvatarId: input.heygenAvatarId
+        });
       },
       async archive() {
         return null;
@@ -685,26 +652,7 @@ async function run(): Promise<void> {
           return { heygenPersonaWorkspaceLimit: 10, heygenPersonaCreationVcoin: 0 };
         }
       } as never,
-      {
-        async getMaterializedVoiceCatalog() {
-          return {
-            provider: "heygen" as const,
-            fetchedAt: new Date().toISOString(),
-            shortlist: [
-              {
-                voiceKey: "k",
-                providerVoiceId: VOICE_ID,
-                displayName: VOICE_DISPLAY_NAME,
-                locale: "en-US",
-                gender: "female" as const,
-                description: null,
-                styleTags: [],
-                previewAudioUrl: null
-              }
-            ]
-          };
-        }
-      } as never,
+      makeVoiceCatalog() as never,
       {
         async saveObject() {
           /* noop */
@@ -714,7 +662,8 @@ async function run(): Promise<void> {
         async $transaction<T>(fn: (tx: unknown) => Promise<T>) {
           return fn({});
         }
-      } as never
+      } as never,
+      makeHeyGenGatewayClient({})
     );
 
     await service.createPersona({
@@ -749,7 +698,7 @@ async function run(): Promise<void> {
         return [];
       },
       async create(input) {
-        return makePersonaRecord({ id: input.id });
+        return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
       },
       async archive() {
         return null;
@@ -793,32 +742,14 @@ async function run(): Promise<void> {
           return { heygenPersonaWorkspaceLimit: 10, heygenPersonaCreationVcoin: 20 };
         }
       } as never,
-      {
-        async getMaterializedVoiceCatalog() {
-          return {
-            provider: "heygen" as const,
-            fetchedAt: new Date().toISOString(),
-            shortlist: [
-              {
-                voiceKey: "k",
-                providerVoiceId: VOICE_ID,
-                displayName: VOICE_DISPLAY_NAME,
-                locale: "en-US",
-                gender: "female" as const,
-                description: null,
-                styleTags: [],
-                previewAudioUrl: null
-              }
-            ]
-          };
-        }
-      } as never,
+      makeVoiceCatalog() as never,
       {
         async saveObject() {
           storageCalledAfterTx.push(txCommitted.value);
         }
       } as never,
-      prisma as never
+      prisma as never,
+      makeHeyGenGatewayClient({})
     );
 
     await service.createPersona({
@@ -832,6 +763,316 @@ async function run(): Promise<void> {
     assert.equal(storageCalledAfterTx.length, 1);
     assert.equal(storageCalledAfterTx[0], true, "Storage save must run AFTER transaction commits");
     console.log("✓ Test 9: storage save runs AFTER transaction commits");
+  }
+
+  // ── Slice 5b new tests ─────────────────────────────────────────────────────
+
+  // Test 10: HeyGen call fails → persona NOT created, no ledger event, no VC debit
+  {
+    const insertedPersonas: WorkspaceVideoPersonaRecord[] = [];
+    const ledgerEvents: Array<Record<string, unknown>> = [];
+    const debits: Array<Record<string, unknown>> = [];
+
+    const failingHeygenClient = makeHeyGenGatewayClient({
+      failWith: new ServiceUnavailableException({
+        error: { code: "heygen_unavailable", message: "HeyGen is down (simulated)" }
+      })
+    });
+
+    const personaRepository: WorkspaceVideoPersonaRepository = {
+      async countActiveForWorkspace() {
+        return 0;
+      },
+      async findActiveByLowerName() {
+        return null;
+      },
+      async findById() {
+        return null;
+      },
+      async listActive() {
+        return [];
+      },
+      async create(input) {
+        const record = makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+        insertedPersonas.push(record);
+        return record;
+      },
+      async archive() {
+        return null;
+      }
+    };
+
+    const service = new ManageWorkspaceVideoPersonasService(
+      personaRepository,
+      {
+        async getOrCreate() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async credit() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async debit(input) {
+          debits.push({ amountVc: (input as { amountVc: number }).amountVc });
+          return { workspaceId: WORKSPACE_ID, balanceVc: 80 };
+        }
+      } as never,
+      {
+        async recordEvent(input: { kind: string; amountVc: number }) {
+          ledgerEvents.push({ kind: input.kind });
+          return { recorded: true };
+        }
+      } as never,
+      {
+        async execute() {
+          return { heygenPersonaWorkspaceLimit: 10, heygenPersonaCreationVcoin: 20 };
+        }
+      } as never,
+      makeVoiceCatalog() as never,
+      {
+        async saveObject() {
+          /* noop */
+        }
+      } as never,
+      {
+        async $transaction<T>(fn: (tx: unknown) => Promise<T>) {
+          return fn({});
+        }
+      } as never,
+      failingHeygenClient
+    );
+
+    await assert.rejects(
+      () =>
+        service.createPersona({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          displayName: "HeyGen Fail Test",
+          portraitImageFile: makePortraitFile(),
+          heygenVoiceId: VOICE_ID
+        }),
+      (err: Error) => {
+        assert.ok(err instanceof ServiceUnavailableException);
+        return true;
+      }
+    );
+
+    assert.equal(insertedPersonas.length, 0, "No persona must be created when HeyGen fails");
+    assert.equal(ledgerEvents.length, 0, "No ledger event when HeyGen fails");
+    assert.equal(debits.length, 0, "No debit when HeyGen fails");
+    console.log("✓ Test 10: HeyGen call fails → persona NOT created, no ledger/debit");
+  }
+
+  // Test 11: HeyGen succeeds but tx fails (race — duplicate name inside tx) → orphan warning
+  {
+    let warnLogged = false;
+    const heygenCallCount: number[] = [];
+
+    const personaRepository: WorkspaceVideoPersonaRepository = {
+      async countActiveForWorkspace(_workspaceId, _tx) {
+        // Pre-check (no tx) says 0, re-check inside tx also says 0
+        return 0;
+      },
+      async findActiveByLowerName(_workspaceId, _lower, _tx) {
+        // Pre-check (no tx arg) says null, but inside tx a race caused a duplicate to appear
+        if (_tx !== undefined) {
+          return makePersonaRecord({ displayNameLower: "race persona" });
+        }
+        return null;
+      },
+      async findById() {
+        return null;
+      },
+      async listActive() {
+        return [];
+      },
+      async create(input) {
+        return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+      },
+      async archive() {
+        return null;
+      }
+    };
+
+    const prisma = {
+      async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+        return fn({
+          workspaceVcoinBalance: {
+            async findUnique() {
+              return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+            }
+          }
+        });
+      }
+    };
+
+    // Capture logger.warn calls
+    const service = new ManageWorkspaceVideoPersonasService(
+      personaRepository,
+      {
+        async getOrCreate() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async credit() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async debit() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 80 };
+        }
+      } as never,
+      {
+        async recordEvent() {
+          return { recorded: true };
+        }
+      } as never,
+      {
+        async execute() {
+          return { heygenPersonaWorkspaceLimit: 10, heygenPersonaCreationVcoin: 20 };
+        }
+      } as never,
+      makeVoiceCatalog() as never,
+      {
+        async saveObject() {
+          /* noop */
+        }
+      } as never,
+      prisma as never,
+      makeHeyGenGatewayClient({ callCount: heygenCallCount })
+    );
+
+    // Patch the logger to intercept warn calls
+    const originalWarn = (
+      service as unknown as { logger: { warn: (msg: string) => void } }
+    ).logger.warn.bind((service as unknown as { logger: { warn: (msg: string) => void } }).logger);
+    (service as unknown as { logger: { warn: (msg: string) => void } }).logger.warn = (
+      msg: string
+    ) => {
+      if (msg.includes("Orphan HeyGen avatar")) {
+        warnLogged = true;
+      }
+      originalWarn(msg);
+    };
+
+    await assert.rejects(
+      () =>
+        service.createPersona({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          displayName: "Race Persona",
+          portraitImageFile: makePortraitFile(),
+          heygenVoiceId: VOICE_ID
+        }),
+      (err: Error) => {
+        assert.ok(err instanceof BadRequestException);
+        const body = (err as BadRequestException).getResponse() as Record<string, unknown>;
+        assert.equal(body["code"], "persona_duplicate_name");
+        return true;
+      }
+    );
+
+    assert.equal(heygenCallCount.length, 1, "HeyGen was called before the tx");
+    assert.equal(
+      warnLogged,
+      true,
+      "Orphan avatar warning must be logged when tx fails after HeyGen success"
+    );
+    console.log(
+      "✓ Test 11: HeyGen succeeds but tx fails (race) → orphan warning logged, exception propagates"
+    );
+  }
+
+  // Test 12: Pre-check rejects (limit) → HeyGen is NEVER called
+  {
+    const heygenCallCount: number[] = [];
+    const { service } = makeService({
+      activePersonaCount: 10,
+      personaLimit: 10,
+      heygenClient: makeHeyGenGatewayClient({ callCount: heygenCallCount })
+    });
+
+    await assert.rejects(
+      () =>
+        service.createPersona({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          displayName: "Limit Test",
+          portraitImageFile: makePortraitFile(),
+          heygenVoiceId: VOICE_ID
+        }),
+      (err: Error) => {
+        assert.ok(err instanceof BadRequestException);
+        return true;
+      }
+    );
+
+    assert.equal(
+      heygenCallCount.length,
+      0,
+      "HeyGen must NOT be called when limit pre-check rejects"
+    );
+    console.log("✓ Test 12: pre-check limit → HeyGen never called");
+  }
+
+  // Test 13: Pre-check rejects (duplicate name) → HeyGen is NEVER called
+  {
+    const heygenCallCount: number[] = [];
+    const { service } = makeService({
+      duplicateNameExists: true,
+      heygenClient: makeHeyGenGatewayClient({ callCount: heygenCallCount })
+    });
+
+    await assert.rejects(
+      () =>
+        service.createPersona({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          displayName: "Dup Name Test",
+          portraitImageFile: makePortraitFile(),
+          heygenVoiceId: VOICE_ID
+        }),
+      (err: Error) => {
+        assert.ok(err instanceof BadRequestException);
+        return true;
+      }
+    );
+
+    assert.equal(
+      heygenCallCount.length,
+      0,
+      "HeyGen must NOT be called when duplicate-name pre-check rejects"
+    );
+    console.log("✓ Test 13: pre-check duplicate name → HeyGen never called");
+  }
+
+  // Test 14: Pre-check rejects (balance) → HeyGen is NEVER called
+  {
+    const heygenCallCount: number[] = [];
+    const { service } = makeService({
+      walletBalance: 5,
+      personaCreationCost: 20,
+      heygenClient: makeHeyGenGatewayClient({ callCount: heygenCallCount })
+    });
+
+    await assert.rejects(
+      () =>
+        service.createPersona({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          displayName: "Balance Gate Test",
+          portraitImageFile: makePortraitFile(),
+          heygenVoiceId: VOICE_ID
+        }),
+      (err: Error) => {
+        assert.ok(err instanceof BadRequestException);
+        return true;
+      }
+    );
+
+    assert.equal(
+      heygenCallCount.length,
+      0,
+      "HeyGen must NOT be called when balance pre-check rejects"
+    );
+    console.log("✓ Test 14: pre-check balance → HeyGen never called");
   }
 
   console.log("\nmanage-workspace-video-personas.service: all assertions passed");

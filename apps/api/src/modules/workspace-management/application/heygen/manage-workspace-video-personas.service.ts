@@ -18,6 +18,8 @@ import { validatePersaiMediaFile } from "../media/media-security-policy";
 import { PersaiMediaObjectStorageService } from "../media/persai-media-object-storage.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "../resolve-platform-runtime-provider-settings.service";
 import { HeyGenVoiceCatalogService } from "./heygen-voice-catalog.service";
+import { HeyGenProviderGatewayClient } from "./heygen-provider-gateway.client";
+import { TOOL_CREDENTIAL_IDS } from "../tool-credential-settings";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
 const PORTRAIT_NORMALIZED_MIME_TYPE = "image/jpeg";
@@ -40,7 +42,7 @@ export type PersonaListItem = {
   portraitImageUrl: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
-  heygenAvatarId: string | null;
+  heygenAvatarId: string;
   createdAt: string;
 };
 
@@ -51,20 +53,37 @@ export type CreatePersonaResult = {
 };
 
 /**
- * ADR-109 Slice 5 — manages workspace video persona CRUD.
+ * ADR-109 Slice 5 / Slice 5b — manages workspace video persona CRUD.
  *
  * Persona creation is REST-only (cross-slice invariant #14). The runtime MUST
  * NOT call this service or mutate `workspace_video_personas` directly.
  *
- * Transactional discipline (mirrors ADR-108 Slice 3 grant-monthly-vcoin):
- *   1. Count active personas → reject if ≥ limit.
- *   2. Duplicate-name check (lowercase equality, no regex — invariant #15).
- *   3. Insert persona row.
- *   4. If cost > 0: record ledger event, read balance, reject if insufficient,
- *      then debit wallet. All inside ONE prisma.$transaction block.
- *   5. Save portrait to object storage AFTER tx commits (so a rollback does
- *      not leave orphan blobs). If storage fails, the persona row is kept
- *      (committed) but a `storageWarning` is surfaced to the caller.
+ * Slice 5b (E12) — eager HeyGen avatar creation flow:
+ *
+ * ```
+ * 1. settings + voice-catalog pre-checks (unchanged)
+ * 2. validatePersaiMediaFile + normalizePortraitBuffer (unchanged)
+ * 3. Pre-checks (best-effort, before HeyGen call):
+ *    a. activeCount < limit
+ *    b. no duplicate name
+ *    c. balance >= cost (when cost > 0)
+ * 4. Call heygenProviderGatewayClient.createPhotoAvatar → { avatarId }
+ *    ⚠ OUTSIDE the tx. If HeyGen succeeds but the tx later fails (rare race),
+ *    the orphan HeyGen avatar is logged as a warning and the exception propagates.
+ *    No compensation job. (Slice 5b trade-off: avatar is $1, races are rare.)
+ * 5. Open prisma.$transaction:
+ *    a. Re-check activeCount (authoritative race guard)
+ *    b. Re-check duplicate name
+ *    c. Insert persona row WITH heygenAvatarId = avatarId
+ *    d. Ledger event + balance re-check + debit
+ * 6. Save portrait to object storage AFTER tx commits (unchanged)
+ * ```
+ *
+ * The pre-check + re-check pattern (option i) means we can reject obvious
+ * violations before paying HeyGen. In the rare case of a concurrent create that
+ * squeezes through the pre-check window, the authoritative in-tx check catches
+ * it, the tx rolls back, and we log the orphan avatar ID as a warning. The
+ * caller sees the correct error code.
  */
 @Injectable()
 export class ManageWorkspaceVideoPersonasService {
@@ -80,7 +99,8 @@ export class ManageWorkspaceVideoPersonasService {
     private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     private readonly heyGenVoiceCatalogService: HeyGenVoiceCatalogService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly heygenProviderGatewayClient: HeyGenProviderGatewayClient
   ) {}
 
   async createPersona(input: {
@@ -130,11 +150,63 @@ export class ManageWorkspaceVideoPersonasService {
     const portraitImageUrl = `${PORTRAIT_URL_PREFIX}${input.workspaceId}/${personaId}/${contentHash}.jpg`;
     const displayNameLower = input.displayName.toLowerCase();
 
+    // ── Step 3: Pre-checks (best-effort, before HeyGen call) ─────────────────
+    // These are intentionally racy: the authoritative checks run inside the tx.
+    // The purpose is to reject obvious violations cheaply BEFORE paying HeyGen.
+    const preActiveCount = await this.personaRepository.countActiveForWorkspace(input.workspaceId);
+    if (preActiveCount >= limit) {
+      throw Object.assign(
+        new BadRequestException({
+          message: `Persona limit of ${String(limit)} reached for this workspace.`,
+          code: "persona_limit_reached"
+        }),
+        { _personaError: true }
+      );
+    }
+
+    const preDuplicate = await this.personaRepository.findActiveByLowerName(
+      input.workspaceId,
+      displayNameLower
+    );
+    if (preDuplicate !== null) {
+      throw Object.assign(
+        new BadRequestException({
+          message: `A persona named "${input.displayName}" already exists in this workspace.`,
+          code: "persona_duplicate_name"
+        }),
+        { _personaError: true }
+      );
+    }
+
+    if (cost > 0) {
+      const walletRow = await this.vcoinBalanceRepository.getOrCreate(input.workspaceId);
+      if (walletRow.balanceVc < cost) {
+        throw Object.assign(
+          new BadRequestException({
+            message: `Insufficient VC balance. Required: ${String(cost)}, available: ${String(walletRow.balanceVc)}.`,
+            code: "vcoin_balance_exhausted"
+          }),
+          { _personaError: true }
+        );
+      }
+    }
+
+    // ── Step 4: Call HeyGen to create the photo avatar (OUTSIDE the tx) ──────
+    // The HeyGen credential is the platform-level key.
+    const { avatarId } = await this.heygenProviderGatewayClient.createPhotoAvatar({
+      credentialSecretId: TOOL_CREDENTIAL_IDS.tool_video_generate_heygen,
+      name: input.displayName,
+      portraitImageBytesBase64: normalizedPortrait.toString("base64"),
+      portraitImageMimeType: PORTRAIT_NORMALIZED_MIME_TYPE
+    });
+
+    // ── Step 5: Open tx — authoritative re-checks + persist persona row ───────
     let committedPersona: WorkspaceVideoPersonaRecord;
     let walletBalanceVc: number;
 
     try {
       const txResult = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // 5a. Re-check activeCount (authoritative race guard).
         const activeCount = await this.personaRepository.countActiveForWorkspace(
           input.workspaceId,
           tx
@@ -149,6 +221,7 @@ export class ManageWorkspaceVideoPersonasService {
           );
         }
 
+        // 5b. Re-check duplicate name.
         const duplicate = await this.personaRepository.findActiveByLowerName(
           input.workspaceId,
           displayNameLower,
@@ -164,6 +237,7 @@ export class ManageWorkspaceVideoPersonasService {
           );
         }
 
+        // 5c. Insert persona WITH the newly created HeyGen avatar ID.
         const persona = await this.personaRepository.create(
           {
             id: personaId,
@@ -173,13 +247,15 @@ export class ManageWorkspaceVideoPersonasService {
             portraitImageUrl,
             portraitImageStorageKey: storageKey,
             heygenVoiceId: input.heygenVoiceId,
-            heygenVoiceLabel
+            heygenVoiceLabel,
+            heygenAvatarId: avatarId
           },
           tx
         );
 
         let balanceAfterVc: number;
 
+        // 5d. Ledger event + balance check + debit.
         if (cost > 0) {
           await this.ledgerEventRepository.recordEvent({
             workspaceId: input.workspaceId,
@@ -225,11 +301,21 @@ export class ManageWorkspaceVideoPersonasService {
         error instanceof BadRequestException &&
         (error as BadRequestException & { _personaError?: boolean })._personaError
       ) {
+        // A race condition caused the tx-level guard to fire even though the pre-check
+        // passed. The HeyGen avatar we already created is now orphaned.
+        // Log a warning but propagate the correct error to the caller.
+        this.logger.warn(
+          `[persona] Orphan HeyGen avatar created but tx rejected. ` +
+            `avatar_id=${avatarId} persona_id=${personaId} workspace_id=${input.workspaceId} ` +
+            `error_code=${String((error.getResponse() as Record<string, unknown>)["code"] ?? "unknown")}. ` +
+            `The HeyGen avatar will remain unused. No compensation is performed (Slice 5b trade-off).`
+        );
         throw error;
       }
       throw error;
     }
 
+    // ── Step 6: Save portrait to object storage AFTER tx commits ──────────────
     let storageWarning: string | null = null;
     try {
       await this.mediaObjectStorage.saveObject({

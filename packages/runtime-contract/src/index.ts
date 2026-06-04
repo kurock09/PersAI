@@ -3479,3 +3479,20 @@ export interface RuntimeReadinessStatus {
   bundleCacheReady: boolean;
   providerCacheReady: boolean;
 }
+
+// ADR-109 Slice 5b — eager HeyGen photo avatar creation at persona POST (E12).
+
+export interface ProviderGatewayHeyGenCreatePhotoAvatarRequest {
+  schema: "persai.providerGatewayHeyGenCreatePhotoAvatarRequest.v1";
+  credential: { secretId: string; providerId: "heygen" };
+  name: string;
+  portraitImageBytesBase64: string;
+  portraitImageMimeType: string;
+}
+
+export interface ProviderGatewayHeyGenCreatePhotoAvatarResult {
+  schema: "persai.providerGatewayHeyGenCreatePhotoAvatarResult.v1";
+  provider: "heygen";
+  avatarId: string;
+  respondedAt: string;
+}

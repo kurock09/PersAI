@@ -2,6 +2,93 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-05 — ADR-109 Slice 5b: Eager HeyGen avatar creation at persona POST (E12 retrofit)
+
+### What changed & why
+
+Baseline SHA at session start: Slice 6 closure (`5a58c664`) + erratum E12 (`702454e3`). Tree clean.
+
+Slice 5b implements the **E12 binding amendment** — HeyGen `POST /v3/avatars` now fires synchronously at persona POST time (BEFORE the DB transaction), eliminating the lazy-create runtime-side write that conflicted with invariant #14 (REST-only persona mutation). After E12 and Slice 5b:
+
+- Every `workspace_video_personas` row has a populated `heygen_avatar_id` (column is `NOT NULL` going forward).
+- `apps/runtime/src/**` never writes to the persona table. Invariant #14 stays in its original strict form, no erratum needed.
+- The lazy-create code path inside `HeyGenProviderClient.generateVideo` (Slice 6) is preserved as a defensive fallback — it now delegates internally to a new public `createPhotoAvatar()` method that's also exposed via a new HTTP endpoint for the API service to call at persona create time.
+- HeyGen failure during persona POST → no persona row, no VC debit, honest error (`heygen_unavailable` for transport / 5xx; `heygen_avatar_create_failed` for HeyGen 4xx).
+
+### Subagent
+
+Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 14 verification gates green. The subagent honored the "no docs edits" rule (third subagent in a row to do so cleanly). Mild wart in the response summary: it referred to "the previous implementation attempt" which didn't exist — likely a hallucinated phrasing — but the code produced is correct and the spot-checked critical sections (persona service retrofit, HeyGen client refactor, migration, invariant #14 preservation) all match the slice spec.
+
+### Files touched (Scope IN)
+
+**New files:**
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-heygen-avatars.controller.ts` — exposes `POST /api/v1/providers/heygen/create-photo-avatar`
+- `apps/provider-gateway/src/modules/providers/provider-heygen-avatars.service.ts` — defensive `normalizeInput` + secret resolution + `HeyGenProviderClient.createPhotoAvatar` delegation
+- `apps/provider-gateway/test/provider-heygen-avatars.service.test.ts` — 6 assertions (happy path, providerId rejection, missing-portrait rejection, empty-name rejection, secret resolution failure, HeyGen client error mapped to `heygen_avatar_create_failed`)
+- `apps/api/src/modules/workspace-management/application/heygen/heygen-provider-gateway.client.ts` — API-side HTTP client mirroring the `sync-provider-gateway-warmup.service.ts` pattern; reads `PERSAI_PROVIDER_GATEWAY_BASE_URL` and `PERSAI_PROVIDER_GATEWAY_HEYGEN_AVATAR_TIMEOUT_MS` directly from `process.env` (not via `loadApiConfig` — see honest subtleties); maps 4xx → `BadRequestException(heygen_avatar_create_failed)`, 5xx/network/timeout → `ServiceUnavailableException(heygen_unavailable)`
+- `apps/api/test/heygen-provider-gateway.client.test.ts` — 8 assertions (200 happy path, 4xx → `heygen_avatar_create_failed`, 5xx → `heygen_unavailable`, network error, malformed response, timeout, missing base URL, request body shape)
+- `apps/api/prisma/migrations/20260605000000_slice5b_persona_heygen_avatar_id_required/migration.sql` — sentinel-backfill (`unset_legacy`) of any existing NULL rows + `ALTER COLUMN heygen_avatar_id SET NOT NULL`
+
+**Modified files:**
+- `apps/api/prisma/schema.prisma` — `WorkspaceVideoPersona.heygenAvatarId` `String?` → `String`
+- `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service.ts` — full retrofit: settings + voice-catalog + portrait normalize → **pre-checks (limit, duplicate name, balance — best-effort racy reads OUTSIDE tx)** → **HeyGen call OUTSIDE tx** → **tx with authoritative re-checks + persona insert WITH `heygenAvatarId` populated + ledger + debit** → portrait save AFTER tx commit. Orphan-avatar warning log fires only when the tx-level race guards reject after a successful HeyGen call (rare).
+- `apps/api/src/modules/workspace-management/domain/workspace-video-persona.repository.ts` — `WorkspaceVideoPersonaRecord.heygenAvatarId` `string | null` → `string`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-video-persona.repository.ts` — `toRecord` mapping reads `heygenAvatarId` as non-null
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` — registered `HeyGenProviderGatewayClient`
+- `apps/api/test/manage-workspace-video-personas.service.test.ts` — added Tests 10–14 (pre-check rejects → HeyGen never invoked; HeyGen fail → tx never opens; tx-race orphan warning log; happy-path now asserts `heygenAvatarId === fixedMockId`; existing happy/limit/duplicate/voice/balance assertions adjusted for new flow)
+- `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts` — extracted standalone public `createPhotoAvatar(input, options)` from the existing inline asset-upload + avatar-create code; `generateVideo` lazy-create branch now delegates to `createPhotoAvatar` and surfaces the result as `lazyCreatedHeygenAvatarId`. Behavior unchanged for Slice 6 callers (regression test confirms).
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts` — registered `ProviderHeyGenAvatarsService` + `ProviderHeyGenAvatarsController`
+- `apps/provider-gateway/test/heygen-provider.client.test.ts` — added Test 13: standalone `createPhotoAvatar` (asset upload + avatar create, no video submit, `Idempotency-Key` on both POSTs)
+- `packages/config/src/api-config.ts` — added `PERSAI_PROVIDER_GATEWAY_HEYGEN_AVATAR_TIMEOUT_MS` (default 60_000ms); note the client does NOT consume it via `loadApiConfig` (see honesty)
+- `packages/runtime-contract/src/index.ts` — added `ProviderGatewayHeyGenCreatePhotoAvatarRequest` + `ProviderGatewayHeyGenCreatePhotoAvatarResult` interfaces (schema-tagged `persai.providerGatewayHeyGenCreatePhotoAvatar*.v1`)
+
+### Honest subtleties
+
+- **Credential resolution.** The API service uses the platform-wide `TOOL_CREDENTIAL_IDS.tool_video_generate_heygen` slot (the same one Slice 1 introduced and Slice 4's `HeyGenVoiceCatalogService` already consumes). One HeyGen API key for the whole platform, resolved from the secret store inside provider-gateway via the existing `persaiInternalApiClientService.resolveSecretValue(secretId)` pattern. The API service passes only the `secretId` reference — never the cleartext key.
+- **Pre-check race window.** Limit / duplicate-name / balance checks run twice — first as cheap best-effort reads BEFORE the HeyGen call (to short-circuit obvious violations and avoid the $1 HeyGen spend), then again INSIDE the tx as authoritative race guards. If a concurrent persona creation slips between the pre-check and the tx, the HeyGen avatar is logged as orphaned (`avatar_id`, `persona_id`, `workspace_id`, `error_code`) and the honest error propagates. No compensation logic — orphans accumulate at the rate of races (rare).
+- **`HeyGenProviderGatewayClient` does NOT use `loadApiConfig`.** The subagent originally tried `loadApiConfig(process.env)` but that validates the full app config schema and requires `DATABASE_URL`, `CLERK_SECRET_KEY`, etc. — overkill for a lightweight HTTP client. Final version reads `process.env['PERSAI_PROVIDER_GATEWAY_BASE_URL']` and `process.env['PERSAI_PROVIDER_GATEWAY_HEYGEN_AVATAR_TIMEOUT_MS']` directly. Trade-off: the env var key is still declared in `packages/config/src/api-config.ts` for documentation / future structured config, but the client reads it raw. Acceptable for now; future cleanup may unify env loading.
+- **Migration sentinel `'unset_legacy'`.** No production rows exist at this moment (Slice 5 just landed locally), so the sentinel will affect zero rows in practice. If a stray NULL row ever lands (e.g., direct DB write that bypassed the service), its next video render falls through to the Slice 6 defensive lazy-create path inside `HeyGenProviderClient.generateVideo` — graceful degradation, not a silent failure.
+- **Slice 6 lazy-create code path preserved.** The `HeyGenProviderClient.generateVideo` lazy-create branch still works exactly as before; the only refactor is that it now delegates to the new public `createPhotoAvatar()` helper instead of inlining the asset upload + avatar create steps. Verified by the Slice 6 regression test (`heygen-provider.client.test.ts` Tests 1–12 unchanged) passing alongside the new Test 13.
+- **No idempotency across API restarts.** The `Idempotency-Key` UUID on `POST /v3/avatars` is generated per logical attempt inside the provider client. It is NOT persisted across API process restarts, so a network failure followed by a retry from the API-side client would generate a new key. Acceptable trade-off — full cross-request idempotency would require persisting the key in the persona row before the call.
+
+### Verification (all 14 gates PASS)
+
+1. `corepack pnpm -r --if-present run lint` — all workspaces `Done`. ✅
+2. `corepack pnpm run format:check` — `All matched files use Prettier code style!` ✅
+3. `corepack pnpm --filter @persai/api run typecheck` — exit 0. ✅
+4. `corepack pnpm --filter @persai/web run typecheck` — exit 0. ✅
+5. `corepack pnpm --filter @persai/runtime run typecheck` — exit 0. ✅
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — exit 0. ✅
+7. `corepack pnpm --filter @persai/contracts run typecheck` — exit 0. ✅
+8. `tsx apps/api/test/manage-workspace-video-personas.service.test.ts` — Tests 1–14 PASS (assertion message: `manage-workspace-video-personas.service: all assertions passed`). ✅
+9. `tsx apps/api/test/heygen-provider-gateway.client.test.ts` — Tests 1–8 PASS (`heygen-provider-gateway.client: all assertions passed`). ✅
+10. `tsx apps/provider-gateway/test/heygen-provider.client.test.ts` — Tests 1–13 PASS (`✅ All HeyGen provider client tests passed.`, 156s wall — same 10s real-polling delays as Slice 6). ✅
+11. `tsx apps/provider-gateway/test/provider-heygen-avatars.service.test.ts` — Tests 1–6 PASS. ✅
+12. `tsx apps/provider-gateway/test/provider-video-generation.service.test.ts` — exit 0 (Slice 6 dispatch regression). ✅
+13. `tsx apps/api/test/heygen-voice-catalog.service.test.ts` — all 4 tests PASS (Slice 4 regression). ✅
+14. `prisma validate` — `The schema at prisma\schema.prisma is valid 🚀`. ✅
+
+### Cross-slice invariants
+
+All 15 invariants verified true:
+- **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits.
+- **#12** — no keyword routing. The only regex in the new code is `/^\d+$/.test(rawTimeout)` parsing a numeric env var, NOT user-supplied strings. Persona name handling stays `.toLowerCase()` equality.
+- **#14 REST-only persona mutation** — `apps/runtime/src/**` untouched. Persona writes happen exclusively from the API service (`ManageWorkspaceVideoPersonasService`) via the REST controller. Strict form preserved, no erratum needed.
+- **#15 NON-NEGOTIABLE** — defensive structural parsing throughout (response schema tag check on gateway responses, exact `providerId` equality, type-safe normalizeInput). Zero fuzzy match anywhere new.
+
+### Next recommended slice
+
+**Slice 7: Runtime talking_avatar execution** is now substantially simpler than originally specified — persona reads always return a populated `heygen_avatar_id`, so the runtime never sees `null`. Scope:
+1. Wire `mode === "talking_avatar"` in `runtime-video-generate-tool.service.ts` to dispatch through `HeyGenProviderClient.generateVideo`.
+2. Resolve `personaId` → persona row (read `portraitImageStorageKey`, `heygenVoiceId`, `heygenAvatarId`). Persona reads stay read-only — no runtime writes.
+3. Resolve `portraitImageAlias` (Scenario A) → chat-uploaded image bytes from media storage.
+4. Validate `voiceKey` against the Slice 4 materialized HeyGen shortlist (or fail honestly with `voice_required`).
+5. Honor `talkingVideoEnabled` plan toggle (Slice 8 will land the toggle; Slice 7 may TODO-stub it pending Slice 8).
+6. On render success, **no persona writes needed** — `heygen_avatar_id` is already populated. The Slice 6 result field `lazyCreatedHeygenAvatarId` will be `null` in normal flow (eager-create won) but the runtime may still observe it in defensive fallback edge cases; in such cases the runtime logs but does NOT persist (preserves invariant #14).
+7. VC settle through ADR-108 path on success (existing wiring already in place).
+
+---
+
 ## 2026-06-05 — ADR-109 Slice 6: Provider-gateway HeyGen client (v3 endpoints, polling, lazy avatar creation, defensive status parsing, billing facts)
 
 ### What changed & why

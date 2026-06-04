@@ -143,14 +143,102 @@ export class HeyGenProviderClient {
     };
   }
 
-  // ── Lazy avatar creation (Scenario C first-use) ──────────────────────────
+  // ── Public: standalone photo-avatar creation (ADR-109 Slice 5b / E12) ───────
+
+  /**
+   * Creates a HeyGen Photo Avatar from a portrait image (asset upload + avatar
+   * create) WITHOUT submitting a video job. Called by `ProviderHeyGenAvatarsService`
+   * for eager avatar creation at persona POST time.
+   *
+   * The same logic also backs the lazy-create defensive fallback path inside
+   * `generateVideo` — `lazyCreateAvatar` delegates to this method.
+   *
+   * POST /v3/avatars is synchronous: the response body contains the avatar ID
+   * ready to use. No polling is required. (Confirmed by Slice 6 lazy-create
+   * behaviour; HeyGen docs were unreachable for independent verification.)
+   *
+   * @param options.signal  Optional abort signal. When omitted, a fresh 60s
+   *   timeout is created internally. Pass the outer signal when calling from
+   *   inside `generateVideo` so the overall timeout still applies.
+   */
+  async createPhotoAvatar(
+    input: {
+      name: string;
+      portraitImageBytesBase64: string;
+      portraitImageMimeType: string;
+    },
+    options: { credentialValue: string; signal?: AbortSignal }
+  ): Promise<{ avatarId: string }> {
+    const apiKey = this.resolveApiKey(options.credentialValue);
+
+    // Use caller-supplied signal or create a 60s local timeout.
+    let ownSignal: AbortSignal | undefined;
+    let dispose: (() => void) | undefined;
+    if (options.signal === undefined) {
+      const timed = this.createTimedSignal(60_000);
+      ownSignal = timed.signal;
+      dispose = timed.dispose;
+    }
+    const signal = options.signal ?? ownSignal!;
+
+    try {
+      const mimeType = this.asNonEmptyString(input.portraitImageMimeType) ?? "image/jpeg";
+      const assetId = await this.uploadAsset(
+        input.portraitImageBytesBase64,
+        mimeType,
+        apiKey,
+        signal
+      );
+
+      const idempotencyKey = crypto.randomUUID();
+      this.logger.log(
+        `[avatar-heygen] create name=${input.name} idempotency_key=${idempotencyKey}`
+      );
+
+      const body = {
+        type: "photo",
+        name: input.name,
+        file: { type: "asset_id", asset_id: assetId }
+      };
+
+      const response = await fetch(`${HEYGEN_API_BASE_URL}${HEYGEN_AVATAR_CREATE_PATH}`, {
+        method: "POST",
+        headers: {
+          "X-Api-Key": apiKey,
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(body),
+        signal
+      });
+
+      const responseBody = await this.readJsonBody(response);
+      if (!response.ok) {
+        throw new Error(this.readHeyGenErrorMessage(responseBody, response.status));
+      }
+
+      const avatarId =
+        this.readString(responseBody, ["data", "avatar_item", "id"]) ??
+        this.readString(responseBody, ["data", "avatar_item", "look_id"]) ??
+        this.readString(responseBody, ["data", "id"]);
+      if (avatarId === null) {
+        throw new Error("HeyGen avatar creation returned a response missing avatar_item.id.");
+      }
+
+      this.logger.debug(`[avatar-heygen] created name=${input.name} avatar_id=${avatarId}`);
+      return { avatarId };
+    } finally {
+      dispose?.();
+    }
+  }
+
+  // ── Lazy avatar creation (Scenario C first-use defensive fallback) ────────
 
   private async lazyCreateAvatar(
     input: ProviderGatewayVideoGenerateRequest,
     apiKey: string,
     signal: AbortSignal
   ): Promise<string> {
-    // Upload the portrait image as an asset first, then create a photo avatar.
     const portraitBytesBase64 = this.asNonEmptyString(input.portraitImageBytesBase64);
     if (portraitBytesBase64 === null) {
       throw new Error(
@@ -158,42 +246,16 @@ export class HeyGenProviderClient {
       );
     }
     const mimeType = this.asNonEmptyString(input.portraitImageMimeType) ?? "image/jpeg";
-    const assetId = await this.uploadAsset(portraitBytesBase64, mimeType, apiKey, signal);
-
-    const idempotencyKey = crypto.randomUUID();
-    this.logger.log(
-      `[video-heygen] avatar-create persona_id=${String(input.personaId)} idempotency_key=${idempotencyKey}`
-    );
-
-    const body = {
-      type: "photo",
-      name: `PersAI-persona-${String(input.personaId)}`,
-      file: { type: "asset_id", asset_id: assetId }
-    };
-
-    const response = await fetch(`${HEYGEN_API_BASE_URL}${HEYGEN_AVATAR_CREATE_PATH}`, {
-      method: "POST",
-      headers: {
-        "X-Api-Key": apiKey,
-        "Content-Type": "application/json",
-        "Idempotency-Key": idempotencyKey
+    // Delegate to the public helper, threading the outer generateVideo signal
+    // so the overall 600s timeout still governs this sub-step.
+    const { avatarId } = await this.createPhotoAvatar(
+      {
+        name: `PersAI-persona-${String(input.personaId)}`,
+        portraitImageBytesBase64: portraitBytesBase64,
+        portraitImageMimeType: mimeType
       },
-      body: JSON.stringify(body),
-      signal
-    });
-
-    const responseBody = await this.readJsonBody(response);
-    if (!response.ok) {
-      throw new Error(this.readHeyGenErrorMessage(responseBody, response.status));
-    }
-
-    const avatarId =
-      this.readString(responseBody, ["data", "avatar_item", "id"]) ??
-      this.readString(responseBody, ["data", "avatar_item", "look_id"]) ??
-      this.readString(responseBody, ["data", "id"]);
-    if (avatarId === null) {
-      throw new Error("HeyGen avatar creation returned a response missing avatar_item.id.");
-    }
+      { credentialValue: apiKey, signal }
+    );
     return avatarId;
   }
 

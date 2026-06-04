@@ -651,6 +651,83 @@ export async function runHeyGenProviderClientTest(): Promise<void> {
     console.log("✓ Test 12: voice_required when voiceKey is missing");
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 13: standalone createPhotoAvatar — asset upload + avatar create (Slice 5b E12)
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (init !== undefined) {
+        requests.push({ url, init });
+      } else {
+        requests.push({ url });
+      }
+
+      if (url === "https://api.heygen.com/v3/assets") {
+        return makeUploadAssetResponse("asset-standalone-1");
+      }
+      if (url === "https://api.heygen.com/v3/avatars") {
+        const body = JSON.parse(String(init?.body));
+        assert.equal(body.type, "photo");
+        assert.equal(body.name, "My Display Name");
+        assert.equal(body.file.type, "asset_id");
+        assert.equal(body.file.asset_id, "asset-standalone-1");
+        return makeAvatarCreateResponse("ava-standalone-1");
+      }
+      throw new Error(`Unexpected fetch in standalone createPhotoAvatar test: ${url}`);
+    }) as typeof fetch;
+
+    try {
+      const result = await client.createPhotoAvatar(
+        {
+          name: "My Display Name",
+          portraitImageBytesBase64: Buffer.from("portrait-bytes").toString("base64"),
+          portraitImageMimeType: "image/jpeg"
+        },
+        { credentialValue: MOCK_HEYGEN_API_KEY }
+      );
+
+      assert.equal(result.avatarId, "ava-standalone-1");
+
+      // Verify POST /v3/assets was called
+      const assetPost = requests.find((r) => r.url === "https://api.heygen.com/v3/assets");
+      assert.ok(assetPost !== undefined, "Asset upload POST should have been called");
+
+      // Verify POST /v3/avatars has Idempotency-Key
+      const avatarPost = requests.find(
+        (r) => r.url === "https://api.heygen.com/v3/avatars" && r.init?.method === "POST"
+      );
+      assert.ok(avatarPost !== undefined, "Avatar create POST should have been called");
+      const headers = (avatarPost!.init!.headers as Record<string, string>) ?? {};
+      const idempotencyKey =
+        headers["Idempotency-Key"] ?? headers["idempotency-key"] ?? headers["idempotency_key"];
+      assert.ok(
+        typeof idempotencyKey === "string" && idempotencyKey.trim().length > 0,
+        "Idempotency-Key must be set on avatar create POST"
+      );
+      assert.match(
+        idempotencyKey,
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      );
+
+      // No video submission should have occurred
+      const videoPost = requests.find((r) => r.url === "https://api.heygen.com/v3/videos");
+      assert.ok(
+        videoPost === undefined,
+        "No video submit should occur in standalone createPhotoAvatar"
+      );
+
+      console.log(
+        "✓ Test 13: standalone createPhotoAvatar — asset upload + avatar create; no video submit; idempotency-key present"
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
   console.log("\n✅ All HeyGen provider client tests passed.");
 }
 

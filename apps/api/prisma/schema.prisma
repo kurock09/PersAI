@@ -3375,7 +3375,7 @@ model WorkspaceVideoPersona {
   portraitImageStorageKey String   @map("portrait_image_storage_key")
   heygenVoiceId          String    @map("heygen_voice_id") @db.VarChar(128)
   heygenVoiceLabel       String    @map("heygen_voice_label") @db.VarChar(120)
-  heygenAvatarId         String?   @map("heygen_avatar_id") @db.VarChar(128)
+  heygenAvatarId         String    @map("heygen_avatar_id") @db.VarChar(128)
   archived               Boolean   @default(false)
   archivedAt             DateTime? @map("archived_at") @db.Timestamptz(6)
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -26,8 +26,8 @@ export type WorkspaceVideoPersonaRecord = {
   portraitImageStorageKey: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
-  /** NULL at creation; Slice 6 sets this on first HeyGen avatar render. */
-  heygenAvatarId: string | null;
+  /** Set at persona creation (Slice 5b E12). Sentinel "unset_legacy" may appear on rows created before the Slice 5b migration. */
+  heygenAvatarId: string;
   archived: boolean;
   archivedAt: Date | null;
   createdAt: Date;
@@ -48,6 +48,8 @@ export type WorkspaceVideoPersonaCreateInput = {
   portraitImageStorageKey: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
+  /** HeyGen Photo Avatar ID created eagerly at persona POST time (Slice 5b E12). */
+  heygenAvatarId: string;
 };
 
 export interface WorkspaceVideoPersonaRepository {

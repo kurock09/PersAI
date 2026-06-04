@@ -75,7 +75,7 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
         portraitImageStorageKey: input.portraitImageStorageKey,
         heygenVoiceId: input.heygenVoiceId,
         heygenVoiceLabel: input.heygenVoiceLabel,
-        heygenAvatarId: null,
+        heygenAvatarId: input.heygenAvatarId,
         archived: false
       }
     });
@@ -110,7 +110,7 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
     portraitImageStorageKey: string;
     heygenVoiceId: string;
     heygenVoiceLabel: string;
-    heygenAvatarId: string | null;
+    heygenAvatarId: string;
     archived: boolean;
     archivedAt: Date | null;
     createdAt: Date;

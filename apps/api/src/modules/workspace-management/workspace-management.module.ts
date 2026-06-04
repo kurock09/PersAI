@@ -230,6 +230,7 @@ import { GammaThemeCatalogService } from "./application/gamma/gamma-theme-catalo
 import { GammaThemePickerService } from "./application/gamma/gamma-theme-picker.service";
 import { KlingVoiceCatalogService } from "./application/kling/kling-voice-catalog.service";
 import { HeyGenVoiceCatalogService } from "./application/heygen/heygen-voice-catalog.service";
+import { HeyGenProviderGatewayClient } from "./application/heygen/heygen-provider-gateway.client";
 import { ManageWorkspaceVideoPersonasService } from "./application/heygen/manage-workspace-video-personas.service";
 import { WorkspaceVideoPersonasController } from "./interface/http/workspace-video-personas.controller";
 import { WORKSPACE_VIDEO_PERSONA_REPOSITORY } from "./domain/workspace-video-persona.repository";
@@ -764,6 +765,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     },
     ManageMediaPackageCatalogService,
     ManageMediaPackagePurchaseService,
+    HeyGenProviderGatewayClient,
     ManageWorkspaceVideoPersonasService,
     {
       provide: WORKSPACE_VIDEO_PERSONA_REPOSITORY,
