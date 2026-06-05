@@ -800,6 +800,70 @@ Slice 10b lands after Slice 10 (tool description) and before Slice 11 (smoke). I
 
 **Status (2026-06-05): Completed.** Landed on the user-visible `activeMediaJobs` chip in `chat-input.tsx:1058-1079` (NOT the suppressed `ActivityEvent` activity-badge feed — first subagent honestly identified the gap mid-implementation, orchestrator pivoted to the correct surface in a same-subagent resume). Detection mechanism: option (b) from the original spec — new optional + nullable `displayKind: "cinematic" | "talking_avatar" | null` field on `AssistantWebChatActiveMediaJobState` (OpenAPI + hand-edited generated TS + API-side internal type). API mapper `toWebOpenMediaJobDisplayKind` derives the field structurally from `requestJson.directToolExecution.request.mode` (the Slice 3 contract value). Web reads `job.displayKind` and rotates `resolveMediaJobLabel` by elapsed time at the 4 documented thresholds (`<30s`/`<120s`/`<300s`/`>=300s`). i18n: flat keys `chatTalkingAvatarBannerStage1..Stage4` under the existing `chat` namespace in `en.json` + `ru.json` (file uses flat convention; the nested `chat.talkingAvatarBanner.stage*` suggestion in the spec above is superseded by file-convention compliance). Cinematic chip is byte-identical for every non-talking-avatar case. Backward-compat: legacy rows without `displayKind` default to cinematic. Tests: 3 new chat-input cases (cinematic at 10s + 10min, legacy missing-field defaults to cinematic, talking-avatar stage rotation across all 4 stages with `vi.useFakeTimers`) + 3 new API mapper cases (talking_avatar → "talking_avatar"; cinematic → "cinematic"; missing/null/non-video → defensive "cinematic" default). Subagent: Claude Sonnet 4.6 medium thinking; resumed once for the surface pivot; honored "no docs edits" rule. 6/6 verification gates green (lint, format:check, 3 typechecks, web 665/665, api all assertions PASS). NO runtime, NO provider-gateway, NO Prisma, NO `orval generate`. 10 modified + 1 new generated enum file. Deploy: API + WEB + CONTRACTS.
 
+### E14 — Slice 10c: Live integration fixup (talking-avatar credential routing + URL + prompt) — NEW (2026-06-05)
+
+**Supersedes:** parts of § Slice 2b (capability refusal text), § Slice 3 (prompt requiredness), § Slice 7 (credential lookup site), § Slice 9 (web client URL shape), § Slice 10 (tool description prompt hint).
+
+**Why this is needed:** live dev validation of the audit-pass deploy (`77512ef7`) surfaced four real production bugs that the 4-agent audit-pass missed because the audit was static (reading code) and never wired the end-to-end talking-avatar request from chat to HeyGen. Each bug blocks the feature independently:
+
+1. **URL double-prefix (Slice 9):** the four web client methods landed in Slice 9 (`getWorkspaceVideoPersonas`, `getWorkspaceVoiceCatalog`, `createWorkspaceVideoPersona`, `deleteWorkspaceVideoPersona`) prepend `/api/v1` to the path while every other method in `assistant-api-client.ts` does NOT — `getApiBaseUrl()` already returns `/api/v1` (web default) or `http://localhost:3001/api/v1` (SSR default). Result: every Slice 9 fetch hits `/api/v1/api/v1/workspaces/.../...` → 404. Dev API logs confirm 4× 404s on both endpoints (2026-06-05 14:07–14:08 UTC).
+2. **prompt required for talking_avatar (Slice 3):** `runtime-video-generate-tool.service.ts:886-889` validates `args.prompt` non-empty BEFORE checking `mode`. So talking-avatar requests without `prompt` fail with `"prompt must be a non-empty string"`. The LLM logically omits `prompt` for talking-avatar (`speechText` is the speaking content) — Slice 10 tool description does not say `prompt` is also required, so the LLM's reasoning is correct given the description but breaks the validator.
+3. **`talking_avatar_provider_unavailable` is unreachable to clear (Slice 2b × Slice 7 architectural hole):** the runtime's Slice 7 `executeTalkingAvatarDispatch` requires `credential.providerId === "heygen"` to dispatch. The credential comes from `bundle.governance.toolCredentialRefs["video_generate"]`. Materializ-assistant builds that ref from `plan.videoGenerateModelKey` → catalog → providerId. But Slice 2b's plan validation EXPLICITLY refuses HeyGen models (kind=`talking_avatar`) for `videoGenerateModelKey` / `videoGenerateFallbackModelKey` with the cinematic-only error. So through the current plan editor, NO setup path makes `credential.providerId === "heygen"` reachable, and Slice 7 always fails with `talking_avatar_provider_unavailable`. Dev runtime log confirms `provider=kling` on every video_generate dispatch.
+4. **LLM confusion in chat (Slice 10 description not enough):** the model tries different field combinations (omits `prompt`, mixes `referenceImageAlias` with `portraitImageAlias`, etc) because bug #3 prevents the HeyGen credential from being materialized, which means Slice 8's structural HeyGen-credential gate filters the talking-avatar fields and description OUT of the tool definition. The LLM never receives Slice 10's 7-section instruction block. Even when the LLM correctly emits `mode: "talking_avatar"`, validation throws on missing `prompt` (#2) and dispatch throws on `talking_avatar_provider_unavailable` (#3).
+
+**Architectural decision (operator-approved 2026-06-05):** Variant B — add a dedicated `plan.talkingAvatarModelKey` + `plan.talkingAvatarFallbackModelKey` field. Plan editor exposes a separate selector that filters to HeyGen rows with `kind === "talking_avatar"`. Materializ-assistant builds a SECOND tool credential ref under the new key `bundle.governance.toolCredentialRefs["video_generate_talking_avatar"]` (separate from `["video_generate"]` — same precedent as `image_edit` vs `image_generate`). Slice 7 looks up `"video_generate_talking_avatar"` when `mode === "talking_avatar"`; cinematic continues to read `"video_generate"` unchanged. HeyGen voice catalog + persona catalog hang off the new talking-avatar credential ref (NOT the cinematic one). Slice 10 tool description renders the talking-avatar sections only when the talking-avatar credential ref is present AND `talkingVideoEnabled === true`.
+
+**Variant A (rejected):** nested `talkingAvatarCredentialOverride` field on the existing video_generate ref. Cleaner mental model but adds nesting; operator chose B for the cleanest plan-editor UX.
+
+**Variant C (deferred):** auto-pick the first active HeyGen row when `plan.talkingAvatarModelKey` is null. Variant B keeps this as a permissive default — materializ falls back to the first active HeyGen row only when `plan.talkingAvatarModelKey` is null AND the rest of the prerequisites pass (secret configured, plan toggle on, at least one active HeyGen row). Operator can later make it strict by setting the field explicitly per plan.
+
+**Slice 10c specification:**
+
+```
+### Slice 10c - Live integration fixup (URL + prompt + credential routing + tool description)
+
+Type: full-stack fixup spanning API + WEB + RUNTIME + CONTRACTS. NOT a feature slice — it closes 4 production bugs uncovered by live dev validation.
+
+Scope IN
+- Fix #1 (URL double-prefix): remove leading `/api/v1` from the 4 Slice 9 web client methods so they match the rest of the file's `${base}/path` convention.
+- Fix #2 (prompt non-empty): in `runtime-video-generate-tool.service.ts::readVideoGenerateArguments`, move the `prompt` non-empty check below the `mode` parsing. Validate `prompt` is required for `mode === "cinematic"` or `mode` absent/null; OPTIONAL for `mode === "talking_avatar"`. When talking_avatar omits prompt, downstream code synthesizes a placeholder ("Talking-avatar render: <speechText short>") for observability + media job request shape — but does NOT pass any user-input text to HeyGen `image_prompt` or similar.
+- Fix #3 (talking-avatar credential routing): add `talkingAvatarModelKey?: string | null` + `talkingAvatarFallbackModelKey?: string | null` to `AdminPlanInput` + `AdminPlanState`. Persist via the same `billingProviderHints` JSON column (under `talkingAvatarModelKey` + `talkingAvatarFallbackModelKey` top-level keys, default null). Plan editor: new selector under the Plan Editor's "Video Generation" fold that filters to active HeyGen rows with `kind === "talking_avatar"`. Plan validation (manage-admin-plans `assertCapabilityModelKeysAvailable`): refuse cinematic rows for the new field; refuse if HeyGen row is not active; keep refusing talking_avatar rows on the existing cinematic field (Slice 2b text preserved but reworded to point at the new field instead of "Slice 9 plan toggle"). Materializ-assistant: when `tool_video_generate_heygen` secret is configured AND `plan.talkingVideoEnabled === true` AND there's at least one active HeyGen row in catalog, build a new tool credential ref under `bundle.governance.toolCredentialRefs["video_generate_talking_avatar"]` (same shape as the cinematic ref). modelKey = `plan.talkingAvatarModelKey ?? firstActiveHeyGenRowModelKey`. Voice catalog + persona catalog materialization moves to this NEW key (the cinematic credential ref no longer carries them). Slice 7 runtime: when `mode === "talking_avatar"`, read `bundle.governance.toolCredentialRefs["video_generate_talking_avatar"]` instead of `["video_generate"]`. If missing/not-configured → `talking_avatar_provider_unavailable` with refined warning text pointing at "Plan editor → Video Generation → Talking Avatar Model".
+- Fix #4 (LLM tool description): update Slice 10 description's 7-section block: (a) say `prompt` is OPTIONAL for talking_avatar but recommend a one-line scene context for observability; (b) drop the legacy hint that says all video_generate calls need a `prompt` (when talking-avatar fields are present); (c) ensure the persona shortlist + voice shortlist render from the NEW talking-avatar credential ref. Pass BOTH credential refs to `createVideoGenerateToolDefinition`: cinematic for video_generate base fields, talking-avatar for persona/voice/talking-avatar-specific schema.
+- Tests for all 4 fixes: web client unit (mock fetch URL inspection), runtime validation, runtime credential resolution, materializ, plan editor, tool projection.
+
+Scope OUT
+- Any change to the cinematic video_generate code path beyond the unavoidable tool-projection signature widening.
+- Any new HeyGen API call — Slice 6 client unchanged.
+- Any new Prisma column — talking-avatar plan fields use existing `billingProviderHints` JSON.
+- Webhook conversion — Slice 6 polling stays.
+- `orval generate` — hand-edit generated TS for the new plan fields, mirroring Slice 8 pattern.
+
+Forbidden patterns
+- Hard-coding the talking-avatar credential lookup key inside Slice 7 — use a constant `VIDEO_GENERATE_TALKING_AVATAR_TOOL_CREDENTIAL_KEY` exported once.
+- Falling back from talking_avatar to cinematic credential silently — failure must remain honest with `talking_avatar_provider_unavailable`.
+- Building the new credential ref without the structural prerequisites (secret configured + plan toggle on + HeyGen row active).
+- Using `.includes()` / regex on field names or LLM-supplied text anywhere in the new code (cross-slice invariant #15).
+
+Required tests
+- Web: 4 client methods land on `${base}/workspaces/.../video-personas[/...]` (NOT `/api/v1/api/v1/...`); add unit test asserting the URL passed to `fetch` does NOT contain `api/v1/api/v1`.
+- Runtime: talking_avatar request WITHOUT `prompt` passes validation; cinematic without prompt still fails; talking_avatar WITH `prompt` also passes.
+- Runtime: `executeTalkingAvatarDispatch` resolves the new credential key when set; falls back to `talking_avatar_provider_unavailable` when null; cinematic dispatch unaffected.
+- API: materializ builds the new ref when all prerequisites met; omits it when any is missing; uses fallback HeyGen row when `plan.talkingAvatarModelKey` is null.
+- API: plan validation refuses cinematic row on `talkingAvatarModelKey`; refuses talking-avatar row on `videoGenerateModelKey` (Slice 2b regression).
+- Web: Admin Plans editor shows the new HeyGen-only selector; round-trips through save.
+
+Exit
+- Live talking-avatar render works end-to-end from chat without the four observed errors.
+- The Admin Plans editor lets operators choose a talking-avatar model.
+- The Settings → Characters page shows real voice catalog entries (assuming HeyGen API succeeds).
+- All AGENTS.md verification gates pass.
+
+Deploy
+- API + WEB + RUNTIME + CONTRACTS (mirrors Slice 8/9 deploy shape). No Prisma migration.
+```
+
+**Slice 10c lands AFTER Slice 10b and BEFORE Slice 11 (live smoke).** It is bug-fixup work, not new feature scope — but its size matches a small slice because it touches multiple architectural layers.
+
 ### E4 — Settings Characters section: locked-with-upsell when plan toggle is off
 
 **Supersedes:** § Slice 9 spec ("Hidden when plan `talkingVideoEnabled` is false").
