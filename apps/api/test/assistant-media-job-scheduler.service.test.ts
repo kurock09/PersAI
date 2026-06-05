@@ -437,6 +437,92 @@ describe("AssistantMediaJobSchedulerService", () => {
     );
   });
 
+  test("requeues accepted primary HeyGen video tasks and persists recovery task state", async () => {
+    const { service, finalUpdates, releaseCalls } = createService({
+      queryRows: [
+        {
+          id: "job-video-accepted-heygen-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          surface: "web",
+          kind: "video",
+          sourceUserMessageId: "user-message-1",
+          requestJson: {
+            attachments: [],
+            sourceUserMessageText: "make a talking avatar clip",
+            sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            directToolExecution: {
+              toolCode: "video_generate",
+              request: {
+                toolCode: "video_generate",
+                mode: "talking_avatar",
+                prompt: "Talking-avatar render",
+                speechText: "PersAI demo",
+                portraitImageAlias: "portrait-1"
+              }
+            }
+          },
+          attemptCount: 1,
+          maxAttempts: 5
+        }
+      ],
+      runtimeOutcome: {
+        ok: false,
+        retryable: true,
+        status: 503,
+        code: "accepted_primary_unconfirmed",
+        message:
+          'Provider accepted the video task. PERSAI_VIDEO_ACCEPTED_PRIMARY_UNCONFIRMED::{"providerTaskId":"task_heygen_accepted_1","provider":"heygen","model":"avatar_v","acceptedAt":"2026-06-02T12:00:00.000Z","providerStage":"accepted","code":"accepted_primary_unconfirmed","reason":"provider accepted but polling transport lost","message":"fetch failed","taskKind":"talking_avatar"}',
+        providerStatus: {
+          providerTaskId: "task_heygen_accepted_1",
+          provider: "heygen",
+          model: "avatar_v",
+          acceptedAt: "2026-06-02T12:00:00.000Z",
+          providerStage: "accepted",
+          code: "accepted_primary_unconfirmed",
+          reason: "provider accepted but polling transport lost",
+          message: "fetch failed",
+          taskKind: "talking_avatar"
+        }
+      }
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.length, 1);
+    assert.equal(finalUpdates[0]?.data?.status, "queued");
+    assert.equal(finalUpdates[0]?.data?.lastErrorCode, "accepted_primary_unconfirmed");
+    assert.equal(releaseCalls.length, 0);
+    const requestJson = finalUpdates[0]?.data?.requestJson as
+      | {
+          directToolExecution?: {
+            request?: {
+              acceptedProviderTask?: {
+                providerTaskId?: string;
+                providerStage?: string;
+                provider?: string;
+              };
+            };
+          };
+        }
+      | undefined;
+    assert.equal(
+      requestJson?.directToolExecution?.request?.acceptedProviderTask?.providerTaskId,
+      "task_heygen_accepted_1"
+    );
+    assert.equal(
+      requestJson?.directToolExecution?.request?.acceptedProviderTask?.providerStage,
+      "accepted"
+    );
+    assert.equal(
+      requestJson?.directToolExecution?.request?.acceptedProviderTask?.provider,
+      "heygen"
+    );
+  });
+
   test("fails jobs immediately when runtime returns no deliverable artifacts", async () => {
     const { service, finalUpdates, createdMessages, releaseCalls } = createService({
       runtimeOutcome: {

@@ -1001,8 +1001,8 @@ export class ProviderGatewayClientService {
         row.size === "1024x1792" ||
         row.size === "1792x1024" ||
         row.size === null) &&
-      Number.isInteger(seconds) &&
       typeof seconds === "number" &&
+      Number.isFinite(seconds) &&
       seconds > 0 &&
       typeof video?.bytesBase64 === "string" &&
       typeof video.mimeType === "string" &&

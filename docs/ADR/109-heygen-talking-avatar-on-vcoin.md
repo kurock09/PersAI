@@ -880,6 +880,11 @@ Live cleanup after Slice 10c exposed two remaining production-truth gaps:
    - `providerParameters.aspectRatio`: `"auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4"`
    - `providerParameters.engine`: `"avatar_iv" | "avatar_v"`
 
+5. **Final follow-up fixes before push (same day, still under E15 cleanup scope).** Three late issues were closed on top of the main 10d cleanup:
+   - The Slice 9 workspace voice/persona controller must validate workspace access via canonical membership lookup, not `req.workspaceId`, because the web path may carry `userId` with `workspaceId = null`. The controller now resolves membership from `resolveActiveAssistantService.resolveMembership(userId)` before serving persona/voice data.
+   - Runtime/provider recovery must treat HeyGen like the other accepted async video providers. `provider-gateway.client.service.ts` now accepts finite fractional `seconds` in valid HeyGen responses, and `assistant-media-job-scheduler.service.ts` now includes `"heygen"` in the `accepted_primary_unconfirmed` recovery whitelist.
+   - Talking-avatar aspect selection now has an explicit user/model intent field `talkingAvatarAspectRatio` (`"16:9" | "9:16" | "1:1"`) on the `video_generate` talking-avatar path. The tool instruction follows the agreed priority: explicit user request first, assistant choice from platform/context/source shape second, omission for provider/default behavior last. Runtime applies this only when the HeyGen admin row is configured with `providerParameters.aspectRatio = "auto"` (or null); a fixed admin aspect remains authoritative.
+
 Admin Runtime now renders a dedicated "HeyGen talking-avatar parameters" block for HeyGen rows and hides the misleading cinematic duration/audio/input controls for that provider. Runtime forwards the materialized provider parameters to provider-gateway for talking-avatar dispatch. `HeyGenProviderClient` maps them directly to HeyGen v3 `resolution`, `aspect_ratio`, and optional `engine.type`. If a legacy row omits them, defaults remain `1080p`, `auto`, and `avatar_v`.
 
 Important invariant: `speechText`, `voiceKey`/persona voice, and `personaId XOR portraitImageAlias` remain the talking-avatar contract. Cinematic `audioMode`, `inputMode`, `voiceKeys`, `voiceIds`, and `referenceImageAlias(es)` are not HeyGen talking-avatar controls and must not be surfaced as if they are.

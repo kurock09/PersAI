@@ -2,6 +2,48 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-05 - ADR-109 late fixpack: voice catalog auth + HeyGen recovery + talking-avatar aspect intent
+
+### What changed & why
+
+After the main Slice 10d cleanup, three production-honesty gaps still remained in local code before the final push:
+
+1. Voice catalog/persona requests could still 401 because `WorkspaceVideoPersonasController` compared the route `workspaceId` with `req.workspaceId`, which is null in the web path. The guard now resolves canonical membership from `resolveActiveAssistantService.resolveMembership(userId)` instead of trusting `req.workspaceId`.
+2. Accepted HeyGen jobs could still hang without delivery in two ways: runtime rejected valid HeyGen responses with fractional `seconds`, and the API scheduler's `accepted_primary_unconfirmed` recovery path did not whitelist `provider: "heygen"`. Both paths are now fixed.
+3. Talking-avatar aspect ratio selection was still admin-only. `video_generate` now has an explicit `talkingAvatarAspectRatio` field for `mode='talking_avatar'`, and the LLM-facing instruction now follows the agreed priority: explicit user request first, then assistant choice from platform/context/source shape, then omission for provider/default behavior. Runtime applies this only when the HeyGen model row is configured with admin `aspectRatio: "auto"`; fixed admin aspect remains authoritative.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/assistant-media-job-scheduler.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/workspace-video-personas.controller.ts`
+- `apps/api/test/assistant-media-job-scheduler.service.test.ts`
+- `apps/api/test/workspace-video-personas.controller.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/runtime-video-generate-tool.service.test.ts`
+- `packages/runtime-contract/src/index.ts`
+- `docs/ADR/109-heygen-talking-avatar-on-vcoin.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts` PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts` PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+
+### Risks or residuals
+
+- `artifacts/` remains an unrelated untracked local directory and must not be committed.
+- Live validation still depends on deploy; cluster logs seen so far were from the pre-fix image set.
+
+### Next recommended step
+
+Run the full repository verification set on the final combined diff, commit all ADR-109 fixes except unrelated local artifacts, push, then validate one real talking-avatar job in dev with explicit voice + portrait alias and one vertical-format request.
+
 ## 2026-06-05 - ADR-109 Slice 10d cleanup: async delivery + HeyGen-native model parameters
 
 ### What changed & why

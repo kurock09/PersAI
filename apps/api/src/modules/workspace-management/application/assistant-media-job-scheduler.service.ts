@@ -73,7 +73,7 @@ type MediaJobRequestPayload = {
 
 type AcceptedPrimaryUnconfirmedStatus = {
   providerTaskId: string;
-  provider: "openai" | "runway" | "kling";
+  provider: "openai" | "runway" | "kling" | "heygen";
   model: string | null;
   acceptedAt: string;
   providerStage: "accepted";
@@ -110,6 +110,14 @@ function computeRetryBackoffMs(attempt: number): number {
   return Math.min(
     MEDIA_JOB_RETRY_MAX_DELAY_MS,
     MEDIA_JOB_RETRY_BASE_DELAY_MS * 2 ** (safeAttempt - 1)
+  );
+}
+
+function isAcceptedPrimaryUnconfirmedProvider(
+  provider: unknown
+): provider is AcceptedPrimaryUnconfirmedStatus["provider"] {
+  return (
+    provider === "openai" || provider === "runway" || provider === "kling" || provider === "heygen"
   );
 }
 
@@ -537,13 +545,11 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       outcome.providerStatus !== null &&
       typeof outcome.providerStatus.providerTaskId === "string" &&
       outcome.providerStatus.providerTaskId.trim().length > 0 &&
-      (outcome.providerStatus.provider === "openai" ||
-        outcome.providerStatus.provider === "runway" ||
-        outcome.providerStatus.provider === "kling")
+      isAcceptedPrimaryUnconfirmedProvider(outcome.providerStatus.provider)
     ) {
       return {
         providerTaskId: outcome.providerStatus.providerTaskId.trim(),
-        provider: outcome.providerStatus.provider as "openai" | "runway" | "kling",
+        provider: outcome.providerStatus.provider,
         model:
           typeof outcome.providerStatus.model === "string" &&
           outcome.providerStatus.model.trim().length > 0
@@ -589,7 +595,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         }
         const row = parsed as Record<string, unknown>;
         if (
-          (row.provider === "openai" || row.provider === "runway" || row.provider === "kling") &&
+          isAcceptedPrimaryUnconfirmedProvider(row.provider) &&
           row.providerStage === "accepted" &&
           row.code === "accepted_primary_unconfirmed" &&
           typeof row.providerTaskId === "string" &&
@@ -636,7 +642,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       }
       const row = parsed as Record<string, unknown>;
       if (
-        (row.provider === "openai" || row.provider === "runway" || row.provider === "kling") &&
+        isAcceptedPrimaryUnconfirmedProvider(row.provider) &&
         row.providerStage === "accepted" &&
         typeof row.providerTaskId === "string" &&
         row.providerTaskId.trim().length > 0

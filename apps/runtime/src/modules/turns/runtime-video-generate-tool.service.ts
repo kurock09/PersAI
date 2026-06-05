@@ -728,6 +728,7 @@ export class RuntimeVideoGenerateToolService {
               audioMode: attemptNormalizedRequest.request.audioMode,
               inputMode: attemptNormalizedRequest.request.inputMode,
               videoModelParameters: attempt.credential.videoModelParameters,
+              request: attemptNormalizedRequest.request,
               providerParameters:
                 attempt.credential.videoModelParameters?.providerParameters ?? null
             }),
@@ -1069,7 +1070,8 @@ export class RuntimeVideoGenerateToolService {
         key !== "speechLanguage" &&
         key !== "personaId" &&
         key !== "portraitImageAlias" &&
-        key !== "voiceKey"
+        key !== "voiceKey" &&
+        key !== "talkingAvatarAspectRatio"
     );
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
@@ -1275,6 +1277,22 @@ export class RuntimeVideoGenerateToolService {
       return new Error("voiceKey must be a non-empty string when provided");
     }
 
+    const talkingAvatarAspectRatio =
+      args.talkingAvatarAspectRatio === undefined || args.talkingAvatarAspectRatio === null
+        ? null
+        : args.talkingAvatarAspectRatio === "16:9" ||
+            args.talkingAvatarAspectRatio === "9:16" ||
+            args.talkingAvatarAspectRatio === "1:1"
+          ? args.talkingAvatarAspectRatio
+          : null;
+    if (
+      "talkingAvatarAspectRatio" in args &&
+      args.talkingAvatarAspectRatio !== null &&
+      talkingAvatarAspectRatio === null
+    ) {
+      return new Error("talkingAvatarAspectRatio must be one of 16:9, 9:16, 1:1 when provided");
+    }
+
     // Talking-avatar mode: structural requirements.
     // - speechText: required, non-empty
     // - speechLanguage: required, non-empty
@@ -1317,7 +1335,8 @@ export class RuntimeVideoGenerateToolService {
       speechLanguage,
       personaId,
       portraitImageAlias,
-      voiceKey
+      voiceKey,
+      talkingAvatarAspectRatio
     };
   }
 
@@ -1677,6 +1696,7 @@ export class RuntimeVideoGenerateToolService {
     inputMode: RuntimeVideoInputMode;
     videoModelParameters: RuntimeVideoModelParameters | null | undefined;
     providerParameters: RuntimeVideoModelParameters["providerParameters"] | null;
+    request: RuntimeVideoGenerateRequest;
   }): RuntimeVideoModelParameters["providerParameters"] | null {
     if (params.providerId === "kling") {
       return {
@@ -1692,6 +1712,19 @@ export class RuntimeVideoGenerateToolService {
         ...(params.providerParameters ?? {}),
         audio: params.audioMode === "provider_native_audio"
       };
+    }
+    if (params.providerId === "heygen") {
+      const requestedAspectRatio = params.request.talkingAvatarAspectRatio ?? null;
+      const configuredAspectRatio = params.providerParameters?.aspectRatio ?? null;
+      if (
+        requestedAspectRatio !== null &&
+        (configuredAspectRatio === null || configuredAspectRatio === "auto")
+      ) {
+        return {
+          ...(params.providerParameters ?? {}),
+          aspectRatio: requestedAspectRatio
+        };
+      }
     }
     return params.providerParameters ?? null;
   }
@@ -2541,6 +2574,7 @@ export class RuntimeVideoGenerateToolService {
             audioMode: normalizedRequest.request.audioMode,
             inputMode: normalizedRequest.request.inputMode,
             videoModelParameters: credential.videoModelParameters,
+            request: normalizedRequest.request,
             providerParameters: credential.videoModelParameters?.providerParameters ?? null
           }),
           credential: {
@@ -2637,6 +2671,7 @@ export class RuntimeVideoGenerateToolService {
     requestedPersonaId: string | null;
     requestedPortraitImageAlias: string | null;
     requestedVoiceKey: string | null;
+    requestedTalkingAvatarAspectRatio: "16:9" | "9:16" | "1:1" | null;
   } {
     return {
       requestedMode: request?.mode ?? null,
@@ -2644,7 +2679,8 @@ export class RuntimeVideoGenerateToolService {
       requestedSpeechLanguage: request?.speechLanguage ?? null,
       requestedPersonaId: request?.personaId ?? null,
       requestedPortraitImageAlias: request?.portraitImageAlias ?? null,
-      requestedVoiceKey: request?.voiceKey ?? null
+      requestedVoiceKey: request?.voiceKey ?? null,
+      requestedTalkingAvatarAspectRatio: request?.talkingAvatarAspectRatio ?? null
     };
   }
 
@@ -2656,7 +2692,13 @@ export class RuntimeVideoGenerateToolService {
   ): Partial<
     Pick<
       ProviderGatewayVideoGenerateRequest,
-      "mode" | "speechText" | "speechLanguage" | "personaId" | "portraitImageAlias" | "voiceKey"
+      | "mode"
+      | "speechText"
+      | "speechLanguage"
+      | "personaId"
+      | "portraitImageAlias"
+      | "voiceKey"
+      | "talkingAvatarAspectRatio"
     >
   > {
     if (request.mode !== "talking_avatar") {
@@ -2668,7 +2710,8 @@ export class RuntimeVideoGenerateToolService {
       speechLanguage: request.speechLanguage ?? null,
       personaId: request.personaId ?? null,
       portraitImageAlias: request.portraitImageAlias ?? null,
-      voiceKey: request.voiceKey ?? null
+      voiceKey: request.voiceKey ?? null,
+      talkingAvatarAspectRatio: request.talkingAvatarAspectRatio ?? null
     };
   }
 

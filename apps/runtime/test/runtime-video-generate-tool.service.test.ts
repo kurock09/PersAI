@@ -1600,6 +1600,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(talkingAvatarPersonaCall.payload.requestedPersonaId, "persona-anya");
   assert.equal(talkingAvatarPersonaCall.payload.requestedPortraitImageAlias, null);
   assert.equal(talkingAvatarPersonaCall.payload.requestedVoiceKey, null);
+  assert.equal(talkingAvatarPersonaCall.payload.requestedTalkingAvatarAspectRatio, null);
   // Gateway call: cachedHeygenAvatarId from persona, voiceKey = persona.heygenVoiceId, no portrait bytes.
   const personaGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
   assert.equal(personaGatewayCall?.mode, "talking_avatar");
@@ -1703,6 +1704,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(talkingAvatarPortraitCall.payload.requestedPersonaId, null);
   assert.equal(talkingAvatarPortraitCall.payload.requestedPortraitImageAlias, "current image #1");
   assert.equal(talkingAvatarPortraitCall.payload.requestedVoiceKey, "anya-warm");
+  assert.equal(talkingAvatarPortraitCall.payload.requestedTalkingAvatarAspectRatio, null);
   const portraitGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
   assert.equal(portraitGatewayCall?.mode, "talking_avatar");
   assert.equal(portraitGatewayCall?.personaId, null);
@@ -1798,6 +1800,103 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   );
   const overrideGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
   assert.equal(overrideGatewayCall?.mode, "talking_avatar");
+
+  const heygenAutoAspectBundle = createBundle({
+    providerId: "heygen",
+    secretId: "tool/video_generate/heygen/api-key",
+    modelKey: "heygen-photo-avatar-v3",
+    videoModelParameters: {
+      ...HEYGEN_VIDEO_MODEL_PARAMETERS,
+      providerParameters: {
+        resolution: "720p",
+        aspectRatio: "auto",
+        engine: "avatar_v"
+      }
+    },
+    videoVoiceCatalog: {
+      provider: "heygen",
+      fetchedAt: "2026-06-05T00:00:00.000Z",
+      shortlist: [
+        {
+          voiceKey: "anya-warm",
+          providerVoiceId: "heygen-voice-warm-001",
+          displayName: "Anya Warm",
+          locale: "ru-RU",
+          gender: "female",
+          description: null,
+          styleTags: []
+        }
+      ]
+    },
+    includeTalkingAvatarRef: true
+  });
+
+  const talkingAvatarAutoAspectChoice = await service.executeToolCall({
+    bundle: heygenAutoAspectBundle,
+    toolCall: createToolCall({
+      prompt: "Render for Instagram",
+      mode: "talking_avatar",
+      speechText: "Vertical format please.",
+      speechLanguage: "ru-RU",
+      portraitImageAlias: "current image #1",
+      voiceKey: "anya-warm",
+      talkingAvatarAspectRatio: "9:16"
+    }),
+    availableAttachments: [createReferenceAttachment()],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-auto-aspect-choice"
+  });
+  assert.equal(talkingAvatarAutoAspectChoice.payload.action, "generated");
+  assert.equal(talkingAvatarAutoAspectChoice.payload.requestedTalkingAvatarAspectRatio, "9:16");
+  assert.equal(
+    providerGatewayClientService.videoCalls.at(-1)?.input.providerParameters?.aspectRatio,
+    "9:16"
+  );
+
+  const talkingAvatarFixedAspectBundle = createBundle({
+    providerId: "heygen",
+    secretId: "tool/video_generate/heygen/api-key",
+    modelKey: "heygen-photo-avatar-v3",
+    videoModelParameters: HEYGEN_VIDEO_MODEL_PARAMETERS,
+    videoVoiceCatalog: {
+      provider: "heygen",
+      fetchedAt: "2026-06-05T00:00:00.000Z",
+      shortlist: [
+        {
+          voiceKey: "anya-warm",
+          providerVoiceId: "heygen-voice-warm-001",
+          displayName: "Anya Warm",
+          locale: "ru-RU",
+          gender: "female",
+          description: null,
+          styleTags: []
+        }
+      ]
+    },
+    includeTalkingAvatarRef: true
+  });
+
+  const talkingAvatarFixedAspectChoice = await service.executeToolCall({
+    bundle: talkingAvatarFixedAspectBundle,
+    toolCall: createToolCall({
+      prompt: "Render for Instagram anyway",
+      mode: "talking_avatar",
+      speechText: "Still use fixed admin aspect.",
+      speechLanguage: "ru-RU",
+      portraitImageAlias: "current image #1",
+      voiceKey: "anya-warm",
+      talkingAvatarAspectRatio: "1:1"
+    }),
+    availableAttachments: [createReferenceAttachment()],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-fixed-aspect-choice"
+  });
+  assert.equal(talkingAvatarFixedAspectChoice.payload.action, "generated");
+  assert.equal(talkingAvatarFixedAspectChoice.payload.requestedTalkingAvatarAspectRatio, "1:1");
+  assert.equal(
+    providerGatewayClientService.videoCalls.at(-1)?.input.providerParameters?.aspectRatio,
+    "9:16"
+  );
 
   // ── Slice 7: Test 7 — Plan toggle off → talking_avatar_plan_disabled ───────
   // Synthetic bundle with talkingVideoEnabled: false on the tool policy.

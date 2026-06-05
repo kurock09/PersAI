@@ -899,13 +899,15 @@ function createVideoGenerateToolDefinition(
         "You cannot create personas yourself. Creating a saved character requires the user to visit Assistant Settings → Characters and upload a portrait + name + voice. When the user asks to 'save this photo as <name>' or similar, instruct them to use Settings → Characters; do NOT attempt to create the persona via this tool.",
         // Section 4: single character per call
         "Each video_generate call produces ONE clip with ONE speaker (or no speaker for cinematic). If the user requests multiple speakers in a single clip, propose splitting into multiple sequential calls — one per speaker — and combining the results (or playing them in sequence). Do NOT call video_generate with multiple personas; the contract supports exactly one persona OR one portrait alias per call.",
-        // Section 5: voice selection — portrait alias path
-        "Voice selection (portrait alias path): when passing portraitImageAlias, select voiceKey from the available voice shortlist based on user context (gender, language, brand fit). When voiceKey is omitted on the portrait path, runtime returns voice_required honestly so the model can retry with an explicit choice.",
-        // Section 6: voice selection — persona path
-        "Voice selection (persona path): when passing personaId, omit voiceKey to use the persona's stored voice. Only pass voiceKey to deliberately override the persona's voice for one call.",
-        // Section 7: cinematic-only fields ignored in talking_avatar mode
-        "When mode='talking_avatar', omit all cinematic-only controls: audioMode, inputMode, voiceKeys, voiceIds, referenceImageAlias, referenceImageAliases, size, seconds, and filename. Talking-avatar audio comes from speechText + voiceKey (or the persona's stored voice); the portrait source is personaId XOR portraitImageAlias. HeyGen output quality/aspect/engine are selected by the admin catalog, not by tool-call fields.",
-        // Section 8: persona shortlist (from talking-avatar credential ref)
+        // Section 5: voice selection precedence
+        "Voice selection precedence: if the user explicitly specifies a voice, gender/style of voice, or a concrete voiceKey/voiceId, follow that instruction. If the user names or selects a saved persona, use that persona's stored voice by default and only pass voiceKey to deliberately override it for one call.",
+        // Section 6: voice selection — portrait alias path
+        "Voice selection (portrait alias path): when passing portraitImageAlias, select voiceKey from the available voice shortlist based on the visual character in the image plus the request context (language, tone, brand fit, likely presentation). If the image strongly suggests a masculine/feminine presentation, prefer a matching voice, but treat this as a practical fit choice rather than a factual identity claim. If the image is ambiguous or confidence is low, you may briefly ask the user which voice they want. When voiceKey is omitted on the portrait path, runtime returns voice_required honestly so the model can retry with an explicit choice.",
+        // Section 7: aspect-ratio selection for talking_avatar
+        "Talking-avatar aspect ratio: if the user explicitly requests vertical, portrait, square, Reels, Stories, feed, widescreen, or landscape output, pass talkingAvatarAspectRatio accordingly. If the user does not specify it, you may choose talkingAvatarAspectRatio from the task, platform, source image shape, and overall context. Use 9:16 for vertical short-form video, 1:1 for square output, and 16:9 for widescreen output. Only leave talkingAvatarAspectRatio omitted when automatic/provider-default behavior is truly intended.",
+        // Section 8: cinematic-only fields ignored in talking_avatar mode
+        "When mode='talking_avatar', omit all cinematic-only controls: audioMode, inputMode, voiceKeys, voiceIds, referenceImageAlias, referenceImageAliases, size, seconds, and filename. Talking-avatar audio comes from speechText + voiceKey (or the persona's stored voice); the portrait source is personaId XOR portraitImageAlias. talkingAvatarAspectRatio is the user/model-level aspect hint for talking-avatar output. Admin quality/aspect/engine defaults still apply when talkingAvatarAspectRatio is omitted, and a fixed admin aspect overrides auto-selection.",
+        // Section 9: persona shortlist (from talking-avatar credential ref)
         describeVideoPersonaCatalogHint(talkingAvatarCredential)
       ].join(" ")
     : null;
@@ -925,7 +927,7 @@ function createVideoGenerateToolDefinition(
         )
       ),
       [
-        "Prefer calling this tool immediately when the user clearly wants a video. For cinematic mode, pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. For talking_avatar mode, do not pass cinematic seconds/size/audio/input/filename controls; provide speechText plus exactly one avatar source (personaId or portraitImageAlias). If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer.",
+        "Prefer calling this tool immediately when the user clearly wants a video. For cinematic mode, pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. For talking_avatar mode, do not pass cinematic seconds/size/audio/input/filename controls; provide speechText plus exactly one avatar source (personaId or portraitImageAlias), and use talkingAvatarAspectRatio when the user or context implies a specific vertical, square, or widescreen format. If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer.",
         talkingAvatarHint,
         voiceCatalogHint,
         talkingAvatarVoiceCatalogHint
@@ -975,6 +977,12 @@ function createVideoGenerateToolDefinition(
                 type: "string",
                 description:
                   "Optional PersAI voice key from the materialized shortlist to override the persona's default voice. Omit on the persona path to use the persona's stored voice. Required on the portraitImageAlias path."
+              },
+              talkingAvatarAspectRatio: {
+                type: "string",
+                enum: ["16:9", "9:16", "1:1"],
+                description:
+                  "Optional talking-avatar output aspect ratio. Use this only when mode='talking_avatar'. Prefer 9:16 for vertical short-form video, 1:1 for square output, and 16:9 for widescreen output. Omit only when automatic/provider-default aspect selection is truly intended."
               }
             }
           : {}),
@@ -1022,7 +1030,7 @@ function createVideoGenerateToolDefinition(
           type: "string",
           enum: [...PERSAI_RUNTIME_VIDEO_GENERATE_SIZES],
           description:
-            "Cinematic-only optional output size/aspect hint. Omit when mode='talking_avatar'; HeyGen talking-avatar output aspect is selected by the admin catalog."
+            "Cinematic-only optional output size/aspect hint. Omit when mode='talking_avatar'; use talkingAvatarAspectRatio for user/model-driven talking-avatar aspect selection."
         },
         seconds: {
           type: "integer",

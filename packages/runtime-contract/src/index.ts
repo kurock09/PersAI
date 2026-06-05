@@ -1840,6 +1840,7 @@ export interface RuntimeVideoGenerateRequest {
   personaId?: string | null;
   portraitImageAlias?: string | null;
   voiceKey?: string | null;
+  talkingAvatarAspectRatio?: PersaiRuntimeVideoAspectRatio | null;
 }
 
 export interface RuntimeVideoGenerateToolResult {
@@ -1875,6 +1876,7 @@ export interface RuntimeVideoGenerateToolResult {
   requestedPersonaId?: string | null;
   requestedPortraitImageAlias?: string | null;
   requestedVoiceKey?: string | null;
+  requestedTalkingAvatarAspectRatio?: PersaiRuntimeVideoAspectRatio | null;
 }
 
 export interface RuntimeDocumentToolResult {
@@ -3175,6 +3177,7 @@ export interface ProviderGatewayVideoGenerateRequest {
   personaId?: string | null;
   portraitImageAlias?: string | null;
   voiceKey?: string | null;
+  talkingAvatarAspectRatio?: PersaiRuntimeVideoAspectRatio | null;
   // ADR-109 Slice 6: HeyGen-specific fields for talking-avatar execution.
   // Optional so Kling/Runway/OpenAI requests ignore them.
   /** @adr109-slice6 Non-null = use directly as HeyGen avatar_id (Scenario C cached). Null + personaId non-null = lazy-create avatar first (Scenario C lazy). Null + personaId null = ad-hoc Scenario A. */

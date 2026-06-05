@@ -795,10 +795,19 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     heygenTalkingProps?.voiceKey,
     "Slice 8: voiceKey field must appear in schema when talkingVideoEnabled=true"
   );
+  assert.ok(
+    heygenTalkingProps?.talkingAvatarAspectRatio,
+    "Slice 8: talkingAvatarAspectRatio field must appear in schema when talkingVideoEnabled=true"
+  );
   assert.match(
     heygenTalkingTool?.description ?? "",
     /talking-avatar/i,
     "Slice 8: description must mention talking-avatar when talkingVideoEnabled=true"
+  );
+  assert.match(
+    heygenTalkingTool?.description ?? "",
+    /talkingAvatarAspectRatio/i,
+    "Slice 8: description must explain talkingAvatarAspectRatio when talkingVideoEnabled=true"
   );
 
   // Runway + talkingVideoEnabled=false → tool IS projected but WITHOUT talking-avatar fields
@@ -846,6 +855,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     runwayTalkingDisabledProps?.voiceKey,
     undefined,
     "Slice 8: voiceKey field must NOT appear in schema when talkingVideoEnabled=false"
+  );
+  assert.equal(
+    runwayTalkingDisabledProps?.talkingAvatarAspectRatio,
+    undefined,
+    "Slice 8: talkingAvatarAspectRatio field must NOT appear in schema when talkingVideoEnabled=false"
   );
   assert.doesNotMatch(
     runwayTalkingDisabledTool?.description ?? "",

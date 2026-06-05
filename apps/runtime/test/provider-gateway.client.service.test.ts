@@ -160,7 +160,7 @@ function createVideoGenerateRequest(): ProviderGatewayVideoGenerateRequest {
 }
 
 function createProviderVideoResponse(
-  provider: "openai" | "runway" | "kling",
+  provider: "openai" | "runway" | "kling" | "heygen",
   model: string,
   seconds = 4
 ) {
@@ -429,9 +429,17 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       return new Response(
         JSON.stringify(
           createProviderVideoResponse(
-            providerId === "runway" || providerId === "kling" ? providerId : "openai",
-            providerId === "runway" ? "gen4_turbo" : providerId === "kling" ? "kling-v3" : "sora-2",
-            providerId === "runway" ? 5 : 4
+            providerId === "runway" || providerId === "kling" || providerId === "heygen"
+              ? providerId
+              : "openai",
+            providerId === "runway"
+              ? "gen4_turbo"
+              : providerId === "kling"
+                ? "kling-v3"
+                : providerId === "heygen"
+                  ? "avatar_v"
+                  : "sora-2",
+            providerId === "runway" ? 5 : providerId === "heygen" ? 8.5 : 4
           )
         ),
         {
@@ -717,7 +725,12 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       cachedHeygenAvatarId: null,
       portraitImageBytesBase64: "cG9ydHJhaXQtYnl0ZXM=",
       portraitImageMimeType: "image/jpeg",
-      voiceKey: "voice-heygen-ru-1"
+      voiceKey: "voice-heygen-ru-1",
+      credential: {
+        toolCode: "video_generate",
+        secretId: "secret-heygen",
+        providerId: "heygen"
+      }
     });
     assert.equal(transcription.text, "hello from audio");
     assert.equal(imageGenerate.model, "gpt-image-1");
@@ -735,7 +748,8 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(klingVideoGenerate.provider, "kling");
     assert.equal(klingVideoGenerate.model, "kling-v3");
     assert.equal(talkingAvatarVideoGenerate.provider, "openai");
-    assert.equal(heygenFieldsVideoGenerate.provider, "openai");
+    assert.equal(heygenFieldsVideoGenerate.provider, "heygen");
+    assert.equal(heygenFieldsVideoGenerate.seconds, 8.5);
     assert.equal(speechGenerate.model, "gpt-4o-mini-tts");
     assert.equal(speechGenerate.mimeType, "audio/ogg");
     assert.equal(documentGenerate.provider, "pdfmonkey");

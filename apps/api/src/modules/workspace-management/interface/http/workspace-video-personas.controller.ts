@@ -23,6 +23,7 @@ import {
   ReadHeygenVoiceCatalogForWorkspaceService,
   type WorkspaceVoiceCatalogResult
 } from "../../application/heygen/read-heygen-voice-catalog-for-workspace.service";
+import { ResolveActiveAssistantService } from "../../application/resolve-active-assistant.service";
 
 /**
  * ADR-109 Slice 5 — workspace-scoped video persona REST controller.
@@ -43,7 +44,8 @@ import {
 export class WorkspaceVideoPersonasController {
   constructor(
     private readonly manageWorkspaceVideoPersonasService: ManageWorkspaceVideoPersonasService,
-    private readonly readHeygenVoiceCatalogForWorkspaceService: ReadHeygenVoiceCatalogForWorkspaceService
+    private readonly readHeygenVoiceCatalogForWorkspaceService: ReadHeygenVoiceCatalogForWorkspaceService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   @Post()
@@ -56,7 +58,7 @@ export class WorkspaceVideoPersonasController {
     file: { buffer: Buffer; mimetype: string; originalname: string } | undefined
   ): Promise<CreatePersonaResult> {
     const userId = this.resolveUserId(req);
-    this.assertWorkspaceAccess(req, workspaceId);
+    await this.assertWorkspaceAccess(userId, workspaceId);
 
     if (!file || !Buffer.isBuffer(file.buffer) || file.buffer.length === 0) {
       throw new BadRequestException({
@@ -86,8 +88,8 @@ export class WorkspaceVideoPersonasController {
     @Req() req: RequestWithPlatformContext,
     @Param("workspaceId") workspaceId: string
   ): Promise<{ personas: PersonaListItem[]; limit: number; creationVcoinCost: number }> {
-    this.resolveUserId(req);
-    this.assertWorkspaceAccess(req, workspaceId);
+    const userId = this.resolveUserId(req);
+    await this.assertWorkspaceAccess(userId, workspaceId);
     return this.manageWorkspaceVideoPersonasService.listPersonas({ workspaceId });
   }
 
@@ -96,8 +98,8 @@ export class WorkspaceVideoPersonasController {
     @Req() req: RequestWithPlatformContext,
     @Param("workspaceId") workspaceId: string
   ): Promise<{ provider: "heygen"; voices: NonNullable<WorkspaceVoiceCatalogResult>["voices"] }> {
-    this.resolveUserId(req);
-    this.assertWorkspaceAccess(req, workspaceId);
+    const userId = this.resolveUserId(req);
+    await this.assertWorkspaceAccess(userId, workspaceId);
     const result =
       await this.readHeygenVoiceCatalogForWorkspaceService.getVoiceCatalogForWorkspace(workspaceId);
     return {
@@ -113,22 +115,20 @@ export class WorkspaceVideoPersonasController {
     @Param("workspaceId") workspaceId: string,
     @Param("personaId") personaId: string
   ): Promise<{ archived: true; personaId: string }> {
-    this.resolveUserId(req);
-    this.assertWorkspaceAccess(req, workspaceId);
+    const userId = this.resolveUserId(req);
+    await this.assertWorkspaceAccess(userId, workspaceId);
     return this.manageWorkspaceVideoPersonasService.archivePersona({ workspaceId, personaId });
   }
 
   /**
-   * Fail-closed workspace ownership guard. Compares the `:workspaceId` URL
-   * param against the user's resolved workspace from the auth middleware.
-   * If they don't match, the user is either unauthenticated or attempting
-   * cross-workspace access — both cases are rejected as 401.
-   *
-   * Note: `req.workspaceId` is the authenticated user's current workspace,
-   * set by the platform auth middleware from the user's session context.
+   * Fail-closed workspace membership guard. Resolves the user's current
+   * workspace from canonical membership state instead of `req.workspaceId`,
+   * because some authenticated web flows currently carry `userId` without
+   * hydrating `req.workspaceId` on these routes.
    */
-  private assertWorkspaceAccess(req: RequestWithPlatformContext, workspaceId: string): void {
-    if (req.workspaceId !== workspaceId) {
+  private async assertWorkspaceAccess(userId: string, workspaceId: string): Promise<void> {
+    const membership = await this.resolveActiveAssistantService.resolveMembership(userId);
+    if (membership.workspaceId !== workspaceId) {
       throw new UnauthorizedException(
         "Access denied: the requested workspace does not match your authenticated workspace context."
       );
