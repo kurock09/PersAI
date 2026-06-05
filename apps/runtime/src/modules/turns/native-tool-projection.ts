@@ -74,7 +74,8 @@ function appendToolDefinitionHint(base: string, hint: string): string {
 }
 
 function describeVideoVoiceCatalogHint(
-  credential: AssistantRuntimeBundleToolCredentialRef
+  credential: AssistantRuntimeBundleToolCredentialRef,
+  talkingAvatarEnabled: boolean
 ): string | null {
   const catalog = credential.videoVoiceCatalog;
   const shortlist = catalog?.shortlist ?? [];
@@ -87,7 +88,14 @@ function describeVideoVoiceCatalogHint(
       .join(", ");
     return details.length > 0 ? `${entry.voiceKey} (${details})` : entry.voiceKey;
   });
-  return `Available voiceKeys for voice_control (cinematic video only): ${entries.join("; ")}. Use these only for cinematic narration via audioMode="voice_control". Do not reuse this list for mode="talking_avatar": talking-avatar speech must use its own voiceKey field or a saved persona's voice.`;
+  const base = `Available voiceKeys for voice_control (cinematic video only): ${entries.join("; ")}. Use these only for cinematic narration via audioMode="voice_control".`;
+  // Only cross-reference the talking-avatar voice path when that feature is
+  // actually enabled — Slice 8 invariant: do not surface talking-avatar to the
+  // model when talkingVideoEnabled is off.
+  if (!talkingAvatarEnabled) {
+    return base;
+  }
+  return `${base} Do not reuse this list for mode="talking_avatar": that path uses its own voiceKey field or a saved persona's voice.`;
 }
 
 function describeVideoPersonaCatalogHint(
@@ -887,8 +895,8 @@ function createVideoGenerateToolDefinition(
 ): ProviderGatewayToolDefinition {
   // ADR-109 Slice 10c Fix #3f: voice catalog for cinematic (Kling) comes from cinematic ref.
   // Voice catalog + persona catalog for talking_avatar come from the talking-avatar ref.
-  const voiceCatalogHint = describeVideoVoiceCatalogHint(credential);
   const talkingAvatarEnabled = talkingAvatarCredential !== null;
+  const voiceCatalogHint = describeVideoVoiceCatalogHint(credential, talkingAvatarEnabled);
   const talkingAvatarHint = talkingAvatarEnabled
     ? [
         // Section 1: when to use talking_avatar
@@ -913,7 +921,7 @@ function createVideoGenerateToolDefinition(
     : null;
   // ADR-109 Slice 10c Fix #3f: talking-avatar voice catalog hint from talking-avatar ref.
   const talkingAvatarVoiceCatalogHint = talkingAvatarEnabled
-    ? describeVideoVoiceCatalogHint(talkingAvatarCredential)
+    ? describeVideoVoiceCatalogHint(talkingAvatarCredential, true)
     : null;
   return {
     name: "video_generate",
