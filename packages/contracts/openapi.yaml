@@ -14596,6 +14596,32 @@ components:
           enum:
             - "on"
             - "off"
+        audio:
+          type: boolean
+          nullable: true
+        resolution:
+          type: string
+          nullable: true
+          enum:
+            - "720p"
+            - "1080p"
+            - "4k"
+        aspectRatio:
+          type: string
+          nullable: true
+          enum:
+            - "auto"
+            - "16:9"
+            - "9:16"
+            - "1:1"
+            - "4:5"
+            - "5:4"
+        engine:
+          type: string
+          nullable: true
+          enum:
+            - "avatar_iv"
+            - "avatar_v"
     RuntimeVideoModelParametersState:
       type: object
       required:

@@ -182,6 +182,9 @@ export async function runHeyGenProviderClientTest(): Promise<void> {
         assert.equal(body.type, "avatar");
         assert.equal(body.avatar_id, "ava-123");
         assert.equal(body.voice_id, "voice-en-female-1");
+        assert.equal(body.resolution, "720p");
+        assert.equal(body.aspect_ratio, "9:16");
+        assert.deepEqual(body.engine, { type: "avatar_v" });
         return makeSubmitResponse("vid-cached-1");
       }
       if (url === "https://api.heygen.com/v3/videos/vid-cached-1") {
@@ -197,7 +200,12 @@ export async function runHeyGenProviderClientTest(): Promise<void> {
       const result = await client.generateVideo(
         createBaseRequest({
           cachedHeygenAvatarId: "ava-123",
-          personaId: "persona-p1"
+          personaId: "persona-p1",
+          providerParameters: {
+            resolution: "720p",
+            aspectRatio: "9:16",
+            engine: "avatar_v"
+          }
         }),
         { credentialValue: MOCK_HEYGEN_API_KEY }
       );

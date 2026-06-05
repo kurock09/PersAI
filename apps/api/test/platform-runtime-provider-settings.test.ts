@@ -113,6 +113,30 @@ function openAiVideoModelParameters() {
   };
 }
 
+function heygenVideoModelParameters() {
+  return {
+    duration: {
+      kind: "range" as const,
+      min: 1,
+      max: 600,
+      step: 1,
+      preferredValues: [15, 30, 60]
+    },
+    aspectRatios: [
+      { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "16:9" },
+      { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "9:16" }
+    ],
+    referenceImageSupported: true,
+    audioCapabilities: ["silent"] as const,
+    inputCapabilities: ["text", "single_reference_image"] as const,
+    providerParameters: {
+      resolution: "720p" as const,
+      aspectRatio: "9:16" as const,
+      engine: "avatar_v" as const
+    }
+  };
+}
+
 function textCharsMeteredDefaults() {
   return {
     active: true,
@@ -307,6 +331,34 @@ async function run(): Promise<void> {
       .map((profile) => profile.model),
     ["sora-2", "sora-2-pro"]
   );
+  const parsedWithHeyGen = parseUpdatePlatformRuntimeProviderSettingsInput({
+    ...parsed,
+    availableModelCatalogByProvider: {
+      ...parsed.availableModelCatalogByProvider,
+      heygen: {
+        models: [
+          {
+            model: "avatar_v",
+            capabilities: ["video"],
+            ...timeMeteredDefaults(),
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: "Avatar V 720p",
+            notes: null,
+            videoModelParameters: heygenVideoModelParameters()
+          }
+        ]
+      }
+    }
+  });
+  const heygenProfile = parsedWithHeyGen.availableModelCatalogByProvider.heygen.models[0];
+  assert.equal(heygenProfile?.kind, "talking_avatar");
+  assert.deepEqual(heygenProfile?.videoModelParameters?.providerParameters, {
+    resolution: "720p",
+    aspectRatio: "9:16",
+    engine: "avatar_v"
+  });
   const parsedTtsProfile = parsed.availableModelCatalogByProvider.openai.models.find(
     (profile) => profile.model === "gpt-4o-mini-tts"
   );

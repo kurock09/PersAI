@@ -498,11 +498,50 @@ function normalizeVideoProviderParameters(
         : (() => {
             throw new Error(`${path}.audio must be true, false, or null.`);
           })();
-  return mode !== null || sound !== null || audio !== null
+  const resolution =
+    row.resolution === undefined || row.resolution === null
+      ? null
+      : row.resolution === "720p" || row.resolution === "1080p" || row.resolution === "4k"
+        ? row.resolution
+        : (() => {
+            throw new Error(`${path}.resolution must be "720p", "1080p", "4k", or null.`);
+          })();
+  const aspectRatio =
+    row.aspectRatio === undefined || row.aspectRatio === null
+      ? null
+      : row.aspectRatio === "auto" ||
+          row.aspectRatio === "16:9" ||
+          row.aspectRatio === "9:16" ||
+          row.aspectRatio === "1:1" ||
+          row.aspectRatio === "4:5" ||
+          row.aspectRatio === "5:4"
+        ? row.aspectRatio
+        : (() => {
+            throw new Error(
+              `${path}.aspectRatio must be "auto", "16:9", "9:16", "1:1", "4:5", "5:4", or null.`
+            );
+          })();
+  const engine =
+    row.engine === undefined || row.engine === null
+      ? null
+      : row.engine === "avatar_iv" || row.engine === "avatar_v"
+        ? row.engine
+        : (() => {
+            throw new Error(`${path}.engine must be "avatar_iv", "avatar_v", or null.`);
+          })();
+  return mode !== null ||
+    sound !== null ||
+    audio !== null ||
+    resolution !== null ||
+    aspectRatio !== null ||
+    engine !== null
     ? {
         ...(mode === null ? {} : { mode }),
         ...(sound === null ? {} : { sound }),
-        ...(audio === null ? {} : { audio })
+        ...(audio === null ? {} : { audio }),
+        ...(resolution === null ? {} : { resolution }),
+        ...(aspectRatio === null ? {} : { aspectRatio }),
+        ...(engine === null ? {} : { engine })
       }
     : null;
 }

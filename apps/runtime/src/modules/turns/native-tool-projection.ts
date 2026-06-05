@@ -903,7 +903,9 @@ function createVideoGenerateToolDefinition(
         "Voice selection (portrait alias path): when passing portraitImageAlias, select voiceKey from the available voice shortlist based on user context (gender, language, brand fit). When voiceKey is omitted on the portrait path, runtime returns voice_required honestly so the model can retry with an explicit choice.",
         // Section 6: voice selection — persona path
         "Voice selection (persona path): when passing personaId, omit voiceKey to use the persona's stored voice. Only pass voiceKey to deliberately override the persona's voice for one call.",
-        // Section 7: persona shortlist (from talking-avatar credential ref)
+        // Section 7: cinematic-only fields ignored in talking_avatar mode
+        "When mode='talking_avatar', omit all cinematic-only controls: audioMode, inputMode, voiceKeys, voiceIds, referenceImageAlias, referenceImageAliases, size, seconds, and filename. Talking-avatar audio comes from speechText + voiceKey (or the persona's stored voice); the portrait source is personaId XOR portraitImageAlias. HeyGen output quality/aspect/engine are selected by the admin catalog, not by tool-call fields.",
+        // Section 8: persona shortlist (from talking-avatar credential ref)
         describeVideoPersonaCatalogHint(talkingAvatarCredential)
       ].join(" ")
     : null;
@@ -923,7 +925,7 @@ function createVideoGenerateToolDefinition(
         )
       ),
       [
-        "Prefer calling this tool immediately when the user clearly wants a video. Pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer.",
+        "Prefer calling this tool immediately when the user clearly wants a video. For cinematic mode, pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. For talking_avatar mode, do not pass cinematic seconds/size/audio/input/filename controls; provide speechText plus exactly one avatar source (personaId or portraitImageAlias). If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer.",
         talkingAvatarHint,
         voiceCatalogHint,
         talkingAvatarVoiceCatalogHint
@@ -979,54 +981,55 @@ function createVideoGenerateToolDefinition(
         referenceImageAlias: {
           type: "string",
           description:
-            'Optional human-readable alias of an available image to use as a visual reference or first frame, for example "current image #1" or "last generated image". Provide this only when the user explicitly identifies or selects a specific available image alias, or when an upstream structured UI/tool has already provided that alias. Do not guess or infer aliases heuristically from context; otherwise omit this field so runtime uses text-to-video.'
+            'Cinematic-only optional image alias for a visual reference or first frame, for example "current image #1" or "last generated image". Omit when mode=\'talking_avatar\'; use portraitImageAlias instead. Provide this only when the user explicitly identifies or selects a specific available image alias, or when an upstream structured UI/tool has already provided that alias. Do not guess or infer aliases heuristically from context; otherwise omit this field so runtime uses text-to-video.'
         },
         referenceImageAliases: {
           type: "array",
           items: { type: "string" },
           description:
-            "Optional ordered image aliases for a true multi-image video request. Use this only when the user explicitly asked for a multi-image video composition and the exact aliases are known. Do not collapse a multi-image request into one reference image."
+            "Cinematic-only optional ordered image aliases for a true multi-image video request. Omit when mode='talking_avatar'. Use this only when the user explicitly asked for a multi-image video composition and the exact aliases are known."
         },
         voiceIds: {
           type: "array",
           items: { type: "string" },
           description:
-            "Optional ordered provider voice ids for explicit voice-controlled Kling text-to-video or image-to-video requests only. Use this only when exact voice ids are already known from an upstream structured flow; do not invent, guess, or paraphrase voice ids from free text. Keep the order aligned with the prompt's voice placeholders."
+            "Cinematic-only optional ordered provider voice ids for explicit voice-controlled Kling text-to-video or image-to-video requests only. Omit when mode='talking_avatar'; use voiceKey for talking-avatar voice override."
         },
         voiceKeys: {
           type: "array",
           items: { type: "string" },
           description:
-            "Optional ordered PersAI voice keys for Kling voice-controlled text-to-video or image-to-video requests. Use only keys from the materialized shortlist shown in this assistant's video catalog/tool guidance; do not invent keys. Keep the order aligned with the prompt's voice placeholders."
+            "Cinematic-only optional ordered PersAI voice keys for Kling voice-controlled text-to-video or image-to-video requests. Use only keys from the materialized shortlist shown in this assistant's video catalog/tool guidance; do not invent keys. Omit when mode='talking_avatar'; use the singular voiceKey field instead."
         },
         audioMode: {
           type: "string",
           enum: ["silent", "provider_native_audio", "voice_control"],
           description:
-            "Optional requested audio intent. Use silent for ordinary/default silent video. Use provider_native_audio when the user explicitly wants scene sound or provider-generated audio. Use voice_control only when the user explicitly wants spoken narration, singing, dialogue, or controllable human voice inside the generated video. Do not downgrade voice_control to ordinary audio or silent video without explanation."
+            "Cinematic-only optional requested audio intent. Omit when mode='talking_avatar'; talking-avatar speech comes from speechText plus voiceKey or the persona's stored voice."
         },
         inputMode: {
           type: "string",
           enum: ["text", "single_reference_image", "multi_image", "omni"],
           description:
-            "Optional requested input class. Use text for prompt-only video. Use single_reference_image when exactly one reference image alias is intentionally supplied. Use multi_image when the user explicitly wants multiple images combined into one video request. Use omni only for an explicit Omni-style request. Do not silently degrade multi_image or omni requests to ordinary single-image or text video."
+            "Cinematic-only optional requested input class. Omit when mode='talking_avatar'; use personaId or portraitImageAlias instead."
         },
         filename: {
           type: "string",
-          description: "Optional filename hint for the generated video attachment."
+          description:
+            "Cinematic-only optional filename hint for the generated video attachment. Omit when mode='talking_avatar'."
         },
         size: {
           type: "string",
           enum: [...PERSAI_RUNTIME_VIDEO_GENERATE_SIZES],
           description:
-            "Optional output size/aspect hint. Use it when the user asked for a specific framing; otherwise omit it and runtime will apply the selected model's default size."
+            "Cinematic-only optional output size/aspect hint. Omit when mode='talking_avatar'; HeyGen talking-avatar output aspect is selected by the admin catalog."
         },
         seconds: {
           type: "integer",
           minimum: 1,
           maximum: 30,
           description:
-            "Optional output duration in whole seconds. Use it when the user asked for a specific duration; otherwise omit it and runtime will apply the selected model's default duration."
+            "Cinematic-only optional output duration in whole seconds. Omit when mode='talking_avatar'; HeyGen talking-avatar duration follows speechText length."
         }
       }
     }
@@ -1290,7 +1293,7 @@ function createBackgroundTaskToolDefinition(
     description: resolveToolDefinitionDescription(
       policy,
       appendPerTurnCapHint(
-        "Create and manage quiet assistant-side background tasks. Use this for conditional checks and delayed assistant follow-through; the platform will later evaluate the brief and push the user directly only when warranted.",
+        "Create and manage quiet assistant-side background tasks. Use this for conditional checks and delayed assistant follow-through; the platform will later evaluate the brief and push the user directly only when warranted. Before creating a new task, avoid duplicates: if the user seems to be referring to an already-existing follow-up with the same purpose, first call list and reuse, update, or cancel/resume the existing task instead of creating a second equivalent one.",
         "background_task",
         policy
       )

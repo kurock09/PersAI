@@ -1713,6 +1713,21 @@ export interface RuntimeVideoProviderParameters {
   mode?: string | null;
   sound?: "on" | "off" | null;
   audio?: boolean | null;
+  /**
+   * ADR-109 cleanup — HeyGen-native video quality. Used only by the HeyGen
+   * talking-avatar path; cinematic providers ignore it.
+   */
+  resolution?: "720p" | "1080p" | "4k" | null;
+  /**
+   * ADR-109 cleanup — HeyGen-native output aspect ratio. This is not the
+   * PersAI cinematic `size` field; it maps directly to HeyGen v3
+   * `aspect_ratio`.
+   */
+  aspectRatio?: "auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4" | null;
+  /**
+   * ADR-109 cleanup — optional HeyGen engine selector, e.g. `avatar_v`.
+   */
+  engine?: "avatar_iv" | "avatar_v" | null;
 }
 
 export const RUNTIME_VIDEO_VOICE_GENDERS = ["male", "female", "neutral", "unknown"] as const;

@@ -54,10 +54,18 @@ type RuntimeVideoModelParametersState = {
     mode?: string | null;
     sound?: "on" | "off" | null;
     audio?: boolean | null;
+    resolution?: "720p" | "1080p" | "4k" | null;
+    aspectRatio?: "auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4" | null;
+    engine?: "avatar_iv" | "avatar_v" | null;
   } | null;
 };
 type RuntimeProviderModelProfileWithVideo = RuntimeProviderModelProfileState & {
   videoModelParameters?: RuntimeVideoModelParametersState | null;
+};
+type HeyGenTalkingAvatarProviderParameters = {
+  resolution: (typeof HEYGEN_TALKING_AVATAR_RESOLUTIONS)[number];
+  aspectRatio: (typeof HEYGEN_TALKING_AVATAR_ASPECT_RATIOS)[number];
+  engine: (typeof HEYGEN_TALKING_AVATAR_ENGINES)[number];
 };
 
 const ACTIVE_VIDEO_AUDIO_CAPABILITIES = [
@@ -70,6 +78,9 @@ const ACTIVE_VIDEO_INPUT_CAPABILITIES = [
   "single_reference_image",
   "multi_image"
 ] as const satisfies Exclude<RuntimeVideoModelParametersState["inputCapabilities"], "omni">;
+const HEYGEN_TALKING_AVATAR_RESOLUTIONS = ["720p", "1080p", "4k"] as const;
+const HEYGEN_TALKING_AVATAR_ASPECT_RATIOS = ["auto", "16:9", "9:16", "1:1", "4:5", "5:4"] as const;
+const HEYGEN_TALKING_AVATAR_ENGINES = ["avatar_v", "avatar_iv"] as const;
 
 /** Accepts `0.075` and `0,075` while typing; incomplete fragments like `0.` stay in the field until blur. */
 export function normalizeDecimalInputText(raw: string): string {
@@ -205,6 +216,25 @@ function isVideoOnlyCatalogProvider(provider: ManagedRuntimeCatalogProvider): bo
 function createDefaultVideoModelParameters(
   provider: ManagedRuntimeCatalogProvider | null
 ): RuntimeVideoModelParametersState {
+  if (provider === "heygen") {
+    return {
+      // Compatibility envelope only. HeyGen duration is derived from
+      // speechText; quality/aspect/engine live in providerParameters below.
+      duration: { kind: "range", min: 1, max: 600, step: 1, preferredValues: [15, 30, 60] },
+      aspectRatios: [
+        { aspectRatio: "16:9", size: "1280x720", providerValue: "16:9" },
+        { aspectRatio: "9:16", size: "720x1280", providerValue: "9:16" }
+      ],
+      referenceImageSupported: true,
+      audioCapabilities: ["silent"],
+      inputCapabilities: ["text", "single_reference_image"],
+      providerParameters: {
+        resolution: "1080p",
+        aspectRatio: "auto",
+        engine: "avatar_v"
+      }
+    };
+  }
   if (provider === "kling") {
     return {
       duration: { kind: "range", min: 3, max: 15, step: 1, preferredValues: [4, 8, 12] },
@@ -240,12 +270,35 @@ function compactVideoProviderParameters(
   const mode = value.mode?.trim() ? value.mode.trim() : null;
   const sound = value.sound ?? null;
   const audio = typeof value.audio === "boolean" ? value.audio : null;
-  return mode === null && sound === null && audio === null
+  const resolution = HEYGEN_TALKING_AVATAR_RESOLUTIONS.includes(
+    value.resolution as (typeof HEYGEN_TALKING_AVATAR_RESOLUTIONS)[number]
+  )
+    ? value.resolution
+    : null;
+  const aspectRatio = HEYGEN_TALKING_AVATAR_ASPECT_RATIOS.includes(
+    value.aspectRatio as (typeof HEYGEN_TALKING_AVATAR_ASPECT_RATIOS)[number]
+  )
+    ? value.aspectRatio
+    : null;
+  const engine = HEYGEN_TALKING_AVATAR_ENGINES.includes(
+    value.engine as (typeof HEYGEN_TALKING_AVATAR_ENGINES)[number]
+  )
+    ? value.engine
+    : null;
+  return mode === null &&
+    sound === null &&
+    audio === null &&
+    resolution === null &&
+    aspectRatio === null &&
+    engine === null
     ? null
     : {
         ...(mode === null ? {} : { mode }),
         ...(sound === null ? {} : { sound }),
-        ...(audio === null ? {} : { audio })
+        ...(audio === null ? {} : { audio }),
+        ...(resolution === null ? {} : { resolution }),
+        ...(aspectRatio === null ? {} : { aspectRatio }),
+        ...(engine === null ? {} : { engine })
       };
 }
 
@@ -2245,6 +2298,14 @@ function VideoModelParametersEditor({
   onChange: (value: RuntimeVideoModelParametersState) => void;
 }) {
   const normalized = normalizeVideoModelParametersForSlice2(value);
+  if (provider === "heygen") {
+    return (
+      <HeyGenTalkingAvatarParametersEditor
+        value={normalized}
+        onChange={(next) => onChange(normalizeVideoModelParametersForSlice2(next))}
+      />
+    );
+  }
   const validationMessage = validateVideoModelParametersForSlice2(normalized);
   const durationValues =
     normalized.duration.kind === "allowed_list"
@@ -2509,6 +2570,141 @@ function VideoModelParametersEditor({
         These fields are persisted into the materialized runtime catalog and are required before
         `video_generate` can normalize duration, size, reference images, and provider-native
         options.
+      </p>
+    </div>
+  );
+}
+
+function resolveHeyGenProviderParameters(
+  value: RuntimeVideoModelParametersState
+): HeyGenTalkingAvatarProviderParameters {
+  const providerParameters = value.providerParameters ?? {};
+  const resolution =
+    providerParameters.resolution === "720p" ||
+    providerParameters.resolution === "1080p" ||
+    providerParameters.resolution === "4k"
+      ? providerParameters.resolution
+      : "1080p";
+  const aspectRatio =
+    providerParameters.aspectRatio === "auto" ||
+    providerParameters.aspectRatio === "16:9" ||
+    providerParameters.aspectRatio === "9:16" ||
+    providerParameters.aspectRatio === "1:1" ||
+    providerParameters.aspectRatio === "4:5" ||
+    providerParameters.aspectRatio === "5:4"
+      ? providerParameters.aspectRatio
+      : "auto";
+  const engine =
+    providerParameters.engine === "avatar_iv" || providerParameters.engine === "avatar_v"
+      ? providerParameters.engine
+      : "avatar_v";
+  return {
+    resolution,
+    aspectRatio,
+    engine
+  };
+}
+
+function buildHeyGenTalkingAvatarModelParameters(input: {
+  current: RuntimeVideoModelParametersState;
+  providerParameters: HeyGenTalkingAvatarProviderParameters;
+}): RuntimeVideoModelParametersState {
+  return {
+    ...input.current,
+    // These fields are compatibility metadata for the shared video model
+    // catalog shape. They are not presented as HeyGen controls because HeyGen
+    // talking-avatar duration comes from speechText and audio comes from the
+    // selected voice.
+    duration: { kind: "range", min: 1, max: 600, step: 1, preferredValues: [15, 30, 60] },
+    aspectRatios: [
+      { aspectRatio: "16:9", size: "1280x720", providerValue: "16:9" },
+      { aspectRatio: "9:16", size: "720x1280", providerValue: "9:16" }
+    ],
+    referenceImageSupported: true,
+    audioCapabilities: ["silent"],
+    inputCapabilities: ["text", "single_reference_image"],
+    providerParameters: {
+      resolution: input.providerParameters.resolution,
+      aspectRatio: input.providerParameters.aspectRatio,
+      engine: input.providerParameters.engine
+    }
+  };
+}
+
+function HeyGenTalkingAvatarParametersEditor({
+  value,
+  onChange
+}: {
+  value: RuntimeVideoModelParametersState;
+  onChange: (value: RuntimeVideoModelParametersState) => void;
+}) {
+  const providerParameters = resolveHeyGenProviderParameters(value);
+  const update = (patch: Partial<HeyGenTalkingAvatarProviderParameters>) => {
+    onChange(
+      buildHeyGenTalkingAvatarModelParameters({
+        current: value,
+        providerParameters: {
+          ...providerParameters,
+          ...patch
+        }
+      })
+    );
+  };
+  return (
+    <div className="space-y-2 rounded border border-border/50 bg-surface-raised/70 p-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+          HeyGen talking-avatar parameters
+        </h4>
+        <button
+          type="button"
+          onClick={() => onChange(createDefaultVideoModelParameters("heygen"))}
+          className="rounded border border-border/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-text-muted hover:border-border-strong hover:text-text"
+        >
+          Reset HeyGen defaults
+        </button>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <SelectField
+          label="Resolution"
+          value={providerParameters.resolution ?? "1080p"}
+          onChange={(resolution) =>
+            update({ resolution: resolution as NonNullable<typeof providerParameters.resolution> })
+          }
+          options={HEYGEN_TALKING_AVATAR_RESOLUTIONS.map((resolution) => ({
+            value: resolution,
+            label: resolution
+          }))}
+        />
+        <SelectField
+          label="Aspect ratio"
+          value={providerParameters.aspectRatio ?? "auto"}
+          onChange={(aspectRatio) =>
+            update({
+              aspectRatio: aspectRatio as NonNullable<typeof providerParameters.aspectRatio>
+            })
+          }
+          options={HEYGEN_TALKING_AVATAR_ASPECT_RATIOS.map((aspectRatio) => ({
+            value: aspectRatio,
+            label: aspectRatio === "auto" ? "auto (source/default)" : aspectRatio
+          }))}
+        />
+        <SelectField
+          label="Engine"
+          value={providerParameters.engine ?? "avatar_v"}
+          onChange={(engine) =>
+            update({ engine: engine as NonNullable<typeof providerParameters.engine> })
+          }
+          options={HEYGEN_TALKING_AVATAR_ENGINES.map((engine) => ({
+            value: engine,
+            label: engine
+          }))}
+        />
+      </div>
+      <p className="text-[10px] text-text-subtle">
+        HeyGen does not use the cinematic duration/audio/input controls. Duration follows
+        `speechText`; audio is the selected HeyGen voice; persona/photo input is handled by
+        `personaId` or `portraitImageAlias`.
       </p>
     </div>
   );

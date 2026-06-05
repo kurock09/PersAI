@@ -197,6 +197,219 @@ export class RuntimeVideoGenerateToolService {
       };
     }
 
+    // ADR-109 Slice 10d: talking_avatar is structurally distinct from
+    // cinematic and must short-circuit BEFORE the cinematic credential /
+    // provider / normalizeExecutionRequest chain. Otherwise cinematic
+    // capability validation (e.g. unsupported audioMode="voice_control")
+    // rejects legitimate talking-avatar requests where the LLM passed
+    // cinematic fields that talking_avatar simply ignores. See
+    // buildTalkingAvatarNormalizedEcho + Slice 10c Fix #3e.
+    if (request.mode === "talking_avatar") {
+      const talkingAvatarRef =
+        params.bundle.governance.toolCredentialRefs[VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY] ?? null;
+      if (talkingAvatarRef === null || talkingAvatarRef.configured === false) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: null,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: request.seconds,
+            requestedAudioMode: request.audioMode ?? null,
+            requestedInputMode: request.inputMode ?? null,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "talking_avatar_provider_unavailable",
+            warning:
+              "talking_avatar mode requires a HeyGen talking-avatar credential. Configure 'Talking Avatar Model' in the plan editor and ensure the HeyGen API key is set."
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+      const talkingAvatarProviderId = this.resolveVideoGenerateProviderId(
+        talkingAvatarRef.providerId ?? null
+      );
+      if (talkingAvatarProviderId === null) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: null,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: request.seconds,
+            requestedAudioMode: request.audioMode ?? null,
+            requestedInputMode: request.inputMode ?? null,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "talking_avatar_provider_unavailable",
+            warning:
+              "talking_avatar mode requires a HeyGen talking-avatar credential. Configure 'Talking Avatar Model' in the plan editor and ensure the HeyGen API key is set."
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+      // ADR-109 Slice 10d: talking_avatar is structurally distinct from
+      // cinematic and does NOT go through normalizeExecutionRequest (cinematic
+      // capability validation). Build a minimal echo directly so downstream
+      // dispatch always succeeds when the prerequisites (credential ref,
+      // persona / portrait) are in place.
+      const talkingAvatarNormalized = this.buildTalkingAvatarNormalizedEcho(
+        request,
+        talkingAvatarRef.videoModelParameters ?? null
+      );
+      const talkingAvatarModel = this.resolveVideoGenerateModelKey(talkingAvatarRef);
+      // ADR-109 Slice 10d: when the LLM tool loop is asking for talking-avatar
+      // (params.deferToAsyncMediaJob is set), enqueue an async media job
+      // exactly as the cinematic branch does. This:
+      //   - returns action="pending_delivery" + jobId to the LLM so the turn
+      //     completes immediately (the "I'm thinking" indicator stops);
+      //   - creates an assistant_media_jobs row that the chat-input chip
+      //     surfaces with the Slice 10b rotating banner copy
+      //     (displayKind="talking_avatar" is inferred from request.mode);
+      //   - lets the media-job worker pick the job up and re-enter this same
+      //     executeToolCall with deferToAsyncMediaJob=undefined, then falls
+      //     through to executeTalkingAvatarDispatch below for the actual
+      //     synchronous HeyGen polling, then delivers the artifact via the
+      //     media-delivery channel like cinematic.
+      // Pre-Slice-10d the talking_avatar branch always polled inline, which
+      // blocked the LLM turn for the full HeyGen render time (~2 minutes) and
+      // never created a media job: no chip, no async delivery.
+      if (params.deferToAsyncMediaJob !== undefined) {
+        try {
+          const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredMediaJob({
+            assistantId: params.bundle.metadata.assistantId,
+            sourceUserMessageId: params.deferToAsyncMediaJob.sourceUserMessageId,
+            sourceUserMessageText: params.deferToAsyncMediaJob.sourceUserMessageText,
+            attachments: params.availableAttachments,
+            directToolExecution: {
+              toolCode: VIDEO_GENERATE_TOOL_CODE,
+              request
+            }
+          });
+          if (!enqueueOutcome.accepted) {
+            return {
+              payload: {
+                toolCode: VIDEO_GENERATE_TOOL_CODE,
+                executionMode: "worker",
+                provider: talkingAvatarProviderId,
+                model: talkingAvatarModel,
+                prompt: request.prompt,
+                requestedSeconds: talkingAvatarNormalized.request.seconds,
+                requestedAudioMode: talkingAvatarNormalized.request.audioMode,
+                requestedInputMode: talkingAvatarNormalized.request.inputMode,
+                ...this.buildRequestedTalkingAvatarEchoes(request),
+                size: talkingAvatarNormalized.request.size,
+                referenceImageAlias: null,
+                referenceFilename: null,
+                artifact: null,
+                usage: null,
+                action: "skipped",
+                reason: enqueueOutcome.code,
+                warning: this.mergeWarnings(
+                  talkingAvatarNormalized.warning,
+                  enqueueOutcome.message
+                ),
+                ...(enqueueOutcome.guidance === null ? {} : { guidance: enqueueOutcome.guidance }),
+                jobId: null
+              },
+              artifacts: [],
+              isError: false
+            };
+          }
+          return {
+            payload: {
+              toolCode: VIDEO_GENERATE_TOOL_CODE,
+              executionMode: "worker",
+              provider: talkingAvatarProviderId,
+              model: talkingAvatarModel,
+              prompt: request.prompt,
+              requestedSeconds: talkingAvatarNormalized.request.seconds,
+              requestedAudioMode: talkingAvatarNormalized.request.audioMode,
+              requestedInputMode: talkingAvatarNormalized.request.inputMode,
+              ...this.buildRequestedTalkingAvatarEchoes(request),
+              size: talkingAvatarNormalized.request.size,
+              referenceImageAlias: null,
+              referenceFilename: null,
+              artifact: null,
+              usage: null,
+              action: "pending_delivery",
+              reason: null,
+              warning: talkingAvatarNormalized.warning,
+              jobId: enqueueOutcome.jobId,
+              canSendFileNow: false,
+              messageToUser:
+                "Accepted. The talking-avatar video cannot be attached in this reply; it is being prepared and will be delivered in a separate message when ready.",
+              requestedCount: 1,
+              expectedResultCount: 1
+            },
+            artifacts: [],
+            isError: false
+          };
+        } catch (error) {
+          this.logger.error(
+            `[talking-avatar] async enqueue failed requestId=${params.requestId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+          return {
+            payload: {
+              toolCode: VIDEO_GENERATE_TOOL_CODE,
+              executionMode: "worker",
+              provider: talkingAvatarProviderId,
+              model: null,
+              prompt: request.prompt,
+              requestedSeconds: talkingAvatarNormalized.request.seconds,
+              requestedAudioMode: talkingAvatarNormalized.request.audioMode,
+              requestedInputMode: talkingAvatarNormalized.request.inputMode,
+              ...this.buildRequestedTalkingAvatarEchoes(request),
+              size: talkingAvatarNormalized.request.size,
+              referenceImageAlias: null,
+              referenceFilename: null,
+              artifact: null,
+              usage: null,
+              action: "skipped",
+              reason: "runtime_degraded",
+              warning:
+                "Runtime could not enqueue the talking-avatar render. Try again in a moment.",
+              jobId: null
+            },
+            artifacts: [],
+            isError: false
+          };
+        }
+      }
+      return await this.executeTalkingAvatarDispatch({
+        bundle: params.bundle,
+        request: request as RuntimeVideoGenerateRequest & {
+          mode: "talking_avatar";
+          speechText: string;
+          speechLanguage: string;
+        },
+        normalizedRequest: talkingAvatarNormalized,
+        credential: talkingAvatarRef,
+        providerId: talkingAvatarProviderId,
+        model: this.resolveVideoGenerateModelKey(talkingAvatarRef),
+        availableAttachments: params.availableAttachments,
+        sessionId: params.sessionId,
+        requestId: params.requestId
+      });
+    }
+
+    // Cinematic-only flow below: talking_avatar short-circuits above.
     const credential = this.resolveConfiguredCredentialRef(params.bundle, VIDEO_GENERATE_TOOL_CODE);
     if (credential === null) {
       return {
@@ -280,113 +493,6 @@ export class RuntimeVideoGenerateToolService {
         artifacts: [],
         isError: true
       };
-    }
-    // ADR-109 Slice 10c Fix #3e: talking_avatar uses a dedicated credential ref
-    // (bundle.governance.toolCredentialRefs["video_generate_talking_avatar"]).
-    // No silent fallback to cinematic credential — fail honestly with
-    // talking_avatar_provider_unavailable if the ref is absent.
-    if (request.mode === "talking_avatar") {
-      const talkingAvatarRef =
-        params.bundle.governance.toolCredentialRefs[VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY] ?? null;
-      if (talkingAvatarRef === null || talkingAvatarRef.configured === false) {
-        return {
-          payload: {
-            toolCode: VIDEO_GENERATE_TOOL_CODE,
-            executionMode: "worker",
-            provider: null,
-            model: null,
-            prompt: request.prompt,
-            requestedSeconds: request.seconds,
-            requestedAudioMode: request.audioMode ?? null,
-            requestedInputMode: request.inputMode ?? null,
-            ...this.buildRequestedTalkingAvatarEchoes(request),
-            size: request.size,
-            referenceImageAlias: null,
-            referenceFilename: null,
-            artifact: null,
-            usage: null,
-            action: "skipped",
-            reason: "talking_avatar_provider_unavailable",
-            warning:
-              "talking_avatar mode requires a HeyGen talking-avatar credential. Configure 'Talking Avatar Model' in the plan editor and ensure the HeyGen API key is set."
-          },
-          artifacts: [],
-          isError: true
-        };
-      }
-      const talkingAvatarProviderId = this.resolveVideoGenerateProviderId(
-        talkingAvatarRef.providerId ?? null
-      );
-      if (talkingAvatarProviderId === null) {
-        return {
-          payload: {
-            toolCode: VIDEO_GENERATE_TOOL_CODE,
-            executionMode: "worker",
-            provider: null,
-            model: null,
-            prompt: request.prompt,
-            requestedSeconds: request.seconds,
-            requestedAudioMode: request.audioMode ?? null,
-            requestedInputMode: request.inputMode ?? null,
-            ...this.buildRequestedTalkingAvatarEchoes(request),
-            size: request.size,
-            referenceImageAlias: null,
-            referenceFilename: null,
-            artifact: null,
-            usage: null,
-            action: "skipped",
-            reason: "talking_avatar_provider_unavailable",
-            warning:
-              "talking_avatar mode requires a HeyGen talking-avatar credential. Configure 'Talking Avatar Model' in the plan editor and ensure the HeyGen API key is set."
-          },
-          artifacts: [],
-          isError: true
-        };
-      }
-      const talkingAvatarNormalized = this.normalizeExecutionRequest(
-        request,
-        talkingAvatarRef.videoModelParameters ?? null
-      );
-      if (talkingAvatarNormalized instanceof Error) {
-        return {
-          payload: {
-            toolCode: VIDEO_GENERATE_TOOL_CODE,
-            executionMode: "worker",
-            provider: talkingAvatarProviderId,
-            model: this.resolveVideoGenerateModelKey(talkingAvatarRef),
-            prompt: request.prompt,
-            requestedSeconds: request.seconds,
-            requestedAudioMode: request.audioMode ?? null,
-            requestedInputMode: request.inputMode ?? null,
-            ...this.buildRequestedTalkingAvatarEchoes(request),
-            size: request.size,
-            referenceImageAlias: null,
-            referenceFilename: null,
-            artifact: null,
-            usage: null,
-            action: "skipped",
-            reason: "requested_mode_unsupported",
-            warning: talkingAvatarNormalized.message
-          },
-          artifacts: [],
-          isError: true
-        };
-      }
-      return await this.executeTalkingAvatarDispatch({
-        bundle: params.bundle,
-        request: request as RuntimeVideoGenerateRequest & {
-          mode: "talking_avatar";
-          speechText: string;
-          speechLanguage: string;
-        },
-        normalizedRequest: talkingAvatarNormalized,
-        credential: talkingAvatarRef,
-        providerId: talkingAvatarProviderId,
-        model: this.resolveVideoGenerateModelKey(talkingAvatarRef),
-        availableAttachments: params.availableAttachments,
-        sessionId: params.sessionId,
-        requestId: params.requestId
-      });
     }
 
     const credentialAttempts: ResolvedVideoCredentialAttempt[] = [
@@ -1266,6 +1372,51 @@ export class RuntimeVideoGenerateToolService {
         referenceImageAliases: normalizedReferenceImageAliases,
         voiceKeys: normalizedVoiceKeys,
         voiceIds: normalizedVoiceIds
+      },
+      warning: warnings.length > 0 ? warnings.join(" ") : null
+    };
+  }
+
+  // ADR-109 Slice 10d: talking_avatar uses a structurally distinct request
+  // contract (speechText + voiceKey + personaId XOR portraitImageAlias).
+  // Cinematic axes (audioMode / inputMode / referenceImageAliases /
+  // voiceKeys / voiceIds) are semantically inapplicable. Build the
+  // NormalizedVideoExecutionRequest echo directly without running cinematic
+  // capability validation. seconds / size are normalized against the catalog
+  // row purely for the echo payload — they do not gate dispatch (HeyGen
+  // determines duration from speechText length and accepts either aspect).
+  private buildTalkingAvatarNormalizedEcho(
+    request: RuntimeVideoGenerateRequest,
+    params: RuntimeVideoModelParameters | null | undefined
+  ): NormalizedVideoExecutionRequest {
+    const warnings: string[] = [];
+    let normalizedSeconds: number;
+    let normalizedSize: PersaiRuntimeVideoGenerateSize;
+    if (params === null || params === undefined) {
+      // HeyGen catalog row with no structured videoModelParameters is a config
+      // omission, not a hard failure. Use safe defaults for the echo so the
+      // talking-avatar dispatch can proceed (HeyGen determines real duration
+      // from speechText length and accepts either documented aspect).
+      normalizedSeconds = 15;
+      normalizedSize = "1280x720";
+    } else {
+      // Ignore LLM-provided cinematic duration/size for talking_avatar. HeyGen
+      // determines duration from speechText and output quality/aspect from the
+      // admin catalog's providerParameters. Keep only a stable compatibility
+      // echo for the shared ProviderGatewayVideoGenerateRequest contract.
+      normalizedSeconds = this.normalizeSeconds(null, params);
+      normalizedSize = this.normalizeSize(null, params);
+    }
+    return {
+      request: {
+        ...request,
+        seconds: normalizedSeconds,
+        size: normalizedSize,
+        audioMode: "silent",
+        inputMode: "text",
+        referenceImageAliases: [],
+        voiceKeys: [],
+        voiceIds: []
       },
       warning: warnings.length > 0 ? warnings.join(" ") : null
     };
@@ -2385,7 +2536,13 @@ export class RuntimeVideoGenerateToolService {
           referenceTailImage: null,
           voiceIds: null,
           acceptedTask: null,
-          providerParameters: null,
+          providerParameters: this.resolveProviderVideoParameters({
+            providerId,
+            audioMode: normalizedRequest.request.audioMode,
+            inputMode: normalizedRequest.request.inputMode,
+            videoModelParameters: credential.videoModelParameters,
+            providerParameters: credential.videoModelParameters?.providerParameters ?? null
+          }),
           credential: {
             toolCode: VIDEO_GENERATE_TOOL_CODE,
             secretId: credential.secretRef.id,

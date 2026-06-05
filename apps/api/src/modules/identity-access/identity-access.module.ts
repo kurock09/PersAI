@@ -341,7 +341,23 @@ export class IdentityAccessModule implements NestModule {
         path: "api/v1/assistant/chat/:chatId/message/:messageId/attachment",
         method: RequestMethod.POST
       },
-      { path: "api/v1/assistant/voice/transcribe", method: RequestMethod.POST }
+      { path: "api/v1/assistant/voice/transcribe", method: RequestMethod.POST },
+      // ADR-109 Slice 9 / Slice 10d Fix: workspace-scoped video persona endpoints.
+      // Pre-Slice-10d these routes were created without explicit auth middleware
+      // registration, so every request landed with req.resolvedAppUser undefined
+      // and the controller's resolveUserId guard returned 401 (userId=null in
+      // request logs). Audit missed this because no test exercised the
+      // middleware-routing pipeline live.
+      { path: "api/v1/workspaces/:workspaceId/video-personas", method: RequestMethod.POST },
+      { path: "api/v1/workspaces/:workspaceId/video-personas", method: RequestMethod.GET },
+      {
+        path: "api/v1/workspaces/:workspaceId/video-personas/voice-catalog",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/workspaces/:workspaceId/video-personas/:personaId",
+        method: RequestMethod.DELETE
+      }
     );
   }
 }

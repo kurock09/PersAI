@@ -475,19 +475,19 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     assert.deepEqual(videoGenerateSchema.required ?? [], ["prompt"]);
     assert.match(
       videoGenerateSchema.properties?.size?.description ?? "",
-      /Optional output size\/aspect hint/i
+      /Cinematic-only optional output size\/aspect hint/i
     );
     assert.match(
       videoGenerateSchema.properties?.size?.description ?? "",
-      /runtime will apply the selected model's default size/i
+      /Omit when mode='talking_avatar'/i
     );
     assert.match(
       videoGenerateSchema.properties?.seconds?.description ?? "",
-      /Optional output duration/i
+      /Cinematic-only optional output duration/i
     );
     assert.match(
       videoGenerateSchema.properties?.seconds?.description ?? "",
-      /runtime will apply the selected model's default duration/i
+      /HeyGen talking-avatar duration follows speechText length/i
     );
     assert.match(
       videoGenerate.description ?? "",

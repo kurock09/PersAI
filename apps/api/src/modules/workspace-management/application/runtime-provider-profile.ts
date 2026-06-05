@@ -518,10 +518,34 @@ function normalizeVideoProviderParameters(value: unknown): RuntimeVideoProviderP
   }
   const mode = nullableTrimmedString(row.mode);
   const sound = row.sound === "on" || row.sound === "off" ? row.sound : null;
-  return mode !== null || sound !== null
+  const audio = typeof row.audio === "boolean" ? row.audio : null;
+  const resolution =
+    row.resolution === "720p" || row.resolution === "1080p" || row.resolution === "4k"
+      ? row.resolution
+      : null;
+  const aspectRatio =
+    row.aspectRatio === "auto" ||
+    row.aspectRatio === "16:9" ||
+    row.aspectRatio === "9:16" ||
+    row.aspectRatio === "1:1" ||
+    row.aspectRatio === "4:5" ||
+    row.aspectRatio === "5:4"
+      ? row.aspectRatio
+      : null;
+  const engine = row.engine === "avatar_iv" || row.engine === "avatar_v" ? row.engine : null;
+  return mode !== null ||
+    sound !== null ||
+    audio !== null ||
+    resolution !== null ||
+    aspectRatio !== null ||
+    engine !== null
     ? {
         ...(mode === null ? {} : { mode }),
-        ...(sound === null ? {} : { sound })
+        ...(sound === null ? {} : { sound }),
+        ...(audio === null ? {} : { audio }),
+        ...(resolution === null ? {} : { resolution }),
+        ...(aspectRatio === null ? {} : { aspectRatio }),
+        ...(engine === null ? {} : { engine })
       }
     : null;
 }

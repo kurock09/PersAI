@@ -14,4 +14,12 @@ export type RuntimeVideoProviderParametersState = {
   mode?: string | null;
   /** @nullable */
   sound?: RuntimeVideoProviderParametersStateSound;
+  /** @nullable */
+  audio?: boolean | null;
+  /** @nullable */
+  resolution?: "720p" | "1080p" | "4k" | null;
+  /** @nullable */
+  aspectRatio?: "auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4" | null;
+  /** @nullable */
+  engine?: "avatar_iv" | "avatar_v" | null;
 } | null;

@@ -345,7 +345,11 @@ const HEYGEN_VIDEO_MODEL_PARAMETERS: RuntimeVideoModelParameters = {
   referenceImageSupported: false,
   audioCapabilities: ["silent"],
   inputCapabilities: ["text"],
-  providerParameters: null
+  providerParameters: {
+    resolution: "720p",
+    aspectRatio: "9:16",
+    engine: "avatar_v"
+  }
 };
 
 const KLING_VIDEO_MODEL_PARAMETERS: RuntimeVideoModelParameters = {
@@ -456,6 +460,25 @@ class FakePersaiInternalApiClientService {
   personaMap = new Map<string, FakePersona | null>();
   personaFetchError: Error | null = null;
 
+  // ADR-109 Slice 10d: capture enqueue calls so tests can verify the
+  // talking-avatar deferred-media-job path. Set `enqueueOverride` to inject
+  // a rejection outcome for the "enqueue refused" branch.
+  enqueueCalls: Array<{
+    assistantId: string;
+    sourceUserMessageId: string;
+    sourceUserMessageText: string;
+    requestMode: string | null;
+    toolCode: string;
+  }> = [];
+  enqueueOverride: {
+    accepted: false;
+    code: string;
+    message: string;
+    guidance: string | null;
+  } | null = null;
+  enqueueThrow: Error | null = null;
+  nextJobId = "media-job-test-1";
+
   async consumeToolDailyLimit(input: {
     assistantId: string;
     toolCode: string;
@@ -478,6 +501,35 @@ class FakePersaiInternalApiClientService {
       throw this.personaFetchError;
     }
     return this.personaMap.get(`${input.workspaceId}:${input.personaId}`) ?? null;
+  }
+
+  async enqueueDeferredMediaJob(input: {
+    assistantId: string;
+    sourceUserMessageId: string;
+    sourceUserMessageText: string;
+    attachments: unknown[];
+    directToolExecution: {
+      toolCode: string;
+      request: { mode?: string };
+    };
+  }): Promise<
+    | { accepted: true; jobId: string; kind: "image" | "video" }
+    | { accepted: false; code: string; message: string; guidance: string | null }
+  > {
+    if (this.enqueueThrow !== null) {
+      throw this.enqueueThrow;
+    }
+    this.enqueueCalls.push({
+      assistantId: input.assistantId,
+      sourceUserMessageId: input.sourceUserMessageId,
+      sourceUserMessageText: input.sourceUserMessageText,
+      requestMode: input.directToolExecution.request.mode ?? null,
+      toolCode: input.directToolExecution.toolCode
+    });
+    if (this.enqueueOverride !== null) {
+      return this.enqueueOverride;
+    }
+    return { accepted: true, jobId: this.nextJobId, kind: "video" };
   }
 }
 
@@ -1558,6 +1610,11 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(personaGatewayCall?.cachedHeygenAvatarId, "ava-cached-1");
   assert.equal(personaGatewayCall?.portraitImageBytesBase64, null);
   assert.equal(personaGatewayCall?.voiceKey, "heygen-voice-warm-001"); // persona.heygenVoiceId
+  assert.deepEqual(personaGatewayCall?.providerParameters, {
+    resolution: "720p",
+    aspectRatio: "9:16",
+    engine: "avatar_v"
+  });
 
   // ── Slice 7: Test 2 — Persona path with explicit voiceKey override ─────────
   const talkingAvatarPersonaExplicitVoiceCall = await service.executeToolCall({
@@ -1692,6 +1749,55 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   });
   assert.equal(talkingAvatarPortraitBadAlias.payload.action, "skipped");
   assert.equal(talkingAvatarPortraitBadAlias.payload.reason, "portrait_alias_unavailable");
+
+  // ── Slice 10d: Test 6b — talking_avatar bypasses cinematic audio/input
+  // capability validation. HeyGen catalog only advertises audioCapabilities:
+  // ["silent"]. A naive LLM may pass audioMode: "voice_control" alongside
+  // mode: "talking_avatar" (since the request is conceptually "spoken video").
+  // Pre-Slice-10d this hit `buildUnsupportedAudioModeMessage("voice_control")`
+  // and surfaced "The selected video model does not support provider-side
+  // voice control" — misleading because talking_avatar has its own audio path
+  // (speechText + voiceKey / persona.heygenVoiceId). Slice 10d's
+  // normalizeExecutionRequest now short-circuits the cinematic capability
+  // check for talking_avatar requests; this test pins the fix.
+  const talkingAvatarVoiceControlOverride = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Render Anya speaking",
+      mode: "talking_avatar",
+      speechText: "Hello again.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya",
+      audioMode: "voice_control", // LLM-provided cinematic field — must be ignored
+      inputMode: "single_reference_image", // LLM-provided cinematic field — must be ignored
+      seconds: 5,
+      size: "720x1280"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-cinematic-overrides-ignored"
+  });
+  assert.equal(
+    talkingAvatarVoiceControlOverride.payload.action,
+    "generated",
+    "talking_avatar must bypass cinematic audioMode/inputMode validation"
+  );
+  assert.equal(talkingAvatarVoiceControlOverride.payload.requestedMode, "talking_avatar");
+  // Cinematic echo fields must be normalized to safe values, not the LLM-passed values.
+  assert.equal(talkingAvatarVoiceControlOverride.payload.requestedAudioMode, "silent");
+  assert.equal(talkingAvatarVoiceControlOverride.payload.requestedInputMode, "text");
+  assert.equal(
+    talkingAvatarVoiceControlOverride.payload.requestedSeconds,
+    15,
+    "talking_avatar ignores LLM-provided cinematic seconds; HeyGen duration follows speechText"
+  );
+  assert.equal(
+    talkingAvatarVoiceControlOverride.payload.size,
+    "1280x720",
+    "talking_avatar ignores LLM-provided cinematic size; HeyGen aspect follows admin catalog"
+  );
+  const overrideGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
+  assert.equal(overrideGatewayCall?.mode, "talking_avatar");
 
   // ── Slice 7: Test 7 — Plan toggle off → talking_avatar_plan_disabled ───────
   // Synthetic bundle with talkingVideoEnabled: false on the tool policy.
@@ -2082,4 +2188,114 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     /Configure 'Talking Avatar Model' in the plan editor/i,
     "Fix #3e: warning must mention plan editor configuration"
   );
+
+  // ── ADR-109 Slice 10d Fix #5: talking_avatar must respect deferToAsyncMediaJob ──
+  // When the LLM turn loop calls executeToolCall with deferToAsyncMediaJob set
+  // (the normal chat path, not the worker re-entry), the talking_avatar branch
+  // MUST enqueue an async media job and return action="pending_delivery" with
+  // a real jobId — exactly like the cinematic branch. Pre-Slice-10d this path
+  // ignored the defer flag and synchronously polled HeyGen inline, blocking
+  // the LLM turn for the full render time (~2 min) and never creating the
+  // assistant_media_jobs row the chat-input chip needs.
+  persaiInternalApiClientService.enqueueCalls.length = 0;
+  persaiInternalApiClientService.nextJobId = "media-job-talking-avatar-defer-1";
+  persaiInternalApiClientService.personaMap.set("workspace-1:persona-defer-test", {
+    id: "persona-defer-test",
+    displayName: "Defer Test",
+    heygenAvatarId: "ava-defer-001",
+    heygenVoiceId: "heygen-voice-warm-001",
+    heygenVoiceLabel: "Defer Voice",
+    portraitImageStorageKey: "workspaces/workspace-1/personas/persona-defer-test/portrait/current"
+  });
+  const talkingAvatarDeferAccepted = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Defer path",
+      mode: "talking_avatar",
+      speechText: "Hello deferred.",
+      speechLanguage: "en-US",
+      personaId: "persona-defer-test",
+      seconds: 15,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-ta-defer-accepted",
+    deferToAsyncMediaJob: {
+      sourceUserMessageId: "user-msg-defer-1",
+      sourceUserMessageText: "Hello deferred."
+    }
+  });
+  assert.equal(
+    talkingAvatarDeferAccepted.payload.action,
+    "pending_delivery",
+    "Slice 10d Fix #5: talking_avatar with deferToAsyncMediaJob must return pending_delivery"
+  );
+  assert.equal(
+    talkingAvatarDeferAccepted.payload.jobId,
+    "media-job-talking-avatar-defer-1",
+    "Slice 10d Fix #5: pending_delivery payload must carry the enqueue jobId"
+  );
+  assert.equal(
+    talkingAvatarDeferAccepted.payload.canSendFileNow,
+    false,
+    "Slice 10d Fix #5: canSendFileNow=false signals async delivery"
+  );
+  assert.equal(
+    persaiInternalApiClientService.enqueueCalls.length,
+    1,
+    "Slice 10d Fix #5: enqueueDeferredMediaJob must be called exactly once"
+  );
+  assert.equal(
+    persaiInternalApiClientService.enqueueCalls[0]?.requestMode,
+    "talking_avatar",
+    "Slice 10d Fix #5: enqueued request must preserve mode='talking_avatar' (drives chip displayKind)"
+  );
+  assert.equal(
+    persaiInternalApiClientService.enqueueCalls[0]?.sourceUserMessageId,
+    "user-msg-defer-1",
+    "Slice 10d Fix #5: source user message id must round-trip"
+  );
+
+  // Slice 10d Fix #5 negative: when enqueue rejects (quota / concurrency), the
+  // tool must surface skipped with the rejection code, NOT silently fall
+  // through to synchronous dispatch.
+  persaiInternalApiClientService.enqueueCalls.length = 0;
+  persaiInternalApiClientService.enqueueOverride = {
+    accepted: false,
+    code: "media_job_concurrency_limit",
+    message: "Too many concurrent media jobs.",
+    guidance: "Wait for an open job to finish."
+  };
+  const talkingAvatarDeferRefused = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Defer refused",
+      mode: "talking_avatar",
+      speechText: "Limit hit.",
+      speechLanguage: "en-US",
+      personaId: "persona-defer-test",
+      seconds: 15,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-ta-defer-refused",
+    deferToAsyncMediaJob: {
+      sourceUserMessageId: "user-msg-defer-2",
+      sourceUserMessageText: "Limit hit."
+    }
+  });
+  assert.equal(talkingAvatarDeferRefused.payload.action, "skipped");
+  assert.equal(
+    talkingAvatarDeferRefused.payload.reason,
+    "media_job_concurrency_limit",
+    "Slice 10d Fix #5: enqueue rejection code must surface as payload.reason"
+  );
+  assert.equal(
+    talkingAvatarDeferRefused.payload.jobId,
+    null,
+    "Slice 10d Fix #5: refused enqueue must NOT carry a jobId"
+  );
+  persaiInternalApiClientService.enqueueOverride = null;
 }

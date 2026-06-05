@@ -1898,10 +1898,13 @@ export class TurnExecutionService {
       'For `image_edit` and `video_generate`, use image aliases such as "current image #1" or "last generated image".'
     );
     lines.push(
-      "Mentioning a filename in conversation text does NOT deliver the file. To actually deliver a file to the user, you MUST call `files.send` with the file's resolved alias in the same response."
+      "Mentioning a filename in chat does NOT deliver a file. Call `files.send` only when the user explicitly asks to send, resend, attach, share, or deliver an existing file. Never call it as a side effect of search, read, or file discovery."
     );
     lines.push(
-      "If the user asks to find, list, search, or re-check files, or refers to a file not in this list, do NOT answer from this block alone. Always call `files.list` first (full corpus with semantic hints), then `files.search` only as a narrower follow-up. Only after both return empty may you tell the user the file is unavailable."
+      "If the user asks to find, list, search, inspect, or re-check files, or refers to a file not in this list, do NOT answer from this block alone. Use `files.list` and/or `files.search` to discover candidates first. Do not send a file unless the user explicitly requested delivery in the same turn."
+    );
+    lines.push(
+      "If a file, image, video, or document is described as delivered, attached, queued, accepted, started, or being prepared, that claim is valid only when the current turn returned the matching structural tool result. Otherwise do not claim delivery or preparation status."
     );
     return lines.join("\n");
   }

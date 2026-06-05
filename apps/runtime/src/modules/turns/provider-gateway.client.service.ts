@@ -989,7 +989,10 @@ export class ProviderGatewayClientService {
     const providerMatchesExpected =
       expectedProviderId === null ? true : provider === expectedProviderId;
     return (
-      (provider === "openai" || provider === "runway" || provider === "kling") &&
+      (provider === "openai" ||
+        provider === "runway" ||
+        provider === "kling" ||
+        provider === "heygen") &&
       providerMatchesExpected &&
       typeof row.model === "string" &&
       typeof row.prompt === "string" &&

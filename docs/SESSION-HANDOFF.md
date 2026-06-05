@@ -2,6 +2,65 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-05 - ADR-109 Slice 10d cleanup: async delivery + HeyGen-native model parameters
+
+### What changed & why
+
+Live validation after Slice 10c showed that the feature was still not production-honest: voices were still blocked by auth, HeyGen could successfully charge/render while runtime rejected the response, the chat turn waited synchronously with no media-job banner, and Admin Runtime exposed cinematic model controls that did not control HeyGen.
+
+This cleanup fixes the actual paths instead of adding more prompt guidance. The final verification pass also tightened two model-facing honesty seams that were still too loose after the main HeyGen cleanup: the Working Files developer block now says `files.send` is delivery-only (never a side effect of search/discovery), and the `background_task` tool description now tells the model to list/reuse existing tasks instead of spawning duplicate follow-ups.
+
+1. `talking_avatar` now respects `deferToAsyncMediaJob` in `runtime-video-generate-tool.service.ts`. The LLM turn gets `action="pending_delivery"` and a real job id; worker re-entry still does the HeyGen polling and delivery.
+2. `provider-gateway.client.service.ts` accepts `provider: "heygen"` in video results, so successful HeyGen responses are no longer rejected as invalid.
+3. `identity-access.module.ts` registers the four workspace video persona routes with `ClerkAuthMiddleware`, fixing voice catalog/persona 401s with `userId=null`.
+4. HeyGen model configuration is now provider-native. `providerParameters` carries `resolution`, `aspectRatio`, and `engine`; Admin Runtime shows a dedicated HeyGen talking-avatar block; runtime forwards the params; provider-gateway sends them to HeyGen v3 as `resolution`, `aspect_ratio`, and optional `engine.type`.
+
+### Files touched
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts`
+- `apps/api/test/platform-runtime-provider-settings.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/runtime-video-generate-tool.service.test.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts`
+- `apps/provider-gateway/test/heygen-provider.client.test.ts`
+- `apps/web/app/admin/runtime/page.tsx`
+- `apps/web/app/admin/runtime/page.test.tsx`
+- `packages/runtime-contract/src/index.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/model/runtimeVideoProviderParametersState.ts`
+- `docs/ADR/109-heygen-talking-avatar-on-vcoin.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime test -- runtime-video-generate-tool.service.test.ts` PASS
+- `corepack pnpm --filter @persai/provider-gateway test -- heygen-provider.client.test.ts` PASS
+- `corepack pnpm --filter @persai/api test -- platform-runtime-provider-settings.test.ts` PASS
+- `corepack pnpm --filter @persai/web test -- app/admin/runtime/page.test.tsx` PASS after raising one test's per-case timeout from 5s to 15s; this was a real timeout on the touched file, not a product regression
+
+### Risks or residuals
+
+- The dev cluster still needs deployment before the operator can validate the fixes live.
+- `artifacts/` is an old untracked local loadtest output directory; it is unrelated to ADR-109 and was not touched.
+- The dev cluster still needs the new images before live logs can validate the fixed HeyGen paths end-to-end.
+
+### Next recommended step
+
+After push/deploy, validate live dev with one portrait-alias talking-avatar retry (`previous image #1` + explicit HeyGen voice key) and re-check runtime/provider-gateway logs for honest async `pending_delivery` + successful delivery.
+
 ## 2026-06-05 — ADR-109 Slice 10c: Live integration fixup (URL + prompt + credential routing + tool description)
 
 ### What changed & why

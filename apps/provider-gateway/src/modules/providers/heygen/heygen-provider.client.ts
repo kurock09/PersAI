@@ -345,8 +345,7 @@ export class HeyGenProviderClient {
       avatar_id: avatarId,
       script: speechText,
       voice_id: voiceId,
-      resolution: "1080p",
-      aspect_ratio: "auto"
+      ...this.resolveVideoOutputParameters(input)
     };
 
     return this.submitVideoRequest(body, apiKey, idempotencyKey, signal);
@@ -395,8 +394,7 @@ export class HeyGenProviderClient {
       },
       script: speechText,
       voice_id: voiceId,
-      resolution: "1080p",
-      aspect_ratio: "auto"
+      ...this.resolveVideoOutputParameters(input)
     };
 
     return this.submitVideoRequest(body, apiKey, idempotencyKey, signal);
@@ -433,6 +431,34 @@ export class HeyGenProviderClient {
       throw new Error("HeyGen video submit returned a response missing data.video_id.");
     }
     return videoId;
+  }
+
+  private resolveVideoOutputParameters(input: ProviderGatewayVideoGenerateRequest): {
+    resolution: "720p" | "1080p" | "4k";
+    aspect_ratio: "auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4";
+    engine?: { type: "avatar_iv" | "avatar_v" };
+  } {
+    const params = input.providerParameters ?? null;
+    const resolution =
+      params?.resolution === "720p" || params?.resolution === "1080p" || params?.resolution === "4k"
+        ? params.resolution
+        : "1080p";
+    const aspectRatio =
+      params?.aspectRatio === "auto" ||
+      params?.aspectRatio === "16:9" ||
+      params?.aspectRatio === "9:16" ||
+      params?.aspectRatio === "1:1" ||
+      params?.aspectRatio === "4:5" ||
+      params?.aspectRatio === "5:4"
+        ? params.aspectRatio
+        : "auto";
+    const engine =
+      params?.engine === "avatar_iv" || params?.engine === "avatar_v" ? params.engine : null;
+    return {
+      resolution,
+      aspect_ratio: aspectRatio,
+      ...(engine === null ? {} : { engine: { type: engine } })
+    };
   }
 
   // ── Polling ──────────────────────────────────────────────────────────────

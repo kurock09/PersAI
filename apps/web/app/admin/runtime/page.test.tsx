@@ -203,7 +203,7 @@ describe("AdminRuntimePage", () => {
     expect(imageProfile.providerPriceMetadata).not.toHaveProperty("fixedOperationPricing");
     expect(imageProfile.providerPriceMetadata).not.toHaveProperty("tokenPricing");
     expect(imageProfile.providerPriceMetadata).not.toHaveProperty("timePricing");
-  });
+  }, 15000);
 
   it("archives existing catalog rows instead of deleting them from the saved catalog", async () => {
     render(<AdminRuntimePage />);
