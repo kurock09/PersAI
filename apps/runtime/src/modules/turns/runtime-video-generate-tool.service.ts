@@ -1988,6 +1988,7 @@ export class RuntimeVideoGenerateToolService {
     video: {
       bytesBase64: string;
       mimeType: string;
+      downloadUrl?: string | null;
     };
     billingFacts: RuntimeOutputArtifact["billingFacts"];
   }): Promise<RuntimeOutputArtifact> {
@@ -2043,6 +2044,7 @@ export class RuntimeVideoGenerateToolService {
       filename,
       sizeBytes: stored.sizeBytes,
       voiceNote: false,
+      downloadUrl: input.video.downloadUrl ?? null,
       billingFacts: input.billingFacts ?? null
     };
   }

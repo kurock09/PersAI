@@ -87,7 +87,7 @@ function describeVideoVoiceCatalogHint(
       .join(", ");
     return details.length > 0 ? `${entry.voiceKey} (${details})` : entry.voiceKey;
   });
-  return `Available voiceKeys for voice_control: ${entries.join("; ")}. When the user asks for spoken narration/dialogue and does not name a specific voice, choose the best matching voiceKey from this list and call video_generate with audioMode="voice_control".`;
+  return `Available voiceKeys for voice_control (cinematic video only): ${entries.join("; ")}. Use these only for cinematic narration via audioMode="voice_control". Do not reuse this list for mode="talking_avatar": talking-avatar speech must use its own voiceKey field or a saved persona's voice.`;
 }
 
 function describeVideoPersonaCatalogHint(

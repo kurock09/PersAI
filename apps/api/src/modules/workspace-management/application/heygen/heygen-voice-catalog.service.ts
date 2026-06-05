@@ -11,6 +11,8 @@ import { WorkspaceManagementPrismaService } from "../../infrastructure/persisten
 const HEYGEN_VOICES_URL = "https://api.heygen.com/v3/voices";
 const HEYGEN_VOICE_CACHE_KEY = "heygen-voices";
 const HEYGEN_VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const HEYGEN_VOICE_SHORTLIST_LIMIT = 24;
+const PREFERRED_VOICE_LANGUAGES = ["ru", "en"] as const;
 
 type CachedVoiceCatalogRow = {
   voices: RuntimeVideoVoiceCatalogEntry[];
@@ -103,8 +105,88 @@ export class HeyGenVoiceCatalogService {
     const parsed = rows
       .map((row) => this.parseVoiceRow(row))
       .filter((entry): entry is RuntimeVideoVoiceCatalogEntry => entry !== null);
-    parsed.sort((left, right) => left.displayName.localeCompare(right.displayName));
-    return parsed.slice(0, 24);
+    return this.buildShortlist(parsed);
+  }
+
+  private buildShortlist(
+    entries: RuntimeVideoVoiceCatalogEntry[]
+  ): RuntimeVideoVoiceCatalogEntry[] {
+    const deduped = new Map<string, RuntimeVideoVoiceCatalogEntry>();
+    for (const entry of entries) {
+      const key = entry.providerVoiceId.trim().toLowerCase();
+      if (!deduped.has(key)) {
+        deduped.set(key, entry);
+      }
+    }
+    const normalized = [...deduped.values()].sort((left, right) =>
+      left.displayName.localeCompare(right.displayName)
+    );
+    const byLanguage = new Map<string, RuntimeVideoVoiceCatalogEntry[]>();
+    for (const entry of normalized) {
+      const language = this.normalizeLanguageBucket(entry.locale);
+      const bucket = byLanguage.get(language) ?? [];
+      bucket.push(entry);
+      byLanguage.set(language, bucket);
+    }
+
+    const shortlist: RuntimeVideoVoiceCatalogEntry[] = [];
+    const seenProviderIds = new Set<string>();
+    const take = (entry: RuntimeVideoVoiceCatalogEntry) => {
+      const key = entry.providerVoiceId.trim().toLowerCase();
+      if (seenProviderIds.has(key) || shortlist.length >= HEYGEN_VOICE_SHORTLIST_LIMIT) {
+        return;
+      }
+      seenProviderIds.add(key);
+      shortlist.push(entry);
+    };
+
+    for (const language of PREFERRED_VOICE_LANGUAGES) {
+      const bucket = byLanguage.get(language) ?? [];
+      for (const entry of this.balanceGender(bucket).slice(0, 8)) {
+        take(entry);
+      }
+    }
+
+    for (const entry of normalized) {
+      take(entry);
+    }
+
+    return shortlist;
+  }
+
+  private balanceGender(entries: RuntimeVideoVoiceCatalogEntry[]): RuntimeVideoVoiceCatalogEntry[] {
+    const preferredOrder: RuntimeVideoVoiceGender[] = ["female", "male", "neutral", "unknown"];
+    const grouped = new Map<RuntimeVideoVoiceGender, RuntimeVideoVoiceCatalogEntry[]>();
+    for (const gender of preferredOrder) {
+      grouped.set(gender, []);
+    }
+    for (const entry of entries) {
+      grouped.get(entry.gender)?.push(entry);
+    }
+    const result: RuntimeVideoVoiceCatalogEntry[] = [];
+    let progressed = true;
+    while (progressed) {
+      progressed = false;
+      for (const gender of preferredOrder) {
+        const next = grouped.get(gender)?.shift() ?? null;
+        if (next !== null) {
+          result.push(next);
+          progressed = true;
+        }
+      }
+    }
+    return result;
+  }
+
+  private normalizeLanguageBucket(locale: string | null): string {
+    const normalized = locale?.trim().toLowerCase() ?? "";
+    if (normalized === "ru" || normalized.startsWith("ru-")) {
+      return "ru";
+    }
+    if (normalized === "en" || normalized.startsWith("en-")) {
+      return "en";
+    }
+    return "other";
   }
 
   private extractVoiceRows(value: unknown): unknown[] {

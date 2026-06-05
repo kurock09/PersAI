@@ -357,6 +357,10 @@ export class IdentityAccessModule implements NestModule {
       {
         path: "api/v1/workspaces/:workspaceId/video-personas/:personaId",
         method: RequestMethod.DELETE
+      },
+      {
+        path: "api/v1/workspaces/:workspaceId/video-personas/:personaId/portrait",
+        method: RequestMethod.GET
       }
     );
   }

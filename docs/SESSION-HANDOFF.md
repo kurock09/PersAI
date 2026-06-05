@@ -2,6 +2,113 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-06 - ADR-109 root-cause fix: saved-persona render (model couldn't see personas + non-UUID lookup crash)
+
+### What changed & why
+
+The operator reported that talking-avatar render with a **saved persona** (e.g. `Alexey`, `Lera`) hung with a progress banner for ~10 minutes and then surfaced a "UUID / image not found" error, while the in-chat assistant also claimed there were no saved characters ("Сохранённых персонажей пока нет") even though two existed in Settings → Characters. Live logs on the **second** runtime pod (the first pod had no traffic for these attempts) showed the real, non-hallucinated root cause:
+
+```
+[talking-avatar] Persona fetch failed ... personaId=alexey:
+Invalid `client.workspaceVideoPersona.findFirst()` invocation ...
+Inconsistent column data: Error creating UUID, invalid character ... found `l` at 2
+```
+
+Root-cause chain:
+
+1. **Persona create/archive never re-materialized the assistant spec.** The materialized spec embeds the workspace persona catalog (`videoPersonaCatalog`) that the model uses to resolve a named character to its `personaId`. Because create did not flag the workspace assistants config-dirty, a freshly created persona stayed invisible to the model. The projection rendered "Available saved characters: none yet", so the model both told the user there were none and, when pushed, improvised `personaId="alexey"` (the display name) instead of the real UUID.
+2. **`findById`/`archive` crashed on a non-UUID id.** The `workspace_video_personas.id` column is a Postgres `uuid`. Passing a non-UUID (`"alexey"`) made Prisma throw a raw "Error creating UUID" rather than returning no row, which the runtime surfaced as `talking_avatar_persona_unavailable`. That raw DB error is exactly the "UUID error" the model paraphrased.
+
+Fixes:
+
+- Persona **create** and **archive** now best-effort mark every workspace assistant `configDirtyAt = now()` (mirrors the existing dirty-stamp pattern used by Telegram/subscription/skills mutations), so the next runtime turn re-materializes the spec and the model sees the current persona catalog with real `personaId`s. The mark is non-fatal: a stamp failure never fails the already-committed persona operation.
+- The persona repository `findById`/`archive` now guard against non-UUID input and resolve to `null` (→ honest `persona_not_found`) instead of letting Prisma crash.
+
+Note: the broken portrait thumbnails the operator saw in the Characters list are the already-fixed (but at the time un-deployed) portrait serving route from the prior fixpack; this entry's fixes plus that route need a deploy together.
+
+Additionally, the **~10-minute banner-before-error** was a separate defect in the same flow: the async media-job worker classifier `assertVideoToolResultAccepted` threw `503 ServiceUnavailable` for every `isError` video reason except `requested_mode_unsupported`. 503 = retryable, so the scheduler re-queued the job with exponential backoff (`30s→60s→120s→240s→480s`, ~5 attempts) before giving up. Permanent talking-avatar config/input failures (persona/voice/plan/provider) were thus retried for ~10–15 min of dead waiting. Fixed by classifying a fixed set of permanent video reasons as non-retryable `400` so they fail fast; transient reasons keep their `503`/retry budget.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-video-persona.repository.ts`
+- `apps/runtime/src/modules/turns/runtime-media-job-run.service.ts`
+- `docs/ADR/109-heygen-talking-avatar-on-vcoin.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck` — pass
+- `corepack pnpm --filter @persai/api run lint` — pass
+- `corepack pnpm --filter @persai/runtime run typecheck` — pass
+- `corepack pnpm --filter @persai/runtime run lint` — pass
+- `prettier --check` on all touched source files — pass
+
+### Risks / residuals
+
+- Re-materialization is per-assistant via `configDirtyAt`; the catalog refreshes on the **next** runtime turn after create/archive, not instantly mid-turn. Acceptable for this UX.
+- Personas created before this change still won't be visible until their workspace assistant goes through one more spec materialization; any persona create/archive (or the next global spec generation bump) will refresh them.
+- Needs a deploy together with the prior fixpack (portrait route, ru/en voices, 100MB delivery fallback) for the operator to re-validate end-to-end.
+
+## 2026-06-06 - ADR-109 follow-up fixpack: portrait serving + ru/en voices + 100MB HeyGen delivery fallback
+
+### What changed & why
+
+Baseline SHA at session start: `ababbdf37246d96db76c113e708f905576dbf35d`. The operator validated the latest ADR-109 deploy and reported four remaining production gaps in the talking-avatar path:
+
+1. Persona cards rendered in Settings, but the portrait image URL still did not resolve in the browser. The API stored `portraitImageUrl` under `/api/persona-portrait/...`, but no serving path existed. The fix adds an authenticated API portrait read route plus a same-origin web BFF proxy route, so existing stored URLs become real browser-loadable images without rewriting rows.
+2. The voice picker still felt English-only and the model still saw a poor shortlist. The HeyGen voice shortlist builder no longer sorts-and-truncates blindly; it now preferentially keeps balanced `ru` and `en` coverage before filling the remaining slots. The Assistant Settings create-persona form now exposes a simple `RU | EN` filter and displays language/gender more honestly.
+3. Large HeyGen videos could still fail final delivery even after a successful provider render. The delivery path now keeps the inline ceiling at `100MB` for generated video delivery; when a HeyGen video exceeds that threshold, delivery no longer fails the job. Instead, the completion message gets a direct download link sourced from the provider `video_url`.
+4. The tool description still risked mixing cinematic `voice_control` with talking-avatar voice selection. The runtime-facing `video_generate` description now explicitly says the cinematic voice shortlist is only for `audioMode="voice_control"` and must not be reused for `mode="talking_avatar"`.
+
+### Files touched
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-media-job-completion-delivery.service.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/complete-web-post-runtime-turn.ts`
+- `apps/api/src/modules/workspace-management/application/heygen/heygen-voice-catalog.service.ts`
+- `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service.ts`
+- `apps/api/src/modules/workspace-management/application/heygen/read-heygen-voice-catalog-for-workspace.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media.types.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-channel-adapter.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/workspace-video-personas.controller.ts`
+- `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`
+- `apps/web/app/api/persona-portrait/[workspaceId]/[personaId]/[hash]/route.ts`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `packages/runtime-contract/src/index.ts`
+- `docs/ADR/109-heygen-talking-avatar-on-vcoin.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/provider-gateway.client.service.test.ts` PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts` PASS
+- `corepack pnpm --filter @persai/provider-gateway test -- heygen-provider.client.test.ts` PASS
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+
+### Risks or residuals
+
+- `artifacts/` remains an unrelated untracked local directory and must not be committed.
+- Live cluster logs now show the provider-gateway receives at least one real `create-photo-avatar` request (`[avatar-heygen] create name=Alexey`), but the currently deployed image did not emit a matching success or terminal error log for that live attempt. That suggests the remaining "card exists but avatar not created in HeyGen" symptom may still involve a provider-side timeout/hang seam in the deployed build, not only the local code that was fixed here.
+- The new `>100MB` fallback depends on the deploy picking up the additive internal `downloadUrl` field from provider-gateway through runtime into API delivery.
+
+### Next recommended step
+
+Deploy API/RUNTIME/PROVIDER-GATEWAY/WEB, then re-run one real persona create and one oversized HeyGen talking-avatar render in dev. Validate three exact outcomes in logs/UI: portrait image loads from the existing `/api/persona-portrait/...` URL, the create-form voice picker shows usable `RU | EN` choices, and a `>100MB` HeyGen result ends as a delivered chat message with a direct download link instead of `media_delivery_failed`.
+
 ## 2026-06-05 - ADR-109 late fixpack: voice catalog auth + HeyGen recovery + talking-avatar aspect intent
 
 ### What changed & why

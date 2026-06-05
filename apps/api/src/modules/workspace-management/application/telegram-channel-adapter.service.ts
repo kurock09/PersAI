@@ -1001,6 +1001,7 @@ export class TelegramChannelAdapterService {
     try {
       let deliveredAttachmentCount = 0;
       let deliveredAttachmentFilenames: string[] = [];
+      let externalDeliveryCount = 0;
       if (turnResult.media.length > 0 && !turnResult.deduplicated) {
         const deliveredMedia = await this.mediaDeliveryService.deliver({
           artifacts: turnResult.media,
@@ -1019,6 +1020,7 @@ export class TelegramChannelAdapterService {
         });
         mediaDeliveryCompleted = true;
         deliveredAttachmentCount = deliveredMedia.attachments.length;
+        externalDeliveryCount = deliveredMedia.externalDeliveries?.length ?? 0;
         deliveredAttachmentFilenames = deliveredMedia.attachments
           .map((attachment) => attachment.originalFilename)
           .filter(
@@ -1030,7 +1032,7 @@ export class TelegramChannelAdapterService {
             `Telegram media delivery incomplete for ${config.assistantId}: delivered ${deliveredAttachmentCount}/${turnResult.media.length} artifact(s).`
           );
         }
-        if (deliveredAttachmentCount === 0) {
+        if (deliveredAttachmentCount === 0 && externalDeliveryCount === 0) {
           outboundTurnResult = { ...turnResult, media: [] };
         }
       }
@@ -1038,14 +1040,16 @@ export class TelegramChannelAdapterService {
       const finalAssistantMessage = applyFinalDeliveryHonestyCorrection({
         assistantText: turnResult.assistantMessage,
         attemptedArtifactCount: turnResult.media.length,
-        deliveredAttachmentCount,
+        deliveredAttachmentCount: deliveredAttachmentCount + externalDeliveryCount,
         deliveredAttachmentFilenames,
         attemptedArtifactKind: resolveUndeliveredArtifactKind(turnResult.media),
         locale: config.locale
       });
       if (
         finalAssistantMessage !== turnResult.assistantMessage ||
-        (turnResult.media.length > 0 && deliveredAttachmentCount === 0)
+        (turnResult.media.length > 0 &&
+          deliveredAttachmentCount === 0 &&
+          externalDeliveryCount === 0)
       ) {
         outboundTurnResult = {
           ...outboundTurnResult,

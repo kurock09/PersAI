@@ -1,7 +1,13 @@
 # CHANGELOG
 
+## 2026-06-06
+
+- ADR-109 root-cause fix (saved-persona render): persona create/archive now best-effort mark workspace assistants `configDirtyAt` so the materialized spec re-builds and the model actually sees saved characters with their real `personaId` (previously the model saw an empty `videoPersonaCatalog`, told users "no saved characters", and improvised `personaId="alexey"` from the display name); and the persona repository `findById`/`archive` now guard against non-UUID ids and resolve to `null` (honest `persona_not_found`) instead of letting Prisma throw a raw "Error creating UUID" — that raw DB error was the cause of the "UUID error" the model paraphrased on saved-persona renders.
+- ADR-109 fix (10-minute banner on a permanent error): the async media-job worker `assertVideoToolResultAccepted` threw `503 ServiceUnavailable` (retryable) for every `isError` video reason except `requested_mode_unsupported`, so permanent talking-avatar config/input failures (`persona_not_found`, `talking_avatar_persona_unavailable`, `talking_avatar_provider_unavailable`, `talking_avatar_plan_disabled`, `voice_not_found`, `voice_required`) were retried through the exponential-backoff budget (30s→60s→120s→240s→480s) for ~10–15 min before the banner cleared. These reasons are now classified non-retryable `400` and fail fast; genuinely transient reasons keep their `503`/retry budget.
+
 ## 2026-06-05
 
+- ADR-109 follow-up fixpack: made saved persona portraits actually load through a same-origin authenticated proxy path, improved the HeyGen voice shortlist so `ru` and `en` both survive shortlist materialization, added a `RU | EN` filter in the Characters create-persona form, clarified that cinematic `voice_control` shortlist entries are not for talking-avatar voice selection, and changed large HeyGen video delivery so files over the `100MB` inline ceiling fall back to a direct download link instead of failing the job.
 - ADR-109 follow-up fixpack: fixed workspace voice catalog auth to resolve membership canonically, accepted HeyGen fractional-duration responses in runtime, whitelisted HeyGen in scheduler recovery, and added `talkingAvatarAspectRatio` as a talking-avatar-only user/model intent field that overrides aspect only when the HeyGen admin row is set to `auto`.
 
 > Archive: entries from 2026-05-19 and earlier moved to `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`. Keep using this file for current work, including all 2026-05-20 ADR-099 entries.

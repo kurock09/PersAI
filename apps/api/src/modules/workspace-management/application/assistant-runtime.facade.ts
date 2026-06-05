@@ -73,6 +73,7 @@ export interface RuntimeUrlMediaArtifact {
   sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | "document" | null;
   audioAsVoice?: boolean;
   caption?: string;
+  downloadUrl?: string | null;
   billingFacts?: RuntimeBillingFacts | null;
 }
 
@@ -87,6 +88,7 @@ export interface PersaiObjectStorageRuntimeMediaArtifact {
   sizeBytes: number | null;
   audioAsVoice?: boolean;
   caption?: string;
+  downloadUrl?: string | null;
   billingFacts?: RuntimeBillingFacts | null;
 }
 
@@ -265,6 +267,7 @@ export function runtimeOutputArtifactsToMediaArtifacts(
       mimeType: artifact.mimeType,
       filename: artifact.filename,
       sizeBytes: artifact.sizeBytes,
+      ...(artifact.downloadUrl ? { downloadUrl: artifact.downloadUrl } : {}),
       ...(artifact.billingFacts === undefined || artifact.billingFacts === null
         ? {}
         : { billingFacts: artifact.billingFacts }),

@@ -122,6 +122,7 @@ export interface RuntimeOutputArtifact {
   sizeBytes: number | null;
   voiceNote: boolean;
   caption?: string | null;
+  downloadUrl?: string | null;
   billingFacts?: RuntimeBillingFacts | null;
 }
 
@@ -3200,6 +3201,7 @@ export interface RuntimeAcceptedVideoProviderTask {
 export interface ProviderGatewayGeneratedVideo {
   bytesBase64: string;
   mimeType: string;
+  downloadUrl?: string | null;
 }
 
 export interface ProviderGatewayVideoGenerateResult {

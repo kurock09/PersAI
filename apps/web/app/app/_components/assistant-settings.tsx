@@ -120,6 +120,7 @@ interface AssistantSettingsProps {
 }
 
 type ActionFeedback = { type: "ok" | "err" | "warn"; text: string } | null;
+type PersonaVoiceLanguageFilter = "ru" | "en";
 
 type QuotaBucketState = UserPlanVisibilityState["limits"]["quotaBuckets"][number];
 type MonthlyToolQuotaSnapshot = UserPlanVisibilityState["limits"]["monthlyToolQuotas"];
@@ -1082,6 +1083,9 @@ export function AssistantSettings({
   const [voiceCatalog, setVoiceCatalog] = useState<VoiceCatalogEntry[]>([]);
   const [voiceCatalogLoading, setVoiceCatalogLoading] = useState(false);
   const [voiceCatalogUnavailable, setVoiceCatalogUnavailable] = useState(false);
+  const [voiceLanguageFilter, setVoiceLanguageFilter] = useState<PersonaVoiceLanguageFilter>(
+    locale.toLowerCase().startsWith("ru") ? "ru" : "en"
+  );
   const [createPersonaOpen, setCreatePersonaOpen] = useState(false);
   const [createPersonaName, setCreatePersonaName] = useState("");
   const [createPersonaVoiceId, setCreatePersonaVoiceId] = useState<string | null>(null);
@@ -1134,6 +1138,19 @@ export function AssistantSettings({
   }, [assistant?.workspaceId, getToken]);
 
   const talkingVideoEnabled = data.plan?.entitlements?.talkingVideoEnabled === true;
+  const filteredVoiceCatalog = useMemo(() => {
+    return voiceCatalog.filter((voice) => {
+      const bucket = voice.languageBucket ?? null;
+      if (bucket === "ru" || bucket === "en") {
+        return bucket === voiceLanguageFilter;
+      }
+      const normalized = voice.language?.trim().toLowerCase() ?? "";
+      if (voiceLanguageFilter === "ru") {
+        return normalized === "ru" || normalized.startsWith("ru-");
+      }
+      return normalized === "en" || normalized.startsWith("en-");
+    });
+  }, [voiceCatalog, voiceLanguageFilter]);
 
   const refreshSupportUnreadCount = useCallback(async () => {
     if (!assistant?.id) {
@@ -3303,6 +3320,7 @@ export function AssistantSettings({
                     setCreatePersonaPortraitPreview(null);
                     setCreatePersonaError(null);
                     setCreatePersonaPortraitError(null);
+                    setVoiceLanguageFilter(locale.toLowerCase().startsWith("ru") ? "ru" : "en");
                     setCreatePersonaOpen(true);
                   }}
                   className={cn(
@@ -3553,6 +3571,23 @@ export function AssistantSettings({
                         <p className="mb-1 text-[11px] font-medium text-text-subtle">
                           {t("charactersFormVoice")}
                         </p>
+                        <div className="mb-2 inline-flex rounded-full border border-border/60 bg-surface-raised/20 p-1">
+                          {(["ru", "en"] as const).map((language) => (
+                            <button
+                              key={language}
+                              type="button"
+                              onClick={() => setVoiceLanguageFilter(language)}
+                              className={cn(
+                                "rounded-full px-3 py-1 text-[11px] font-medium transition-colors",
+                                voiceLanguageFilter === language
+                                  ? "bg-accent/15 text-text"
+                                  : "text-text-subtle hover:text-text"
+                              )}
+                            >
+                              {language.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
                         {voiceCatalogLoading ? (
                           <div className="flex items-center gap-2 py-2 text-xs text-text-subtle">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -3562,9 +3597,13 @@ export function AssistantSettings({
                           <p className="py-2 text-xs text-text-muted">
                             {t("charactersFormVoiceUnavailable")}
                           </p>
+                        ) : filteredVoiceCatalog.length === 0 ? (
+                          <p className="py-2 text-xs text-text-muted">
+                            {t("charactersFormVoiceUnavailable")}
+                          </p>
                         ) : (
                           <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
-                            {voiceCatalog.map((voice) => (
+                            {filteredVoiceCatalog.map((voice) => (
                               <button
                                 type="button"
                                 key={voice.voiceId}
@@ -3578,7 +3617,10 @@ export function AssistantSettings({
                                   {voice.name}
                                 </span>
                                 <span className="shrink-0 text-text-subtle">
-                                  {voice.language ?? ""} · {voice.gender}
+                                  {(voice.languageBucket ?? voice.language ?? "")
+                                    .toString()
+                                    .toUpperCase()}{" "}
+                                  · {voice.gender}
                                 </span>
                                 <VoicePreviewButton
                                   previewAudioUrl={voice.previewAudioUrl}

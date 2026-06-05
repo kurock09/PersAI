@@ -331,11 +331,38 @@ export class ManageWorkspaceVideoPersonasService {
       storageWarning = "persona_created_storage_failed";
     }
 
+    // The materialized assistant spec embeds the workspace persona catalog
+    // (videoPersonaCatalog) so the model can resolve a saved character by name
+    // to its personaId. A newly created persona is invisible to the model until
+    // the spec is re-materialized, so mark the workspace assistants config-dirty.
+    await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+
     return {
       persona: this.toDto(committedPersona),
       walletBalanceVc,
       storageWarning
     };
+  }
+
+  /**
+   * Best-effort: flag every assistant in the workspace as config-dirty so the
+   * next runtime turn re-materializes its spec and picks up the current persona
+   * catalog. Never throws — persona create/archive already committed and a
+   * materialization stamp failure must not fail the user-facing operation.
+   */
+  private async markWorkspaceAssistantsConfigDirty(workspaceId: string): Promise<void> {
+    try {
+      await this.prisma.assistant.updateMany({
+        where: { workspaceId },
+        data: { configDirtyAt: new Date() }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `[persona] Failed to mark workspace ${workspaceId} assistants config-dirty after persona mutation: ${message}. ` +
+          `The persona catalog will refresh on the next global spec regeneration.`
+      );
+    }
   }
 
   async listPersonas(input: {
@@ -363,7 +390,36 @@ export class ManageWorkspaceVideoPersonasService {
         code: "persona_not_found"
       });
     }
+    // Drop the archived persona from the model-visible catalog on the next turn.
+    await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
     return { archived: true, personaId: updated.id };
+  }
+
+  async readPersonaPortrait(input: {
+    workspaceId: string;
+    personaId: string;
+  }): Promise<{ buffer: Buffer; contentType: string; etag: string }> {
+    const persona = await this.personaRepository.findById(input.workspaceId, input.personaId);
+    if (persona === null || persona.archived) {
+      throw new NotFoundException({
+        message: `Persona "${input.personaId}" not found in this workspace.`,
+        code: "persona_not_found"
+      });
+    }
+    const download = await this.mediaObjectStorage.downloadObject(persona.portraitImageStorageKey);
+    if (download === null) {
+      throw new NotFoundException({
+        message: "Persona portrait not found.",
+        code: "persona_portrait_not_found"
+      });
+    }
+    const etagSource =
+      persona.portraitImageUrl.split("/").pop()?.split(".")[0]?.trim() ?? persona.id.trim();
+    return {
+      buffer: download.buffer,
+      contentType: download.contentType || PORTRAIT_NORMALIZED_MIME_TYPE,
+      etag: etagSource
+    };
   }
 
   /**

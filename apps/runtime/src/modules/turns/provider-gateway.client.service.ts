@@ -1006,6 +1006,9 @@ export class ProviderGatewayClientService {
       seconds > 0 &&
       typeof video?.bytesBase64 === "string" &&
       typeof video.mimeType === "string" &&
+      (video.downloadUrl === undefined ||
+        video.downloadUrl === null ||
+        typeof video.downloadUrl === "string") &&
       typeof row.respondedAt === "string" &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage))) &&

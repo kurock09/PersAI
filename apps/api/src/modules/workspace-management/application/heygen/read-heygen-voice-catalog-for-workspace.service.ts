@@ -8,6 +8,7 @@ export type WorkspaceVoiceCatalogEntry = {
   language: string | null;
   gender: string;
   previewAudioUrl: string | null;
+  languageBucket: "ru" | "en" | "other";
 };
 
 export type WorkspaceVoiceCatalogResult = {
@@ -43,8 +44,20 @@ export class ReadHeygenVoiceCatalogForWorkspaceService {
         name: entry.displayName,
         language: entry.locale ?? null,
         gender: entry.gender,
-        previewAudioUrl: entry.previewAudioUrl ?? null
+        previewAudioUrl: entry.previewAudioUrl ?? null,
+        languageBucket: this.toLanguageBucket(entry.locale)
       }))
     };
+  }
+
+  private toLanguageBucket(locale: string | null): "ru" | "en" | "other" {
+    const normalized = locale?.trim().toLowerCase() ?? "";
+    if (normalized === "ru" || normalized.startsWith("ru-")) {
+      return "ru";
+    }
+    if (normalized === "en" || normalized.startsWith("en-")) {
+      return "en";
+    }
+    return "other";
   }
 }

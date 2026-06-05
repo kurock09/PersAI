@@ -10,7 +10,7 @@ coverage/
 !.env.example
 !.env.*.example
 scripts/loadtest/*.local.json
-artifacts/sr10-loadtest/
+artifacts/
 scripts/smoke/artifacts/
 .tmp-*
 !.tmp-api-tail.txt.example

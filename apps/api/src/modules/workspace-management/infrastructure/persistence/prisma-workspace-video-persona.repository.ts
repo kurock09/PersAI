@@ -7,6 +7,17 @@ import type {
 } from "../../domain/workspace-video-persona.repository";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
+// The `id` column is a Postgres `uuid`. A lookup by a non-UUID value (e.g. when
+// the model passes a display name like "alexey" instead of the real personaId)
+// makes Prisma throw a raw "Error creating UUID" instead of returning no row.
+// We guard such inputs so the lookup resolves to "not found" honestly rather
+// than surfacing a database crash to the runtime.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string): boolean {
+  return UUID_PATTERN.test(value.trim());
+}
+
 /**
  * ADR-109 Slice 5 — Prisma implementation of the workspace video persona
  * domain port.
@@ -46,6 +57,9 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
     personaId: string,
     tx?: Prisma.TransactionClient
   ): Promise<WorkspaceVideoPersonaRecord | null> {
+    if (!isUuid(personaId)) {
+      return null;
+    }
     const client = tx ?? this.prisma;
     const row = await client.workspaceVideoPersona.findFirst({
       where: { id: personaId, workspaceId }
@@ -87,6 +101,9 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
     personaId: string,
     tx?: Prisma.TransactionClient
   ): Promise<WorkspaceVideoPersonaRecord | null> {
+    if (!isUuid(personaId)) {
+      return null;
+    }
     const client = tx ?? this.prisma;
     const existing = await client.workspaceVideoPersona.findFirst({
       where: { id: personaId, workspaceId }

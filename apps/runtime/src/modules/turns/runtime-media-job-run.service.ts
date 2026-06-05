@@ -23,6 +23,23 @@ import { TurnFinalizationService } from "./turn-finalization.service";
 
 const MEDIA_JOB_RUN_KEY_PREFIX = "media-job-run";
 
+// Permanent video failure reasons: retrying the identical media job will
+// deterministically fail again (unknown/disabled persona, missing voice,
+// provider/plan not available, unsupported mode). These MUST be surfaced as a
+// non-retryable 400 so the scheduler fails the job immediately instead of
+// looping through the exponential-backoff retry budget (~10+ minutes) before
+// giving up. Genuinely transient reasons (e.g. provider outage) keep falling
+// through to the 503 branch below and stay retryable.
+const NON_RETRYABLE_VIDEO_REASONS = new Set<string>([
+  "requested_mode_unsupported",
+  "persona_not_found",
+  "talking_avatar_persona_unavailable",
+  "talking_avatar_provider_unavailable",
+  "talking_avatar_plan_disabled",
+  "voice_not_found",
+  "voice_required"
+]);
+
 @Injectable()
 export class RuntimeMediaJobRunService {
   constructor(
@@ -416,7 +433,7 @@ export class RuntimeMediaJobRunService {
         }
       });
     }
-    if (reason === "requested_mode_unsupported") {
+    if (NON_RETRYABLE_VIDEO_REASONS.has(reason)) {
       throw new BadRequestException({
         error: {
           code: reason,

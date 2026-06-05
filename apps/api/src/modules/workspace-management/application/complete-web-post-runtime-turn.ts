@@ -75,6 +75,7 @@ async function persistFinalAssistantContentIfNeeded(input: {
   assistantId: string;
   assistantText: string;
   deliveredAttachments: Awaited<ReturnType<MediaDeliveryService["deliver"]>>["attachments"];
+  externalDeliveryCount: number;
   attemptedArtifactCount: number;
   attemptedArtifactKind: ReturnType<typeof resolveUndeliveredArtifactKind>;
   locale: string | null;
@@ -82,7 +83,7 @@ async function persistFinalAssistantContentIfNeeded(input: {
   const finalAssistantContent = applyFinalDeliveryHonestyCorrection({
     assistantText: input.assistantText,
     attemptedArtifactCount: input.attemptedArtifactCount,
-    deliveredAttachmentCount: input.deliveredAttachments.length,
+    deliveredAttachmentCount: input.deliveredAttachments.length + input.externalDeliveryCount,
     deliveredAttachmentFilenames: input.deliveredAttachments
       .map((attachment) => attachment.originalFilename)
       .filter((filename): filename is string => typeof filename === "string"),
@@ -300,7 +301,8 @@ export async function finalizePersistedWebTurn(input: {
     deliveredAttachments: delivered.attachments,
     attemptedArtifactCount: input.mediaArtifacts.length,
     attemptedArtifactKind: resolveUndeliveredArtifactKind(input.mediaArtifacts),
-    locale: input.locale
+    locale: input.locale,
+    externalDeliveryCount: delivered.externalDeliveries?.length ?? 0
   });
 
   await input.recordWebChatMemoryTurnService.execute({

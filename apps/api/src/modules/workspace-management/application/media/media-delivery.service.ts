@@ -29,7 +29,10 @@ import {
   type MediaArtifact,
   type OutboundMediaDeliverParams
 } from "./media.types";
-import { validatePersaiMediaFile } from "./media-security-policy";
+import {
+  MAX_TOOL_OUTPUT_PRESENTATION_FILE_BYTES,
+  validatePersaiMediaFile
+} from "./media-security-policy";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { downloadRuntimeMediaUrl } from "./runtime-media-download";
 import { AssistantFileRegistryService } from "../assistant-file-registry.service";
@@ -94,6 +97,7 @@ export class MediaDeliveryService {
     }
 
     const results: AssistantWebChatMessageAttachmentState[] = [];
+    const externalDeliveries: NonNullable<DeliveredMedia["externalDeliveries"]> = [];
     const assistant = await this.assistantRepository.findById(params.assistantId);
 
     for (const artifact of params.artifacts) {
@@ -103,6 +107,23 @@ export class MediaDeliveryService {
       const monthlyQuotaToolCode = this.resolveMonthlyMediaQuotaToolCode(artifact);
       try {
         const persisted = await this.persistArtifact(artifact, params);
+        if ("externalDelivery" in persisted) {
+          externalDeliveries.push(persisted.externalDelivery);
+          if (isVcoinPricedArtifact) {
+            await this.settleVideoGenerateWithVcoinDebit({
+              assistant,
+              artifact,
+              workspaceId: params.workspaceId
+            });
+          } else {
+            await this.settleMonthlyMediaQuotaBestEffort({
+              assistant,
+              toolCode: monthlyQuotaToolCode
+            });
+          }
+          outcome = "success";
+          continue;
+        }
 
         if (adapter && params.channelTarget) {
           await this.sendViaAdapter(
@@ -157,7 +178,10 @@ export class MediaDeliveryService {
       }
     }
 
-    return { attachments: results };
+    return {
+      attachments: results,
+      ...(externalDeliveries.length > 0 ? { externalDeliveries } : {})
+    };
   }
 
   async markUndeliveredArtifactsReconciliationRequired(params: {
@@ -418,14 +442,40 @@ export class MediaDeliveryService {
   private async persistArtifact(
     artifact: MediaArtifact,
     params: OutboundMediaDeliverParams
-  ): Promise<{
-    state: AssistantWebChatMessageAttachmentState;
-    buffer: Buffer;
-    filename: string;
-  }> {
+  ): Promise<
+    | {
+        state: AssistantWebChatMessageAttachmentState;
+        buffer: Buffer;
+        filename: string;
+      }
+    | {
+        externalDelivery: {
+          type: MediaArtifact["type"];
+          url: string;
+          filename: string | null;
+          reason: "file_too_large_for_inline_delivery";
+        };
+      }
+  > {
     const downloadResult = await this.downloadArtifactSource(artifact);
     if (!downloadResult) {
       throw new Error(`Media file not found on storage: ${describeRuntimeMediaArtifact(artifact)}`);
+    }
+
+    if (
+      artifact.type === "video" &&
+      downloadResult.buffer.length > MAX_TOOL_OUTPUT_PRESENTATION_FILE_BYTES &&
+      typeof artifact.downloadUrl === "string" &&
+      artifact.downloadUrl.trim().length > 0
+    ) {
+      return {
+        externalDelivery: {
+          type: artifact.type,
+          url: artifact.downloadUrl.trim(),
+          filename: readRuntimeMediaArtifactFilename(artifact),
+          reason: "file_too_large_for_inline_delivery"
+        }
+      };
     }
 
     const candidateMimeType =

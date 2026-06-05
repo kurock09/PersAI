@@ -36,6 +36,12 @@ export type MediaArtifact = RuntimeMediaArtifact;
 
 export interface DeliveredMedia {
   attachments: AssistantWebChatMessageAttachmentState[];
+  externalDeliveries?: Array<{
+    type: MediaArtifact["type"];
+    url: string;
+    filename: string | null;
+    reason: "file_too_large_for_inline_delivery";
+  }>;
 }
 
 export interface ChannelTarget {

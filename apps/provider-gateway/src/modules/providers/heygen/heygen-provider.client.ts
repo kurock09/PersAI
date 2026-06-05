@@ -584,7 +584,8 @@ export class HeyGenProviderClient {
         : "video/mp4";
     return {
       bytesBase64: buffer.toString("base64"),
-      mimeType
+      mimeType,
+      downloadUrl: url
     };
   }
 

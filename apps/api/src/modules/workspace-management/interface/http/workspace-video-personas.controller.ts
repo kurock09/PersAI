@@ -8,12 +8,16 @@ import {
   Param,
   Post,
   Req,
+  Res,
   UnauthorizedException,
   UploadedFile,
   UseInterceptors
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
-import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
+import type {
+  RequestWithPlatformContext,
+  ResponseWithPlatformContext
+} from "../../../platform-core/interface/http/request-http.types";
 import {
   ManageWorkspaceVideoPersonasService,
   type CreatePersonaResult,
@@ -118,6 +122,26 @@ export class WorkspaceVideoPersonasController {
     const userId = this.resolveUserId(req);
     await this.assertWorkspaceAccess(userId, workspaceId);
     return this.manageWorkspaceVideoPersonasService.archivePersona({ workspaceId, personaId });
+  }
+
+  @Get(":personaId/portrait")
+  async getPersonaPortrait(
+    @Req() req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext,
+    @Param("workspaceId") workspaceId: string,
+    @Param("personaId") personaId: string
+  ): Promise<void> {
+    const userId = this.resolveUserId(req);
+    await this.assertWorkspaceAccess(userId, workspaceId);
+    const portrait = await this.manageWorkspaceVideoPersonasService.readPersonaPortrait({
+      workspaceId,
+      personaId
+    });
+    res.statusCode = 200;
+    res.setHeader("Content-Type", portrait.contentType);
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.setHeader("ETag", `"${portrait.etag}"`);
+    res.end(portrait.buffer);
   }
 
   /**

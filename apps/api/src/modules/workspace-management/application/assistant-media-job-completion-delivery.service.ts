@@ -340,6 +340,21 @@ export class AssistantMediaJobCompletionDeliveryService {
           .filter((filename): filename is string => typeof filename === "string"),
         attemptedArtifactKind: "media"
       });
+      if ((delivered.externalDeliveries?.length ?? 0) > 0) {
+        const fallbackLines = delivered.externalDeliveries!.map((item) => {
+          const label = item.filename?.trim().length
+            ? item.filename.trim()
+            : failureLocale === "ru"
+              ? "видео"
+              : "video";
+          return failureLocale === "ru"
+            ? `Файл слишком большой для отправки прямо в чат. Скачать: [${label}](${item.url})`
+            : `The file is too large to send directly in chat. Download: [${label}](${item.url})`;
+        });
+        finalText = [finalText, ...fallbackLines]
+          .filter((line) => line.trim().length > 0)
+          .join("\n\n");
+      }
       // ADR-105 FIX B: system-authored structural truth for partial under-delivery.
       const webReservationN =
         this.extractReservationInfoFromRequestJson(job.requestJson)?.units ?? null;
@@ -359,7 +374,10 @@ export class AssistantMediaJobCompletionDeliveryService {
         );
       }
 
-      const terminalStatus = delivered.attachments.length > 0 ? "delivered" : "failed";
+      const terminalStatus =
+        delivered.attachments.length > 0 || (delivered.externalDeliveries?.length ?? 0) > 0
+          ? "delivered"
+          : "failed";
       await this.finalizeJob(job, {
         status: terminalStatus,
         code: terminalStatus === "failed" ? "media_delivery_failed" : null,

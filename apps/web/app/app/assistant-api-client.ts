@@ -5559,6 +5559,7 @@ export type VoiceCatalogEntry = {
   language: string | null;
   gender: string;
   previewAudioUrl: string | null;
+  languageBucket?: "ru" | "en" | "other" | null;
 };
 
 export type VoiceCatalogResponse = {
