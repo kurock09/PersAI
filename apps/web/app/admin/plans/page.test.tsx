@@ -377,6 +377,8 @@ describe("admin plans page helpers", () => {
         onVideoGenerateModelKeyChange={onVideoGenerateModelKeyChange}
         videoGenerateFallbackModelKey="sora-2"
         onVideoGenerateFallbackModelKeyChange={onVideoGenerateFallbackModelKeyChange}
+        talkingVideoEnabled={false}
+        onTalkingVideoEnabledChange={vi.fn()}
         availableImageModelKeys={[
           { provider: "openai", model: "gpt-image-1" },
           { provider: "openai", model: "gpt-image-1.5" },
@@ -518,6 +520,39 @@ describe("admin plans page helpers", () => {
       />
     );
     expect(screen.getAllByText("1 USD = 20 VC").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("ADR-109 Slice 8 — talkingVideoEnabled defaults to false for new plans and legacy plans", () => {
+    const draft = planToDraft(createPlanState());
+    expect(draft.talkingVideoEnabled).toBe(false);
+    const legacyPlan = { ...createPlanState() } as AdminPlanState;
+    delete (legacyPlan as unknown as Record<string, unknown>).talkingVideoEnabled;
+    const legacyDraft = planToDraft(legacyPlan);
+    expect(legacyDraft.talkingVideoEnabled).toBe(false);
+  });
+
+  it("ADR-109 Slice 8 — talkingVideoEnabled round-trips through planToDraft and draftToPayload", () => {
+    const planWithToggle = { ...createPlanState(), talkingVideoEnabled: true } as AdminPlanState;
+    const draft = planToDraft(planWithToggle);
+    expect(draft.talkingVideoEnabled).toBe(true);
+    const payload = draftToPayload(draft);
+    expect(payload.talkingVideoEnabled).toBe(true);
+  });
+
+  it("ADR-109 Slice 8 — talkingVideoEnabled=false round-trips through planToDraft and draftToPayload", () => {
+    const planOff = { ...createPlanState(), talkingVideoEnabled: false } as AdminPlanState;
+    const draft = planToDraft(planOff);
+    expect(draft.talkingVideoEnabled).toBe(false);
+    const payload = draftToPayload(draft);
+    expect(payload.talkingVideoEnabled).toBe(false);
+  });
+
+  it("ADR-109 Slice 8 — isPlanDraftDirty detects talkingVideoEnabled change", () => {
+    const plan = { ...createPlanState(), talkingVideoEnabled: false } as AdminPlanState;
+    const draft = planToDraft(plan);
+    const snapshot = normalizePlanDraftForCompare(draft);
+    expect(isPlanDraftDirty(snapshot, draft)).toBe(false);
+    expect(isPlanDraftDirty(snapshot, { ...draft, talkingVideoEnabled: true })).toBe(true);
   });
 });
 

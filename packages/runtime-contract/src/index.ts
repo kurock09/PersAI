@@ -641,6 +641,16 @@ export interface RuntimeToolPolicy {
    * to make a normally-capped tool effectively uncapped on this assistant.
    */
   perTurnCap?: number | null;
+  /**
+   * ADR-109 Slice 8 — plan-level talking-avatar toggle, materialised onto
+   * the `video_generate` tool policy by the bundle compile pipeline. When
+   * `true`, the LLM-facing JSON schema includes the talking-avatar fields
+   * (`mode`, `speechText`, `speechLanguage`, `personaId`,
+   * `portraitImageAlias`, `voiceKey`) and the runtime execution path for
+   * `mode: "talking_avatar"` is permitted. Absent / `undefined` / `false`
+   * means cinematic-only (pre-Slice-3 schema surface).
+   */
+  talkingVideoEnabled?: boolean;
 }
 
 /**

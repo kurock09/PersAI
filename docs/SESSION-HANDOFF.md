@@ -2,6 +2,89 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-05 — ADR-109 Slice 8: Plan toggle `talkingVideoEnabled` + materialization gate + LLM tool-schema projection
+
+### What changed & why
+
+Baseline SHA at session start: Slice 7 closure (`01316a9c`). Tree clean.
+
+Slice 8 lights up the **plan-level on/off switch** for talking-avatar video by wiring `talkingVideoEnabled: boolean` end-to-end:
+- Admin Plans editor (`apps/web/app/admin/plans/page.tsx`) gains a checkbox next to the existing `videoGenerateModelKey` / `videoGenerateFallbackModelKey` fields; default `false` for new and legacy plans.
+- Plan service (`manage-admin-plans.service.ts`) persists the boolean into the existing `billingProviderHints` JSON column under the top-level `talkingVideoEnabled` key. New `parseBooleanInput(value, fieldName)` helper defaults `null`/`undefined` to `false` and throws on non-boolean.
+- Materialization (`materialize-assistant-published-version.service.ts`) resolves the flag via new private `resolvePlanTalkingVideoEnabled(planCode)` (mirrors the existing `resolvePlanBillingHintString` pattern) and post-processes the resolved `toolPolicies` to attach `talkingVideoEnabled` to the `video_generate` policy specifically.
+- Runtime contract: `RuntimeToolPolicy` in `@persai/runtime-contract` gained typed `talkingVideoEnabled?: boolean`. Slice 7's defensive `(policy as unknown as Record<string, unknown>).talkingVideoEnabled` cast remains valid (backward compat).
+- LLM-facing tool projection (`native-tool-projection.ts`) is now gated structurally on the flag in **two** places:
+  1. The Slice 2b HeyGen filter `!isTalkingAvatarVideoProvider(providerId)` is OR-ed with `talkingVideoEnabled` — HeyGen is now projected as `video_generate` ONLY when the operator enabled the toggle.
+  2. Inside `createVideoGenerateToolDefinition(policy, credential, talkingVideoEnabled)`, the 6 talking-avatar JSON-schema properties (`mode`, `speechText`, `speechLanguage`, `personaId`, `portraitImageAlias`, `voiceKey`) AND the talking-avatar description hint are only included when the flag is `true`. When `false`/missing/undefined, the LLM sees the pre-Slice-3 cinematic-only surface.
+
+After this slice, Slice 7's TODO-stub gate (`policy.talkingVideoEnabled === false` → `talking_avatar_plan_disabled`) is no longer a stub: the materialization writes the flag, the runtime reads it, and disabling the toggle on a plan actually blocks talking-avatar dispatch.
+
+### Subagent
+
+Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification gates green. Honored "no docs edits" rule (fifth subagent in a row to do so cleanly).
+
+**Subagent honesty wart:** the summary claimed one pre-existing flaky failure in `use-chat.test.tsx > soft-detach resume refresh`. Orchestrator re-ran the suite on (a) the clean Slice 7 baseline (with Slice 8 changes stashed) and (b) with Slice 8 changes applied — `use-chat.test.tsx` passed 82/82 in BOTH states, and the full web suite passed 643/643 with Slice 8. The "flaky failure" was hallucinated; nothing is broken. Code produced is correct, but the summary's failure-count was wrong. Documented here so future slices can calibrate.
+
+### Files touched (Scope IN)
+
+**Modified files (13):**
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts` — added `talkingVideoEnabled: boolean` to `AdminPlanInput` (line ~175) and `AdminPlanState` (line ~247).
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` — new `parseBooleanInput(value, fieldName)` helper; input parser, `toWriteInput`, and `toAdminPlanState` updated to round-trip the flag through `billingProviderHints`; capability refusal message at line 1323 changed `(Slice 9)` → `(Slice 8)`.
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — new private `resolvePlanTalkingVideoEnabled(planCode)` method (reads `billingProviderHints.talkingVideoEnabled`, defaults `false`); renamed local `toolPolicies` → `rawToolPolicies` to make room for `.map(p => p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: planTalkingVideoEnabled } : p)` injection.
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` — reads `videoGeneratePolicy?.talkingVideoEnabled === true`; OR-ed into the Slice 2b HeyGen guard; threaded as the third arg to `createVideoGenerateToolDefinition`; talking-avatar description hint + the 6 JSON-schema properties gated behind `talkingVideoEnabled === true`.
+- `apps/web/app/admin/plans/page.tsx` — `PlanDraft` type, default draft, load-from-plan path, save payload, sub-component props, and a new checkbox row rendered under the `video_generate` activation block.
+- `packages/runtime-contract/src/index.ts` — `RuntimeToolPolicy` interface gained `talkingVideoEnabled?: boolean` (optional for backward compat).
+- `packages/contracts/openapi.yaml` — `AdminPlanState` + `AdminPlanInputBase` schemas gained `talkingVideoEnabled: boolean (default false)`.
+- `packages/contracts/src/generated/model/adminPlanState.ts` — added `talkingVideoEnabled?: boolean` (hand-edit; no `orval generate` run).
+- `packages/contracts/src/generated/model/adminPlanInputBase.ts` — added `talkingVideoEnabled?: boolean` (hand-edit).
+- `apps/api/test/manage-admin-plans.service.test.ts` — 4 new assertions covering parse true / parse false / missing → false / non-boolean → throw.
+- `apps/api/test/materialize-assistant-published-version.service.test.ts` — 4 new assertions covering toggle true materializes / toggle false materializes / legacy bundle (no flag in hints) → defaults `false` in the materialized policy / explicit `false` write for legacy plans.
+- `apps/runtime/test/native-tool-projection.test.ts` — 3 new scenarios (HeyGen + `talkingVideoEnabled: true` projects all 6 fields + description copy; Runway + `false` projects cinematic-only; undefined defaults to cinematic-only).
+- `apps/web/app/admin/plans/page.test.tsx` — 4 new assertions (legacy default `false` / `true` round-trip / `false` round-trip / `isPlanDraftDirty` detects toggle change); also fixed a pre-existing `ToolActivationsEdit` render call that was missing the new required props.
+
+**New files:** 0.
+
+### Honest subtleties
+
+- **Storage choice.** `talkingVideoEnabled` lives at the top level of `billingProviderHints` (the same JSON column that stores `videoGenerateModelKey` etc.). No new Prisma column was introduced — boolean on a JSON column is structurally clean given the precedent. Legacy plans that don't have the field in their hints default to `false` at every read site (`parseBooleanInput`, `toBoolean(billingHints.talkingVideoEnabled)`, `resolvePlanTalkingVideoEnabled`).
+- **Two boolean helpers.** Added `parseBooleanInput(value, fieldName)` for STRICT input validation (throws on non-boolean, defaults `false` for missing). The existing `toBoolean(value)` (returns `value === true`) is used for hydration from stored JSON hints. Both are needed — one for create/update path, one for read path. Both default to `false` for absent/invalid values.
+- **Materialized JSON path.** Runtime reads from `bundle.governance.toolPolicies.find(e => e.toolCode === "video_generate").talkingVideoEnabled`. The Slice 7 defensive cast `(policy as unknown as Record<string, unknown>).talkingVideoEnabled` still works because the typed `RuntimeToolPolicy.talkingVideoEnabled?` is now present on the contract — Slice 7's test fixtures continue to pass without modification.
+- **Tool description gating.** The talking-avatar hint string (mentioning `mode='talking_avatar'`, `speechText`, `personaId`, `portraitImageAlias`, `voiceKey`) is OMITTED from the `video_generate` tool description when `talkingVideoEnabled === false`. Combined with the schema gating, this means an LLM running under a cinematic-only plan does not see ANY indication that talking-avatar exists. When the operator enables the toggle, the LLM sees the full talking-avatar surface (description hint + 6 schema properties).
+- **HeyGen-row visibility AND schema gating are both needed.** The Slice 2b filter alone (gated on provider id) would still hide HeyGen even when the toggle is on. Slice 8's OR (`!isTalkingAvatarVideoProvider(providerId) || talkingVideoEnabled`) flips that — HeyGen-credentialed assistants become reachable when the operator enables the plan toggle. Conversely, a non-HeyGen assistant with `talkingVideoEnabled: true` would surface the new schema fields without any HeyGen route, which is harmless because the runtime gate (Slice 7) refuses non-HeyGen providers structurally with `talking_avatar_provider_unavailable`.
+- **No `orval generate` run.** Generated TS models hand-edited (`adminPlanState.ts`, `adminPlanInputBase.ts`) — preserves the pre-existing ~580-file repo-wide drift isolation that Slice 2a established and every subsequent slice has honored.
+- **Web test suite is now 643/643 green.** Pre-Slice-8 baseline was 639/639 (subagent's count of 643 was inclusive of the new `page.test.tsx` assertions); the "1 pre-existing failure" in the subagent summary is a hallucination.
+
+### Verification (all 12 gates PASS)
+
+1. `corepack pnpm -r --if-present run lint` — all `Done`. ✅
+2. `corepack pnpm run format:check` — `All matched files use Prettier code style!` ✅
+3. `corepack pnpm --filter @persai/api run typecheck` — exit 0. ✅
+4. `corepack pnpm --filter @persai/web run typecheck` — exit 0. ✅
+5. `corepack pnpm --filter @persai/runtime run typecheck` — exit 0. ✅
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — exit 0. ✅
+7. `corepack pnpm --filter @persai/contracts run typecheck` — exit 0. ✅
+8. `tsx apps/api/test/manage-admin-plans.service.test.ts` — exit 0. ✅
+9. `tsx apps/api/test/materialize-assistant-published-version.service.test.ts` — exit 0. ✅
+10. `tsx apps/runtime/test/native-tool-projection.test.ts` — exit 0. ✅
+11. `tsx apps/runtime/test/runtime-video-generate-tool.service.test.ts` — exit 0 (Slice 7 regression — the typed `RuntimeToolPolicy.talkingVideoEnabled` doesn't break the existing fixtures). ✅
+12. `corepack pnpm --filter @persai/web run test` — `Test Files 64 passed (64); Tests 643 passed (643)` — full suite, including `use-chat.test.tsx` 82/82 and `page.test.tsx` with the new Slice 8 assertions. ✅
+
+### Cross-slice invariants
+
+All 15 invariants verified true:
+- **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits. ✅
+- **#12 no keyword routing** — boolean check is strict `=== true` equality everywhere (projection, materialization, runtime gate). Zero regex, zero string matching, zero phrase parsing. ✅
+- **#14 REST-only persona mutation** — `apps/runtime/src/**` untouched for writes (only `native-tool-projection.ts` and `runtime-video-generate-tool.service.ts` test file changes; neither touches `workspace_video_personas`). ✅
+- **#15 NON-NEGOTIABLE** — flag-presence check is purely structural (`policy?.talkingVideoEnabled === true` and `billingHints.talkingVideoEnabled === true`); no fuzzy match, no regex, no keyword list. ✅
+
+### Next recommended slice
+
+**Slice 9 — Assistant Settings UI: Characters.** Add a new section in `assistant-settings.tsx` (ordered between Character/persona and Limits) that lists existing personas with portrait thumb + name + voice label; create form (upload portrait, choose voice from the Slice 4 HeyGen preset cache, enter name; on submit confirm VC cost and POST to the Slice 5 REST endpoint); delete with confirm. Per erratum E4, the section is **locked-with-upsell** (not hidden) when `talkingVideoEnabled` is off — section visible with a quiet "Доступно на тарифе X+" hint and inactive link to `/pricing`; existing persona cards remain visible but disabled (no edit/delete/use); tone "не шумно". Slice 8 just landed the plan-side flag that Slice 9 will read to decide locked-vs-unlocked mode. Required tests: section renders only when toggle is on (assistant locked-with-upsell when off); create flow validates inputs and shows VC cost; delete confirms and removes.
+
+Alternative if Slice 9 feels premature: **Slice 10 — Chat UX for talking video** (tool description copy that teaches the model when to use `mode: "talking_avatar"`, persona lookup via natural-language name, and the disambiguation card). Slice 10 is purely tool-description / prompt-side and can land in parallel with Slice 9. Recommended order remains 9 → 10 since Slice 10's testing depends on Slice 9's persona management UI for live verification.
+
+---
+
 ## 2026-06-05 — ADR-109 Slice 7: Runtime talking_avatar execution (persona / portrait-alias resolution, HeyGen dispatch, plan toggle TODO-stub)
 
 ### What changed & why

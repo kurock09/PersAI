@@ -90,6 +90,16 @@ function toBoolean(value: unknown): boolean {
   return value === true;
 }
 
+function parseBooleanInput(value: unknown, fieldName: string): boolean {
+  if (value === undefined || value === null) {
+    return false;
+  }
+  if (typeof value !== "boolean") {
+    throw new BadRequestException(`${fieldName} must be a boolean.`);
+  }
+  return value;
+}
+
 function toNullableString(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -958,6 +968,7 @@ export class ManageAdminPlansService {
         parsed.videoGenerateFallbackModelKey,
         "videoGenerateFallbackModelKey"
       ),
+      talkingVideoEnabled: parseBooleanInput(parsed.talkingVideoEnabled, "talkingVideoEnabled"),
       videoVcoinMonthlyGrant: parseVideoVcoinMonthlyGrant(parsed.videoVcoinMonthlyGrant),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault),
       toolBudgets
@@ -1122,6 +1133,7 @@ export class ManageAdminPlansService {
         ...(input.videoGenerateFallbackModelKey !== null
           ? { videoGenerateFallbackModelKey: input.videoGenerateFallbackModelKey }
           : {}),
+        talkingVideoEnabled: input.talkingVideoEnabled,
         videoVcoinMonthlyGrant: input.videoVcoinMonthlyGrant,
         ...(input.runtimeTierDefault !== null
           ? { runtimeTierDefault: input.runtimeTierDefault }
@@ -1320,7 +1332,7 @@ export class ManageAdminPlansService {
         videoModelKindMap.get(entry.modelKey) === "talking_avatar"
       ) {
         throw new BadRequestException(
-          `"${entry.modelKey}" is a talking_avatar (cinematic_only) model and cannot be used as a plan videoGenerateModelKey or videoGenerateFallbackModelKey. Talking-avatar models are exposed separately via the workspace plan toggle (Slice 9).`
+          `"${entry.modelKey}" is a talking_avatar (cinematic_only) model and cannot be used as a plan videoGenerateModelKey or videoGenerateFallbackModelKey. Talking-avatar models are exposed separately via the workspace plan toggle (Slice 8).`
         );
       }
     }
@@ -1515,6 +1527,7 @@ export class ManageAdminPlansService {
       videoGenerateFallbackModelKey: toNormalizedNonEmptyModelKey(
         billingHints.videoGenerateFallbackModelKey
       ),
+      talkingVideoEnabled: toBoolean(billingHints.talkingVideoEnabled),
       videoVcoinMonthlyGrant: parseVideoVcoinMonthlyGrant(billingHints.videoVcoinMonthlyGrant),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
       toolActivations: plan.toolActivations.map((ta) => ({

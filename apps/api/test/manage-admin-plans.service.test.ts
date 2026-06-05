@@ -1938,6 +1938,159 @@ async function run(): Promise<void> {
     !Object.prototype.hasOwnProperty.call(proNoRows, "videoVcoinApproxVideosPerMonth"),
     "field must not be emitted (not even as undefined) when no catalog rows"
   );
+
+  // ── ADR-109 Slice 8 — talkingVideoEnabled plan toggle ─────────────────────
+
+  // 1. Parse with talkingVideoEnabled: true
+  const parsedWithTalking = service.parseUpdateInput({
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    defaultOnRegistration: false,
+    trialEnabled: false,
+    lifecyclePolicy: {},
+    metadata: { commercialTag: null, notes: null },
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: true,
+        utilityTools: true,
+        costDrivingQuotaGoverned: false,
+        utilityQuotaGoverned: false
+      },
+      channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false },
+      mediaClasses: { image: false, audio: false, video: true, file: false }
+    },
+    quotaLimits: {},
+    contextPolicy,
+    primaryModelKey: null,
+    videoGenerateModelKey: null,
+    videoGenerateFallbackModelKey: null,
+    talkingVideoEnabled: true,
+    runtimeTierDefault: null
+  });
+  assert.equal(
+    parsedWithTalking.talkingVideoEnabled,
+    true,
+    "Slice 8: talkingVideoEnabled: true parsed correctly"
+  );
+  const writeWithTalking = (
+    service as unknown as {
+      toWriteInput(input: typeof parsedWithTalking): { billingProviderHints: unknown };
+    }
+  ).toWriteInput(parsedWithTalking);
+  assert.equal(
+    (writeWithTalking.billingProviderHints as Record<string, unknown>).talkingVideoEnabled,
+    true,
+    "Slice 8: talkingVideoEnabled: true persisted to billingProviderHints"
+  );
+
+  // 2. Parse with talkingVideoEnabled: false
+  const parsedWithTalkingOff = service.parseUpdateInput({
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    defaultOnRegistration: false,
+    trialEnabled: false,
+    lifecyclePolicy: {},
+    metadata: { commercialTag: null, notes: null },
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: true,
+        utilityTools: true,
+        costDrivingQuotaGoverned: false,
+        utilityQuotaGoverned: false
+      },
+      channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false },
+      mediaClasses: { image: false, audio: false, video: true, file: false }
+    },
+    quotaLimits: {},
+    contextPolicy,
+    primaryModelKey: null,
+    videoGenerateModelKey: null,
+    videoGenerateFallbackModelKey: null,
+    talkingVideoEnabled: false,
+    runtimeTierDefault: null
+  });
+  assert.equal(
+    parsedWithTalkingOff.talkingVideoEnabled,
+    false,
+    "Slice 8: talkingVideoEnabled: false parsed correctly"
+  );
+  const writeWithTalkingOff = (
+    service as unknown as {
+      toWriteInput(input: typeof parsedWithTalkingOff): { billingProviderHints: unknown };
+    }
+  ).toWriteInput(parsedWithTalkingOff);
+  assert.equal(
+    (writeWithTalkingOff.billingProviderHints as Record<string, unknown>).talkingVideoEnabled,
+    false,
+    "Slice 8: talkingVideoEnabled: false persisted to billingProviderHints"
+  );
+
+  // 3. Parse without talkingVideoEnabled (legacy) — defaults to false
+  const parsedLegacy = service.parseUpdateInput({
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    defaultOnRegistration: false,
+    trialEnabled: false,
+    lifecyclePolicy: {},
+    metadata: { commercialTag: null, notes: null },
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: true,
+        utilityTools: true,
+        costDrivingQuotaGoverned: false,
+        utilityQuotaGoverned: false
+      },
+      channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false },
+      mediaClasses: { image: false, audio: false, video: true, file: false }
+    },
+    quotaLimits: {},
+    contextPolicy,
+    primaryModelKey: null,
+    videoGenerateModelKey: null,
+    videoGenerateFallbackModelKey: null,
+    runtimeTierDefault: null
+    // talkingVideoEnabled intentionally omitted
+  });
+  assert.equal(
+    parsedLegacy.talkingVideoEnabled,
+    false,
+    "Slice 8: missing talkingVideoEnabled defaults to false"
+  );
+
+  // 4. Non-boolean input must throw
+  assert.throws(
+    () =>
+      service.parseUpdateInput({
+        displayName: "Starter",
+        description: "Trial plan",
+        status: "active",
+        defaultOnRegistration: false,
+        trialEnabled: false,
+        lifecyclePolicy: {},
+        metadata: { commercialTag: null, notes: null },
+        entitlements: {
+          toolClasses: {
+            costDrivingTools: true,
+            utilityTools: true,
+            costDrivingQuotaGoverned: false,
+            utilityQuotaGoverned: false
+          },
+          channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false },
+          mediaClasses: { image: false, audio: false, video: true, file: false }
+        },
+        quotaLimits: {},
+        contextPolicy,
+        primaryModelKey: null,
+        videoGenerateModelKey: null,
+        videoGenerateFallbackModelKey: null,
+        talkingVideoEnabled: "yes",
+        runtimeTierDefault: null
+      }),
+    (error) => error instanceof BadRequestException && error.message.includes("talkingVideoEnabled")
+  );
 }
 
 void run();

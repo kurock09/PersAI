@@ -734,6 +734,142 @@ async function run(): Promise<void> {
     runwayVideoProjection.tools.find((tool) => tool.name === "video_generate"),
     "video_generate must remain visible for cinematic (runway) providers"
   );
+
+  // ── ADR-109 Slice 8 — talkingVideoEnabled gates the talking-avatar schema fields ──
+
+  // HeyGen + talkingVideoEnabled=true → tool IS projected with talking-avatar fields
+  const heygenTalkingEnabledBundle = {
+    ...artifact.bundle,
+    governance: {
+      ...artifact.bundle.governance,
+      toolCredentialRefs: {
+        ...artifact.bundle.governance.toolCredentialRefs,
+        video_generate: {
+          ...artifact.bundle.governance.toolCredentialRefs.video_generate!,
+          providerId: "heygen"
+        }
+      },
+      toolPolicies: artifact.bundle.governance.toolPolicies.map((p) =>
+        p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: true } : p
+      )
+    }
+  };
+  const heygenTalkingProjection = projectRuntimeNativeTools(heygenTalkingEnabledBundle);
+  const heygenTalkingTool = heygenTalkingProjection.tools.find(
+    (tool) => tool.name === "video_generate"
+  );
+  assert.ok(
+    heygenTalkingTool,
+    "Slice 8: video_generate must be projected for heygen when talkingVideoEnabled=true"
+  );
+  const heygenTalkingProps = (
+    heygenTalkingTool?.inputSchema as { properties?: Record<string, unknown> }
+  )?.properties;
+  assert.ok(
+    heygenTalkingProps?.mode,
+    "Slice 8: mode field must appear in schema when talkingVideoEnabled=true"
+  );
+  assert.ok(
+    heygenTalkingProps?.speechText,
+    "Slice 8: speechText field must appear in schema when talkingVideoEnabled=true"
+  );
+  assert.ok(
+    heygenTalkingProps?.speechLanguage,
+    "Slice 8: speechLanguage field must appear in schema when talkingVideoEnabled=true"
+  );
+  assert.ok(
+    heygenTalkingProps?.personaId,
+    "Slice 8: personaId field must appear in schema when talkingVideoEnabled=true"
+  );
+  assert.ok(
+    heygenTalkingProps?.portraitImageAlias,
+    "Slice 8: portraitImageAlias field must appear in schema when talkingVideoEnabled=true"
+  );
+  assert.ok(
+    heygenTalkingProps?.voiceKey,
+    "Slice 8: voiceKey field must appear in schema when talkingVideoEnabled=true"
+  );
+  assert.match(
+    heygenTalkingTool?.description ?? "",
+    /talking-avatar/i,
+    "Slice 8: description must mention talking-avatar when talkingVideoEnabled=true"
+  );
+
+  // Runway + talkingVideoEnabled=false → tool IS projected but WITHOUT talking-avatar fields
+  const runwayTalkingDisabledBundle = {
+    ...artifact.bundle,
+    governance: {
+      ...artifact.bundle.governance,
+      toolPolicies: artifact.bundle.governance.toolPolicies.map((p) =>
+        p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: false } : p
+      )
+    }
+  };
+  const runwayTalkingDisabledProjection = projectRuntimeNativeTools(runwayTalkingDisabledBundle);
+  const runwayTalkingDisabledTool = runwayTalkingDisabledProjection.tools.find(
+    (tool) => tool.name === "video_generate"
+  );
+  assert.ok(
+    runwayTalkingDisabledTool,
+    "Slice 8: video_generate must still be projected for runway when talkingVideoEnabled=false"
+  );
+  const runwayTalkingDisabledProps = (
+    runwayTalkingDisabledTool?.inputSchema as { properties?: Record<string, unknown> }
+  )?.properties;
+  assert.equal(
+    runwayTalkingDisabledProps?.mode,
+    undefined,
+    "Slice 8: mode field must NOT appear in schema when talkingVideoEnabled=false"
+  );
+  assert.equal(
+    runwayTalkingDisabledProps?.speechText,
+    undefined,
+    "Slice 8: speechText field must NOT appear in schema when talkingVideoEnabled=false"
+  );
+  assert.equal(
+    runwayTalkingDisabledProps?.personaId,
+    undefined,
+    "Slice 8: personaId field must NOT appear in schema when talkingVideoEnabled=false"
+  );
+  assert.equal(
+    runwayTalkingDisabledProps?.portraitImageAlias,
+    undefined,
+    "Slice 8: portraitImageAlias field must NOT appear in schema when talkingVideoEnabled=false"
+  );
+  assert.equal(
+    runwayTalkingDisabledProps?.voiceKey,
+    undefined,
+    "Slice 8: voiceKey field must NOT appear in schema when talkingVideoEnabled=false"
+  );
+  assert.doesNotMatch(
+    runwayTalkingDisabledTool?.description ?? "",
+    /talking-avatar/i,
+    "Slice 8: description must NOT mention talking-avatar when talkingVideoEnabled=false"
+  );
+
+  // talkingVideoEnabled absent (undefined) → same as false — cinematic-only schema
+  const runwayNoToggleBundle = artifact.bundle;
+  const runwayNoToggleProjection = projectRuntimeNativeTools(runwayNoToggleBundle);
+  const runwayNoToggleTool = runwayNoToggleProjection.tools.find(
+    (tool) => tool.name === "video_generate"
+  );
+  assert.ok(
+    runwayNoToggleTool,
+    "Slice 8: video_generate must be projected for runway when talkingVideoEnabled is absent"
+  );
+  const runwayNoToggleProps = (
+    runwayNoToggleTool?.inputSchema as { properties?: Record<string, unknown> }
+  )?.properties;
+  assert.equal(
+    runwayNoToggleProps?.mode,
+    undefined,
+    "Slice 8: mode must NOT appear when talkingVideoEnabled is absent (defaults to cinematic-only)"
+  );
+  assert.equal(
+    runwayNoToggleProps?.speechText,
+    undefined,
+    "Slice 8: speechText must NOT appear when talkingVideoEnabled is absent"
+  );
 }
 
 void run();

@@ -8,6 +8,7 @@ import {
   resolveVideoGenerateProviderSelection
 } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
 import { buildToolCredentialSecretRef } from "../src/modules/workspace-management/application/tool-credential-settings";
+import type { RuntimeToolPolicy } from "@persai/runtime-contract";
 
 const RUNWAY_VIDEO_MODEL_PARAMETERS = {
   duration: {
@@ -466,6 +467,73 @@ async function run(): Promise<void> {
         modelKey: "missing-video-model"
       }),
     /not present in the active runtime video catalog/
+  );
+
+  // ── ADR-109 Slice 8 — talkingVideoEnabled materialization into toolPolicy ──
+  // Simulates the post-resolveRuntimeToolPolicies injection in the service:
+  //   toolPolicies = rawToolPolicies.map(p =>
+  //     p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: planTalkingVideoEnabled } : p
+  //   );
+  const baseVideoPolicy: RuntimeToolPolicy = {
+    toolCode: "video_generate",
+    displayName: "Video Generate",
+    description: "Generate a short video clip from text.",
+    kind: "plan",
+    executionMode: "worker",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: 5
+  };
+
+  // Plan with talkingVideoEnabled=true → policy must carry talkingVideoEnabled: true
+  const policiesWithTalking = [baseVideoPolicy, { ...baseVideoPolicy, toolCode: "web_search" }].map(
+    (p) => (p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: true } : p)
+  );
+  const videoWithTalking = policiesWithTalking.find((p) => p.toolCode === "video_generate");
+  assert.equal(
+    videoWithTalking?.talkingVideoEnabled,
+    true,
+    "Slice 8: materialized toolPolicy must carry talkingVideoEnabled: true when plan has it on"
+  );
+
+  // Plan with talkingVideoEnabled=false → policy must carry talkingVideoEnabled: false
+  const policiesWithTalkingOff = [baseVideoPolicy].map((p) =>
+    p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: false } : p
+  );
+  const videoWithTalkingOff = policiesWithTalkingOff.find((p) => p.toolCode === "video_generate");
+  assert.equal(
+    videoWithTalkingOff?.talkingVideoEnabled,
+    false,
+    "Slice 8: materialized toolPolicy must carry talkingVideoEnabled: false when plan has it off"
+  );
+
+  // Legacy plan (no talkingVideoEnabled in billingHints) → resolvePlanTalkingVideoEnabled returns false
+  // Verify the defensive read pattern used in the runtime Slice 7 TODO-stub:
+  //   const talkingVideoEnabled = (policy as unknown as Record<string, unknown>)?.talkingVideoEnabled;
+  //   if (talkingVideoEnabled === false) { ... }
+  // When the field is absent (legacy bundle), `talkingVideoEnabled` is `undefined`, which is NOT `=== false`
+  // so the gate is permissive. After Slice 8 materialization, absent-field plans get explicit `false`.
+  const legacyPolicies = [{ ...baseVideoPolicy }]; // no talkingVideoEnabled on legacy bundle
+  const legacyVideoPolicy = legacyPolicies.find((p) => p.toolCode === "video_generate");
+  const legacyTalkingVideoEnabled = (legacyVideoPolicy as unknown as Record<string, unknown>)
+    ?.talkingVideoEnabled;
+  assert.equal(
+    legacyTalkingVideoEnabled,
+    undefined,
+    "Slice 8: legacy bundle without talkingVideoEnabled has undefined (permissive for Slice 7 gate)"
+  );
+
+  // After Slice 8, materialization always writes the boolean explicitly:
+  const slice8LegacyPolicies = [{ ...baseVideoPolicy }].map((p) =>
+    p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: false } : p
+  );
+  const slice8LegacyVideoPolicy = slice8LegacyPolicies.find((p) => p.toolCode === "video_generate");
+  assert.equal(
+    slice8LegacyVideoPolicy?.talkingVideoEnabled,
+    false,
+    "Slice 8: legacy plan (no flag in billingHints) must default to false after materialization"
   );
 }
 

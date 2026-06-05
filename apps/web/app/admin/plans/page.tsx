@@ -178,6 +178,7 @@ export type PlanDraft = {
   imageEditFallbackModelKey: string;
   videoGenerateModelKey: string;
   videoGenerateFallbackModelKey: string;
+  talkingVideoEnabled: boolean;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
   /**
@@ -790,6 +791,7 @@ function emptyDraft(): PlanDraft {
     imageEditFallbackModelKey: "",
     videoGenerateModelKey: "",
     videoGenerateFallbackModelKey: "",
+    talkingVideoEnabled: false,
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: [],
     toolLoopLimitNormal: "",
@@ -926,6 +928,7 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     imageEditFallbackModelKey: plan.imageEditFallbackModelKey ?? "",
     videoGenerateModelKey: plan.videoGenerateModelKey ?? "",
     videoGenerateFallbackModelKey: plan.videoGenerateFallbackModelKey ?? "",
+    talkingVideoEnabled: plan.talkingVideoEnabled ?? false,
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
     toolActivations: (plan.toolActivations ?? [])
       .filter((ta) => ta.visibleInPlanEditor)
@@ -1330,6 +1333,7 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     imageEditFallbackModelKey: toNullable(draft.imageEditFallbackModelKey),
     videoGenerateModelKey: toNullable(draft.videoGenerateModelKey),
     videoGenerateFallbackModelKey: toNullable(draft.videoGenerateFallbackModelKey),
+    talkingVideoEnabled: draft.talkingVideoEnabled,
     videoVcoinMonthlyGrant,
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
@@ -1696,6 +1700,8 @@ export function ToolActivationsEdit({
   onVideoGenerateModelKeyChange,
   videoGenerateFallbackModelKey,
   onVideoGenerateFallbackModelKeyChange,
+  talkingVideoEnabled,
+  onTalkingVideoEnabledChange,
   availableImageModelKeys,
   availableVideoModelKeys
 }: {
@@ -1713,6 +1719,8 @@ export function ToolActivationsEdit({
   onVideoGenerateModelKeyChange: (value: string) => void;
   videoGenerateFallbackModelKey: string;
   onVideoGenerateFallbackModelKeyChange: (value: string) => void;
+  talkingVideoEnabled: boolean;
+  onTalkingVideoEnabledChange: (value: boolean) => void;
   availableImageModelKeys: ModelOption[];
   availableVideoModelKeys: ModelOption[];
 }) {
@@ -1874,6 +1882,17 @@ export function ToolActivationsEdit({
                       options={availableVideoModelKeys}
                       placeholder="none"
                       className={modelSelectClasses}
+                    />
+                  </FieldRow>
+                  <FieldRow
+                    label="Talking-avatar enabled"
+                    tip="ADR-109 Slice 8 — enable HeyGen talking-avatar mode for this plan. When on, the LLM sees mode/speechText/personaId/portraitImageAlias/voiceKey fields and requests with mode='talking_avatar' are allowed."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={talkingVideoEnabled}
+                      onChange={(e) => onTalkingVideoEnabledChange(e.target.checked)}
+                      className="h-4 w-4 rounded border-border accent-accent"
                     />
                   </FieldRow>
                 </>
@@ -3453,6 +3472,8 @@ export function PlanForm({
           onVideoGenerateFallbackModelKeyChange={(videoGenerateFallbackModelKey) =>
             onPatch({ videoGenerateFallbackModelKey })
           }
+          talkingVideoEnabled={draft.talkingVideoEnabled}
+          onTalkingVideoEnabledChange={(talkingVideoEnabled) => onPatch({ talkingVideoEnabled })}
           availableImageModelKeys={availableImageModelKeys}
           availableVideoModelKeys={availableVideoModelKeys}
         />

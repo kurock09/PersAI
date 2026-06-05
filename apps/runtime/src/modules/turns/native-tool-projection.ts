@@ -240,15 +240,23 @@ export function projectRuntimeNativeTools(
     "worker"
   );
   const videoGenerateCredential = resolveConfiguredCredentialRef(bundle, "video_generate");
+  // ADR-109 Slice 8: `talkingVideoEnabled` is materialised onto the policy by the bundle
+  // compile pipeline. When true, HeyGen (talking_avatar) is projected with the full
+  // talking-avatar schema. When false / absent, HeyGen is excluded (cinematic surface only).
+  const talkingVideoEnabled = videoGeneratePolicy?.talkingVideoEnabled === true;
   if (
     videoGeneratePolicy !== null &&
     videoGenerateCredential !== null &&
     supportsCurrentNativeVideoGenerateProvider(videoGenerateCredential.providerId ?? null) &&
-    // ADR-109 Slice 2b: talking_avatar rows are exposed via the Slice 9 plan toggle, not via the cinematic video_generate tool surface
-    !isTalkingAvatarVideoProvider(videoGenerateCredential.providerId)
+    // ADR-109 Slice 2b: talking_avatar rows are hidden unless the plan toggle is on.
+    (!isTalkingAvatarVideoProvider(videoGenerateCredential.providerId) || talkingVideoEnabled)
   ) {
     projectedTools.push(
-      createVideoGenerateToolDefinition(videoGeneratePolicy, videoGenerateCredential)
+      createVideoGenerateToolDefinition(
+        videoGeneratePolicy,
+        videoGenerateCredential,
+        talkingVideoEnabled
+      )
     );
   }
   const ttsPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "tts", "worker");
@@ -851,9 +859,13 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
 
 function createVideoGenerateToolDefinition(
   policy: RuntimeToolPolicy,
-  credential: AssistantRuntimeBundleToolCredentialRef
+  credential: AssistantRuntimeBundleToolCredentialRef,
+  talkingVideoEnabled: boolean
 ): ProviderGatewayToolDefinition {
   const voiceCatalogHint = describeVideoVoiceCatalogHint(credential);
+  const talkingAvatarHint = talkingVideoEnabled
+    ? "When the user wants a talking-avatar video, set mode='talking_avatar' and provide speechText. Supply personaId to use a saved character or portraitImageAlias to use a specific photo. voiceKey selects a voice from the materialized shortlist; omit it on the persona path to use the persona's default voice."
+    : null;
   return {
     name: "video_generate",
     description: appendToolDefinitionHint(
@@ -867,6 +879,7 @@ function createVideoGenerateToolDefinition(
       ),
       [
         "Prefer calling this tool immediately when the user clearly wants a video. Pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer.",
+        talkingAvatarHint,
         voiceCatalogHint
       ]
         .filter((entry): entry is string => entry !== null)
@@ -881,6 +894,41 @@ function createVideoGenerateToolDefinition(
           type: "string",
           description: "Text prompt describing the video clip to generate."
         },
+        ...(talkingVideoEnabled
+          ? {
+              mode: {
+                type: "string",
+                enum: ["cinematic", "talking_avatar"],
+                description:
+                  "Optional video generation mode. Use 'cinematic' (default) for standard AI video generation. Use 'talking_avatar' when the user wants a talking-avatar video with speech — requires speechText and either personaId or portraitImageAlias."
+              },
+              speechText: {
+                type: "string",
+                description:
+                  "The script the avatar will speak aloud. Required when mode='talking_avatar'. Keep it concise and natural for the video duration."
+              },
+              speechLanguage: {
+                type: "string",
+                description:
+                  "Optional BCP-47 language tag for the speech (e.g. 'en-US', 'ru-RU'). Omit to let the provider detect from speechText."
+              },
+              personaId: {
+                type: "string",
+                description:
+                  "Optional ID of a saved video persona (character) to use as the avatar. Use this when the assistant has a named character configured. Mutually exclusive with portraitImageAlias."
+              },
+              portraitImageAlias: {
+                type: "string",
+                description:
+                  "Optional human-readable alias of an available portrait image to use as an ad-hoc talking-avatar base, for example 'current image #1'. Use only when the user explicitly identifies a specific portrait alias. Mutually exclusive with personaId."
+              },
+              voiceKey: {
+                type: "string",
+                description:
+                  "Optional PersAI voice key from the materialized shortlist to override the persona's default voice. Omit on the persona path to use the persona's stored voice. Required on the portraitImageAlias path."
+              }
+            }
+          : {}),
         referenceImageAlias: {
           type: "string",
           description:

@@ -536,6 +536,9 @@ export class MaterializeAssistantPublishedVersionService {
       await this.resolvePlanVideoGenerateFallbackModelKey(
         effectiveCapabilities.derivedFrom.planCode
       );
+    const planTalkingVideoEnabled = await this.resolvePlanTalkingVideoEnabled(
+      effectiveCapabilities.derivedFrom.planCode
+    );
     const planVideoGenerateModelKey = resolveAllowedPlanCapabilityModelKey({
       runtimeProviderProfile,
       planModelKey: rawPlanVideoGenerateModelKey,
@@ -703,7 +706,7 @@ export class MaterializeAssistantPublishedVersionService {
     );
     const knowledgeAccess = buildRuntimeKnowledgeAccessConfig();
     const sandboxPolicy = await this.resolvePlanSandboxPolicy(effectivePlanCode);
-    const toolPolicies = resolveRuntimeToolPolicies({
+    const rawToolPolicies = resolveRuntimeToolPolicies({
       tools: toolAvailability.tools,
       planToolQuotaPolicy,
       toolCredentialRefs,
@@ -711,6 +714,11 @@ export class MaterializeAssistantPublishedVersionService {
       sandboxEnabled: sandboxPolicy.enabled,
       syntheticToolOverrides: buildSyntheticPromptToolOverrideMap(promptTemplateRows)
     });
+    // ADR-109 Slice 8: inject `talkingVideoEnabled` from the plan into the
+    // `video_generate` tool policy so the runtime gate in Slice 7 fires correctly.
+    const toolPolicies = rawToolPolicies.map((p) =>
+      p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: planTalkingVideoEnabled } : p
+    );
     const telegramChannel = await this.resolveTelegramChannelConfig(assistant.id);
     const planContextHydrationPolicy =
       await this.resolvePlanContextHydrationPolicy(effectivePlanCode);
@@ -1212,6 +1220,24 @@ export class MaterializeAssistantPublishedVersionService {
     planCode: string | null
   ): Promise<string | null> {
     return this.resolvePlanBillingHintString(planCode, "videoGenerateFallbackModelKey");
+  }
+
+  private async resolvePlanTalkingVideoEnabled(planCode: string | null): Promise<boolean> {
+    if (planCode === null) {
+      return false;
+    }
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) {
+      return false;
+    }
+    const hints = plan.billingProviderHints;
+    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) {
+      return false;
+    }
+    return (hints as Record<string, unknown>).talkingVideoEnabled === true;
   }
 
   private async resolvePlanRuntimeTierDefault(

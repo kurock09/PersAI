@@ -12197,6 +12197,14 @@ components:
         videoGenerateFallbackModelKey:
           type: string
           nullable: true
+        talkingVideoEnabled:
+          type: boolean
+          default: false
+          description: >-
+            ADR-109 Slice 8 — plan-level toggle that enables the
+            talking-avatar execution path for `video_generate`. When `false`
+            (default), assistants on this plan use the cinematic-only schema
+            and the runtime blocks `mode: "talking_avatar"` requests.
         videoVcoinMonthlyGrant:
           type: integer
           minimum: 0
@@ -12485,6 +12493,14 @@ components:
         videoGenerateFallbackModelKey:
           type: string
           nullable: true
+        talkingVideoEnabled:
+          type: boolean
+          default: false
+          description: >-
+            ADR-109 Slice 8 — plan-level toggle that enables the
+            talking-avatar execution path for `video_generate`. When `false`
+            (default), assistants on this plan use the cinematic-only schema
+            and the runtime blocks `mode: "talking_avatar"` requests.
         videoVcoinMonthlyGrant:
           type: integer
           minimum: 0

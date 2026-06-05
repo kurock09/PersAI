@@ -174,6 +174,15 @@ export type AdminPlanInput = {
   videoGenerateModelKey: string | null;
   videoGenerateFallbackModelKey: string | null;
   /**
+   * ADR-109 Slice 8 — plan-level toggle that enables the talking-avatar
+   * execution path for `video_generate`. When `false` (default), assistants
+   * on this plan use the cinematic-only schema and the runtime blocks any
+   * `mode: "talking_avatar"` request with `talking_avatar_plan_disabled`.
+   * Stored in `billingProviderHints`; materialized onto the bundle's
+   * `video_generate` tool policy so the runtime gate fires correctly.
+   */
+  talkingVideoEnabled: boolean;
+  /**
    * ADR-108 Slice 1 — monthly Vcoin grant credited into
    * `WorkspaceVcoinBalance` on subscription period boundary for plans whose
    * users get a recurring `video_generate` Vcoin budget. Stored inside the
@@ -245,6 +254,8 @@ export type AdminPlanState = {
   imageEditFallbackModelKey: string | null;
   videoGenerateModelKey: string | null;
   videoGenerateFallbackModelKey: string | null;
+  /** ADR-109 Slice 8 — see `AdminPlanInput.talkingVideoEnabled`. */
+  talkingVideoEnabled: boolean;
   /** ADR-108 Slice 1 — see `AdminPlanInput.videoVcoinMonthlyGrant`. */
   videoVcoinMonthlyGrant: number;
   runtimeTierDefault: AdminPlanRuntimeTier | null;

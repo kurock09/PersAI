@@ -64,6 +64,11 @@ export interface AdminPlanState {
   /** @nullable */
   videoGenerateFallbackModelKey?: string | null;
   /**
+   * ADR-109 Slice 8 — plan-level toggle that enables the talking-avatar execution path for `video_generate`. When `false` (default), assistants on this plan use the cinematic-only schema and the runtime blocks `mode: "talking_avatar"` requests.
+   * @default false
+   */
+  talkingVideoEnabled?: boolean;
+  /**
    * ADR-108 Slice 1 — monthly Vcoin grant credited into `WorkspaceVcoinBalance` on subscription period boundary for plans whose users get a recurring `video_generate` Vcoin budget. Default 0 ⇒ no grant. Slice 1 only round-trips the value; Slice 3 owns the granting service; Slice 5 owns the admin UI flip.
    * @minimum 0
    */
