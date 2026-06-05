@@ -8,4 +8,9 @@ import type { UserPlanVisibilityEntitlementsChannelsAndSurfaces } from "./userPl
 
 export interface UserPlanVisibilityEntitlements {
   channelsAndSurfaces: UserPlanVisibilityEntitlementsChannelsAndSurfaces;
+  /**
+   * Whether the talking-video (HeyGen persona) feature is enabled on this plan.
+   * @default false
+   */
+  talkingVideoEnabled?: boolean;
 }

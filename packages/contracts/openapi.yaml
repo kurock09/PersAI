@@ -5901,6 +5901,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /workspaces/{workspaceId}/video-personas/voice-catalog:
+    get:
+      operationId: getWorkspaceHeygenVoiceCatalog
+      summary: Get HeyGen voice catalog for workspace (ADR-109 Slice 9)
+      description: >-
+        Returns the platform HeyGen voice catalog (cached). Workspace ID is
+        used for auth-scoping only; the underlying catalog is platform-wide.
+        Returns `{ provider: "heygen", voices: [] }` when the catalog is
+        unavailable (no HeyGen credential or empty cache).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Voice catalog (may be empty)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceHeygenVoiceCatalogState"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /workspaces/{workspaceId}/video-personas:
     post:
       operationId: createWorkspaceVideoPersona
@@ -10083,6 +10120,7 @@ components:
       type: object
       required:
         - channelsAndSurfaces
+        - talkingVideoEnabled
       properties:
         channelsAndSurfaces:
           type: object
@@ -10100,6 +10138,10 @@ components:
               type: boolean
             max:
               type: boolean
+        talkingVideoEnabled:
+          type: boolean
+          default: false
+          description: Whether the talking-video (HeyGen persona) feature is enabled on this plan.
     QuotaAdvisoryTokenBudgetState:
       type: object
       required:
@@ -16128,6 +16170,7 @@ components:
       required:
         - personas
         - limit
+        - creationVcoinCost
       properties:
         personas:
           type: array
@@ -16137,3 +16180,42 @@ components:
           type: integer
           minimum: 1
           description: Platform-configured maximum active personas per workspace (`heygenPersonaWorkspaceLimit`).
+        creationVcoinCost:
+          type: integer
+          minimum: 0
+          description: VC cost to create one persona, sourced from `PlatformRuntimeProviderSettings.heygenPersonaCreationVcoin`.
+    WorkspaceHeygenVoiceCatalogEntry:
+      type: object
+      required:
+        - voiceId
+        - name
+        - language
+        - gender
+        - previewAudioUrl
+      properties:
+        voiceId:
+          type: string
+        name:
+          type: string
+        language:
+          type: string
+          nullable: true
+        gender:
+          type: string
+        previewAudioUrl:
+          type: string
+          nullable: true
+    WorkspaceHeygenVoiceCatalogState:
+      type: object
+      required:
+        - provider
+        - voices
+      properties:
+        provider:
+          type: string
+          enum:
+            - heygen
+        voices:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceHeygenVoiceCatalogEntry"

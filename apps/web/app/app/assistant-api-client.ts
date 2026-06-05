@@ -5535,3 +5535,115 @@ export async function postAdminSupportTicketClose(
   if (!data.ticket) throw new Error("Support close response missing ticket.");
   return data.ticket;
 }
+
+// ── ADR-109 Slice 9 — video persona + voice catalog API client ──────────────
+
+export type PersonaListItemDto = {
+  id: string;
+  displayName: string;
+  portraitImageUrl: string;
+  heygenVoiceId: string;
+  heygenVoiceLabel: string;
+  heygenAvatarId: string;
+  createdAt: string;
+};
+
+export type PersonaListResponse = {
+  personas: PersonaListItemDto[];
+  limit: number;
+  creationVcoinCost: number;
+};
+
+export type VoiceCatalogEntry = {
+  voiceId: string;
+  name: string;
+  language: string | null;
+  gender: string;
+  previewAudioUrl: string | null;
+};
+
+export type VoiceCatalogResponse = {
+  provider: "heygen";
+  voices: VoiceCatalogEntry[];
+};
+
+export async function getWorkspaceVideoPersonas(
+  token: string,
+  workspaceId: string
+): Promise<PersonaListResponse> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/video-personas`,
+    { headers: getAuthHeaders(token) }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load video personas."));
+  }
+  return res.json() as Promise<PersonaListResponse>;
+}
+
+export async function getWorkspaceVoiceCatalog(
+  token: string,
+  workspaceId: string
+): Promise<VoiceCatalogResponse> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/video-personas/voice-catalog`,
+    { headers: getAuthHeaders(token) }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load voice catalog."));
+  }
+  return res.json() as Promise<VoiceCatalogResponse>;
+}
+
+export async function createWorkspaceVideoPersona(
+  token: string,
+  workspaceId: string,
+  payload: {
+    displayName: string;
+    heygenVoiceId: string;
+    portrait: File;
+  }
+): Promise<{
+  persona: PersonaListItemDto;
+  walletBalanceVc: number;
+  storageWarning: string | null;
+}> {
+  const base = getApiBaseUrl();
+  const form = new FormData();
+  form.set("displayName", payload.displayName);
+  form.set("heygenVoiceId", payload.heygenVoiceId);
+  form.set("portrait", payload.portrait);
+
+  const res = await fetch(
+    `${base}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/video-personas`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form }
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    const code = (body?.["code"] ?? body?.["message"] ?? "create_failed") as string;
+    throw Object.assign(new Error(code), { errorCode: code });
+  }
+  const data = (await res.json()) as {
+    persona: PersonaListItemDto;
+    walletBalanceVc: number;
+    storageWarning: string | null;
+  };
+  return data;
+}
+
+export async function deleteWorkspaceVideoPersona(
+  token: string,
+  workspaceId: string,
+  personaId: string
+): Promise<void> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/video-personas/${encodeURIComponent(personaId)}`,
+    { method: "DELETE", headers: getAuthHeaders(token) }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to delete persona."));
+  }
+}

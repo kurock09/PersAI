@@ -241,7 +241,9 @@ export class ResolvePlanVisibilityService {
           telegram: effectiveCapabilities.channelsAndSurfaces.telegram,
           whatsapp: effectiveCapabilities.channelsAndSurfaces.whatsapp,
           max: effectiveCapabilities.channelsAndSurfaces.max
-        }
+        },
+        talkingVideoEnabled:
+          asObject(plan?.billingProviderHints ?? null)?.talkingVideoEnabled === true
       },
       advisories: buildPlanQuotaAdvisories({
         currentPlanAmountMinor: resolvePlanPresentationAmountMinor(plan),

@@ -60,7 +60,11 @@ const assistantApiMocks = vi.hoisted(() => ({
   getAssistantBillingSubscription: vi.fn(),
   postAssistantBillingEnableAutoRenew: vi.fn(),
   postAssistantBillingDisableAutoRenew: vi.fn(),
-  postAssistantBillingChangePlan: vi.fn()
+  postAssistantBillingChangePlan: vi.fn(),
+  getWorkspaceVideoPersonas: vi.fn(),
+  getWorkspaceVoiceCatalog: vi.fn(),
+  createWorkspaceVideoPersona: vi.fn(),
+  deleteWorkspaceVideoPersona: vi.fn()
 }));
 
 vi.mock("@clerk/nextjs", () => ({
@@ -105,7 +109,11 @@ vi.mock("../assistant-api-client", async () => {
     getAssistantBillingSubscription: assistantApiMocks.getAssistantBillingSubscription,
     postAssistantBillingEnableAutoRenew: assistantApiMocks.postAssistantBillingEnableAutoRenew,
     postAssistantBillingDisableAutoRenew: assistantApiMocks.postAssistantBillingDisableAutoRenew,
-    postAssistantBillingChangePlan: assistantApiMocks.postAssistantBillingChangePlan
+    postAssistantBillingChangePlan: assistantApiMocks.postAssistantBillingChangePlan,
+    getWorkspaceVideoPersonas: assistantApiMocks.getWorkspaceVideoPersonas,
+    getWorkspaceVoiceCatalog: assistantApiMocks.getWorkspaceVoiceCatalog,
+    createWorkspaceVideoPersona: assistantApiMocks.createWorkspaceVideoPersona,
+    deleteWorkspaceVideoPersona: assistantApiMocks.deleteWorkspaceVideoPersona
   };
 });
 
@@ -343,6 +351,29 @@ beforeEach(() => {
     files: [],
     cleanup: { eligibleCount: 0, eligibleBytes: 0 }
   });
+  assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+    personas: [],
+    limit: 3,
+    creationVcoinCost: 20
+  });
+  assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+    provider: "heygen",
+    voices: []
+  });
+  assistantApiMocks.createWorkspaceVideoPersona.mockResolvedValue({
+    persona: {
+      id: "persona-1",
+      displayName: "Test",
+      portraitImageUrl: "/api/persona-portrait/ws-1/persona-1/hash.jpg",
+      heygenVoiceId: "en-US-Amy",
+      heygenVoiceLabel: "Amy",
+      heygenAvatarId: "ava-1",
+      createdAt: new Date().toISOString()
+    },
+    walletBalanceVc: 80,
+    storageWarning: null
+  });
+  assistantApiMocks.deleteWorkspaceVideoPersona.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -2731,6 +2762,374 @@ describe("AssistantSettings limits", () => {
 // ---------------------------------------------------------------------------
 // Smoke: NextIntl wrapping behaviour (sanity check that the test harness
 // renders without throwing — guards against future breakage of the helper).
+// ---------------------------------------------------------------------------
+
+describe("test harness sanity", () => {
+  it("can render an empty AssistantSettings without crashing", async () => {
+    render(withIntl(<AssistantSettings data={makeAppData()} initialSection="memory" />));
+    await waitFor(() => {
+      expect(assistantApiMocks.getAssistantMemoryItems).toHaveBeenCalled();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Characters section — ADR-109 Slice 9
+// ---------------------------------------------------------------------------
+
+function makePlanData(
+  overrides: { talkingVideoEnabled?: boolean } = {}
+): NonNullable<AppData["plan"]> {
+  return {
+    effectivePlan: {
+      code: "pro",
+      displayName: "Pro",
+      status: "active",
+      source: "workspace_subscription",
+      subscriptionStatus: "active",
+      trialEndsAt: null,
+      graceStartedAt: null,
+      graceEndsAt: null,
+      currentPeriodEndsAt: null,
+      isTrialPlan: false,
+      trialFallbackPlanCode: null,
+      paidFallbackPlanCode: null,
+      price: { amount: null, currency: null, billingPeriod: null }
+    },
+    entitlements: {
+      channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false },
+      ...(overrides.talkingVideoEnabled !== undefined
+        ? { talkingVideoEnabled: overrides.talkingVideoEnabled }
+        : {})
+    },
+    advisories: {
+      warningThresholdPercent: 90,
+      isFreePlan: false,
+      higherPaidPlanAvailable: false,
+      highestVisiblePaidPlanCode: null,
+      tokenBudget: {
+        periodStartedAt: null,
+        periodEndsAt: null,
+        periodSource: null,
+        paidLightModeEligible: false,
+        paidLightModeActive: false,
+        paidLightModeReason: null
+      }
+    },
+    limits: {
+      quotaBuckets: [],
+      monthlyToolQuotas: { planCode: "pro", periodStartedAt: null, tools: [] },
+      toolDailyLimits: []
+    },
+    packageOffers: { items: [] },
+    workspaceVcoinBalance: { balanceVc: 100, videoVcoinMonthlyGrant: 0, vcoinExchangeRate: 20 },
+    updatedAt: new Date().toISOString()
+  } as unknown as NonNullable<AppData["plan"]>;
+}
+
+describe("characters section", () => {
+  it("State A (locked): renders header + lockedHint + mock card; no create button; endpoints not called", async () => {
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: false }) }),
+      "characters"
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Characters")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: "Create character" })).toBeNull();
+    expect(screen.getByText("Masha")).toBeInTheDocument();
+    expect(assistantApiMocks.getWorkspaceVideoPersonas).not.toHaveBeenCalled();
+    expect(assistantApiMocks.getWorkspaceVoiceCatalog).not.toHaveBeenCalled();
+  });
+
+  it("State A (locked): no plan → locked state (talkingVideoEnabled defaults to false)", async () => {
+    renderSettings(makeAppData({ plan: null }), "characters");
+
+    await waitFor(() => {
+      expect(screen.getByText("Characters")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: "Create character" })).toBeNull();
+    expect(assistantApiMocks.getWorkspaceVideoPersonas).not.toHaveBeenCalled();
+  });
+
+  it("State B (unlocked) empty: renders header + empty state + create button", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: []
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    await waitFor(() => {
+      expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Create a character to make talking videos with a consistent face and voice"
+        )
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "Create character" })).toBeInTheDocument();
+  });
+
+  it("State B (unlocked) with personas: shows persona cards", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [
+        {
+          id: "p-1",
+          displayName: "Masha",
+          portraitImageUrl: "/api/persona-portrait/ws-1/p-1/hash.jpg",
+          heygenVoiceId: "ru-RU-Masha",
+          heygenVoiceLabel: "Masha Russian",
+          heygenAvatarId: "ava-1",
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "p-2",
+          displayName: "Boris",
+          portraitImageUrl: "/api/persona-portrait/ws-1/p-2/hash.jpg",
+          heygenVoiceId: "ru-RU-Boris",
+          heygenVoiceLabel: "Boris Russian",
+          heygenAvatarId: "ava-2",
+          createdAt: new Date().toISOString()
+        }
+      ],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: [
+        {
+          voiceId: "ru-RU-Masha",
+          name: "Masha",
+          language: "ru-RU",
+          gender: "female",
+          previewAudioUrl: "https://cdn.heygen.com/masha.mp3"
+        }
+      ]
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Masha")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Boris")).toBeInTheDocument();
+    expect(screen.getByText("Voice: Masha Russian")).toBeInTheDocument();
+    expect(screen.getByText("Voice: Boris Russian")).toBeInTheDocument();
+  });
+
+  it("Create flow: opens modal on Create click", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    await waitFor(() => {
+      expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
+    });
+
+    const createBtn = await screen.findByRole("button", { name: "Create character" });
+    fireEvent.click(createBtn);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Character name")).toBeInTheDocument();
+    });
+  });
+
+  it("Create flow: insufficient balance disables submit", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [],
+      limit: 3,
+      creationVcoinCost: 200
+    });
+
+    renderSettings(
+      makeAppData({
+        plan: {
+          ...makePlanData({ talkingVideoEnabled: true }),
+          workspaceVcoinBalance: { balanceVc: 10, videoVcoinMonthlyGrant: 0, vcoinExchangeRate: 20 }
+        } as unknown as NonNullable<AppData["plan"]>
+      }),
+      "characters"
+    );
+
+    await waitFor(() => {
+      expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
+    });
+
+    const createBtn = await screen.findByRole("button", { name: "Create character" });
+    fireEvent.click(createBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Insufficient balance — top up")).toBeInTheDocument();
+    });
+  });
+
+  it("Create flow: persona limit reached disables top-level Create button", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [
+        {
+          id: "p-1",
+          displayName: "PersonaAlpha",
+          portraitImageUrl: "",
+          heygenVoiceId: "v-1",
+          heygenVoiceLabel: "Voice A",
+          heygenAvatarId: "ava-1",
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "p-2",
+          displayName: "PersonaBeta",
+          portraitImageUrl: "",
+          heygenVoiceId: "v-2",
+          heygenVoiceLabel: "Voice B",
+          heygenAvatarId: "ava-2",
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "p-3",
+          displayName: "PersonaGamma",
+          portraitImageUrl: "",
+          heygenVoiceId: "v-3",
+          heygenVoiceLabel: "Voice C",
+          heygenAvatarId: "ava-3",
+          createdAt: new Date().toISOString()
+        }
+      ],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    await waitFor(() => {
+      expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
+    });
+
+    // When personas.length >= limit, the Create button should be disabled
+    await waitFor(() => {
+      const createBtn = screen.getByRole("button", { name: "Create character" });
+      expect(createBtn).toBeDisabled();
+    });
+  });
+
+  it("Delete flow: opens confirm modal on delete click", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [
+        {
+          id: "p-del",
+          displayName: "DeleteMe",
+          portraitImageUrl: "",
+          heygenVoiceId: "v-1",
+          heygenVoiceLabel: "Voice 1",
+          heygenAvatarId: "ava-del",
+          createdAt: new Date().toISOString()
+        }
+      ],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("DeleteMe")).toBeInTheDocument();
+    });
+
+    const deleteBtn = screen.getByRole("button", { name: "Delete character" });
+    fireEvent.click(deleteBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Delete character «DeleteMe»\? VC is not refunded\./)
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("Delete flow: DELETE called + list refreshes on confirm", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [
+        {
+          id: "p-del",
+          displayName: "DeleteMe",
+          portraitImageUrl: "",
+          heygenVoiceId: "v-1",
+          heygenVoiceLabel: "Voice 1",
+          heygenAvatarId: "ava-del",
+          createdAt: new Date().toISOString()
+        }
+      ],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("DeleteMe")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete character" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    });
+
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.deleteWorkspaceVideoPersona).toHaveBeenCalledWith(
+        "token-1",
+        "ws-1",
+        "p-del"
+      );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Smoke: NextIntl wrapping behaviour
 // ---------------------------------------------------------------------------
 
 describe("test harness sanity", () => {

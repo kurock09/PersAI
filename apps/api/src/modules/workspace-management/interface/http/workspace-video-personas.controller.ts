@@ -19,6 +19,10 @@ import {
   type CreatePersonaResult,
   type PersonaListItem
 } from "../../application/heygen/manage-workspace-video-personas.service";
+import {
+  ReadHeygenVoiceCatalogForWorkspaceService,
+  type WorkspaceVoiceCatalogResult
+} from "../../application/heygen/read-heygen-voice-catalog-for-workspace.service";
 
 /**
  * ADR-109 Slice 5 — workspace-scoped video persona REST controller.
@@ -38,7 +42,8 @@ import {
 @Controller("api/v1/workspaces/:workspaceId/video-personas")
 export class WorkspaceVideoPersonasController {
   constructor(
-    private readonly manageWorkspaceVideoPersonasService: ManageWorkspaceVideoPersonasService
+    private readonly manageWorkspaceVideoPersonasService: ManageWorkspaceVideoPersonasService,
+    private readonly readHeygenVoiceCatalogForWorkspaceService: ReadHeygenVoiceCatalogForWorkspaceService
   ) {}
 
   @Post()
@@ -80,10 +85,25 @@ export class WorkspaceVideoPersonasController {
   async listPersonas(
     @Req() req: RequestWithPlatformContext,
     @Param("workspaceId") workspaceId: string
-  ): Promise<{ personas: PersonaListItem[]; limit: number }> {
+  ): Promise<{ personas: PersonaListItem[]; limit: number; creationVcoinCost: number }> {
     this.resolveUserId(req);
     this.assertWorkspaceAccess(req, workspaceId);
     return this.manageWorkspaceVideoPersonasService.listPersonas({ workspaceId });
+  }
+
+  @Get("voice-catalog")
+  async getVoiceCatalog(
+    @Req() req: RequestWithPlatformContext,
+    @Param("workspaceId") workspaceId: string
+  ): Promise<{ provider: "heygen"; voices: NonNullable<WorkspaceVoiceCatalogResult>["voices"] }> {
+    this.resolveUserId(req);
+    this.assertWorkspaceAccess(req, workspaceId);
+    const result =
+      await this.readHeygenVoiceCatalogForWorkspaceService.getVoiceCatalogForWorkspace(workspaceId);
+    return {
+      provider: "heygen",
+      voices: result?.voices ?? []
+    };
   }
 
   @Delete(":personaId")

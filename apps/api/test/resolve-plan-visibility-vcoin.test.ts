@@ -344,6 +344,135 @@ async function run(): Promise<void> {
       "non-default exchange rate 25 round-trips"
     );
   }
+
+  // ── talkingVideoEnabled cases (ADR-109 Slice 9) ─────────────────────────
+
+  function makeMinimalService(billingProviderHints: Record<string, unknown> | null) {
+    return createService({
+      resolveActiveAssistantService: {
+        async execute() {
+          return { assistant: { id: "ast-tv", userId: "user-tv", workspaceId: "ws-tv" } };
+        }
+      },
+      assistantGovernanceRepository: {
+        async findByAssistantId() {
+          return { assistantPlanOverrideCode: null, quotaPlanCode: null };
+        }
+      },
+      resolveEffectiveSubscriptionStateService: {
+        async execute() {
+          return makeSubscription("pro-tv");
+        }
+      },
+      assistantPlanCatalogRepository: {
+        async findByCode() {
+          return {
+            id: "plan-pro-tv",
+            code: "pro-tv",
+            displayName: "Pro TV",
+            description: null,
+            status: "active",
+            billingProviderHints,
+            toolActivations: [],
+            isDefaultFirstRegistrationPlan: false,
+            isTrialPlan: false,
+            trialDurationDays: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      },
+      workspaceVcoinBalanceRepository: {
+        async getOrCreate(workspaceId: string) {
+          return { workspaceId, balanceVc: 0, updatedAt: new Date() };
+        }
+      },
+      resolveEffectiveCapabilityStateService: {
+        async execute() {
+          return minimalCapabilities;
+        }
+      },
+      trackWorkspaceQuotaUsageService: {
+        async resolveAssistantQuotaSnapshot() {
+          return minimalQuotaSnapshot;
+        },
+        async resolveAssistantTokenBudgetQuotaSnapshot() {
+          return minimalTokenBudget;
+        },
+        async resolveAssistantMonthlyToolQuotaSnapshot() {
+          return [];
+        },
+        async checkToolDailyLimit() {
+          return { currentCount: 0, periodStartedAt: null, periodEndsAt: null, periodSource: null };
+        }
+      },
+      manageAdminPlansService: {
+        async listPublicPricingPlans() {
+          return [];
+        }
+      },
+      manageMediaPackageCatalogService: {
+        async listPublic() {
+          return [];
+        }
+      },
+      resolvePlatformRuntimeProviderSettingsService: {
+        async execute() {
+          return { vcoinExchangeRate: 20 };
+        }
+      }
+    });
+  }
+
+  // Case: talkingVideoEnabled: true in hints → entitlements.talkingVideoEnabled = true
+  {
+    const service = makeMinimalService({ talkingVideoEnabled: true });
+    const result = await service.getUserVisibility("user-tv");
+    assert.equal(
+      result.entitlements.talkingVideoEnabled,
+      true,
+      "talkingVideoEnabled must be true when hints.talkingVideoEnabled = true"
+    );
+    console.log("✓ talkingVideoEnabled = true when hints.talkingVideoEnabled = true");
+  }
+
+  // Case: talkingVideoEnabled: false in hints → entitlements.talkingVideoEnabled = false
+  {
+    const service = makeMinimalService({ talkingVideoEnabled: false });
+    const result = await service.getUserVisibility("user-tv");
+    assert.equal(
+      result.entitlements.talkingVideoEnabled,
+      false,
+      "talkingVideoEnabled must be false when hints.talkingVideoEnabled = false"
+    );
+    console.log("✓ talkingVideoEnabled = false when hints.talkingVideoEnabled = false");
+  }
+
+  // Case: talkingVideoEnabled missing from hints → defaults to false
+  {
+    const service = makeMinimalService({ videoVcoinMonthlyGrant: 100 });
+    const result = await service.getUserVisibility("user-tv");
+    assert.equal(
+      result.entitlements.talkingVideoEnabled,
+      false,
+      "talkingVideoEnabled must default to false when missing from hints"
+    );
+    console.log("✓ talkingVideoEnabled defaults to false when missing from hints");
+  }
+
+  // Case: billingProviderHints is null → defaults to false
+  {
+    const service = makeMinimalService(null);
+    const result = await service.getUserVisibility("user-tv");
+    assert.equal(
+      result.entitlements.talkingVideoEnabled,
+      false,
+      "talkingVideoEnabled must default to false when billingProviderHints is null"
+    );
+    console.log("✓ talkingVideoEnabled defaults to false when billingProviderHints is null");
+  }
+
+  console.log("\nresolve-plan-visibility-vcoin: all assertions passed");
 }
 
 void run();

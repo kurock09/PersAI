@@ -64,6 +64,7 @@ export type UserPlanVisibilityState = {
       whatsapp: boolean;
       max: boolean;
     };
+    talkingVideoEnabled: boolean;
   };
   advisories: PlanQuotaAdvisoryState;
   limits: {

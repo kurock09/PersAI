@@ -1,0 +1,50 @@
+import { Injectable } from "@nestjs/common";
+import type { RuntimeVideoVoiceCatalogEntry } from "@persai/runtime-contract";
+import { HeyGenVoiceCatalogService } from "./heygen-voice-catalog.service";
+
+export type WorkspaceVoiceCatalogEntry = {
+  voiceId: string;
+  name: string;
+  language: string | null;
+  gender: string;
+  previewAudioUrl: string | null;
+};
+
+export type WorkspaceVoiceCatalogResult = {
+  provider: "heygen";
+  voices: WorkspaceVoiceCatalogEntry[];
+} | null;
+
+/**
+ * ADR-109 Slice 9 — workspace-scoped voice catalog reader for the settings UI.
+ *
+ * Wraps the platform-wide HeyGen voice catalog cache (Slice 4) and
+ * re-projects it into a UI-friendly shape. The workspace ID is accepted
+ * at the controller layer for auth-scoping only; the underlying data is
+ * platform-wide (no per-workspace filtering).
+ *
+ * Returns null when the catalog is unavailable (no HeyGen credential or
+ * empty cache). The UI should render an honest "voice catalog unavailable"
+ * message in that case.
+ */
+@Injectable()
+export class ReadHeygenVoiceCatalogForWorkspaceService {
+  constructor(private readonly heyGenVoiceCatalogService: HeyGenVoiceCatalogService) {}
+
+  async getVoiceCatalogForWorkspace(_workspaceId: string): Promise<WorkspaceVoiceCatalogResult> {
+    const catalog = await this.heyGenVoiceCatalogService.getMaterializedVoiceCatalog();
+    if (catalog === null || catalog.shortlist.length === 0) {
+      return null;
+    }
+    return {
+      provider: "heygen",
+      voices: catalog.shortlist.map((entry: RuntimeVideoVoiceCatalogEntry) => ({
+        voiceId: entry.providerVoiceId,
+        name: entry.displayName,
+        language: entry.locale ?? null,
+        gender: entry.gender,
+        previewAudioUrl: entry.previewAudioUrl ?? null
+      }))
+    };
+  }
+}

@@ -25,7 +25,8 @@ import {
   ChevronRight,
   CreditCard,
   ExternalLink,
-  X
+  X,
+  UserCircle2
 } from "lucide-react";
 import type {
   AssistantLimitState,
@@ -78,9 +79,16 @@ import {
   type AssistantBillingSubscriptionManagementState,
   type WorkspaceMemoryItem,
   type AssistantSkillsState,
-  getAssistantSupportTickets
+  getAssistantSupportTickets,
+  getWorkspaceVideoPersonas,
+  getWorkspaceVoiceCatalog,
+  createWorkspaceVideoPersona,
+  deleteWorkspaceVideoPersona,
+  type PersonaListItemDto,
+  type VoiceCatalogEntry
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
+import { VoicePreviewButton } from "../../_components/voice-preview-button";
 import { AssistantSupportSection } from "./assistant-support-section";
 import { resolveBillingSummaryCopy } from "./billing-summary";
 import {
@@ -121,6 +129,7 @@ type MonthlyToolQuotaToolState = Omit<MonthlyToolQuotaSnapshot["tools"][number],
 type ToolDailyLimitState = UserPlanVisibilityState["limits"]["toolDailyLimits"][number];
 type SettingsSectionId =
   | "character"
+  | "characters"
   | "knowledge"
   | "files"
   | "skills"
@@ -141,6 +150,7 @@ function normalizeInitialSection(value: string | undefined): SettingsSectionId {
     case "support":
     case "limits":
     case "character":
+    case "characters":
       return value;
     default:
       return "character";
@@ -1059,6 +1069,67 @@ export function AssistantSettings({
     normalizeInitialSection(initialSection)
   );
 
+  // ── Characters section state (ADR-109 Slice 9) ────────────────────────────
+  const [personaList, setPersonaList] = useState<PersonaListItemDto[]>([]);
+  const [personaLimit, setPersonaLimit] = useState<number>(3);
+  const [personaCreationVcoinCost, setPersonaCreationVcoinCost] = useState<number>(0);
+  const [personaListLoading, setPersonaListLoading] = useState(false);
+  const [voiceCatalog, setVoiceCatalog] = useState<VoiceCatalogEntry[]>([]);
+  const [voiceCatalogLoading, setVoiceCatalogLoading] = useState(false);
+  const [voiceCatalogUnavailable, setVoiceCatalogUnavailable] = useState(false);
+  const [createPersonaOpen, setCreatePersonaOpen] = useState(false);
+  const [createPersonaName, setCreatePersonaName] = useState("");
+  const [createPersonaVoiceId, setCreatePersonaVoiceId] = useState<string | null>(null);
+  const [createPersonaPortrait, setCreatePersonaPortrait] = useState<File | null>(null);
+  const [createPersonaPortraitPreview, setCreatePersonaPortraitPreview] = useState<string | null>(
+    null
+  );
+  const [createPersonaSubmitting, setCreatePersonaSubmitting] = useState(false);
+  const [createPersonaError, setCreatePersonaError] = useState<string | null>(null);
+  const [createPersonaPortraitError, setCreatePersonaPortraitError] = useState<string | null>(null);
+  const [deletePersonaId, setDeletePersonaId] = useState<string | null>(null);
+  const [deletePersonaName, setDeletePersonaName] = useState<string | null>(null);
+  const [deletePersonaSubmitting, setDeletePersonaSubmitting] = useState(false);
+  const [personaFb, setPersonaFb] = useState<ActionFeedback>(null);
+  const personaPortraitInputRef = useRef<HTMLInputElement>(null);
+
+  const loadPersonas = useCallback(async () => {
+    const workspaceId = assistant?.workspaceId;
+    if (!workspaceId) return;
+    const token = await getToken();
+    if (!token) return;
+    setPersonaListLoading(true);
+    try {
+      const result = await getWorkspaceVideoPersonas(token, workspaceId);
+      setPersonaList(result.personas);
+      setPersonaLimit(result.limit);
+      setPersonaCreationVcoinCost(result.creationVcoinCost);
+    } catch {
+      // Keep last known list on refresh failure
+    } finally {
+      setPersonaListLoading(false);
+    }
+  }, [assistant?.workspaceId, getToken]);
+
+  const loadVoiceCatalog = useCallback(async () => {
+    const workspaceId = assistant?.workspaceId;
+    if (!workspaceId) return;
+    const token = await getToken();
+    if (!token) return;
+    setVoiceCatalogLoading(true);
+    try {
+      const result = await getWorkspaceVoiceCatalog(token, workspaceId);
+      setVoiceCatalog(result.voices);
+      setVoiceCatalogUnavailable(result.voices.length === 0);
+    } catch {
+      setVoiceCatalogUnavailable(true);
+    } finally {
+      setVoiceCatalogLoading(false);
+    }
+  }, [assistant?.workspaceId, getToken]);
+
+  const talkingVideoEnabled = data.plan?.entitlements?.talkingVideoEnabled === true;
+
   const refreshSupportUnreadCount = useCallback(async () => {
     if (!assistant?.id) {
       setSupportUnreadCount(0);
@@ -1085,6 +1156,14 @@ export function AssistantSettings({
   useEffect(() => {
     onSupportUnreadCountChange?.(supportUnreadCount);
   }, [onSupportUnreadCountChange, supportUnreadCount]);
+
+  // Load personas + voice catalog when the characters section becomes active and unlocked
+  useEffect(() => {
+    if (openSection === "characters" && talkingVideoEnabled) {
+      void loadPersonas();
+      void loadVoiceCatalog();
+    }
+  }, [openSection, talkingVideoEnabled, loadPersonas, loadVoiceCatalog]);
   const billingStatusLabel = useCallback(
     (
       status: AssistantBillingSubscriptionManagementState["subscriptionStatus"] | null | undefined
@@ -2056,6 +2135,22 @@ export function AssistantSettings({
     },
     [getToken, data]
   );
+
+  function handlePersonaPortraitFile(file: File): void {
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setCreatePersonaPortraitError(t("charactersFormPortraitSizeError"));
+      return;
+    }
+    if (!["image/jpeg", "image/png"].includes(file.type)) {
+      setCreatePersonaPortraitError(t("charactersFormPortraitTypeError"));
+      return;
+    }
+    setCreatePersonaPortraitError(null);
+    setCreatePersonaPortrait(file);
+    const url = URL.createObjectURL(file);
+    setCreatePersonaPortraitPreview(url);
+  }
 
   if (resetting) {
     return (
@@ -3116,6 +3211,490 @@ export function AssistantSettings({
             />
           </Section>
         ) : null}
+
+        {/* Characters — video personas */}
+        <Section
+          icon={<UserCircle2 className="h-4 w-4" />}
+          title={t("charactersTitle")}
+          open={openSection === "characters"}
+          onToggle={() =>
+            setOpenSection((current) => (current === "characters" ? null : "characters"))
+          }
+          className="order-10"
+        >
+          {!talkingVideoEnabled ? (
+            // State A — locked-with-upsell
+            <div className="flex flex-col gap-3">
+              <p className="text-xs italic text-text-muted">
+                {t("charactersLockedHint", { plan: data.plan?.effectivePlan.code ?? "Pro" })}{" "}
+                <a
+                  href="/pricing"
+                  className="text-text-muted underline underline-offset-2 opacity-70 hover:opacity-100"
+                >
+                  {t("changePlan")}
+                </a>
+              </p>
+              <p className="rounded-xl border border-border/60 bg-surface-raised/30 px-3 py-2 text-xs text-text-subtle">
+                {t("charactersLockedBanner")}
+              </p>
+              {/* Mock disabled card */}
+              <div className="rounded-xl border border-border/50 bg-surface-raised/20 p-3 opacity-60">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-sm font-medium text-accent">
+                    {t("charactersMockPersonaName").charAt(0)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-text">
+                      {t("charactersMockPersonaName")}
+                    </p>
+                    <p className="text-xs text-text-subtle">
+                      {t("charactersVoiceLabel", { voice: t("charactersMockPersonaVoice") })}
+                    </p>
+                  </div>
+                  <VoicePreviewButton
+                    previewAudioUrl={null}
+                    voiceLabel={t("charactersMockPersonaVoice")}
+                    previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            // State B — unlocked
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <span />
+                <button
+                  type="button"
+                  disabled={personaList.length >= personaLimit}
+                  title={
+                    personaList.length >= personaLimit
+                      ? t("charactersFormLimitReached", { n: personaLimit })
+                      : undefined
+                  }
+                  onClick={() => {
+                    setCreatePersonaName("");
+                    setCreatePersonaVoiceId(null);
+                    setCreatePersonaPortrait(null);
+                    setCreatePersonaPortraitPreview(null);
+                    setCreatePersonaError(null);
+                    setCreatePersonaPortraitError(null);
+                    setCreatePersonaOpen(true);
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-[11px] font-medium text-text transition-all hover:border-accent/50 hover:bg-accent/14",
+                    personaList.length >= personaLimit && "cursor-not-allowed opacity-50"
+                  )}
+                >
+                  {t("charactersCreate")}
+                </button>
+              </div>
+
+              {personaFb !== null && (
+                <p
+                  className={cn(
+                    "rounded-lg px-3 py-2 text-xs",
+                    personaFb.type === "ok"
+                      ? "bg-green-500/10 text-green-600"
+                      : "bg-destructive/10 text-destructive"
+                  )}
+                >
+                  {personaFb.text}
+                </p>
+              )}
+
+              {personaListLoading && personaList.length === 0 ? (
+                <div className="flex items-center gap-2 py-4 text-xs text-text-subtle">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>{t("charactersLoading")}</span>
+                </div>
+              ) : personaList.length === 0 ? (
+                <p className="py-4 text-center text-xs text-text-subtle">{t("charactersEmpty")}</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {personaList.map((persona) => {
+                    const catalogEntry = voiceCatalog.find(
+                      (v) => v.voiceId === persona.heygenVoiceId
+                    );
+                    return (
+                      <div
+                        key={persona.id}
+                        className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface p-3"
+                      >
+                        {persona.portraitImageUrl ? (
+                          <img
+                            src={persona.portraitImageUrl}
+                            alt={persona.displayName}
+                            className="h-10 w-10 shrink-0 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-sm font-medium text-accent">
+                            {persona.displayName.charAt(0)}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-text">
+                            {persona.displayName}
+                          </p>
+                          <p className="text-xs text-text-subtle">
+                            {t("charactersVoiceLabel", { voice: persona.heygenVoiceLabel })}
+                          </p>
+                        </div>
+                        <VoicePreviewButton
+                          previewAudioUrl={catalogEntry?.previewAudioUrl ?? null}
+                          voiceLabel={persona.heygenVoiceLabel}
+                          previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeletePersonaId(persona.id);
+                            setDeletePersonaName(persona.displayName);
+                          }}
+                          className="ml-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
+                          aria-label={t("charactersDeleteTitle")}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Delete confirm modal */}
+              {deletePersonaId !== null &&
+                typeof document !== "undefined" &&
+                createPortal(
+                  <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+                    onClick={(e) => {
+                      if (e.target === e.currentTarget) {
+                        setDeletePersonaId(null);
+                        setDeletePersonaName(null);
+                      }
+                    }}
+                    role="dialog"
+                    aria-modal="true"
+                  >
+                    <div className="mx-4 w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-xl">
+                      <h2 className="text-sm font-semibold text-text">
+                        {t("charactersDeleteTitle")}
+                      </h2>
+                      <p className="mt-2 text-xs text-text-muted">
+                        {t("charactersDeleteConfirm", { name: deletePersonaName ?? "" })}
+                      </p>
+                      <div className="mt-4 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeletePersonaId(null);
+                            setDeletePersonaName(null);
+                          }}
+                          className="rounded-full border border-border px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-raised"
+                        >
+                          {t("charactersCancel")}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deletePersonaSubmitting}
+                          onClick={async () => {
+                            if (!deletePersonaId || !assistant?.workspaceId) return;
+                            const token = await getToken();
+                            if (!token) return;
+                            setDeletePersonaSubmitting(true);
+                            try {
+                              await deleteWorkspaceVideoPersona(
+                                token,
+                                assistant.workspaceId,
+                                deletePersonaId
+                              );
+                              setDeletePersonaId(null);
+                              setDeletePersonaName(null);
+                              setPersonaFb({ type: "ok", text: t("charactersDeleteSuccess") });
+                              void loadPersonas();
+                            } catch (err) {
+                              setPersonaFb({
+                                type: "err",
+                                text:
+                                  err instanceof Error ? err.message : t("charactersErrorGeneric")
+                              });
+                            } finally {
+                              setDeletePersonaSubmitting(false);
+                            }
+                          }}
+                          className={cn(
+                            "rounded-full bg-destructive px-3 py-1.5 text-xs font-medium text-white transition-opacity",
+                            deletePersonaSubmitting && "opacity-60"
+                          )}
+                        >
+                          {deletePersonaSubmitting ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            t("charactersDelete")
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>,
+                  document.body
+                )}
+
+              {/* Create persona modal */}
+              {createPersonaOpen &&
+                typeof document !== "undefined" &&
+                createPortal(
+                  <div
+                    className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 backdrop-blur-sm"
+                    onClick={(e) => {
+                      if (e.target === e.currentTarget) setCreatePersonaOpen(false);
+                    }}
+                    role="dialog"
+                    aria-modal="true"
+                  >
+                    <div className="relative mx-4 my-10 w-full max-w-md rounded-2xl border border-border bg-surface p-5 shadow-xl">
+                      <h2 className="mb-4 text-sm font-semibold text-text">
+                        {t("charactersCreate")}
+                      </h2>
+
+                      {/* Portrait upload */}
+                      <div className="mb-3">
+                        <p className="mb-1 text-[11px] font-medium text-text-subtle">
+                          {t("charactersFormPortrait")}
+                        </p>
+                        <div
+                          className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-surface-raised/30 py-5 transition-colors hover:border-border"
+                          onClick={() => personaPortraitInputRef.current?.click()}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const file = e.dataTransfer.files?.[0];
+                            if (file) handlePersonaPortraitFile(file);
+                          }}
+                        >
+                          {createPersonaPortraitPreview ? (
+                            <img
+                              src={createPersonaPortraitPreview}
+                              alt="Portrait preview"
+                              className="h-20 w-20 rounded-full object-cover"
+                            />
+                          ) : (
+                            <>
+                              <Upload className="mb-1 h-5 w-5 text-text-subtle" />
+                              <p className="text-xs text-text-subtle">
+                                {t("charactersFormPortraitDrop")}
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-text-subtle/70">
+                                {t("charactersFormPortraitHint")}
+                              </p>
+                            </>
+                          )}
+                        </div>
+                        <input
+                          ref={personaPortraitInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png"
+                          className="sr-only"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handlePersonaPortraitFile(file);
+                          }}
+                        />
+                        {createPersonaPortraitError && (
+                          <p className="mt-1 text-[11px] text-destructive">
+                            {createPersonaPortraitError}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Name */}
+                      <div className="mb-3">
+                        <label className="mb-1 block text-[11px] font-medium text-text-subtle">
+                          {t("charactersFormName")}
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={60}
+                          value={createPersonaName}
+                          onChange={(e) => setCreatePersonaName(e.target.value)}
+                          placeholder={t("charactersFormNamePlaceholder")}
+                          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+                        />
+                      </div>
+
+                      {/* Voice picker */}
+                      <div className="mb-3">
+                        <p className="mb-1 text-[11px] font-medium text-text-subtle">
+                          {t("charactersFormVoice")}
+                        </p>
+                        {voiceCatalogLoading ? (
+                          <div className="flex items-center gap-2 py-2 text-xs text-text-subtle">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span>{t("charactersLoading")}</span>
+                          </div>
+                        ) : voiceCatalogUnavailable || voiceCatalog.length === 0 ? (
+                          <p className="py-2 text-xs text-text-muted">
+                            {t("charactersFormVoiceUnavailable")}
+                          </p>
+                        ) : (
+                          <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
+                            {voiceCatalog.map((voice) => (
+                              <button
+                                type="button"
+                                key={voice.voiceId}
+                                onClick={() => setCreatePersonaVoiceId(voice.voiceId)}
+                                className={cn(
+                                  "flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised",
+                                  createPersonaVoiceId === voice.voiceId && "bg-accent/10"
+                                )}
+                              >
+                                <span className="flex-1 truncate font-medium text-text">
+                                  {voice.name}
+                                </span>
+                                <span className="shrink-0 text-text-subtle">
+                                  {voice.language ?? ""} · {voice.gender}
+                                </span>
+                                <VoicePreviewButton
+                                  previewAudioUrl={voice.previewAudioUrl}
+                                  voiceLabel={voice.name}
+                                  previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* VC cost line */}
+                      {(() => {
+                        const balance = data.plan?.workspaceVcoinBalance.balanceVc ?? 0;
+                        const cost = personaCreationVcoinCost;
+                        const remaining = balance - cost;
+                        const insufficient = balance < cost;
+                        return (
+                          <div className="mb-4 rounded-xl border border-border/50 bg-surface-raised/30 px-3 py-2 text-xs text-text-muted">
+                            {t("charactersFormCost", {
+                              n: cost,
+                              m: balance,
+                              remaining: Math.max(0, remaining)
+                            })}
+                            {insufficient && (
+                              <div className="mt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCreatePersonaOpen(false);
+                                    onOpenPackagesPage?.();
+                                  }}
+                                  className="text-accent underline underline-offset-2"
+                                >
+                                  {t("charactersFormInsufficient")}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {createPersonaError && (
+                        <p className="mb-3 text-xs text-destructive">{createPersonaError}</p>
+                      )}
+
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCreatePersonaOpen(false)}
+                          className="rounded-full border border-border px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-raised"
+                        >
+                          {t("charactersCancel")}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={
+                            createPersonaSubmitting ||
+                            createPersonaName.trim().length === 0 ||
+                            !createPersonaVoiceId ||
+                            !createPersonaPortrait ||
+                            (data.plan?.workspaceVcoinBalance.balanceVc ?? 0) <
+                              personaCreationVcoinCost
+                          }
+                          onClick={async () => {
+                            if (
+                              !assistant?.workspaceId ||
+                              !createPersonaVoiceId ||
+                              !createPersonaPortrait
+                            )
+                              return;
+                            const token = await getToken();
+                            if (!token) return;
+                            setCreatePersonaSubmitting(true);
+                            setCreatePersonaError(null);
+                            try {
+                              await createWorkspaceVideoPersona(token, assistant.workspaceId, {
+                                displayName: createPersonaName.trim(),
+                                heygenVoiceId: createPersonaVoiceId,
+                                portrait: createPersonaPortrait
+                              });
+                              setCreatePersonaOpen(false);
+                              setPersonaFb({
+                                type: "ok",
+                                text: t("charactersCreateSuccess")
+                              });
+                              void loadPersonas();
+                            } catch (err) {
+                              const code =
+                                err instanceof Error &&
+                                "errorCode" in err &&
+                                typeof (err as Record<string, unknown>)["errorCode"] === "string"
+                                  ? (err as Record<string, unknown>)["errorCode"]
+                                  : null;
+                              setCreatePersonaError(
+                                code === "persona_duplicate_name"
+                                  ? t("charactersErrorDuplicateName")
+                                  : code === "voice_not_found"
+                                    ? t("charactersErrorVoiceNotFound")
+                                    : code === "heygen_unavailable"
+                                      ? t("charactersErrorHeygenUnavailable")
+                                      : code === "heygen_avatar_create_failed"
+                                        ? t("charactersErrorHeygenAvatarCreateFailed")
+                                        : code === "persona_limit_reached"
+                                          ? t("charactersErrorPersonaLimitReached")
+                                          : code === "vcoin_balance_exhausted"
+                                            ? t("charactersErrorInsufficientBalance")
+                                            : t("charactersErrorGeneric")
+                              );
+                            } finally {
+                              setCreatePersonaSubmitting(false);
+                            }
+                          }}
+                          className={cn(
+                            "rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-white transition-opacity",
+                            (createPersonaSubmitting ||
+                              createPersonaName.trim().length === 0 ||
+                              !createPersonaVoiceId ||
+                              !createPersonaPortrait ||
+                              (data.plan?.workspaceVcoinBalance.balanceVc ?? 0) <
+                                personaCreationVcoinCost) &&
+                              "cursor-not-allowed opacity-50"
+                          )}
+                        >
+                          {createPersonaSubmitting ? (
+                            <span className="flex items-center gap-1.5">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              {t("charactersFormSubmitting")}
+                            </span>
+                          ) : (
+                            t("charactersFormSubmit")
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>,
+                  document.body
+                )}
+            </div>
+          )}
+        </Section>
 
         {/* 6. Limits & Plan */}
         <Section

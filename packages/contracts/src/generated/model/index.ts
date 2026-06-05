@@ -760,6 +760,8 @@ export * from "./userPlanVisibilityStateWorkspaceVcoinBalance";
 export * from "./workspaceSummary";
 export * from "./workspaceSummaryRole";
 export * from "./workspaceSummaryStatus";
+export * from "./workspaceHeygenVoiceCatalogEntry";
+export * from "./workspaceHeygenVoiceCatalogState";
 export * from "./workspaceVideoPersonaCreateResponse";
 export * from "./workspaceVideoPersonaListState";
 export * from "./workspaceVideoPersonaState";

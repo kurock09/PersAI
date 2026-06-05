@@ -2,6 +2,106 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-05 — ADR-109 Slice 9: Assistant Settings UI Characters (locked-with-upsell + unlocked persona management) + 3 substrate additions
+
+### What changed & why
+
+Baseline SHA at session start: Slice 8 closure (`f75ff2c3`). Tree clean.
+
+Slice 9 is the **first user-visible HeyGen talking-avatar UI** — end-users can now manage their workspace's video personas (characters) from the assistant settings page. The slice carries three substrate additions to expose existing data to the user-facing UI, plus a new shared web component, plus the actual Characters section in `assistant-settings.tsx`.
+
+**Substrate additions:**
+1. **`UserPlanVisibilityEntitlements.talkingVideoEnabled: boolean`** — exposes the Slice 8 plan toggle to the user-facing visibility API so the UI can decide locked-with-upsell vs unlocked mode. Defensive structural read of `billingProviderHints.talkingVideoEnabled === true` from `resolve-plan-visibility.service.ts`; default `false` for legacy plans.
+2. **Voice catalog endpoint** — `GET /api/v1/workspaces/:workspaceId/video-personas/voice-catalog` exposes the Slice 4 HeyGen voice cache to the UI. New `ReadHeygenVoiceCatalogForWorkspaceService` wraps the platform `HeyGenVoiceCatalogService` and re-projects to UI shape (`{ voiceId, name, language, gender, previewAudioUrl }`). Workspace ID is for auth-scoping; data is platform-wide. Returns empty `voices: []` honestly when cache is unavailable.
+3. **`WorkspaceVideoPersonaListState.creationVcoinCost: integer`** — sourced from `PlatformRuntimeProviderSettings.heygenPersonaCreationVcoin`; lets the UI render "Create for N VC" without a second roundtrip.
+
+**Shared component** `apps/web/app/_components/voice-preview-button.tsx`: HTML5 `<audio>` playback with module-level coordination (only one preview plays at a time); when `previewAudioUrl` is null/empty → grey disabled icon, when non-null → active Play/Pause toggle. **NO TTS fallback substrate** in this slice — per operator directive ("просто показывать серый значок play если нет превью"), voices without native HeyGen preview show a grey disabled icon. Slice 9b can add the TTS fallback later if real-world voices have a high null-rate.
+
+**Settings UI section** in `assistant-settings.tsx` between Character (1) and Limits (2), with two visual states gated structurally on `data.plan?.entitlements?.talkingVideoEnabled === true`:
+- **Locked-with-upsell** (false/missing): section header + italic upsell hint with inactive `/pricing` link + 1 mock disabled demo card ("Маша" with gray-circle placeholder portrait) + banner "Эти персонажи будут доступны при активации тарифа". Conversion-oriented but quiet per E4.
+- **Unlocked** (true): persona list with portrait/name/voice-label/preview-button; Create button (disabled with tooltip when `personas.length >= limit`); Create modal (portrait upload + name + voice picker with inline preview per option + VC cost line + submit disabled with link to `/app/packages` when insufficient balance); Delete confirm modal.
+
+i18n keys under `settings.characters.*` in both `en.json` and `ru.json`.
+
+### Subagent
+
+Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification gates green. Honored "no docs edits" rule (sixth subagent in a row to do so cleanly).
+
+**Subagent honesty wart:** the response contained "From prior session" hallucinated phrasing for files actually created in THIS session (similar to Slice 5b's "previous implementation attempt" hallucination). Orchestrator verified all files genuinely got created and are structurally correct (1427 insertions across 19 files); no impact on the slice. The wart is just summary-formatting confusion.
+
+### Files touched (Scope IN)
+
+**New files (4):**
+- `apps/api/src/modules/workspace-management/application/heygen/read-heygen-voice-catalog-for-workspace.service.ts` — wraps platform voice catalog cache, re-projects to UI shape, returns null when unavailable
+- `apps/api/test/read-heygen-voice-catalog-for-workspace.service.test.ts` — 4 assertions (happy path, null catalog, empty shortlist, `previewAudioUrl` present/null)
+- `apps/web/app/_components/voice-preview-button.tsx` — shared component with module-level audio coordination
+- `apps/web/app/_components/voice-preview-button.test.tsx` — 5 cases (active/disabled states, play/pause behavior, coordination)
+
+**New generated TS model files (2):**
+- `packages/contracts/src/generated/model/workspaceHeygenVoiceCatalogEntry.ts`
+- `packages/contracts/src/generated/model/workspaceHeygenVoiceCatalogState.ts`
+
+**Modified files (15):**
+- `apps/api/src/modules/workspace-management/application/plan-visibility.types.ts` — `talkingVideoEnabled` added to entitlements
+- `apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts` — defensive structural read of the flag from `billingProviderHints`
+- `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service.ts` — `listPersonas` return type extended with `creationVcoinCost` sourced from platform settings
+- `apps/api/src/modules/workspace-management/interface/http/workspace-video-personas.controller.ts` — new `GET voice-catalog` route, list return type extended
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` — registered `ReadHeygenVoiceCatalogForWorkspaceService`
+- `apps/api/test/resolve-plan-visibility-vcoin.test.ts` — +4 cases for `talkingVideoEnabled` defensive reads
+- `apps/web/app/app/_components/assistant-settings.tsx` — new section (+583 LOC) with both locked and unlocked states, Create modal, Delete confirm modal, voice catalog lookup, persona list fetch
+- `apps/web/app/app/_components/assistant-settings.test.tsx` — +403 LOC with `describe("characters section")` block, 8 new cases
+- `apps/web/app/app/assistant-api-client.ts` — new client methods: `getWorkspaceVideoPersonas`, `getWorkspaceVoiceCatalog`, `createWorkspaceVideoPersona`, `deleteWorkspaceVideoPersona`
+- `apps/web/messages/en.json` — `settings.characters.*` namespace keys
+- `apps/web/messages/ru.json` — RU translations for same namespace
+- `packages/contracts/openapi.yaml` — `talkingVideoEnabled` in `UserPlanVisibilityEntitlements`; new `/workspaces/{workspaceId}/video-personas/voice-catalog` GET path; `creationVcoinCost` on `WorkspaceVideoPersonaListState`; new `WorkspaceHeygenVoiceCatalogState` + `WorkspaceHeygenVoiceCatalogEntry` schemas
+- `packages/contracts/src/generated/model/index.ts` — registered 2 new generated models
+- `packages/contracts/src/generated/model/userPlanVisibilityEntitlements.ts` — `talkingVideoEnabled?: boolean` field added
+- `packages/contracts/src/generated/model/workspaceVideoPersonaListState.ts` — `creationVcoinCost?: number` field added
+
+### Honest subtleties
+
+- **`talkingVideoEnabled` JSON path the UI reads:** `data.plan?.entitlements?.talkingVideoEnabled === true`. The leading `?.` chain is necessary because `data.plan` can be `null` when no plan resolved (anonymous/no-workspace sentinel). Treating `null` plan as locked-state is the correct default per E4 ("the feature exists but is locked").
+- **Voice catalog lookup pattern (no N+1):** the settings section fetches `GET /voice-catalog` once on section mount, stores it in component state, and each persona card looks up its `previewAudioUrl` by exact `voices.find(v => v.voiceId === persona.heygenVoiceId)`. Single fetch, in-memory lookup. NO per-card refetch.
+- **Audio playback coordination:** module-level `currentlyPlayingAudio` and `currentlyPlayingSetPlaying` refs ensure only one preview plays at a time across the page. When a new button is clicked while another is playing, the previous one is paused and its React state is updated through the captured setter. No Redux, no context.
+- **Locked-state mock card:** static placeholder content rendered inline. Gray circle SVG with the persona's first initial. NO real image asset needed — keeps the locked state cheap to render even when the user has no real personas.
+- **`creationVcoinCost` flow:** `PlatformRuntimeProviderSettings.heygenPersonaCreationVcoin` (Slice 5 platform setting) → `ManageWorkspaceVideoPersonasService.listPersonas` reads it via `resolvePlatformRuntimeProviderSettingsService.execute()` → returned in the response → controller passes it through → `WorkspaceVideoPersonaListState.creationVcoinCost` → web client → UI cost line.
+- **Insufficient balance link:** `/app/packages` (verified against the existing packages page in the codebase). Slice 5 already established this as the canonical VC purchase route.
+- **i18n namespace:** keys live under `settings.characters.*` (under the existing `"settings"` top-level key in the messages JSON). This nests cleanly with the existing assistant settings i18n surface.
+- **Voice catalog endpoint returns empty list, not null, on cache miss:** the service layer returns `null`, but the controller layer projects to `{ provider: "heygen", voices: [] }` so the UI doesn't need null-handling. The UI shows "No voices available" when `voices.length === 0`.
+- **`createWorkspaceVideoPersona` web client uses multipart `FormData`:** the existing assistant avatar upload pattern (`uploadAssistantAvatar`) was the reference for how to send multipart from the web layer.
+- **NO new modal framework:** Create and Delete confirm modals reuse the existing `createPortal` pattern already used throughout `assistant-settings.tsx`.
+
+### Verification (all 12 gates PASS)
+
+1. `corepack pnpm -r --if-present run lint` — all `Done`. ✅
+2. `corepack pnpm run format:check` — `All matched files use Prettier code style!` ✅
+3. `corepack pnpm --filter @persai/api run typecheck` — exit 0. ✅
+4. `corepack pnpm --filter @persai/web run typecheck` — exit 0. ✅
+5. `corepack pnpm --filter @persai/runtime run typecheck` — exit 0. ✅
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — exit 0. ✅
+7. `corepack pnpm --filter @persai/contracts run typecheck` — exit 0. ✅
+8. `tsx apps/api/test/read-heygen-voice-catalog-for-workspace.service.test.ts` — `read-heygen-voice-catalog-for-workspace.service: all assertions passed` (4/4). ✅
+9. `tsx apps/api/test/resolve-plan-visibility-vcoin.test.ts` — `resolve-plan-visibility-vcoin: all assertions passed` (all `talkingVideoEnabled` cases + pre-existing). ✅
+10. `tsx apps/api/test/manage-workspace-video-personas.service.test.ts` — `manage-workspace-video-personas.service: all assertions passed` (Slice 5b regression clean; the `creationVcoinCost` field addition doesn't break existing tests). ✅
+11. `corepack pnpm --filter @persai/web run test` — `Test Files 65 passed (65); Tests 658 passed (658)` (was 643/643 pre-Slice-9 — added 8 characters section cases + 5 voice-preview-button cases + 2 implicit). ✅
+12. `tsx apps/runtime/test/runtime-video-generate-tool.service.test.ts` — exit 0 (Slice 7 regression clean; voice catalog endpoint addition doesn't touch runtime fixtures). ✅
+
+### Cross-slice invariants
+
+All 15 invariants verified true:
+- **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits. ✅
+- **#12 no keyword routing** — `talkingVideoEnabled === true` boolean equality everywhere; persona-name uniqueness delegated to existing REST API structural check; voice picker matches by exact `voiceId === heygenVoiceId`. ✅
+- **#14 REST-only persona mutation** — UI calls REST endpoints only via `createWorkspaceVideoPersona`/`deleteWorkspaceVideoPersona`; no runtime persona writes. ✅
+- **#15 NON-NEGOTIABLE** — voice catalog lookup is exact equality (`find((v) => v.voiceId === persona.heygenVoiceId)`); flag check is structural `=== true`; no regex/fuzzy/keyword match anywhere new. ✅
+
+### Next recommended slice
+
+**Slice 10 — Chat UX for talking video.** Update the `video_generate` tool description (which the LLM consumes) to teach the model when to use `mode: "talking_avatar"`, how to discover persona names from chat context (without keyword routing — model uses natural-language understanding), how to disambiguate when multiple personas share a name (structured `needs_disambiguation` result per erratum E8), and the single-character rule (operator-superseded — lives only in the tool description per Slice 3 erratum). Per the original spec, also includes the chat-side disambiguation card UI when the runtime returns `needs_disambiguation`. Slice 10 is a tool-description + chat UI slice; depends on Slice 8 (toggle materialization, done) and Slice 9 (persona management UI, done). Required tests: tool description rendered correctly in materialized bundle for plans with toggle on; disambiguation card renders structurally given a mock `needs_disambiguation` response.
+
+Alternative: **Slice 10b — Talking-video banner UX (time-based)** (per erratum E3). Pure-web slice. No backend changes. Can land in parallel with Slice 10 since they don't conflict. Recommended order: Slice 10 first (model behavior), then 10b (banner), then Slice 11 (live smoke test).
+
+---
+
 ## 2026-06-05 — ADR-109 Slice 8: Plan toggle `talkingVideoEnabled` + materialization gate + LLM tool-schema projection
 
 ### What changed & why

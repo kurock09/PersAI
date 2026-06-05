@@ -233,6 +233,7 @@ import { HeyGenVoiceCatalogService } from "./application/heygen/heygen-voice-cat
 import { HeyGenProviderGatewayClient } from "./application/heygen/heygen-provider-gateway.client";
 import { ManageWorkspaceVideoPersonasService } from "./application/heygen/manage-workspace-video-personas.service";
 import { ReadWorkspaceVideoPersonaService } from "./application/heygen/read-workspace-video-persona.service";
+import { ReadHeygenVoiceCatalogForWorkspaceService } from "./application/heygen/read-heygen-voice-catalog-for-workspace.service";
 import { WorkspaceVideoPersonasController } from "./interface/http/workspace-video-personas.controller";
 import { InternalRuntimeWorkspaceVideoPersonasController } from "./interface/http/internal-runtime-workspace-video-personas.controller";
 import { WORKSPACE_VIDEO_PERSONA_REPOSITORY } from "./domain/workspace-video-persona.repository";
@@ -771,6 +772,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     HeyGenProviderGatewayClient,
     ManageWorkspaceVideoPersonasService,
     ReadWorkspaceVideoPersonaService,
+    ReadHeygenVoiceCatalogForWorkspaceService,
     {
       provide: WORKSPACE_VIDEO_PERSONA_REPOSITORY,
       useClass: PrismaWorkspaceVideoPersonaRepository

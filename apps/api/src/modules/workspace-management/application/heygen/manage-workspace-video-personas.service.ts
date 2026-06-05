@@ -341,13 +341,15 @@ export class ManageWorkspaceVideoPersonasService {
 
   async listPersonas(input: {
     workspaceId: string;
-  }): Promise<{ personas: PersonaListItem[]; limit: number }> {
+  }): Promise<{ personas: PersonaListItem[]; limit: number; creationVcoinCost: number }> {
     const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
     const limit = settings.heygenPersonaWorkspaceLimit;
+    const creationVcoinCost = settings.heygenPersonaCreationVcoin;
     const rows = await this.personaRepository.listActive(input.workspaceId);
     return {
       personas: rows.map((row) => this.toListItem(row)),
-      limit
+      limit,
+      creationVcoinCost
     };
   }
 

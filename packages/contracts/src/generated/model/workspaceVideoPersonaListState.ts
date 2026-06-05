@@ -13,4 +13,9 @@ export interface WorkspaceVideoPersonaListState {
    * @minimum 1
    */
   limit: number;
+  /**
+   * VC cost to create one persona, sourced from `PlatformRuntimeProviderSettings.heygenPersonaCreationVcoin`.
+   * @minimum 0
+   */
+  creationVcoinCost: number;
 }
