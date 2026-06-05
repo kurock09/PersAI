@@ -1074,7 +1074,7 @@ export class RuntimeVideoGenerateToolService {
     // - exactly one of (personaId, portraitImageAlias)
     // For mode === "cinematic" or mode absent/null we silently ignore the new
     // fields. (No multi-character refusal in code; that constraint lives in the
-    // LLM-facing tool description per Slice 8 territory.)
+    // LLM-facing tool description — Slice 10 work.)
     if (mode === "talking_avatar") {
       if (speechText === null) {
         return new Error("speechText is required when mode is talking_avatar");
@@ -1926,11 +1926,9 @@ export class RuntimeVideoGenerateToolService {
       };
     }
 
-    // ── 2. Plan toggle — TODO(slice8) ────────────────────────────────────────
-    // Slice 8 will add `talkingVideoEnabled` to the tool policy / credential
-    // fields in the materialized bundle. Until Slice 8 lands, the field will be
-    // absent; default to permissive (do not block). When present and false,
-    // fail honestly with `talking_avatar_plan_disabled`.
+    // ── 2. Plan toggle — gate on talkingVideoEnabled entitlement ─────────────
+    // Reads talkingVideoEnabled from the materialized bundle tool policy.
+    // When false, fail with talking_avatar_plan_disabled (plan does not include this feature).
     const policy = this.resolveAllowedWorkerToolPolicy(bundle, VIDEO_GENERATE_TOOL_CODE);
     const talkingVideoEnabled = (policy as unknown as Record<string, unknown>)?.talkingVideoEnabled;
     if (talkingVideoEnabled === false) {
@@ -2392,11 +2390,9 @@ export class RuntimeVideoGenerateToolService {
     };
   }
 
-  // ADR-109 Slice 3: forward the talking-avatar fields to the provider gateway
-  // ONLY when mode === "talking_avatar". For mode === "cinematic" or absent,
-  // these fields are silently ignored and the gateway request is unchanged. The
-  // HeyGen branch in the provider gateway still throws the Slice 2a placeholder
-  // until Slice 6 implements runtime execution.
+  // ADR-109: forward the talking-avatar fields to the provider gateway ONLY
+  // when mode === "talking_avatar". For mode === "cinematic" or absent,
+  // these fields are silently ignored and the gateway request is unchanged.
   private buildGatewayTalkingAvatarFields(
     request: RuntimeVideoGenerateRequest
   ): Partial<

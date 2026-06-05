@@ -1213,7 +1213,9 @@
     "charactersPreviewUnavailable": "Preview unavailable",
     "charactersMockPersonaName": "Masha",
     "charactersMockPersonaVoice": "Russian (Female)",
-    "charactersVoiceLabel": "Voice: {voice}"
+    "charactersVoiceLabel": "Voice: {voice}",
+    "charactersWarnStorageFailedTitle": "Persona created, portrait failed",
+    "charactersWarnStorageFailedMessage": "{name} was created but the portrait could not be saved. Try recreating to attach the portrait."
   },
   "telegram": {
     "title": "Telegram",

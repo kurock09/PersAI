@@ -9,6 +9,7 @@ import { AssistantSettings, mergeMemoryViews } from "./assistant-settings";
 import { AssistantSettingsApkFooter } from "./assistant-settings-apk-footer";
 import type { AppData } from "./use-app-data";
 import type { WorkspaceMemoryItem } from "../assistant-api-client";
+import { ApiStructuredError } from "../assistant-api-client";
 
 const billingRecurringMigrationIdle = {
   status: "idle" as const,
@@ -367,7 +368,6 @@ beforeEach(() => {
       portraitImageUrl: "/api/persona-portrait/ws-1/persona-1/hash.jpg",
       heygenVoiceId: "en-US-Amy",
       heygenVoiceLabel: "Amy",
-      heygenAvatarId: "ava-1",
       createdAt: new Date().toISOString()
     },
     walletBalanceVc: 80,
@@ -1043,7 +1043,8 @@ describe("AssistantSettings limits", () => {
               telegram: true,
               whatsapp: false,
               max: false
-            }
+            },
+            talkingVideoEnabled: false
           },
           advisories: {
             warningThresholdPercent: 90,
@@ -2828,7 +2829,8 @@ function makePlanData(
 }
 
 describe("characters section", () => {
-  it("State A (locked): renders header + lockedHint + mock card; no create button; endpoints not called", async () => {
+  it("State A (locked): renders header + lockedHint; no create button; getWorkspaceVideoPersonas IS called; voice catalog NOT called", async () => {
+    // Default beforeEach mock returns empty personas list
     renderSettings(
       makeAppData({ plan: makePlanData({ talkingVideoEnabled: false }) }),
       "characters"
@@ -2839,12 +2841,17 @@ describe("characters section", () => {
     });
 
     expect(screen.queryByRole("button", { name: "Create character" })).toBeNull();
-    expect(screen.getByText("Masha")).toBeInTheDocument();
-    expect(assistantApiMocks.getWorkspaceVideoPersonas).not.toHaveBeenCalled();
+    // No mock "Masha" card when real persona list is empty
+    expect(screen.queryByText("Masha")).toBeNull();
+    // Personas ARE fetched even in locked state
+    await waitFor(() => {
+      expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
+    });
+    // Voice catalog is NOT fetched in locked state
     expect(assistantApiMocks.getWorkspaceVoiceCatalog).not.toHaveBeenCalled();
   });
 
-  it("State A (locked): no plan → locked state (talkingVideoEnabled defaults to false)", async () => {
+  it("State A (locked): no plan → locked state (talkingVideoEnabled defaults to false); personas still fetched", async () => {
     renderSettings(makeAppData({ plan: null }), "characters");
 
     await waitFor(() => {
@@ -2852,7 +2859,55 @@ describe("characters section", () => {
     });
 
     expect(screen.queryByRole("button", { name: "Create character" })).toBeNull();
-    expect(assistantApiMocks.getWorkspaceVideoPersonas).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
+    });
+  });
+
+  it("State A (locked) with real personas: shows disabled cards; no create/delete; voice catalog not called", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [
+        {
+          id: "p-locked-1",
+          displayName: "AliceDisabled",
+          portraitImageUrl: "",
+          heygenVoiceId: "v-1",
+          heygenVoiceLabel: "Voice 1",
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "p-locked-2",
+          displayName: "BobDisabled",
+          portraitImageUrl: "",
+          heygenVoiceId: "v-2",
+          heygenVoiceLabel: "Voice 2",
+          createdAt: new Date().toISOString()
+        }
+      ],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: false }) }),
+      "characters"
+    );
+
+    await waitFor(() => {
+      expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("AliceDisabled")).toBeInTheDocument();
+      expect(screen.getByText("BobDisabled")).toBeInTheDocument();
+    });
+
+    // No create button in locked state
+    expect(screen.queryByRole("button", { name: "Create character" })).toBeNull();
+    // No delete button in locked state
+    expect(screen.queryByRole("button", { name: "Delete character" })).toBeNull();
+    // Voice catalog NOT fetched in locked state
+    expect(assistantApiMocks.getWorkspaceVoiceCatalog).not.toHaveBeenCalled();
   });
 
   it("State B (unlocked) empty: renders header + empty state + create button", async () => {
@@ -2895,7 +2950,6 @@ describe("characters section", () => {
           portraitImageUrl: "/api/persona-portrait/ws-1/p-1/hash.jpg",
           heygenVoiceId: "ru-RU-Masha",
           heygenVoiceLabel: "Masha Russian",
-          heygenAvatarId: "ava-1",
           createdAt: new Date().toISOString()
         },
         {
@@ -2904,7 +2958,6 @@ describe("characters section", () => {
           portraitImageUrl: "/api/persona-portrait/ws-1/p-2/hash.jpg",
           heygenVoiceId: "ru-RU-Boris",
           heygenVoiceLabel: "Boris Russian",
-          heygenAvatarId: "ava-2",
           createdAt: new Date().toISOString()
         }
       ],
@@ -3000,7 +3053,6 @@ describe("characters section", () => {
           portraitImageUrl: "",
           heygenVoiceId: "v-1",
           heygenVoiceLabel: "Voice A",
-          heygenAvatarId: "ava-1",
           createdAt: new Date().toISOString()
         },
         {
@@ -3009,7 +3061,6 @@ describe("characters section", () => {
           portraitImageUrl: "",
           heygenVoiceId: "v-2",
           heygenVoiceLabel: "Voice B",
-          heygenAvatarId: "ava-2",
           createdAt: new Date().toISOString()
         },
         {
@@ -3018,7 +3069,6 @@ describe("characters section", () => {
           portraitImageUrl: "",
           heygenVoiceId: "v-3",
           heygenVoiceLabel: "Voice C",
-          heygenAvatarId: "ava-3",
           createdAt: new Date().toISOString()
         }
       ],
@@ -3051,7 +3101,6 @@ describe("characters section", () => {
           portraitImageUrl: "",
           heygenVoiceId: "v-1",
           heygenVoiceLabel: "Voice 1",
-          heygenAvatarId: "ava-del",
           createdAt: new Date().toISOString()
         }
       ],
@@ -3087,7 +3136,6 @@ describe("characters section", () => {
           portraitImageUrl: "",
           heygenVoiceId: "v-1",
           heygenVoiceLabel: "Voice 1",
-          heygenAvatarId: "ava-del",
           createdAt: new Date().toISOString()
         }
       ],
@@ -3125,6 +3173,250 @@ describe("characters section", () => {
         "p-del"
       );
     });
+  });
+
+  it("Create flow: storageWarning 'persona_created_storage_failed' shows warning feedback", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: [
+        {
+          voiceId: "v-warn-test",
+          name: "StorageWarnVoice",
+          language: "en-US",
+          gender: "female",
+          previewAudioUrl: null
+        }
+      ]
+    });
+    assistantApiMocks.createWorkspaceVideoPersona.mockResolvedValue({
+      persona: {
+        id: "p-warn",
+        displayName: "WarnPersona",
+        portraitImageUrl: "",
+        heygenVoiceId: "v-warn-test",
+        heygenVoiceLabel: "StorageWarnVoice",
+        createdAt: new Date().toISOString()
+      },
+      walletBalanceVc: 80,
+      storageWarning: "persona_created_storage_failed"
+    });
+
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn().mockReturnValue("blob:test-portrait")
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    await waitFor(() => expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled());
+
+    const createBtn = await screen.findByRole("button", { name: "Create character" });
+    fireEvent.click(createBtn);
+
+    // Wait for dialog with the form
+    const dialog = await screen.findByRole("dialog");
+
+    await waitFor(() =>
+      expect(within(dialog).getByPlaceholderText("Character name")).toBeInTheDocument()
+    );
+
+    // Fill name
+    fireEvent.change(within(dialog).getByPlaceholderText("Character name"), {
+      target: { value: "WarnPersona" }
+    });
+
+    // Select voice from list (click on the span with the voice name inside the dialog)
+    await waitFor(() => expect(within(dialog).getByText("StorageWarnVoice")).toBeInTheDocument());
+    const voiceNameSpan = within(dialog).getByText("StorageWarnVoice");
+    fireEvent.click(voiceNameSpan.closest("button")!);
+
+    // Attach portrait file via hidden file input inside the dialog
+    const portraitInput = dialog.querySelector('input[type="file"]') as HTMLInputElement;
+    const fakeFile = new File(["data"], "portrait.jpg", { type: "image/jpeg" });
+    Object.defineProperty(portraitInput, "files", {
+      value: [fakeFile],
+      configurable: true
+    });
+    fireEvent.change(portraitInput);
+
+    // Submit button inside dialog should now be enabled
+    await waitFor(() => {
+      const submitBtn = within(dialog).getByRole("button", { name: "Create character" });
+      expect(submitBtn).not.toBeDisabled();
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create character" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.createWorkspaceVideoPersona).toHaveBeenCalled();
+    });
+
+    // Warning feedback shown (not generic success)
+    await waitFor(() => {
+      expect(
+        screen.getByText(/WarnPersona was created but the portrait could not be saved/)
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Character created.")).toBeNull();
+  });
+
+  it("Create flow error: API error code 'persona_limit_reached' maps to i18n message", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: [
+        {
+          voiceId: "v-err-1",
+          name: "ErrVoice",
+          language: "en-US",
+          gender: "male",
+          previewAudioUrl: null
+        }
+      ]
+    });
+    assistantApiMocks.createWorkspaceVideoPersona.mockRejectedValue(
+      new ApiStructuredError("Character limit reached.", "persona_limit_reached")
+    );
+
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn().mockReturnValue("blob:test-portrait-err")
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    await waitFor(() => expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled());
+
+    const createBtn = await screen.findByRole("button", { name: "Create character" });
+    fireEvent.click(createBtn);
+
+    const dialog = await screen.findByRole("dialog");
+
+    await waitFor(() =>
+      expect(within(dialog).getByPlaceholderText("Character name")).toBeInTheDocument()
+    );
+
+    fireEvent.change(within(dialog).getByPlaceholderText("Character name"), {
+      target: { value: "LimitTestPersona" }
+    });
+
+    await waitFor(() => expect(within(dialog).getByText("ErrVoice")).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByText("ErrVoice").closest("button")!);
+
+    const portraitInput2 = dialog.querySelector('input[type="file"]') as HTMLInputElement;
+    const fakeFile2 = new File(["data"], "portrait.jpg", { type: "image/jpeg" });
+    Object.defineProperty(portraitInput2, "files", {
+      value: [fakeFile2],
+      configurable: true
+    });
+    fireEvent.change(portraitInput2);
+
+    await waitFor(() => {
+      const submitBtn = within(dialog).getByRole("button", { name: "Create character" });
+      expect(submitBtn).not.toBeDisabled();
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create character" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.createWorkspaceVideoPersona).toHaveBeenCalled();
+    });
+
+    // Should show specific i18n message, not the generic fallback
+    await waitFor(() => {
+      expect(screen.getByText("Character limit reached for this workspace.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Failed to create character. Please try again.")).toBeNull();
+  });
+
+  it("Create flow error: API error code 'persona_duplicate_name' maps to i18n message", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: [
+        {
+          voiceId: "v-dup-1",
+          name: "DupVoice",
+          language: "en-US",
+          gender: "female",
+          previewAudioUrl: null
+        }
+      ]
+    });
+    assistantApiMocks.createWorkspaceVideoPersona.mockRejectedValue(
+      new ApiStructuredError("Duplicate name.", "persona_duplicate_name")
+    );
+
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn().mockReturnValue("blob:test-portrait-dup")
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    await waitFor(() => expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled());
+
+    const createBtn = await screen.findByRole("button", { name: "Create character" });
+    fireEvent.click(createBtn);
+
+    const dialog = await screen.findByRole("dialog");
+
+    await waitFor(() =>
+      expect(within(dialog).getByPlaceholderText("Character name")).toBeInTheDocument()
+    );
+
+    fireEvent.change(within(dialog).getByPlaceholderText("Character name"), {
+      target: { value: "DuplicatePersona" }
+    });
+
+    await waitFor(() => expect(within(dialog).getByText("DupVoice")).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByText("DupVoice").closest("button")!);
+
+    const portraitInput3 = dialog.querySelector('input[type="file"]') as HTMLInputElement;
+    const fakeFile3 = new File(["data"], "portrait.jpg", { type: "image/jpeg" });
+    Object.defineProperty(portraitInput3, "files", {
+      value: [fakeFile3],
+      configurable: true
+    });
+    fireEvent.change(portraitInput3);
+
+    await waitFor(() => {
+      const submitBtn = within(dialog).getByRole("button", { name: "Create character" });
+      expect(submitBtn).not.toBeDisabled();
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create character" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.createWorkspaceVideoPersona).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("A character with this name already exists.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Failed to create character. Please try again.")).toBeNull();
   });
 });
 

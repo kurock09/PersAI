@@ -7,6 +7,22 @@ import type {
 } from "@persai/runtime-contract";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 
+/**
+ * Typed error thrown by HeyGenProviderClient for HTTP-level failures.
+ * Callers (e.g. ProviderHeyGenAvatarsService) inspect `httpStatus` to
+ * distinguish bad-input 4xx from outage 5xx.
+ */
+export class HeyGenProviderClientError extends Error {
+  constructor(
+    message: string,
+    public readonly httpStatus: number,
+    public readonly providerMessage: string
+  ) {
+    super(message);
+    this.name = "HeyGenProviderClientError";
+  }
+}
+
 // HeyGen v3 API — all endpoints are v3 per ADR-109 erratum E6.
 // Auth: X-Api-Key header (single-string key, NOT JSON like Kling).
 // Submit requests carry Idempotency-Key per erratum E6.
@@ -214,7 +230,8 @@ export class HeyGenProviderClient {
 
       const responseBody = await this.readJsonBody(response);
       if (!response.ok) {
-        throw new Error(this.readHeyGenErrorMessage(responseBody, response.status));
+        const providerMessage = this.readHeyGenErrorMessage(responseBody, response.status);
+        throw new HeyGenProviderClientError(providerMessage, response.status, providerMessage);
       }
 
       const avatarId =

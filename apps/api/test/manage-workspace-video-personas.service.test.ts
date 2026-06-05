@@ -20,6 +20,11 @@
  * 12. Pre-check rejects (limit) → HeyGen is NEVER called
  * 13. Pre-check rejects (duplicate name) → HeyGen is NEVER called
  * 14. Pre-check rejects (balance) → HeyGen is NEVER called
+ *
+ * Coverage (Audit fixup A):
+ * 15. listPersonas → items do NOT expose heygenAvatarId (invariant #5)
+ * 16. Conditional debit: tx-side balance check fails (race) → vcoin_balance_exhausted + orphan warning
+ * 17. Non-guard tx error → orphan warning emitted, original error re-thrown
  */
 
 import assert from "node:assert/strict";
@@ -242,6 +247,11 @@ function makeService(opts: {
     workspaceVcoinBalance: {
       async findUnique() {
         return { workspaceId: WORKSPACE_ID, balanceVc: walletBalance };
+      },
+      async updateMany(args: { where: { balanceVc: { gte: number } } }) {
+        // Conditional debit: succeed only when balance >= cost.
+        const succeeded = walletBalance >= args.where.balanceVc.gte;
+        return { count: succeeded ? 1 : 0 };
       }
     }
   };
@@ -266,7 +276,7 @@ async function run(): Promise<void> {
   // Test 1: Happy-path create with VC cost > 0
   {
     const ledgerEvents: Array<Record<string, unknown>> = [];
-    const debits: Array<Record<string, unknown>> = [];
+    const updateManyCalls: Array<Record<string, unknown>> = [];
     const storageCalls: string[] = [];
     const insertedPersonas: WorkspaceVideoPersonaRecord[] = [];
     const heygenCallCount: number[] = [];
@@ -308,10 +318,8 @@ async function run(): Promise<void> {
       async credit() {
         return { workspaceId: WORKSPACE_ID, balanceVc: 200 };
       },
-      async debit(input) {
-        const amount = (input as { amountVc: number }).amountVc;
-        debits.push({ amountVc: amount });
-        return { workspaceId: WORKSPACE_ID, balanceVc: 100 - amount };
+      async debit() {
+        return { workspaceId: WORKSPACE_ID, balanceVc: 80 };
       }
     };
 
@@ -331,7 +339,17 @@ async function run(): Promise<void> {
         return fn({
           workspaceVcoinBalance: {
             async findUnique() {
-              return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+              return { workspaceId: WORKSPACE_ID, balanceVc: 80 };
+            },
+            async updateMany(args: {
+              where: { balanceVc: { gte: number } };
+              data: { balanceVc: { decrement: number } };
+            }) {
+              updateManyCalls.push({
+                gte: args.where.balanceVc.gte,
+                decrement: args.data.balanceVc.decrement
+              });
+              return { count: 1 };
             }
           }
         });
@@ -388,9 +406,10 @@ async function run(): Promise<void> {
     assert.equal(ledgerEvents.length, 1);
     assert.equal(ledgerEvents[0]!["kind"], "persona_creation");
     assert.equal(ledgerEvents[0]!["amountVc"], -20);
-    // VC debited
-    assert.equal(debits.length, 1);
-    assert.equal(debits[0]!["amountVc"], 20);
+    // Conditional debit via updateMany with balance >= cost guard
+    assert.equal(updateManyCalls.length, 1, "conditional debit must fire once");
+    assert.equal(updateManyCalls[0]!["gte"], 20, "conditional WHERE must require balance >= cost");
+    assert.equal(updateManyCalls[0]!["decrement"], 20, "conditional debit must decrement by cost");
     // Storage written AFTER tx
     assert.equal(storageCalls.length, 1);
     console.log("✓ Test 1: happy-path create with VC cost, heygenAvatarId populated");
@@ -711,6 +730,9 @@ async function run(): Promise<void> {
           workspaceVcoinBalance: {
             async findUnique() {
               return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+            },
+            async updateMany() {
+              return { count: 1 };
             }
           }
         });
@@ -899,6 +921,9 @@ async function run(): Promise<void> {
           workspaceVcoinBalance: {
             async findUnique() {
               return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+            },
+            async updateMany() {
+              return { count: 1 };
             }
           }
         });
@@ -1073,6 +1098,291 @@ async function run(): Promise<void> {
       "HeyGen must NOT be called when balance pre-check rejects"
     );
     console.log("✓ Test 14: pre-check balance → HeyGen never called");
+  }
+
+  // Test 15: listPersonas does NOT expose heygenAvatarId (invariant #5)
+  {
+    const heygenAvatarId = "ava-secret-id";
+    const personaRepository: WorkspaceVideoPersonaRepository = {
+      async countActiveForWorkspace() {
+        return 1;
+      },
+      async findActiveByLowerName() {
+        return null;
+      },
+      async findById() {
+        return null;
+      },
+      async listActive() {
+        return [makePersonaRecord({ heygenAvatarId })];
+      },
+      async create(input) {
+        return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+      },
+      async archive() {
+        return null;
+      }
+    };
+
+    const service = new ManageWorkspaceVideoPersonasService(
+      personaRepository,
+      {
+        async getOrCreate() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async credit() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async debit() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 80 };
+        }
+      } as never,
+      {
+        async recordEvent() {
+          return { recorded: true };
+        }
+      } as never,
+      {
+        async execute() {
+          return { heygenPersonaWorkspaceLimit: 10, heygenPersonaCreationVcoin: 20 };
+        }
+      } as never,
+      makeVoiceCatalog() as never,
+      {
+        async saveObject() {
+          /* noop */
+        }
+      } as never,
+      {
+        async $transaction<T>(fn: (tx: unknown) => Promise<T>) {
+          return fn({});
+        }
+      } as never,
+      makeHeyGenGatewayClient({})
+    );
+
+    const { personas } = await service.listPersonas({ workspaceId: WORKSPACE_ID });
+    assert.equal(personas.length, 1);
+    assert.ok(
+      !("heygenAvatarId" in (personas[0] as object)),
+      "heygenAvatarId must NOT be present in list item (invariant #5)"
+    );
+    console.log("✓ Test 15: listPersonas does NOT expose heygenAvatarId");
+  }
+
+  // Test 16: Conditional debit — tx-side race (count=0 from conditional update) → vcoin_balance_exhausted + orphan warning
+  {
+    let warnLogged = false;
+    const heygenCallCount: number[] = [];
+
+    const personaRepository: WorkspaceVideoPersonaRepository = {
+      async countActiveForWorkspace() {
+        return 0;
+      },
+      async findActiveByLowerName() {
+        return null;
+      },
+      async findById() {
+        return null;
+      },
+      async listActive() {
+        return [];
+      },
+      async create(input) {
+        return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+      },
+      async archive() {
+        return null;
+      }
+    };
+
+    // Simulate the conditional debit returning count=0 (race lost).
+    const prisma = {
+      async $transaction<T>(fn: (tx: typeof prisma) => Promise<T>): Promise<T> {
+        return fn(prisma);
+      },
+      workspaceVcoinBalance: {
+        async findUnique() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async updateMany() {
+          // Simulate race: another request already debited — conditional WHERE failed.
+          return { count: 0 };
+        }
+      }
+    };
+
+    const vcoinBalanceRepository: WorkspaceVcoinBalanceRepository = {
+      async getOrCreate() {
+        return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+      },
+      async credit() {
+        return { workspaceId: WORKSPACE_ID, balanceVc: 200 };
+      },
+      async debit() {
+        return { workspaceId: WORKSPACE_ID, balanceVc: 80 };
+      }
+    };
+
+    const service = new ManageWorkspaceVideoPersonasService(
+      personaRepository,
+      vcoinBalanceRepository,
+      {
+        async recordEvent() {
+          return { recorded: true };
+        }
+      } as never,
+      {
+        async execute() {
+          return { heygenPersonaWorkspaceLimit: 10, heygenPersonaCreationVcoin: 20 };
+        }
+      } as never,
+      makeVoiceCatalog() as never,
+      {
+        async saveObject() {
+          /* noop */
+        }
+      } as never,
+      prisma as never,
+      makeHeyGenGatewayClient({ callCount: heygenCallCount })
+    );
+
+    (service as unknown as { logger: { warn: (msg: string) => void } }).logger.warn = (
+      msg: string
+    ) => {
+      if (msg.includes("Orphan HeyGen avatar")) {
+        warnLogged = true;
+      }
+    };
+
+    await assert.rejects(
+      () =>
+        service.createPersona({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          displayName: "Race Debit",
+          portraitImageFile: makePortraitFile(),
+          heygenVoiceId: VOICE_ID
+        }),
+      (err: Error) => {
+        assert.ok(err instanceof BadRequestException);
+        const body = (err as BadRequestException).getResponse() as Record<string, unknown>;
+        assert.equal(body["code"], "vcoin_balance_exhausted");
+        return true;
+      }
+    );
+    assert.equal(heygenCallCount.length, 1, "HeyGen was called (pre-checks passed)");
+    assert.equal(
+      warnLogged,
+      true,
+      "Orphan warning must be logged when conditional debit loses race"
+    );
+    console.log("✓ Test 16: conditional debit race → vcoin_balance_exhausted + orphan warning");
+  }
+
+  // Test 17: Non-guard tx error → orphan warning emitted, original error re-thrown
+  {
+    let warnLogged = false;
+    const heygenCallCount: number[] = [];
+    const unexpectedError = new Error("Simulated Prisma constraint violation");
+
+    const personaRepository: WorkspaceVideoPersonaRepository = {
+      async countActiveForWorkspace() {
+        return 0;
+      },
+      async findActiveByLowerName() {
+        return null;
+      },
+      async findById() {
+        return null;
+      },
+      async listActive() {
+        return [];
+      },
+      async create() {
+        throw unexpectedError;
+      },
+      async archive() {
+        return null;
+      }
+    };
+
+    const prisma = {
+      async $transaction<T>(fn: (tx: typeof prisma) => Promise<T>): Promise<T> {
+        return fn(prisma);
+      },
+      workspaceVcoinBalance: {
+        async findUnique() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async updateMany() {
+          return { count: 1 };
+        }
+      }
+    };
+
+    const service = new ManageWorkspaceVideoPersonasService(
+      personaRepository,
+      {
+        async getOrCreate() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async credit() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 200 };
+        },
+        async debit() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 80 };
+        }
+      } as never,
+      {
+        async recordEvent() {
+          return { recorded: true };
+        }
+      } as never,
+      {
+        async execute() {
+          return { heygenPersonaWorkspaceLimit: 10, heygenPersonaCreationVcoin: 20 };
+        }
+      } as never,
+      makeVoiceCatalog() as never,
+      {
+        async saveObject() {
+          /* noop */
+        }
+      } as never,
+      prisma as never,
+      makeHeyGenGatewayClient({ callCount: heygenCallCount })
+    );
+
+    (service as unknown as { logger: { warn: (msg: string) => void } }).logger.warn = (
+      msg: string
+    ) => {
+      if (msg.includes("Orphan HeyGen avatar")) {
+        warnLogged = true;
+      }
+    };
+
+    await assert.rejects(
+      () =>
+        service.createPersona({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          displayName: "Infra Error Test",
+          portraitImageFile: makePortraitFile(),
+          heygenVoiceId: VOICE_ID
+        }),
+      (err: Error) => {
+        assert.equal(err, unexpectedError, "Original error must propagate unchanged");
+        return true;
+      }
+    );
+    assert.equal(heygenCallCount.length, 1, "HeyGen was called before the infra error");
+    assert.equal(
+      warnLogged,
+      true,
+      "Orphan warning must fire for any tx failure after HeyGen success"
+    );
+    console.log("✓ Test 17: non-guard tx error → orphan warning + original error re-thrown");
   }
 
   console.log("\nmanage-workspace-video-personas.service: all assertions passed");

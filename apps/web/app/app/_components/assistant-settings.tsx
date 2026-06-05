@@ -84,6 +84,7 @@ import {
   getWorkspaceVoiceCatalog,
   createWorkspaceVideoPersona,
   deleteWorkspaceVideoPersona,
+  ApiStructuredError,
   type PersonaListItemDto,
   type VoiceCatalogEntry
 } from "../assistant-api-client";
@@ -118,7 +119,7 @@ interface AssistantSettingsProps {
   onSupportUnreadCountChange?: ((count: number) => void) | undefined;
 }
 
-type ActionFeedback = { type: "ok" | "err"; text: string } | null;
+type ActionFeedback = { type: "ok" | "err" | "warn"; text: string } | null;
 
 type QuotaBucketState = UserPlanVisibilityState["limits"]["quotaBuckets"][number];
 type MonthlyToolQuotaSnapshot = UserPlanVisibilityState["limits"]["monthlyToolQuotas"];
@@ -483,7 +484,11 @@ function FeedbackLine({ fb }: { fb: ActionFeedback }) {
     <p
       className={cn(
         "mt-2 flex flex-wrap items-center gap-2 text-xs",
-        fb.type === "ok" ? "text-success" : "text-destructive"
+        fb.type === "ok"
+          ? "text-success"
+          : fb.type === "warn"
+            ? "text-yellow-600"
+            : "text-destructive"
       )}
     >
       <span>{fb.text}</span>
@@ -1157,11 +1162,13 @@ export function AssistantSettings({
     onSupportUnreadCountChange?.(supportUnreadCount);
   }, [onSupportUnreadCountChange, supportUnreadCount]);
 
-  // Load personas + voice catalog when the characters section becomes active and unlocked
+  // Load personas whenever the Characters section is open; voice catalog only when unlocked
   useEffect(() => {
-    if (openSection === "characters" && talkingVideoEnabled) {
+    if (openSection === "characters") {
       void loadPersonas();
-      void loadVoiceCatalog();
+      if (talkingVideoEnabled) {
+        void loadVoiceCatalog();
+      }
     }
   }, [openSection, talkingVideoEnabled, loadPersonas, loadVoiceCatalog]);
   const billingStatusLabel = useCallback(
@@ -3237,27 +3244,44 @@ export function AssistantSettings({
               <p className="rounded-xl border border-border/60 bg-surface-raised/30 px-3 py-2 text-xs text-text-subtle">
                 {t("charactersLockedBanner")}
               </p>
-              {/* Mock disabled card */}
-              <div className="rounded-xl border border-border/50 bg-surface-raised/20 p-3 opacity-60">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-sm font-medium text-accent">
-                    {t("charactersMockPersonaName").charAt(0)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-text">
-                      {t("charactersMockPersonaName")}
-                    </p>
-                    <p className="text-xs text-text-subtle">
-                      {t("charactersVoiceLabel", { voice: t("charactersMockPersonaVoice") })}
-                    </p>
-                  </div>
-                  <VoicePreviewButton
-                    previewAudioUrl={null}
-                    voiceLabel={t("charactersMockPersonaVoice")}
-                    previewUnavailableLabel={t("charactersPreviewUnavailable")}
-                  />
+              {/* Real workspace personas rendered as disabled cards; no edit/delete/use */}
+              {personaList.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  {personaList.map((persona) => (
+                    <div
+                      key={persona.id}
+                      className="rounded-xl border border-border/50 bg-surface-raised/20 p-3 opacity-60"
+                    >
+                      <div className="flex items-center gap-3">
+                        {persona.portraitImageUrl ? (
+                          <img
+                            src={persona.portraitImageUrl}
+                            alt={persona.displayName}
+                            className="h-10 w-10 shrink-0 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-sm font-medium text-accent">
+                            {persona.displayName.charAt(0)}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-text">
+                            {persona.displayName}
+                          </p>
+                          <p className="text-xs text-text-subtle">
+                            {t("charactersVoiceLabel", { voice: persona.heygenVoiceLabel })}
+                          </p>
+                        </div>
+                        <VoicePreviewButton
+                          previewAudioUrl={null}
+                          voiceLabel={persona.heygenVoiceLabel}
+                          previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
+              )}
             </div>
           ) : (
             // State B — unlocked
@@ -3296,7 +3320,9 @@ export function AssistantSettings({
                     "rounded-lg px-3 py-2 text-xs",
                     personaFb.type === "ok"
                       ? "bg-green-500/10 text-green-600"
-                      : "bg-destructive/10 text-destructive"
+                      : personaFb.type === "warn"
+                        ? "bg-yellow-500/10 text-yellow-600"
+                        : "bg-destructive/10 text-destructive"
                   )}
                 >
                   {personaFb.text}
@@ -3630,24 +3656,32 @@ export function AssistantSettings({
                             setCreatePersonaSubmitting(true);
                             setCreatePersonaError(null);
                             try {
-                              await createWorkspaceVideoPersona(token, assistant.workspaceId, {
-                                displayName: createPersonaName.trim(),
-                                heygenVoiceId: createPersonaVoiceId,
-                                portrait: createPersonaPortrait
-                              });
+                              const result = await createWorkspaceVideoPersona(
+                                token,
+                                assistant.workspaceId,
+                                {
+                                  displayName: createPersonaName.trim(),
+                                  heygenVoiceId: createPersonaVoiceId,
+                                  portrait: createPersonaPortrait
+                                }
+                              );
                               setCreatePersonaOpen(false);
-                              setPersonaFb({
-                                type: "ok",
-                                text: t("charactersCreateSuccess")
-                              });
+                              if (result.storageWarning === "persona_created_storage_failed") {
+                                setPersonaFb({
+                                  type: "warn",
+                                  text: t("charactersWarnStorageFailedMessage", {
+                                    name: createPersonaName.trim()
+                                  })
+                                });
+                              } else {
+                                setPersonaFb({
+                                  type: "ok",
+                                  text: t("charactersCreateSuccess")
+                                });
+                              }
                               void loadPersonas();
                             } catch (err) {
-                              const code =
-                                err instanceof Error &&
-                                "errorCode" in err &&
-                                typeof (err as Record<string, unknown>)["errorCode"] === "string"
-                                  ? (err as Record<string, unknown>)["errorCode"]
-                                  : null;
+                              const code = err instanceof ApiStructuredError ? err.code : null;
                               setCreatePersonaError(
                                 code === "persona_duplicate_name"
                                   ? t("charactersErrorDuplicateName")

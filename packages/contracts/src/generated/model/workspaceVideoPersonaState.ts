@@ -5,16 +5,16 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * User-facing persona shape. Provider-internal fields (heygenAvatarId, raw
+ * voice keys) are intentionally absent and must never appear on the public
+ * wire contract per ADR-109 invariant #5.
+ */
 export interface WorkspaceVideoPersonaState {
   id: string;
   displayName: string;
   portraitImageUrl: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
-  /**
-   * NULL at creation; set by Slice 6 on first HeyGen render.
-   * @nullable
-   */
-  heygenAvatarId?: string | null;
   createdAt: string;
 }

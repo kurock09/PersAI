@@ -2,6 +2,126 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-05 — ADR-109 Audit-Pass: full independent audit of slices 0–10 + targeted reconciliation
+
+### What changed & why
+
+Baseline SHA at session start: Slice 10 closure (`9777c619`). Tree clean.
+
+The operator requested a "полный аудит независимыми агентами всего ADR" with the explicit constraint "не уходи в замкнутый круг полировок — задача найти баги хвосты и параллельные пути почистить все". This pass dispatched 4 read-only audit subagents in parallel — each scoped to a different surface — collected 66 findings across slices 0–10, triaged to 8 must-fix items, and landed a single fixup commit that closes them all.
+
+**Audit subagents (read-only, no modifications):**
+
+1. **Audit 1 — Backend substrate integrity** (API service + provider-gateway): 4 BUG, 9 HOLE, 1 PARALLEL, 2 STALE, 3 MINOR. Top issues: HeyGen 4xx → `heygen_unavailable` mis-mapping (gateway 503-everything); concurrent persona-create wallet over-debit (no row lock between balance check and debit); `storageWarning` and several ADR-documented error codes never reach users.
+2. **Audit 2 — Architectural invariants + keyword routing + dead code**: 1 BUG, 3 HOLE, 1 PARALLEL, 7 STALE, 2 MINOR. Top issues: E4 locked Characters hides real personas; stale `TODO(slice8)` + "Slice 2a placeholder" comments; doc drift on `feature_unavailable` / `needs_disambiguation`. **Per-invariant verdict: all 15 PASS** (one BUG was UX-side, not invariant-side); **per-erratum verdict: E1/E5/E6/E7/E8/E9/E10/E11/E12 PASS, E2/E3 partial deferral acknowledged, E4 fail (now fixed).** No keyword-routing warts found post-Slice-10 fixup (`VOICE_LABEL_TO_LANGUAGE` / `resolveVoiceLanguageFromLabel` are gone; explicit grep confirms zero matches).
+3. **Audit 3 — Contracts + types + parallel paths**: 1 BUG, 2 DRIFT, 1 STALE, 3 PARALLEL, 4 MINOR. Top issues: `heygenAvatarId` leaks to GET list (invariant #5 violation); `UserPlanVisibilityEntitlements.talkingVideoEnabled` required in OpenAPI but optional in hand-edited TS (orval ticking time bomb); `persai.runtimeVideoPersonaCatalog.v1` schema tag written but never validated.
+4. **Audit 4 — Web UI + i18n + error mapping**: 2 BUG, 2 HOLE, 1 DRIFT, 1 STALE, 12 MINOR. Top issues: `createWorkspaceVideoPersona` reads wrong envelope field (`body.code` vs `body.error.code`) → all 6 error-code i18n branches unreachable; E4 locked Characters renders only mock persona; `storageWarning` silently dropped on success path.
+
+**Triage result — 8 must-fix items** (all closed by this fixup commit):
+
+| # | Issue | E13 ref | Files |
+|---|---|---|---|
+| 1 | Error envelope parsing broken in 4 web client methods | E13.8 | `assistant-api-client.ts`, `assistant-settings.tsx` |
+| 2 | `heygenAvatarId` leaks to user-facing list API | E13.4 | `manage-workspace-video-personas.service.ts`, `openapi.yaml`, generated TS, `assistant-api-client.ts` |
+| 3 | HeyGen 4xx mis-mapped to `heygen_unavailable` at gateway | E13.5 | `heygen-provider.client.ts`, `provider-heygen-avatars.service.ts` |
+| 4 | E4 locked state hides real workspace personas | E13.9 | `assistant-settings.tsx` |
+| 5 | Concurrent persona-create wallet over-debit | E13.6 | `manage-workspace-video-personas.service.ts` |
+| 6 | `storageWarning` silently dropped on success | E13.10 | `assistant-settings.tsx`, `en.json`, `ru.json` |
+| 7 | `talkingVideoEnabled` requiredness drift | E13.11 | `userPlanVisibilityEntitlements.ts` |
+| 8 | Orphan-avatar warning too narrow | E13.7 | `manage-workspace-video-personas.service.ts` |
+
+**Acknowledged limitations (no fix this pass, recorded in ADR-109 E13 block):**
+
+- Archived personas retain HeyGen-side avatar rows (intentional soft-delete; future reconciliation slice may add cascade).
+- `RuntimeVideoVoiceCatalog` has no `schema: "persai.*.v1"` tag (asymmetric with persona catalog; bundle-internal, no cross-boundary readers).
+- `persai.runtimeVideoPersonaCatalog.v1` schema tag set but never validated on read (future-proofing; `isRuntimeVideoPersonaCatalog` type guard exported but no production caller).
+- Lazy-create branch in `HeyGenProviderClient.generateVideo` unreachable from production paths (defensive fallback only per E12).
+- Web client uses hand-typed DTOs instead of orval-generated models (drift risk; E13.4 and E13.11 tightened the most-exposed drifts; future cleanup slice may wire to generated models).
+
+### Subagents
+
+**4 read-only audit subagents** (Claude Opus 4.7 default — no model override) ran in parallel as the audit pass. None modified files. Each returned a structured findings list with severity ratings; their summaries are linked above.
+
+**2 write-capable fixup subagents** (Claude Sonnet 4.6 medium thinking, per the operator directive to use Sonnet for surgical fixes with clear scope) ran in parallel as the fix pass:
+
+- **Fixup A — backend + contract surface** (6 fixes: `heygenAvatarId` removal across 4 layers, HeyGen 4xx vs 5xx classifier via new `HeyGenProviderClientError`, conditional atomic debit via `tx.workspaceVcoinBalance.updateMany`, orphan warning widening to all post-HeyGen errors, `talkingVideoEnabled` requiredness on generated TS, 6 stale slice-reference comment fixes). All gates PASS on its own. Decided inline (orchestrator-approved): place `HeyGenProviderClientError` next to the HTTP client that produces it; use `tx.workspaceVcoinBalance.updateMany` directly rather than extending the wallet repository interface; orphan warning fires for ALL errors after HeyGen success (not just guard-tagged), with the original error always re-thrown.
+- **Fixup B — web UI** (3 fixes: 4 client methods aligned on existing `readApiErrorEnvelope` + `ApiStructuredError`, locked Characters now fetches `loadPersonas()` unconditionally and renders disabled cards, `storageWarning === "persona_created_storage_failed"` branches to amber warning with new EN+RU i18n keys). All gates PASS on its own. Honored "no docs edits" rule (eighth and ninth subagents in a row to do so cleanly).
+
+**Coordination on shared files:** both subagents touched `assistant-api-client.ts` and `assistant-settings.test.tsx`. Their scopes were truly disjoint (A: `PersonaListItemDto` type + return shape of `getWorkspaceVideoPersonas`; B: error envelope parsing in 4 methods' `if (!res.ok)` blocks). Orchestrator verified post-merge:
+
+- `grep heygenAvatarId apps/web/app/app/assistant-api-client.ts` → zero matches (A's removal landed)
+- `grep ApiStructuredError apps/web/app/app/assistant-api-client.ts` → 18 matches across all 4 Slice 9 methods (B's parsing landed)
+
+No merge conflict.
+
+### Files touched (Scope IN)
+
+**Modified files (16):**
+
+Backend / contracts (Fixup A):
+- `apps/api/prisma/schema.prisma` — `WorkspaceVideoPersona` doc comments updated for E12 eager-create + archived-name-reuse acknowledged-limitation note (no schema change, no migration)
+- `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service.ts` — `PersonaListItem` type drops `heygenAvatarId`; `toListItem` mapper updated; conditional debit via `updateMany(where: { workspaceId, balanceVc: { gte: cost } })` inside tx; orphan warning widened to all post-HeyGen errors
+- `apps/api/test/manage-workspace-video-personas.service.test.ts` — Tests 15–17 added (list strips `heygenAvatarId`; conditional debit race; non-guard infra error orphan path); `updateMany` stub added; Test 1 debit tracking updated
+- `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts` — new exported `HeyGenProviderClientError { code, httpStatus, providerMessage }`; `createPhotoAvatar` throws it on non-OK responses
+- `apps/provider-gateway/src/modules/providers/provider-heygen-avatars.service.ts` — catch block classifies `HeyGenProviderClientError` (4xx → `BadRequestException(heygen_avatar_create_failed)`, 5xx/transport → `ServiceUnavailableException(heygen_unavailable)`)
+- `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts` — stale "Slice 2a placeholder until Slice 6" comment dropped
+- `apps/provider-gateway/test/provider-heygen-avatars.service.test.ts` — Tests 7–8 added (4xx → BadRequest, 5xx → ServiceUnavailable); `HeyGenProviderClientError` import
+- `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts` — `TODO(slice8)` comment block replaced with accurate current-state description; "Slice 8 territory" → "Slice 10 (LLM-side tool description)"; `buildGatewayTalkingAvatarFields` "until Slice 6" comment dropped
+- `packages/contracts/openapi.yaml` — `WorkspaceVideoPersonaState.heygenAvatarId` property removed; description updated
+- `packages/contracts/src/generated/model/workspaceVideoPersonaState.ts` — `heygenAvatarId?: string | null` field dropped; doc comment about invariant #5 added
+- `packages/contracts/src/generated/model/userPlanVisibilityEntitlements.ts` — `talkingVideoEnabled?: boolean` → `talkingVideoEnabled: boolean` (required)
+
+Web UI (Fixup B):
+- `apps/web/app/app/_components/assistant-settings.tsx` — imports `ApiStructuredError`; `ActionFeedback` widened to `"ok" | "err" | "warn"`; `loadPersonas()` no longer gated on `talkingVideoEnabled`; locked state renders real workspace personas as `opacity-60` disabled cards (no buttons); create-success path branches on `result.storageWarning === "persona_created_storage_failed"` → amber warning feedback; error catch uses `err instanceof ApiStructuredError ? err.code : null` so all 6 mapped codes flow through
+- `apps/web/app/app/_components/assistant-settings.test.tsx` — `heygenAvatarId` removed from 5 mock persona objects (Fixup A); `talkingVideoEnabled: false` added to base entitlements mock (Fixup A); 2 existing locked-state tests inverted to assert `getWorkspaceVideoPersonas` IS called (Fixup B); 4 new tests added (locked state with real personas; `storageWarning` → warning feedback; `persona_limit_reached` → mapped i18n; `persona_duplicate_name` → mapped i18n)
+- `apps/web/app/app/assistant-api-client.ts` — `PersonaListItemDto` drops `heygenAvatarId` (A); `ApiStructuredError` newly exported (B); all 4 Slice 9 methods (`getWorkspaceVideoPersonas`, `getWorkspaceVoiceCatalog`, `createWorkspaceVideoPersona`, `deleteWorkspaceVideoPersona`) replaced ad-hoc `body?.code` parsing with the existing `readApiErrorEnvelope(response)` helper + `throw new ApiStructuredError(envelope.message, envelope.code, envelope.details)`
+- `apps/web/messages/en.json` — `charactersWarnStorageFailedTitle` + `charactersWarnStorageFailedMessage` added
+- `apps/web/messages/ru.json` — RU translations for both new keys
+
+**New files: 0.** **Prisma migrations: 0.** **Module wiring changes: 0.**
+
+### Honest subtleties
+
+- **`vcoinBalanceRepository.debit` is now dead on the persona-create cost > 0 path.** The conditional `tx.workspaceVcoinBalance.updateMany` inline call replaces it. The repository method is still callable from other call sites (none in the current codebase touch persona creation). Future cleanup may remove the method entirely or extend the repository interface with a conditional variant; defer to that future slice.
+- **The cost = 0 path still calls `getOrCreate` outside the tx handle** (uses the default Prisma client, not `tx`). This is unchanged from Slice 5. Acceptable because no debit happens and the balance row's existence is the only invariant being asserted; ledger event still records inside the tx.
+- **`HeyGenProviderClientError` is exported only from the provider-gateway internal module surface.** API-side consumers (`HeyGenProviderGatewayClient`) infer error classification from HTTP status alone — the typed class doesn't cross the network boundary. This is intentional: the network surface speaks JSON `{ error: { code, message } }`, not TS classes.
+- **Orphan warning is fully greppable.** Format: `[persona] Orphan HeyGen avatar created but tx rejected. avatar_id=... persona_id=... workspace_id=... error_type=... The HeyGen avatar will remain unused. No compensation is performed (Slice 5b trade-off).` — same as Slice 5b, now also fires for non-guard error types.
+- **`storageWarning` UI feedback is amber (warning), not red (error).** Persona creation succeeded; only the portrait is missing. The new amber `FeedbackLine` style was added to the existing `ActionFeedback` widening pattern.
+- **Locked Characters state with zero personas shows no content** (no mock placeholder "Маша" anymore). Decision per Fixup B prompt: rather than juggle mock-vs-real rendering, show the section header + upsell hint + zero cards. Active personas remain visible disabled per E4.
+- **Voice preview button stays hidden / non-interactive in locked state.** `previewAudioUrl={null}` is passed unconditionally in the locked-card render path. Audio preview is contingent on the plan being active per Fixup B prompt; matches existing E2 behavior.
+- **Full web test suite ran 662/662 PASS** (4 new tests added by Fixup B, up from 658/658 pre-audit). No flaky run this pass.
+- **Tests for `talking_avatar_persona_unavailable` code emission** (audit hole #12) are not added in this pass — the code is documented in E13.3 but the existing Slice 7 test suite already exercises the emission path (`unset_legacy` and missing persona rejection). No new test needed; the audit finding was documentation drift, not behavior drift.
+- **Cross-slice invariants 1–15 re-verified true** post-fixup. The most relevant checks:
+  - #5: explicit grep across `apps/web/**` and `apps/web/messages/*.json` for `heygenAvatarId` returns zero matches.
+  - #12: explicit grep across new diff for `.match(`, `.includes(`, `RegExp(`, `.startsWith(` on any user-input variable returns zero matches.
+  - #14: explicit grep across `apps/runtime/src/**` for `personaRepository.(create|update|archive)` returns zero matches.
+  - #15: all flag checks remain strict `=== true` / `=== false` equality; HeyGen status parsing remains pure structural `=== "completed"` / `=== "failed"`.
+
+### Verification (all 12 gates PASS — orchestrator-run)
+
+1. `corepack pnpm -r --if-present run lint` — all `Done`. ✅
+2. `corepack pnpm run format:check` — `All matched files use Prettier code style!` ✅
+3. `corepack pnpm --filter @persai/api run typecheck` — exit 0. ✅
+4. `corepack pnpm --filter @persai/web run typecheck` — exit 0. ✅
+5. `corepack pnpm --filter @persai/runtime run typecheck` — exit 0 (Fixup A scope, no Fixup B impact). ✅
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — exit 0. ✅
+7. Fixup A self-verification: API + provider-gateway focused tests (17 API persona tests + 8 gateway avatar tests + 13 HeyGen client tests + 4 plan-visibility tests + full API suite ~6.5min). PASS. ✅
+8. Fixup B self-verification: `pnpm --filter @persai/web run test` → 662/662 PASS across 65 files (up from 658/658 pre-audit). ✅
+9. Orchestrator post-merge verification: `pnpm --filter @persai/web run typecheck` exit 0; `pnpm --filter @persai/api run typecheck` exit 0; `pnpm -r --if-present run lint` all Done; `pnpm run format:check` clean. ✅
+
+### Next recommended slice
+
+**ADR-109 Slice 11 — Live smoke + E2E + cross-doc updates.** All substrate, contract, runtime execution, plan toggle, persona registry, voice catalog, tool description, and persona materialization are landed and audit-passed. Slice 11 scope per ADR-109: live HeyGen call validation in dev (Scenario A: ad-hoc photo + text; Scenario C: persona reuse), E2E test from chat → runtime → provider-gateway → HeyGen → poll → settle → bundle billing facts, and cross-doc updates to `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`. No more code-only slices remain.
+
+### Risks / residuals
+
+- **Web client still uses hand-typed DTOs**, not orval-generated. Audit-pass tightened the 3 most-exposed drifts; the remaining surface is acknowledged in ADR-109 E13 "Acknowledged limitations". Slice 11 may or may not address it — operator's call.
+- **Slow test suites** unchanged: `heygen-provider.client.test.ts` ~160s (10s real poll intervals); full API suite ~390s. Pre-existing characteristics.
+- **`vcoinBalanceRepository.debit` is unused on the new persona-create path** but kept in the interface. Cosmetic — could be removed in a future cleanup slice.
+- **No live HeyGen call has been made yet.** Slice 11 is the gate before declaring ADR-109 production-ready.
+
+---
+
 ## 2026-06-05 — ADR-109 Slice 10: Chat UX for talking video (tool description + persona materialization substrate)
 
 ### What changed & why

@@ -3,7 +3,7 @@ import type {
   ProviderGatewayHeyGenCreatePhotoAvatarRequest,
   ProviderGatewayHeyGenCreatePhotoAvatarResult
 } from "@persai/runtime-contract";
-import { HeyGenProviderClient } from "./heygen/heygen-provider.client";
+import { HeyGenProviderClient, HeyGenProviderClientError } from "./heygen/heygen-provider.client";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 
 @Injectable()
@@ -38,19 +38,29 @@ export class ProviderHeyGenAvatarsService {
         respondedAt: new Date().toISOString()
       };
     } catch (error) {
-      // Re-throw ServiceUnavailableException unchanged (already structured).
-      if (error instanceof ServiceUnavailableException) {
+      // Re-throw already-structured HTTP exceptions unchanged.
+      if (error instanceof ServiceUnavailableException || error instanceof BadRequestException) {
         throw error;
       }
-      // All other errors (HeyGen API failures, invalid response) surface as 503.
-      // The caller (API side) distinguishes 4xx vs 5xx to set the right error code.
+      // HeyGen returned a non-2xx response with a known HTTP status.
+      // 4xx → bad input from caller; surface as 400 so the API side maps it to
+      //        heygen_avatar_create_failed (invalid portrait, param error, etc.).
+      // 5xx / unknown → provider outage; surface as 503 (heygen_unavailable).
+      if (error instanceof HeyGenProviderClientError) {
+        if (error.httpStatus >= 400 && error.httpStatus < 500) {
+          throw new BadRequestException({
+            error: { code: "heygen_avatar_create_failed", message: error.providerMessage }
+          });
+        }
+        throw new ServiceUnavailableException({
+          error: { code: "heygen_unavailable", message: error.providerMessage }
+        });
+      }
+      // Network / timeout / unexpected parse failure → 503.
       const message =
         error instanceof Error ? error.message : "HeyGen avatar creation failed unexpectedly.";
       throw new ServiceUnavailableException({
-        error: {
-          code: "heygen_avatar_create_failed",
-          message
-        }
+        error: { code: "heygen_unavailable", message }
       });
     }
   }

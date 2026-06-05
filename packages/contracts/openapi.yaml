@@ -16120,6 +16120,7 @@ components:
           additionalProperties: true
     WorkspaceVideoPersonaState:
       type: object
+      description: User-facing persona shape. Provider-internal fields (avatar ID, voice ID raw key) are intentionally absent — they must never appear on the public wire contract.
       required:
         - id
         - displayName
@@ -16140,10 +16141,6 @@ components:
           type: string
         heygenVoiceLabel:
           type: string
-        heygenAvatarId:
-          type: string
-          nullable: true
-          description: NULL at creation; set by Slice 6 on first HeyGen render.
         createdAt:
           type: string
           format: date-time

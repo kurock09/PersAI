@@ -9,7 +9,9 @@
  *  3. normalizeInput rejects missing portraitImageBytesBase64 with 400
  *  4. normalizeInput rejects missing name with 400
  *  5. Secret resolution failure propagates as ServiceUnavailableException
- *  6. HeyGen client error wraps as ServiceUnavailableException(heygen_avatar_create_failed)
+ *  6. HeyGen client generic error wraps as ServiceUnavailableException(heygen_unavailable)
+ *  7. HeyGen client HeyGenProviderClientError (4xx) → BadRequestException(heygen_avatar_create_failed)
+ *  8. HeyGen client HeyGenProviderClientError (5xx) → ServiceUnavailableException(heygen_unavailable)
  */
 
 import assert from "node:assert/strict";
@@ -17,6 +19,7 @@ import { BadRequestException, ServiceUnavailableException } from "@nestjs/common
 import type { ProviderGatewayHeyGenCreatePhotoAvatarRequest } from "@persai/runtime-contract";
 import { ProviderHeyGenAvatarsService } from "../src/modules/providers/provider-heygen-avatars.service";
 import type { HeyGenProviderClient } from "../src/modules/providers/heygen/heygen-provider.client";
+import { HeyGenProviderClientError } from "../src/modules/providers/heygen/heygen-provider.client";
 import type { PersaiInternalApiClientService } from "../src/modules/providers/persai-internal-api.client.service";
 
 const MOCK_AVATAR_ID = "ava-svc-test-1";
@@ -190,7 +193,7 @@ async function run(): Promise<void> {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Test 6: HeyGen client error wraps as ServiceUnavailableException
+  // Test 6: Generic HeyGen client error → ServiceUnavailableException(heygen_unavailable)
   // ──────────────────────────────────────────────────────────────────────────
   {
     const service = new ProviderHeyGenAvatarsService(
@@ -206,12 +209,68 @@ async function run(): Promise<void> {
         assert.ok(err instanceof ServiceUnavailableException);
         const body = (err as ServiceUnavailableException).getResponse() as Record<string, unknown>;
         const error = body["error"] as Record<string, unknown>;
-        assert.equal(error["code"], "heygen_avatar_create_failed");
+        assert.equal(error["code"], "heygen_unavailable");
         return true;
       }
     );
     console.log(
-      "✓ Test 6: HeyGen client error → ServiceUnavailableException(heygen_avatar_create_failed)"
+      "✓ Test 6: generic HeyGen client error → ServiceUnavailableException(heygen_unavailable)"
+    );
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 7: HeyGenProviderClientError with 4xx → BadRequestException(heygen_avatar_create_failed)
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    const providerMsg = "Portrait image format is not supported.";
+    const service = new ProviderHeyGenAvatarsService(
+      makeHeyGenClient({
+        failWith: new HeyGenProviderClientError(providerMsg, 422, providerMsg)
+      }),
+      makeInternalApiClient({})
+    );
+
+    await assert.rejects(
+      () => service.createPhotoAvatar(makeValidRequest()),
+      (err: Error) => {
+        assert.ok(err instanceof BadRequestException);
+        const body = (err as BadRequestException).getResponse() as Record<string, unknown>;
+        const error = body["error"] as Record<string, unknown>;
+        assert.equal(error["code"], "heygen_avatar_create_failed");
+        assert.equal(error["message"], providerMsg);
+        return true;
+      }
+    );
+    console.log(
+      "✓ Test 7: HeyGenProviderClientError(4xx) → BadRequestException(heygen_avatar_create_failed)"
+    );
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 8: HeyGenProviderClientError with 5xx → ServiceUnavailableException(heygen_unavailable)
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    const providerMsg = "HeyGen internal server error.";
+    const service = new ProviderHeyGenAvatarsService(
+      makeHeyGenClient({
+        failWith: new HeyGenProviderClientError(providerMsg, 503, providerMsg)
+      }),
+      makeInternalApiClient({})
+    );
+
+    await assert.rejects(
+      () => service.createPhotoAvatar(makeValidRequest()),
+      (err: Error) => {
+        assert.ok(err instanceof ServiceUnavailableException);
+        const body = (err as ServiceUnavailableException).getResponse() as Record<string, unknown>;
+        const error = body["error"] as Record<string, unknown>;
+        assert.equal(error["code"], "heygen_unavailable");
+        assert.equal(error["message"], providerMsg);
+        return true;
+      }
+    );
+    console.log(
+      "✓ Test 8: HeyGenProviderClientError(5xx) → ServiceUnavailableException(heygen_unavailable)"
     );
   }
 

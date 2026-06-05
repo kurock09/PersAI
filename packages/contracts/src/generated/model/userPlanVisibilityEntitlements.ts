@@ -10,7 +10,8 @@ export interface UserPlanVisibilityEntitlements {
   channelsAndSurfaces: UserPlanVisibilityEntitlementsChannelsAndSurfaces;
   /**
    * Whether the talking-video (HeyGen persona) feature is enabled on this plan.
+   * Always explicitly set by the server (default false). Required to match OpenAPI.
    * @default false
    */
-  talkingVideoEnabled?: boolean;
+  talkingVideoEnabled: boolean;
 }

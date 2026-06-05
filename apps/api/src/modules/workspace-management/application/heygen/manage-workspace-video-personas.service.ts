@@ -42,7 +42,6 @@ export type PersonaListItem = {
   portraitImageUrl: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
-  heygenAvatarId: string;
   createdAt: string;
 };
 
@@ -255,7 +254,9 @@ export class ManageWorkspaceVideoPersonasService {
 
         let balanceAfterVc: number;
 
-        // 5d. Ledger event + balance check + debit.
+        // 5d. Ledger event + conditional atomic debit.
+        // The updateMany with WHERE balance_vc >= cost is atomic at the DB level —
+        // only one concurrent request can succeed. count=0 means the race was lost.
         if (cost > 0) {
           await this.ledgerEventRepository.recordEvent({
             workspaceId: input.workspaceId,
@@ -265,27 +266,25 @@ export class ManageWorkspaceVideoPersonasService {
             tx
           });
 
-          const walletRow = await tx.workspaceVcoinBalance.findUnique({
-            where: { workspaceId: input.workspaceId }
+          const debitResult = await tx.workspaceVcoinBalance.updateMany({
+            where: { workspaceId: input.workspaceId, balanceVc: { gte: cost } },
+            data: { balanceVc: { decrement: cost } }
           });
-          const currentBalance = walletRow?.balanceVc ?? 0;
 
-          if (currentBalance < cost) {
+          if (debitResult.count === 0) {
             throw Object.assign(
               new BadRequestException({
-                message: `Insufficient VC balance. Required: ${String(cost)}, available: ${String(currentBalance)}.`,
+                message: `Insufficient VC balance. Required: ${String(cost)}.`,
                 code: "vcoin_balance_exhausted"
               }),
               { _personaError: true }
             );
           }
 
-          const debitResult = await this.vcoinBalanceRepository.debit({
-            workspaceId: input.workspaceId,
-            amountVc: cost,
-            tx
+          const walletRow = await tx.workspaceVcoinBalance.findUnique({
+            where: { workspaceId: input.workspaceId }
           });
-          balanceAfterVc = debitResult.balanceVc;
+          balanceAfterVc = walletRow?.balanceVc ?? 0;
         } else {
           const walletRow = await this.vcoinBalanceRepository.getOrCreate(input.workspaceId);
           balanceAfterVc = walletRow.balanceVc;
@@ -297,21 +296,21 @@ export class ManageWorkspaceVideoPersonasService {
       committedPersona = txResult.persona;
       walletBalanceVc = txResult.balanceAfterVc;
     } catch (error) {
-      if (
-        error instanceof BadRequestException &&
-        (error as BadRequestException & { _personaError?: boolean })._personaError
-      ) {
-        // A race condition caused the tx-level guard to fire even though the pre-check
-        // passed. The HeyGen avatar we already created is now orphaned.
-        // Log a warning but propagate the correct error to the caller.
-        this.logger.warn(
-          `[persona] Orphan HeyGen avatar created but tx rejected. ` +
-            `avatar_id=${avatarId} persona_id=${personaId} workspace_id=${input.workspaceId} ` +
-            `error_code=${String((error.getResponse() as Record<string, unknown>)["code"] ?? "unknown")}. ` +
-            `The HeyGen avatar will remain unused. No compensation is performed (Slice 5b trade-off).`
-        );
-        throw error;
-      }
+      // Any error after HeyGen succeeded means the avatar we just created is orphaned.
+      // Log a greppable warning regardless of error type (guard race, infra error, etc.)
+      // then re-throw the original error unchanged.
+      const errorCode =
+        error instanceof BadRequestException
+          ? String((error.getResponse() as Record<string, unknown>)["code"] ?? "unknown")
+          : error instanceof Error
+            ? error.constructor.name
+            : "unknown";
+      this.logger.warn(
+        `[persona] Orphan HeyGen avatar created but tx rejected. ` +
+          `avatar_id=${avatarId} persona_name=${input.displayName} workspace_id=${input.workspaceId} ` +
+          `error_type=${errorCode}. ` +
+          `The HeyGen avatar will remain unused. No compensation is performed (ADR-109 Slice 5b trade-off).`
+      );
       throw error;
     }
 
@@ -428,7 +427,6 @@ export class ManageWorkspaceVideoPersonasService {
       portraitImageUrl: row.portraitImageUrl,
       heygenVoiceId: row.heygenVoiceId,
       heygenVoiceLabel: row.heygenVoiceLabel,
-      heygenAvatarId: row.heygenAvatarId,
       createdAt: row.createdAt.toISOString()
     };
   }

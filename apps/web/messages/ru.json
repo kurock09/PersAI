@@ -1213,7 +1213,9 @@
     "charactersPreviewUnavailable": "Предпрослушка недоступна",
     "charactersMockPersonaName": "Маша",
     "charactersMockPersonaVoice": "Русский (женский)",
-    "charactersVoiceLabel": "Голос: {voice}"
+    "charactersVoiceLabel": "Голос: {voice}",
+    "charactersWarnStorageFailedTitle": "Персонаж создан, портрет — нет",
+    "charactersWarnStorageFailedMessage": "{name} создан, но портрет не сохранён. Создайте заново, чтобы прикрепить."
   },
   "telegram": {
     "title": "Telegram",

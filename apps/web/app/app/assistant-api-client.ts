@@ -464,7 +464,7 @@ function readXhrErrorEnvelope(
   }
 }
 
-class ApiStructuredError extends Error {
+export class ApiStructuredError extends Error {
   constructor(
     message: string,
     public readonly code: string,
@@ -5544,7 +5544,6 @@ export type PersonaListItemDto = {
   portraitImageUrl: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
-  heygenAvatarId: string;
   createdAt: string;
 };
 
@@ -5577,7 +5576,9 @@ export async function getWorkspaceVideoPersonas(
     { headers: getAuthHeaders(token) }
   );
   if (!res.ok) {
-    throw new Error(await readJsonErrorMessage(res, "Failed to load video personas."));
+    const envelope = await readApiErrorEnvelope(res);
+    if (envelope) throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    throw new Error("Failed to load video personas.");
   }
   return res.json() as Promise<PersonaListResponse>;
 }
@@ -5592,7 +5593,9 @@ export async function getWorkspaceVoiceCatalog(
     { headers: getAuthHeaders(token) }
   );
   if (!res.ok) {
-    throw new Error(await readJsonErrorMessage(res, "Failed to load voice catalog."));
+    const envelope = await readApiErrorEnvelope(res);
+    if (envelope) throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    throw new Error("Failed to load voice catalog.");
   }
   return res.json() as Promise<VoiceCatalogResponse>;
 }
@@ -5621,9 +5624,9 @@ export async function createWorkspaceVideoPersona(
     { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form }
   );
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-    const code = (body?.["code"] ?? body?.["message"] ?? "create_failed") as string;
-    throw Object.assign(new Error(code), { errorCode: code });
+    const envelope = await readApiErrorEnvelope(res);
+    if (envelope) throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    throw new ApiStructuredError("Persona creation failed", "create_failed");
   }
   const data = (await res.json()) as {
     persona: PersonaListItemDto;
@@ -5644,6 +5647,8 @@ export async function deleteWorkspaceVideoPersona(
     { method: "DELETE", headers: getAuthHeaders(token) }
   );
   if (!res.ok) {
-    throw new Error(await readJsonErrorMessage(res, "Failed to delete persona."));
+    const envelope = await readApiErrorEnvelope(res);
+    if (envelope) throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    throw new Error("Failed to delete persona.");
   }
 }

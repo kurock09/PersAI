@@ -121,9 +121,7 @@ export class ProviderVideoGenerationService {
         : this.normalizeReferenceImage(input.referenceTailImage);
     const model = this.normalizeModel(input.model, providerId);
     const voiceIds = this.normalizeVoiceIds(input.voiceIds);
-    // ADR-109 Slice 3: structural pass-through of talking-avatar fields. The
-    // gateway accepts and forwards them; HeyGen-specific runtime execution is
-    // Slice 6 (the case branch still throws the Slice 2a placeholder).
+    // ADR-109: structural pass-through of talking-avatar fields to the provider client.
     const talkingAvatarFields = this.normalizeTalkingAvatarFields(input);
 
     return {

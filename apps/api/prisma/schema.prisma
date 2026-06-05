@@ -3356,16 +3356,15 @@ model SupportTicketAttachment {
 /// ADR-109 Slice 5 — workspace-scoped talking-avatar persona.
 ///
 /// One persona = one HeyGen avatar identity (display name + voice binding +
-/// portrait). `heygenAvatarId` is NULL at creation; Slice 6 will lazily
-/// populate it on first render by calling the HeyGen avatar create API.
+/// portrait). `heygenAvatarId` is set eagerly on persona POST per ADR-109
+/// erratum E12. NEVER exposed on user-facing list/create API (invariant #5).
 ///
 /// Soft-delete: the `archived` flag is set to true on delete (the row is kept
-/// so Slice 6 can cascade the HeyGen avatar deletion via `heygenAvatarId`).
+/// so archived avatar IDs remain available for future cleanup tooling).
 ///
-/// Partial unique index: Prisma 6.x schema language does not support filtered
-/// unique indexes directly. The plain @@unique([workspaceId, displayNameLower])
-/// below means archived rows block name reuse until they are renamed or
-/// hard-deleted. Slice 6 will address this during the HeyGen cascade cleanup.
+/// Known limitation: filtered unique index on (workspaceId, displayNameLower,
+/// archived=false) would allow name reuse after archive; current unconditional
+/// unique blocks reuse. Acknowledged in ADR-109.
 model WorkspaceVideoPersona {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   workspaceId            String    @map("workspace_id") @db.Uuid
