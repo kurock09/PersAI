@@ -2091,6 +2091,167 @@ async function run(): Promise<void> {
       }),
     (error) => error instanceof BadRequestException && error.message.includes("talkingVideoEnabled")
   );
+
+  // ── ADR-109 Slice 10c: plan validation for talkingAvatarModelKey fields ──
+
+  // Create a service with a mocked runtime-provider-settings service so we can
+  // exercise the private assertTalkingAvatarModelKeysAvailable method directly.
+  const mockHeygenCatalog = {
+    models: [
+      {
+        model: "heygen-photo-avatar-v3",
+        capabilities: ["video"],
+        active: true,
+        kind: "talking_avatar",
+        billingMode: "time_metered",
+        effectiveFrom: null,
+        effectiveTo: null,
+        inputTokenWeight: 1,
+        cachedInputTokenWeight: 1,
+        outputTokenWeight: 1,
+        displayLabel: null,
+        notes: null,
+        videoModelParameters: null,
+        providerPriceMetadata: {
+          currency: "USD",
+          tokenPricing: null,
+          timePricing: { unit: "second", pricePerUnit: 0 },
+          fixedOperationPricing: null,
+          tieredOperationPricing: null
+        }
+      },
+      {
+        model: "kling-v3-cinematic",
+        capabilities: ["video"],
+        active: true,
+        kind: "cinematic",
+        billingMode: "time_metered",
+        effectiveFrom: null,
+        effectiveTo: null,
+        inputTokenWeight: 1,
+        cachedInputTokenWeight: 1,
+        outputTokenWeight: 1,
+        displayLabel: null,
+        notes: null,
+        videoModelParameters: null,
+        providerPriceMetadata: {
+          currency: "USD",
+          tokenPricing: null,
+          timePricing: { unit: "second", pricePerUnit: 0 },
+          fixedOperationPricing: null,
+          tieredOperationPricing: null
+        }
+      }
+    ]
+  };
+
+  const serviceWithHeygenCatalog = createService({
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          availableModelCatalogByProvider: {
+            openai: { models: [] },
+            anthropic: { models: [] },
+            runway: { models: [] },
+            kling: { models: [] },
+            heygen: mockHeygenCatalog
+          }
+        };
+      }
+    }
+  });
+
+  // Slice 10c Test 1: cinematic model on talkingAvatarModelKey → refused.
+  await assert.rejects(
+    () =>
+      (
+        serviceWithHeygenCatalog as unknown as {
+          assertTalkingAvatarModelKeysAvailable(
+            entries: Array<{ modelKey: string | null; field: string }>
+          ): Promise<void>;
+        }
+      ).assertTalkingAvatarModelKeysAvailable([
+        { modelKey: "kling-v3-cinematic", field: "talkingAvatarModelKey" }
+      ]),
+    (error: unknown) =>
+      error instanceof BadRequestException &&
+      /cinematic model/.test(error.message) &&
+      /talkingAvatarModelKey/.test(error.message),
+    "Slice 10c: cinematic model on talkingAvatarModelKey must be refused"
+  );
+
+  // Slice 10c Test 2: talking_avatar model on talkingAvatarModelKey → accepted.
+  await assert.doesNotReject(
+    () =>
+      (
+        serviceWithHeygenCatalog as unknown as {
+          assertTalkingAvatarModelKeysAvailable(
+            entries: Array<{ modelKey: string | null; field: string }>
+          ): Promise<void>;
+        }
+      ).assertTalkingAvatarModelKeysAvailable([
+        { modelKey: "heygen-photo-avatar-v3", field: "talkingAvatarModelKey" }
+      ]),
+    "Slice 10c: talking_avatar model on talkingAvatarModelKey must be accepted"
+  );
+
+  // Slice 10c Test 3: existing Slice 2b refusal — talking_avatar model on
+  // videoGenerateModelKey still fires with updated message text referencing talkingAvatarModelKey.
+  const serviceWithTalkingAvatarInVideoKinds = createService({
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          availableModelCatalogByProvider: {
+            openai: { models: [] },
+            anthropic: { models: [] },
+            runway: { models: [] },
+            kling: { models: [] },
+            heygen: {
+              models: [
+                {
+                  model: "heygen-photo-avatar-v3",
+                  capabilities: ["video"],
+                  active: true,
+                  kind: "talking_avatar",
+                  billingMode: "time_metered",
+                  effectiveFrom: null,
+                  effectiveTo: null,
+                  inputTokenWeight: 1,
+                  cachedInputTokenWeight: 1,
+                  outputTokenWeight: 1,
+                  displayLabel: null,
+                  notes: null,
+                  videoModelParameters: null,
+                  providerPriceMetadata: {
+                    currency: "USD",
+                    tokenPricing: null,
+                    timePricing: { unit: "second", pricePerUnit: 0 },
+                    fixedOperationPricing: null,
+                    tieredOperationPricing: null
+                  }
+                }
+              ]
+            }
+          }
+        };
+      }
+    }
+  });
+  await assert.rejects(
+    () =>
+      (
+        serviceWithTalkingAvatarInVideoKinds as unknown as {
+          assertCapabilityModelKeysAvailable(
+            entries: Array<{ modelKey: string | null; capability: "image" | "video" }>
+          ): Promise<void>;
+        }
+      ).assertCapabilityModelKeysAvailable([
+        { modelKey: "heygen-photo-avatar-v3", capability: "video" }
+      ]),
+    (error: unknown) =>
+      error instanceof BadRequestException && /talkingAvatarModelKey/.test(error.message),
+    "Slice 10c: Slice 2b refusal must reference talkingAvatarModelKey (updated message text)"
+  );
 }
 
 void run();

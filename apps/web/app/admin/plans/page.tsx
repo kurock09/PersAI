@@ -178,6 +178,8 @@ export type PlanDraft = {
   imageEditFallbackModelKey: string;
   videoGenerateModelKey: string;
   videoGenerateFallbackModelKey: string;
+  talkingAvatarModelKey: string;
+  talkingAvatarFallbackModelKey: string;
   talkingVideoEnabled: boolean;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
@@ -791,6 +793,8 @@ function emptyDraft(): PlanDraft {
     imageEditFallbackModelKey: "",
     videoGenerateModelKey: "",
     videoGenerateFallbackModelKey: "",
+    talkingAvatarModelKey: "",
+    talkingAvatarFallbackModelKey: "",
     talkingVideoEnabled: false,
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: [],
@@ -928,6 +932,8 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     imageEditFallbackModelKey: plan.imageEditFallbackModelKey ?? "",
     videoGenerateModelKey: plan.videoGenerateModelKey ?? "",
     videoGenerateFallbackModelKey: plan.videoGenerateFallbackModelKey ?? "",
+    talkingAvatarModelKey: plan.talkingAvatarModelKey ?? "",
+    talkingAvatarFallbackModelKey: plan.talkingAvatarFallbackModelKey ?? "",
     talkingVideoEnabled: plan.talkingVideoEnabled ?? false,
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
     toolActivations: (plan.toolActivations ?? [])
@@ -1333,6 +1339,8 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     imageEditFallbackModelKey: toNullable(draft.imageEditFallbackModelKey),
     videoGenerateModelKey: toNullable(draft.videoGenerateModelKey),
     videoGenerateFallbackModelKey: toNullable(draft.videoGenerateFallbackModelKey),
+    talkingAvatarModelKey: toNullable(draft.talkingAvatarModelKey),
+    talkingAvatarFallbackModelKey: toNullable(draft.talkingAvatarFallbackModelKey),
     talkingVideoEnabled: draft.talkingVideoEnabled,
     videoVcoinMonthlyGrant,
     toolActivations: draft.toolActivations.map((ta) => ({
@@ -1700,10 +1708,15 @@ export function ToolActivationsEdit({
   onVideoGenerateModelKeyChange,
   videoGenerateFallbackModelKey,
   onVideoGenerateFallbackModelKeyChange,
+  talkingAvatarModelKey,
+  onTalkingAvatarModelKeyChange,
+  talkingAvatarFallbackModelKey,
+  onTalkingAvatarFallbackModelKeyChange,
   talkingVideoEnabled,
   onTalkingVideoEnabledChange,
   availableImageModelKeys,
-  availableVideoModelKeys
+  availableVideoModelKeys,
+  availableTalkingAvatarModelKeys
 }: {
   activations: ToolActivationDraft[];
   onUpdate: (updated: ToolActivationDraft[]) => void;
@@ -1719,10 +1732,15 @@ export function ToolActivationsEdit({
   onVideoGenerateModelKeyChange: (value: string) => void;
   videoGenerateFallbackModelKey: string;
   onVideoGenerateFallbackModelKeyChange: (value: string) => void;
+  talkingAvatarModelKey: string;
+  onTalkingAvatarModelKeyChange: (value: string) => void;
+  talkingAvatarFallbackModelKey: string;
+  onTalkingAvatarFallbackModelKeyChange: (value: string) => void;
   talkingVideoEnabled: boolean;
   onTalkingVideoEnabledChange: (value: boolean) => void;
   availableImageModelKeys: ModelOption[];
   availableVideoModelKeys: ModelOption[];
+  availableTalkingAvatarModelKeys: ModelOption[];
 }) {
   if (activations.length === 0) {
     return (
@@ -1895,6 +1913,44 @@ export function ToolActivationsEdit({
                       className="h-4 w-4 rounded border-border accent-accent"
                     />
                   </FieldRow>
+                  <div className="col-span-full mt-1 rounded border border-border/60 bg-bg/40 px-2 py-2">
+                    <p className="mb-1.5 text-[10.5px] font-semibold text-text-subtle">
+                      Talking Avatar (HeyGen)
+                    </p>
+                    {!talkingVideoEnabled && (
+                      <p className="mb-1.5 text-[10px] italic text-text-subtle">
+                        Enable the talking video plan toggle to configure these.
+                      </p>
+                    )}
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <FieldRow
+                        label="Talking Avatar Model"
+                        tip="ADR-109 Slice 10c — HeyGen talking-avatar model key. Only HeyGen rows with kind='talking_avatar'. When empty, materialization falls back to the first active HeyGen row."
+                      >
+                        <ModelOptionSelect
+                          value={talkingAvatarModelKey}
+                          onChange={onTalkingAvatarModelKeyChange}
+                          options={availableTalkingAvatarModelKeys}
+                          placeholder="(none — use first active HeyGen row)"
+                          className={modelSelectClasses}
+                          disabled={!talkingVideoEnabled}
+                        />
+                      </FieldRow>
+                      <FieldRow
+                        label="Talking Avatar Fallback Model"
+                        tip="ADR-109 Slice 10c — Optional fallback HeyGen talking-avatar model key."
+                      >
+                        <ModelOptionSelect
+                          value={talkingAvatarFallbackModelKey}
+                          onChange={onTalkingAvatarFallbackModelKeyChange}
+                          options={availableTalkingAvatarModelKeys}
+                          placeholder="none"
+                          className={modelSelectClasses}
+                          disabled={!talkingVideoEnabled}
+                        />
+                      </FieldRow>
+                    </div>
+                  </div>
                 </>
               ) : null}
               {ta.toolCode === "video_generate" ? (
@@ -1942,20 +1998,27 @@ function ModelOptionSelect({
   onChange,
   options,
   placeholder,
-  className
+  className,
+  disabled
 }: {
   value: string;
   onChange: (value: string) => void;
   options: ModelOption[];
   placeholder: string;
   className: string;
+  disabled?: boolean;
 }) {
   const grouped = options.reduce<Record<string, ModelOption[]>>((acc, option) => {
     (acc[option.provider] ??= []).push(option);
     return acc;
   }, {});
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={className}>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn(className, disabled ? "cursor-not-allowed opacity-50" : "")}
+      disabled={disabled}
+    >
       <option value="">{placeholder}</option>
       {Object.entries(grouped).map(([provider, models]) => (
         <optgroup key={provider} label={provider}>
@@ -2103,6 +2166,7 @@ export function PlanForm({
   availableModelKeys = [],
   availableImageModelKeys = [],
   availableVideoModelKeys = [],
+  availableTalkingAvatarModelKeys = [],
   runtimePrimaryModelKey = null,
   tokenMeteredWeightsByModel = {},
   vcoinExchangeRate = 20,
@@ -2118,6 +2182,7 @@ export function PlanForm({
   availableModelKeys?: ModelOption[];
   availableImageModelKeys?: ModelOption[];
   availableVideoModelKeys?: ModelOption[];
+  availableTalkingAvatarModelKeys?: ModelOption[];
   runtimePrimaryModelKey?: string | null;
   tokenMeteredWeightsByModel?: Record<string, TokenMeteredWeights>;
   vcoinExchangeRate?: number;
@@ -3472,10 +3537,19 @@ export function PlanForm({
           onVideoGenerateFallbackModelKeyChange={(videoGenerateFallbackModelKey) =>
             onPatch({ videoGenerateFallbackModelKey })
           }
+          talkingAvatarModelKey={draft.talkingAvatarModelKey}
+          onTalkingAvatarModelKeyChange={(talkingAvatarModelKey) =>
+            onPatch({ talkingAvatarModelKey })
+          }
+          talkingAvatarFallbackModelKey={draft.talkingAvatarFallbackModelKey}
+          onTalkingAvatarFallbackModelKeyChange={(talkingAvatarFallbackModelKey) =>
+            onPatch({ talkingAvatarFallbackModelKey })
+          }
           talkingVideoEnabled={draft.talkingVideoEnabled}
           onTalkingVideoEnabledChange={(talkingVideoEnabled) => onPatch({ talkingVideoEnabled })}
           availableImageModelKeys={availableImageModelKeys}
           availableVideoModelKeys={availableVideoModelKeys}
+          availableTalkingAvatarModelKeys={availableTalkingAvatarModelKeys}
         />
         {availableVideoModelKeys.some((option) => option.disabled) ? (
           <HelpText className="mt-2 text-amber-300">
@@ -3938,6 +4012,9 @@ export default function AdminPlansPage() {
   const [availableModelKeys, setAvailableModelKeys] = useState<ModelOption[]>([]);
   const [availableImageModelKeys, setAvailableImageModelKeys] = useState<ModelOption[]>([]);
   const [availableVideoModelKeys, setAvailableVideoModelKeys] = useState<ModelOption[]>([]);
+  const [availableTalkingAvatarModelKeys, setAvailableTalkingAvatarModelKeys] = useState<
+    ModelOption[]
+  >([]);
   const [runtimePrimaryModelKey, setRuntimePrimaryModelKey] = useState<string | null>(null);
   const [tokenMeteredWeightsByModel, setTokenMeteredWeightsByModel] = useState<
     Record<string, TokenMeteredWeights>
@@ -3981,6 +4058,7 @@ export default function AdminPlansPage() {
         const weightsByModel: Record<string, TokenMeteredWeights> = {};
         const imageKeys: ModelOption[] = [];
         const rawVideoKeys: ModelOption[] = [];
+        const talkingAvatarKeys: ModelOption[] = [];
         for (const [provider, catalog] of Object.entries(
           runtimeData.availableModelCatalogByProvider as unknown as Record<
             string,
@@ -3989,6 +4067,7 @@ export default function AdminPlansPage() {
                 model: string;
                 active: boolean;
                 capabilities: string[];
+                kind?: string;
                 billingMode?: string;
                 inputTokenWeight?: number;
                 cachedInputTokenWeight?: number;
@@ -4024,11 +4103,19 @@ export default function AdminPlansPage() {
               imageKeys.push({ provider, model: profile.model });
             }
             if (profile.active && profile.capabilities.includes("video")) {
-              rawVideoKeys.push({
-                provider,
-                model: profile.model,
-                label: `${profile.model} (${provider})`
-              });
+              if (provider === "heygen" && profile.kind === "talking_avatar") {
+                talkingAvatarKeys.push({
+                  provider,
+                  model: profile.model,
+                  label: `${profile.model} (${provider})`
+                });
+              } else {
+                rawVideoKeys.push({
+                  provider,
+                  model: profile.model,
+                  label: `${profile.model} (${provider})`
+                });
+              }
             }
           }
         }
@@ -4048,6 +4135,7 @@ export default function AdminPlansPage() {
         setTokenMeteredWeightsByModel(weightsByModel);
         setAvailableImageModelKeys(imageKeys);
         setAvailableVideoModelKeys(videoKeys);
+        setAvailableTalkingAvatarModelKeys(talkingAvatarKeys);
       } else {
         setTokenMeteredWeightsByModel({});
       }
@@ -4421,6 +4509,7 @@ export default function AdminPlansPage() {
             availableModelKeys={availableModelKeys}
             availableImageModelKeys={availableImageModelKeys}
             availableVideoModelKeys={availableVideoModelKeys}
+            availableTalkingAvatarModelKeys={availableTalkingAvatarModelKeys}
             runtimePrimaryModelKey={runtimePrimaryModelKey}
             tokenMeteredWeightsByModel={tokenMeteredWeightsByModel}
             vcoinExchangeRate={vcoinExchangeRate}
@@ -4490,6 +4579,7 @@ export default function AdminPlansPage() {
                     availableModelKeys={availableModelKeys}
                     availableImageModelKeys={availableImageModelKeys}
                     availableVideoModelKeys={availableVideoModelKeys}
+                    availableTalkingAvatarModelKeys={availableTalkingAvatarModelKeys}
                     runtimePrimaryModelKey={runtimePrimaryModelKey}
                     tokenMeteredWeightsByModel={tokenMeteredWeightsByModel}
                     vcoinExchangeRate={vcoinExchangeRate}

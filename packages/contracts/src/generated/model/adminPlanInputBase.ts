@@ -63,6 +63,16 @@ export interface AdminPlanInputBase {
   /** @nullable */
   videoGenerateFallbackModelKey?: string | null;
   /**
+   * ADR-109 Slice 10c — HeyGen talking-avatar model key for the plan. Only HeyGen rows with kind='talking_avatar' are valid here. When null, materialization falls back to the first active HeyGen row.
+   * @nullable
+   */
+  talkingAvatarModelKey?: string | null;
+  /**
+   * ADR-109 Slice 10c — Optional fallback HeyGen talking-avatar model key. Only HeyGen rows with kind='talking_avatar' are valid here.
+   * @nullable
+   */
+  talkingAvatarFallbackModelKey?: string | null;
+  /**
    * ADR-109 Slice 8 — plan-level toggle that enables the talking-avatar execution path for `video_generate`. When `false` (default), assistants on this plan use the cinematic-only schema and the runtime blocks `mode: "talking_avatar"` requests.
    * @default false
    */

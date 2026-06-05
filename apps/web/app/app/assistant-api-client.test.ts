@@ -24,7 +24,11 @@ import {
   toWebChatUxIssue,
   putAdminRuntimeProviderSettings,
   stopAssistantWebChatTurn,
-  streamAssistantWebChatTurn
+  streamAssistantWebChatTurn,
+  getWorkspaceVideoPersonas,
+  getWorkspaceVoiceCatalog,
+  createWorkspaceVideoPersona,
+  deleteWorkspaceVideoPersona
 } from "./assistant-api-client";
 
 const contractMocks = vi.hoisted(() => {
@@ -919,6 +923,66 @@ describe("streamAssistantWebChatTurn", () => {
     );
 
     expect(order).toEqual(["delta:Preface ", "tool:start:summarize_context"]);
+  });
+});
+
+// ADR-109 Slice 10c — Fix #1: URL double-prefix regression guard
+// getApiBaseUrl() already returns /api/v1 (or http://localhost:3001/api/v1 for SSR).
+// Slice 9 methods must NOT add /api/v1 again.
+describe("video-persona client URL shape (Slice 9 double-prefix fix)", () => {
+  const WORKSPACE_ID = "ws-test-123";
+  const PERSONA_ID = "persona-abc";
+
+  function stubOkFetch(body: unknown): void {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(body),
+      status: 200
+    }) as typeof fetch;
+  }
+
+  function stubOkFetchNoBody(): void {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204
+    }) as typeof fetch;
+  }
+
+  it("getWorkspaceVideoPersonas does not double-prefix api/v1 and targets /workspaces/:id/video-personas", async () => {
+    stubOkFetch({ personas: [] });
+    await getWorkspaceVideoPersonas("tok", WORKSPACE_ID);
+    const url = ((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string])[0];
+    expect(url).not.toContain("api/v1/api/v1");
+    expect(url).toContain(`/workspaces/${WORKSPACE_ID}/video-personas`);
+  });
+
+  it("getWorkspaceVoiceCatalog does not double-prefix api/v1 and targets /workspaces/:id/video-personas/voice-catalog", async () => {
+    stubOkFetch({ provider: "heygen", voices: [] });
+    await getWorkspaceVoiceCatalog("tok", WORKSPACE_ID);
+    const url = ((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string])[0];
+    expect(url).not.toContain("api/v1/api/v1");
+    expect(url).toContain(`/workspaces/${WORKSPACE_ID}/video-personas/voice-catalog`);
+  });
+
+  it("createWorkspaceVideoPersona does not double-prefix api/v1 and targets /workspaces/:id/video-personas", async () => {
+    stubOkFetch({ persona: { id: PERSONA_ID }, walletBalanceVc: 100, storageWarning: null });
+    const fakeFile = new File(["portrait"], "portrait.jpg", { type: "image/jpeg" });
+    await createWorkspaceVideoPersona("tok", WORKSPACE_ID, {
+      displayName: "Alice",
+      heygenVoiceId: "voice-1",
+      portrait: fakeFile
+    });
+    const url = ((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string])[0];
+    expect(url).not.toContain("api/v1/api/v1");
+    expect(url).toContain(`/workspaces/${WORKSPACE_ID}/video-personas`);
+  });
+
+  it("deleteWorkspaceVideoPersona does not double-prefix api/v1 and targets /workspaces/:id/video-personas/:personaId", async () => {
+    stubOkFetchNoBody();
+    await deleteWorkspaceVideoPersona("tok", WORKSPACE_ID, PERSONA_ID);
+    const url = ((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string])[0];
+    expect(url).not.toContain("api/v1/api/v1");
+    expect(url).toContain(`/workspaces/${WORKSPACE_ID}/video-personas/${PERSONA_ID}`);
   });
 });
 

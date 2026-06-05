@@ -111,7 +111,11 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     modulePath: "./internal-runtime-document-jobs.controller.test.ts",
     exportName: "runInternalRuntimeDocumentJobsControllerTest"
   },
-  { modulePath: "./turn-routing.service.test.ts", exportName: "runTurnRoutingServiceTest" }
+  { modulePath: "./turn-routing.service.test.ts", exportName: "runTurnRoutingServiceTest" },
+  {
+    modulePath: "./native-tool-projection.test.ts",
+    exportName: "runNativeToolProjectionTest"
+  }
 ];
 
 function runOneTest(modulePath: string, exportName: string): Promise<void> {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import { projectRuntimeNativeTools } from "../src/modules/turns/native-tool-projection";
 
-async function run(): Promise<void> {
+export async function runNativeToolProjectionTest(): Promise<void> {
   const artifact = compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
@@ -737,7 +737,9 @@ async function run(): Promise<void> {
 
   // ── ADR-109 Slice 8 — talkingVideoEnabled gates the talking-avatar schema fields ──
 
-  // HeyGen + talkingVideoEnabled=true → tool IS projected with talking-avatar fields
+  // HeyGen + talkingVideoEnabled=true → tool IS projected with talking-avatar fields.
+  // ADR-109 Slice 10c Fix #3f: video_generate_talking_avatar credential must be present
+  // for talking-avatar schema fields (mode/speechText etc.) to appear in the projection.
   const heygenTalkingEnabledBundle = {
     ...artifact.bundle,
     governance: {
@@ -745,6 +747,10 @@ async function run(): Promise<void> {
       toolCredentialRefs: {
         ...artifact.bundle.governance.toolCredentialRefs,
         video_generate: {
+          ...artifact.bundle.governance.toolCredentialRefs.video_generate!,
+          providerId: "heygen"
+        },
+        video_generate_talking_avatar: {
           ...artifact.bundle.governance.toolCredentialRefs.video_generate!,
           providerId: "heygen"
         }
@@ -873,7 +879,9 @@ async function run(): Promise<void> {
 
   // ── ADR-109 Slice 10 — persona catalog in tool description ──
 
-  // Helper: build a HeyGen + talkingVideoEnabled bundle with a given personaCatalog
+  // Helper: build a HeyGen + talkingVideoEnabled bundle with a given personaCatalog.
+  // ADR-109 Slice 10c Fix #3f: also adds video_generate_talking_avatar credential so
+  // the projection includes talking-avatar fields (talkingAvatarEnabled=true).
   function makeHeygenTalkingBundle(
     videoPersonaCatalog:
       | {
@@ -912,13 +920,19 @@ async function run(): Promise<void> {
           }
         : {})
     };
+    // The talking-avatar credential ref mirrors the cinematic ref but is keyed separately.
+    // Voice catalog + persona catalog live on this ref (Fix #3f).
+    const talkingAvatarRef = {
+      ...credentialRef
+    };
     return {
       ...artifact.bundle,
       governance: {
         ...artifact.bundle.governance,
         toolCredentialRefs: {
           ...artifact.bundle.governance.toolCredentialRefs,
-          video_generate: credentialRef
+          video_generate: credentialRef,
+          video_generate_talking_avatar: talkingAvatarRef
         },
         toolPolicies: artifact.bundle.governance.toolPolicies.map((p) =>
           p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: true } : p
@@ -1141,6 +1155,91 @@ async function run(): Promise<void> {
   );
 
   console.log("Slice 10 description char count:", snapshotTool?.description?.length ?? 0);
-}
 
-void run();
+  // ── ADR-109 Slice 10c Fix #3f: projection tests for separate talking-avatar credential ──
+  // The talking-avatar schema fields (mode/speechText etc.) and description sections are
+  // now gated on toolCredentialRefs["video_generate_talking_avatar"] being present,
+  // NOT on the cinematic credential's providerId or talkingVideoEnabled alone.
+
+  // Slice 10c Projection Test 1: video_generate_talking_avatar present → description
+  // includes talking-avatar block (section 1 anchor and persona shortlist anchor).
+  const slice10cWithTalkingAvatarRef = {
+    ...artifact.bundle,
+    governance: {
+      ...artifact.bundle.governance,
+      toolCredentialRefs: {
+        ...artifact.bundle.governance.toolCredentialRefs,
+        video_generate: {
+          ...artifact.bundle.governance.toolCredentialRefs.video_generate!,
+          providerId: "runway"
+        },
+        video_generate_talking_avatar: {
+          ...artifact.bundle.governance.toolCredentialRefs.video_generate!,
+          providerId: "heygen",
+          videoPersonaCatalog: {
+            provider: "heygen" as const,
+            schema: "persai.runtimeVideoPersonaCatalog.v1" as const,
+            personas: [PERSONA_A]
+          }
+        }
+      }
+    }
+  };
+  const slice10cWithTalkingTool = projectRuntimeNativeTools(
+    slice10cWithTalkingAvatarRef
+  ).tools.find((t) => t.name === "video_generate");
+  assert.ok(
+    slice10cWithTalkingTool,
+    "Slice 10c projection: video_generate must be projected when talking-avatar ref is present"
+  );
+  assert.match(
+    slice10cWithTalkingTool?.description ?? "",
+    /talking-avatar/i,
+    "Slice 10c projection: description must include talking-avatar block when video_generate_talking_avatar ref is present"
+  );
+  assert.ok(
+    (slice10cWithTalkingTool?.inputSchema as { properties?: Record<string, unknown> })?.properties
+      ?.mode,
+    "Slice 10c projection: mode field must appear in schema when video_generate_talking_avatar ref is present"
+  );
+  assert.ok(
+    (slice10cWithTalkingTool?.inputSchema as { properties?: Record<string, unknown> })?.properties
+      ?.speechText,
+    "Slice 10c projection: speechText field must appear when video_generate_talking_avatar ref is present"
+  );
+
+  // Slice 10c Projection Test 2: video_generate_talking_avatar absent → description
+  // OMITS talking-avatar block even if cinematic providerId happens to be heygen-like.
+  const slice10cWithoutTalkingAvatarRef = {
+    ...artifact.bundle,
+    governance: {
+      ...artifact.bundle.governance,
+      toolCredentialRefs: {
+        ...artifact.bundle.governance.toolCredentialRefs,
+        video_generate: {
+          ...artifact.bundle.governance.toolCredentialRefs.video_generate!,
+          providerId: "runway"
+        }
+        // video_generate_talking_avatar intentionally absent
+      }
+    }
+  };
+  const slice10cWithoutTalkingTool = projectRuntimeNativeTools(
+    slice10cWithoutTalkingAvatarRef
+  ).tools.find((t) => t.name === "video_generate");
+  assert.ok(
+    slice10cWithoutTalkingTool,
+    "Slice 10c projection: video_generate must still be projected (cinematic still works)"
+  );
+  assert.doesNotMatch(
+    slice10cWithoutTalkingTool?.description ?? "",
+    /talking-avatar video/,
+    "Slice 10c projection: description must NOT include talking-avatar section when video_generate_talking_avatar ref is absent"
+  );
+  assert.equal(
+    (slice10cWithoutTalkingTool?.inputSchema as { properties?: Record<string, unknown> })
+      ?.properties?.mode,
+    undefined,
+    "Slice 10c projection: mode field must NOT appear in schema when video_generate_talking_avatar ref is absent"
+  );
+}

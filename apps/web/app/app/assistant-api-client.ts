@@ -5571,10 +5571,9 @@ export async function getWorkspaceVideoPersonas(
   workspaceId: string
 ): Promise<PersonaListResponse> {
   const base = getApiBaseUrl();
-  const res = await fetch(
-    `${base}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/video-personas`,
-    { headers: getAuthHeaders(token) }
-  );
+  const res = await fetch(`${base}/workspaces/${encodeURIComponent(workspaceId)}/video-personas`, {
+    headers: getAuthHeaders(token)
+  });
   if (!res.ok) {
     const envelope = await readApiErrorEnvelope(res);
     if (envelope) throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
@@ -5589,7 +5588,7 @@ export async function getWorkspaceVoiceCatalog(
 ): Promise<VoiceCatalogResponse> {
   const base = getApiBaseUrl();
   const res = await fetch(
-    `${base}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/video-personas/voice-catalog`,
+    `${base}/workspaces/${encodeURIComponent(workspaceId)}/video-personas/voice-catalog`,
     { headers: getAuthHeaders(token) }
   );
   if (!res.ok) {
@@ -5619,10 +5618,11 @@ export async function createWorkspaceVideoPersona(
   form.set("heygenVoiceId", payload.heygenVoiceId);
   form.set("portrait", payload.portrait);
 
-  const res = await fetch(
-    `${base}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/video-personas`,
-    { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form }
-  );
+  const res = await fetch(`${base}/workspaces/${encodeURIComponent(workspaceId)}/video-personas`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form
+  });
   if (!res.ok) {
     const envelope = await readApiErrorEnvelope(res);
     if (envelope) throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
@@ -5643,7 +5643,7 @@ export async function deleteWorkspaceVideoPersona(
 ): Promise<void> {
   const base = getApiBaseUrl();
   const res = await fetch(
-    `${base}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/video-personas/${encodeURIComponent(personaId)}`,
+    `${base}/workspaces/${encodeURIComponent(workspaceId)}/video-personas/${encodeURIComponent(personaId)}`,
     { method: "DELETE", headers: getAuthHeaders(token) }
   );
   if (!res.ok) {

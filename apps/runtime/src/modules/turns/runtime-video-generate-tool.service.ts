@@ -47,6 +47,8 @@ import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-sum
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
 const VIDEO_GENERATE_TOOL_CODE = "video_generate" as const;
+// ADR-109 Slice 10c: separate credential key for talking-avatar path (E14 Fix #3).
+const VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY = "video_generate_talking_avatar" as const;
 const DEFAULT_VIDEO_GENERATE_TIMEOUT_MS = 600_000;
 const SUPPORTED_VIDEO_REFERENCE_IMAGE_MIME_TYPES = new Set([
   "image/png",
@@ -279,10 +281,97 @@ export class RuntimeVideoGenerateToolService {
         isError: true
       };
     }
-    // ADR-109 Slice 7: talking_avatar execution path. Branches before the cinematic
-    // fallback loop; no fallback for talking_avatar (fail honestly with
-    // talking_avatar_provider_unavailable rather than falling through to Kling/Runway/OpenAI).
+    // ADR-109 Slice 10c Fix #3e: talking_avatar uses a dedicated credential ref
+    // (bundle.governance.toolCredentialRefs["video_generate_talking_avatar"]).
+    // No silent fallback to cinematic credential — fail honestly with
+    // talking_avatar_provider_unavailable if the ref is absent.
     if (request.mode === "talking_avatar") {
+      const talkingAvatarRef =
+        params.bundle.governance.toolCredentialRefs[VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY] ?? null;
+      if (talkingAvatarRef === null || talkingAvatarRef.configured === false) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: null,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: request.seconds,
+            requestedAudioMode: request.audioMode ?? null,
+            requestedInputMode: request.inputMode ?? null,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "talking_avatar_provider_unavailable",
+            warning:
+              "talking_avatar mode requires a HeyGen talking-avatar credential. Configure 'Talking Avatar Model' in the plan editor and ensure the HeyGen API key is set."
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+      const talkingAvatarProviderId = this.resolveVideoGenerateProviderId(
+        talkingAvatarRef.providerId ?? null
+      );
+      if (talkingAvatarProviderId === null) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: null,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: request.seconds,
+            requestedAudioMode: request.audioMode ?? null,
+            requestedInputMode: request.inputMode ?? null,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "talking_avatar_provider_unavailable",
+            warning:
+              "talking_avatar mode requires a HeyGen talking-avatar credential. Configure 'Talking Avatar Model' in the plan editor and ensure the HeyGen API key is set."
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+      const talkingAvatarNormalized = this.normalizeExecutionRequest(
+        request,
+        talkingAvatarRef.videoModelParameters ?? null
+      );
+      if (talkingAvatarNormalized instanceof Error) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: talkingAvatarProviderId,
+            model: this.resolveVideoGenerateModelKey(talkingAvatarRef),
+            prompt: request.prompt,
+            requestedSeconds: request.seconds,
+            requestedAudioMode: request.audioMode ?? null,
+            requestedInputMode: request.inputMode ?? null,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "requested_mode_unsupported",
+            warning: talkingAvatarNormalized.message
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
       return await this.executeTalkingAvatarDispatch({
         bundle: params.bundle,
         request: request as RuntimeVideoGenerateRequest & {
@@ -290,10 +379,10 @@ export class RuntimeVideoGenerateToolService {
           speechText: string;
           speechLanguage: string;
         },
-        normalizedRequest,
-        credential,
-        providerId,
-        model: primaryModel,
+        normalizedRequest: talkingAvatarNormalized,
+        credential: talkingAvatarRef,
+        providerId: talkingAvatarProviderId,
+        model: this.resolveVideoGenerateModelKey(talkingAvatarRef),
         availableAttachments: params.availableAttachments,
         sessionId: params.sessionId,
         requestId: params.requestId
@@ -883,9 +972,33 @@ export class RuntimeVideoGenerateToolService {
       return new Error(`toolCode must be ${VIDEO_GENERATE_TOOL_CODE}`);
     }
 
-    const prompt = this.asNonEmptyString(args.prompt);
-    if (prompt === null) {
-      return new Error("prompt must be a non-empty string");
+    // Parse mode first so the prompt requirement can depend on it (Fix #3 / E14).
+    // ADR-109 Slice 3: talking-avatar fields. Defensive structural parsing.
+    // No regex / string-matching / message-body parsing (invariant #15).
+    const modeEarly =
+      args.mode === undefined || args.mode === null
+        ? null
+        : typeof args.mode === "string" &&
+            (RUNTIME_VIDEO_GENERATE_MODES as readonly string[]).includes(args.mode)
+          ? (args.mode as RuntimeVideoGenerateMode)
+          : null;
+    if ("mode" in args && args.mode !== null && modeEarly === null) {
+      return new Error(
+        `mode must be one of ${RUNTIME_VIDEO_GENERATE_MODES.join(", ")} when provided`
+      );
+    }
+
+    // prompt is REQUIRED for cinematic (mode absent or "cinematic"); OPTIONAL for talking_avatar.
+    // When talking_avatar omits prompt, synthesize a structural placeholder for observability.
+    const promptRaw = this.asNonEmptyString(args.prompt);
+    let prompt: string;
+    if (modeEarly === "talking_avatar") {
+      prompt = promptRaw ?? "Talking-avatar render";
+    } else {
+      if (promptRaw === null) {
+        return new Error("prompt must be a non-empty string");
+      }
+      prompt = promptRaw;
     }
 
     const filename =
@@ -1009,20 +1122,8 @@ export class RuntimeVideoGenerateToolService {
       }
     }
 
-    // ADR-109 Slice 3: talking-avatar fields. Defensive structural parsing.
-    // No regex / string-matching / message-body parsing (invariant #15).
-    const mode =
-      args.mode === undefined || args.mode === null
-        ? null
-        : typeof args.mode === "string" &&
-            (RUNTIME_VIDEO_GENERATE_MODES as readonly string[]).includes(args.mode)
-          ? (args.mode as RuntimeVideoGenerateMode)
-          : null;
-    if ("mode" in args && args.mode !== null && mode === null) {
-      return new Error(
-        `mode must be one of ${RUNTIME_VIDEO_GENERATE_MODES.join(", ")} when provided`
-      );
-    }
+    // mode was already parsed above as modeEarly; alias it here for the rest of the function.
+    const mode = modeEarly;
 
     const speechText =
       args.speechText === undefined || args.speechText === null

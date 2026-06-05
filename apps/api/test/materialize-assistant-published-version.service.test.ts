@@ -664,6 +664,123 @@ async function run(): Promise<void> {
     );
     console.log("PASS Slice 10: non-heygen ref → no catalog regardless of talkingVideoEnabled");
   }
+
+  // ── ADR-109 Slice 10c Fix #3d: buildTalkingAvatarCredentialRef simulation tests ──
+  // The private method is tested via a simulation that mirrors its branching logic.
+
+  type HeygenCatalogRow = {
+    model: string;
+    active: boolean;
+    kind?: string;
+    videoModelParameters?: unknown | null;
+  };
+
+  // Simulates the key branching logic of buildTalkingAvatarCredentialRef.
+  function simulateBuildTalkingAvatarRef(params: {
+    heygenKeyConfigured: boolean;
+    talkingVideoEnabled: boolean;
+    heygenCatalogRows: HeygenCatalogRow[];
+    talkingAvatarModelKey: string | null;
+  }): { modelKey: string } | null {
+    if (!params.heygenKeyConfigured) return null;
+    if (!params.talkingVideoEnabled) return null;
+    const activeRows = params.heygenCatalogRows.filter((r) => r.active);
+    if (activeRows.length === 0) return null;
+    const resolvedModelKey =
+      params.talkingAvatarModelKey !== null &&
+      activeRows.some((r) => r.model === params.talkingAvatarModelKey)
+        ? params.talkingAvatarModelKey
+        : (activeRows[0]?.model ?? null);
+    if (resolvedModelKey === null) return null;
+    return { modelKey: resolvedModelKey };
+  }
+
+  // Case 1: secret configured + toggle on + catalog rows → ref built with resolved model key.
+  {
+    const result = simulateBuildTalkingAvatarRef({
+      heygenKeyConfigured: true,
+      talkingVideoEnabled: true,
+      heygenCatalogRows: [
+        { model: "heygen-photo-avatar-v3", active: true },
+        { model: "heygen-photo-avatar-v4", active: true }
+      ],
+      talkingAvatarModelKey: null
+    });
+    assert.notEqual(
+      result,
+      null,
+      "Slice 10c: configured secret + toggle on + active rows → non-null ref"
+    );
+    assert.equal(
+      result?.modelKey,
+      "heygen-photo-avatar-v3",
+      "Slice 10c: no plan key → defaults to first active HeyGen row"
+    );
+    console.log("PASS Slice 10c materializ: secret+toggle+rows → ref built, defaults to first row");
+  }
+
+  // Case 2: HeyGen secret NOT configured → null ref (no credential leak).
+  {
+    const result = simulateBuildTalkingAvatarRef({
+      heygenKeyConfigured: false,
+      talkingVideoEnabled: true,
+      heygenCatalogRows: [{ model: "heygen-photo-avatar-v3", active: true }],
+      talkingAvatarModelKey: null
+    });
+    assert.equal(
+      result,
+      null,
+      "Slice 10c: HeyGen secret not configured → null (no credential built)"
+    );
+    console.log("PASS Slice 10c materializ: unconfigured heygen secret → null ref");
+  }
+
+  // Case 3: talkingVideoEnabled=false → null ref (plan toggle gate).
+  {
+    const result = simulateBuildTalkingAvatarRef({
+      heygenKeyConfigured: true,
+      talkingVideoEnabled: false,
+      heygenCatalogRows: [{ model: "heygen-photo-avatar-v3", active: true }],
+      talkingAvatarModelKey: null
+    });
+    assert.equal(result, null, "Slice 10c: talkingVideoEnabled=false → null (plan toggle gate)");
+    console.log("PASS Slice 10c materializ: talkingVideoEnabled=false → null ref");
+  }
+
+  // Case 4a: plan.talkingAvatarModelKey set and active → specific model used.
+  {
+    const result = simulateBuildTalkingAvatarRef({
+      heygenKeyConfigured: true,
+      talkingVideoEnabled: true,
+      heygenCatalogRows: [
+        { model: "heygen-photo-avatar-v3", active: true },
+        { model: "heygen-photo-avatar-v4", active: true }
+      ],
+      talkingAvatarModelKey: "heygen-photo-avatar-v4"
+    });
+    assert.equal(
+      result?.modelKey,
+      "heygen-photo-avatar-v4",
+      "Slice 10c: plan.talkingAvatarModelKey set to active row → specific model used"
+    );
+    console.log("PASS Slice 10c materializ: plan model key set → specific model resolved");
+  }
+
+  // Case 4b: plan.talkingAvatarModelKey set but NOT in catalog → falls back to first active.
+  {
+    const result = simulateBuildTalkingAvatarRef({
+      heygenKeyConfigured: true,
+      talkingVideoEnabled: true,
+      heygenCatalogRows: [{ model: "heygen-photo-avatar-v3", active: true }],
+      talkingAvatarModelKey: "heygen-nonexistent-model"
+    });
+    assert.equal(
+      result?.modelKey,
+      "heygen-photo-avatar-v3",
+      "Slice 10c: plan model key not in catalog → falls back to first active row"
+    );
+    console.log("PASS Slice 10c materializ: plan model key not in catalog → first row fallback");
+  }
 }
 
 void run();

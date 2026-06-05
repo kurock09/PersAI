@@ -651,6 +651,10 @@ export class ManageAdminPlansService {
       { modelKey: input.videoGenerateModelKey, capability: "video" },
       { modelKey: input.videoGenerateFallbackModelKey, capability: "video" }
     ]);
+    await this.assertTalkingAvatarModelKeysAvailable([
+      { modelKey: input.talkingAvatarModelKey, field: "talkingAvatarModelKey" },
+      { modelKey: input.talkingAvatarFallbackModelKey, field: "talkingAvatarFallbackModelKey" }
+    ]);
     await this.assertLifecycleFallbackPlansAreActive(input, input.code);
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
@@ -724,6 +728,13 @@ export class ManageAdminPlansService {
       { modelKey: mergedInput.imageEditFallbackModelKey, capability: "image" },
       { modelKey: mergedInput.videoGenerateModelKey, capability: "video" },
       { modelKey: mergedInput.videoGenerateFallbackModelKey, capability: "video" }
+    ]);
+    await this.assertTalkingAvatarModelKeysAvailable([
+      { modelKey: mergedInput.talkingAvatarModelKey, field: "talkingAvatarModelKey" },
+      {
+        modelKey: mergedInput.talkingAvatarFallbackModelKey,
+        field: "talkingAvatarFallbackModelKey"
+      }
     ]);
     await this.assertLifecycleFallbackPlansAreActive(mergedInput, normalizedCode);
     const updated = await this.planCatalogRepository.updateByCode(
@@ -968,6 +979,14 @@ export class ManageAdminPlansService {
         parsed.videoGenerateFallbackModelKey,
         "videoGenerateFallbackModelKey"
       ),
+      talkingAvatarModelKey: parseOptionalPlanModelKey(
+        parsed.talkingAvatarModelKey,
+        "talkingAvatarModelKey"
+      ),
+      talkingAvatarFallbackModelKey: parseOptionalPlanModelKey(
+        parsed.talkingAvatarFallbackModelKey,
+        "talkingAvatarFallbackModelKey"
+      ),
       talkingVideoEnabled: parseBooleanInput(parsed.talkingVideoEnabled, "talkingVideoEnabled"),
       videoVcoinMonthlyGrant: parseVideoVcoinMonthlyGrant(parsed.videoVcoinMonthlyGrant),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault),
@@ -1132,6 +1151,12 @@ export class ManageAdminPlansService {
           : {}),
         ...(input.videoGenerateFallbackModelKey !== null
           ? { videoGenerateFallbackModelKey: input.videoGenerateFallbackModelKey }
+          : {}),
+        ...(input.talkingAvatarModelKey !== null
+          ? { talkingAvatarModelKey: input.talkingAvatarModelKey }
+          : {}),
+        ...(input.talkingAvatarFallbackModelKey !== null
+          ? { talkingAvatarFallbackModelKey: input.talkingAvatarFallbackModelKey }
           : {}),
         talkingVideoEnabled: input.talkingVideoEnabled,
         videoVcoinMonthlyGrant: input.videoVcoinMonthlyGrant,
@@ -1332,7 +1357,39 @@ export class ManageAdminPlansService {
         videoModelKindMap.get(entry.modelKey) === "talking_avatar"
       ) {
         throw new BadRequestException(
-          `"${entry.modelKey}" is a talking_avatar (cinematic_only) model and cannot be used as a plan videoGenerateModelKey or videoGenerateFallbackModelKey. Talking-avatar models are exposed separately via the workspace plan toggle (Slice 8).`
+          `"${entry.modelKey}" is a talking_avatar (cinematic_only) model and cannot be used as a plan videoGenerateModelKey or videoGenerateFallbackModelKey. Talking-avatar models are exposed separately via the plan's \`talkingAvatarModelKey\` field.`
+        );
+      }
+    }
+  }
+
+  // ADR-109 Slice 10c: validate that talkingAvatarModelKey / talkingAvatarFallbackModelKey
+  // reference active HeyGen rows with kind='talking_avatar'. Cinematic rows are refused.
+  private async assertTalkingAvatarModelKeysAvailable(
+    entries: Array<{ modelKey: string | null; field: string }>
+  ): Promise<void> {
+    const nonNull = entries.filter((e) => e.modelKey !== null);
+    if (nonNull.length === 0) {
+      return;
+    }
+    const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    const heygenCatalog = settings.availableModelCatalogByProvider.heygen;
+    for (const entry of nonNull) {
+      const modelKey = entry.modelKey!;
+      const profile = heygenCatalog?.models.find((m) => m.model === modelKey);
+      if (profile === undefined) {
+        throw new BadRequestException(
+          `"${modelKey}" is not present in active runtime video catalog (${entry.field}).`
+        );
+      }
+      if (!profile.active) {
+        throw new BadRequestException(
+          `"${modelKey}" is not active in the runtime video catalog (${entry.field}).`
+        );
+      }
+      if ((profile as { kind?: string }).kind !== "talking_avatar") {
+        throw new BadRequestException(
+          `"${modelKey}" is a cinematic model and cannot be used as a plan ${entry.field}. Use the videoGenerateModelKey field for cinematic models.`
         );
       }
     }
@@ -1526,6 +1583,10 @@ export class ManageAdminPlansService {
       videoGenerateModelKey: toNormalizedNonEmptyModelKey(billingHints.videoGenerateModelKey),
       videoGenerateFallbackModelKey: toNormalizedNonEmptyModelKey(
         billingHints.videoGenerateFallbackModelKey
+      ),
+      talkingAvatarModelKey: toNormalizedNonEmptyModelKey(billingHints.talkingAvatarModelKey),
+      talkingAvatarFallbackModelKey: toNormalizedNonEmptyModelKey(
+        billingHints.talkingAvatarFallbackModelKey
       ),
       talkingVideoEnabled: toBoolean(billingHints.talkingVideoEnabled),
       videoVcoinMonthlyGrant: parseVideoVcoinMonthlyGrant(billingHints.videoVcoinMonthlyGrant),

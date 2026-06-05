@@ -174,6 +174,17 @@ export type AdminPlanInput = {
   videoGenerateModelKey: string | null;
   videoGenerateFallbackModelKey: string | null;
   /**
+   * ADR-109 Slice 10c — HeyGen talking-avatar model key for this plan.
+   * Only HeyGen rows with kind='talking_avatar' are valid here.
+   * When null, materialization falls back to the first active HeyGen row.
+   */
+  talkingAvatarModelKey: string | null;
+  /**
+   * ADR-109 Slice 10c — Optional fallback HeyGen talking-avatar model key.
+   * Only HeyGen rows with kind='talking_avatar' are valid here.
+   */
+  talkingAvatarFallbackModelKey: string | null;
+  /**
    * ADR-109 Slice 8 — plan-level toggle that enables the talking-avatar
    * execution path for `video_generate`. When `false` (default), assistants
    * on this plan use the cinematic-only schema and the runtime blocks any
@@ -254,6 +265,10 @@ export type AdminPlanState = {
   imageEditFallbackModelKey: string | null;
   videoGenerateModelKey: string | null;
   videoGenerateFallbackModelKey: string | null;
+  /** ADR-109 Slice 10c — see `AdminPlanInput.talkingAvatarModelKey`. */
+  talkingAvatarModelKey: string | null;
+  /** ADR-109 Slice 10c — see `AdminPlanInput.talkingAvatarFallbackModelKey`. */
+  talkingAvatarFallbackModelKey: string | null;
   /** ADR-109 Slice 8 — see `AdminPlanInput.talkingVideoEnabled`. */
   talkingVideoEnabled: boolean;
   /** ADR-108 Slice 1 — see `AdminPlanInput.videoVcoinMonthlyGrant`. */

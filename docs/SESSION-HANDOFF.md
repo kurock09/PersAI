@@ -2,6 +2,93 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-05 — ADR-109 Slice 10c: Live integration fixup (URL + prompt + credential routing + tool description)
+
+### What changed & why
+
+Baseline SHA at session start (after Slice 10b commit `be12d973` and the Slice 10c spec commit `39207360`): tree clean. The operator validated the audit-pass deploy (`77512ef7`) on the dev cluster after lunch and reported four blocking production behaviors that the 4-agent static audit had missed because no auditor exercised the end-to-end chat → HeyGen path live:
+
+1. **Voice catalog HTTP 404 (Slice 9 URL double-prefix).** Settings → Characters showed "Каталог голосов недоступен. Попробуйте позже." API dev logs confirmed `GET /api/v1/api/v1/workspaces/.../video-personas/voice-catalog` (and `/video-personas`) → 404. Root cause: the 4 Slice 9 client methods in `assistant-api-client.ts` prepend `/api/v1/workspaces/...` while every other method in that file does `${base}/path` (no extra `/api/v1`), because `getApiBaseUrl()` already returns `/api/v1` (web default) or `http://localhost:3001/api/v1` (SSR default). Persona list ALSO 404'd — UI silently showed empty because `loadPersonas()` catch is silent.
+2. **`prompt must be a non-empty string` (Slice 3).** Chat-side talking-avatar attempts failed validation before the `mode` field was checked. Slice 10 tool description did not say `prompt` was also required for talking_avatar (logically the LLM reasons "speechText IS the speaking content; prompt is for cinematic scene description").
+3. **`talking_avatar_provider_unavailable` (Slice 2b × Slice 7 architectural hole).** Slice 7's `executeTalkingAvatarDispatch` requires `credential.providerId === "heygen"`. Slice 2b's plan validation EXPLICITLY refuses HeyGen models as `videoGenerateModelKey` / `videoGenerateFallbackModelKey` (cinematic-only error). So no plan-editor path could land `credential.providerId === "heygen"` in the bundle. Runtime always saw cinematic provider (Kling) and rejected. Confirmed by dev runtime log: `provider=kling` on every video_generate dispatch despite operator setting HeyGen API key + plan toggle on.
+4. **LLM confusion in chat (Slice 10 description not materialized).** Downstream of #3: without HeyGen credential in bundle, Slice 8's HeyGen-credential gate filtered talking-avatar schema fields + 7-section description OUT of the LLM-facing tool. So the LLM tried random combos.
+
+**Operator-approved architecture (Variant B in the AskQuestion form):** add a dedicated `plan.talkingAvatarModelKey` + `plan.talkingAvatarFallbackModelKey` field (plan editor surfaces a separate HeyGen-only selector). Materializ-assistant builds a SECOND tool credential ref under `bundle.governance.toolCredentialRefs["video_generate_talking_avatar"]` (same precedent as `image_edit` vs `image_generate`). Runtime Slice 7 reads the new key when `mode === "talking_avatar"`. Voice + persona catalogs MOVE to the talking-avatar credential ref. Slice 10 tool description sources persona/voice from the new ref; cinematic path is untouched. **Variant A (nested override on the cinematic ref) was rejected for cleaner mental model.** **Variant C (auto-fall-back to first active HeyGen row when `plan.talkingAvatarModelKey` is null) was kept as a permissive default** so initial deploy works without forcing operators to set the new field per-plan.
+
+**Prompt fix (Bug #2):** operator asked "как положено для PROD не сломав cinematic". Subagent moved the `mode` parse above the `prompt` non-empty check; `prompt` is REQUIRED for `mode === "cinematic"` or absent/null (existing behavior unchanged); OPTIONAL for `mode === "talking_avatar"` — when omitted, runtime synthesizes the structural placeholder `"Talking-avatar render"` (no user-supplied text leaks into the placeholder — invariant #15). Slice 10 tool description updated: `prompt` is now "Required for cinematic mode. Optional for talking_avatar — provide a one-line scene context for observability, or omit." Cinematic path untouched.
+
+### Files touched
+
+**Modified (17):**
+- `apps/web/app/app/assistant-api-client.ts` — 4 Slice 9 client methods dropped `/api/v1` prefix (Fix #1)
+- `apps/web/app/app/assistant-api-client.test.ts` — +4 URL-shape assertions (URL passed to `fetch` does NOT contain `api/v1/api/v1`)
+- `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts` — Fix #2 (prompt validation order + placeholder for talking_avatar) + Fix #3e (new credential-ref lookup for talking_avatar before dispatch). New module constant `VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY = "video_generate_talking_avatar"`. Cinematic dispatch path untouched.
+- `apps/runtime/test/runtime-video-generate-tool.service.test.ts` — +4 prompt-validation cases + +2 credential-routing cases
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` — `createVideoGenerateToolDefinition` signature change: `talkingVideoEnabled: boolean` → `talkingAvatarCredential: AssistantRuntimeBundleToolCredentialRef | null`. Structural truth derived from ref presence (`talkingAvatarEnabled = ref !== null`). Persona + voice catalog hints sourced from the talking-avatar credential ref. `prompt` description updated.
+- `apps/runtime/test/native-tool-projection.test.ts` — +2 projection cases (description includes talking-avatar block when ref present; description omits it when ref null)
+- `apps/runtime/test/run-suite-isolated.ts` — registered `native-tool-projection.test.ts` (the file was using a self-executing pattern and was not running; tests added in Slice 10c needed registration. Justified per AGENTS.md "no dead stubs": test file is part of the Slice 10c deliverable)
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts` — added `talkingAvatarModelKey?: string | null` + `talkingAvatarFallbackModelKey?: string | null` to TS DTO
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` — input parser, `toWriteInput`, `toAdminPlanState`, and create/update flows wire the new fields. Slice 2b refusal text updated `"...via the workspace plan toggle (Slice 8)"` → `"...via the plan's \`talkingAvatarModelKey\` field"`. New `assertTalkingAvatarModelKeysAvailable` refuses cinematic rows on the new fields, refuses inactive rows, refuses missing-from-catalog rows.
+- `apps/api/test/manage-admin-plans.service.test.ts` — +3 plan-validation cases (cinematic refused on `talkingAvatarModelKey`; talking_avatar accepted; Slice 2b refusal text regression with new message)
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — exported `VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY` constant; new private `buildTalkingAvatarCredentialRef` returns null when any prerequisite missing (HeyGen secret unconfigured / toggle off / no active HeyGen catalog rows); modelKey resolution: `plan.talkingAvatarModelKey` if active, else first active HeyGen row (Variant C fallback); attaches HeyGen voice catalog + workspace persona catalog. Removed those attachments from the cinematic `video_generate` ref. New `resolvePlanTalkingAvatarModelKey` + `resolvePlanTalkingAvatarFallbackModelKey` helpers (mirror existing `resolvePlanBillingHintString` pattern; persisted in `billingProviderHints` JSON — no Prisma migration).
+- `apps/api/test/materialize-assistant-published-version.service.test.ts` — +5 materializ cases (with/without secret, with/without toggle, with/without active HeyGen catalog row, `plan.talkingAvatarModelKey` set vs default, voice/persona attachment on talking-avatar ref only)
+- `apps/web/app/admin/plans/page.tsx` — `PlanDraft`, `emptyDraft`, `planToDraft`, `draftToPayload`, `ToolActivationsEdit` props, `PlanForm` props, `AdminPlansPage` state all extended with the new fields. New "Talking Avatar (HeyGen)" group rendered under the existing video model selector (between current video fields and the `talkingVideoEnabled` checkbox). Two selects (`talkingAvatarModelKey`, `talkingAvatarFallbackModelKey`) filtered to active HeyGen rows with `kind === "talking_avatar"`. Disabled when `talkingVideoEnabled === false` with hint text. New `availableTalkingAvatarModelKeys: ModelOption[]` derived from `availableModelCatalogByProvider.heygen.models` filtered by active + `kind === "talking_avatar"` (split off from `rawVideoKeys` so HeyGen talking-avatar rows no longer appear in the cinematic selector).
+- `apps/web/app/admin/plans/page.test.tsx` — +1 round-trip test (the selectors save + load correctly)
+- `packages/contracts/openapi.yaml` — `AdminPlanInputBase` + `AdminPlanState` schemas gained `talkingAvatarModelKey: string nullable` + `talkingAvatarFallbackModelKey: string nullable` next to `videoGenerateFallbackModelKey`
+- `packages/contracts/src/generated/model/adminPlanInputBase.ts` — hand-edited to mirror OpenAPI (no `orval generate` run)
+- `packages/contracts/src/generated/model/adminPlanState.ts` — hand-edited to mirror OpenAPI
+
+**NOT touched:**
+- No Prisma schema or migration (talking-avatar plan fields persist via the existing `billingProviderHints` JSON column).
+- No HeyGen API client change (`HeyGenProviderClient` from Slice 6 unchanged).
+- No `docs/ADR/109-heygen-talking-avatar-on-vcoin.md` modification by the subagent (orchestrator-only; the E14 spec block was committed separately in `39207360` before the subagent ran).
+- `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md` — orchestrator-owned (subagent honored the rule).
+- `apps/web/messages/{en,ru}.json` — admin/plans page uses hardcoded English strings (no `t()` calls) throughout; subagent followed the existing page pattern rather than introducing orphan i18n keys.
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts` — persona fetch path untouched.
+- `apps/provider-gateway/**` — Slice 6 unchanged.
+
+### Tests run (8/8 PASS, orchestrator-run)
+
+| Gate | Result |
+|---|---|
+| `corepack pnpm -r --if-present run lint` | PASS — all 6 packages Done |
+| `corepack pnpm run format:check` | PASS — "All matched files use Prettier code style!" |
+| `corepack pnpm --filter @persai/api run typecheck` | PASS — exit 0 |
+| `corepack pnpm --filter @persai/web run typecheck` | PASS — exit 0 |
+| `corepack pnpm --filter @persai/runtime-contract run typecheck` | PASS — exit 0 |
+| `corepack pnpm --filter @persai/web test --run` | PASS — **670/670** across 65 files (was 665/665 pre-Slice-10c; +5 new — 4 URL-shape + 1 admin-plans round-trip) |
+| `corepack pnpm --filter @persai/runtime test` | PASS — all suites including 4 prompt-validation + 2 credential-routing + 2 native-tool-projection (now actually registered + executed) |
+| `corepack pnpm --filter @persai/api test` | PASS — all suites including 3 plan-validation + 5 materializ |
+
+### Honest subtleties
+
+1. **`native-tool-projection.test.ts` was not running pre-Slice-10c.** The file used a self-executing `void run()` pattern at the bottom but was missing from `apps/runtime/test/run-suite-isolated.ts`. The 2 projection tests added in the prior Slice 10 session were not actually being executed by `pnpm test`. Subagent fixed by exporting `runNativeToolProjectionTest` and registering it. Pre-existing technical-debt repair; required to fulfil "Required tests" of Slice 10c spec.
+2. **Variant C fallback semantics.** When `plan.talkingAvatarModelKey === null` AND HeyGen secret configured AND `talkingVideoEnabled === true` AND at least one active HeyGen catalog row, materializ picks the first active HeyGen row by index. This makes the dev deploy work even before operator sets the field per-plan. Operator can later make this strict by always setting the field; the fallback is a documented permissive default, not a silent shadow path.
+3. **Voice catalog migration to talking-avatar ref.** The cinematic `video_generate` ref no longer carries `videoVoiceCatalog` for HeyGen (it never legitimately could, since cinematic provider isn't HeyGen). Kling cinematic voice catalog still attaches via the existing branch. Slice 10's persona catalog attachment likewise moved.
+4. **Tool projection signature change is internal-only.** `createVideoGenerateToolDefinition` now takes `talkingAvatarCredential` instead of `talkingVideoEnabled`. The structural truth `talkingAvatarEnabled = ref !== null` is derived from the same `talkingVideoEnabled` upstream (materializ only builds the ref when toggle is true), so semantics are unchanged for downstream code. No external API or contract surface changed.
+5. **i18n decision.** Admin Plans page uses hardcoded English throughout — subagent did NOT add i18n keys for the new selector labels. Operator can later request a separate i18n sweep if desired.
+6. **Prompt placeholder for talking_avatar.** When the LLM omits `prompt` with `mode: "talking_avatar"`, runtime synthesizes `"Talking-avatar render"` literally — NO content from `speechText` leaks into the placeholder. This satisfies the downstream `prompt: string` contract type without exposing user-supplied text in observability paths. Invariant #15 preserved.
+
+### Cross-slice invariants 1–15 re-verified true post-Slice-10c
+
+- #11 ADR-107 carve-out preserved (no Runway/Kling/OpenAI provider-client edits)
+- #12 no keyword routing (`talkingAvatarEnabled = ref !== null` and boolean `=== true` everywhere; zero regex / fuzzy / phrase parsing on user text)
+- #14 REST-only persona mutation preserved (only `materialize-assistant-published-version.service.ts` reads personas via the Slice 5b port; zero persona writes anywhere new)
+- #15 NON-NEGOTIABLE (the placeholder `"Talking-avatar render"` is a literal — no user text concatenation; provider check is structural; voice-catalog lookup is exact `voiceId === heygenVoiceId` equality already present from Slice 9)
+
+### Risks or residuals
+
+- The fix lands only when the next deploy completes. Until then dev cluster still shows the 4 bugs.
+- Operator must save HeyGen catalog row in `admin/runtime` (Avatar IV / time-metered / Duration mode = Range 3–60 / audio = silent / input = text + single_reference_image / aspect ratios 1920×1080 + 1080×1920) for materializ to find an active HeyGen catalog row. Without an active HeyGen row the new talking-avatar credential ref still returns null and `talking_avatar_provider_unavailable` fires honestly. Documented in the response to the operator's setup question.
+- Operator may optionally set `plan.talkingAvatarModelKey` explicitly on each plan via the new selector. Until then materializ uses the Variant C fallback (first active HeyGen row).
+- HeyGen API may still fail in unforeseen ways (voice catalog HTTP 5xx, avatar create rate limit, etc) — those failures will surface via the audit-pass-introduced `HeyGenProviderClientError` 4xx/5xx classifier honestly.
+
+### Next recommended slice
+
+**Slice 11 — live E2E smoke + cross-doc updates + final ADR-109 closure.** Unblocked. Slice 11 should: (a) run live talking-avatar render end-to-end on dev with a real HeyGen API key, (b) confirm voice catalog populates, (c) confirm persona create + render round-trip with a real portrait, (d) update `docs/ARCHITECTURE.md` + `docs/API-BOUNDARY.md` + `docs/DATA-MODEL.md` + `docs/TEST-PLAN.md` for the talking-avatar substrate, (e) close ADR-109's Slice 11 status block.
+
+---
+
 ## 2026-06-05 — ADR-109 Slice 10b: Talking-video banner UX (time-based) — chat-input chip surface
 
 ### What changed & why

@@ -258,6 +258,11 @@ export function projectRuntimeNativeTools(
     "worker"
   );
   const videoGenerateCredential = resolveConfiguredCredentialRef(bundle, "video_generate");
+  // ADR-109 Slice 10c Fix #3f: talking-avatar credential ref is now separate.
+  // Voice catalog + persona catalog come from this ref, not the cinematic one.
+  const talkingAvatarCredential = (bundle.governance.toolCredentialRefs[
+    "video_generate_talking_avatar"
+  ] ?? null) as AssistantRuntimeBundleToolCredentialRef | null;
   // ADR-109 Slice 8: `talkingVideoEnabled` is materialised onto the policy by the bundle
   // compile pipeline. When true, HeyGen (talking_avatar) is projected with the full
   // talking-avatar schema. When false / absent, HeyGen is excluded (cinematic surface only).
@@ -273,7 +278,7 @@ export function projectRuntimeNativeTools(
       createVideoGenerateToolDefinition(
         videoGeneratePolicy,
         videoGenerateCredential,
-        talkingVideoEnabled
+        talkingAvatarCredential
       )
     );
   }
@@ -878,10 +883,13 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
 function createVideoGenerateToolDefinition(
   policy: RuntimeToolPolicy,
   credential: AssistantRuntimeBundleToolCredentialRef,
-  talkingVideoEnabled: boolean
+  talkingAvatarCredential: AssistantRuntimeBundleToolCredentialRef | null
 ): ProviderGatewayToolDefinition {
+  // ADR-109 Slice 10c Fix #3f: voice catalog for cinematic (Kling) comes from cinematic ref.
+  // Voice catalog + persona catalog for talking_avatar come from the talking-avatar ref.
   const voiceCatalogHint = describeVideoVoiceCatalogHint(credential);
-  const talkingAvatarHint = talkingVideoEnabled
+  const talkingAvatarEnabled = talkingAvatarCredential !== null;
+  const talkingAvatarHint = talkingAvatarEnabled
     ? [
         // Section 1: when to use talking_avatar
         "Use mode='talking_avatar' when the user explicitly asks for a talking-avatar video — a video that includes a person speaking, AND either (a) has an attached photo to use as the speaker's portrait, or (b) names a saved character (persona) from the workspace. Use mode='cinematic' (default) for any other video request.",
@@ -895,9 +903,13 @@ function createVideoGenerateToolDefinition(
         "Voice selection (portrait alias path): when passing portraitImageAlias, select voiceKey from the available voice shortlist based on user context (gender, language, brand fit). When voiceKey is omitted on the portrait path, runtime returns voice_required honestly so the model can retry with an explicit choice.",
         // Section 6: voice selection — persona path
         "Voice selection (persona path): when passing personaId, omit voiceKey to use the persona's stored voice. Only pass voiceKey to deliberately override the persona's voice for one call.",
-        // Section 7: persona shortlist
-        describeVideoPersonaCatalogHint(credential)
+        // Section 7: persona shortlist (from talking-avatar credential ref)
+        describeVideoPersonaCatalogHint(talkingAvatarCredential)
       ].join(" ")
+    : null;
+  // ADR-109 Slice 10c Fix #3f: talking-avatar voice catalog hint from talking-avatar ref.
+  const talkingAvatarVoiceCatalogHint = talkingAvatarEnabled
+    ? describeVideoVoiceCatalogHint(talkingAvatarCredential)
     : null;
   return {
     name: "video_generate",
@@ -913,7 +925,8 @@ function createVideoGenerateToolDefinition(
       [
         "Prefer calling this tool immediately when the user clearly wants a video. Pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer.",
         talkingAvatarHint,
-        voiceCatalogHint
+        voiceCatalogHint,
+        talkingAvatarVoiceCatalogHint
       ]
         .filter((entry): entry is string => entry !== null)
         .join(" ")
@@ -925,9 +938,10 @@ function createVideoGenerateToolDefinition(
       properties: {
         prompt: {
           type: "string",
-          description: "Text prompt describing the video clip to generate."
+          description:
+            "Text prompt describing the video clip to generate. Required for cinematic mode. Optional for talking_avatar — provide a one-line scene context for observability, or omit."
         },
-        ...(talkingVideoEnabled
+        ...(talkingAvatarEnabled
           ? {
               mode: {
                 type: "string",

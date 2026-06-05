@@ -362,6 +362,9 @@ function buildVideoProviderToolCredentialRef(params: {
   };
 }
 
+// ADR-109 Slice 10c: separate talking-avatar credential ref key (Fix #3).
+export const VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY = "video_generate_talking_avatar" as const;
+
 @Injectable()
 export class MaterializeAssistantPublishedVersionService {
   private readonly logger = new Logger(MaterializeAssistantPublishedVersionService.name);
@@ -556,6 +559,13 @@ export class MaterializeAssistantPublishedVersionService {
       planModelKey: rawPlanVideoGenerateFallbackModelKey,
       capability: "video"
     });
+    // ADR-109 Slice 10c: talking-avatar model keys (stored in billingProviderHints JSON).
+    const planTalkingAvatarModelKey = await this.resolvePlanTalkingAvatarModelKey(
+      effectiveCapabilities.derivedFrom.planCode
+    );
+    const planTalkingAvatarFallbackModelKey = await this.resolvePlanTalkingAvatarFallbackModelKey(
+      effectiveCapabilities.derivedFrom.planCode
+    );
     if (rawPlanPrimaryModelKey !== null && planPrimaryModelKey === null) {
       this.logger.warn(
         `Skipping stale plan primary model "${rawPlanPrimaryModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
@@ -703,6 +713,8 @@ export class MaterializeAssistantPublishedVersionService {
       imageEditFallbackModelKey: planImageEditFallbackModelKey,
       videoGenerateModelKey: planVideoGenerateModelKey,
       videoGenerateFallbackModelKey: planVideoGenerateFallbackModelKey,
+      talkingAvatarModelKey: planTalkingAvatarModelKey,
+      talkingAvatarFallbackModelKey: planTalkingAvatarFallbackModelKey,
       workspaceId: assistant.workspaceId,
       talkingVideoEnabled: planTalkingVideoEnabled
     });
@@ -976,6 +988,8 @@ export class MaterializeAssistantPublishedVersionService {
     imageEditFallbackModelKey: string | null;
     videoGenerateModelKey: string | null;
     videoGenerateFallbackModelKey: string | null;
+    talkingAvatarModelKey: string | null;
+    talkingAvatarFallbackModelKey: string | null;
     workspaceId: string;
     talkingVideoEnabled: boolean;
   }): Promise<AssistantRuntimeBundle["governance"]["toolCredentialRefs"]> {
@@ -1047,12 +1061,23 @@ export class MaterializeAssistantPublishedVersionService {
         videoGenerateModelKey: input.videoGenerateModelKey,
         videoGenerateFallbackModelKey: input.videoGenerateFallbackModelKey
       });
-      refs.video_generate = await this.attachMaterializedVideoVoiceCatalog(refs.video_generate);
-      refs.video_generate = await this.attachMaterializedVideoPersonaCatalog(
-        refs.video_generate,
-        input.workspaceId,
-        input.talkingVideoEnabled
-      );
+      // Cinematic video_generate ref: attach Kling voice catalog only (HeyGen voice/persona
+      // catalogs now live on the talking-avatar ref — see ADR-109 Slice 10c Fix #3d).
+      if (refs.video_generate.providerId !== "heygen") {
+        refs.video_generate = await this.attachMaterializedVideoVoiceCatalog(refs.video_generate);
+      }
+      // ADR-109 Slice 10c Fix #3d: build separate talking-avatar credential ref.
+      const talkingAvatarRef = await this.buildTalkingAvatarCredentialRef({
+        runtimeProviderProfile: input.runtimeProviderProfile,
+        keyMetadata,
+        talkingAvatarModelKey: input.talkingAvatarModelKey,
+        talkingAvatarFallbackModelKey: input.talkingAvatarFallbackModelKey,
+        talkingVideoEnabled: input.talkingVideoEnabled,
+        workspaceId: input.workspaceId
+      });
+      if (talkingAvatarRef !== null) {
+        refs[VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY] = talkingAvatarRef;
+      }
     }
     refs.tts = this.buildTtsToolCredentialRef(
       keyMetadata,
@@ -1118,6 +1143,83 @@ export class MaterializeAssistantPublishedVersionService {
       ...ref,
       videoPersonaCatalog: catalog
     };
+  }
+
+  // ADR-109 Slice 10c Fix #3d: build a dedicated talking-avatar credential ref.
+  // Returns null when any prerequisite is missing (HeyGen secret unconfigured, toggle off, no rows).
+  private async buildTalkingAvatarCredentialRef(input: {
+    runtimeProviderProfile: RuntimeProviderProfileState;
+    keyMetadata: Record<string, { configured: boolean } | undefined>;
+    talkingAvatarModelKey: string | null;
+    talkingAvatarFallbackModelKey: string | null;
+    talkingVideoEnabled: boolean;
+    workspaceId: string;
+  }): Promise<AssistantRuntimeBundleToolCredentialRef | null> {
+    const heygenCredentialKey = VIDEO_PROVIDER_CREDENTIAL_KEY.heygen;
+    if (input.keyMetadata[heygenCredentialKey]?.configured !== true) {
+      return null;
+    }
+    if (input.talkingVideoEnabled !== true) {
+      return null;
+    }
+    const heygenCatalog =
+      input.runtimeProviderProfile.availableModelCatalogByProvider.heygen?.models ?? [];
+    const activeHeygenRows = heygenCatalog.filter((m) => m.active);
+    if (activeHeygenRows.length === 0) {
+      return null;
+    }
+    // Resolve model key: plan setting → first active HeyGen row (Variant C fallback).
+    const resolvedModelKey =
+      input.talkingAvatarModelKey !== null &&
+      activeHeygenRows.some((m) => m.model === input.talkingAvatarModelKey)
+        ? input.talkingAvatarModelKey
+        : (activeHeygenRows[0]?.model ?? null);
+    if (resolvedModelKey === null) {
+      return null;
+    }
+    const secretRef = buildToolCredentialSecretRef(heygenCredentialKey);
+    const profile = findRuntimeProviderCatalogProfile(
+      input.runtimeProviderProfile.availableModelCatalogByProvider.heygen,
+      resolvedModelKey
+    );
+    let ref: AssistantRuntimeBundleToolCredentialRef = {
+      ...secretRef,
+      configured: true,
+      providerId: "heygen",
+      modelKey: resolvedModelKey,
+      videoModelParameters: profile?.videoModelParameters ?? null
+    };
+    // Fallback key (optional).
+    if (input.talkingAvatarFallbackModelKey !== null) {
+      const fallbackProfile = findRuntimeProviderCatalogProfile(
+        input.runtimeProviderProfile.availableModelCatalogByProvider.heygen,
+        input.talkingAvatarFallbackModelKey
+      );
+      ref = {
+        ...ref,
+        fallbacks: [
+          {
+            ...secretRef,
+            configured: true,
+            providerId: "heygen",
+            modelKey: input.talkingAvatarFallbackModelKey,
+            videoModelParameters: fallbackProfile?.videoModelParameters ?? null
+          }
+        ]
+      };
+    }
+    // Attach HeyGen voice catalog to the talking-avatar ref.
+    const voiceCatalog = await this.heyGenVoiceCatalogService.getMaterializedVoiceCatalog();
+    if (voiceCatalog !== null && voiceCatalog.shortlist.length > 0) {
+      ref = { ...ref, videoVoiceCatalog: voiceCatalog };
+    }
+    // Attach workspace persona catalog to the talking-avatar ref.
+    ref = await this.attachMaterializedVideoPersonaCatalog(
+      ref,
+      input.workspaceId,
+      input.talkingVideoEnabled
+    );
+    return ref;
   }
 
   private async resolveDocumentProviderConfig(): Promise<MaterializedDocumentProviderConfig> {
@@ -1219,6 +1321,8 @@ export class MaterializeAssistantPublishedVersionService {
       | "imageEditFallbackModelKey"
       | "videoGenerateModelKey"
       | "videoGenerateFallbackModelKey"
+      | "talkingAvatarModelKey"
+      | "talkingAvatarFallbackModelKey"
   ): Promise<string | null> {
     if (planCode === null) {
       return null;
@@ -1238,6 +1342,16 @@ export class MaterializeAssistantPublishedVersionService {
     return typeof record[key] === "string" && record[key].trim().length > 0
       ? record[key].trim()
       : null;
+  }
+
+  private async resolvePlanTalkingAvatarModelKey(planCode: string | null): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "talkingAvatarModelKey");
+  }
+
+  private async resolvePlanTalkingAvatarFallbackModelKey(
+    planCode: string | null
+  ): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "talkingAvatarFallbackModelKey");
   }
 
   private async resolvePlanImageGenerateModelKey(planCode: string | null): Promise<string | null> {

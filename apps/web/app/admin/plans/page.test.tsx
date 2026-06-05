@@ -377,6 +377,10 @@ describe("admin plans page helpers", () => {
         onVideoGenerateModelKeyChange={onVideoGenerateModelKeyChange}
         videoGenerateFallbackModelKey="sora-2"
         onVideoGenerateFallbackModelKeyChange={onVideoGenerateFallbackModelKeyChange}
+        talkingAvatarModelKey=""
+        onTalkingAvatarModelKeyChange={vi.fn()}
+        talkingAvatarFallbackModelKey=""
+        onTalkingAvatarFallbackModelKeyChange={vi.fn()}
         talkingVideoEnabled={false}
         onTalkingVideoEnabledChange={vi.fn()}
         availableImageModelKeys={[
@@ -400,6 +404,7 @@ describe("admin plans page helpers", () => {
             disabled: true
           }
         ]}
+        availableTalkingAvatarModelKeys={[]}
       />
     );
 
@@ -553,6 +558,51 @@ describe("admin plans page helpers", () => {
     const snapshot = normalizePlanDraftForCompare(draft);
     expect(isPlanDraftDirty(snapshot, draft)).toBe(false);
     expect(isPlanDraftDirty(snapshot, { ...draft, talkingVideoEnabled: true })).toBe(true);
+  });
+
+  it("ADR-109 Slice 10c — talkingAvatarModelKey and talkingAvatarFallbackModelKey round-trip through draft and payload", () => {
+    const plan = {
+      ...createPlanState(),
+      talkingAvatarModelKey: "heygen-photo-avatar-v3",
+      talkingAvatarFallbackModelKey: "heygen-photo-avatar-v2"
+    } as AdminPlanState;
+
+    // planToDraft correctly maps the new fields into the draft
+    const draft = planToDraft(plan);
+    expect(draft.talkingAvatarModelKey).toBe("heygen-photo-avatar-v3");
+    expect(draft.talkingAvatarFallbackModelKey).toBe("heygen-photo-avatar-v2");
+
+    // draftToPayload correctly serializes non-empty strings as non-null values
+    const payload = draftToPayload(draft);
+    expect(payload.talkingAvatarModelKey).toBe("heygen-photo-avatar-v3");
+    expect(payload.talkingAvatarFallbackModelKey).toBe("heygen-photo-avatar-v2");
+
+    // Empty string in draft → null in payload (clearing the field)
+    const clearedDraft = {
+      ...draft,
+      talkingAvatarModelKey: "",
+      talkingAvatarFallbackModelKey: ""
+    };
+    const clearedPayload = draftToPayload(clearedDraft);
+    expect(clearedPayload.talkingAvatarModelKey).toBeNull();
+    expect(clearedPayload.talkingAvatarFallbackModelKey).toBeNull();
+
+    // null in plan state → empty string in draft (no preselection)
+    const planWithNull = {
+      ...plan,
+      talkingAvatarModelKey: null,
+      talkingAvatarFallbackModelKey: null
+    } as AdminPlanState;
+    const draftFromNull = planToDraft(planWithNull);
+    expect(draftFromNull.talkingAvatarModelKey).toBe("");
+    expect(draftFromNull.talkingAvatarFallbackModelKey).toBe("");
+
+    // isPlanDraftDirty detects changes to talkingAvatarModelKey
+    const snapshot = normalizePlanDraftForCompare(draft);
+    expect(isPlanDraftDirty(snapshot, draft)).toBe(false);
+    expect(
+      isPlanDraftDirty(snapshot, { ...draft, talkingAvatarModelKey: "heygen-photo-avatar-v4" })
+    ).toBe(true);
   });
 });
 

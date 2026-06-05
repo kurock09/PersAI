@@ -80,6 +80,10 @@ function createBundle(options?: {
     modelKey?: string;
     videoModelParameters?: RuntimeVideoModelParameters | null;
   }>;
+  // ADR-109 Slice 10c: when true, also add a video_generate_talking_avatar
+  // credential ref mirroring the primary HeyGen ref. Required for talking_avatar
+  // execution tests since Fix #3e routes mode=talking_avatar through the separate key.
+  includeTalkingAvatarRef?: boolean;
 }) {
   return compileAssistantRuntimeBundle({
     metadata: {
@@ -205,7 +209,31 @@ function createBundle(options?: {
                 }))
               }
             : {})
-        }
+        },
+        // ADR-109 Slice 10c: separate talking-avatar credential ref. Present only when
+        // includeTalkingAvatarRef=true. Mirrors the HeyGen primary ref so talking_avatar
+        // execution tests can proceed past the new credential gate (Fix #3e).
+        ...(options?.includeTalkingAvatarRef
+          ? {
+              video_generate_talking_avatar: {
+                refKey: `persai:persai-runtime:${options?.secretId ?? "tool/image_generate/api-key"}`,
+                secretRef: {
+                  source: "persai",
+                  provider: "persai-runtime",
+                  id: options?.secretId ?? "tool/image_generate/api-key"
+                },
+                configured: true,
+                providerId: options?.providerId ?? "heygen",
+                ...(options?.modelKey ? { modelKey: options.modelKey } : {}),
+                ...(options?.videoModelParameters
+                  ? { videoModelParameters: options.videoModelParameters }
+                  : {}),
+                ...(options?.videoVoiceCatalog
+                  ? { videoVoiceCatalog: options.videoVoiceCatalog }
+                  : {})
+              }
+            }
+          : {})
       },
       toolPolicies: [
         {
@@ -567,6 +595,8 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     }
   });
   // ADR-109 Slice 7: HeyGen bundle for talking_avatar execution tests.
+  // includeTalkingAvatarRef=true adds video_generate_talking_avatar credential so
+  // Fix #3e (Slice 10c) credential gate passes for these execution tests.
   const heygenBundle = createBundle({
     providerId: "heygen",
     secretId: "tool/video_generate/heygen/api-key",
@@ -595,7 +625,8 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
           styleTags: []
         }
       ]
-    }
+    },
+    includeTalkingAvatarRef: true
   });
   const fallbackBundle = createBundle({
     providerId: "runway",
@@ -1664,6 +1695,8 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
 
   // ── Slice 7: Test 7 — Plan toggle off → talking_avatar_plan_disabled ───────
   // Synthetic bundle with talkingVideoEnabled: false on the tool policy.
+  // includeTalkingAvatarRef=true ensures the Slice 10c credential gate passes so
+  // the code can reach the talkingVideoEnabled check inside executeTalkingAvatarDispatch.
   const planDisabledBundle = createBundle({
     providerId: "heygen",
     secretId: "tool/video_generate/heygen/api-key",
@@ -1673,7 +1706,8 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       provider: "heygen",
       fetchedAt: "2026-06-05T00:00:00.000Z",
       shortlist: []
-    }
+    },
+    includeTalkingAvatarRef: true
   });
   // Inject talkingVideoEnabled: false onto the tool policy (Slice 8 field).
   const videoPolicy = planDisabledBundle.governance.toolPolicies.find(
@@ -1888,5 +1922,164 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.match(
     neitherPersonaNorPortrait.payload.warning ?? "",
     /Exactly one of personaId or portraitImageAlias/i
+  );
+
+  // ── ADR-109 Slice 10c Fix #2: prompt validation order ─────────────────────
+  // Prompt is now OPTIONAL for talking_avatar. A structural placeholder is
+  // synthesized at the parse boundary so downstream code always sees a string.
+  // Cinematic mode (absent or "cinematic") still requires a non-empty prompt.
+
+  // Fix #2 Test 1: talking_avatar WITHOUT prompt → validation passes; placeholder synthesized.
+  const taNoPromptResult = await service.executeToolCall({
+    bundle, // credentials irrelevant; we check payload.prompt before credential gate
+    toolCall: createToolCall({
+      mode: "talking_avatar",
+      speechText: "Hello.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-ta-no-prompt"
+  });
+  // The credential gate fires first (no video_generate_talking_avatar on plain bundle)
+  // but the prompt is echoed in the payload — confirm placeholder was synthesized.
+  assert.notEqual(taNoPromptResult.payload.action, "invalid_arguments" as never);
+  assert.equal(
+    taNoPromptResult.payload.prompt,
+    "Talking-avatar render",
+    "Fix #2: talking_avatar without prompt must yield placeholder 'Talking-avatar render'"
+  );
+
+  // Fix #2 Test 2: talking_avatar WITH explicit prompt → user-provided prompt preserved.
+  const taWithPromptResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      prompt: "User scene context",
+      mode: "talking_avatar",
+      speechText: "Hi.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-ta-with-prompt"
+  });
+  assert.equal(
+    taWithPromptResult.payload.prompt,
+    "User scene context",
+    "Fix #2: talking_avatar with explicit prompt must preserve user value"
+  );
+
+  // Fix #2 Test 3: cinematic (mode absent) without prompt → still invalid_arguments.
+  const cinematicNoPrompt = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      seconds: 4,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-cinematic-no-prompt"
+  });
+  assert.equal(
+    cinematicNoPrompt.payload.action,
+    "skipped",
+    "Fix #2: cinematic without prompt must be skipped"
+  );
+  assert.equal(
+    cinematicNoPrompt.payload.reason,
+    "invalid_arguments",
+    "Fix #2: cinematic without prompt must yield invalid_arguments"
+  );
+  assert.match(
+    cinematicNoPrompt.payload.warning ?? "",
+    /prompt must be a non-empty string/i,
+    "Fix #2: cinematic without prompt must mention 'prompt must be a non-empty string'"
+  );
+
+  // Fix #2 Test 4: cinematic with empty-string prompt → still invalid_arguments.
+  const cinematicEmptyPrompt = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      prompt: "   ",
+      seconds: 4,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-cinematic-empty-prompt"
+  });
+  assert.equal(
+    cinematicEmptyPrompt.payload.action,
+    "skipped",
+    "Fix #2: cinematic with whitespace-only prompt must be skipped"
+  );
+  assert.equal(
+    cinematicEmptyPrompt.payload.reason,
+    "invalid_arguments",
+    "Fix #2: cinematic with whitespace-only prompt must yield invalid_arguments"
+  );
+
+  // ── ADR-109 Slice 10c Fix #3e: credential routing for talking_avatar mode ──
+  // talking_avatar MUST use toolCredentialRefs["video_generate_talking_avatar"].
+  // Absence of that key → talking_avatar_provider_unavailable (no silent fallback).
+
+  // Fix #3e Test 1: talking_avatar WITH the dedicated credential → proceeds (not provider_unavailable).
+  persaiInternalApiClientService.personaMap.set("workspace-1:persona-routing-test", {
+    id: "persona-routing-test",
+    displayName: "Routing Test",
+    heygenAvatarId: "ava-routing-001",
+    heygenVoiceId: "heygen-voice-warm-001",
+    heygenVoiceLabel: "Test Voice",
+    portraitImageStorageKey: "workspaces/workspace-1/personas/persona-routing-test/portrait/current"
+  });
+  const talkingAvatarWithCredential = await service.executeToolCall({
+    bundle: heygenBundle, // has video_generate_talking_avatar via includeTalkingAvatarRef=true
+    toolCall: createToolCall({
+      prompt: "Routing credential present",
+      mode: "talking_avatar",
+      speechText: "Test.",
+      speechLanguage: "en-US",
+      personaId: "persona-routing-test",
+      seconds: 15,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-ta-credential-routing-present"
+  });
+  assert.notEqual(
+    talkingAvatarWithCredential.payload.reason,
+    "talking_avatar_provider_unavailable",
+    "Fix #3e: bundle with video_generate_talking_avatar credential must NOT return provider_unavailable"
+  );
+
+  // Fix #3e Test 2: talking_avatar WITHOUT the dedicated credential → talking_avatar_provider_unavailable.
+  const talkingAvatarWithoutCredential = await service.executeToolCall({
+    bundle, // plain openai bundle — no video_generate_talking_avatar key
+    toolCall: createToolCall({
+      prompt: "Routing credential absent",
+      mode: "talking_avatar",
+      speechText: "Test.",
+      speechLanguage: "en-US",
+      personaId: "persona-routing-test",
+      seconds: 15,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-ta-credential-routing-absent"
+  });
+  assert.equal(talkingAvatarWithoutCredential.payload.action, "skipped");
+  assert.equal(
+    talkingAvatarWithoutCredential.payload.reason,
+    "talking_avatar_provider_unavailable",
+    "Fix #3e: bundle WITHOUT video_generate_talking_avatar must return talking_avatar_provider_unavailable"
+  );
+  assert.match(
+    talkingAvatarWithoutCredential.payload.warning ?? "",
+    /Configure 'Talking Avatar Model' in the plan editor/i,
+    "Fix #3e: warning must mention plan editor configuration"
   );
 }

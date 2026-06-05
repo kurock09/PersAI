@@ -12254,6 +12254,19 @@ components:
         videoGenerateFallbackModelKey:
           type: string
           nullable: true
+        talkingAvatarModelKey:
+          type: string
+          nullable: true
+          description: >-
+            ADR-109 Slice 10c — HeyGen talking-avatar model key for the plan.
+            Only HeyGen rows with kind='talking_avatar' are valid here. When null,
+            materialization falls back to the first active HeyGen row.
+        talkingAvatarFallbackModelKey:
+          type: string
+          nullable: true
+          description: >-
+            ADR-109 Slice 10c — Optional fallback HeyGen talking-avatar model key.
+            Only HeyGen rows with kind='talking_avatar' are valid here.
         talkingVideoEnabled:
           type: boolean
           default: false
@@ -12550,6 +12563,19 @@ components:
         videoGenerateFallbackModelKey:
           type: string
           nullable: true
+        talkingAvatarModelKey:
+          type: string
+          nullable: true
+          description: >-
+            ADR-109 Slice 10c — HeyGen talking-avatar model key for the plan.
+            Only HeyGen rows with kind='talking_avatar' are valid here. When null,
+            materialization falls back to the first active HeyGen row.
+        talkingAvatarFallbackModelKey:
+          type: string
+          nullable: true
+          description: >-
+            ADR-109 Slice 10c — Optional fallback HeyGen talking-avatar model key.
+            Only HeyGen rows with kind='talking_avatar' are valid here.
         talkingVideoEnabled:
           type: boolean
           default: false
