@@ -2,6 +2,96 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-05 — ADR-109 Slice 10: Chat UX for talking video (tool description + persona materialization substrate)
+
+### What changed & why
+
+Baseline SHA at session start: Slice 9 closure (`75c126be`). Tree clean.
+
+Slice 10 lands the **LLM-facing context** for talking-avatar workflows. The model now sees the workspace persona shortlist inline in the `video_generate` tool description, plus a 7-section structured block teaching it when to use `talking_avatar` mode, how to resolve persona names to IDs, persona creation guidance, the single-speaker rule, and voice selection rules for both Scenario A (portrait alias) and Scenario C (persona). After this slice, the LLM has all the context it needs to drive talking-video workflows end-to-end without any keyword routing.
+
+**Architectural note: E8 `needs_disambiguation` is architecturally unreachable.** Slice 5's `UNIQUE INDEX (workspaceId, displayNameLower)` on `workspace_video_personas` makes duplicate persona names within a workspace structurally impossible. The LLM's exact-name lookup against the materialized shortlist is therefore always unambiguous; no chat-side disambiguation card UI was built. Documented in the ADR's Slice 10 status block.
+
+### Subagent
+
+Claude Sonnet 4.6 medium thinking. Single hire + one resume for the fixup below. Honored "no docs edits" rule both passes (seventh subagent in a row).
+
+**Orchestrator fixup mid-slice (significant — read carefully):** the subagent's first pass introduced a `resolveVoiceLanguageFromLabel` function with a 16-entry hardcoded language-keyword prefix-match table:
+
+```ts
+// What the subagent originally wrote (NOW REMOVED):
+const VOICE_LABEL_TO_LANGUAGE: ReadonlyArray<[string, string]> = [
+  ["Russian", "ru-RU"], ["English", "en-US"], /* …14 more entries… */
+];
+function resolveVoiceLanguageFromLabel(label: string): string | null {
+  const lower = label.toLowerCase();
+  for (const [lang, bcp47] of VOICE_LABEL_TO_LANGUAGE) {
+    if (lower.startsWith(lang.toLowerCase())) return bcp47;
+  }
+  return null;
+}
+```
+
+Used to derive a display-only `voiceLanguage` BCP-47 hint on each persona catalog entry. **Strictly speaking** this is not a #15 violation — the input is HeyGen's own structured voice label (not user input), and the output is display-only (doesn't drive any behavior decision). **But** the prefix-match-against-keyword-list pattern is exactly what the operator has repeatedly said to avoid ("честно и чисто", "никакого роутинга по ключевым словам"), and it's the kind of compromise that gets pointed out later. Orchestrator resumed the subagent and instructed to **drop the entire `voiceLanguage` field** rather than fix the lookup — the LLM already understands "Russian (Female)" via `voiceLabel` without normalization; the BCP-47 code was redundant information. Fixup removed: `voiceLanguage` from `RuntimeVideoPersonaCatalogEntry`, from the materialization projection, from the description renderer, and from all test fixtures. `resolveVoiceLanguageFromLabel` and `VOICE_LABEL_TO_LANGUAGE` no longer exist anywhere in the codebase (verified via explicit grep).
+
+Cleaner architecturally; final entry shape is `{ personaId, displayName, voiceLabel }` — minimal LLM-facing surface.
+
+### Files touched (Scope IN)
+
+**Modified files (6):**
+- `packages/runtime-contract/src/index.ts` — new `RuntimeVideoPersonaCatalogEntry` (`{ personaId, displayName, voiceLabel }`), `RuntimeVideoPersonaCatalog` (`{ provider: "heygen", schema: "...", personas: [...] }`), `isRuntimeVideoPersonaCatalog` type guard
+- `packages/runtime-bundle/src/index.ts` — `videoPersonaCatalog?: RuntimeVideoPersonaCatalog | null` on `AssistantRuntimeBundleToolCredentialRef` (mirrors `videoVoiceCatalog`)
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — injected `WORKSPACE_VIDEO_PERSONA_REPOSITORY` (already registered for Slice 7); new private `attachMaterializedVideoPersonaCatalog(ref, workspaceId, talkingVideoEnabled)` method gated by exact `providerId === "heygen"` AND `talkingVideoEnabled === true`; reads `listActive(workspaceId)` from Slice 5b repo; wired right after `attachMaterializedVideoVoiceCatalog`; `resolveRuntimeToolCredentialRefs` signature extended with `workspaceId` + `talkingVideoEnabled`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` — new `describeVideoPersonaCatalogHint(credential)` helper that renders the inline persona shortlist text; `createVideoGenerateToolDefinition` extended with 7-section talking-avatar block when `talkingVideoEnabled === true`
+- `apps/runtime/test/native-tool-projection.test.ts` — 5 new Slice 10 cases + helper `makeHeygenTalkingBundle`
+- `apps/api/test/materialize-assistant-published-version.service.test.ts` — 4 new Slice 10 cases simulating `attachMaterializedVideoPersonaCatalog` gate logic
+
+**New files:** 0.
+
+### Honest subtleties
+
+- **Bundle path for `videoPersonaCatalog`:** `bundle.governance.toolCredentialRefs.video_generate.videoPersonaCatalog` — exact structural mirror of `videoVoiceCatalog`. Both fields live on the same `AssistantRuntimeBundleToolCredentialRef` object.
+- **Where the description text is assembled:** `apps/runtime/src/modules/turns/native-tool-projection.ts::createVideoGenerateToolDefinition` at projection time (NOT at materialization time). Materialization persists the catalog payload onto the bundle; projection reads `credential.videoPersonaCatalog` and renders the inline table. Same pattern as `videoVoiceCatalog` → `describeVideoVoiceCatalogHint`.
+- **Persona list ordering in description:** chronological by `createdAt ASC` — the order returned by `listActive(workspaceId)` from the Slice 5b Prisma adapter. No re-sorting applied.
+- **Persona list cap:** `describeVideoPersonaCatalogHint` applies `.slice(0, 10)` defensively even though Slice 5's `heygenPersonaWorkspaceLimit` defaults to 10 (the platform setting). Belt-and-suspenders for edge cases where the limit gets bumped at runtime.
+- **voiceLabel derivation:** directly from `row.heygenVoiceLabel` (stored on `workspace_video_personas` since Slice 5b). No catalog lookup needed.
+- **Total description char count for canonical fixture (talkingVideoEnabled=true, 1-voice shortlist, 2 personas):** 3,566 chars (was 3,612 before the voiceLanguage fixup). Within reasonable bounds; no LLM context blowup.
+- **E8 deferral:** Slice 5's `UNIQUE INDEX (workspaceId, displayNameLower)` makes duplicate persona names impossible in a workspace, so `needs_disambiguation` is architecturally unreachable. NO new discriminated-union member added to `RuntimeVideoGenerateToolResult`. NO chat-side card UI built. Documented in the ADR.
+- **Snapshot test stability:** description string contains no timestamps or non-deterministic content; uses `.includes()` substring assertions rather than full-string `deepStrictEqual` so minor wording adjustments stay diff-visible without breaking the test.
+- **Cross-slice invariant #12 verification:** explicit grep across new diff for `messageBody`, `userInput`, `userMessage`, `.match(`, `.includes(`, `/[a-z]+/i.test(` — zero matches against user input. The only `.includes()` usage in test assertions is against the description STRING (testing what we built), not against any user input.
+- **Cross-slice invariant #14 verification:** explicit grep across `materialize-assistant-published-version.service.ts` for `personaRepository\.\(create|update|archive\)` — zero matches. Materialization only calls `listActive`.
+
+### Verification (all 12 gates PASS)
+
+1. `corepack pnpm -r --if-present run lint` — all `Done`. ✅
+2. `corepack pnpm run format:check` — `All matched files use Prettier code style!` ✅
+3. `corepack pnpm --filter @persai/api run typecheck` — exit 0. ✅
+4. `corepack pnpm --filter @persai/web run typecheck` — exit 0. ✅
+5. `corepack pnpm --filter @persai/runtime run typecheck` — exit 0. ✅
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — exit 0. ✅
+7. `corepack pnpm --filter @persai/contracts run typecheck` — exit 0. ✅
+8. `tsx apps/runtime/test/native-tool-projection.test.ts` — exit 0; description char count 3,566; all Slice 10 cases pass + Slice 8 regression clean. ✅
+9. `tsx apps/api/test/materialize-assistant-published-version.service.test.ts` — all 4 Slice 10 cases pass + Slice 8 regression clean. ✅
+10. `tsx apps/runtime/test/runtime-video-generate-tool.service.test.ts` — exit 0 (Slice 7 regression; the new `videoPersonaCatalog` field on the policy doesn't break the dispatch). ✅
+11. `tsx apps/api/test/manage-workspace-video-personas.service.test.ts` — all 14 assertions pass (Slice 5b regression). ✅
+12. `corepack pnpm --filter @persai/web run test` — `Test Files 65 passed (65); Tests 658 passed (658)` on confirmation re-run. ✅ **Note:** one earlier run during verification showed `3 failed | 655 passed` with elapsed time 106s vs the healthy 61s — transient timing-driven flakiness in 3 unrelated tests (not Slice 10 surface). Re-run on confirmation was 658/658 clean; no investigation needed beyond noting it here for future calibration.
+
+### Cross-slice invariants
+
+All 15 invariants verified true:
+- **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits. ✅
+- **#12 no keyword routing** — LLM does name → personaId resolution from the materialized shortlist via exact case-insensitive name match (its own job, not code's job); no fuzzy / regex / `.includes` / `.match` on user input anywhere new. The original `resolveVoiceLanguageFromLabel` keyword table was removed in the orchestrator fixup. ✅
+- **#14 REST-only persona mutation** — materialization READS personas only via `listActive(workspaceId)`; explicit grep confirms zero `personaRepository.(create|update|archive)` calls in `materialize-*`. ✅
+- **#15 NON-NEGOTIABLE** — exact `=== "heygen"` provider check, exact `=== true` flag check throughout. The keyword-prefix-match wart was removed before commit. ✅
+
+### Next recommended slice
+
+**Slice 11 — Tests + docs + verification + live smoke.** End-to-end coverage for ad-hoc photo + text path (Scenario A), persona create + reuse path (Scenario C), multi-character refusal at LLM level (verify the tool description teaches it correctly), plan toggle off (verify `talking_avatar_plan_disabled` path), insufficient VC (verify wallet pre-check refusal). Update `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md` with the talking-avatar surface. Cross-reference ADR-108 / ADR-107 (with the explicit HeyGen exception note) / ADR-106 / ADR-105. Full verification gate. **Live smoke in `persai-dev` with a real HeyGen credential** — one ad-hoc talking video, one persona-based reuse. This is the "feature is live-callable" exit criterion for ADR-109.
+
+Alternative: **Slice 10b — Talking-video banner UX (time-based)** (per erratum E3). Pure-web slice. No backend changes. Can land in parallel with Slice 11 if useful before live smoke; or after the smoke confirms the typical render duration. Recommended order: Slice 11 first (live smoke), then 10b (banner) if smoke confirms long renders need the UX softening.
+
+---
+
 ## 2026-06-05 — ADR-109 Slice 9: Assistant Settings UI Characters (locked-with-upsell + unlocked persona management) + 3 substrate additions
 
 ### What changed & why

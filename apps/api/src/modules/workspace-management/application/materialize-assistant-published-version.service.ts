@@ -91,6 +91,11 @@ import {
 } from "./voice-dna-modulator";
 import { KlingVoiceCatalogService } from "./kling/kling-voice-catalog.service";
 import { HeyGenVoiceCatalogService } from "./heygen/heygen-voice-catalog.service";
+import {
+  WORKSPACE_VIDEO_PERSONA_REPOSITORY,
+  type WorkspaceVideoPersonaRepository
+} from "../domain/workspace-video-persona.repository";
+import type { RuntimeVideoPersonaCatalog } from "@persai/runtime-contract";
 import type { PersonaArchetype } from "../domain/persona-archetype.entity";
 import type { AssistantPublishedVersionSnapshotVoiceDna } from "../domain/assistant-published-version.entity";
 import { buildSyntheticPromptToolOverrideMap } from "./prompt-constructor-tool-metadata";
@@ -382,7 +387,9 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly compilePromptConstructorService: CompilePromptConstructorService,
     private readonly managePersonaArchetypesService: ManagePersonaArchetypesService,
     private readonly klingVoiceCatalogService: KlingVoiceCatalogService,
-    private readonly heyGenVoiceCatalogService: HeyGenVoiceCatalogService
+    private readonly heyGenVoiceCatalogService: HeyGenVoiceCatalogService,
+    @Inject(WORKSPACE_VIDEO_PERSONA_REPOSITORY)
+    private readonly workspaceVideoPersonaRepository: WorkspaceVideoPersonaRepository
   ) {}
 
   async execute(
@@ -695,7 +702,9 @@ export class MaterializeAssistantPublishedVersionService {
       imageEditModelKey: planImageEditModelKey,
       imageEditFallbackModelKey: planImageEditFallbackModelKey,
       videoGenerateModelKey: planVideoGenerateModelKey,
-      videoGenerateFallbackModelKey: planVideoGenerateFallbackModelKey
+      videoGenerateFallbackModelKey: planVideoGenerateFallbackModelKey,
+      workspaceId: assistant.workspaceId,
+      talkingVideoEnabled: planTalkingVideoEnabled
     });
     const documentProviderConfig = await this.resolveDocumentProviderConfig();
     const planToolQuotaPolicy = await this.resolveToolQuotaPolicy(effectivePlanCode);
@@ -967,6 +976,8 @@ export class MaterializeAssistantPublishedVersionService {
     imageEditFallbackModelKey: string | null;
     videoGenerateModelKey: string | null;
     videoGenerateFallbackModelKey: string | null;
+    workspaceId: string;
+    talkingVideoEnabled: boolean;
   }): Promise<AssistantRuntimeBundle["governance"]["toolCredentialRefs"]> {
     const keyMetadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys(
       ALL_TOOL_CREDENTIAL_KEYS as unknown as string[]
@@ -1037,6 +1048,11 @@ export class MaterializeAssistantPublishedVersionService {
         videoGenerateFallbackModelKey: input.videoGenerateFallbackModelKey
       });
       refs.video_generate = await this.attachMaterializedVideoVoiceCatalog(refs.video_generate);
+      refs.video_generate = await this.attachMaterializedVideoPersonaCatalog(
+        refs.video_generate,
+        input.workspaceId,
+        input.talkingVideoEnabled
+      );
     }
     refs.tts = this.buildTtsToolCredentialRef(
       keyMetadata,
@@ -1070,6 +1086,38 @@ export class MaterializeAssistantPublishedVersionService {
       };
     }
     return ref;
+  }
+
+  // ADR-109 Slice 10: attach persona shortlist from workspace_video_personas onto the
+  // video_generate credential ref so the tool description can render the inline persona table.
+  // Gate 1: only fires for HeyGen (provider === "heygen").
+  // Gate 2: only fires when talkingVideoEnabled === true (plan toggle).
+  // On empty list attaches an empty-personas catalog; when gates fail returns ref unchanged.
+  private async attachMaterializedVideoPersonaCatalog(
+    ref: AssistantRuntimeBundleToolCredentialRef,
+    workspaceId: string,
+    talkingVideoEnabled: boolean
+  ): Promise<AssistantRuntimeBundleToolCredentialRef> {
+    if (ref.providerId !== "heygen") {
+      return ref;
+    }
+    if (talkingVideoEnabled !== true) {
+      return ref;
+    }
+    const rows = await this.workspaceVideoPersonaRepository.listActive(workspaceId);
+    const catalog: RuntimeVideoPersonaCatalog = {
+      provider: "heygen",
+      schema: "persai.runtimeVideoPersonaCatalog.v1",
+      personas: rows.map((row) => ({
+        personaId: row.id,
+        displayName: row.displayName,
+        voiceLabel: row.heygenVoiceLabel
+      }))
+    };
+    return {
+      ...ref,
+      videoPersonaCatalog: catalog
+    };
   }
 
   private async resolveDocumentProviderConfig(): Promise<MaterializedDocumentProviderConfig> {

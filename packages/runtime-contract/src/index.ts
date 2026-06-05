@@ -1736,6 +1736,31 @@ export interface RuntimeVideoVoiceCatalog {
   shortlist: RuntimeVideoVoiceCatalogEntry[];
 }
 
+// ADR-109 Slice 10: workspace persona shortlist materialized into the assistant bundle
+// so the LLM can resolve natural-language character references to stable personaId UUIDs.
+export interface RuntimeVideoPersonaCatalogEntry {
+  personaId: string;
+  displayName: string;
+  /** Human-readable voice label, e.g. "Russian (Female)" — from persona.heygenVoiceLabel */
+  voiceLabel: string;
+}
+
+export interface RuntimeVideoPersonaCatalog {
+  provider: "heygen";
+  schema: "persai.runtimeVideoPersonaCatalog.v1";
+  personas: RuntimeVideoPersonaCatalogEntry[];
+}
+
+export function isRuntimeVideoPersonaCatalog(value: unknown): value is RuntimeVideoPersonaCatalog {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    (value as Record<string, unknown>).provider === "heygen" &&
+    (value as Record<string, unknown>).schema === "persai.runtimeVideoPersonaCatalog.v1" &&
+    Array.isArray((value as Record<string, unknown>).personas)
+  );
+}
+
 export const RUNTIME_VIDEO_AUDIO_CAPABILITIES = [
   "silent",
   "provider_native_audio",

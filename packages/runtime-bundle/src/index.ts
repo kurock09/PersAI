@@ -3,6 +3,7 @@ import {
   PERSAI_RUNTIME_CONTRACT_SCHEMA,
   type RuntimeVideoModelParameters,
   type RuntimeVideoVoiceCatalog,
+  type RuntimeVideoPersonaCatalog,
   type RuntimeAssistantVoiceProfile,
   type RuntimeBrowserConfig,
   type RuntimeContextHydrationConfig,
@@ -67,6 +68,7 @@ export interface AssistantRuntimeBundleToolCredentialRef {
   modelKey?: string;
   videoModelParameters?: RuntimeVideoModelParameters | null;
   videoVoiceCatalog?: RuntimeVideoVoiceCatalog | null;
+  videoPersonaCatalog?: RuntimeVideoPersonaCatalog | null;
   fallbacks?: AssistantRuntimeBundleToolCredentialRef[];
 }
 

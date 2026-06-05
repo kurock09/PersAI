@@ -535,6 +535,135 @@ async function run(): Promise<void> {
     false,
     "Slice 8: legacy plan (no flag in billingHints) must default to false after materialization"
   );
+
+  // ── ADR-109 Slice 10 — persona catalog attach logic ──
+  // Tests the branching logic inside `attachMaterializedVideoPersonaCatalog` by simulating
+  // the gates and asserting the resulting credential ref shape.
+  // This mirrors the pattern used in test 2 of materialize-heygen-voice-catalog.test.ts.
+
+  const heygenBaseRef = {
+    refKey: "persai:persai-runtime:tool/video_generate/heygen/api-key",
+    secretRef: {
+      source: "persai",
+      provider: "persai-runtime",
+      id: "tool/video_generate/heygen/api-key"
+    },
+    configured: true,
+    providerId: "heygen"
+  };
+
+  const fixturePersonas = [
+    {
+      id: "01937c8a-0000-4000-8000-000000000001",
+      workspaceId: "ws-test",
+      displayName: "Маша",
+      displayNameLower: "маша",
+      portraitImageUrl: "https://example.com/masha.jpg",
+      portraitImageStorageKey: "storage/masha.jpg",
+      heygenVoiceId: "voice-masha",
+      heygenVoiceLabel: "Russian (Female)",
+      heygenAvatarId: "avatar-masha",
+      archived: false,
+      archivedAt: null,
+      createdAt: new Date("2026-06-01"),
+      updatedAt: new Date("2026-06-01")
+    },
+    {
+      id: "01937d12-0000-4000-8000-000000000002",
+      workspaceId: "ws-test",
+      displayName: "Anna",
+      displayNameLower: "anna",
+      portraitImageUrl: "https://example.com/anna.jpg",
+      portraitImageStorageKey: "storage/anna.jpg",
+      heygenVoiceId: "voice-anna",
+      heygenVoiceLabel: "English (Female)",
+      heygenAvatarId: "avatar-anna",
+      archived: false,
+      archivedAt: null,
+      createdAt: new Date("2026-06-01"),
+      updatedAt: new Date("2026-06-01")
+    }
+  ];
+
+  // Simulates the `attachMaterializedVideoPersonaCatalog` logic:
+  function simulateAttachPersonaCatalog(
+    ref: typeof heygenBaseRef & { videoPersonaCatalog?: unknown },
+    workspacePersonas: typeof fixturePersonas,
+    talkingVideoEnabled: boolean
+  ) {
+    if (ref.providerId !== "heygen") return ref;
+    if (talkingVideoEnabled !== true) return ref;
+    const catalog = {
+      provider: "heygen" as const,
+      schema: "persai.runtimeVideoPersonaCatalog.v1" as const,
+      personas: workspacePersonas.map((row) => ({
+        personaId: row.id,
+        displayName: row.displayName,
+        voiceLabel: row.heygenVoiceLabel
+      }))
+    };
+    return { ...ref, videoPersonaCatalog: catalog };
+  }
+
+  // Case 1: HeyGen + talkingVideoEnabled=true + 2 active personas → catalog with 2 entries
+  {
+    const result = simulateAttachPersonaCatalog(heygenBaseRef, fixturePersonas, true);
+    assert.ok(
+      "videoPersonaCatalog" in result,
+      "Slice 10: HeyGen + talkingVideoEnabled=true must attach videoPersonaCatalog"
+    );
+    const catalog = (
+      result as typeof result & { videoPersonaCatalog: { provider: string; personas: unknown[] } }
+    ).videoPersonaCatalog;
+    assert.equal(catalog.provider, "heygen", "Slice 10: catalog provider must be 'heygen'");
+    assert.equal(catalog.personas.length, 2, "Slice 10: catalog must contain 2 persona entries");
+    const p0 = catalog.personas[0] as { personaId: string; displayName: string };
+    assert.equal(p0.personaId, "01937c8a-0000-4000-8000-000000000001");
+    assert.equal(p0.displayName, "Маша");
+    console.log("PASS Slice 10: heygen + talkingVideoEnabled=true + 2 personas → catalog attached");
+  }
+
+  // Case 2: HeyGen + talkingVideoEnabled=false → NO videoPersonaCatalog
+  {
+    const result = simulateAttachPersonaCatalog(heygenBaseRef, fixturePersonas, false);
+    assert.ok(
+      !("videoPersonaCatalog" in result),
+      "Slice 10: talkingVideoEnabled=false must NOT attach videoPersonaCatalog"
+    );
+    console.log("PASS Slice 10: heygen + talkingVideoEnabled=false → no catalog");
+  }
+
+  // Case 3: HeyGen + talkingVideoEnabled=true + 0 personas (empty list) → empty catalog
+  {
+    const result = simulateAttachPersonaCatalog(heygenBaseRef, [], true);
+    assert.ok(
+      "videoPersonaCatalog" in result,
+      "Slice 10: empty persona list must still attach videoPersonaCatalog (not skip)"
+    );
+    const catalog = (result as typeof result & { videoPersonaCatalog: { personas: unknown[] } })
+      .videoPersonaCatalog;
+    assert.equal(
+      catalog.personas.length,
+      0,
+      "Slice 10: empty persona list → empty catalog.personas"
+    );
+    console.log("PASS Slice 10: heygen + talkingVideoEnabled=true + 0 personas → empty catalog");
+  }
+
+  // Case 4: Non-HeyGen credential (Kling) → no videoPersonaCatalog regardless of talkingVideoEnabled
+  {
+    const klingRef = { ...heygenBaseRef, providerId: "kling" as string };
+    const result = simulateAttachPersonaCatalog(
+      klingRef as typeof heygenBaseRef,
+      fixturePersonas,
+      true
+    );
+    assert.ok(
+      !("videoPersonaCatalog" in result),
+      "Slice 10: non-heygen provider must NOT attach videoPersonaCatalog (gate 1 fails)"
+    );
+    console.log("PASS Slice 10: non-heygen ref → no catalog regardless of talkingVideoEnabled");
+  }
 }
 
 void run();

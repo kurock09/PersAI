@@ -90,6 +90,24 @@ function describeVideoVoiceCatalogHint(
   return `Available voiceKeys for voice_control: ${entries.join("; ")}. When the user asks for spoken narration/dialogue and does not name a specific voice, choose the best matching voiceKey from this list and call video_generate with audioMode="voice_control".`;
 }
 
+function describeVideoPersonaCatalogHint(
+  credential: AssistantRuntimeBundleToolCredentialRef
+): string {
+  const catalog = credential.videoPersonaCatalog;
+  const personas = catalog?.personas ?? [];
+  if (personas.length === 0) {
+    return `Available saved characters (videoPersonas): none yet. Suggest the user create one via Settings → Characters when they want a named character.`;
+  }
+  const lines = personas
+    .slice(0, 10)
+    .map(
+      (p) =>
+        `- personaId="${p.personaId}", displayName="${p.displayName}", voiceLabel="${p.voiceLabel}"`
+    )
+    .join("\n");
+  return `Available saved characters (videoPersonas):\n${lines}`;
+}
+
 /**
  * ADR-074 Slice L1.1 / ADR-105 FIX A — resolve the effective
  * `image_generate.count.maximum` the model should see in its tool schema.
@@ -864,7 +882,22 @@ function createVideoGenerateToolDefinition(
 ): ProviderGatewayToolDefinition {
   const voiceCatalogHint = describeVideoVoiceCatalogHint(credential);
   const talkingAvatarHint = talkingVideoEnabled
-    ? "When the user wants a talking-avatar video, set mode='talking_avatar' and provide speechText. Supply personaId to use a saved character or portraitImageAlias to use a specific photo. voiceKey selects a voice from the materialized shortlist; omit it on the persona path to use the persona's default voice."
+    ? [
+        // Section 1: when to use talking_avatar
+        "Use mode='talking_avatar' when the user explicitly asks for a talking-avatar video — a video that includes a person speaking, AND either (a) has an attached photo to use as the speaker's portrait, or (b) names a saved character (persona) from the workspace. Use mode='cinematic' (default) for any other video request.",
+        // Section 2: persona resolution
+        "The videoPersonas block below lists this workspace's saved characters with their personaId and displayName. When the user names a character (e.g. 'have Masha read this'), find the matching persona by exact displayName (case-insensitive) and pass its personaId. Persona names are unique within a workspace, so a name match is unambiguous. If no persona matches, do not invent IDs — either ask the user to clarify which character, or suggest creating one via Settings → Characters first.",
+        // Section 3: persona creation guidance
+        "You cannot create personas yourself. Creating a saved character requires the user to visit Assistant Settings → Characters and upload a portrait + name + voice. When the user asks to 'save this photo as <name>' or similar, instruct them to use Settings → Characters; do NOT attempt to create the persona via this tool.",
+        // Section 4: single character per call
+        "Each video_generate call produces ONE clip with ONE speaker (or no speaker for cinematic). If the user requests multiple speakers in a single clip, propose splitting into multiple sequential calls — one per speaker — and combining the results (or playing them in sequence). Do NOT call video_generate with multiple personas; the contract supports exactly one persona OR one portrait alias per call.",
+        // Section 5: voice selection — portrait alias path
+        "Voice selection (portrait alias path): when passing portraitImageAlias, select voiceKey from the available voice shortlist based on user context (gender, language, brand fit). When voiceKey is omitted on the portrait path, runtime returns voice_required honestly so the model can retry with an explicit choice.",
+        // Section 6: voice selection — persona path
+        "Voice selection (persona path): when passing personaId, omit voiceKey to use the persona's stored voice. Only pass voiceKey to deliberately override the persona's voice for one call.",
+        // Section 7: persona shortlist
+        describeVideoPersonaCatalogHint(credential)
+      ].join(" ")
     : null;
   return {
     name: "video_generate",

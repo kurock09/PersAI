@@ -870,6 +870,277 @@ async function run(): Promise<void> {
     undefined,
     "Slice 8: speechText must NOT appear when talkingVideoEnabled is absent"
   );
+
+  // ── ADR-109 Slice 10 — persona catalog in tool description ──
+
+  // Helper: build a HeyGen + talkingVideoEnabled bundle with a given personaCatalog
+  function makeHeygenTalkingBundle(
+    videoPersonaCatalog:
+      | {
+          provider: "heygen";
+          schema: "persai.runtimeVideoPersonaCatalog.v1";
+          personas: Array<{
+            personaId: string;
+            displayName: string;
+            voiceLabel: string;
+          }>;
+        }
+      | null
+      | undefined,
+    voiceShortlist?: Array<{
+      voiceKey: string;
+      providerVoiceId: string;
+      displayName: string;
+      locale: string | null;
+      gender: "male" | "female" | "neutral" | "unknown";
+      description: string | null;
+      styleTags: string[];
+    }>
+  ) {
+    const baseRef = artifact.bundle.governance.toolCredentialRefs.video_generate!;
+    const credentialRef = {
+      ...baseRef,
+      providerId: "heygen",
+      ...(videoPersonaCatalog !== undefined ? { videoPersonaCatalog } : {}),
+      ...(voiceShortlist !== undefined
+        ? {
+            videoVoiceCatalog: {
+              provider: "heygen" as const,
+              fetchedAt: "2026-06-05T12:00:00.000Z",
+              shortlist: voiceShortlist
+            }
+          }
+        : {})
+    };
+    return {
+      ...artifact.bundle,
+      governance: {
+        ...artifact.bundle.governance,
+        toolCredentialRefs: {
+          ...artifact.bundle.governance.toolCredentialRefs,
+          video_generate: credentialRef
+        },
+        toolPolicies: artifact.bundle.governance.toolPolicies.map((p) =>
+          p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: true } : p
+        )
+      }
+    };
+  }
+
+  const PERSONA_A = {
+    personaId: "01937c8a-0000-4000-8000-000000000001",
+    displayName: "Маша",
+    voiceLabel: "Russian (Female)"
+  };
+  const PERSONA_B = {
+    personaId: "01937d12-0000-4000-8000-000000000002",
+    displayName: "Anna",
+    voiceLabel: "English (Female)"
+  };
+  const TWO_VOICE_SHORTLIST: Array<{
+    voiceKey: string;
+    providerVoiceId: string;
+    displayName: string;
+    locale: string | null;
+    gender: "male" | "female" | "neutral" | "unknown";
+    description: string | null;
+    styleTags: string[];
+  }> = [
+    {
+      voiceKey: "masha_voice",
+      providerVoiceId: "voice-masha",
+      displayName: "Masha",
+      locale: "ru-RU",
+      gender: "female",
+      description: null,
+      styleTags: []
+    }
+  ];
+
+  // Case 1: talkingVideoEnabled=true + non-empty videoPersonaCatalog (2 personas)
+  const slice10TwoPersonasBundle = makeHeygenTalkingBundle(
+    {
+      provider: "heygen",
+      schema: "persai.runtimeVideoPersonaCatalog.v1",
+      personas: [PERSONA_A, PERSONA_B]
+    },
+    TWO_VOICE_SHORTLIST
+  );
+  const slice10TwoPersonasProjection = projectRuntimeNativeTools(slice10TwoPersonasBundle);
+  const slice10TwoPersonasTool = slice10TwoPersonasProjection.tools.find(
+    (t) => t.name === "video_generate"
+  );
+  assert.ok(slice10TwoPersonasTool, "Slice 10: tool must be projected for heygen+talkingEnabled");
+
+  // Section 1: when to use talking_avatar
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /talking-avatar video/,
+    "Slice 10: description must contain section 1 trigger conditions"
+  );
+  // Section 2: persona resolution
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /Persona names are unique within a workspace/,
+    "Slice 10: description must contain section 2 unique-name disambiguation statement"
+  );
+  // Section 3: persona creation guidance
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /You cannot create personas yourself/,
+    "Slice 10: description must contain section 3 persona creation guidance"
+  );
+  // Section 4: single character per call
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /Each video_generate call produces ONE clip with ONE speaker/,
+    "Slice 10: description must contain section 4 single speaker per call"
+  );
+  // Section 7: persona shortlist renders both personas
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /displayName="Маша"/,
+    "Slice 10: persona A displayName must appear in description"
+  );
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    new RegExp(PERSONA_A.personaId),
+    "Slice 10: persona A personaId must appear in description"
+  );
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /displayName="Anna"/,
+    "Slice 10: persona B displayName must appear in description"
+  );
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    new RegExp(PERSONA_B.personaId),
+    "Slice 10: persona B personaId must appear in description"
+  );
+  // Voice shortlist hint still appears
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /Available voiceKeys for voice_control/,
+    "Slice 10: voice shortlist hint must still appear when talkingVideoEnabled=true"
+  );
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /masha_voice/,
+    "Slice 10: voice key from shortlist must appear in description"
+  );
+
+  // Case 2: talkingVideoEnabled=true + empty videoPersonaCatalog
+  const slice10EmptyPersonasBundle = makeHeygenTalkingBundle({
+    provider: "heygen",
+    schema: "persai.runtimeVideoPersonaCatalog.v1",
+    personas: []
+  });
+  const slice10EmptyTool = projectRuntimeNativeTools(slice10EmptyPersonasBundle).tools.find(
+    (t) => t.name === "video_generate"
+  );
+  assert.match(
+    slice10EmptyTool?.description ?? "",
+    /none yet/,
+    "Slice 10: empty persona catalog must render 'none yet' message"
+  );
+  assert.match(
+    slice10EmptyTool?.description ?? "",
+    /Settings → Characters/,
+    "Slice 10: empty persona catalog must suggest Settings → Characters"
+  );
+
+  // Case 3: talkingVideoEnabled=true + missing videoPersonaCatalog (undefined) → same as empty
+  const slice10UndefinedPersonasBundle = makeHeygenTalkingBundle(undefined);
+  const slice10UndefinedTool = projectRuntimeNativeTools(slice10UndefinedPersonasBundle).tools.find(
+    (t) => t.name === "video_generate"
+  );
+  assert.match(
+    slice10UndefinedTool?.description ?? "",
+    /none yet/,
+    "Slice 10: missing persona catalog must render 'none yet' message (defensive default)"
+  );
+
+  // Case 4: talkingVideoEnabled=false → none of the talking-avatar sections appear
+  const slice10TalkingDisabledBundle = {
+    ...artifact.bundle,
+    governance: {
+      ...artifact.bundle.governance,
+      toolCredentialRefs: {
+        ...artifact.bundle.governance.toolCredentialRefs,
+        video_generate: {
+          ...artifact.bundle.governance.toolCredentialRefs.video_generate!,
+          providerId: "runway"
+        }
+      },
+      toolPolicies: artifact.bundle.governance.toolPolicies.map((p) =>
+        p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: false } : p
+      )
+    }
+  };
+  const slice10TalkingDisabledTool = projectRuntimeNativeTools(
+    slice10TalkingDisabledBundle
+  ).tools.find((t) => t.name === "video_generate");
+  assert.doesNotMatch(
+    slice10TalkingDisabledTool?.description ?? "",
+    /talking-avatar video/,
+    "Slice 10: talking-avatar section 1 must NOT appear when talkingVideoEnabled=false"
+  );
+  assert.doesNotMatch(
+    slice10TalkingDisabledTool?.description ?? "",
+    /You cannot create personas yourself/,
+    "Slice 10: section 3 must NOT appear when talkingVideoEnabled=false"
+  );
+  assert.doesNotMatch(
+    slice10TalkingDisabledTool?.description ?? "",
+    /videoPersonas/,
+    "Slice 10: persona shortlist must NOT appear when talkingVideoEnabled=false"
+  );
+
+  // Snapshot test: canonical fixture (talkingVideoEnabled=true, 1 voice, 2 personas)
+  const snapshotBundle = makeHeygenTalkingBundle(
+    {
+      provider: "heygen",
+      schema: "persai.runtimeVideoPersonaCatalog.v1",
+      personas: [PERSONA_A, PERSONA_B]
+    },
+    TWO_VOICE_SHORTLIST
+  );
+  const snapshotTool = projectRuntimeNativeTools(snapshotBundle).tools.find(
+    (t) => t.name === "video_generate"
+  );
+  assert.ok(
+    (snapshotTool?.description?.length ?? 0) > 0,
+    "Slice 10: snapshot description is non-empty"
+  );
+  // Stable sub-string assertions (stable across formatting changes):
+  assert.ok(
+    snapshotTool?.description?.includes("Use mode='talking_avatar'"),
+    "Slice 10 snapshot: contains mode selection anchor"
+  );
+  assert.ok(
+    snapshotTool?.description?.includes("Persona names are unique within a workspace"),
+    "Slice 10 snapshot: contains unique-name anchor"
+  );
+  assert.ok(
+    snapshotTool?.description?.includes("You cannot create personas yourself"),
+    "Slice 10 snapshot: contains persona-creation anchor"
+  );
+  assert.ok(
+    snapshotTool?.description?.includes(
+      "Each video_generate call produces ONE clip with ONE speaker"
+    ),
+    "Slice 10 snapshot: contains single-speaker anchor"
+  );
+  assert.ok(
+    snapshotTool?.description?.includes(PERSONA_A.personaId),
+    "Slice 10 snapshot: persona A id present"
+  );
+  assert.ok(
+    snapshotTool?.description?.includes(PERSONA_B.personaId),
+    "Slice 10 snapshot: persona B id present"
+  );
+
+  console.log("Slice 10 description char count:", snapshotTool?.description?.length ?? 0);
 }
 
 void run();
