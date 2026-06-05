@@ -7,7 +7,10 @@ import type {
   RuntimeImageGenerateRequest,
   RuntimeVideoGenerateRequest
 } from "@persai/runtime-contract";
-import type { AssistantWebChatActiveMediaJobState } from "./web-chat.types";
+import type {
+  AssistantWebChatActiveMediaJobDisplayKind,
+  AssistantWebChatActiveMediaJobState
+} from "./web-chat.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 export type AssistantMediaJobRequestPayload = {
@@ -127,6 +130,27 @@ function toWebOpenMediaJobOperation(input: {
   }
 }
 
+/**
+ * ADR-109 Slice 10b — projects the runtime-side `mode: "talking_avatar"`
+ * field already present on `requestJson.directToolExecution.request` into a
+ * web-chat-side display variant. The API never adds new contract fields to
+ * `RuntimeVideoGenerateRequest` for this; we just project what the runtime
+ * already accepted into the web view DTO. Returns `"cinematic"` defensively
+ * for non-video jobs and for video jobs whose mode is missing or any value
+ * other than `"talking_avatar"`, so the wire payload always carries an
+ * explicit value (never undefined) once Slice 10b ships.
+ */
+function toWebOpenMediaJobDisplayKind(input: {
+  requestJson: unknown;
+}): AssistantWebChatActiveMediaJobDisplayKind {
+  const request = input.requestJson as AssistantMediaJobRequestPayload | null;
+  const exec = request?.directToolExecution;
+  if (exec?.toolCode !== "video_generate") {
+    return "cinematic";
+  }
+  return exec.request.mode === "talking_avatar" ? "talking_avatar" : "cinematic";
+}
+
 @Injectable()
 export class AssistantMediaJobService {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
@@ -220,6 +244,7 @@ export class AssistantMediaJobService {
         kind: row.kind,
         requestJson: row.requestJson
       }),
+      displayKind: toWebOpenMediaJobDisplayKind({ requestJson: row.requestJson }),
       status: toWebOpenMediaJobStatus(row.status),
       createdAt: row.createdAt.toISOString(),
       startedAt: row.startedAt?.toISOString() ?? null,

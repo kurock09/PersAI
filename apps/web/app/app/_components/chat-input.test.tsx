@@ -396,6 +396,121 @@ describe("ChatInput", () => {
     expect(screen.getByText("documentJobRedeliver 1:42")).toBeInTheDocument();
   });
 
+  describe("active media job chip — talking-avatar banner (Slice 10b)", () => {
+    it("shows legacy mediaJobVideoGenerate copy for cinematic video jobs regardless of elapsed time", () => {
+      // Initial render at t+10s elapsed.
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-05T12:00:10Z"));
+      const props = {
+        onSend: vi.fn(),
+        onTranscribeVoice: vi.fn(async () => ""),
+        onStop: vi.fn(),
+        isStreaming: false,
+        activeMediaJobs: [
+          {
+            id: "kling-cinematic-1",
+            kind: "video" as const,
+            operation: "video_generate" as const,
+            displayKind: "cinematic" as const,
+            status: "running" as const,
+            createdAt: "2026-05-05T12:00:00Z",
+            startedAt: "2026-05-05T12:00:00Z",
+            updatedAt: "2026-05-05T12:00:00Z"
+          }
+        ]
+      };
+      render(<ChatInput {...props} />);
+      expect(screen.getByText("mediaJobVideoGenerate 0:10")).toBeInTheDocument();
+      expect(screen.queryByText(/chatTalkingAvatarBannerStage/)).toBeNull();
+
+      // Re-mount fresh at t+10min — cinematic chip MUST stay byte-identical.
+      cleanup();
+      vi.setSystemTime(new Date("2026-05-05T12:10:00Z"));
+      render(<ChatInput {...props} />);
+      expect(screen.getByText("mediaJobVideoGenerate 10:00")).toBeInTheDocument();
+      expect(screen.queryByText(/chatTalkingAvatarBannerStage/)).toBeNull();
+    });
+
+    it("treats omitted displayKind as cinematic (defensive default for legacy job rows)", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-05T12:00:10Z"));
+
+      render(
+        <ChatInput
+          onSend={vi.fn()}
+          onTranscribeVoice={vi.fn(async () => "")}
+          onStop={vi.fn()}
+          isStreaming={false}
+          activeMediaJobs={[
+            {
+              id: "legacy-row-1",
+              kind: "video",
+              operation: "video_generate",
+              status: "running",
+              createdAt: "2026-05-05T12:00:00Z",
+              startedAt: "2026-05-05T12:00:00Z",
+              updatedAt: "2026-05-05T12:00:00Z"
+            }
+          ]}
+        />
+      );
+
+      expect(screen.getByText("mediaJobVideoGenerate 0:10")).toBeInTheDocument();
+      expect(screen.queryByText(/chatTalkingAvatarBannerStage/)).toBeNull();
+    });
+
+    it("rotates label across stages 1→2→3→4 for talking-avatar jobs as elapsed time crosses thresholds", () => {
+      // The chip label is recomputed on every parent re-render with the
+      // latest `mediaJobNowMs`. Unit-test the label-by-elapsed-time mapping
+      // with separate fresh mounts at each threshold rather than relying on
+      // the live 1s interval — same code path, lower flake surface than
+      // driving the interval through `advanceTimersByTime` mid-test.
+      const props = {
+        onSend: vi.fn(),
+        onTranscribeVoice: vi.fn(async () => ""),
+        onStop: vi.fn(),
+        isStreaming: false,
+        activeMediaJobs: [
+          {
+            id: "heygen-talking-1",
+            kind: "video" as const,
+            operation: "video_generate" as const,
+            displayKind: "talking_avatar" as const,
+            status: "running" as const,
+            createdAt: "2026-05-05T12:00:00Z",
+            startedAt: "2026-05-05T12:00:00Z",
+            updatedAt: "2026-05-05T12:00:00Z"
+          }
+        ]
+      };
+
+      // Stage 1: t+0s — "Preparing avatar…", duration chip "0:00".
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-05T12:00:00Z"));
+      render(<ChatInput {...props} />);
+      expect(screen.getByText("chatTalkingAvatarBannerStage1 0:00")).toBeInTheDocument();
+      expect(screen.queryByText(/mediaJobVideoGenerate/)).toBeNull();
+
+      // Stage 2: t+31s — "Synthesizing voice…", elapsed chip still rendered.
+      cleanup();
+      vi.setSystemTime(new Date("2026-05-05T12:00:31Z"));
+      render(<ChatInput {...props} />);
+      expect(screen.getByText("chatTalkingAvatarBannerStage2 0:31")).toBeInTheDocument();
+
+      // Stage 3: t+121s — "Rendering video…".
+      cleanup();
+      vi.setSystemTime(new Date("2026-05-05T12:02:01Z"));
+      render(<ChatInput {...props} />);
+      expect(screen.getByText("chatTalkingAvatarBannerStage3 2:01")).toBeInTheDocument();
+
+      // Stage 4: t+301s — "Final pass, almost there…".
+      cleanup();
+      vi.setSystemTime(new Date("2026-05-05T12:05:01Z"));
+      render(<ChatInput {...props} />);
+      expect(screen.getByText("chatTalkingAvatarBannerStage4 5:01")).toBeInTheDocument();
+    });
+  });
+
   it("shows a live camera preview in the mobile camera tile", async () => {
     const stop = vi.fn();
     const stream = {

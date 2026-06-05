@@ -4,6 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AssistantWebChatActiveMediaJobStateDisplayKind } from "./assistantWebChatActiveMediaJobStateDisplayKind";
 import type { AssistantWebChatActiveMediaJobStateKind } from "./assistantWebChatActiveMediaJobStateKind";
 import type { AssistantWebChatActiveMediaJobStateOperation } from "./assistantWebChatActiveMediaJobStateOperation";
 import type { AssistantWebChatActiveMediaJobStateStatus } from "./assistantWebChatActiveMediaJobStateStatus";
@@ -12,6 +13,17 @@ export interface AssistantWebChatActiveMediaJobState {
   id: string;
   kind: AssistantWebChatActiveMediaJobStateKind;
   operation: AssistantWebChatActiveMediaJobStateOperation;
+  /**
+   * ADR-109 Slice 10b — display variant for an active media job. When
+   * `talking_avatar`, the web client renders a time-based stage rotation in
+   * place of the static "Generating video" chip; otherwise (or when
+   * omitted/null) the legacy cinematic chip is rendered. Set by the API
+   * mapper from `requestJson.directToolExecution.request.mode` when present;
+   * defaults to `cinematic`. Optional for backwards compatibility with legacy
+   * job rows that predate this field.
+   * @nullable
+   */
+  displayKind?: AssistantWebChatActiveMediaJobStateDisplayKind | null;
   status: AssistantWebChatActiveMediaJobStateStatus;
   createdAt: string;
   /** @nullable */

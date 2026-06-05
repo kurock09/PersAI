@@ -243,6 +243,195 @@ async function run(): Promise<void> {
     assert.equal(results[0]?.expectedResultCount, 4);
   }
 
+  // ── Test 6: listOpenJobsForWebChat — talking-avatar mode → displayKind ─────
+  // ADR-109 Slice 10b: the web view DTO must surface `displayKind` projected
+  // from `requestJson.directToolExecution.request.mode` so the chat-input chip
+  // can rotate copy by elapsed time. Three branches: explicit talking_avatar,
+  // explicit cinematic, and absent/legacy mode.
+  {
+    const prisma = buildPrismaStub([
+      {
+        id: "job-talking-avatar",
+        kind: "video",
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "Speak this in a friendly voice",
+          sourceUserMessageCreatedAt: "2026-05-31T00:00:00.000Z",
+          directToolExecution: {
+            toolCode: "video_generate",
+            request: {
+              toolCode: "video_generate",
+              prompt: "",
+              filename: null,
+              size: null,
+              seconds: null,
+              referenceImageAlias: null,
+              mode: "talking_avatar",
+              speechText: "Hi, this is Masha.",
+              speechLanguage: "ru",
+              personaId: "persona-1",
+              voiceKey: "voice-1"
+            }
+          }
+        },
+        status: "running",
+        createdAt: new Date("2026-05-31T10:00:00.000Z"),
+        startedAt: new Date("2026-05-31T10:00:05.000Z"),
+        updatedAt: new Date("2026-05-31T10:00:05.000Z")
+      }
+    ]);
+    (service as never)["prisma"] = prisma;
+
+    const results = await service.listOpenJobsForWebChat({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1"
+    });
+
+    assert.equal(results.length, 1);
+    assert.equal(
+      results[0]?.displayKind,
+      "talking_avatar",
+      "talking_avatar mode must project to displayKind=talking_avatar"
+    );
+    assert.equal(results[0]?.operation, "video_generate");
+    assert.equal(results[0]?.kind, "video");
+  }
+
+  // ── Test 7: listOpenJobsForWebChat — cinematic mode → displayKind ─────────
+  {
+    const prisma = buildPrismaStub([
+      {
+        id: "job-cinematic",
+        kind: "video",
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "Make a cinematic clip",
+          sourceUserMessageCreatedAt: "2026-05-31T00:00:00.000Z",
+          directToolExecution: {
+            toolCode: "video_generate",
+            request: {
+              toolCode: "video_generate",
+              prompt: "sunrise on the dunes",
+              filename: null,
+              size: null,
+              seconds: 4,
+              referenceImageAlias: null,
+              mode: "cinematic"
+            }
+          }
+        },
+        status: "running",
+        createdAt: new Date("2026-05-31T10:00:00.000Z"),
+        startedAt: new Date("2026-05-31T10:00:05.000Z"),
+        updatedAt: new Date("2026-05-31T10:00:05.000Z")
+      }
+    ]);
+    (service as never)["prisma"] = prisma;
+
+    const results = await service.listOpenJobsForWebChat({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1"
+    });
+
+    assert.equal(results.length, 1);
+    assert.equal(
+      results[0]?.displayKind,
+      "cinematic",
+      "cinematic mode must project to displayKind=cinematic"
+    );
+  }
+
+  // ── Test 8: listOpenJobsForWebChat — missing/null mode falls back to ─────
+  // cinematic (defensive default + legacy job rows). Image and audio jobs also
+  // default to cinematic.
+  {
+    const prisma = buildPrismaStub([
+      {
+        id: "job-no-mode",
+        kind: "video",
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "Generic video",
+          sourceUserMessageCreatedAt: "2026-05-31T00:00:00.000Z",
+          directToolExecution: {
+            toolCode: "video_generate",
+            request: {
+              toolCode: "video_generate",
+              prompt: "boats",
+              filename: null,
+              size: null,
+              seconds: 4,
+              referenceImageAlias: null
+            }
+          }
+        },
+        status: "running",
+        createdAt: new Date("2026-05-31T10:00:00.000Z"),
+        startedAt: new Date("2026-05-31T10:00:05.000Z"),
+        updatedAt: new Date("2026-05-31T10:00:05.000Z")
+      },
+      {
+        id: "job-legacy-null-request",
+        kind: "video",
+        requestJson: null,
+        status: "queued",
+        createdAt: new Date("2026-05-31T10:00:00.000Z"),
+        startedAt: null,
+        updatedAt: new Date("2026-05-31T10:00:00.000Z")
+      },
+      {
+        id: "job-image",
+        kind: "image",
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "Generate an image",
+          sourceUserMessageCreatedAt: "2026-05-31T00:00:00.000Z",
+          directToolExecution: {
+            toolCode: "image_generate",
+            request: {
+              toolCode: "image_generate",
+              count: 1,
+              prompt: "sunset",
+              filename: null,
+              size: null,
+              background: "auto"
+            }
+          }
+        },
+        status: "queued",
+        createdAt: new Date("2026-05-31T10:00:00.000Z"),
+        startedAt: null,
+        updatedAt: new Date("2026-05-31T10:00:00.000Z")
+      }
+    ]);
+    (service as never)["prisma"] = prisma;
+
+    const results = await service.listOpenJobsForWebChat({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1"
+    });
+
+    assert.equal(results.length, 3);
+    assert.equal(
+      results[0]?.displayKind,
+      "cinematic",
+      "video_generate without mode must default to displayKind=cinematic"
+    );
+    assert.equal(
+      results[1]?.displayKind,
+      "cinematic",
+      "null requestJson must default to displayKind=cinematic"
+    );
+    assert.equal(
+      results[2]?.displayKind,
+      "cinematic",
+      "image jobs must default to displayKind=cinematic"
+    );
+  }
+
   console.log("[assistant-media-job-open-context.test] All assertions passed.");
 }
 

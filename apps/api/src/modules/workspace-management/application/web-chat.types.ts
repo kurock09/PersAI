@@ -147,10 +147,21 @@ export type AssistantWebChatActiveMediaJobOperation =
   | "video_generate"
   | "audio_generate";
 
+export type AssistantWebChatActiveMediaJobDisplayKind = "cinematic" | "talking_avatar";
+
 export interface AssistantWebChatActiveMediaJobState {
   id: string;
   kind: AssistantWebChatActiveMediaJobKind;
   operation: AssistantWebChatActiveMediaJobOperation;
+  /**
+   * ADR-109 Slice 10b — display variant for an active media job. When
+   * `"talking_avatar"`, the web client renders a time-based stage rotation in
+   * place of the static "Generating video" chip; otherwise (cinematic, or
+   * undefined/null on legacy rows) the cinematic chip is rendered byte-
+   * identical to pre-Slice-10b behavior. Set by the mapper from
+   * `requestJson.directToolExecution.request.mode`; defaults to `"cinematic"`.
+   */
+  displayKind?: AssistantWebChatActiveMediaJobDisplayKind | null;
   status: AssistantWebChatActiveMediaJobStatus;
   createdAt: string;
   startedAt: string | null;

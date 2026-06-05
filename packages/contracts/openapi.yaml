@@ -11125,6 +11125,21 @@ components:
             - image_edit
             - video_generate
             - audio_generate
+        displayKind:
+          type: string
+          nullable: true
+          enum:
+            - cinematic
+            - talking_avatar
+          description: >
+            ADR-109 Slice 10b — display variant for an active media job. When
+            `talking_avatar`, the web client renders a time-based stage
+            rotation in place of the static "Generating video" chip; otherwise
+            (or when omitted/null) the legacy cinematic chip is rendered. Set
+            by the API mapper from
+            `requestJson.directToolExecution.request.mode` when present;
+            defaults to `cinematic`. Optional for backwards compatibility with
+            legacy job rows that predate this field.
         status:
           type: string
           enum:

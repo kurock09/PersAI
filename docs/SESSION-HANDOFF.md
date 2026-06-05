@@ -2,6 +2,92 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-05 — ADR-109 Slice 10b: Talking-video banner UX (time-based) — chat-input chip surface
+
+### What changed & why
+
+Baseline SHA at session start: `77512ef7` (audit-pass closure pushed to `origin/main` earlier this session). Tree clean (only pre-existing `artifacts/` untracked).
+
+The operator instructed "делай 10b пока я проверяю" after the audit-pass push. Slice 10b's purpose: HeyGen poll endpoint returns only `status: pending|processing|completed|failed` with no real progress/ETA, so a 1–5-minute render with a static "Creating a video" banner reads as a hang. The slice adds an honest **time-based client-side banner rotation** that swaps user-visible chip copy as elapsed time crosses thresholds: `<30s` "Preparing avatar…", `<120s` "Synthesizing voice…", `<300s` "Rendering video…", `>=300s` "Final pass, almost there…" (RU mirrors). Not real progress — UX honesty about the wait.
+
+**Surface decision (mid-slice pivot — honest course correction):** the first subagent run honestly investigated the codebase and reported a critical gap — its initial implementation patched `ActivityEvent` in `activity-badge.tsx`, but the `video_generate` tool activity is intentionally suppressed in production via `HIDDEN_MEDIA_ACTIVITY_LABEL` in `use-chat.ts:345` (`buildToolLiveActivity`). The work was real infrastructure but invisible to users. Orchestrator inspected the codebase: the actual user-visible surface for in-flight media jobs is the chip in `chat-input.tsx` lines ~1058–1079, which already ticks every 1 second via the parent's `mediaJobNowMs` state and renders `resolveMediaJobLabel(t, job) + formatDuration(...)` per chip. Subagent resumed with the corrected scope: revert activity-badge changes, keep the i18n keys (correct + needed), patch the chip surface, add the minimum DTO field needed for detection.
+
+**Detection mechanism:** per ADR-109 erratum E3 line 767, the spec explicitly permitted "a new optional `displayKind: "talking_avatar"` field on the active job DTO that the runtime can set when it accepts the job" as one of two options. Orchestrator chose option (b) over option (a) ("provider key visible on persisted artifact metadata") because the artifact only exists post-completion — for an in-flight job we need the discriminator on the active-job DTO. Implementation:
+- OpenAPI `AssistantWebChatActiveMediaJobState` schema gained optional non-required `displayKind: enum [cinematic, talking_avatar], nullable: true` with descriptive doc text referencing this slice.
+- Generated TS `assistantWebChatActiveMediaJobState.ts` hand-edited with `displayKind?: ... | null`; new sibling enum file `assistantWebChatActiveMediaJobStateDisplayKind.ts` follows the orval pattern of `assistantWebChatActiveMediaJobStateOperation.ts` and `runtimeVideoModelKind.ts`.
+- API-side internal type `AssistantWebChatActiveMediaJobState` (in `web-chat.types.ts`) mirrors the field.
+- New helper `toWebOpenMediaJobDisplayKind({ requestJson })` in `assistant-media-job.service.ts` (sibling to existing `toWebOpenMediaJobOperation`): returns concrete union `"cinematic" | "talking_avatar"` (never undefined on the wire) derived from `(requestJson as ...)?.directToolExecution?.request?.mode === "talking_avatar"`. All defensive paths (non-video toolCode, missing `requestJson`, missing `mode`, explicit non-talking_avatar mode) return `"cinematic"`. Wired into the `listOpenJobsForWebChat` row mapper.
+
+**Web rendering:** `resolveMediaJobLabel(t, job, nowMs)` signature gained `nowMs: number`; new pre-switch early-return checks `job.operation === "video_generate" && job.displayKind === "talking_avatar"` and computes `resolveMediaJobElapsedSeconds(job, nowMs)` to pick one of 4 i18n keys at thresholds `<30s` / `<120s` / `<300s` / `>=300s`. The legacy switch is untouched; for `operation === "video_generate" && displayKind !== "talking_avatar"` (cinematic, null, undefined, omitted), the function returns `t("mediaJobVideoGenerate")` byte-identical to current behavior. Kling/Runway/OpenAI cinematic UX is unchanged. The chip call site in `chat-input.tsx` (line ~1073) passes `mediaJobNowMs` as the third arg. The `formatDuration(...)` chip half stays as-is.
+
+**i18n decision:** new keys live as **flat keys** `chatTalkingAvatarBannerStage1…Stage4` under the existing `chat` namespace in `en.json` and `ru.json`. The ADR spec at line 774 suggested nested `chat.talkingAvatarBanner.stage*` but the file uses flat convention (e.g. `charactersWarnStorageFailedTitle` from the audit-pass). Orchestrator-decided to honor the existing file convention; the ADR spec wording is now slightly stale but the semantic intent (stable namespace, 4 stages) is preserved.
+
+### Files touched
+
+**Modified (10):**
+- `packages/contracts/openapi.yaml` — `displayKind` enum on `AssistantWebChatActiveMediaJobState`
+- `packages/contracts/src/generated/model/assistantWebChatActiveMediaJobState.ts` — hand-edited `displayKind?: ... | null` field
+- `packages/contracts/src/generated/model/index.ts` — re-export sibling enum
+- `apps/api/src/modules/workspace-management/application/web-chat.types.ts` — internal type mirrors the field
+- `apps/api/src/modules/workspace-management/application/assistant-media-job.service.ts` — new `toWebOpenMediaJobDisplayKind` helper + wired into row mapper
+- `apps/api/test/assistant-media-job-open-context.test.ts` — 3 new tests for the new mapper (talking_avatar → "talking_avatar"; cinematic → "cinematic"; missing/null/non-video → defensive "cinematic" default)
+- `apps/web/app/app/_components/chat-input.tsx` — `resolveMediaJobLabel` gains `nowMs` arg + early-return rotation branch; chip call site passes `mediaJobNowMs`
+- `apps/web/app/app/_components/chat-input.test.tsx` — 3 new tests under `describe("active media job chip — talking-avatar banner (Slice 10b)")` (cinematic legacy at 10s + 10min; legacy missing `displayKind` defaults to cinematic; talking-avatar stage rotation across all 4 stages with `vi.useFakeTimers`)
+- `apps/web/messages/en.json` — 4 new keys
+- `apps/web/messages/ru.json` — 4 new keys
+
+**New (1):**
+- `packages/contracts/src/generated/model/assistantWebChatActiveMediaJobStateDisplayKind.ts` — orval-style sibling enum
+
+**NOT touched (revert verified):**
+- `apps/web/app/app/_components/activity-badge.tsx` — back to pre-pivot state, zero diff vs HEAD (no `providerId`/`startedAtMs`/`useTalkingAvatarBannerStage` added; confirmed via grep `0 matches`).
+- `apps/web/app/app/_components/activity-badge.test.tsx` — back to pre-pivot state.
+- No `apps/runtime/**`, no `apps/provider-gateway/**`, no Prisma files, no module wiring changes.
+- `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`, `docs/ADR/109-heygen-talking-avatar-on-vcoin.md` — orchestrator-owned (subagent honored rule).
+
+### Tests run
+
+| Gate | Result |
+|---|---|
+| `corepack pnpm -r --if-present run lint` | PASS — all 6 packages Done |
+| `corepack pnpm run format:check` | PASS — "All matched files use Prettier code style!" |
+| `corepack pnpm --filter @persai/web run typecheck` | PASS — exit 0 |
+| `corepack pnpm --filter @persai/api run typecheck` | PASS — exit 0 |
+| `corepack pnpm --filter @persai/contracts run typecheck` | PASS — exit 0 |
+| `corepack pnpm --filter @persai/web run test` | PASS — **665/665** across 65 files (was 662/662 pre-Slice-10b; +3 chat-input tests) |
+| `corepack pnpm --filter @persai/api run test` | PASS — all assertions passed across all suites including 3 new in `assistant-media-job-open-context.test.ts` |
+
+### Honest subtleties & decisions under ambiguity
+
+1. **Mid-slice surface pivot is the headline.** First subagent pass honestly diagnosed that activity-badge is the wrong surface (suppressed in production for video jobs). Orchestrator's initial prompt was too strict on "no contract changes" — the ADR spec (E3 line 767) explicitly permits the `displayKind` DTO field. Resumed the subagent with corrected scope; revert was clean (verified via `git diff --stat` showing zero `activity-badge` files modified and grep showing zero `providerId`/`startedAtMs`/`useTalkingAvatarBannerStage` in `activity-badge.tsx`).
+2. **i18n key naming choice.** ADR spec at line 774 suggested nested `chat.talkingAvatarBanner.stage*`; existing file convention is flat (e.g. `charactersWarnStorageFailedTitle`). Chose flat to match the file. The ADR Status block now documents this divergence as orchestrator-decided.
+3. **Defensive `"cinematic"` default at API mapper.** `toWebOpenMediaJobDisplayKind` returns concrete `AssistantWebChatActiveMediaJobDisplayKind` (no `undefined`/`null`) — every wire value is always one of the two enum members. The field stays optional+nullable on the type for downstream readers tolerating legacy/stub fixtures (e.g. test mocks not setting it; future-old runtime instances reading old DTOs).
+4. **Helper return type narrowed.** Subagent typed the helper return as the concrete union rather than `AssistantWebChatActiveMediaJobState["displayKind"]` because the latter resolves to `... | null | undefined` under `exactOptionalPropertyTypes: true` and trips the row-mapper assignment. Honest TypeScript pragmatism.
+5. **Test isolation pattern.** For the 4-stage rotation test, the subagent used a "fresh mount per stage" pattern (`cleanup() + setSystemTime + render`) rather than `rerender + advanceTimersByTime`, because the 1s parent interval firing 600+ times during a single advance produced an empty body. Behaviorally equivalent — what's being tested is the elapsed-time → stage mapping, not the parent's interval mechanics.
+6. **`displayKind` not added to `RuntimeVideoGenerateRequest`/`Result`.** The runtime contract already carries `mode: "talking_avatar"` via Slice 3 — that's the source of truth; the API mapper merely projects it into the web view DTO. No duplicate field on the runtime contract layer.
+7. **No `apps/runtime/**` edits.** Slice 10b is strictly a web-chat-DTO + web-render slice. The runtime continues to receive `request.mode` per Slice 3; only the API web-mapper writes the projection.
+8. **Cross-slice invariants 1–15 re-verified true:** #1 cinematic UX byte-identical (Test 1 + Test 2 confirm at t=10s, t=10min, and with missing field); #11 ADR-107 carve-out preserved (no Runway/Kling/OpenAI client edits); #12 no keyword routing (boolean `===` equality on enum strings; no regex/fuzzy/keyword anywhere); #14 REST-only persona mutation N/A (no persona code touched); #15 NON-NEGOTIABLE (strict structural enum equality, defensive parsing of `requestJson` paths with type-safe casts).
+
+### Risks / residuals
+
+- **Backward-compat is honest:** old API instances that haven't deployed Slice 10b will omit `displayKind`; web reads `undefined` → falls through to the cinematic legacy switch byte-identical. So during a partial deploy window, talking-avatar jobs from new-API/old-web or old-API/new-web both render as cinematic chips (no rotation). Fully consistent only when both API and web are on Slice 10b.
+- **No backend retroactive backfill.** Jobs submitted BEFORE Slice 10b lands have `requestJson.directToolExecution.request.mode` populated correctly (Slice 3 already wrote it), so the mapper picks them up automatically post-deploy.
+- **The `>=300s` "Final pass" stage is the longest possible label** — once 5 minutes pass, the chip stays on Stage 4 until the job completes or fails. Honest UX: HeyGen really takes this long on heavy avatars; the copy is intentional ("Final pass, almost there…" / "Финальный проход, скоро будет готово…").
+- **Cinematic regression smoke is automated** via Test 1 (10s + 10min advancement) but the user should also eyeball a cinematic Kling/Runway render in dev to confirm the chip experience is unchanged.
+
+### Next recommended step
+
+**Slice 11 — Tests + docs + verification + live smoke.** This is the final ADR-109 slice and the only remaining work. Scope per ADR:
+- Full ADR-109 acceptance checklist sweep (line ~960-995 of the ADR).
+- E2E smoke in `persai-dev`: create a workspace, enable `talkingVideoEnabled`, create a persona via Settings → Characters, ask the assistant to "have <persona> read this text", verify the chip rotates Stage 1 → Stage 2 → Stage 3 → Stage 4 over a real ~3-minute HeyGen render, verify the rendered MP4 plays back, verify the VC ledger debit landed.
+- Cross-doc updates: `docs/CHANGELOG.md` (Slice 11 entry), `docs/ADR/109` Status (mark Completed), `docs/SESSION-HANDOFF.md` (final closure), `docs/ARCHITECTURE.md` (mention talking-avatar mode as a top-level capability), `docs/API-BOUNDARY.md` (document persona REST endpoints + voice catalog), `docs/DATA-MODEL.md` (mention `workspace_video_personas`).
+
+Slice 11 is unblocked. After it lands, ADR-109 is closed end-to-end.
+
+### Push status
+
+Slice 10b is **committed locally but NOT pushed yet.** Per operator's earlier rule "no git push unless the user explicitly asks", waiting for explicit go. Local HEAD: see commit hash in `git log -1` after the commit lands below.
+
 ## 2026-06-05 — ADR-109 Audit-Pass: full independent audit of slices 0–10 + targeted reconciliation
 
 ### What changed & why

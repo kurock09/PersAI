@@ -133,8 +133,23 @@ function isAcceptedFile(file: File): boolean {
 
 function resolveMediaJobLabel(
   t: ReturnType<typeof useTranslations>,
-  job: WebChatActiveMediaJobState
+  job: WebChatActiveMediaJobState,
+  nowMs: number
 ): string {
+  // ADR-109 Slice 10b — talking-avatar render takes 1–5 minutes and HeyGen
+  // poll exposes only `pending|processing|completed|failed`. Rather than show
+  // a static "Generating video" chip that reads as a hang, rotate honest copy
+  // by elapsed wall-clock time. Cinematic (Kling/Runway/OpenAI) jobs and any
+  // job missing/with a non-`talking_avatar` `displayKind` keep the legacy
+  // `mediaJobVideoGenerate` chip byte-identical (preserves cross-slice
+  // invariant 1).
+  if (job.operation === "video_generate" && job.displayKind === "talking_avatar") {
+    const elapsedSec = resolveMediaJobElapsedSeconds(job, nowMs);
+    if (elapsedSec < 30) return t("chatTalkingAvatarBannerStage1");
+    if (elapsedSec < 120) return t("chatTalkingAvatarBannerStage2");
+    if (elapsedSec < 300) return t("chatTalkingAvatarBannerStage3");
+    return t("chatTalkingAvatarBannerStage4");
+  }
   switch (job.operation) {
     case "image_edit":
       return t("mediaJobImageEdit");
@@ -1070,7 +1085,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                         className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm"
                       >
                         <span className="whitespace-nowrap">
-                          {resolveMediaJobLabel(t, job)}{" "}
+                          {resolveMediaJobLabel(t, job, mediaJobNowMs)}{" "}
                           {formatDuration(resolveMediaJobElapsedSeconds(job, mediaJobNowMs))}
                         </span>
                       </div>

@@ -327,6 +327,7 @@ export * from "./assistantWebChatActiveDocumentJobStateDescriptorMode";
 export * from "./assistantWebChatActiveDocumentJobStateDocumentType";
 export * from "./assistantWebChatActiveDocumentJobStateStatus";
 export * from "./assistantWebChatActiveMediaJobState";
+export * from "./assistantWebChatActiveMediaJobStateDisplayKind";
 export * from "./assistantWebChatActiveMediaJobStateKind";
 export * from "./assistantWebChatActiveMediaJobStateOperation";
 export * from "./assistantWebChatActiveMediaJobStateStatus";
