@@ -13,7 +13,7 @@ const HEYGEN_VOICE_CACHE_KEY = "heygen-voices";
 const HEYGEN_VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const HEYGEN_VOICE_SHORTLIST_LIMIT = 24;
 const PREFERRED_VOICE_LANGUAGES = ["ru", "en"] as const;
-const HEYGEN_VOICE_PAGE_LIMIT = 20;
+const HEYGEN_VOICE_PAGE_LIMIT = 100;
 const HEYGEN_VOICE_MAX_PAGES = 20;
 
 type CachedVoiceCatalogRow = {
@@ -99,11 +99,12 @@ export class HeyGenVoiceCatalogService {
   private async fetchVoiceCatalog(apiKey: string): Promise<RuntimeVideoVoiceCatalogEntry[]> {
     const pages: unknown[] = [];
     let nextToken: string | null = null;
+    const seenTokens = new Set<string>();
     for (let page = 0; page < HEYGEN_VOICE_MAX_PAGES; page += 1) {
       const url = new URL(HEYGEN_VOICES_URL);
       url.searchParams.set("limit", String(HEYGEN_VOICE_PAGE_LIMIT));
       if (nextToken !== null) {
-        url.searchParams.set("next_token", nextToken);
+        url.searchParams.set("token", nextToken);
       }
       const response = await fetch(url.toString(), {
         method: "GET",
@@ -118,6 +119,15 @@ export class HeyGenVoiceCatalogService {
       }
       pages.push(body);
       nextToken = this.extractNextToken(body);
+      if (nextToken !== null) {
+        if (seenTokens.has(nextToken)) {
+          this.logger.warn(
+            `[heygen-voice-catalog] repeated pagination token detected after ${String(page + 1)} page(s); stopping early.`
+          );
+          break;
+        }
+        seenTokens.add(nextToken);
+      }
       if (nextToken === null) {
         break;
       }

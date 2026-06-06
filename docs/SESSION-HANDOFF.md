@@ -2,6 +2,50 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-06 - ADR-109 live fix: HeyGen voices cursor parameter truth
+
+### What changed & why
+
+After the Admin refresh auth hotfix, the operator still saw only `20` HeyGen voices in dev. This time the root cause had to be proven live rather than inferred from code. Direct checks from the `persai-dev` `api` pod showed:
+
+- the cache row really contained only `20` voices
+- all `20` were `en`
+- the latest successful refresh logged `refreshed catalog count=20 shortlist=20`
+
+Then a direct upstream call was executed from the same pod using the real decrypted HeyGen API key. That call proved the previous pagination implementation was still wrong in one subtle but critical way:
+
+- HeyGen returns `has_more: true` and `next_token` in the response body
+- but the next request must send that cursor back as query parameter `token`
+- the previous implementation sent `next_token=...`
+- with that wrong parameter, HeyGen kept returning the same first EN-only page and the same cursor repeatedly
+
+This hotfix corrects the live contract mismatch and hardens the refresh loop:
+
+1. Send the returned cursor as `token`, matching the official HeyGen voices docs.
+2. Increase page size from `20` to the documented max `100` so full refresh converges faster.
+3. Stop early if HeyGen repeats the same cursor token, so a broken upstream page stream cannot loop through the same first page indefinitely.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/heygen/heygen-voice-catalog.service.ts`
+- `apps/api/test/heygen-voice-catalog.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `pnpm exec tsx apps/api/test/heygen-voice-catalog.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+
+### Risks / residuals
+
+- This change fixes the API-side pagination contract, but the live cluster still needs an API deploy before Admin refresh can repopulate the cache beyond the current EN-only `20`.
+- If HeyGen's upstream cursor stream itself is inconsistent, the new repeated-token guard will stop safely instead of looping forever, but the resulting catalog may still be incomplete until HeyGen fixes the upstream behavior.
+
+### Next recommended step
+
+Deploy API, trigger Admin `Refresh voices` once in dev, and re-check three exact outcomes: the card shows a count well above `20`, the cache row contains non-EN voices, and the `api` log line reports the higher refreshed catalog count instead of `20`.
+
 ## 2026-06-06 - ADR-109 live hotfix: admin voice refresh auth + visible refresh status
 
 ### What changed & why

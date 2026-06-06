@@ -10,14 +10,14 @@
 
 import assert from "node:assert/strict";
 import { ReadHeygenVoiceCatalogForWorkspaceService } from "../src/modules/workspace-management/application/heygen/read-heygen-voice-catalog-for-workspace.service";
-import type { RuntimeVideoVoiceCatalog } from "@persai/runtime-contract";
+import type { RuntimeVideoVoiceCatalogEntry } from "@persai/runtime-contract";
 
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
 
-function makeVoiceCatalogService(catalog: RuntimeVideoVoiceCatalog | null) {
+function makeVoiceCatalogService(entries: RuntimeVideoVoiceCatalogEntry[]) {
   return {
-    async getMaterializedVoiceCatalog() {
-      return catalog;
+    async getFullVoiceCatalogEntries() {
+      return entries;
     }
   };
 }
@@ -26,32 +26,28 @@ async function run(): Promise<void> {
   // Test 1: Happy path with non-empty cache
   {
     const svc = new ReadHeygenVoiceCatalogForWorkspaceService(
-      makeVoiceCatalogService({
-        provider: "heygen",
-        fetchedAt: new Date().toISOString(),
-        shortlist: [
-          {
-            voiceKey: "amy",
-            providerVoiceId: "en-US-Amy",
-            displayName: "Amy",
-            locale: "en-US",
-            gender: "female",
-            description: "en-US | news",
-            styleTags: ["news"],
-            previewAudioUrl: "https://cdn.heygen.com/preview/amy.mp3"
-          },
-          {
-            voiceKey: "boris",
-            providerVoiceId: "ru-RU-Boris",
-            displayName: "Boris",
-            locale: "ru-RU",
-            gender: "male",
-            description: "ru-RU",
-            styleTags: [],
-            previewAudioUrl: null
-          }
-        ]
-      }) as never
+      makeVoiceCatalogService([
+        {
+          voiceKey: "amy",
+          providerVoiceId: "en-US-Amy",
+          displayName: "Amy",
+          locale: "en-US",
+          gender: "female",
+          description: "en-US | news",
+          styleTags: ["news"],
+          previewAudioUrl: "https://cdn.heygen.com/preview/amy.mp3"
+        },
+        {
+          voiceKey: "boris",
+          providerVoiceId: "ru-RU-Boris",
+          displayName: "Boris",
+          locale: "ru-RU",
+          gender: "male",
+          description: "ru-RU",
+          styleTags: [],
+          previewAudioUrl: null
+        }
+      ]) as never
     );
     const result = await svc.getVoiceCatalogForWorkspace(WORKSPACE_ID);
     assert.ok(result !== null, "Result must not be null for non-empty catalog");
@@ -67,57 +63,45 @@ async function run(): Promise<void> {
 
   // Test 2: Null catalog (no HeyGen credential / empty)
   {
-    const svc = new ReadHeygenVoiceCatalogForWorkspaceService(
-      makeVoiceCatalogService(null) as never
-    );
+    const svc = new ReadHeygenVoiceCatalogForWorkspaceService(makeVoiceCatalogService([]) as never);
     const result = await svc.getVoiceCatalogForWorkspace(WORKSPACE_ID);
-    assert.equal(result, null, "Result must be null when catalog is null");
-    console.log("✓ Test 2: null catalog returns null");
+    assert.equal(result, null, "Result must be null when catalog is empty");
+    console.log("✓ Test 2: empty catalog returns null");
   }
 
   // Test 3: Empty voices array → returns null
   {
-    const svc = new ReadHeygenVoiceCatalogForWorkspaceService(
-      makeVoiceCatalogService({
-        provider: "heygen",
-        fetchedAt: new Date().toISOString(),
-        shortlist: []
-      }) as never
-    );
+    const svc = new ReadHeygenVoiceCatalogForWorkspaceService(makeVoiceCatalogService([]) as never);
     const result = await svc.getVoiceCatalogForWorkspace(WORKSPACE_ID);
-    assert.equal(result, null, "Result must be null when shortlist is empty");
+    assert.equal(result, null, "Result must be null when entries are empty");
     console.log("✓ Test 3: empty voices array returns null");
   }
 
   // Test 4: Entry shape — previewAudioUrl present or null
   {
     const svc = new ReadHeygenVoiceCatalogForWorkspaceService(
-      makeVoiceCatalogService({
-        provider: "heygen",
-        fetchedAt: new Date().toISOString(),
-        shortlist: [
-          {
-            voiceKey: "masha",
-            providerVoiceId: "ru-RU-Masha",
-            displayName: "Masha",
-            locale: "ru-RU",
-            gender: "female",
-            description: null,
-            styleTags: [],
-            previewAudioUrl: "https://cdn.heygen.com/preview/masha.mp3"
-          },
-          {
-            voiceKey: "unknown",
-            providerVoiceId: "xx-XX-Unknown",
-            displayName: "Unknown",
-            locale: null,
-            gender: "unknown",
-            description: null,
-            styleTags: [],
-            previewAudioUrl: null
-          }
-        ]
-      }) as never
+      makeVoiceCatalogService([
+        {
+          voiceKey: "masha",
+          providerVoiceId: "ru-RU-Masha",
+          displayName: "Masha",
+          locale: "ru-RU",
+          gender: "female",
+          description: null,
+          styleTags: [],
+          previewAudioUrl: "https://cdn.heygen.com/preview/masha.mp3"
+        },
+        {
+          voiceKey: "unknown",
+          providerVoiceId: "xx-XX-Unknown",
+          displayName: "Unknown",
+          locale: null,
+          gender: "unknown",
+          description: null,
+          styleTags: [],
+          previewAudioUrl: null
+        }
+      ]) as never
     );
     const result = await svc.getVoiceCatalogForWorkspace(WORKSPACE_ID);
     assert.ok(result !== null);

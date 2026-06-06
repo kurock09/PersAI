@@ -3139,6 +3139,7 @@ describe("characters section", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "OTHER" }));
     await waitFor(() => {
       expect(within(dialog).getByText("Carlos")).toBeInTheDocument();
+      expect(within(dialog).getByText("Spanish · male")).toBeInTheDocument();
       expect(within(dialog).queryByText("Allison")).toBeNull();
       expect(within(dialog).queryByText("Boris")).toBeNull();
     });

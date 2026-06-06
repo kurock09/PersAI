@@ -754,6 +754,21 @@ function matchesOtherVoiceLanguageSearch(
   return normalizedLanguage.includes(normalizedSearch);
 }
 
+function formatVoiceLanguageLabel(voice: VoiceCatalogEntry): string {
+  const language = voice.language?.trim();
+  if (language && language.length > 0) {
+    return language;
+  }
+  const bucket = voice.languageBucket;
+  if (bucket === "ru") {
+    return "RU";
+  }
+  if (bucket === "en") {
+    return "EN";
+  }
+  return "OTHER";
+}
+
 // ADR-074 Slice M3.3 — Memory Center merged view row. The Workspace tab
 // renders both registry rows (structured `kind ∈ {fact, preference,
 // open_loop}`) and workspace rows; deduplicated by normalized text with
@@ -3777,10 +3792,7 @@ export function AssistantSettings({
                                   {voice.name}
                                 </span>
                                 <span className="shrink-0 text-text-subtle">
-                                  {(voice.languageBucket ?? voice.language ?? "")
-                                    .toString()
-                                    .toUpperCase()}{" "}
-                                  · {voice.gender}
+                                  {formatVoiceLanguageLabel(voice)} · {voice.gender}
                                 </span>
                                 <VoicePreviewButton
                                   previewAudioUrl={voice.previewAudioUrl}
