@@ -29,6 +29,16 @@ async function run(): Promise<void> {
         rolloutRequests.push(input);
         return {};
       }
+    } as never,
+    {
+      forceRefreshVoiceCatalog: async () => null
+    } as never,
+    {
+      platformHeygenVoiceCatalogCache: {
+        async findUnique() {
+          return null;
+        }
+      }
     } as never
   );
 
