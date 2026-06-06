@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { ResolveEffectiveSubscriptionStateService } from "../src/modules/workspace-management/application/resolve-effective-subscription-state.service";
+import type { ManageWorkspaceSubscriptionLifecycleService } from "../src/modules/workspace-management/application/manage-workspace-subscription-lifecycle.service";
 import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
 import type { WorkspaceSubscriptionRepository } from "../src/modules/workspace-management/domain/workspace-subscription.repository";
 
@@ -15,8 +16,16 @@ type SubscriptionRepoStub = Pick<
 function createService(deps: {
   planRepo: PlanRepoStub;
   workspaceSubscriptionRepo: SubscriptionRepoStub;
+  lifecycleService?: Pick<ManageWorkspaceSubscriptionLifecycleService, "startPaidGrace">;
 }): ResolveEffectiveSubscriptionStateService {
   let generation = 300;
+  const lifecycleService =
+    deps.lifecycleService ??
+    ({
+      async startPaidGrace() {
+        throw new Error("unexpected startPaidGrace");
+      }
+    } as Pick<ManageWorkspaceSubscriptionLifecycleService, "startPaidGrace">);
   return new ResolveEffectiveSubscriptionStateService(
     deps.workspaceSubscriptionRepo as WorkspaceSubscriptionRepository,
     deps.planRepo as AssistantPlanCatalogRepository,
@@ -47,7 +56,8 @@ function createService(deps: {
       async createAutomaticGlobalRollout() {
         return { id: "rollout-1" };
       }
-    } as never
+    } as never,
+    lifecycleService as ManageWorkspaceSubscriptionLifecycleService
   );
 }
 
@@ -532,6 +542,70 @@ async function run(): Promise<void> {
   assert.equal(expiredTrialFallback.source, "subscription_trial_fallback");
   assert.equal(expiredTrialFallback.status, "expired_fallback");
   assert.equal(expiredTrialFallback.planCode, "fallback");
+
+  let manualGraceStarted = false;
+  const manualActiveSubscription = {
+    id: "sub-manual",
+    workspaceId: "ws-1",
+    planCode: "pro",
+    status: "active",
+    trialStartedAt: null,
+    trialEndsAt: null,
+    graceStartedAt: null,
+    graceEndsAt: null,
+    currentPeriodStartedAt: new Date("2026-04-01T00:00:00.000Z"),
+    currentPeriodEndsAt: new Date("2026-04-30T00:00:00.000Z"),
+    cancelAtPeriodEnd: false,
+    billingProvider: null,
+    providerCustomerRef: null,
+    providerSubscriptionRef: null,
+    metadata: null,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  };
+  const manualExpiredPaid = await createService({
+    workspaceSubscriptionRepo: {
+      async findByWorkspaceId() {
+        return manualGraceStarted
+          ? {
+              ...manualActiveSubscription,
+              status: "grace_period",
+              graceStartedAt: new Date("2026-05-01T00:00:00.000Z"),
+              graceEndsAt: new Date("2026-05-06T00:00:00.000Z")
+            }
+          : manualActiveSubscription;
+      },
+      async upsertFromBillingSnapshot() {
+        throw new Error("unexpected upsert");
+      }
+    },
+    planRepo: {
+      async findByCode() {
+        return null;
+      },
+      async findDefaultRegistrationPlan() {
+        return null;
+      }
+    },
+    lifecycleService: {
+      async startPaidGrace(input) {
+        manualGraceStarted = true;
+        assert.equal(input.workspaceId, "ws-1");
+        assert.equal(input.source, "system");
+        assert.equal(input.refs?.metadata?.reason, "manual_paid_period_expired");
+      }
+    }
+  }).execute({
+    userId: "user-1",
+    workspaceId: "ws-1",
+    assistantId: "assistant-1",
+    assistantPlanOverrideCode: null,
+    assistantQuotaPlanCode: null
+  });
+  assert.equal(manualGraceStarted, true);
+  assert.equal(manualExpiredPaid.source, "workspace_subscription");
+  assert.equal(manualExpiredPaid.status, "grace_period");
+  assert.equal(manualExpiredPaid.planCode, "pro");
 
   const none = await createService({
     workspaceSubscriptionRepo: {

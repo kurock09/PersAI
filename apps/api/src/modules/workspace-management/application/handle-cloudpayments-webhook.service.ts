@@ -459,7 +459,17 @@ export class HandleCloudpaymentsWebhookService {
   private async handleCheck(payload: CloudpaymentsPayload): Promise<void> {
     const paymentIntent = await this.resolvePaymentIntent(payload);
     if (paymentIntent === null) {
-      throw new NotFoundException("CloudPayments Check webhook payment intent was not found.");
+      const subscriptionResolution = await this.resolveSubscription(payload, null);
+      if (subscriptionResolution.subscription !== null) {
+        return;
+      }
+      if (subscriptionResolution.blockedAccountFallback) {
+        this.logger.warn(
+          "Ignoring CloudPayments Check webhook because SubscriptionId did not match any current PersAI subscription."
+        );
+        return;
+      }
+      throw new NotFoundException("CloudPayments Check webhook billing subject was not found.");
     }
     if (payload.amountMinor !== null && payload.amountMinor !== paymentIntent.amountMinor) {
       throw new BadRequestException(

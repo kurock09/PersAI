@@ -182,6 +182,42 @@ export class ResolveEffectiveSubscriptionStateService {
       }
     }
     if (
+      !workspaceSubscription.cancelAtPeriodEnd &&
+      workspaceSubscription.providerSubscriptionRef === null &&
+      (workspaceSubscription.status === "active" || workspaceSubscription.status === "past_due") &&
+      workspaceSubscription.currentPeriodEndsAt !== null &&
+      workspaceSubscription.currentPeriodEndsAt.getTime() <= Date.now()
+    ) {
+      try {
+        await this.manageWorkspaceSubscriptionLifecycleService.startPaidGrace({
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          source: "system",
+          refs: {
+            metadata: {
+              reason: "manual_paid_period_expired",
+              previousPeriodEndsAt: workspaceSubscription.currentPeriodEndsAt.toISOString()
+            }
+          }
+        });
+        const refreshed = await this.workspaceSubscriptionRepository.findByWorkspaceId(
+          input.workspaceId
+        );
+        if (refreshed !== null) {
+          return this.toEffectiveWorkspaceSubscription(refreshed);
+        }
+      } catch (err) {
+        this.logger.warn({
+          event: "manual_paid_grace_start_skipped",
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          planCode: workspaceSubscription.planCode,
+          reason: err instanceof Error ? err.message : String(err)
+        });
+        return this.toEffectiveWorkspaceSubscription(workspaceSubscription);
+      }
+    }
+    if (
       workspaceSubscription.status === "trialing" &&
       workspaceSubscription.trialEndsAt !== null &&
       workspaceSubscription.trialEndsAt.getTime() <= Date.now()

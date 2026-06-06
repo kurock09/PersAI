@@ -642,6 +642,9 @@ export class SessionCompactionService {
     bundle: AssistantRuntimeBundle,
     provider: NativeManagedProvider
   ): ProviderGatewayPromptCacheConfig | undefined {
+    if (provider === "anthropic") {
+      return {};
+    }
     if (provider !== "openai") {
       return undefined;
     }

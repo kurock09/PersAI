@@ -384,6 +384,29 @@ async function run(): Promise<void> {
     ]
   });
 
+  const recurrentCheckBody = {
+    TransactionId: 1234591,
+    Amount: 99,
+    Currency: "RUB",
+    AccountId: "acct-1",
+    SubscriptionId: "sub-provider-1",
+    DateTime: "2026-05-04 19:08:30"
+  };
+  const recurrentCheckRawBody = Buffer.from(JSON.stringify(recurrentCheckBody), "utf8");
+  const recurrentCheckHmac = createHmac("sha256", "cloudpayments-api-secret")
+    .update(recurrentCheckRawBody)
+    .digest("base64");
+  const recurrentCheckResult = await service.handle({
+    notificationType: "check",
+    body: recurrentCheckBody,
+    rawBody: recurrentCheckRawBody,
+    headers: {
+      "x-content-hmac": recurrentCheckHmac
+    }
+  });
+  assert.deepEqual(recurrentCheckResult, { status: "processed" });
+  assert.equal(subscriptionFindFirstCalls.at(-1)?.where.providerSubscriptionRef, "sub-provider-1");
+
   await assert.rejects(
     service.handle({
       notificationType: "pay",

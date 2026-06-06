@@ -334,6 +334,42 @@ async function run(): Promise<void> {
       .map((profile) => profile.model),
     ["sora-2", "sora-2-pro"]
   );
+  const legacyTokenPricing = parseUpdatePlatformRuntimeProviderSettingsInput({
+    primary: { provider: "openai", model: "gpt-5.4" },
+    fallback: { provider: "anthropic", model: "claude-sonnet-4-5" },
+    availableModelsByProvider: { openai: ["gpt-5.4"], anthropic: ["claude-sonnet-4-5"] },
+    availableModelCatalogByProvider: {
+      openai: {
+        models: [
+          {
+            model: "gpt-5.4",
+            capabilities: ["chat"],
+            active: true,
+            billingMode: "token_metered",
+            effectiveFrom: null,
+            effectiveTo: null,
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 0.25,
+            outputTokenWeight: 4,
+            providerPriceMetadata: {
+              currency: "USD",
+              tokenPricing: {
+                inputPer1M: 4,
+                cachedInputPer1M: 1,
+                outputPer1M: 16
+              }
+            }
+          }
+        ]
+      },
+      anthropic: { models: [] }
+    }
+  });
+  assert.equal(
+    legacyTokenPricing.availableModelCatalogByProvider.openai?.models[0]?.providerPriceMetadata
+      .tokenPricing.cacheCreationInputPer1M,
+    0
+  );
   const parsedWithHeyGen = parseUpdatePlatformRuntimeProviderSettingsInput({
     ...parsed,
     availableModelCatalogByProvider: {

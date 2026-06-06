@@ -5002,6 +5002,9 @@ export class TurnExecutionService {
     deepModeEnabled?: boolean;
     projectedTools?: RuntimeNativeToolProjection;
   }): ProviderGatewayPromptCacheConfig | undefined {
+    if (input.provider === "anthropic") {
+      return {};
+    }
     if (input.provider !== "openai") {
       return undefined;
     }

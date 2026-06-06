@@ -2,6 +2,65 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-06 - Billing lifecycle recurrent/manual expiry fix
+
+### Baseline
+
+- Starting SHA: `9271cabe`
+- Scope: urgent billing-cycle fix after live CloudPayments investigation; not an ADR-110 slice.
+
+### Live hotfix note
+
+After ADR-110 Slice 4 deployed, Admin Runtime and a manual reapply rollout exposed a compatibility gap: persisted token-metered catalog rows in `persai-dev` did not have the newly required `providerPriceMetadata.tokenPricing.cacheCreationInputPer1M`, so normalization threw `must be a non-negative number` while reading Admin Runtime settings.
+
+The live `platformRuntimeProviderSettings.availableModelCatalogByProvider` row was patched in place for `66` token-pricing rows by adding `cacheCreationInputPer1M: 0`, and local code now keeps the normalization backward-compatible by defaulting missing/null `cacheCreationInputPer1M` to the token-metered default (`0`). Verification query confirmed `missing: 0` in the live catalog after the patch.
+
+Live Anthropic verification then showed successful Claude calls but `cacheCreationInputTokens=0` and `cachedInputTokens=0` in `modelCostLedgerEvent`. Root cause: `TurnExecutionService.buildPromptCacheConfig` and `SessionCompactionService.buildPromptCacheConfig` still returned `undefined` for every provider except OpenAI, so provider-gateway never received `promptCache` for Anthropic and therefore never emitted `cache_control`. Runtime now passes an empty prompt-cache intent for Anthropic while preserving OpenAI's keyed `prompt_cache_key` / retention behavior. Provider-gateway's existing Anthropic projection turns that intent into `cache_control: { type: "ephemeral" }` on the stable system block.
+
+### What changed & why
+
+CloudPayments recurrent renewals may emit `check` without a PersAI renewal `WorkspacePaymentIntent`, while still carrying the provider subscription/account identity. The webhook handler now accepts a recurrent `check` when it resolves an existing workspace subscription by `SubscriptionId` or `AccountId`, instead of failing with `CloudPayments Check webhook payment intent was not found`.
+
+Manually/admin-activated paid subscriptions that have no provider subscription reference now follow the same product lifecycle when the paid period expires: lazy subscription resolution starts paid grace (`renewal_failed` + `grace_started`), and the existing grace-expiry path later applies fallback normally. Provider-managed CloudPayments subscriptions are intentionally left to provider webhooks/retries so PersAI does not pre-empt CloudPayments' retry window.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/handle-cloudpayments-webhook.service.ts`
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-effective-subscription-state.service.ts`
+- `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/api/test/handle-cloudpayments-webhook.service.test.ts`
+- `apps/api/test/platform-runtime-provider-settings.test.ts`
+- `apps/api/test/subscription-state-resolve.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts` - PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/anthropic-provider.client.test.ts` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run lint` - PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` - PASS
+- `corepack pnpm --filter @persai/api run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api test` - PASS
+
+### Risks / residuals
+
+- This fix does not add an active background reconciler that polls CloudPayments subscription status. It closes the observed webhook/check and manual-expiry holes using existing lifecycle paths.
+- If CloudPayments sends a `recurrent` notification with final `Status=Cancelled/Rejected` but no `fail` webhook, a later slice may need to map that terminal status explicitly to grace/fallback. This session keeps to the documented recurrent `check`/`fail` hole and manual no-provider-ref expiry.
+
+### Next recommended step
+
+Deploy API and verify the three affected workspaces: provider-backed rejected subscription should no longer fail `check` by missing payment intent, and manual paid rows should move into grace after period expiry instead of staying active forever.
+
 ## 2026-06-06 - ADR-110 Slice 4: Anthropic prompt cache
 
 ### Baseline
