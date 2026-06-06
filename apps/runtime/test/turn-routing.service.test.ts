@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { ServiceUnavailableException } from "@nestjs/common";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayTextGenerateRequest,
@@ -11,6 +12,9 @@ import { TurnRoutingService } from "../src/modules/turns/turn-routing.service";
 
 class FakeProviderGatewayClientService {
   calls: ProviderGatewayTextGenerateRequest[] = [];
+  queue: Array<
+    { type: "result"; value: ProviderGatewayTextGenerateResult } | { type: "error"; value: Error }
+  > = [];
   result: ProviderGatewayTextGenerateResult = {
     provider: "openai",
     model: "gpt-4.1",
@@ -52,6 +56,13 @@ class FakeProviderGatewayClientService {
     input: ProviderGatewayTextGenerateRequest
   ): Promise<ProviderGatewayTextGenerateResult> {
     this.calls.push(input);
+    const queued = this.queue.shift();
+    if (queued?.type === "error") {
+      throw queued.value;
+    }
+    if (queued?.type === "result") {
+      return queued.value;
+    }
     return this.result;
   }
 }
@@ -128,7 +139,19 @@ function createBundle(
           modelKey: "gpt-5.4",
           active: true,
           inactiveReason: null
-        }
+        },
+        fallbackMatrix: [
+          {
+            trigger: "provider_failure_or_timeout",
+            strategy: "fallback_model",
+            target: {
+              providerKey: "anthropic",
+              modelKey: "claude-sonnet-4-5"
+            },
+            eligible: true,
+            blockedBy: []
+          }
+        ]
       },
       routingFastModelKey: "gpt-4.1",
       routerPolicy: {
@@ -822,6 +845,66 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
 
   await runOrdinarySourcePriorityModeTests();
   await runAutoSkillRoutingHardeningTests();
+  await runTurnRoutingFallbackTests();
+}
+
+async function runTurnRoutingFallbackTests(): Promise<void> {
+  const providerGatewayClient = new FakeProviderGatewayClientService();
+  providerGatewayClient.queue = [
+    {
+      type: "error",
+      value: new ServiceUnavailableException("primary provider unavailable")
+    },
+    {
+      type: "result",
+      value: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        text: JSON.stringify({
+          executionMode: "normal",
+          retrievalHint: false,
+          toolHints: "none",
+          confidence: "high",
+          clarifyNeeded: false,
+          fallbackMode: "normal",
+          reasonCode: "classifier_result",
+          retrievalPlan: {
+            useSkills: false,
+            selectedSkillIds: [],
+            useUserKnowledge: false,
+            useProductKnowledge: false,
+            useWeb: false,
+            confidence: "high",
+            reasonCode: "classifier_result"
+          }
+        }),
+        respondedAt: "2026-04-18T12:01:00.000Z",
+        usage: {
+          providerKey: "anthropic",
+          modelKey: "claude-sonnet-4-5",
+          inputTokens: 8,
+          outputTokens: 4,
+          totalTokens: 12
+        },
+        stopReason: "completed",
+        toolCalls: []
+      }
+    }
+  ];
+  const service = new TurnRoutingService(
+    providerGatewayClient as unknown as ProviderGatewayClientService
+  );
+  await service.decide({
+    bundle: createBundle(),
+    request: createRequest(
+      "I need help choosing between option A and option B for next month because each one changes several business details, several team details, several customer details, and several timeline details, and I have not organized the background clearly enough for a quick default choice yet."
+    ),
+    projectedTools
+  });
+
+  assert.ok(providerGatewayClient.calls.length >= 2);
+  assert.equal(providerGatewayClient.calls[0]?.provider, "openai");
+  assert.equal(providerGatewayClient.calls[1]?.provider, "anthropic");
 }
 
 async function runOrdinarySourcePriorityModeTests(): Promise<void> {

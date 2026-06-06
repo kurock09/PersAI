@@ -89,6 +89,13 @@ import {
 } from "./project-execution-profile";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import {
+  isRetryableRuntimeTextFailure,
+  isRetryableRuntimeTextStreamFailureCode,
+  resolveRuntimeTextFallbackSelection,
+  sameProviderSelection,
+  type ProviderSelection
+} from "./runtime-text-fallback";
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
 import { RuntimeDocumentToolService } from "./runtime-document-tool.service";
 import { stringifyToolResultPayloadForModel } from "./sanitize-tool-result-for-model";
@@ -126,11 +133,6 @@ import {
 } from "./runtime-execution-admission.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
-
-type ProviderSelection = {
-  provider: NativeManagedProvider;
-  model: string;
-};
 
 const PROMPT_CACHE_KEY_BUCKETS = 8;
 const PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
@@ -1046,13 +1048,14 @@ export class TurnExecutionService {
             `[turn-stream] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} modelRole=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} toolCount=${String(providerRequest.tools?.length ?? 0)} toolHistoryCount=${String(providerRequest.toolHistory?.length ?? 0)}`
           );
           trace?.stage(`iter${String(iteration)}.provider_request_ready`);
-          const providerStream = await this.providerGatewayClientService.streamText(
+          let providerStream = await this.providerGatewayClientService.streamText(
             providerRequest,
             this.buildProviderGatewayStreamOptions(signal, traceEnabled)
           );
           trace?.stage(`iter${String(iteration)}.provider_headers_received`);
           let advancedToNextIteration = false;
           let firstProviderEventSeen = false;
+          let streamFallbackAttempted = false;
 
           for await (const event of providerStream) {
             if (signal?.aborted) {
@@ -1333,6 +1336,49 @@ export class TurnExecutionService {
             if (event.type === "failed") {
               trace?.stage(`iter${String(iteration)}.failed_event`);
               if (
+                !firstProviderEventSeen &&
+                !streamFallbackAttempted &&
+                isRetryableRuntimeTextStreamFailureCode(event.code)
+              ) {
+                const fallbackSelection = resolveRuntimeTextFallbackSelection(execution.bundle);
+                if (
+                  fallbackSelection !== null &&
+                  !sameProviderSelection(
+                    { provider: providerRequest.provider, model: providerRequest.model },
+                    fallbackSelection
+                  )
+                ) {
+                  streamFallbackAttempted = true;
+                  this.logger.warn(
+                    `[runtime-text-fallback-primary-failed] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} errorCode=${event.code ?? "unknown"} errorMessage=${event.message ?? "Provider stream failed."}`
+                  );
+                  try {
+                    providerStream = await this.providerGatewayClientService.streamText(
+                      {
+                        ...providerRequest,
+                        provider: fallbackSelection.provider,
+                        model: fallbackSelection.model
+                      },
+                      this.buildProviderGatewayStreamOptions(signal, traceEnabled)
+                    );
+                    this.logger.log(
+                      `[runtime-text-fallback-succeeded] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} primaryProvider=${providerRequest.provider} primaryModel=${providerRequest.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model}`
+                    );
+                    firstProviderEventSeen = false;
+                    break;
+                  } catch (fallbackError) {
+                    this.logger.warn(
+                      `[runtime-text-fallback-failed] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} primaryProvider=${providerRequest.provider} primaryModel=${providerRequest.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} error=${
+                        fallbackError instanceof Error
+                          ? fallbackError.message
+                          : String(fallbackError)
+                      }`
+                    );
+                    throw fallbackError;
+                  }
+                }
+              }
+              if (
                 event.code === "provider_context_window_exceeded" &&
                 !contextOverflowRetryAttempted &&
                 deliveredText.trim().length === 0 &&
@@ -1384,6 +1430,9 @@ export class TurnExecutionService {
           }
 
           if (advancedToNextIteration) {
+            continue;
+          }
+          if (streamFallbackAttempted && !firstProviderEventSeen) {
             continue;
           }
 
@@ -2458,24 +2507,33 @@ export class TurnExecutionService {
             currentFileRefs: turnState.fileRefs,
             currentArtifacts: turnState.artifacts
           });
-        providerResult = await this.providerGatewayClientService.generateText(
-          this.buildToolLoopProviderRequest(execution.providerRequest, {
-            assistantText: accumulatedText,
-            baseDeveloperInstructionSections: execution.developerInstructionSections,
-            toolHistory,
-            availableToolNames: execution.projectedTools.tools.map((tool) => tool.name),
-            availableWorkingFileRefs,
-            closedOpenLoopRefs: turnState.closedOpenLoopRefs,
-            forceFinalTextOnly,
-            deferredMediaJobs: turnState.deferredMediaJobs,
-            deferredDocumentJobs: turnState.deferredDocumentJobs,
-            requestMetadata: this.createTurnProviderRequestMetadata({
-              acceptedTurn,
-              classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
-              toolLoopIteration: iteration
-            })
+        const request = this.buildToolLoopProviderRequest(execution.providerRequest, {
+          assistantText: accumulatedText,
+          baseDeveloperInstructionSections: execution.developerInstructionSections,
+          toolHistory,
+          availableToolNames: execution.projectedTools.tools.map((tool) => tool.name),
+          availableWorkingFileRefs,
+          closedOpenLoopRefs: turnState.closedOpenLoopRefs,
+          forceFinalTextOnly,
+          deferredMediaJobs: turnState.deferredMediaJobs,
+          deferredDocumentJobs: turnState.deferredDocumentJobs,
+          requestMetadata: this.createTurnProviderRequestMetadata({
+            acceptedTurn,
+            classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
+            toolLoopIteration: iteration
           })
-        );
+        });
+        providerResult = await this.generateTextWithRuntimeFallback({
+          bundle: execution.bundle,
+          request,
+          modelRole: execution.selectedModelRole,
+          telemetryContext: {
+            surface: "turn_sync",
+            requestId: acceptedTurn.receipt.requestId,
+            classification: request.requestMetadata?.classification ?? "unknown",
+            attemptKey: `tool_loop:${String(iteration)}`
+          }
+        });
       } catch (error) {
         if (
           this.isContextWindowExceededError(error) &&
@@ -5077,6 +5135,57 @@ export class TurnExecutionService {
       totalTokens: input.usage.totalTokens,
       ...(input.toolCode === undefined ? {} : { toolCode: input.toolCode })
     });
+  }
+
+  private async generateTextWithRuntimeFallback(input: {
+    bundle: AssistantRuntimeBundle;
+    request: ProviderGatewayTextGenerateRequest;
+    modelRole: PersaiRuntimeModelRole;
+    telemetryContext: {
+      surface: "turn_sync" | "background_task" | "turn_stream";
+      requestId: string;
+      classification: string;
+      attemptKey: string;
+    };
+  }): Promise<ProviderGatewayTextGenerateResult> {
+    try {
+      return await this.providerGatewayClientService.generateText(input.request);
+    } catch (error) {
+      const fallbackSelection = resolveRuntimeTextFallbackSelection(input.bundle);
+      if (
+        !isRetryableRuntimeTextFailure(error) ||
+        fallbackSelection === null ||
+        sameProviderSelection(
+          { provider: input.request.provider, model: input.request.model },
+          fallbackSelection
+        )
+      ) {
+        throw error;
+      }
+      this.logger.warn(
+        `[runtime-text-fallback-primary-failed] surface=${input.telemetryContext.surface} requestId=${input.telemetryContext.requestId} classification=${input.telemetryContext.classification} attempt=${input.telemetryContext.attemptKey} role=${input.modelRole} provider=${input.request.provider} model=${input.request.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} error=${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      try {
+        const result = await this.providerGatewayClientService.generateText({
+          ...input.request,
+          provider: fallbackSelection.provider,
+          model: fallbackSelection.model
+        });
+        this.logger.log(
+          `[runtime-text-fallback-succeeded] surface=${input.telemetryContext.surface} requestId=${input.telemetryContext.requestId} classification=${input.telemetryContext.classification} attempt=${input.telemetryContext.attemptKey} role=${input.modelRole} primaryProvider=${input.request.provider} primaryModel=${input.request.model} fallbackProvider=${result.provider} fallbackModel=${result.model}`
+        );
+        return result;
+      } catch (fallbackError) {
+        this.logger.warn(
+          `[runtime-text-fallback-failed] surface=${input.telemetryContext.surface} requestId=${input.telemetryContext.requestId} classification=${input.telemetryContext.classification} attempt=${input.telemetryContext.attemptKey} role=${input.modelRole} primaryProvider=${input.request.provider} primaryModel=${input.request.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} error=${
+            fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+          }`
+        );
+        throw fallbackError;
+      }
+    }
   }
 
   private buildUsageAccounting(entries: RuntimeUsageAccountingEntry[]): RuntimeUsageAccounting {

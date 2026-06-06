@@ -2,6 +2,60 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-06 - ADR-110 Slice 2: Runtime text failover and retrieval helper fallback
+
+### Baseline
+
+- Starting SHA: `85427a03430eece5a4b102aee1f28fcc8203d82f`
+
+### What changed & why
+
+ADR-110 Slice 2 makes the materialized text fallback policy execute on the active PersAI runtime path instead of remaining passive config. The runtime now performs a single provider/model fallback attempt for eligible text failures, preserving the existing slot inheritance and avoiding loops.
+
+This slice landed three bounded changes:
+
+1. Added a shared runtime text-fallback helper that reads `runtimeProviderRouting.fallbackMatrix`, classifies retryable provider-execution failures (`timeout` and 5xx-style gateway/provider failures), and executes at most one fallback attempt.
+2. Wired that helper into the active runtime text callsites that drive ordinary turn execution and router/background system-tool text calls, with explicit telemetry for primary failure, fallback success, and fallback failure.
+3. Updated the API knowledge rerank helper to keep `retrievalModelKey === null` as graceful-off, but when a helper model is configured it now retries once onto the configured runtime fallback provider/model for timeout/5xx helper failures.
+
+The slice deliberately does **not** change embedding behavior, generated-media fallback, STT/TTS/web-search execution, or the existing cost-driving degrade override. Embeddings remain same-model retry/graceful-off only. Generated media still follows its own ADR line.
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/runtime-text-fallback.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turn-routing.service.ts`
+- `apps/runtime/src/modules/turns/runtime-background-task-evaluation.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/runtime/test/turn-routing.service.test.ts`
+- `apps/runtime/test/runtime-background-task-evaluation.service.test.ts`
+- `apps/api/src/modules/workspace-management/application/knowledge-retrieval-helper.service.ts`
+- `apps/api/test/knowledge-retrieval-helper.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/turn-execution.service.test.ts runTurnExecutionServiceTest` - PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/turn-routing.service.test.ts runTurnRoutingServiceTest` - PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/runtime-background-task-evaluation.service.test.ts runRuntimeBackgroundTaskEvaluationServiceTest` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-retrieval-helper.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+
+### Risks / residuals
+
+- Stream fallback is intentionally bounded: it only retries before any meaningful provider payload is emitted, so runtime never splices partial primary output together with fallback output.
+- The API retrieval helper still uses a local fetch-based client instead of sharing runtime code directly; its retry classifier is intentionally narrow (`AbortError` or HTTP 5xx) to avoid broadening fallback onto validation/content/policy failures.
+- This slice updates runtime/API behavior only. No generated artifacts or contract files changed.
+
+### Next recommended step
+
+Proceed to ADR-110 Slice 3: move STT and web-search provider/model truth out of hardcoded execution seams and add bounded fallback there, while keeping TTS behavior unchanged.
+
 ## 2026-06-06 - ADR-110 Slice 1: Admin Knowledge owns embedding model truth
 
 ### Baseline

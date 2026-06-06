@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayTextGenerateRequest,
+  ProviderGatewayTextGenerateResult,
   RuntimeSkillDecisionState,
   RuntimeTurnRequest,
   RuntimeUsageSnapshot
@@ -9,6 +10,11 @@ import type {
 import type { RuntimeNativeToolProjection } from "./native-tool-projection";
 import { buildProjectModePrecheckDecision, isProjectChatMode } from "./project-execution-profile";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import {
+  isRetryableRuntimeTextFailure,
+  resolveRuntimeTextFallbackSelection,
+  sameProviderSelection
+} from "./runtime-text-fallback";
 
 type NativeManagedProvider = "openai" | "anthropic";
 
@@ -383,25 +389,26 @@ export class TurnRoutingService {
       let result: Awaited<ReturnType<ProviderGatewayClientService["generateText"]>> | null = null;
       let parsed: ReturnType<TurnRoutingService["parseClassifierDecision"]> | null = null;
       for (let attempt = 1; attempt <= ROUTER_MAX_ATTEMPTS; attempt += 1) {
-        result = await this.providerGatewayClientService.generateText(
-          this.buildClassifierRequest({
-            bundle: input.bundle,
-            request: input.request,
-            projectedTools: input.projectedTools,
-            provider: classifierSelection.provider,
-            model: routingFastModelKey,
-            prompt: classifierPrompt,
-            fallbackMode,
-            retryInvalidJson: attempt > 1
-          })
-        );
-        parsed = this.parseClassifierDecision(result.text);
+        const classifierRequest = this.buildClassifierRequest({
+          bundle: input.bundle,
+          request: input.request,
+          projectedTools: input.projectedTools,
+          provider: classifierSelection.provider,
+          model: routingFastModelKey,
+          prompt: classifierPrompt,
+          fallbackMode,
+          retryInvalidJson: attempt > 1
+        });
+        result = await this.generateClassifierTextWithFallback(input.bundle, classifierRequest);
+        parsed = this.parseClassifierDecision(result?.text ?? null);
         if (parsed !== null) {
           break;
         }
         this.logger.warn(
           `[ordinary-router] Invalid classifier output assistant=${input.bundle.metadata.assistantId} ` +
-            `attempt=${String(attempt)}/${String(ROUTER_MAX_ATTEMPTS)} chars=${String(result.text?.length ?? 0)}`
+            `attempt=${String(attempt)}/${String(ROUTER_MAX_ATTEMPTS)} chars=${String(
+              result?.text?.length ?? 0
+            )}`
         );
       }
       if (result === null || parsed === null) {
@@ -1329,6 +1336,50 @@ export class TurnRoutingService {
         : null;
     const profileProvider = this.asProvider(primary?.provider);
     return profileProvider === null ? null : { provider: profileProvider, model: "" };
+  }
+
+  private async generateClassifierTextWithFallback(
+    bundle: AssistantRuntimeBundle,
+    request: ProviderGatewayTextGenerateRequest
+  ): Promise<ProviderGatewayTextGenerateResult> {
+    try {
+      return await this.providerGatewayClientService.generateText(request);
+    } catch (error) {
+      const fallbackSelection = resolveRuntimeTextFallbackSelection(bundle);
+      if (
+        !isRetryableRuntimeTextFailure(error) ||
+        fallbackSelection === null ||
+        sameProviderSelection(
+          { provider: request.provider, model: request.model },
+          fallbackSelection
+        )
+      ) {
+        throw error;
+      }
+      this.logger.warn(
+        `[runtime-text-fallback-primary-failed] surface=turn_routing requestId=${request.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${request.requestMetadata?.classification ?? "unknown"} attempt=classifier role=system_tool provider=${request.provider} model=${request.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} error=${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      try {
+        const result = await this.providerGatewayClientService.generateText({
+          ...request,
+          provider: fallbackSelection.provider,
+          model: fallbackSelection.model
+        });
+        this.logger.log(
+          `[runtime-text-fallback-succeeded] surface=turn_routing requestId=${request.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${request.requestMetadata?.classification ?? "unknown"} attempt=classifier role=system_tool primaryProvider=${request.provider} primaryModel=${request.model} fallbackProvider=${result.provider} fallbackModel=${result.model}`
+        );
+        return result;
+      } catch (fallbackError) {
+        this.logger.warn(
+          `[runtime-text-fallback-failed] surface=turn_routing requestId=${request.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${request.requestMetadata?.classification ?? "unknown"} attempt=classifier role=system_tool primaryProvider=${request.provider} primaryModel=${request.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} error=${
+            fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+          }`
+        );
+        throw fallbackError;
+      }
+    }
   }
 
   private coerceExecutionMode(

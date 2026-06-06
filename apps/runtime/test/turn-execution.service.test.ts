@@ -278,7 +278,19 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           modelKey: "gpt-5.4",
           active: true,
           inactiveReason: null
-        }
+        },
+        fallbackMatrix: [
+          {
+            trigger: "provider_failure_or_timeout",
+            strategy: "fallback_model",
+            target: {
+              providerKey: "anthropic",
+              modelKey: "claude-sonnet-4-5"
+            },
+            eligible: true,
+            blockedBy: []
+          }
+        ]
       },
       contextHydration: {
         preset: "balanced",
@@ -2310,6 +2322,53 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(turnFinalizationService.failed.length, 0);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
+
+  providerGatewayClient.calls.length = 0;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      text: "fallback reply",
+      respondedAt: "2026-04-11T12:00:03.000Z",
+      usage: {
+        providerKey: "anthropic",
+        modelKey: "claude-sonnet-4-5",
+        inputTokens: 11,
+        outputTokens: 7,
+        totalTokens: 18
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  const originalGenerateText = providerGatewayClient.generateText.bind(providerGatewayClient);
+  const callsBeforeFallback = providerGatewayClient.calls.length;
+  let primaryFailurePending = true;
+  providerGatewayClient.generateText = async (input, options) => {
+    providerGatewayClient.calls.push(input);
+    if (primaryFailurePending) {
+      primaryFailurePending = false;
+      throw new ServiceUnavailableException("primary down");
+    }
+    return originalGenerateText(input, options);
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const fallbackCompleted = await service.createTurn(request);
+  assert.equal(fallbackCompleted.assistantText, "fallback reply");
+  const fallbackProviders = providerGatewayClient.calls
+    .slice(callsBeforeFallback)
+    .map((call) => call.provider);
+  assert.equal(fallbackProviders[0], "openai");
+  assert.equal(fallbackProviders.includes("anthropic"), true);
+  assert.equal(
+    fallbackCompleted.usageAccounting?.entries.at(-1)?.providerKey,
+    "anthropic",
+    "usage accounting must reflect the successful fallback provider"
+  );
+  providerGatewayClient.resultQueue = [];
+  providerGatewayClient.generateText = originalGenerateText;
 
   const compatibleBundleRegistry = new FakeRuntimeBundleRegistryService();
   compatibleBundleRegistry.entry = null;
@@ -4455,6 +4514,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.equal(turnFinalizationService.failed.length, 2);
   assert.equal(turnFinalizationService.failed[1]?.code, "native_runtime_request_invalid");
+  assert.equal(
+    providerGatewayClient.calls.at(-1)?.provider,
+    "openai",
+    "validation-ish failures must not trigger provider fallback"
+  );
 
   providerGatewayClient.error = null;
   turnAcceptanceService.result = createAcceptedTurn();

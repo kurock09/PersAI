@@ -30,10 +30,39 @@ class FakeTurnExecutionService {
 
 class FakeProviderGatewayClientService {
   requests: ProviderGatewayTextGenerateRequest[] = [];
+  queue: Array<
+    | {
+        type: "result";
+        value: {
+          text: string;
+          usage: null;
+          provider?: "openai" | "anthropic";
+          model?: string;
+        };
+      }
+    | { type: "error"; value: Error }
+  > = [];
 
   async generateText(request: ProviderGatewayTextGenerateRequest) {
     this.requests.push(request);
+    const queued = this.queue.shift();
+    if (queued?.type === "error") {
+      throw queued.value;
+    }
+    if (queued?.type === "result") {
+      return {
+        provider: queued.value.provider ?? request.provider,
+        model: queued.value.model ?? request.model,
+        text: queued.value.text,
+        usage: queued.value.usage,
+        respondedAt: "2026-05-01T20:00:01.000Z",
+        stopReason: "completed",
+        toolCalls: []
+      };
+    }
     return {
+      provider: request.provider,
+      model: request.model,
       text: JSON.stringify({
         decision: "no_push",
         pushText: null,
@@ -269,4 +298,41 @@ export async function runEmptyAttemptIdFallsBackToLegacyKeyTest(): Promise<void>
       `blank evaluationAttemptId must collapse to legacy key. Got: ${req.conversation.externalThreadKey}`
     );
   }
+}
+
+export async function runBackgroundTaskEvaluationFallbackTest(): Promise<void> {
+  const turnExecution = new FakeTurnExecutionService();
+  const providerGateway = new FakeProviderGatewayClientService();
+  providerGateway.queue = [
+    { type: "error", value: new Error("HTTP 503: upstream unavailable") },
+    {
+      type: "result",
+      value: {
+        provider: "anthropic",
+        model: "fallback-model",
+        text: JSON.stringify({
+          decision: "no_push",
+          pushText: null,
+          rationale: "Fallback succeeded.",
+          confidence: "high"
+        }),
+        usage: null
+      }
+    }
+  ];
+  const runtimeExecutionAdmissionService = new RuntimeExecutionAdmissionService(
+    new RuntimeObservabilityService()
+  );
+  const service = new RuntimeBackgroundTaskEvaluationService(
+    providerGateway as unknown as ProviderGatewayClientService,
+    turnExecution as unknown as TurnExecutionService,
+    runtimeExecutionAdmissionService
+  );
+
+  const result = await service.evaluate(createEvaluationRequest());
+  assert.equal(result.decision, "no_push");
+  assert.equal(providerGateway.requests.length, 2);
+  assert.equal(providerGateway.requests[0]?.provider, "openai");
+  assert.equal(providerGateway.requests[1]?.provider, "anthropic");
+  assert.equal(providerGateway.requests[1]?.model, "fallback-model");
 }

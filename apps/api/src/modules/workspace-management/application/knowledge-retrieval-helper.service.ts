@@ -117,11 +117,18 @@ export class KnowledgeRetrievalHelperService {
     };
 
     try {
-      const response = await this.postJson(
-        new URL("/api/v1/providers/generate-text", baseUrl).toString(),
+      const response = await this.postJsonWithFallback({
+        url: new URL("/api/v1/providers/generate-text", baseUrl).toString(),
         request,
-        KNOWLEDGE_HELPER_TIMEOUT_MS
-      );
+        timeoutMs: KNOWLEDGE_HELPER_TIMEOUT_MS,
+        fallback:
+          runtimeSettings.fallback === null
+            ? null
+            : {
+                provider: runtimeSettings.fallback.provider,
+                model: runtimeSettings.fallback.model
+              }
+      });
       const payload = response.text
         ? (JSON.parse(response.text) as { rankedReferenceIds?: unknown })
         : {};
@@ -134,7 +141,7 @@ export class KnowledgeRetrievalHelperService {
         : [];
       return {
         rankedReferenceIds: ranked,
-        modelKey: retrievalModelKey,
+        modelKey: response.model,
         providerKey: response.provider,
         usage: response.usage
       };
@@ -173,5 +180,62 @@ export class KnowledgeRetrievalHelperService {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  private async postJsonWithFallback(input: {
+    url: string;
+    request: ProviderGatewayTextGenerateRequest;
+    timeoutMs: number;
+    fallback: { provider: "openai" | "anthropic"; model: string } | null;
+  }): Promise<ProviderGatewayTextGenerateResult> {
+    try {
+      return await this.postJson(input.url, input.request, input.timeoutMs);
+    } catch (error) {
+      if (!this.isRetryableProviderFailure(error)) {
+        throw error;
+      }
+      if (
+        input.fallback === null ||
+        (input.fallback.provider === input.request.provider &&
+          input.fallback.model === input.request.model)
+      ) {
+        throw error;
+      }
+      this.logger.warn(
+        `[knowledge-helper-fallback-primary-failed] provider=${input.request.provider} model=${input.request.model} fallbackProvider=${input.fallback.provider} fallbackModel=${input.fallback.model} error=${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      try {
+        const result = await this.postJson(
+          input.url,
+          {
+            ...input.request,
+            provider: input.fallback.provider,
+            model: input.fallback.model
+          },
+          input.timeoutMs
+        );
+        this.logger.log(
+          `[knowledge-helper-fallback-succeeded] primaryProvider=${input.request.provider} primaryModel=${input.request.model} fallbackProvider=${result.provider} fallbackModel=${result.model}`
+        );
+        return result;
+      } catch (fallbackError) {
+        this.logger.warn(
+          `[knowledge-helper-fallback-failed] primaryProvider=${input.request.provider} primaryModel=${input.request.model} fallbackProvider=${input.fallback.provider} fallbackModel=${input.fallback.model} error=${
+            fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+          }`
+        );
+        throw fallbackError;
+      }
+    }
+  }
+
+  private isRetryableProviderFailure(error: unknown): boolean {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return true;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return /^HTTP 5\d{2}\b/.test(message);
   }
 }

@@ -7,6 +7,7 @@ import {
 import type {
   PersaiRuntimeModelRole,
   ProviderGatewayTextGenerateRequest,
+  ProviderGatewayTextGenerateResult,
   RuntimeBackgroundTaskEvaluationRequest,
   RuntimeBackgroundTaskEvaluationResult,
   RuntimeTurnRequest,
@@ -14,10 +15,13 @@ import type {
 } from "@persai/runtime-contract";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeExecutionAdmissionService } from "./runtime-execution-admission.service";
+import {
+  isRetryableRuntimeTextFailure,
+  resolveRuntimeTextFallbackSelection,
+  sameProviderSelection,
+  type ProviderSelection
+} from "./runtime-text-fallback";
 import { TurnExecutionService } from "./turn-execution.service";
-
-type NativeManagedProvider = "openai" | "anthropic";
-type ProviderSelection = { provider: NativeManagedProvider; model: string };
 
 const EVALUATION_MAX_OUTPUT_TOKENS = 700;
 const BACKGROUND_TASK_RUN_KEY_PREFIX = "background-task-tool-run";
@@ -47,7 +51,7 @@ export class RuntimeBackgroundTaskEvaluationService {
       );
       const providerSelection = this.resolveProviderSelection(bundle, "system_tool");
       const request = this.buildProviderRequest(input, bundle, providerSelection, toolRun);
-      const result = await this.providerGatewayClientService.generateText(request);
+      const result = await this.generateEvaluationTextWithFallback(bundle, request);
       const parsed = this.parseEvaluationJson(result.text);
       return {
         ...parsed,
@@ -291,6 +295,32 @@ export class RuntimeBackgroundTaskEvaluationService {
     );
   }
 
+  private async generateEvaluationTextWithFallback(
+    bundle: AssistantRuntimeBundle,
+    request: ProviderGatewayTextGenerateRequest
+  ): Promise<ProviderGatewayTextGenerateResult> {
+    try {
+      return await this.providerGatewayClientService.generateText(request);
+    } catch (error) {
+      const fallbackSelection = resolveRuntimeTextFallbackSelection(bundle);
+      if (
+        !isRetryableRuntimeTextFailure(error) ||
+        fallbackSelection === null ||
+        sameProviderSelection(
+          { provider: request.provider, model: request.model },
+          fallbackSelection
+        )
+      ) {
+        throw error;
+      }
+      return this.providerGatewayClientService.generateText({
+        ...request,
+        provider: fallbackSelection.provider,
+        model: fallbackSelection.model
+      });
+    }
+  }
+
   private resolveModelSlotSelection(
     bundle: AssistantRuntimeBundle,
     modelRole: PersaiRuntimeModelRole
@@ -319,7 +349,7 @@ export class RuntimeBackgroundTaskEvaluationService {
       : null;
   }
 
-  private asNativeManagedProvider(value: unknown): NativeManagedProvider | null {
+  private asNativeManagedProvider(value: unknown): ProviderSelection["provider"] | null {
     return value === "openai" || value === "anthropic" ? value : null;
   }
 
