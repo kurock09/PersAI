@@ -96,129 +96,141 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     output_config?: unknown;
   } | null = null;
 
-  (client as unknown as { client: unknown }).client = {
-    messages: {
-      create: async (payload: {
-        stream?: boolean;
-        messages: unknown;
-        tools?: unknown;
-        tool_choice?: unknown;
-      }) => {
-        if (payload.stream) {
-          capturedStreamPayload = payload as unknown as Record<string, unknown>;
+  const installFakeAnthropic = (
+    createStream: (payload: {
+      stream?: boolean;
+      messages: unknown;
+      tools?: unknown;
+      tool_choice?: unknown;
+    }) => AsyncGenerator<unknown>
+  ) => {
+    (client as unknown as { client: unknown }).client = {
+      messages: {
+        create: async (payload: {
+          stream?: boolean;
+          messages: unknown;
+          tools?: unknown;
+          tool_choice?: unknown;
+        }) => {
+          if (payload.stream) {
+            capturedStreamPayload = payload as unknown as Record<string, unknown>;
+            return createStream(payload);
+          }
+          capturedGeneratePayload = payload as unknown as Record<string, unknown>;
           if (payload.tools !== undefined) {
-            return (async function* (): AsyncGenerator<unknown> {
-              yield {
-                type: "message_start",
-                message: {
-                  usage: {
-                    input_tokens: 10,
-                    cache_creation_input_tokens: 4,
-                    output_tokens: 0
+            return {
+              content: [
+                {
+                  type: "tool_use",
+                  id: "toolu_1",
+                  name: "knowledge_fetch",
+                  input: {
+                    source: "memory",
+                    referenceId: "memory-1"
                   }
                 }
-              };
-              yield {
-                type: "content_block_start",
-                index: 0,
-                content_block: {
-                  type: "tool_use",
-                  id: "toolu_stream",
-                  name: "knowledge_fetch",
-                  input: {}
-                }
-              };
-              yield {
-                type: "content_block_delta",
-                index: 0,
-                delta: {
-                  type: "input_json_delta",
-                  partial_json: '{"source":"memory","referenceId":"memory-1"}'
-                }
-              };
-              yield {
-                type: "message_delta",
-                delta: {
-                  stop_reason: "tool_use",
-                  stop_sequence: null
-                },
-                usage: {
-                  cache_read_input_tokens: 6,
-                  output_tokens: 2
-                }
-              };
-            })();
-          }
-          return (async function* (): AsyncGenerator<unknown> {
-            yield {
-              type: "message_start",
-              message: {
-                usage: {
-                  input_tokens: 10,
-                  cache_creation_input_tokens: 4,
-                  output_tokens: 0
-                }
-              }
-            };
-            yield {
-              type: "content_block_delta",
-              delta: {
-                type: "text_delta",
-                text: "partial "
-              }
-            };
-            yield {
-              type: "message_delta",
+              ],
               usage: {
+                input_tokens: 10,
+                cache_creation_input_tokens: 4,
                 cache_read_input_tokens: 6,
-                output_tokens: 5
+                output_tokens: 2
               }
             };
-            yield {
-              type: "message_stop"
-            };
-          })();
-        }
-
-        capturedGeneratePayload = payload as unknown as Record<string, unknown>;
-        if (payload.tools !== undefined) {
+          }
           return {
             content: [
               {
-                type: "tool_use",
-                id: "toolu_1",
-                name: "knowledge_fetch",
-                input: {
-                  source: "memory",
-                  referenceId: "memory-1"
-                }
+                type: "text",
+                text: "done"
               }
             ],
             usage: {
               input_tokens: 10,
               cache_creation_input_tokens: 4,
               cache_read_input_tokens: 6,
-              output_tokens: 2
+              output_tokens: 5
             }
           };
         }
-        return {
-          content: [
-            {
-              type: "text",
-              text: "done"
+      }
+    };
+  };
+
+  installFakeAnthropic((payload) => {
+    if (payload.tools !== undefined) {
+      return (async function* (): AsyncGenerator<unknown> {
+        yield {
+          type: "message_start",
+          message: {
+            usage: {
+              input_tokens: 10,
+              cache_creation_input_tokens: 4,
+              output_tokens: 0
             }
-          ],
+          }
+        };
+        yield {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "toolu_stream",
+            name: "knowledge_fetch",
+            input: {}
+          }
+        };
+        yield {
+          type: "content_block_delta",
+          index: 0,
+          delta: {
+            type: "input_json_delta",
+            partial_json: '{"source":"memory","referenceId":"memory-1"}'
+          }
+        };
+        yield {
+          type: "message_delta",
+          delta: {
+            stop_reason: "tool_use",
+            stop_sequence: null
+          },
+          usage: {
+            cache_read_input_tokens: 6,
+            output_tokens: 2
+          }
+        };
+      })();
+    }
+    return (async function* (): AsyncGenerator<unknown> {
+      yield {
+        type: "message_start",
+        message: {
           usage: {
             input_tokens: 10,
             cache_creation_input_tokens: 4,
-            cache_read_input_tokens: 6,
-            output_tokens: 5
+            output_tokens: 0
           }
-        };
-      }
-    }
-  };
+        }
+      };
+      yield {
+        type: "content_block_delta",
+        delta: {
+          type: "text_delta",
+          text: "partial "
+        }
+      };
+      yield {
+        type: "message_delta",
+        usage: {
+          cache_read_input_tokens: 6,
+          output_tokens: 5
+        }
+      };
+      yield {
+        type: "message_stop"
+      };
+    })();
+  });
 
   const request = createRequest();
   const result = await client.generateText(request);
@@ -484,6 +496,47 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       cachedInputTokens: 6,
       outputTokens: 5,
       totalTokens: 25
+    });
+  }
+
+  installFakeAnthropic(() =>
+    (async function* (): AsyncGenerator<unknown> {
+      yield {
+        type: "message_start",
+        message: {
+          usage: {
+            input_tokens: 891,
+            cache_read_input_tokens: 12610,
+            output_tokens: 0
+          }
+        }
+      };
+      yield {
+        type: "message_delta",
+        usage: {
+          input_tokens: 891,
+          cache_read_input_tokens: 12610,
+          output_tokens: 22
+        }
+      };
+      yield {
+        type: "message_stop"
+      };
+    })()
+  );
+  const snapshotUsageStream = await client.streamText(request);
+  const snapshotUsageEvents = await collectStream(snapshotUsageStream);
+  const snapshotUsageCompleted = snapshotUsageEvents.at(-1);
+  assert.equal(snapshotUsageCompleted?.type, "completed");
+  if (snapshotUsageCompleted?.type === "completed") {
+    assert.deepEqual(snapshotUsageCompleted.result.usage, {
+      providerKey: "anthropic",
+      modelKey: "claude-sonnet-4-5",
+      inputTokens: 891,
+      cacheCreationInputTokens: null,
+      cachedInputTokens: 12610,
+      outputTokens: 22,
+      totalTokens: 13523
     });
   }
 

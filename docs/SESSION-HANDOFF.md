@@ -2,6 +2,85 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-07 - Anthropic stream usage double-count hotfix
+
+### Baseline
+
+- Starting SHA: `2f24b93d09b32af392199916245692acf0308690`
+- Scope: focused Anthropic accounting correction after live prompt-cache / compaction investigation.
+
+### What changed & why
+
+Live Anthropic diagnostics narrowed the apparent "huge first-turn context" issue to incorrect PersAI-side accounting rather than an actually giant carry-over payload. Anthropic's own logs showed values like `input=891` and `cache read=12610`, while PersAI ledger/session data for the same turns showed exact doubled values (`inputTokens=1782`, `cachedInputTokens=25220`). Root cause was in `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`: the streaming path merged `message_start` and `message_delta` usage objects by summing fields, even though Anthropic emits usage snapshots/updated totals rather than additive deltas.
+
+The fix changes Anthropic stream usage merging to "latest field wins" semantics instead of additive accumulation. This keeps the final provider-gateway usage snapshot aligned with Anthropic's own logs, which in turn prevents inflated `runtimeSession.currentTokens` and false context-pressure / compaction signals on short chats.
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/anthropic-provider.client.test.ts` - PASS
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/anthropic-empty-completion.test.ts` - PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` - PASS
+
+### Risks / residuals
+
+- This fix corrects provider-gateway stream accounting, but live confirmation still needs a fresh Anthropic deploy plus a short-chat repro to prove `model_cost_ledger_events`, `runtime_sessions.current_tokens`, and compaction advisories now match Anthropic's own dashboard numbers.
+- Anthropic first-turn continuity still merits later inspection for semantic duplication (`carry-over` vs memory/open-loop wording), but the inflated 2x token counts were an accounting bug, not proof of a 2x larger prompt.
+
+### Next recommended step
+
+Deploy provider-gateway, run one fresh short Anthropic chat, and compare Anthropic dashboard token numbers against PersAI ledger/session values for the same request ids. If they match, re-check the compaction banner on a near-empty thread before reopening any continuity-path investigation.
+
+## 2026-06-07 - ADR-111 opened: HeyGen voice cloning + Characters UX v2
+
+### Baseline
+
+- Starting SHA: `2f24b93d09b32af392199916245692acf0308690`
+- Scope: docs-only ADR creation and ADR-109 closure at operator request; no code changes.
+
+### What changed & why
+
+ADR-111 was opened as the next HeyGen/talking-avatar follow-up program without reopening ADR-109. It supersedes only ADR-109's deferred voice-cloning non-goal and keeps custom audio lip-sync, broad HeyGen passthrough tuning, webhooks, Video Translate, and Photo Avatar Looks out of scope.
+
+The operator then confirmed ADR-109 should be considered complete. ADR-109 was closed as `Completed (2026-06-07)` with a closure note stating that further HeyGen voice cloning, Characters UI v2, and video-player polish belong to ADR-111 and must not reopen ADR-109.
+
+The ADR is written for an orchestrator agent that does not write production code. The orchestrator hires GPT-5.4 subagents per bounded slice, reviews diffs, runs verification itself, and updates docs. The planned slice order is:
+
+1. Video player and Capacitor preview polish.
+2. Characters UI v2.
+3. Voice clone substrate.
+4. Voice clone backend + runtime resolve.
+5. Voice clone UI + docs + smoke.
+
+### Files touched
+
+- `docs/ADR/111-heygen-voice-cloning-and-characters-ux-v2.md`
+- `docs/ADR/109-heygen-talking-avatar-on-vcoin.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- Docs-only change; no code tests required.
+- `git status --short` was clean before edits.
+- Official HeyGen voice-clone docs were re-read: `POST /v3/voices/clone` returns `voice_clone_id`; poll `GET /v3/voices/{voice_clone_id}` until `complete`; resulting voice can be used with `POST /v3/videos`.
+
+### Risks / residuals
+
+- ADR-109 is closed by operator verification; ADR-111 must not rewrite its historical record.
+- Voice cloning depends on HeyGen account capability and may return `plan_upgrade_required`; ADR-111 requires honest surfacing rather than treating it as a PersAI plan error.
+- Capacitor preview polish may require upstream API MIME/Range fixes; Slice 1 must verify the actual response headers before changing code.
+
+### Next recommended step
+
+Start ADR-111 Slice 1 with a clean tree: fix the generic video lightbox overlay and validate/fix video MIME/Range behavior for Capacitor preview. Use a GPT-5.4 implementation subagent with exact Scope IN/OUT from the ADR.
+
 ## 2026-06-06 - Billing lifecycle recurrent/manual expiry fix
 
 ### Baseline

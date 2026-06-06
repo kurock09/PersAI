@@ -698,16 +698,16 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     if (next === null) {
       return current;
     }
-    const inputTokens = this.sumUsageNumbers(current.inputTokens, next.inputTokens);
-    const cacheCreationInputTokens = this.sumUsageNumbers(
+    const inputTokens = this.mergeUsageField(current.inputTokens, next.inputTokens);
+    const cacheCreationInputTokens = this.mergeUsageField(
       current.cacheCreationInputTokens,
       next.cacheCreationInputTokens
     );
-    const cachedInputTokens = this.sumUsageNumbers(
+    const cachedInputTokens = this.mergeUsageField(
       current.cachedInputTokens,
       next.cachedInputTokens
     );
-    const outputTokens = this.sumUsageNumbers(current.outputTokens, next.outputTokens);
+    const outputTokens = this.mergeUsageField(current.outputTokens, next.outputTokens);
     return {
       providerKey: current.providerKey ?? next.providerKey,
       modelKey: current.modelKey ?? next.modelKey,
@@ -728,14 +728,14 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     };
   }
 
-  private sumUsageNumbers(
+  private mergeUsageField(
     current: number | null | undefined,
     next: number | null | undefined
   ): number | null {
-    if (typeof current !== "number" && typeof next !== "number") {
-      return null;
+    if (typeof next === "number") {
+      return next;
     }
-    return (current ?? 0) + (next ?? 0);
+    return typeof current === "number" ? current : null;
   }
 
   private toAnthropicMessageContent(
