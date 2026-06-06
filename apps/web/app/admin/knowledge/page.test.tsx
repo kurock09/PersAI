@@ -303,18 +303,22 @@ describe("AdminKnowledgePage Smart Retrieval Limits (ADR-094)", () => {
             smartSearchLongDocSummaryChars: 800,
             fetchFullModeAbsoluteMaxChars: 100000,
             fetchFullModeAbsoluteMaxChatMessages: 800,
+            embeddingChangeImpact: null,
             notes: []
           }
         });
       }
-      if (url.endsWith("/admin/runtime-providers")) {
+      if (url.endsWith("/admin/runtime/provider-settings")) {
         return jsonResponse({
-          availableModelsByProvider: { openai: [], anthropic: [] },
-          availableModelCatalogByProvider: {
-            openai: { models: [] },
-            anthropic: { models: [] },
-            runway: { models: [] },
-            kling: { models: [] }
+          settings: {
+            availableModelsByProvider: { openai: ["text-embedding-3-large"], anthropic: [] },
+            availableModelCatalogByProvider: {
+              openai: { models: [] },
+              anthropic: { models: [] },
+              runway: { models: [] },
+              kling: { models: [] },
+              heygen: { models: [] }
+            }
           }
         });
       }
@@ -372,6 +376,7 @@ describe("AdminKnowledgePage Smart Retrieval Limits (ADR-094)", () => {
       const url = String(input);
       if (url.endsWith("/admin/knowledge-sources/retrieval-policy") && init?.method === "POST") {
         savedBody = JSON.parse(String(init.body));
+        expect((init.headers as Record<string, string>)["x-persai-step-up-token"]).toBeUndefined();
         return jsonResponse({
           policy: {
             schema: "persai.adminKnowledgeRetrievalPolicy.v1",
@@ -382,6 +387,7 @@ describe("AdminKnowledgePage Smart Retrieval Limits (ADR-094)", () => {
             smartSearchLongDocSummaryChars: 1200,
             fetchFullModeAbsoluteMaxChars: 120000,
             fetchFullModeAbsoluteMaxChatMessages: 1000,
+            embeddingChangeImpact: null,
             notes: []
           }
         });
@@ -399,5 +405,98 @@ describe("AdminKnowledgePage Smart Retrieval Limits (ADR-094)", () => {
       fetchFullModeAbsoluteMaxChars: 120000,
       fetchFullModeAbsoluteMaxChatMessages: 1000
     });
+  });
+
+  it("previews embedding impact before step-up confirmation", async () => {
+    const fetchMock = vi.mocked(fetch);
+    installLoadFetch();
+
+    render(<AdminKnowledgePage />);
+    await waitFor(() => {
+      expect(screen.getByText("Admin Knowledge models")).toBeTruthy();
+    });
+
+    const embeddingSelect = screen.getByLabelText(/Embedding index model/i) as HTMLSelectElement;
+    fireEvent.change(embeddingSelect, { target: { value: "text-embedding-3-large" } });
+
+    let previewBody: Record<string, unknown> | null = null;
+    let savedHeaders: HeadersInit | undefined;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (
+        url.endsWith("/admin/knowledge-sources/retrieval-policy/embedding-change-preview") &&
+        init?.method === "POST"
+      ) {
+        previewBody = JSON.parse(String(init.body));
+        return jsonResponse({
+          impact: {
+            fromEmbeddingModelKey: null,
+            toEmbeddingModelKey: "text-embedding-3-large",
+            requiresDangerousConfirmation: true,
+            vectorSearchWillBeDisabled: false,
+            alreadyIndexedSourceCount: 7,
+            affectedSourceCount: 2,
+            affectedChunkCount: 10,
+            affectedBytes: 3600,
+            sources: [
+              {
+                sourceType: "global_knowledge_source",
+                label: "Product KB uploaded files",
+                affectedSourceCount: 1,
+                totalChunks: 4,
+                totalBytes: 1200
+              },
+              {
+                sourceType: "skill_document",
+                label: "Skill documents",
+                affectedSourceCount: 1,
+                totalChunks: 6,
+                totalBytes: 2400
+              }
+            ]
+          }
+        });
+      }
+      if (url.endsWith("/admin/step-up/challenge") && init?.method === "POST") {
+        return jsonResponse({ challenge: { token: "step-up-token" } });
+      }
+      if (url.endsWith("/admin/knowledge-sources/retrieval-policy") && init?.method === "POST") {
+        savedHeaders = init.headers;
+        return jsonResponse({
+          policy: {
+            schema: "persai.adminKnowledgeRetrievalPolicy.v1",
+            embeddingModelKey: "text-embedding-3-large",
+            retrievalModelKey: null,
+            authoringModelKey: null,
+            smartSearchEnabled: true,
+            smartSearchLongDocSummaryChars: 800,
+            fetchFullModeAbsoluteMaxChars: 100000,
+            fetchFullModeAbsoluteMaxChatMessages: 800,
+            embeddingChangeImpact: null,
+            notes: []
+          }
+        });
+      }
+      return jsonResponse({});
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Save models/i }));
+    await waitFor(() => {
+      expect(previewBody).toEqual({ embeddingModelKey: "text-embedding-3-large" });
+    });
+    expect(savedHeaders).toBeUndefined();
+    expect(screen.getByText("Confirm embedding model reindex")).toBeTruthy();
+    expect(screen.getByText("Product KB uploaded files")).toBeTruthy();
+    expect(screen.getByText("Skill documents")).toBeTruthy();
+    expect(screen.getByText(/4 chunks/i)).toBeTruthy();
+    expect(screen.getByText(/6 chunks/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm model change/i }));
+    await waitFor(() => {
+      expect(savedHeaders).toBeDefined();
+    });
+    expect((savedHeaders as Record<string, string>)["x-persai-step-up-token"]).toBe(
+      "step-up-token"
+    );
   });
 });

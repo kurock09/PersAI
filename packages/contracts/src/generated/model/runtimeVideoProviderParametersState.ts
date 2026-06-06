@@ -5,6 +5,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { RuntimeVideoProviderParametersStateSound } from "./runtimeVideoProviderParametersStateSound";
+import type { RuntimeVideoProviderParametersStateResolution } from "./runtimeVideoProviderParametersStateResolution";
+import type { RuntimeVideoProviderParametersStateAspectRatio } from "./runtimeVideoProviderParametersStateAspectRatio";
+import type { RuntimeVideoProviderParametersStateEngine } from "./runtimeVideoProviderParametersStateEngine";
 
 /**
  * @nullable
@@ -17,9 +20,9 @@ export type RuntimeVideoProviderParametersState = {
   /** @nullable */
   audio?: boolean | null;
   /** @nullable */
-  resolution?: "720p" | "1080p" | "4k" | null;
+  resolution?: RuntimeVideoProviderParametersStateResolution;
   /** @nullable */
-  aspectRatio?: "auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4" | null;
+  aspectRatio?: RuntimeVideoProviderParametersStateAspectRatio;
   /** @nullable */
-  engine?: "avatar_iv" | "avatar_v" | null;
+  engine?: RuntimeVideoProviderParametersStateEngine;
 } | null;

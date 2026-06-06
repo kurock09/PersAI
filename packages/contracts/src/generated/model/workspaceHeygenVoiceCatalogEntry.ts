@@ -8,7 +8,9 @@
 export interface WorkspaceHeygenVoiceCatalogEntry {
   voiceId: string;
   name: string;
+  /** @nullable */
   language: string | null;
   gender: string;
+  /** @nullable */
   previewAudioUrl: string | null;
 }

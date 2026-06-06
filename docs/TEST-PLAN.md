@@ -71,6 +71,25 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
+When a change touches Admin Knowledge embedding-model truth, assistant knowledge indexing/search model resolution, or plan removal of `embeddingModelKey`, add these focused checks before broad verification:
+
+```bash
+corepack pnpm contracts:generate
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-knowledge-retrieval-policy.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx app/admin/knowledge/page.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Plan save/read paths must no longer round-trip `embeddingModelKey`.
+2. Assistant knowledge search must resolve embeddings from Admin Knowledge policy and fall back to lexical mode when the admin embedding model is unset or same-model embedding generation fails.
+3. Admin Knowledge embedding-model changes must expose impact counts and require dangerous-action confirmation when the embedding model actually changes.
+4. Backfill/no-op coverage must include global Product KB uploads, Product KB text entries, Skill documents, Skill knowledge cards, and assistant-uploaded knowledge.
+
 ---
 
 ## ADR-102 Slice 9 — CI / deploy hygiene policy

@@ -5,8 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * ADR-109 Slice 10b — display variant for an active media job. When `talking_avatar`, the web client renders a time-based stage rotation in place of the static "Generating video" chip; otherwise (or when omitted/null) the legacy cinematic chip is rendered. Set by the API mapper from `requestJson.directToolExecution.request.mode` when present; defaults to `cinematic`. Optional for backwards compatibility with legacy job rows that predate this field.
+
+ * @nullable
+ */
 export type AssistantWebChatActiveMediaJobStateDisplayKind =
-  (typeof AssistantWebChatActiveMediaJobStateDisplayKind)[keyof typeof AssistantWebChatActiveMediaJobStateDisplayKind];
+  | (typeof AssistantWebChatActiveMediaJobStateDisplayKind)[keyof typeof AssistantWebChatActiveMediaJobStateDisplayKind]
+  | null;
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatActiveMediaJobStateDisplayKind = {

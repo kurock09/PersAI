@@ -171,7 +171,6 @@ export type PlanDraft = {
   reasoningModelKey: string;
   systemToolModelKey: string;
   retrievalModelKey: string;
-  embeddingModelKey: string;
   imageGenerateModelKey: string;
   imageGenerateFallbackModelKey: string;
   imageEditModelKey: string;
@@ -786,7 +785,6 @@ function emptyDraft(): PlanDraft {
     reasoningModelKey: "",
     systemToolModelKey: "",
     retrievalModelKey: "",
-    embeddingModelKey: "",
     imageGenerateModelKey: "",
     imageGenerateFallbackModelKey: "",
     imageEditModelKey: "",
@@ -925,7 +923,6 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     reasoningModelKey: plan.reasoningModelKey ?? "",
     systemToolModelKey: plan.systemToolModelKey ?? "",
     retrievalModelKey: plan.retrievalModelKey ?? "",
-    embeddingModelKey: plan.embeddingModelKey ?? "",
     imageGenerateModelKey: plan.imageGenerateModelKey ?? "",
     imageGenerateFallbackModelKey: plan.imageGenerateFallbackModelKey ?? "",
     imageEditModelKey: plan.imageEditModelKey ?? "",
@@ -1332,7 +1329,6 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     reasoningModelKey: toNullable(draft.reasoningModelKey),
     systemToolModelKey: toNullable(draft.systemToolModelKey),
     retrievalModelKey: toNullable(draft.retrievalModelKey),
-    embeddingModelKey: toNullable(draft.embeddingModelKey),
     imageGenerateModelKey: toNullable(draft.imageGenerateModelKey),
     imageGenerateFallbackModelKey: toNullable(draft.imageGenerateFallbackModelKey),
     imageEditModelKey: toNullable(draft.imageEditModelKey),
@@ -2616,13 +2612,6 @@ export function PlanForm({
                       value: draft.retrievalModelKey,
                       patch: (value: string) => onPatch({ retrievalModelKey: value }),
                       placeholder: "system/runtime default"
-                    },
-                    {
-                      label: "Embedding index",
-                      slot: null,
-                      value: draft.embeddingModelKey,
-                      patch: (value: string) => onPatch({ embeddingModelKey: value }),
-                      placeholder: "retrieval helper / runtime default"
                     }
                   ] as const
                 ).map((slot) => (
@@ -3874,10 +3863,6 @@ function PlanCardReadOnly({
                 <div>
                   <span className="text-text-muted">Retrieval</span> ·{" "}
                   {plan.retrievalModelKey ?? "runtime default"}
-                </div>
-                <div>
-                  <span className="text-text-muted">Embedding</span> ·{" "}
-                  {plan.embeddingModelKey ?? "runtime default"}
                 </div>
               </div>
             </Panel>

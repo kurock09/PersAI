@@ -12,12 +12,15 @@ import type {
   AdminBillingProviderCredentialsRequest,
   AdminDocumentProcessingSettingsRequest,
   AdminDocumentProcessingTestConnectionRequest,
+  AdminKnowledgeEmbeddingChangePreviewRequest,
+  AdminKnowledgeRetrievalPolicyState,
   AdminPlanCreateRequest,
   AdminPlanUpdateRequest,
   AdminRuntimeProviderSettingsRequest,
   AdminSkillUpsertRequest,
   AdminStepUpChallengeRequest,
   AdminToolPathPricingCatalogRequest,
+  ArchiveWorkspaceVideoPersona200,
   AssistantDraftUpdateRequest,
   AssistantMemoryDoNotRememberRequest,
   AssistantRollbackRequest,
@@ -32,6 +35,7 @@ import type {
   AssistantWebChatTurnRequest,
   CloudpaymentsWebhookAck,
   CloudpaymentsWebhookNotificationType,
+  CreateWorkspaceVideoPersonaBody,
   DeleteAdminKnowledgeSourceResponse,
   DeleteAdminOpsUserPlanOverrideParams,
   DeleteAdminSkillDocumentResponse,
@@ -53,6 +57,7 @@ import type {
   GetAdminKnowledgeConnectorsResponse,
   GetAdminKnowledgeIndexingJobsParams,
   GetAdminKnowledgeObservabilityResponse,
+  GetAdminKnowledgeRetrievalPolicyResponse,
   GetAdminKnowledgeSourceResponse,
   GetAdminKnowledgeSourcesParams,
   GetAdminKnowledgeSourcesResponse,
@@ -129,6 +134,8 @@ import type {
   PostAdminAbuseUnblockResponse,
   PostAdminAssistantOwnershipResponse,
   PostAdminDocumentProcessingTestConnectionResponse,
+  PostAdminKnowledgeEmbeddingChangePreviewResponse,
+  PostAdminKnowledgeRetrievalPolicyResponse,
   PostAdminKnowledgeSourceUploadBody,
   PostAdminOpsUserBillingSupportActionRequest,
   PostAdminOpsUserBillingSupportActionResponse,
@@ -179,7 +186,10 @@ import type {
   StageAttachmentResponse,
   SuccessResponse,
   TestSendNotificationChannelResponse,
-  UpdateUserPreferencesRequest
+  UpdateUserPreferencesRequest,
+  WorkspaceHeygenVoiceCatalogState,
+  WorkspaceVideoPersonaCreateResponse,
+  WorkspaceVideoPersonaListState
 } from "./model";
 
 import { customFetch } from "../mutator/custom-fetch";
@@ -5492,6 +5502,189 @@ export const postAdminDocumentProcessingTestConnection = async (
 };
 
 /**
+ * @summary Read admin knowledge retrieval and embedding policy
+ */
+export type getAdminKnowledgeRetrievalPolicyResponse200 = {
+  data: GetAdminKnowledgeRetrievalPolicyResponse;
+  status: 200;
+};
+
+export type getAdminKnowledgeRetrievalPolicyResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminKnowledgeRetrievalPolicyResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminKnowledgeRetrievalPolicyResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminKnowledgeRetrievalPolicyResponseSuccess =
+  getAdminKnowledgeRetrievalPolicyResponse200 & {
+    headers: Headers;
+  };
+export type getAdminKnowledgeRetrievalPolicyResponseError = (
+  | getAdminKnowledgeRetrievalPolicyResponse401
+  | getAdminKnowledgeRetrievalPolicyResponse403
+  | getAdminKnowledgeRetrievalPolicyResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminKnowledgeRetrievalPolicyResponse =
+  | getAdminKnowledgeRetrievalPolicyResponseSuccess
+  | getAdminKnowledgeRetrievalPolicyResponseError;
+
+export const getGetAdminKnowledgeRetrievalPolicyUrl = () => {
+  return `/admin/knowledge-sources/retrieval-policy`;
+};
+
+export const getAdminKnowledgeRetrievalPolicy = async (
+  options?: RequestInit
+): Promise<getAdminKnowledgeRetrievalPolicyResponse> => {
+  return customFetch<getAdminKnowledgeRetrievalPolicyResponse>(
+    getGetAdminKnowledgeRetrievalPolicyUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Update admin knowledge retrieval and embedding policy
+ */
+export type postAdminKnowledgeRetrievalPolicyResponse200 = {
+  data: PostAdminKnowledgeRetrievalPolicyResponse;
+  status: 200;
+};
+
+export type postAdminKnowledgeRetrievalPolicyResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminKnowledgeRetrievalPolicyResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminKnowledgeRetrievalPolicyResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminKnowledgeRetrievalPolicyResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminKnowledgeRetrievalPolicyResponseSuccess =
+  postAdminKnowledgeRetrievalPolicyResponse200 & {
+    headers: Headers;
+  };
+export type postAdminKnowledgeRetrievalPolicyResponseError = (
+  | postAdminKnowledgeRetrievalPolicyResponse400
+  | postAdminKnowledgeRetrievalPolicyResponse401
+  | postAdminKnowledgeRetrievalPolicyResponse403
+  | postAdminKnowledgeRetrievalPolicyResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminKnowledgeRetrievalPolicyResponse =
+  | postAdminKnowledgeRetrievalPolicyResponseSuccess
+  | postAdminKnowledgeRetrievalPolicyResponseError;
+
+export const getPostAdminKnowledgeRetrievalPolicyUrl = () => {
+  return `/admin/knowledge-sources/retrieval-policy`;
+};
+
+export const postAdminKnowledgeRetrievalPolicy = async (
+  adminKnowledgeRetrievalPolicyState: AdminKnowledgeRetrievalPolicyState,
+  options?: RequestInit
+): Promise<postAdminKnowledgeRetrievalPolicyResponse> => {
+  return customFetch<postAdminKnowledgeRetrievalPolicyResponse>(
+    getPostAdminKnowledgeRetrievalPolicyUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminKnowledgeRetrievalPolicyState)
+    }
+  );
+};
+
+/**
+ * @summary Preview Admin Knowledge embedding model change impact
+ */
+export type postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse200 = {
+  data: PostAdminKnowledgeEmbeddingChangePreviewResponse;
+  status: 200;
+};
+
+export type postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponseSuccess =
+  postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse200 & {
+    headers: Headers;
+  };
+export type postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponseError = (
+  | postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse400
+  | postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse401
+  | postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse403
+  | postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse =
+  | postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponseSuccess
+  | postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponseError;
+
+export const getPostAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewUrl = () => {
+  return `/admin/knowledge-sources/retrieval-policy/embedding-change-preview`;
+};
+
+export const postAdminKnowledgeRetrievalPolicyEmbeddingChangePreview = async (
+  adminKnowledgeEmbeddingChangePreviewRequest: AdminKnowledgeEmbeddingChangePreviewRequest,
+  options?: RequestInit
+): Promise<postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse> => {
+  return customFetch<postAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewResponse>(
+    getPostAdminKnowledgeRetrievalPolicyEmbeddingChangePreviewUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminKnowledgeEmbeddingChangePreviewRequest)
+    }
+  );
+};
+
+/**
  * @summary Read tool-path economics catalog for non-model paid tools
  */
 export type getAdminToolPathPricingCatalogResponse200 = {
@@ -8629,4 +8822,226 @@ export const getAppBootstrap = async (options?: RequestInit): Promise<getAppBoot
     ...options,
     method: "GET"
   });
+};
+
+/**
+ * Returns the platform HeyGen voice catalog (cached). Workspace ID is used for auth-scoping only; the underlying catalog is platform-wide. Returns `{ provider: "heygen", voices: [] }` when the catalog is unavailable (no HeyGen credential or empty cache).
+ * @summary Get HeyGen voice catalog for workspace (ADR-109 Slice 9)
+ */
+export type getWorkspaceHeygenVoiceCatalogResponse200 = {
+  data: WorkspaceHeygenVoiceCatalogState;
+  status: 200;
+};
+
+export type getWorkspaceHeygenVoiceCatalogResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getWorkspaceHeygenVoiceCatalogResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getWorkspaceHeygenVoiceCatalogResponseSuccess =
+  getWorkspaceHeygenVoiceCatalogResponse200 & {
+    headers: Headers;
+  };
+export type getWorkspaceHeygenVoiceCatalogResponseError = (
+  | getWorkspaceHeygenVoiceCatalogResponse401
+  | getWorkspaceHeygenVoiceCatalogResponse500
+) & {
+  headers: Headers;
+};
+
+export type getWorkspaceHeygenVoiceCatalogResponse =
+  | getWorkspaceHeygenVoiceCatalogResponseSuccess
+  | getWorkspaceHeygenVoiceCatalogResponseError;
+
+export const getGetWorkspaceHeygenVoiceCatalogUrl = (workspaceId: string) => {
+  return `/workspaces/${workspaceId}/video-personas/voice-catalog`;
+};
+
+export const getWorkspaceHeygenVoiceCatalog = async (
+  workspaceId: string,
+  options?: RequestInit
+): Promise<getWorkspaceHeygenVoiceCatalogResponse> => {
+  return customFetch<getWorkspaceHeygenVoiceCatalogResponse>(
+    getGetWorkspaceHeygenVoiceCatalogUrl(workspaceId),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * Creates a new workspace-scoped video persona. Persona creation is REST-only (ADR-109 cross-slice invariant #14). Debits `heygenPersonaCreationVcoin` VC from the workspace wallet when the platform cost > 0. Portrait image is normalized to JPEG 1024×1024. Validates the provided `heygenVoiceId` against the cached HeyGen voice shortlist.
+ * @summary Create a workspace video persona (ADR-109 Slice 5)
+ */
+export type createWorkspaceVideoPersonaResponse201 = {
+  data: WorkspaceVideoPersonaCreateResponse;
+  status: 201;
+};
+
+export type createWorkspaceVideoPersonaResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type createWorkspaceVideoPersonaResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type createWorkspaceVideoPersonaResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type createWorkspaceVideoPersonaResponseSuccess = createWorkspaceVideoPersonaResponse201 & {
+  headers: Headers;
+};
+export type createWorkspaceVideoPersonaResponseError = (
+  | createWorkspaceVideoPersonaResponse400
+  | createWorkspaceVideoPersonaResponse401
+  | createWorkspaceVideoPersonaResponse500
+) & {
+  headers: Headers;
+};
+
+export type createWorkspaceVideoPersonaResponse =
+  | createWorkspaceVideoPersonaResponseSuccess
+  | createWorkspaceVideoPersonaResponseError;
+
+export const getCreateWorkspaceVideoPersonaUrl = (workspaceId: string) => {
+  return `/workspaces/${workspaceId}/video-personas`;
+};
+
+export const createWorkspaceVideoPersona = async (
+  workspaceId: string,
+  createWorkspaceVideoPersonaBody: CreateWorkspaceVideoPersonaBody,
+  options?: RequestInit
+): Promise<createWorkspaceVideoPersonaResponse> => {
+  const formData = new FormData();
+  formData.append(`portrait`, createWorkspaceVideoPersonaBody.portrait);
+  formData.append(`displayName`, createWorkspaceVideoPersonaBody.displayName);
+  formData.append(`heygenVoiceId`, createWorkspaceVideoPersonaBody.heygenVoiceId);
+
+  return customFetch<createWorkspaceVideoPersonaResponse>(
+    getCreateWorkspaceVideoPersonaUrl(workspaceId),
+    {
+      ...options,
+      method: "POST",
+      body: formData
+    }
+  );
+};
+
+/**
+ * Returns all non-archived personas for the workspace, ordered by creation date ascending.
+ * @summary List workspace video personas (ADR-109 Slice 5)
+ */
+export type listWorkspaceVideoPersonasResponse200 = {
+  data: WorkspaceVideoPersonaListState;
+  status: 200;
+};
+
+export type listWorkspaceVideoPersonasResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type listWorkspaceVideoPersonasResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type listWorkspaceVideoPersonasResponseSuccess = listWorkspaceVideoPersonasResponse200 & {
+  headers: Headers;
+};
+export type listWorkspaceVideoPersonasResponseError = (
+  | listWorkspaceVideoPersonasResponse401
+  | listWorkspaceVideoPersonasResponse500
+) & {
+  headers: Headers;
+};
+
+export type listWorkspaceVideoPersonasResponse =
+  | listWorkspaceVideoPersonasResponseSuccess
+  | listWorkspaceVideoPersonasResponseError;
+
+export const getListWorkspaceVideoPersonasUrl = (workspaceId: string) => {
+  return `/workspaces/${workspaceId}/video-personas`;
+};
+
+export const listWorkspaceVideoPersonas = async (
+  workspaceId: string,
+  options?: RequestInit
+): Promise<listWorkspaceVideoPersonasResponse> => {
+  return customFetch<listWorkspaceVideoPersonasResponse>(
+    getListWorkspaceVideoPersonasUrl(workspaceId),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * Soft-deletes the persona by setting `archived = true`. Does NOT call HeyGen API (Slice 6 owns the cascade delete). Does NOT refund the VC creation cost.
+ * @summary Archive (soft-delete) a workspace video persona (ADR-109 Slice 5)
+ */
+export type archiveWorkspaceVideoPersonaResponse200 = {
+  data: ArchiveWorkspaceVideoPersona200;
+  status: 200;
+};
+
+export type archiveWorkspaceVideoPersonaResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type archiveWorkspaceVideoPersonaResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type archiveWorkspaceVideoPersonaResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type archiveWorkspaceVideoPersonaResponseSuccess =
+  archiveWorkspaceVideoPersonaResponse200 & {
+    headers: Headers;
+  };
+export type archiveWorkspaceVideoPersonaResponseError = (
+  | archiveWorkspaceVideoPersonaResponse401
+  | archiveWorkspaceVideoPersonaResponse404
+  | archiveWorkspaceVideoPersonaResponse500
+) & {
+  headers: Headers;
+};
+
+export type archiveWorkspaceVideoPersonaResponse =
+  | archiveWorkspaceVideoPersonaResponseSuccess
+  | archiveWorkspaceVideoPersonaResponseError;
+
+export const getArchiveWorkspaceVideoPersonaUrl = (workspaceId: string, personaId: string) => {
+  return `/workspaces/${workspaceId}/video-personas/${personaId}`;
+};
+
+export const archiveWorkspaceVideoPersona = async (
+  workspaceId: string,
+  personaId: string,
+  options?: RequestInit
+): Promise<archiveWorkspaceVideoPersonaResponse> => {
+  return customFetch<archiveWorkspaceVideoPersonaResponse>(
+    getArchiveWorkspaceVideoPersonaUrl(workspaceId, personaId),
+    {
+      ...options,
+      method: "DELETE"
+    }
+  );
 };

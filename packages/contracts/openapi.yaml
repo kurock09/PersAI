@@ -3676,6 +3676,129 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-sources/retrieval-policy:
+    get:
+      operationId: getAdminKnowledgeRetrievalPolicy
+      summary: Read admin knowledge retrieval and embedding policy
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Admin knowledge retrieval policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminKnowledgeRetrievalPolicyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: postAdminKnowledgeRetrievalPolicy
+      summary: Update admin knowledge retrieval and embedding policy
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.knowledge_retrieval_policy.update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminKnowledgeRetrievalPolicyState"
+      responses:
+        "200":
+          description: Updated admin knowledge retrieval policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminKnowledgeRetrievalPolicyResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (dangerous admin action + step-up required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-sources/retrieval-policy/embedding-change-preview:
+    post:
+      operationId: postAdminKnowledgeRetrievalPolicyEmbeddingChangePreview
+      summary: Preview Admin Knowledge embedding model change impact
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminKnowledgeEmbeddingChangePreviewRequest"
+      responses:
+        "200":
+          description: Proposed embedding model change impact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminKnowledgeEmbeddingChangePreviewResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/tools/economics:
     get:
       operationId: getAdminToolPathPricingCatalog
@@ -7696,6 +7819,151 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminKnowledgeConnectorState"
+    AdminKnowledgeEmbeddingChangeImpactSource:
+      type: object
+      required:
+        - sourceType
+        - label
+        - affectedSourceCount
+        - totalChunks
+        - totalBytes
+      properties:
+        sourceType:
+          type: string
+          enum:
+            - assistant_knowledge_source
+            - global_knowledge_source
+            - product_knowledge_text_entry
+            - skill_document
+            - skill_knowledge_card
+        label:
+          type: string
+        affectedSourceCount:
+          type: integer
+        totalChunks:
+          type: integer
+        totalBytes:
+          type: integer
+    AdminKnowledgeEmbeddingChangeImpact:
+      type: object
+      required:
+        - fromEmbeddingModelKey
+        - toEmbeddingModelKey
+        - requiresDangerousConfirmation
+        - vectorSearchWillBeDisabled
+        - alreadyIndexedSourceCount
+        - affectedSourceCount
+        - affectedChunkCount
+        - affectedBytes
+        - sources
+      properties:
+        fromEmbeddingModelKey:
+          type: string
+          nullable: true
+        toEmbeddingModelKey:
+          type: string
+          nullable: true
+        requiresDangerousConfirmation:
+          type: boolean
+        vectorSearchWillBeDisabled:
+          type: boolean
+        alreadyIndexedSourceCount:
+          type: integer
+        affectedSourceCount:
+          type: integer
+        affectedChunkCount:
+          type: integer
+        affectedBytes:
+          type: integer
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminKnowledgeEmbeddingChangeImpactSource"
+    AdminKnowledgeEmbeddingChangePreviewRequest:
+      type: object
+      required:
+        - embeddingModelKey
+      properties:
+        embeddingModelKey:
+          type: string
+          nullable: true
+    AdminKnowledgeRetrievalPolicyState:
+      type: object
+      required:
+        - schema
+        - embeddingModelKey
+        - retrievalModelKey
+        - authoringModelKey
+        - smartSearchEnabled
+        - smartSearchLongDocSummaryChars
+        - fetchFullModeAbsoluteMaxChars
+        - fetchFullModeAbsoluteMaxChatMessages
+        - embeddingChangeImpact
+        - notes
+      properties:
+        schema:
+          type: string
+        embeddingModelKey:
+          type: string
+          nullable: true
+        retrievalModelKey:
+          type: string
+          nullable: true
+        authoringModelKey:
+          type: string
+          nullable: true
+        smartSearchEnabled:
+          type: boolean
+        smartSearchLongDocSummaryChars:
+          type: integer
+        fetchFullModeAbsoluteMaxChars:
+          type: integer
+        fetchFullModeAbsoluteMaxChatMessages:
+          type: integer
+        embeddingChangeImpact:
+          allOf:
+            - $ref: "#/components/schemas/AdminKnowledgeEmbeddingChangeImpact"
+          nullable: true
+        notes:
+          type: array
+          items:
+            type: string
+    GetAdminKnowledgeRetrievalPolicyResponse:
+      type: object
+      required:
+        - requestId
+        - policy
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        policy:
+          $ref: "#/components/schemas/AdminKnowledgeRetrievalPolicyState"
+    PostAdminKnowledgeRetrievalPolicyResponse:
+      type: object
+      required:
+        - requestId
+        - policy
+        - configGeneration
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        policy:
+          $ref: "#/components/schemas/AdminKnowledgeRetrievalPolicyState"
+        configGeneration:
+          type: integer
+    PostAdminKnowledgeEmbeddingChangePreviewResponse:
+      type: object
+      required:
+        - requestId
+        - impact
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        impact:
+          $ref: "#/components/schemas/AdminKnowledgeEmbeddingChangeImpact"
     SkillStatus:
       type: string
       enum:
@@ -12233,9 +12501,6 @@ components:
         retrievalModelKey:
           type: string
           nullable: true
-        embeddingModelKey:
-          type: string
-          nullable: true
         imageGenerateModelKey:
           type: string
           nullable: true
@@ -12540,9 +12805,6 @@ components:
           type: string
           nullable: true
         retrievalModelKey:
-          type: string
-          nullable: true
-        embeddingModelKey:
           type: string
           nullable: true
         imageGenerateModelKey:
@@ -15934,6 +16196,7 @@ components:
         - admin.plan.create
         - admin.plan.update
         - admin.plan.delete
+        - admin.knowledge_retrieval_policy.update
         - admin.billing_lifecycle_settings.update
         - admin.runtime_provider_settings.update
         - admin.assistant.transfer_ownership

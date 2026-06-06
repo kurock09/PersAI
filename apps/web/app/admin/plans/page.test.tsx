@@ -133,7 +133,6 @@ function createPlanState(): AdminPlanState {
     premiumModelKey: "gpt-5.4",
     reasoningModelKey: "gpt-5.4-mini",
     retrievalModelKey: "gpt-5.4-nano",
-    embeddingModelKey: "text-embedding-3-small",
     imageGenerateModelKey: "gpt-image-2",
     imageGenerateFallbackModelKey: "gpt-image-1.5",
     imageEditModelKey: "gpt-image-2",

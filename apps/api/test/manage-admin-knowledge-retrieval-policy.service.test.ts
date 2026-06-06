@@ -3,27 +3,39 @@ import { ManageAdminKnowledgeRetrievalPolicyService } from "../src/modules/works
 
 type Row = Record<string, unknown>;
 
-function createHarness(options?: { embeddingModelKey?: string | null }) {
+function createHarness(options?: {
+  embeddingModelKey?: string | null;
+  alreadyIndexedCount?: number;
+}) {
   const updates: Array<{ table: string; where: Row; data: Row }> = [];
   const jobs: Row[] = [];
   const audits: Row[] = [];
   const rolloutRequests: Row[] = [];
+  const dangerousActions: Row[] = [];
   const rawResponses = [
     [
       {
         id: "global-source-1",
-        workspaceId: "workspace-1",
-        currentVersion: 3
+        workspaceId: null,
+        currentVersion: 3,
+        chunkCount: 4,
+        sizeBytes: 1200
       }
     ],
+    [],
     [
       {
         id: "skill-document-1",
         workspaceId: "workspace-1",
         skillId: "skill-1",
-        currentVersion: 5
+        currentVersion: 5,
+        chunkCount: 6,
+        sizeBytes: 2400
       }
-    ]
+    ],
+    [],
+    [],
+    [{ count: String(options?.alreadyIndexedCount ?? 3) }]
   ];
 
   const prisma = {
@@ -65,7 +77,14 @@ function createHarness(options?: { embeddingModelKey?: string | null }) {
       assertCanWriteGlobalKnowledge: async () => ({
         userId: "admin-1",
         workspaceId: "workspace-1"
-      })
+      }),
+      assertCanPerformDangerousAdminAction: async () => {
+        dangerousActions.push({ userId: "admin-1" });
+        return {
+          userId: "admin-1",
+          workspaceId: "workspace-1"
+        };
+      }
     } as never,
     { execute: async () => 42 } as never,
     {
@@ -80,18 +99,26 @@ function createHarness(options?: { embeddingModelKey?: string | null }) {
     } as never
   );
 
-  return { service, updates, jobs, audits, rolloutRequests };
+  return { service, updates, jobs, audits, rolloutRequests, dangerousActions };
 }
 
 async function runPolicyBackfill(): Promise<void> {
   const harness = createHarness();
-  const result = await harness.service.updatePolicy("admin-1", {
-    embeddingModelKey: "text-embedding-3-small",
-    retrievalModelKey: "gpt-4.1-mini"
-  });
+  const result = await harness.service.updatePolicy(
+    "admin-1",
+    {
+      embeddingModelKey: "text-embedding-3-small",
+      retrievalModelKey: "gpt-4.1-mini"
+    },
+    "step-up-token"
+  );
 
   assert.equal(result.configGeneration, 42);
   assert.equal(result.policy.embeddingModelKey, "text-embedding-3-small");
+  assert.equal(result.policy.embeddingChangeImpact?.affectedSourceCount, 2);
+  assert.equal(result.policy.embeddingChangeImpact?.alreadyIndexedSourceCount, 3);
+  assert.equal("candidates" in (result.policy.embeddingChangeImpact?.sources[0] ?? {}), false);
+  assert.equal(harness.dangerousActions.length, 1);
   assert.deepEqual(harness.rolloutRequests, [
     {
       actorUserId: "admin-1",
@@ -138,25 +165,89 @@ async function runPolicyBackfill(): Promise<void> {
     ]
   );
   assert.deepEqual((harness.audits[0]?.details as Row).embeddingBackfill, {
-    productSourceCount: 1,
-    skillDocumentCount: 1
+    alreadyIndexedSourceCount: 3,
+    affectedSourceCount: 2,
+    affectedChunkCount: 10,
+    affectedBytes: 3600,
+    bySource: [
+      {
+        sourceType: "global_knowledge_source",
+        affectedSourceCount: 1,
+        totalChunks: 4,
+        totalBytes: 1200
+      },
+      {
+        sourceType: "skill_document",
+        affectedSourceCount: 1,
+        totalChunks: 6,
+        totalBytes: 2400
+      }
+    ]
   });
 }
 
 async function runNullPolicyDoesNotBackfill(): Promise<void> {
   const harness = createHarness();
-  await harness.service.updatePolicy("admin-1", {
-    embeddingModelKey: null,
-    retrievalModelKey: null
-  });
+  await harness.service.updatePolicy(
+    "admin-1",
+    {
+      embeddingModelKey: null,
+      retrievalModelKey: null
+    },
+    "step-up-token"
+  );
   assert.equal(harness.updates.length, 0);
   assert.equal(harness.jobs.length, 0);
   assert.equal(harness.rolloutRequests.length, 1);
 }
 
+async function runGetPolicyDoesNotFabricateDisableImpact(): Promise<void> {
+  const harness = createHarness({ embeddingModelKey: "text-embedding-3-small" });
+  const policy = await harness.service.getPolicy("admin-1");
+  assert.equal(policy.embeddingModelKey, "text-embedding-3-small");
+  assert.equal(policy.embeddingChangeImpact, null);
+  assert.equal(harness.jobs.length, 0);
+  assert.equal(harness.dangerousActions.length, 0);
+}
+
+async function runPreviewShowsProposedImpact(): Promise<void> {
+  const harness = createHarness({ embeddingModelKey: "text-embedding-3-small" });
+  const impact = await harness.service.previewEmbeddingChange("admin-1", {
+    embeddingModelKey: "text-embedding-3-large"
+  });
+  assert.equal(impact.fromEmbeddingModelKey, "text-embedding-3-small");
+  assert.equal(impact.toEmbeddingModelKey, "text-embedding-3-large");
+  assert.equal(impact.requiresDangerousConfirmation, true);
+  assert.equal(impact.affectedSourceCount, 2);
+  assert.equal(impact.alreadyIndexedSourceCount, 3);
+  assert.equal("candidates" in (impact.sources[0] ?? {}), false);
+  assert.equal(JSON.stringify(impact).includes("global-source-1"), false);
+  assert.equal(JSON.stringify(impact).includes("workspace-1"), false);
+  assert.equal(harness.jobs.length, 0);
+  assert.equal(harness.dangerousActions.length, 0);
+}
+
+async function runSameModelSaveDoesNotRequireDangerousConfirmation(): Promise<void> {
+  const harness = createHarness({ embeddingModelKey: "text-embedding-3-small" });
+  const result = await harness.service.updatePolicy(
+    "admin-1",
+    {
+      embeddingModelKey: "text-embedding-3-small",
+      retrievalModelKey: "gpt-4.1-mini"
+    },
+    null
+  );
+  assert.equal(result.policy.embeddingChangeImpact, null);
+  assert.equal(harness.dangerousActions.length, 0);
+  assert.equal(harness.jobs.length, 0);
+}
+
 async function main(): Promise<void> {
+  await runGetPolicyDoesNotFabricateDisableImpact();
+  await runPreviewShowsProposedImpact();
   await runPolicyBackfill();
   await runNullPolicyDoesNotBackfill();
+  await runSameModelSaveDoesNotRequireDangerousConfirmation();
 }
 
 void main();

@@ -1778,15 +1778,19 @@ export class ReadAssistantKnowledgeService {
         });
       }
 
-      const queryEmbedding =
-        !retrievalPolicy.embeddingSearchEnabled || embeddingModelKey === null
-          ? null
-          : ((
-              await this.knowledgeEmbeddingService.generateEmbeddings({
-                modelKey: embeddingModelKey,
-                texts: [normalizedQuery]
-              })
-            ).embeddings[0] ?? null);
+      let queryEmbedding: number[] | null = null;
+      if (retrievalPolicy.embeddingSearchEnabled && embeddingModelKey !== null) {
+        try {
+          queryEmbedding = ((
+            await this.knowledgeEmbeddingService.generateEmbeddings({
+              modelKey: embeddingModelKey,
+              texts: [normalizedQuery]
+            })
+          ).embeddings[0] ?? null) as number[] | null;
+        } catch {
+          queryEmbedding = null;
+        }
+      }
       retrievalMode = queryEmbedding === null ? "lexical" : "hybrid";
       if (queryEmbedding !== null && embeddingModelKey !== null) {
         const vectorRows = (await this.prisma.assistantKnowledgeSourceChunk.findMany({

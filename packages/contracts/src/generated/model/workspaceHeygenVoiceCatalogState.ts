@@ -4,9 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { WorkspaceHeygenVoiceCatalogStateProvider } from "./workspaceHeygenVoiceCatalogStateProvider";
 import type { WorkspaceHeygenVoiceCatalogEntry } from "./workspaceHeygenVoiceCatalogEntry";
 
 export interface WorkspaceHeygenVoiceCatalogState {
-  provider: "heygen";
+  provider: WorkspaceHeygenVoiceCatalogStateProvider;
   voices: WorkspaceHeygenVoiceCatalogEntry[];
 }

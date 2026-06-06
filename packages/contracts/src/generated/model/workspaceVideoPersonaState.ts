@@ -6,12 +6,11 @@
  */
 
 /**
- * User-facing persona shape. Provider-internal fields (heygenAvatarId, raw
- * voice keys) are intentionally absent and must never appear on the public
- * wire contract per ADR-109 invariant #5.
+ * User-facing persona shape. Provider-internal fields (avatar ID, voice ID raw key) are intentionally absent — they must never appear on the public wire contract.
  */
 export interface WorkspaceVideoPersonaState {
   id: string;
+  /** @maxLength 80 */
   displayName: string;
   portraitImageUrl: string;
   heygenVoiceId: string;

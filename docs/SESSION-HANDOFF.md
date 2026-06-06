@@ -2,6 +2,77 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-06 - ADR-110 Slice 1: Admin Knowledge owns embedding model truth
+
+### Baseline
+
+- Starting SHA: `469e2a36efa9a5651a830f9406d229c08cb5470e`
+
+### What changed & why
+
+ADR-110 Slice 1 replaces the old active embedding-model truth instead of layering a second path beside it. The product decision for this slice is now enforced in code: Admin Knowledge is the single active owner of embedding model selection, while Plans keep only retrieval-shape limits and helper knobs.
+
+This slice landed four bounded changes together so the truth change is honest end-to-end:
+
+1. Removed plan-owned `embeddingModelKey` from active plan types, plan writes, contracts, and the Admin Plans UI.
+2. Switched assistant-owned knowledge embedding/index/search resolution to `adminKnowledgeRetrievalPolicy.embeddingModelKey` via `KnowledgeModelPolicyService`, instead of plan billing hints.
+3. Preserved graceful-off behavior in assistant knowledge search: when Admin Knowledge embedding is unset, or same-model embedding generation fails at query time, search falls back to lexical mode instead of erroring.
+4. Expanded Admin Knowledge embedding-change handling so operators can see impact before changing models and the system can reindex every affected source type honestly.
+
+The Admin Knowledge policy path now returns `embeddingChangeImpact` with total affected sources/chunks/bytes plus per-source-type breakdown. Changing the embedding model is treated as a dangerous admin action requiring step-up confirmation, and the backfill queue now covers:
+
+- global uploaded Product KB sources
+- Product KB text entries
+- Skill documents
+- Skill knowledge cards
+- assistant-uploaded knowledge
+
+Sources already indexed with the selected model remain a no-op and are counted separately from affected sources.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/admin-authorization.service.ts`
+- `apps/api/src/modules/workspace-management/application/admin-knowledge-retrieval-policy.ts`
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
+- `apps/api/src/modules/workspace-management/application/knowledge-model-policy.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-knowledge-retrieval-policy.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/read-assistant-knowledge.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-knowledge-sources.controller.ts`
+- `apps/api/test/manage-admin-knowledge-retrieval-policy.service.test.ts`
+- `apps/web/app/admin/knowledge/page.test.tsx`
+- `apps/web/app/admin/plans/page.test.tsx`
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/**` (regenerated contract/types surface)
+- `docs/CHANGELOG.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx app/admin/knowledge/page.test.tsx --config vitest.config.ts` - PASS
+- `corepack pnpm contracts:generate` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-knowledge-retrieval-policy.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+
+### Risks / residuals
+
+- This slice removes plan-owned embedding truth from active code paths and contracts, but any legacy persisted `billingProviderHints.embeddingModelKey` values may still exist in old JSON rows until a later cleanup/backfill migration removes dead persisted data. The active runtime/control-plane path no longer reads that field.
+- `contracts:generate` regenerated a wider set of contract files than the ADR-110 slice-specific surface because Orval re-emits neighboring generated models; those generated changes were kept as generated output, not hand-maintained compatibility shims.
+
+### Next recommended step
+
+Proceed to the next ADR-110 slice that consumes this new single-source-of-truth foundation: remove any remaining dead persisted/read-model traces of plan-owned embedding selection, tighten Admin Knowledge UI around impact/progress if operators need more rollout visibility, and verify the end-to-end reindex flow on real data after deploy.
+
 ## 2026-06-06 - ADR-109 Characters edit flow: shared modal, locked avatar identity
 
 ### Baseline

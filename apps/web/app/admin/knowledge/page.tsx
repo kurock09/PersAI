@@ -23,11 +23,14 @@ import {
   getAdminKnowledgeRetrievalPolicy,
   getAdminRuntimeProviderSettings,
   getAdminKnowledgeSources,
+  issueAdminStepUpToken,
+  previewAdminKnowledgeEmbeddingChange,
   reindexAdminProductKnowledgeTextEntry,
   reindexAdminKnowledgeSource,
   updateAdminProductKnowledgeTextEntry,
   updateAdminKnowledgeRetrievalPolicy,
   uploadAdminKnowledgeSource,
+  type AdminKnowledgeEmbeddingChangeImpactState,
   type AdminKnowledgeConnectorState,
   type AdminKnowledgeObservabilityState,
   type AdminKnowledgeRetrievalPolicyState,
@@ -300,6 +303,9 @@ export default function AdminKnowledgePage() {
   const [uploading, setUploading] = useState(false);
   const [savingTextEntry, setSavingTextEntry] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
+  const [embeddingChangeImpact, setEmbeddingChangeImpact] =
+    useState<AdminKnowledgeEmbeddingChangeImpactState | null>(null);
+  const [awaitingEmbeddingConfirmation, setAwaitingEmbeddingConfirmation] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyTextEntryId, setBusyTextEntryId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -340,6 +346,8 @@ export default function AdminKnowledgePage() {
       setObservability(nextObservability);
       setConnectors(nextConnectors);
       setRetrievalPolicy(nextRetrievalPolicy);
+      setEmbeddingChangeImpact(null);
+      setAwaitingEmbeddingConfirmation(false);
       setEmbeddingModelDraft(nextRetrievalPolicy.embeddingModelKey ?? "");
       setRetrievalModelDraft(nextRetrievalPolicy.retrievalModelKey ?? "");
       setAuthoringModelDraft(nextRetrievalPolicy.authoringModelKey ?? "");
@@ -377,6 +385,11 @@ export default function AdminKnowledgePage() {
   useEffect(() => {
     setTextEntryDraft(productTextEntryToDraft(selectedTextEntry));
   }, [selectedTextEntry]);
+
+  useEffect(() => {
+    setEmbeddingChangeImpact(null);
+    setAwaitingEmbeddingConfirmation(false);
+  }, [embeddingModelDraft]);
 
   const totalBytes = useMemo(
     () => sources.reduce((sum, source) => sum + source.sizeBytes, 0),
@@ -525,6 +538,38 @@ export default function AdminKnowledgePage() {
     [getToken, load]
   );
 
+  const buildRetrievalPolicyPayload = useCallback(() => {
+    const summaryChars = Number.parseInt(smartSearchLongDocSummaryCharsDraft.trim(), 10);
+    const fullModeChars = Number.parseInt(fetchFullModeAbsoluteMaxCharsDraft.trim(), 10);
+    const fullModeMessages = Number.parseInt(fetchFullModeAbsoluteMaxChatMessagesDraft.trim(), 10);
+    if (!Number.isInteger(summaryChars) || summaryChars <= 0) {
+      throw new Error("Long-doc summary chars must be a positive integer.");
+    }
+    if (!Number.isInteger(fullModeChars) || fullModeChars <= 0) {
+      throw new Error("Fetch full mode absolute max chars must be a positive integer.");
+    }
+    if (!Number.isInteger(fullModeMessages) || fullModeMessages <= 0) {
+      throw new Error("Fetch full mode absolute max chat messages must be a positive integer.");
+    }
+    return {
+      embeddingModelKey: embeddingModelDraft.trim() || null,
+      retrievalModelKey: retrievalModelDraft.trim() || null,
+      authoringModelKey: authoringModelDraft.trim() || null,
+      smartSearchEnabled: smartSearchEnabledDraft,
+      smartSearchLongDocSummaryChars: summaryChars,
+      fetchFullModeAbsoluteMaxChars: fullModeChars,
+      fetchFullModeAbsoluteMaxChatMessages: fullModeMessages
+    };
+  }, [
+    authoringModelDraft,
+    embeddingModelDraft,
+    fetchFullModeAbsoluteMaxCharsDraft,
+    fetchFullModeAbsoluteMaxChatMessagesDraft,
+    retrievalModelDraft,
+    smartSearchEnabledDraft,
+    smartSearchLongDocSummaryCharsDraft
+  ]);
+
   const handleSaveRetrievalPolicy = useCallback(async () => {
     const token = await getToken();
     if (!token) {
@@ -533,31 +578,30 @@ export default function AdminKnowledgePage() {
     setSavingPolicy(true);
     setFeedback(null);
     try {
-      const summaryChars = Number.parseInt(smartSearchLongDocSummaryCharsDraft.trim(), 10);
-      const fullModeChars = Number.parseInt(fetchFullModeAbsoluteMaxCharsDraft.trim(), 10);
-      const fullModeMessages = Number.parseInt(
-        fetchFullModeAbsoluteMaxChatMessagesDraft.trim(),
-        10
-      );
-      if (!Number.isInteger(summaryChars) || summaryChars <= 0) {
-        throw new Error("Long-doc summary chars must be a positive integer.");
+      const payload = buildRetrievalPolicyPayload();
+      const embeddingChanged = retrievalPolicy?.embeddingModelKey !== payload.embeddingModelKey;
+      if (embeddingChanged && !awaitingEmbeddingConfirmation) {
+        const impact = await previewAdminKnowledgeEmbeddingChange(token, {
+          embeddingModelKey: payload.embeddingModelKey
+        });
+        setEmbeddingChangeImpact(impact);
+        setAwaitingEmbeddingConfirmation(true);
+        setFeedback(
+          "Review the embedding reindex impact below, then confirm to save this model change."
+        );
+        setSavingPolicy(false);
+        return;
       }
-      if (!Number.isInteger(fullModeChars) || fullModeChars <= 0) {
-        throw new Error("Fetch full mode absolute max chars must be a positive integer.");
-      }
-      if (!Number.isInteger(fullModeMessages) || fullModeMessages <= 0) {
-        throw new Error("Fetch full mode absolute max chat messages must be a positive integer.");
-      }
-      const nextPolicy = await updateAdminKnowledgeRetrievalPolicy(token, {
-        embeddingModelKey: embeddingModelDraft.trim() || null,
-        retrievalModelKey: retrievalModelDraft.trim() || null,
-        authoringModelKey: authoringModelDraft.trim() || null,
-        smartSearchEnabled: smartSearchEnabledDraft,
-        smartSearchLongDocSummaryChars: summaryChars,
-        fetchFullModeAbsoluteMaxChars: fullModeChars,
-        fetchFullModeAbsoluteMaxChatMessages: fullModeMessages
+      const stepUpToken =
+        embeddingChanged && awaitingEmbeddingConfirmation
+          ? await issueAdminStepUpToken(token, "admin.knowledge_retrieval_policy.update")
+          : null;
+      const nextPolicy = await updateAdminKnowledgeRetrievalPolicy(token, payload, {
+        stepUpToken
       });
       setRetrievalPolicy(nextPolicy);
+      setEmbeddingChangeImpact(null);
+      setAwaitingEmbeddingConfirmation(false);
       setEmbeddingModelDraft(nextPolicy.embeddingModelKey ?? "");
       setRetrievalModelDraft(nextPolicy.retrievalModelKey ?? "");
       setAuthoringModelDraft(nextPolicy.authoringModelKey ?? "");
@@ -568,21 +612,17 @@ export default function AdminKnowledgePage() {
         String(nextPolicy.fetchFullModeAbsoluteMaxChatMessages)
       );
       setFeedback(
-        "Admin retrieval policy saved. Reindex Product KB and Skill documents to refresh embeddings."
+        "Admin retrieval policy saved. Embedding backfill is queued when the embedding model changed."
       );
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to save retrieval policy.");
     }
     setSavingPolicy(false);
   }, [
-    authoringModelDraft,
-    embeddingModelDraft,
-    fetchFullModeAbsoluteMaxCharsDraft,
-    fetchFullModeAbsoluteMaxChatMessagesDraft,
+    awaitingEmbeddingConfirmation,
+    buildRetrievalPolicyPayload,
     getToken,
-    retrievalModelDraft,
-    smartSearchEnabledDraft,
-    smartSearchLongDocSummaryCharsDraft
+    retrievalPolicy?.embeddingModelKey
   ]);
 
   return (
@@ -650,7 +690,7 @@ export default function AdminKnowledgePage() {
             className="inline-flex items-center gap-2 rounded-xl bg-accent px-3 py-2 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
           >
             {savingPolicy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            Save models
+            {awaitingEmbeddingConfirmation ? "Confirm model change" : "Save models"}
           </button>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
@@ -693,6 +733,75 @@ export default function AdminKnowledgePage() {
             {retrievalPolicy.notes.map((note) => (
               <p key={note}>{note}</p>
             ))}
+          </div>
+        ) : null}
+        {embeddingChangeImpact !== null ? (
+          <div className="mt-4 rounded-xl border border-warning/40 bg-warning/10 p-3 text-xs text-text">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-text">Confirm embedding model reindex</h3>
+                <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-text-muted">
+                  Changing from{" "}
+                  <code>{embeddingChangeImpact.fromEmbeddingModelKey ?? "vector search off"}</code>{" "}
+                  to <code>{embeddingChangeImpact.toEmbeddingModelKey ?? "vector search off"}</code>{" "}
+                  will update Admin Knowledge embedding truth and may queue reindex jobs.
+                </p>
+              </div>
+              <div className="text-right text-[11px] text-text-muted">
+                {embeddingChangeImpact.vectorSearchWillBeDisabled
+                  ? "Vector search will be disabled."
+                  : "Vector search stays enabled."}
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-4">
+              <div className="rounded-lg border border-border/60 bg-background px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-text-subtle">Sources</div>
+                <div className="mt-1 text-sm font-semibold text-text">
+                  {embeddingChangeImpact.affectedSourceCount}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-background px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-text-subtle">Chunks</div>
+                <div className="mt-1 text-sm font-semibold text-text">
+                  {embeddingChangeImpact.affectedChunkCount}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-background px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-text-subtle">Bytes</div>
+                <div className="mt-1 text-sm font-semibold text-text">
+                  {formatBytes(embeddingChangeImpact.affectedBytes)}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-background px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-text-subtle">No-op</div>
+                <div className="mt-1 text-sm font-semibold text-text">
+                  {embeddingChangeImpact.alreadyIndexedSourceCount}
+                </div>
+              </div>
+            </div>
+            {embeddingChangeImpact.sources.length > 0 ? (
+              <div className="mt-3 space-y-1">
+                {embeddingChangeImpact.sources.map((source) => (
+                  <div
+                    key={source.sourceType}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-background px-3 py-2 text-[11px]"
+                  >
+                    <span className="font-medium text-text">{source.label}</span>
+                    <span className="text-text-muted">
+                      {source.affectedSourceCount} sources · {source.totalChunks} chunks ·{" "}
+                      {formatBytes(source.totalBytes)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-[11px] text-text-muted">
+                No existing sources need reindexing for this proposed embedding model.
+              </p>
+            )}
+            <p className="mt-3 text-[11px] font-medium text-warning">
+              Click “Confirm model change” to request step-up confirmation and save.
+            </p>
           </div>
         ) : null}
       </div>

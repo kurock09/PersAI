@@ -171,7 +171,7 @@ function getAuthHeaders(token: string): HeadersInit {
   };
 }
 
-async function issueAdminStepUpToken(
+export async function issueAdminStepUpToken(
   token: string,
   action: AdminDangerousActionCode
 ): Promise<string> {
@@ -4265,8 +4265,34 @@ export type AdminKnowledgeRetrievalPolicyState = {
   smartSearchLongDocSummaryChars: number;
   fetchFullModeAbsoluteMaxChars: number;
   fetchFullModeAbsoluteMaxChatMessages: number;
+  embeddingChangeImpact: {
+    fromEmbeddingModelKey: string | null;
+    toEmbeddingModelKey: string | null;
+    requiresDangerousConfirmation: boolean;
+    vectorSearchWillBeDisabled: boolean;
+    alreadyIndexedSourceCount: number;
+    affectedSourceCount: number;
+    affectedChunkCount: number;
+    affectedBytes: number;
+    sources: Array<{
+      sourceType:
+        | "assistant_knowledge_source"
+        | "global_knowledge_source"
+        | "product_knowledge_text_entry"
+        | "skill_document"
+        | "skill_knowledge_card";
+      label: string;
+      affectedSourceCount: number;
+      totalChunks: number;
+      totalBytes: number;
+    }>;
+  } | null;
   notes: string[];
 };
+
+export type AdminKnowledgeEmbeddingChangeImpactState = NonNullable<
+  AdminKnowledgeRetrievalPolicyState["embeddingChangeImpact"]
+>;
 
 export type SkillAuthoringDraftKnowledgeCardProposal = {
   title: string;
@@ -4670,6 +4696,7 @@ export async function getAdminKnowledgeRetrievalPolicy(
       smartSearchLongDocSummaryChars: 800,
       fetchFullModeAbsoluteMaxChars: 100_000,
       fetchFullModeAbsoluteMaxChatMessages: 800,
+      embeddingChangeImpact: null,
       notes: []
     }
   );
@@ -4685,12 +4712,18 @@ export async function updateAdminKnowledgeRetrievalPolicy(
     smartSearchLongDocSummaryChars: number;
     fetchFullModeAbsoluteMaxChars: number;
     fetchFullModeAbsoluteMaxChatMessages: number;
-  }
+  },
+  options?: { stepUpToken?: string | null }
 ): Promise<AdminKnowledgeRetrievalPolicyState> {
   const base = getApiBaseUrl();
+  const stepUpToken = options?.stepUpToken?.trim() || null;
   const res = await fetch(`${base}/admin/knowledge-sources/retrieval-policy`, {
     method: "POST",
-    headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
+    headers: {
+      ...getAuthHeaders(token),
+      "Content-Type": "application/json",
+      ...(stepUpToken !== null ? { "x-persai-step-up-token": stepUpToken } : {})
+    },
     body: JSON.stringify(input)
   });
   if (!res.ok) {
@@ -4701,6 +4734,29 @@ export async function updateAdminKnowledgeRetrievalPolicy(
     throw new Error("Admin retrieval policy response is missing policy.");
   }
   return data.policy;
+}
+
+export async function previewAdminKnowledgeEmbeddingChange(
+  token: string,
+  input: { embeddingModelKey: string | null }
+): Promise<AdminKnowledgeEmbeddingChangeImpactState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/admin/knowledge-sources/retrieval-policy/embedding-change-preview`,
+    {
+      method: "POST",
+      headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to preview embedding model change."));
+  }
+  const data = (await res.json()) as { impact?: AdminKnowledgeEmbeddingChangeImpactState };
+  if (data.impact === undefined) {
+    throw new Error("Embedding model impact response is missing impact.");
+  }
+  return data.impact;
 }
 
 export async function getAdminKnowledgeConnectors(

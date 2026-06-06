@@ -13,6 +13,7 @@ export const AdminDangerousActionCode = {
   adminplancreate: "admin.plan.create",
   adminplanupdate: "admin.plan.update",
   adminplandelete: "admin.plan.delete",
+  adminknowledge_retrieval_policyupdate: "admin.knowledge_retrieval_policy.update",
   adminbilling_lifecycle_settingsupdate: "admin.billing_lifecycle_settings.update",
   adminruntime_provider_settingsupdate: "admin.runtime_provider_settings.update",
   adminassistanttransfer_ownership: "admin.assistant.transfer_ownership",

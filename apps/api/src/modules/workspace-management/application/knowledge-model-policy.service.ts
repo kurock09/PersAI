@@ -84,9 +84,14 @@ export class KnowledgeModelPolicyService {
   ) {}
 
   async resolveAssistantEmbeddingModelKey(assistantId: string): Promise<string | null> {
-    const billingHints = await this.resolveAssistantPlanBillingHints(assistantId);
-    const value = billingHints?.embeddingModelKey;
-    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+    const assistant = await this.prisma.assistant.findUnique({
+      where: { id: assistantId },
+      select: { id: true }
+    });
+    if (assistant === null) {
+      return null;
+    }
+    return this.resolveAdminKnowledgeEmbeddingModelKey();
   }
 
   async resolveAssistantRetrievalModelKey(assistantId: string): Promise<string | null> {

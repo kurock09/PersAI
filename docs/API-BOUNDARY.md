@@ -152,7 +152,7 @@ Active boundary rules:
 - admin global-knowledge writes are platform-scoped and require a platform-scoped admin role
 - admin-managed Skill/Product/global KB uploads are not charged to a tenant workspace knowledge-storage quota; tenant quota remains for user-private assistant knowledge
 - upload/reindex creates DB-backed indexing jobs for Product sources; processing is source-agnostic and shares the ADR-079 worker path with assistant knowledge and Skill documents
-- `/admin/knowledge` owns the admin Product/Skill KB retrieval and authoring model slots (`embeddingModelKey`, `retrievalModelKey`, `authoringModelKey`); user-uploaded assistant knowledge remains plan-slot owned
+- `/admin/knowledge` owns the active Knowledge model truth for Product KB, Skill KB, and assistant-uploaded knowledge embeddings. `embeddingModelKey`, `retrievalModelKey`, and `authoringModelKey` live on the admin knowledge retrieval policy; plan payloads no longer own an `embeddingModelKey`
 - retrieval observability is a durable API surface, not a process-local debug cache
 - ADR-080 Product KB text entries are admin-authored Knowledge sources, not user Files; save/activate is explicit and indexing remains async through the existing jobs
 - Product KB is the model-facing product knowledge concept and is platform-wide. Product Overview and Product Principles are single Product KB text entries visible in `/admin/knowledge`; runtime retrieval must not inject separate hard-coded product overview/principle documents. Pricing, plans, quotas, and plan differences remain sourced from the plan/subscription catalog and current workspace subscription state.

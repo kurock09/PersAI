@@ -640,8 +640,7 @@ export class ManageAdminPlansService {
       input.premiumModelKey,
       input.reasoningModelKey,
       input.systemToolModelKey,
-      input.retrievalModelKey,
-      input.embeddingModelKey
+      input.retrievalModelKey
     ]);
     await this.assertCapabilityModelKeysAvailable([
       { modelKey: input.imageGenerateModelKey, capability: "image" },
@@ -718,8 +717,7 @@ export class ManageAdminPlansService {
       mergedInput.premiumModelKey,
       mergedInput.reasoningModelKey,
       mergedInput.systemToolModelKey,
-      mergedInput.retrievalModelKey,
-      mergedInput.embeddingModelKey
+      mergedInput.retrievalModelKey
     ]);
     await this.assertCapabilityModelKeysAvailable([
       { modelKey: mergedInput.imageGenerateModelKey, capability: "image" },
@@ -957,7 +955,6 @@ export class ManageAdminPlansService {
       reasoningModelKey: toNormalizedNonEmptyModelKey(parsed.reasoningModelKey),
       systemToolModelKey: toNormalizedNonEmptyModelKey(parsed.systemToolModelKey),
       retrievalModelKey: toNormalizedNonEmptyModelKey(parsed.retrievalModelKey),
-      embeddingModelKey: toNormalizedNonEmptyModelKey(parsed.embeddingModelKey),
       imageGenerateModelKey: parseOptionalPlanModelKey(
         parsed.imageGenerateModelKey,
         "imageGenerateModelKey"
@@ -1135,7 +1132,6 @@ export class ManageAdminPlansService {
           ? { systemToolModelKey: input.systemToolModelKey }
           : {}),
         ...(input.retrievalModelKey !== null ? { retrievalModelKey: input.retrievalModelKey } : {}),
-        ...(input.embeddingModelKey !== null ? { embeddingModelKey: input.embeddingModelKey } : {}),
         ...(input.imageGenerateModelKey !== null
           ? { imageGenerateModelKey: input.imageGenerateModelKey }
           : {}),
@@ -1571,7 +1567,6 @@ export class ManageAdminPlansService {
       reasoningModelKey: toNormalizedNonEmptyModelKey(billingHints.reasoningModelKey),
       systemToolModelKey: toNormalizedNonEmptyModelKey(billingHints.systemToolModelKey),
       retrievalModelKey: toNormalizedNonEmptyModelKey(billingHints.retrievalModelKey),
-      embeddingModelKey: toNormalizedNonEmptyModelKey(billingHints.embeddingModelKey),
       imageGenerateModelKey: toNormalizedNonEmptyModelKey(billingHints.imageGenerateModelKey),
       imageGenerateFallbackModelKey: toNormalizedNonEmptyModelKey(
         billingHints.imageGenerateFallbackModelKey

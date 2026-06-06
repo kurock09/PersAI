@@ -24,6 +24,7 @@ export type AdminKnowledgeRetrievalPolicyState = {
   smartSearchLongDocSummaryChars: number;
   fetchFullModeAbsoluteMaxChars: number;
   fetchFullModeAbsoluteMaxChatMessages: number;
+  embeddingChangeImpact: AdminKnowledgeEmbeddingChangeImpactState | null;
   notes: string[];
 };
 
@@ -35,6 +36,37 @@ export type UpdateAdminKnowledgeRetrievalPolicyInput = {
   smartSearchLongDocSummaryChars: number;
   fetchFullModeAbsoluteMaxChars: number;
   fetchFullModeAbsoluteMaxChatMessages: number;
+};
+
+export type PreviewAdminKnowledgeEmbeddingChangeInput = {
+  embeddingModelKey: string | null;
+};
+
+export type AdminKnowledgeEmbeddingBackfillSourceType =
+  | "assistant_knowledge_source"
+  | "global_knowledge_source"
+  | "product_knowledge_text_entry"
+  | "skill_document"
+  | "skill_knowledge_card";
+
+export type AdminKnowledgeEmbeddingBackfillImpactSourceState = {
+  sourceType: AdminKnowledgeEmbeddingBackfillSourceType;
+  label: string;
+  affectedSourceCount: number;
+  totalChunks: number;
+  totalBytes: number;
+};
+
+export type AdminKnowledgeEmbeddingChangeImpactState = {
+  fromEmbeddingModelKey: string | null;
+  toEmbeddingModelKey: string | null;
+  requiresDangerousConfirmation: boolean;
+  vectorSearchWillBeDisabled: boolean;
+  alreadyIndexedSourceCount: number;
+  affectedSourceCount: number;
+  affectedChunkCount: number;
+  affectedBytes: number;
+  sources: AdminKnowledgeEmbeddingBackfillImpactSourceState[];
 };
 
 export function parseUpdateAdminKnowledgeRetrievalPolicyInput(
@@ -68,6 +100,18 @@ export function parseUpdateAdminKnowledgeRetrievalPolicyInput(
       "fetchFullModeAbsoluteMaxChatMessages",
       DEFAULT_ADMIN_KNOWLEDGE_SMART_RETRIEVAL_LIMITS.fetchFullModeAbsoluteMaxChatMessages
     )
+  };
+}
+
+export function parsePreviewAdminKnowledgeEmbeddingChangeInput(
+  body: unknown
+): PreviewAdminKnowledgeEmbeddingChangeInput {
+  const row = asObject(body);
+  if (row === null) {
+    throw new Error("Request body must be an object.");
+  }
+  return {
+    embeddingModelKey: normalizeOptionalModelKey(row.embeddingModelKey, "embeddingModelKey")
   };
 }
 
@@ -128,6 +172,7 @@ export function buildAdminKnowledgeRetrievalPolicyState(input: {
   smartSearchLongDocSummaryChars: number;
   fetchFullModeAbsoluteMaxChars: number;
   fetchFullModeAbsoluteMaxChatMessages: number;
+  embeddingChangeImpact?: AdminKnowledgeEmbeddingChangeImpactState | null;
 }): AdminKnowledgeRetrievalPolicyState {
   return {
     schema: ADMIN_KNOWLEDGE_RETRIEVAL_POLICY_SCHEMA,
@@ -138,12 +183,13 @@ export function buildAdminKnowledgeRetrievalPolicyState(input: {
     smartSearchLongDocSummaryChars: input.smartSearchLongDocSummaryChars,
     fetchFullModeAbsoluteMaxChars: input.fetchFullModeAbsoluteMaxChars,
     fetchFullModeAbsoluteMaxChatMessages: input.fetchFullModeAbsoluteMaxChatMessages,
+    embeddingChangeImpact: input.embeddingChangeImpact ?? null,
     notes: [
-      "This policy applies to admin-owned Product KB documents and Skill documents.",
-      "User-uploaded assistant knowledge continues to use the assistant plan retrieval slots.",
+      "This policy applies to admin-owned Product KB, Skill KB, and assistant-uploaded knowledge embeddings.",
+      "Assistant knowledge retrieval limits still come from the effective plan retrieval policy; only embedding-model truth is unified here.",
       input.embeddingModelKey === null
-        ? "Admin-owned KB vector search is disabled until an embedding model is configured."
-        : `Admin-owned KB vector search uses ${input.embeddingModelKey}.`,
+        ? "Vector search is disabled until an Admin Knowledge embedding model is configured."
+        : `Admin Knowledge vector search uses ${input.embeddingModelKey}.`,
       input.retrievalModelKey === null
         ? "Admin-owned KB helper rerank is disabled until a retrieval helper model is configured."
         : `Admin-owned KB helper rerank uses ${input.retrievalModelKey}.`,

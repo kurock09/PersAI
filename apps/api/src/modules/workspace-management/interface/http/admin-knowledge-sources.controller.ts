@@ -17,7 +17,10 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import type { GlobalKnowledgeSourceState } from "../../application/assistant-knowledge-source.types";
-import type { AdminKnowledgeRetrievalPolicyState } from "../../application/admin-knowledge-retrieval-policy";
+import type {
+  AdminKnowledgeEmbeddingChangeImpactState,
+  AdminKnowledgeRetrievalPolicyState
+} from "../../application/admin-knowledge-retrieval-policy";
 import { ManageAdminKnowledgeRetrievalPolicyService } from "../../application/manage-admin-knowledge-retrieval-policy.service";
 import { ManageAdminKnowledgeSourcesService } from "../../application/manage-admin-knowledge-sources.service";
 import { ResolveAdminKnowledgeConnectorsService } from "../../application/resolve-admin-knowledge-connectors.service";
@@ -179,11 +182,36 @@ export class AdminKnowledgeSourcesController {
     const userId = this.resolveRequestUserId(req);
     const input = this.manageAdminKnowledgeRetrievalPolicyService.parseUpdateInput(body);
     const { policy, configGeneration } =
-      await this.manageAdminKnowledgeRetrievalPolicyService.updatePolicy(userId, input);
+      await this.manageAdminKnowledgeRetrievalPolicyService.updatePolicy(
+        userId,
+        input,
+        this.resolveStepUpToken(req)
+      );
     return {
       requestId: req.requestId ?? null,
       policy,
       configGeneration
+    };
+  }
+
+  @Post("retrieval-policy/embedding-change-preview")
+  async previewRetrievalPolicyEmbeddingChange(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    impact: AdminKnowledgeEmbeddingChangeImpactState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input =
+      this.manageAdminKnowledgeRetrievalPolicyService.parseEmbeddingChangePreviewInput(body);
+    const impact = await this.manageAdminKnowledgeRetrievalPolicyService.previewEmbeddingChange(
+      userId,
+      input
+    );
+    return {
+      requestId: req.requestId ?? null,
+      impact
     };
   }
 
@@ -243,5 +271,13 @@ export class AdminKnowledgeSourcesController {
       throw new UnauthorizedException("Authenticated user context is missing.");
     }
     return req.resolvedAppUser.id;
+  }
+
+  private resolveStepUpToken(req: RequestWithPlatformContext): string | null {
+    const header = req.headers["x-persai-step-up-token"];
+    if (Array.isArray(header)) {
+      return header[0] ?? null;
+    }
+    return typeof header === "string" ? header : null;
   }
 }

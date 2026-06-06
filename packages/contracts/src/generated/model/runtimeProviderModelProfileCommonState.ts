@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { RuntimeVideoModelKind } from "./runtimeVideoModelKind";
 import type { RuntimeProviderModelCapability } from "./runtimeProviderModelCapability";
 import type { RuntimeProviderModelProfileCommonStateVideoModelParameters } from "./runtimeProviderModelProfileCommonStateVideoModelParameters";
-import type { RuntimeVideoModelKind } from "./runtimeVideoModelKind";
 
 export interface RuntimeProviderModelProfileCommonState {
   model: string;
