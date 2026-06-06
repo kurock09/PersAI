@@ -17,7 +17,8 @@ import {
   Image as ImageIcon,
   CreditCard,
   FileOutput,
-  Coins
+  Coins,
+  RefreshCcw
 } from "lucide-react";
 import { ToolPathEconomicsPanel } from "./tool-path-economics-panel";
 import {
@@ -55,6 +56,9 @@ type AdminToolCredentialsState = {
   }>;
   ttsPrimaryProviderId: string;
   ttsPrimaryProviderOptions: ProviderOption[];
+  heygenVoiceCatalog?: {
+    refreshedAt: string | null;
+  };
   notes: string[];
 };
 
@@ -144,6 +148,7 @@ export default function AdminToolsPage() {
     null
   );
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [refreshingHeygenVoices, setRefreshingHeygenVoices] = useState(false);
   const [billingFeedback, setBillingFeedback] = useState<string | null>(null);
   const [documentProcessingFeedback, setDocumentProcessingFeedback] = useState<string | null>(null);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
@@ -301,6 +306,48 @@ export default function AdminToolsPage() {
     }
     setSaving(false);
   }, [getToken, keyInputs, providerInputs, ttsPrimaryProviderInput, state, load]);
+
+  const handleRefreshHeygenVoices = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    setRefreshingHeygenVoices(true);
+    setFeedback(null);
+    try {
+      const challengeRes = await fetch("/api/v1/admin/step-up/challenge", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ action: "admin.tool_credentials.update" })
+      });
+      if (!challengeRes.ok) throw new Error("Step-up challenge failed.");
+      const challengeData = await challengeRes.json();
+      const stepUpToken = challengeData.challenge?.token ?? challengeData.token;
+      const res = await fetch(
+        "/api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/refresh",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "x-persai-step-up-token": stepUpToken
+          }
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message ?? `Refresh failed: ${res.status}`);
+      }
+      const data = await res.json();
+      setState(data.credentials ?? data);
+      setFeedback("HeyGen voices refreshed.");
+    } catch (e) {
+      setFeedback(e instanceof Error ? e.message : "HeyGen voice refresh failed.");
+    } finally {
+      setRefreshingHeygenVoices(false);
+    }
+  }, [getToken]);
 
   const handleSaveBilling = useCallback(async () => {
     const token = await getToken();
@@ -1154,6 +1201,27 @@ export default function AdminToolsPage() {
                       existing OpenAI image/edit credential slot.
                     </p>
                   </div>
+                </div>
+                <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-surface-raised/30 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-text">HeyGen voice catalog</p>
+                    <p className="text-[11px] text-text-muted">
+                      Last refresh: {state.heygenVoiceCatalog?.refreshedAt ?? "not loaded yet"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleRefreshHeygenVoices()}
+                    disabled={refreshingHeygenVoices}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-[11px] font-medium text-text transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {refreshingHeygenVoices ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCcw className="h-3.5 w-3.5" />
+                    )}
+                    Refresh voices
+                  </button>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {pickCredentials(state.credentials, VIDEO_PROVIDER_CREDENTIAL_KEYS).map(

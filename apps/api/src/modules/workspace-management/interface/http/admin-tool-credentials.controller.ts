@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, Req, UnauthorizedException } from "@nestjs/common";
+import { Body, Controller, Get, Post, Put, Req, UnauthorizedException } from "@nestjs/common";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import { ManageAdminToolCredentialsService } from "../../application/manage-admin-tool-credentials.service";
 import type { AdminToolCredentialsState } from "../../application/tool-credential-settings";
@@ -35,6 +35,22 @@ export class AdminToolCredentialsController {
     const credentials = await this.manageAdminToolCredentialsService.updateCredentials(
       userId,
       input,
+      this.resolveStepUpToken(req)
+    );
+    return {
+      requestId: req.requestId ?? null,
+      credentials
+    };
+  }
+
+  @Post("heygen-voice-catalog/refresh")
+  async refreshHeygenVoiceCatalog(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    credentials: AdminToolCredentialsState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const credentials = await this.manageAdminToolCredentialsService.refreshHeygenVoiceCatalog(
+      userId,
       this.resolveStepUpToken(req)
     );
     return {

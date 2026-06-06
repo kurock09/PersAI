@@ -187,6 +187,80 @@ async function run(): Promise<void> {
       console.log("PASS: expired cache → triggers refresh + upsert");
     }
 
+    // ── Test 3b: Paginated HeyGen response → follows next_token and captures RU+EN ──
+    {
+      const seenUrls: string[] = [];
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        seenUrls.push(url);
+        if (url.includes("next_token=token-2")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  voice_id: "ru-RU-Anna",
+                  name: "Anna",
+                  language: "Russian",
+                  gender: "female"
+                }
+              ],
+              has_more: false
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                voice_id: "en-US-Amy",
+                name: "Amy",
+                language: "English",
+                gender: "female"
+              }
+            ],
+            has_more: true,
+            next_token: "token-2"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }) as typeof fetch;
+
+      const service = new HeyGenVoiceCatalogService(
+        {
+          platformHeygenVoiceCatalogCache: {
+            async findUnique() {
+              return null;
+            },
+            async upsert(input: Record<string, unknown>) {
+              return input;
+            }
+          }
+        } as never,
+        {
+          async resolveSecretValueById() {
+            return "heygen-test-api-key";
+          }
+        } as never
+      );
+
+      const catalog = await service.getMaterializedVoiceCatalog();
+      assert.ok(catalog);
+      assert.equal(catalog.shortlist.length, 2);
+      assert.ok(
+        catalog.shortlist.some((entry) => entry.providerVoiceId === "en-US-Amy"),
+        "must keep EN voice from first page"
+      );
+      assert.ok(
+        catalog.shortlist.some((entry) => entry.providerVoiceId === "ru-RU-Anna"),
+        "must keep RU voice from next page"
+      );
+      assert.equal(seenUrls.length, 2, "must fetch both pages");
+      assert.match(seenUrls[0] ?? "", /limit=20/);
+      assert.match(seenUrls[1] ?? "", /next_token=token-2/);
+      console.log("PASS: paginated response follows next_token and merges pages");
+    }
+
     // ── Test 4: Missing credentials → returns null (no throw) ──
     {
       globalThis.fetch = (async () => new Response("{}", { status: 200 })) as typeof fetch;

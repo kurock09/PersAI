@@ -2,6 +2,61 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-06 - ADR-109 voice catalog split: short model hint + full UI catalog + admin refresh
+
+### What changed & why
+
+The next operator correction after the Characters UI polish was architectural, not cosmetic: the same HeyGen voice list was being reused for two very different consumers. That created a direct product conflict:
+
+1. The runtime/model-facing `talking_avatar` instruction must stay short to avoid wasting tokens. The operator explicitly wanted the model to see only a compact balanced set (`10 EN + 10 RU`, ideally split male/female) when it auto-selects a voice.
+2. The human-facing Characters create-persona UI must **not** inherit that truncation. Operators need the full HeyGen catalog there so they can scroll, preview, and choose any voice comfortably, including non-EN/RU rows.
+
+This slice separates those concerns cleanly:
+
+- `HeyGenVoiceCatalogService` now follows HeyGen `v3/voices` pagination (`next_token`) during refresh, dedupes the **full** provider catalog into the shared cache, and only derives the prompt-safe shortlist when materializing runtime-facing `RuntimeVideoVoiceCatalog`.
+- The workspace UI reader (`read-heygen-voice-catalog-for-workspace.service.ts`) now reads the full cached catalog instead of the runtime shortlist, so the create-persona modal is no longer silently capped by model-token concerns.
+- The runtime `video_generate` tool description now uses a dedicated talking-avatar hint rather than reusing the cinematic `voice_control` list. The hint stays concise and explicitly says the shortlist is a `10 EN + 10 RU` balanced target for auto-selection.
+- Admin Tools gained a single quiet `Refresh voices` action plus `Last refresh` timestamp, so operators can force a HeyGen sync without waiting for the 24h cache TTL.
+- In the create-persona UI, the `OTHER` language bucket now reveals an inline language-search field on the right path, so non-EN/RU catalogs stay usable without adding visual noise to the default `RU | EN` paths.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/heygen/heygen-voice-catalog.service.ts`
+- `apps/api/src/modules/workspace-management/application/heygen/read-heygen-voice-catalog-for-workspace.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts`
+- `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-tool-credentials.controller.ts`
+- `apps/api/test/heygen-voice-catalog.service.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `apps/web/app/admin/tools/page.tsx`
+- `apps/web/app/admin/tools/page.test.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/assistant-settings.test.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `pnpm exec tsx apps/api/test/heygen-voice-catalog.service.test.ts` - PASS
+- `pnpm --filter @persai/runtime test -- native-tool-projection.test.ts` - PASS
+- `pnpm --filter @persai/web test -- app/admin/tools/page.test.tsx app/app/_components/assistant-settings.test.tsx` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+
+### Risks / residuals
+
+- The direct `pnpm --filter @persai/api test -- heygen-voice-catalog.service.test.ts` wrapper still fans out through the repo's shared API suite runner, so the most trustworthy focused signal for this slice is the direct file execution `pnpm exec tsx apps/api/test/heygen-voice-catalog.service.test.ts`, which passed after the final refactor.
+- The Admin Tools refresh action currently reuses the existing dangerous-admin step-up action (`admin.tool_credentials.update`) instead of introducing a second narrow action code. This keeps the surface small, but if operators later want a weaker auth boundary for refresh-only, that can be split in a follow-up.
+
+### Next recommended step
+
+Deploy this HeyGen voice-catalog split and validate one real workspace on dev: confirm the create-persona modal shows many more than 20 voices, `OTHER` language search works for a non-EN/RU query, and a fresh admin-triggered refresh pulls RU voices into the UI without changing the short talking-avatar prompt surface.
+
 ## 2026-06-06 - ADR-109 Characters UI polish + voice-filter truth-hardening
 
 ### What changed & why

@@ -3081,7 +3081,7 @@ describe("characters section", () => {
     });
   });
 
-  it("Create flow: EN filter still shows voices when API language is human-readable 'English', and OTHER filter is available", async () => {
+  it("Create flow: EN filter still shows human-readable English, and OTHER supports language search", async () => {
     assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
       personas: [],
       limit: 3,
@@ -3141,6 +3141,23 @@ describe("characters section", () => {
       expect(within(dialog).getByText("Carlos")).toBeInTheDocument();
       expect(within(dialog).queryByText("Allison")).toBeNull();
       expect(within(dialog).queryByText("Boris")).toBeNull();
+    });
+
+    fireEvent.change(within(dialog).getByPlaceholderText("Search language, e.g. Spanish"), {
+      target: { value: "span" }
+    });
+    await waitFor(() => {
+      expect(within(dialog).getByText("Carlos")).toBeInTheDocument();
+    });
+
+    fireEvent.change(within(dialog).getByPlaceholderText("Search language, e.g. Spanish"), {
+      target: { value: "italian" }
+    });
+    await waitFor(() => {
+      expect(
+        within(dialog).getByText("No voices found for this language search.")
+      ).toBeInTheDocument();
+      expect(within(dialog).queryByText("Carlos")).toBeNull();
     });
   });
 

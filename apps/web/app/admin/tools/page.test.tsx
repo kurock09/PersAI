@@ -85,6 +85,9 @@ const credentialsPayload = {
   documentProviderConfigs: [],
   ttsPrimaryProviderId: "elevenlabs",
   ttsPrimaryProviderOptions: [],
+  heygenVoiceCatalog: {
+    refreshedAt: "2026-06-06T10:00:00.000Z"
+  },
   notes: []
 };
 
@@ -144,6 +147,19 @@ describe("AdminToolsPage economics", () => {
       }
       if (url.endsWith("/api/v1/admin/step-up/challenge")) {
         return jsonResponse({ challenge: { token: "step-up-token" } });
+      }
+      if (
+        url.endsWith("/api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/refresh") &&
+        init?.method === "POST"
+      ) {
+        return jsonResponse({
+          credentials: {
+            ...credentialsPayload,
+            heygenVoiceCatalog: {
+              refreshedAt: "2026-06-06T11:00:00.000Z"
+            }
+          }
+        });
       }
       if (url.endsWith("/api/v1/admin/tools/economics") && init?.method === "PUT") {
         return jsonResponse({
@@ -220,5 +236,27 @@ describe("AdminToolsPage economics", () => {
     const input = card?.querySelector("input");
     expect(input).toBeTruthy();
     expect(input?.getAttribute("placeholder")).toBe("Enter API key...");
+  });
+
+  it("refreshes the HeyGen voice catalog from the admin tools surface", async () => {
+    render(<AdminToolsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Refresh voices" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh voices" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("HeyGen voices refreshed.")).toBeTruthy();
+    });
+
+    const refreshCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith(
+          "/api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/refresh"
+        ) && init?.method === "POST"
+    );
+    expect(refreshCall).toBeTruthy();
   });
 });

@@ -1056,6 +1056,16 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /masha_voice/,
     "Slice 10: voice key from shortlist must appear in description"
   );
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /Available talking-avatar voiceKeys shortlist/,
+    "Slice 10: talking-avatar should expose its own short voice shortlist hint"
+  );
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /up to 10 EN and 10 RU voices, balanced across female\/male/,
+    "Slice 10: talking-avatar hint should explain the 10 EN + 10 RU balanced target"
+  );
 
   // Case 2: talkingVideoEnabled=true + empty videoPersonaCatalog
   const slice10EmptyPersonasBundle = makeHeygenTalkingBundle({

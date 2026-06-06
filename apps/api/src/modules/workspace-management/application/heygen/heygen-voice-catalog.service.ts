@@ -13,6 +13,8 @@ const HEYGEN_VOICE_CACHE_KEY = "heygen-voices";
 const HEYGEN_VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const HEYGEN_VOICE_SHORTLIST_LIMIT = 24;
 const PREFERRED_VOICE_LANGUAGES = ["ru", "en"] as const;
+const HEYGEN_VOICE_PAGE_LIMIT = 20;
+const HEYGEN_VOICE_MAX_PAGES = 20;
 
 type CachedVoiceCatalogRow = {
   voices: RuntimeVideoVoiceCatalogEntry[];
@@ -29,18 +31,27 @@ export class HeyGenVoiceCatalogService {
   ) {}
 
   async getMaterializedVoiceCatalog(): Promise<RuntimeVideoVoiceCatalog | null> {
+    return this.toCatalog(await this.ensureFreshCacheRow());
+  }
+
+  async getFullVoiceCatalogEntries(): Promise<RuntimeVideoVoiceCatalogEntry[]> {
+    const row = await this.ensureFreshCacheRow();
+    return row?.voices ?? [];
+  }
+
+  async forceRefreshVoiceCatalog(): Promise<RuntimeVideoVoiceCatalog | null> {
+    return this.toCatalog(await this.refreshVoiceCatalog());
+  }
+
+  private async ensureFreshCacheRow(): Promise<CachedVoiceCatalogRow | null> {
     const cached = await this.readCacheRow();
     if (cached !== null && !this.isExpired(cached.fetchedAt)) {
-      return {
-        provider: "heygen",
-        fetchedAt: cached.fetchedAt.toISOString(),
-        shortlist: cached.voices
-      };
+      return cached;
     }
     return this.refreshVoiceCatalog();
   }
 
-  private async refreshVoiceCatalog(): Promise<RuntimeVideoVoiceCatalog | null> {
+  private async refreshVoiceCatalog(): Promise<CachedVoiceCatalogRow | null> {
     const apiKey = await this.platformRuntimeProviderSecretStoreService
       .resolveSecretValueById(TOOL_CREDENTIAL_IDS.tool_video_generate_heygen)
       .catch(() => null);
@@ -48,79 +59,84 @@ export class HeyGenVoiceCatalogService {
       this.logger.warn(
         "[heygen-voice-catalog] HeyGen API key is not configured; voice catalog is empty."
       );
-      return this.toCatalog(await this.readCacheRow());
+      return this.readCacheRow();
     }
 
     try {
-      const shortlist = await this.fetchVoiceCatalog(apiKey.trim());
-      if (shortlist.length === 0) {
-        this.logger.warn("[heygen-voice-catalog] refresh returned an empty shortlist.");
-        return this.toCatalog(await this.readCacheRow());
+      const voices = await this.fetchVoiceCatalog(apiKey.trim());
+      if (voices.length === 0) {
+        this.logger.warn("[heygen-voice-catalog] refresh returned an empty voice catalog.");
+        return this.readCacheRow();
       }
       const fetchedAt = new Date();
       await this.prisma.platformHeygenVoiceCatalogCache.upsert({
         where: { cacheKey: HEYGEN_VOICE_CACHE_KEY },
         create: {
           cacheKey: HEYGEN_VOICE_CACHE_KEY,
-          voicesJson: shortlist as never,
+          voicesJson: voices as never,
           fetchedAt
         },
         update: {
-          voicesJson: shortlist as never,
+          voicesJson: voices as never,
           fetchedAt
         }
       });
+      const shortlist = this.buildShortlist(voices);
       this.logger.log(
-        `[heygen-voice-catalog] refreshed shortlist count=${String(shortlist.length)} fetchedAt=${fetchedAt.toISOString()}`
+        `[heygen-voice-catalog] refreshed catalog count=${String(voices.length)} shortlist=${String(shortlist.length)} fetchedAt=${fetchedAt.toISOString()}`
       );
       return {
-        provider: "heygen",
-        fetchedAt: fetchedAt.toISOString(),
-        shortlist
+        voices,
+        fetchedAt
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`[heygen-voice-catalog] refresh failed: ${message}`);
-      return this.toCatalog(await this.readCacheRow());
+      return this.readCacheRow();
     }
   }
 
   private async fetchVoiceCatalog(apiKey: string): Promise<RuntimeVideoVoiceCatalogEntry[]> {
-    const response = await fetch(HEYGEN_VOICES_URL, {
-      method: "GET",
-      headers: {
-        "X-Api-Key": apiKey,
-        Accept: "application/json"
+    const pages: unknown[] = [];
+    let nextToken: string | null = null;
+    for (let page = 0; page < HEYGEN_VOICE_MAX_PAGES; page += 1) {
+      const url = new URL(HEYGEN_VOICES_URL);
+      url.searchParams.set("limit", String(HEYGEN_VOICE_PAGE_LIMIT));
+      if (nextToken !== null) {
+        url.searchParams.set("next_token", nextToken);
       }
-    });
-    const body = (await response.json().catch(() => null)) as unknown;
-    if (!response.ok) {
-      throw new Error(`HeyGen voices HTTP ${String(response.status)}`);
+      const response = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          "X-Api-Key": apiKey,
+          Accept: "application/json"
+        }
+      });
+      const body = (await response.json().catch(() => null)) as unknown;
+      if (!response.ok) {
+        throw new Error(`HeyGen voices HTTP ${String(response.status)}`);
+      }
+      pages.push(body);
+      nextToken = this.extractNextToken(body);
+      if (nextToken === null) {
+        break;
+      }
     }
-    return this.parseVoiceCatalog(body);
+    return this.parseVoiceCatalogPages(pages);
   }
 
-  private parseVoiceCatalog(value: unknown): RuntimeVideoVoiceCatalogEntry[] {
-    const rows = this.extractVoiceRows(value);
+  private parseVoiceCatalogPages(values: unknown[]): RuntimeVideoVoiceCatalogEntry[] {
+    const rows = values.flatMap((value) => this.extractVoiceRows(value));
     const parsed = rows
       .map((row) => this.parseVoiceRow(row))
       .filter((entry): entry is RuntimeVideoVoiceCatalogEntry => entry !== null);
-    return this.buildShortlist(parsed);
+    return this.normalizeEntries(parsed);
   }
 
   private buildShortlist(
     entries: RuntimeVideoVoiceCatalogEntry[]
   ): RuntimeVideoVoiceCatalogEntry[] {
-    const deduped = new Map<string, RuntimeVideoVoiceCatalogEntry>();
-    for (const entry of entries) {
-      const key = entry.providerVoiceId.trim().toLowerCase();
-      if (!deduped.has(key)) {
-        deduped.set(key, entry);
-      }
-    }
-    const normalized = [...deduped.values()].sort((left, right) =>
-      left.displayName.localeCompare(right.displayName)
-    );
+    const normalized = this.normalizeEntries(entries);
     const byLanguage = new Map<string, RuntimeVideoVoiceCatalogEntry[]>();
     for (const entry of normalized) {
       const language = this.normalizeLanguageBucket(entry.locale);
@@ -142,7 +158,7 @@ export class HeyGenVoiceCatalogService {
 
     for (const language of PREFERRED_VOICE_LANGUAGES) {
       const bucket = byLanguage.get(language) ?? [];
-      for (const entry of this.balanceGender(bucket).slice(0, 8)) {
+      for (const entry of this.balanceGender(bucket).slice(0, 10)) {
         take(entry);
       }
     }
@@ -152,6 +168,21 @@ export class HeyGenVoiceCatalogService {
     }
 
     return shortlist;
+  }
+
+  private normalizeEntries(
+    entries: RuntimeVideoVoiceCatalogEntry[]
+  ): RuntimeVideoVoiceCatalogEntry[] {
+    const deduped = new Map<string, RuntimeVideoVoiceCatalogEntry>();
+    for (const entry of entries) {
+      const key = entry.providerVoiceId.trim().toLowerCase();
+      if (!deduped.has(key)) {
+        deduped.set(key, entry);
+      }
+    }
+    return [...deduped.values()].sort((left, right) =>
+      left.displayName.localeCompare(right.displayName)
+    );
   }
 
   private balanceGender(entries: RuntimeVideoVoiceCatalogEntry[]): RuntimeVideoVoiceCatalogEntry[] {
@@ -180,13 +211,31 @@ export class HeyGenVoiceCatalogService {
 
   private normalizeLanguageBucket(locale: string | null): string {
     const normalized = locale?.trim().toLowerCase() ?? "";
-    if (normalized === "ru" || normalized.startsWith("ru-")) {
+    if (
+      normalized === "ru" ||
+      normalized.startsWith("ru-") ||
+      normalized === "russian" ||
+      normalized.startsWith("russian ")
+    ) {
       return "ru";
     }
-    if (normalized === "en" || normalized.startsWith("en-")) {
+    if (
+      normalized === "en" ||
+      normalized.startsWith("en-") ||
+      normalized === "english" ||
+      normalized.startsWith("english ")
+    ) {
       return "en";
     }
     return "other";
+  }
+
+  private extractNextToken(value: unknown): string | null {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const record = value as Record<string, unknown>;
+    return this.asNonEmptyString(record.next_token) ?? this.asNonEmptyString(record.nextToken);
   }
 
   private extractVoiceRows(value: unknown): unknown[] {
@@ -383,7 +432,7 @@ export class HeyGenVoiceCatalogService {
     return {
       provider: "heygen",
       fetchedAt: row.fetchedAt.toISOString(),
-      shortlist: row.voices
+      shortlist: this.buildShortlist(row.voices)
     };
   }
 

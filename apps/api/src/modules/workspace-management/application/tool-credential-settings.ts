@@ -143,6 +143,9 @@ export type AdminToolCredentialsState = {
   documentProviderConfigs: DocumentProviderConfigStatus[];
   ttsPrimaryProviderId: PersaiRuntimeTtsProviderId;
   ttsPrimaryProviderOptions: ToolProviderOption[];
+  heygenVoiceCatalog: {
+    refreshedAt: string | null;
+  };
   notes: string[];
 };
 
@@ -295,6 +298,7 @@ export function buildAdminToolCredentialsState(params: {
   providerSelections: Partial<Record<ToolCredentialKey, string>>;
   documentProviderConfigMetadata: Record<"pdfmonkey", PlatformRuntimeProviderKeyMetadata>;
   ttsPrimaryProviderId?: PersaiRuntimeTtsProviderId | null;
+  heygenVoiceCatalogRefreshedAt?: string | null;
 }): AdminToolCredentialsState {
   const EMPTY_METADATA: PlatformRuntimeProviderKeyMetadata = {
     configured: false,
@@ -345,10 +349,14 @@ export function buildAdminToolCredentialsState(params: {
     ],
     ttsPrimaryProviderId: params.ttsPrimaryProviderId ?? DEFAULT_TTS_PRIMARY_PROVIDER,
     ttsPrimaryProviderOptions: TTS_PRIMARY_PROVIDER_OPTIONS,
+    heygenVoiceCatalog: {
+      refreshedAt: params.heygenVoiceCatalogRefreshedAt ?? null
+    },
     notes: [
       "Tool credentials are managed globally for all assistants.",
       "Image generation and image edit keep using the existing shared OpenAI media credential slot.",
       "Runway, Kling, and HeyGen video provider credentials are stored separately for Admin-managed video catalog setup and later video execution slices.",
+      "HeyGen voice catalog is cached in PersAI and should be refreshed manually only when operators need a fresh provider sync.",
       'Kling must be stored as JSON with both official values: {"accessKey":"...","secretKey":"..."}; a single API key is not valid for Kling.',
       "Document generation stores provider-specific keys for PDFMonkey and Gamma as global admin-managed credentials.",
       "PDFMonkey template selection is persisted as operator-owned Admin > Tools configuration and materialized into the runtime bundle for document jobs.",

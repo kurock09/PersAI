@@ -19,6 +19,8 @@ import {
   type ToolCredentialKey,
   type UpdateToolCredentialsInput
 } from "./tool-credential-settings";
+import { HeyGenVoiceCatalogService } from "./heygen/heygen-voice-catalog.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 @Injectable()
 export class ManageAdminToolCredentialsService {
@@ -27,7 +29,9 @@ export class ManageAdminToolCredentialsService {
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
-    private readonly materializationRolloutService: MaterializationRolloutService
+    private readonly materializationRolloutService: MaterializationRolloutService,
+    private readonly heyGenVoiceCatalogService: HeyGenVoiceCatalogService,
+    private readonly workspaceManagementPrismaService: WorkspaceManagementPrismaService
   ) {}
 
   parseUpdateInput(body: unknown): UpdateToolCredentialsInput {
@@ -45,11 +49,13 @@ export class ManageAdminToolCredentialsService {
     const providerSelections = await this.loadProviderSelections();
     const documentProviderConfigMetadata = await this.loadDocumentProviderConfigMetadata();
     const ttsPrimaryProviderId = await this.loadTtsPrimaryProviderId();
+    const heygenVoiceCatalogRefreshedAt = await this.loadHeygenVoiceCatalogRefreshedAt();
     return buildAdminToolCredentialsState({
       keyMetadata,
       providerSelections,
       documentProviderConfigMetadata,
-      ttsPrimaryProviderId
+      ttsPrimaryProviderId,
+      heygenVoiceCatalogRefreshedAt
     });
   }
 
@@ -104,11 +110,13 @@ export class ManageAdminToolCredentialsService {
     const providerSelections = await this.loadProviderSelections();
     const documentProviderConfigMetadata = await this.loadDocumentProviderConfigMetadata();
     const ttsPrimaryProviderId = await this.loadTtsPrimaryProviderId();
+    const heygenVoiceCatalogRefreshedAt = await this.loadHeygenVoiceCatalogRefreshedAt();
     const state = buildAdminToolCredentialsState({
       keyMetadata,
       providerSelections,
       documentProviderConfigMetadata,
-      ttsPrimaryProviderId
+      ttsPrimaryProviderId,
+      heygenVoiceCatalogRefreshedAt
     });
 
     const configGeneration = await this.bumpConfigGenerationService.execute();
@@ -159,6 +167,27 @@ export class ManageAdminToolCredentialsService {
     return state;
   }
 
+  async refreshHeygenVoiceCatalog(
+    userId: string,
+    stepUpToken: string | null
+  ): Promise<AdminToolCredentialsState> {
+    await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      userId,
+      "admin.tool_credentials.update",
+      stepUpToken
+    );
+    await this.heyGenVoiceCatalogService.forceRefreshVoiceCatalog();
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: null,
+      assistantId: null,
+      actorUserId: userId,
+      eventCategory: "admin_action",
+      eventCode: "admin.heygen_voice_catalog_refreshed",
+      summary: "HeyGen voice catalog refreshed."
+    });
+    return this.getCredentials(userId);
+  }
+
   private async loadProviderSelections(): Promise<Partial<Record<ToolCredentialKey, string>>> {
     const result: Partial<Record<ToolCredentialKey, string>> = {};
     const keysWithProviders = ALL_TOOL_CREDENTIAL_KEYS.filter(
@@ -185,6 +214,15 @@ export class ManageAdminToolCredentialsService {
       return DEFAULT_TTS_PRIMARY_PROVIDER;
     }
     return stored as PersaiRuntimeTtsProviderId;
+  }
+
+  private async loadHeygenVoiceCatalogRefreshedAt(): Promise<string | null> {
+    const row =
+      await this.workspaceManagementPrismaService.platformHeygenVoiceCatalogCache.findUnique({
+        where: { cacheKey: "heygen-voices" },
+        select: { fetchedAt: true }
+      });
+    return row?.fetchedAt.toISOString() ?? null;
   }
 
   private async loadDocumentProviderConfigMetadata(): Promise<

@@ -33,13 +33,13 @@ export class ReadHeygenVoiceCatalogForWorkspaceService {
   constructor(private readonly heyGenVoiceCatalogService: HeyGenVoiceCatalogService) {}
 
   async getVoiceCatalogForWorkspace(_workspaceId: string): Promise<WorkspaceVoiceCatalogResult> {
-    const catalog = await this.heyGenVoiceCatalogService.getMaterializedVoiceCatalog();
-    if (catalog === null || catalog.shortlist.length === 0) {
+    const voices = await this.heyGenVoiceCatalogService.getFullVoiceCatalogEntries();
+    if (voices.length === 0) {
       return null;
     }
     return {
       provider: "heygen",
-      voices: catalog.shortlist.map((entry: RuntimeVideoVoiceCatalogEntry) => ({
+      voices: voices.map((entry: RuntimeVideoVoiceCatalogEntry) => ({
         voiceId: entry.providerVoiceId,
         name: entry.displayName,
         language: entry.locale ?? null,

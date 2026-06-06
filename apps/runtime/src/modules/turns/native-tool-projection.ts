@@ -98,6 +98,22 @@ function describeVideoVoiceCatalogHint(
   return `${base} Do not reuse this list for mode="talking_avatar": that path uses its own voiceKey field or a saved persona's voice.`;
 }
 
+function describeTalkingAvatarVoiceCatalogHint(
+  credential: AssistantRuntimeBundleToolCredentialRef
+): string | null {
+  const shortlist = credential.videoVoiceCatalog?.shortlist ?? [];
+  if (shortlist.length === 0) {
+    return null;
+  }
+  const entries = shortlist.slice(0, 20).map((entry) => {
+    const details = [entry.displayName, entry.locale, entry.gender]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .join(", ");
+    return details.length > 0 ? `${entry.voiceKey} (${details})` : entry.voiceKey;
+  });
+  return `Available talking-avatar voiceKeys shortlist (prefer this set when the user did not name a saved persona): up to 10 EN and 10 RU voices, balanced across female/male as much as the catalog allows. ${entries.join("; ")}. For portraitImageAlias talking-avatar requests without an explicit voice, choose from this shortlist instead of inventing voice keys or dumping a long catalog.`;
+}
+
 function describeVideoPersonaCatalogHint(
   credential: AssistantRuntimeBundleToolCredentialRef
 ): string {
@@ -921,7 +937,7 @@ function createVideoGenerateToolDefinition(
     : null;
   // ADR-109 Slice 10c Fix #3f: talking-avatar voice catalog hint from talking-avatar ref.
   const talkingAvatarVoiceCatalogHint = talkingAvatarEnabled
-    ? describeVideoVoiceCatalogHint(talkingAvatarCredential, true)
+    ? describeTalkingAvatarVoiceCatalogHint(talkingAvatarCredential)
     : null;
   return {
     name: "video_generate",

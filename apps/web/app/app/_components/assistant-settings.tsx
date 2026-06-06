@@ -742,6 +742,18 @@ function normalizeVoiceLanguageBucket(language: string | null | undefined): "ru"
   return "other";
 }
 
+function matchesOtherVoiceLanguageSearch(
+  language: string | null | undefined,
+  search: string
+): boolean {
+  const normalizedSearch = search.trim().toLowerCase();
+  if (normalizedSearch.length === 0) {
+    return true;
+  }
+  const normalizedLanguage = language?.trim().toLowerCase() ?? "";
+  return normalizedLanguage.includes(normalizedSearch);
+}
+
 // ADR-074 Slice M3.3 — Memory Center merged view row. The Workspace tab
 // renders both registry rows (structured `kind ∈ {fact, preference,
 // open_loop}`) and workspace rows; deduplicated by normalized text with
@@ -1124,6 +1136,7 @@ export function AssistantSettings({
   const [voiceLanguageFilter, setVoiceLanguageFilter] = useState<PersonaVoiceLanguageFilter>(
     locale.toLowerCase().startsWith("ru") ? "ru" : "en"
   );
+  const [otherVoiceLanguageSearch, setOtherVoiceLanguageSearch] = useState("");
   const [personaLightbox, setPersonaLightbox] = useState<PersonaLightboxState>(null);
   const [createPersonaOpen, setCreatePersonaOpen] = useState(false);
   const [createPersonaName, setCreatePersonaName] = useState("");
@@ -1188,9 +1201,15 @@ export function AssistantSettings({
             ? voice.languageBucket
             : derivedBucket
           : derivedBucket;
-      return bucket === voiceLanguageFilter;
+      if (bucket !== voiceLanguageFilter) {
+        return false;
+      }
+      if (voiceLanguageFilter !== "other") {
+        return true;
+      }
+      return matchesOtherVoiceLanguageSearch(voice.language, otherVoiceLanguageSearch);
     });
-  }, [voiceCatalog, voiceLanguageFilter]);
+  }, [otherVoiceLanguageSearch, voiceCatalog, voiceLanguageFilter]);
   const demoPersonaVoice = useMemo(() => {
     const preferredLanguage = locale.toLowerCase().startsWith("ru") ? "ru" : "en";
     return (
@@ -3688,7 +3707,12 @@ export function AssistantSettings({
                             <button
                               key={language}
                               type="button"
-                              onClick={() => setVoiceLanguageFilter(language)}
+                              onClick={() => {
+                                setVoiceLanguageFilter(language);
+                                if (language !== "other") {
+                                  setOtherVoiceLanguageSearch("");
+                                }
+                              }}
                               className={cn(
                                 "rounded-full px-3 py-1 text-[11px] font-medium transition-colors",
                                 voiceLanguageFilter === language
@@ -3702,6 +3726,17 @@ export function AssistantSettings({
                             </button>
                           ))}
                         </div>
+                        {voiceLanguageFilter === "other" ? (
+                          <div className="mb-2 flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={otherVoiceLanguageSearch}
+                              onChange={(event) => setOtherVoiceLanguageSearch(event.target.value)}
+                              placeholder={t("charactersFormVoiceLanguageSearchPlaceholder")}
+                              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+                            />
+                          </div>
+                        ) : null}
                         {voiceCatalogLoading ? (
                           <div className="flex items-center gap-2 py-2 text-xs text-text-subtle">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -3713,7 +3748,10 @@ export function AssistantSettings({
                           </p>
                         ) : filteredVoiceCatalog.length === 0 ? (
                           <p className="py-2 text-xs text-text-muted">
-                            {t("charactersFormVoiceEmptyForFilter")}
+                            {voiceLanguageFilter === "other" &&
+                            otherVoiceLanguageSearch.trim().length > 0
+                              ? t("charactersFormVoiceEmptyForLanguageSearch")
+                              : t("charactersFormVoiceEmptyForFilter")}
                           </p>
                         ) : (
                           <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
