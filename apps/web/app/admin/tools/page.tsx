@@ -58,6 +58,7 @@ type AdminToolCredentialsState = {
   ttsPrimaryProviderOptions: ProviderOption[];
   heygenVoiceCatalog?: {
     refreshedAt: string | null;
+    voicesCount: number;
   };
   notes: string[];
 };
@@ -149,6 +150,7 @@ export default function AdminToolsPage() {
   );
   const [feedback, setFeedback] = useState<string | null>(null);
   const [refreshingHeygenVoices, setRefreshingHeygenVoices] = useState(false);
+  const [heygenVoiceCatalogFeedback, setHeygenVoiceCatalogFeedback] = useState<string | null>(null);
   const [billingFeedback, setBillingFeedback] = useState<string | null>(null);
   const [documentProcessingFeedback, setDocumentProcessingFeedback] = useState<string | null>(null);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
@@ -311,7 +313,7 @@ export default function AdminToolsPage() {
     const token = await getToken();
     if (!token) return;
     setRefreshingHeygenVoices(true);
-    setFeedback(null);
+    setHeygenVoiceCatalogFeedback(null);
     try {
       const challengeRes = await fetch("/api/v1/admin/step-up/challenge", {
         method: "POST",
@@ -340,10 +342,15 @@ export default function AdminToolsPage() {
         throw new Error(err.message ?? `Refresh failed: ${res.status}`);
       }
       const data = await res.json();
-      setState(data.credentials ?? data);
-      setFeedback("HeyGen voices refreshed.");
+      const nextState = (data.credentials ?? data) as AdminToolCredentialsState;
+      setState(nextState);
+      setHeygenVoiceCatalogFeedback(
+        `Updated: ${String(nextState.heygenVoiceCatalog?.voicesCount ?? 0)} voices.`
+      );
     } catch (e) {
-      setFeedback(e instanceof Error ? e.message : "HeyGen voice refresh failed.");
+      setHeygenVoiceCatalogFeedback(
+        e instanceof Error ? e.message : "HeyGen voice refresh failed."
+      );
     } finally {
       setRefreshingHeygenVoices(false);
     }
@@ -1206,7 +1213,8 @@ export default function AdminToolsPage() {
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-text">HeyGen voice catalog</p>
                     <p className="text-[11px] text-text-muted">
-                      Last refresh: {state.heygenVoiceCatalog?.refreshedAt ?? "not loaded yet"}
+                      Last refresh: {state.heygenVoiceCatalog?.refreshedAt ?? "not loaded yet"} ·{" "}
+                      {String(state.heygenVoiceCatalog?.voicesCount ?? 0)} voices
                     </p>
                   </div>
                   <button
@@ -1223,6 +1231,9 @@ export default function AdminToolsPage() {
                     Refresh voices
                   </button>
                 </div>
+                {heygenVoiceCatalogFeedback ? (
+                  <p className="mb-3 text-[11px] text-text-muted">{heygenVoiceCatalogFeedback}</p>
+                ) : null}
                 <div className="grid gap-3 sm:grid-cols-2">
                   {pickCredentials(state.credentials, VIDEO_PROVIDER_CREDENTIAL_KEYS).map(
                     (cred) => (

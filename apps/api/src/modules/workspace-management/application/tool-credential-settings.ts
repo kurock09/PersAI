@@ -145,6 +145,7 @@ export type AdminToolCredentialsState = {
   ttsPrimaryProviderOptions: ToolProviderOption[];
   heygenVoiceCatalog: {
     refreshedAt: string | null;
+    voicesCount: number;
   };
   notes: string[];
 };
@@ -299,6 +300,7 @@ export function buildAdminToolCredentialsState(params: {
   documentProviderConfigMetadata: Record<"pdfmonkey", PlatformRuntimeProviderKeyMetadata>;
   ttsPrimaryProviderId?: PersaiRuntimeTtsProviderId | null;
   heygenVoiceCatalogRefreshedAt?: string | null;
+  heygenVoiceCatalogVoicesCount?: number | null;
 }): AdminToolCredentialsState {
   const EMPTY_METADATA: PlatformRuntimeProviderKeyMetadata = {
     configured: false,
@@ -350,7 +352,8 @@ export function buildAdminToolCredentialsState(params: {
     ttsPrimaryProviderId: params.ttsPrimaryProviderId ?? DEFAULT_TTS_PRIMARY_PROVIDER,
     ttsPrimaryProviderOptions: TTS_PRIMARY_PROVIDER_OPTIONS,
     heygenVoiceCatalog: {
-      refreshedAt: params.heygenVoiceCatalogRefreshedAt ?? null
+      refreshedAt: params.heygenVoiceCatalogRefreshedAt ?? null,
+      voicesCount: params.heygenVoiceCatalogVoicesCount ?? 0
     },
     notes: [
       "Tool credentials are managed globally for all assistants.",

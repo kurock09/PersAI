@@ -2,6 +2,8 @@
 
 ## 2026-06-06
 
+- ADR-109 live hotfix: fixed the Admin HeyGen voice refresh route so it goes through Clerk auth like the other admin tool-credentials endpoints; the live dev cluster root cause was a real `401 userId=null` on `POST /api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/refresh`, which meant the spinner ran but the cache never refreshed.
+- ADR-109 Admin Tools voice refresh feedback now shows `Last refresh ... · N voices` and a concrete post-refresh status like `Updated: 300 voices.` instead of a spinner-only transition with no visible outcome.
 - ADR-109 HeyGen voice catalog truth-hardening: the shared HeyGen cache now follows provider pagination and stores the full deduped catalog, while runtime still materializes a short prompt-safe talking-avatar shortlist (`10 EN + 10 RU` target, balanced by gender as available) for model-facing instructions.
 - ADR-109 Admin Tools now exposes a manual HeyGen voice refresh action with a visible last-refresh timestamp, so operators can force a catalog sync without waiting for the 24h cache TTL.
 - ADR-109 Characters voice picker now reads the full HeyGen catalog instead of the model shortlist, and the `OTHER` bucket adds inline language search so non-EN/RU voices are browseable/listenable without bloating the runtime prompt.

@@ -86,7 +86,8 @@ const credentialsPayload = {
   ttsPrimaryProviderId: "elevenlabs",
   ttsPrimaryProviderOptions: [],
   heygenVoiceCatalog: {
-    refreshedAt: "2026-06-06T10:00:00.000Z"
+    refreshedAt: "2026-06-06T10:00:00.000Z",
+    voicesCount: 20
   },
   notes: []
 };
@@ -156,7 +157,8 @@ describe("AdminToolsPage economics", () => {
           credentials: {
             ...credentialsPayload,
             heygenVoiceCatalog: {
-              refreshedAt: "2026-06-06T11:00:00.000Z"
+              refreshedAt: "2026-06-06T11:00:00.000Z",
+              voicesCount: 300
             }
           }
         });
@@ -248,7 +250,7 @@ describe("AdminToolsPage economics", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh voices" }));
 
     await waitFor(() => {
-      expect(screen.getByText("HeyGen voices refreshed.")).toBeTruthy();
+      expect(screen.getByText("Updated: 300 voices.")).toBeTruthy();
     });
 
     const refreshCall = fetchMock.mock.calls.find(

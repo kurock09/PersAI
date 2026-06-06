@@ -49,13 +49,14 @@ export class ManageAdminToolCredentialsService {
     const providerSelections = await this.loadProviderSelections();
     const documentProviderConfigMetadata = await this.loadDocumentProviderConfigMetadata();
     const ttsPrimaryProviderId = await this.loadTtsPrimaryProviderId();
-    const heygenVoiceCatalogRefreshedAt = await this.loadHeygenVoiceCatalogRefreshedAt();
+    const heygenVoiceCatalogMeta = await this.loadHeygenVoiceCatalogMeta();
     return buildAdminToolCredentialsState({
       keyMetadata,
       providerSelections,
       documentProviderConfigMetadata,
       ttsPrimaryProviderId,
-      heygenVoiceCatalogRefreshedAt
+      heygenVoiceCatalogRefreshedAt: heygenVoiceCatalogMeta.refreshedAt,
+      heygenVoiceCatalogVoicesCount: heygenVoiceCatalogMeta.voicesCount
     });
   }
 
@@ -110,13 +111,14 @@ export class ManageAdminToolCredentialsService {
     const providerSelections = await this.loadProviderSelections();
     const documentProviderConfigMetadata = await this.loadDocumentProviderConfigMetadata();
     const ttsPrimaryProviderId = await this.loadTtsPrimaryProviderId();
-    const heygenVoiceCatalogRefreshedAt = await this.loadHeygenVoiceCatalogRefreshedAt();
+    const heygenVoiceCatalogMeta = await this.loadHeygenVoiceCatalogMeta();
     const state = buildAdminToolCredentialsState({
       keyMetadata,
       providerSelections,
       documentProviderConfigMetadata,
       ttsPrimaryProviderId,
-      heygenVoiceCatalogRefreshedAt
+      heygenVoiceCatalogRefreshedAt: heygenVoiceCatalogMeta.refreshedAt,
+      heygenVoiceCatalogVoicesCount: heygenVoiceCatalogMeta.voicesCount
     });
 
     const configGeneration = await this.bumpConfigGenerationService.execute();
@@ -216,13 +218,19 @@ export class ManageAdminToolCredentialsService {
     return stored as PersaiRuntimeTtsProviderId;
   }
 
-  private async loadHeygenVoiceCatalogRefreshedAt(): Promise<string | null> {
+  private async loadHeygenVoiceCatalogMeta(): Promise<{
+    refreshedAt: string | null;
+    voicesCount: number;
+  }> {
     const row =
       await this.workspaceManagementPrismaService.platformHeygenVoiceCatalogCache.findUnique({
         where: { cacheKey: "heygen-voices" },
-        select: { fetchedAt: true }
+        select: { fetchedAt: true, voicesJson: true }
       });
-    return row?.fetchedAt.toISOString() ?? null;
+    return {
+      refreshedAt: row?.fetchedAt.toISOString() ?? null,
+      voicesCount: Array.isArray(row?.voicesJson) ? row.voicesJson.length : 0
+    };
   }
 
   private async loadDocumentProviderConfigMetadata(): Promise<

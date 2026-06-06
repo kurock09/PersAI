@@ -2,6 +2,48 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-06 - ADR-109 live hotfix: admin voice refresh auth + visible refresh status
+
+### What changed & why
+
+After the previous voice-catalog split landed, the operator checked dev and reported that voices still had not loaded, while the new Admin `Refresh voices` button only showed a spinner and then silently returned to idle. The cluster logs gave the exact root cause:
+
+- live `api` logs showed real requests to `POST /api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/refresh`
+- those requests completed with `401`
+- the request log carried `userId=null`
+
+So the problem was not HeyGen pagination anymore. The manual refresh route itself was missing Clerk auth middleware coverage, unlike the existing `GET` / `PUT` tool-credentials routes. That meant browser-triggered Admin refresh never actually executed, leaving the live cache stuck on the old EN-only snapshot (`count=20`, `ru=0`, `en=20`, `other=0`, `fetchedAt=2026-06-05T17:15:06.530Z` in the dev `api` pod).
+
+This hotfix does two bounded things:
+
+1. Adds Clerk auth coverage for `POST /api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/refresh`, so Admin refresh requests now resolve a real `userId` and can pass the existing dangerous-admin auth + step-up flow.
+2. Improves the Admin Tools HeyGen card so operators see concrete refresh status, not just a transient spinner. The card now shows `Last refresh ... · N voices`, and successful refresh returns visible feedback like `Updated: 300 voices.`. Failures also stay visible as explicit messages instead of disappearing with the spinner.
+
+### Files touched
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts`
+- `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`
+- `apps/web/app/admin/tools/page.tsx`
+- `apps/web/app/admin/tools/page.test.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `pnpm --filter @persai/web test -- app/admin/tools/page.test.tsx` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+
+### Risks / residuals
+
+- This hotfix only fixes the broken manual Admin refresh path and the missing status feedback. The live cluster still needs a deploy before the cached EN-only snapshot is replaced by the new full paginated catalog.
+- Auto-refresh by TTL remains server-side and does not depend on Clerk or Admin UI; this fix intentionally does not change that architecture.
+
+### Next recommended step
+
+Deploy API + WEB, then in dev click `Refresh voices` again and confirm two exact outcomes in logs/UI: the POST no longer returns `401 userId=null`, and the card shows a concrete result with a refreshed voice count significantly above the old EN-only `20`.
+
 ## 2026-06-06 - ADR-109 voice catalog split: short model hint + full UI catalog + admin refresh
 
 ### What changed & why
