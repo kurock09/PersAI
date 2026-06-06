@@ -2,6 +2,40 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-07 - ADR-110 closure + CI test harness fix
+
+### Baseline
+
+- Starting SHA: `080c85279f2a7ea496dfd89f0e28381e057a1f22`
+- Scope: close ADR-110 after live verification and fix the follow-up CI regression in the Anthropic provider test harness.
+
+### What changed & why
+
+ADR-110 is now closed as completed. Live dev verification after the Anthropic stream-accounting fix showed that fresh Anthropic turns no longer double-count cache-read/input usage in PersAI persistence: `runtime_turn_receipts.result_payload.usageAccounting` and `model_cost_ledger_events.rawUsage` now match each other and reflect the expected prompt-cache shape (`cacheCreationInputTokens` on the first turn, then `cachedInputTokens` on subsequent turns) instead of the previous 2x inflation. That closed the active ADR-110 execution order.
+
+Separately, the post-push CI failure on commit `080c8527` was traced to a test-only regression in `apps/provider-gateway/test/anthropic-provider.client.test.ts`: the new snapshot-usage regression case replaced the fake Anthropic stream implementation and did not restore the default stream before later assertions, so the rest of the suite stopped receiving the expected `text_delta` events. The fix factors the default fake stream into a reusable helper and reinstalls it after the snapshot-specific assertion, restoring deterministic suite behavior without changing production code.
+
+### Files touched
+
+- `docs/ADR/110-model-resolution-fallback-and-prompt-cache-orchestration.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+
+### Verification
+
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/run-suite.ts` - PASS
+- Full AGENTS.md verification gate + `pnpm run test` are the next required step before commit/push.
+
+### Risks / residuals
+
+- Anthropic first-turn totals are still higher than the matched OpenAI first-turn totals on brand-new chats, but live evidence now shows this is no longer a double-count accounting bug. The remaining gap appears to be a real provider/prefix-shape difference and should be investigated separately by comparing exact assembled OpenAI vs Anthropic request sections.
+- STT and web-search provider/model truth remain intentionally deferred outside ADR-110.
+
+### Next recommended step
+
+Run the full AGENTS.md verification gate plus `pnpm run test`; if green, commit and push the ADR-110 closure docs together with the CI-only test harness fix.
+
 ## 2026-06-07 - Anthropic stream usage double-count hotfix
 
 ### Baseline

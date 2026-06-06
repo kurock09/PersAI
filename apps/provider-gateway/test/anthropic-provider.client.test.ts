@@ -157,7 +157,12 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     };
   };
 
-  installFakeAnthropic((payload) => {
+  const createDefaultStream = (payload: {
+    stream?: boolean;
+    messages: unknown;
+    tools?: unknown;
+    tool_choice?: unknown;
+  }) => {
     if (payload.tools !== undefined) {
       return (async function* (): AsyncGenerator<unknown> {
         yield {
@@ -230,7 +235,9 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
         type: "message_stop"
       };
     })();
-  });
+  };
+
+  installFakeAnthropic(createDefaultStream);
 
   const request = createRequest();
   const result = await client.generateText(request);
@@ -539,6 +546,8 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       totalTokens: 13523
     });
   }
+
+  installFakeAnthropic(createDefaultStream);
 
   const structuredStream = await client.streamText(structuredRequest);
   const structuredStreamEvents = await collectStream(structuredStream);

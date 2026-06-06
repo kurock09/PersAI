@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-06-06). Baseline SHA: `1a0d1ca5`.
+Completed (2026-06-07). Baseline SHA: `1a0d1ca5`.
 
 This ADR was written after a read-only audit by GPT 5.4 subagents. It is an orchestration program: the parent agent acts as orchestrator/reviewer, while production-code implementation must be delegated to GPT 5.4 subagents unless the user explicitly overrides that rule for a specific change.
 
@@ -264,6 +264,8 @@ Exit:
 
 Owner: GPT 5.4 subagent. Orchestrator reviews.
 
+Status: completed (2026-06-06).
+
 Scope:
 
 - Remove plan-owned `embeddingModelKey` from contracts/API/web/persistence writes.
@@ -295,6 +297,8 @@ Required verification:
 ### Slice 2 — Runtime text failover and retrieval helper fallback
 
 Owner: GPT 5.4 subagent. Orchestrator reviews.
+
+Status: completed (2026-06-06).
 
 Scope:
 
@@ -329,6 +333,8 @@ STT and web-search are known gaps but are explicitly removed from the active ADR
 
 Owner: GPT 5.4 subagent. Orchestrator reviews.
 
+Status: completed (2026-06-06).
+
 Scope:
 
 - Keep existing TTS provider-chain fallback.
@@ -349,6 +355,8 @@ Required verification:
 ### Slice 4 — Anthropic prompt cache
 
 Owner: GPT 5.4 subagent. Orchestrator reviews.
+
+Status: completed (2026-06-06).
 
 Scope:
 
@@ -429,3 +437,21 @@ Trade-offs:
 - Image capability cleanup such as transparent-background model constraints.
 - Voice cloning or HeyGen talking-avatar fallback to non-HeyGen providers.
 - Broad pricing-plan redesign unrelated to model slots.
+
+## Closure
+
+ADR-110 is closed.
+
+Completed active execution order:
+
+- Slice 0 — audit closure and bounded subagent task pack
+- Slice 1 — embedding truth consolidation and reindex safety
+- Slice 2 — runtime text failover and retrieval helper fallback
+- Slice 3 — TTS model/default truth cleanup
+- Slice 4 — Anthropic prompt cache and honest cache accounting
+
+Follow-up work that remains intentionally outside this ADR:
+
+- STT provider/model truth
+- web-search provider/model truth and cross-provider fallback
+- deeper OpenAI vs Anthropic first-turn prompt-shape comparison, which is now a separate investigation after the Anthropic double-count accounting bug was fixed
