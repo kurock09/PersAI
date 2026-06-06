@@ -188,6 +188,9 @@ function makeService(opts: {
       insertedPersonas.push(record);
       return record;
     },
+    async update() {
+      return null;
+    },
     async archive(_workspaceId, personaId, _tx) {
       if (existingPersonaForArchive !== null && existingPersonaForArchive.id === personaId) {
         return { ...existingPersonaForArchive, archived: true, archivedAt: new Date() };
@@ -305,6 +308,9 @@ async function run(): Promise<void> {
         });
         insertedPersonas.push(record);
         return record;
+      },
+      async update() {
+        return null;
       },
       async archive() {
         return null;
@@ -488,6 +494,9 @@ async function run(): Promise<void> {
       async create(input) {
         return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
       },
+      async update() {
+        return null;
+      },
       async archive() {
         return null;
       }
@@ -641,6 +650,9 @@ async function run(): Promise<void> {
           heygenAvatarId: input.heygenAvatarId
         });
       },
+      async update() {
+        return null;
+      },
       async archive() {
         return null;
       }
@@ -718,6 +730,9 @@ async function run(): Promise<void> {
       },
       async create(input) {
         return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+      },
+      async update() {
+        return null;
       },
       async archive() {
         return null;
@@ -819,6 +834,9 @@ async function run(): Promise<void> {
         insertedPersonas.push(record);
         return record;
       },
+      async update() {
+        return null;
+      },
       async archive() {
         return null;
       }
@@ -909,6 +927,9 @@ async function run(): Promise<void> {
       },
       async create(input) {
         return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+      },
+      async update() {
+        return null;
       },
       async archive() {
         return null;
@@ -1119,6 +1140,9 @@ async function run(): Promise<void> {
       async create(input) {
         return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
       },
+      async update() {
+        return null;
+      },
       async archive() {
         return null;
       }
@@ -1190,6 +1214,9 @@ async function run(): Promise<void> {
       },
       async create(input) {
         return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+      },
+      async update() {
+        return null;
       },
       async archive() {
         return null;
@@ -1301,6 +1328,9 @@ async function run(): Promise<void> {
       },
       async create() {
         throw unexpectedError;
+      },
+      async update() {
+        return null;
       },
       async archive() {
         return null;

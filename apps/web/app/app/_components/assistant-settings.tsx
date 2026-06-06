@@ -83,6 +83,7 @@ import {
   getWorkspaceVideoPersonas,
   getWorkspaceVoiceCatalog,
   createWorkspaceVideoPersona,
+  updateWorkspaceVideoPersona,
   deleteWorkspaceVideoPersona,
   ApiStructuredError,
   type PersonaListItemDto,
@@ -122,6 +123,7 @@ interface AssistantSettingsProps {
 type ActionFeedback = { type: "ok" | "err" | "warn"; text: string } | null;
 type PersonaVoiceLanguageFilter = "ru" | "en" | "other";
 type PersonaLightboxState = { src: string; name: string } | null;
+type PersonaModalMode = "create" | "edit";
 
 const CHARACTERS_PRICING_URL = "https://persai.dev/app/pricing";
 const DEMO_PERSONA_PORTRAIT_URL = "/landing/demo-persona-portrait.png";
@@ -1154,6 +1156,8 @@ export function AssistantSettings({
   const [otherVoiceLanguageSearch, setOtherVoiceLanguageSearch] = useState("");
   const [personaLightbox, setPersonaLightbox] = useState<PersonaLightboxState>(null);
   const [createPersonaOpen, setCreatePersonaOpen] = useState(false);
+  const [personaModalMode, setPersonaModalMode] = useState<PersonaModalMode>("create");
+  const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
   const [createPersonaName, setCreatePersonaName] = useState("");
   const [createPersonaVoiceId, setCreatePersonaVoiceId] = useState<string | null>(null);
   const [createPersonaPortrait, setCreatePersonaPortrait] = useState<File | null>(null);
@@ -1168,6 +1172,23 @@ export function AssistantSettings({
   const [deletePersonaSubmitting, setDeletePersonaSubmitting] = useState(false);
   const [personaFb, setPersonaFb] = useState<ActionFeedback>(null);
   const personaPortraitInputRef = useRef<HTMLInputElement>(null);
+
+  const resetPersonaModal = useCallback(
+    (mode: PersonaModalMode, persona?: PersonaListItemDto | null) => {
+      setPersonaModalMode(mode);
+      setEditingPersonaId(mode === "edit" ? (persona?.id ?? null) : null);
+      setCreatePersonaName(mode === "edit" ? (persona?.displayName ?? "") : "");
+      setCreatePersonaVoiceId(mode === "edit" ? (persona?.heygenVoiceId ?? null) : null);
+      setCreatePersonaPortrait(null);
+      setCreatePersonaPortraitPreview(mode === "edit" ? (persona?.portraitImageUrl ?? null) : null);
+      setCreatePersonaError(null);
+      setCreatePersonaPortraitError(null);
+      setOtherVoiceLanguageSearch("");
+      setVoiceLanguageFilter(locale.toLowerCase().startsWith("ru") ? "ru" : "en");
+      setCreatePersonaOpen(true);
+    },
+    [locale]
+  );
 
   const loadPersonas = useCallback(async () => {
     const workspaceId = assistant?.workspaceId;
@@ -3437,17 +3458,27 @@ export function AssistantSettings({
                     return (
                       <div
                         key={persona.id}
-                        className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface p-3"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => resetPersonaModal("edit", persona)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            resetPersonaModal("edit", persona);
+                          }
+                        }}
+                        className="flex w-full items-center gap-3 rounded-xl border border-border/60 bg-surface p-3 text-left transition-colors hover:bg-surface-raised/60 focus:outline-none focus:ring-2 focus:ring-accent/20"
                       >
                         {persona.portraitImageUrl ? (
                           <button
                             type="button"
-                            onClick={() =>
+                            onClick={(event) => {
+                              event.stopPropagation();
                               setPersonaLightbox({
                                 src: persona.portraitImageUrl,
                                 name: persona.displayName
-                              })
-                            }
+                              });
+                            }}
                             className="shrink-0 rounded-full transition-transform hover:scale-[1.03] focus:outline-none focus:ring-2 focus:ring-accent/30"
                             aria-label={t("charactersOpenPortrait", { name: persona.displayName })}
                           >
@@ -3470,14 +3501,20 @@ export function AssistantSettings({
                             {t("charactersVoiceLabel", { voice: persona.heygenVoiceLabel })}
                           </p>
                         </div>
-                        <VoicePreviewButton
-                          previewAudioUrl={catalogEntry?.previewAudioUrl ?? null}
-                          voiceLabel={persona.heygenVoiceLabel}
-                          previewUnavailableLabel={t("charactersPreviewUnavailable")}
-                        />
+                        <div
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          <VoicePreviewButton
+                            previewAudioUrl={catalogEntry?.previewAudioUrl ?? null}
+                            voiceLabel={persona.heygenVoiceLabel}
+                            previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                          />
+                        </div>
                         <button
                           type="button"
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.stopPropagation();
                             setDeletePersonaId(persona.id);
                             setDeletePersonaName(persona.displayName);
                           }}
@@ -3501,16 +3538,7 @@ export function AssistantSettings({
                       ? t("charactersFormLimitReached", { n: personaLimit })
                       : undefined
                   }
-                  onClick={() => {
-                    setCreatePersonaName("");
-                    setCreatePersonaVoiceId(null);
-                    setCreatePersonaPortrait(null);
-                    setCreatePersonaPortraitPreview(null);
-                    setCreatePersonaError(null);
-                    setCreatePersonaPortraitError(null);
-                    setVoiceLanguageFilter(locale.toLowerCase().startsWith("ru") ? "ru" : "en");
-                    setCreatePersonaOpen(true);
-                  }}
+                  onClick={() => resetPersonaModal("create")}
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-[11px] font-medium text-text transition-all hover:border-accent/50 hover:bg-accent/14",
                     personaList.length >= personaLimit && "cursor-not-allowed opacity-50"
@@ -3630,7 +3658,7 @@ export function AssistantSettings({
                   document.body
                 )}
 
-              {/* Create persona modal */}
+              {/* Create / edit persona modal */}
               {createPersonaOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
@@ -3642,59 +3670,100 @@ export function AssistantSettings({
                     role="dialog"
                     aria-modal="true"
                   >
-                    <div className="relative mx-4 my-10 w-full max-w-md rounded-2xl border border-border bg-surface p-5 shadow-xl">
+                    <div className="relative mx-4 my-10 w-full min-w-0 max-w-md rounded-2xl border border-border bg-surface p-5 shadow-xl">
                       <h2 className="mb-4 text-sm font-semibold text-text">
-                        {t("charactersCreate")}
+                        {personaModalMode === "edit" ? t("charactersEdit") : t("charactersCreate")}
                       </h2>
 
-                      {/* Portrait upload */}
+                      {/* Portrait */}
                       <div className="mb-3">
                         <p className="mb-1 text-[11px] font-medium text-text-subtle">
                           {t("charactersFormPortrait")}
                         </p>
-                        <div
-                          className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-surface-raised/30 py-5 transition-colors hover:border-border"
-                          onClick={() => personaPortraitInputRef.current?.click()}
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            const file = e.dataTransfer.files?.[0];
-                            if (file) handlePersonaPortraitFile(file);
-                          }}
-                        >
-                          {createPersonaPortraitPreview ? (
-                            <img
-                              src={createPersonaPortraitPreview}
-                              alt="Portrait preview"
-                              className="h-20 w-20 rounded-full object-cover"
-                            />
-                          ) : (
-                            <>
-                              <Upload className="mb-1 h-5 w-5 text-text-subtle" />
-                              <p className="text-xs text-text-subtle">
-                                {t("charactersFormPortraitDrop")}
-                              </p>
-                              <p className="mt-0.5 text-[10px] text-text-subtle/70">
-                                {t("charactersFormPortraitHint")}
-                              </p>
-                            </>
-                          )}
-                        </div>
-                        <input
-                          ref={personaPortraitInputRef}
-                          type="file"
-                          accept="image/jpeg,image/png"
-                          className="sr-only"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handlePersonaPortraitFile(file);
-                          }}
-                        />
-                        {createPersonaPortraitError && (
-                          <p className="mt-1 text-[11px] text-destructive">
-                            {createPersonaPortraitError}
-                          </p>
+                        {personaModalMode === "edit" ? (
+                          <div className="rounded-xl border border-border/60 bg-surface-raised/20 p-3">
+                            <div className="flex items-center gap-3">
+                              {createPersonaPortraitPreview ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPersonaLightbox({
+                                      src: createPersonaPortraitPreview,
+                                      name: createPersonaName.trim() || t("charactersEdit")
+                                    })
+                                  }
+                                  className="shrink-0 rounded-2xl transition-transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-accent/20"
+                                  aria-label={t("charactersOpenPortrait", {
+                                    name: createPersonaName.trim() || t("charactersEdit")
+                                  })}
+                                >
+                                  <img
+                                    src={createPersonaPortraitPreview}
+                                    alt="Portrait preview"
+                                    className="h-20 w-20 rounded-2xl object-cover"
+                                  />
+                                </button>
+                              ) : (
+                                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-accent/10 text-sm font-medium text-accent">
+                                  {createPersonaName.trim().charAt(0) || "?"}
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs text-text-muted">
+                                  {t("charactersAvatarEditHint")}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-surface-raised/30 py-5 transition-colors hover:border-border"
+                            onClick={() => personaPortraitInputRef.current?.click()}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const file = e.dataTransfer.files?.[0];
+                              if (file) handlePersonaPortraitFile(file);
+                            }}
+                          >
+                            {createPersonaPortraitPreview ? (
+                              <img
+                                src={createPersonaPortraitPreview}
+                                alt="Portrait preview"
+                                className="h-20 w-20 rounded-full object-cover"
+                              />
+                            ) : (
+                              <>
+                                <Upload className="mb-1 h-5 w-5 text-text-subtle" />
+                                <p className="text-xs text-text-subtle">
+                                  {t("charactersFormPortraitDrop")}
+                                </p>
+                                <p className="mt-0.5 text-[10px] text-text-subtle/70">
+                                  {t("charactersFormPortraitHint")}
+                                </p>
+                              </>
+                            )}
+                          </div>
                         )}
+                        {personaModalMode === "create" ? (
+                          <>
+                            <input
+                              ref={personaPortraitInputRef}
+                              type="file"
+                              accept="image/jpeg,image/png"
+                              className="sr-only"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handlePersonaPortraitFile(file);
+                              }}
+                            />
+                            {createPersonaPortraitError && (
+                              <p className="mt-1 text-[11px] text-destructive">
+                                {createPersonaPortraitError}
+                              </p>
+                            )}
+                          </>
+                        ) : null}
                       </div>
 
                       {/* Name */}
@@ -3717,7 +3786,7 @@ export function AssistantSettings({
                         <p className="mb-1 text-[11px] font-medium text-text-subtle">
                           {t("charactersFormVoice")}
                         </p>
-                        <div className="mb-2 inline-flex rounded-full border border-border/60 bg-surface-raised/20 p-1">
+                        <div className="mb-2 grid w-full grid-cols-3 rounded-full border border-border/60 bg-surface-raised/20 p-1">
                           {(["ru", "en", "other"] as const).map((language) => (
                             <button
                               key={language}
@@ -3729,7 +3798,7 @@ export function AssistantSettings({
                                 }
                               }}
                               className={cn(
-                                "rounded-full px-3 py-1 text-[11px] font-medium transition-colors",
+                                "min-w-0 rounded-full px-2 py-1 text-[11px] font-medium transition-colors",
                                 voiceLanguageFilter === language
                                   ? "bg-accent/15 text-text"
                                   : "text-text-subtle hover:text-text"
@@ -3806,35 +3875,37 @@ export function AssistantSettings({
                       </div>
 
                       {/* VC cost line */}
-                      {(() => {
-                        const balance = data.plan?.workspaceVcoinBalance.balanceVc ?? 0;
-                        const cost = personaCreationVcoinCost;
-                        const remaining = balance - cost;
-                        const insufficient = balance < cost;
-                        return (
-                          <div className="mb-4 rounded-xl border border-border/50 bg-surface-raised/30 px-3 py-2 text-xs text-text-muted">
-                            {t("charactersFormCost", {
-                              n: cost,
-                              m: balance,
-                              remaining: Math.max(0, remaining)
-                            })}
-                            {insufficient && (
-                              <div className="mt-1">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setCreatePersonaOpen(false);
-                                    onOpenPackagesPage?.();
-                                  }}
-                                  className="text-accent underline underline-offset-2"
-                                >
-                                  {t("charactersFormInsufficient")}
-                                </button>
+                      {personaModalMode === "create"
+                        ? (() => {
+                            const balance = data.plan?.workspaceVcoinBalance.balanceVc ?? 0;
+                            const cost = personaCreationVcoinCost;
+                            const remaining = balance - cost;
+                            const insufficient = balance < cost;
+                            return (
+                              <div className="mb-4 rounded-xl border border-border/50 bg-surface-raised/30 px-3 py-2 text-xs text-text-muted">
+                                {t("charactersFormCost", {
+                                  n: cost,
+                                  m: balance,
+                                  remaining: Math.max(0, remaining)
+                                })}
+                                {insufficient && (
+                                  <div className="mt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setCreatePersonaOpen(false);
+                                        onOpenPackagesPage?.();
+                                      }}
+                                      className="text-accent underline underline-offset-2"
+                                    >
+                                      {t("charactersFormInsufficient")}
+                                    </button>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        );
-                      })()}
+                            );
+                          })()
+                        : null}
 
                       {createPersonaError && (
                         <p className="mb-3 text-xs text-destructive">{createPersonaError}</p>
@@ -3854,43 +3925,58 @@ export function AssistantSettings({
                             createPersonaSubmitting ||
                             createPersonaName.trim().length === 0 ||
                             !createPersonaVoiceId ||
-                            !createPersonaPortrait ||
-                            (data.plan?.workspaceVcoinBalance.balanceVc ?? 0) <
-                              personaCreationVcoinCost
+                            (personaModalMode === "create" &&
+                              (!createPersonaPortrait ||
+                                (data.plan?.workspaceVcoinBalance.balanceVc ?? 0) <
+                                  personaCreationVcoinCost))
                           }
                           onClick={async () => {
-                            if (
-                              !assistant?.workspaceId ||
-                              !createPersonaVoiceId ||
-                              !createPersonaPortrait
-                            )
-                              return;
+                            if (!assistant?.workspaceId || !createPersonaVoiceId) return;
                             const token = await getToken();
                             if (!token) return;
                             setCreatePersonaSubmitting(true);
                             setCreatePersonaError(null);
                             try {
-                              const result = await createWorkspaceVideoPersona(
-                                token,
-                                assistant.workspaceId,
-                                {
-                                  displayName: createPersonaName.trim(),
-                                  heygenVoiceId: createPersonaVoiceId,
-                                  portrait: createPersonaPortrait
+                              if (personaModalMode === "create") {
+                                if (!createPersonaPortrait) return;
+                                const result = await createWorkspaceVideoPersona(
+                                  token,
+                                  assistant.workspaceId,
+                                  {
+                                    displayName: createPersonaName.trim(),
+                                    heygenVoiceId: createPersonaVoiceId,
+                                    portrait: createPersonaPortrait
+                                  }
+                                );
+                                setCreatePersonaOpen(false);
+                                if (result.storageWarning === "persona_created_storage_failed") {
+                                  setPersonaFb({
+                                    type: "warn",
+                                    text: t("charactersWarnStorageFailedMessage", {
+                                      name: createPersonaName.trim()
+                                    })
+                                  });
+                                } else {
+                                  setPersonaFb({
+                                    type: "ok",
+                                    text: t("charactersCreateSuccess")
+                                  });
                                 }
-                              );
-                              setCreatePersonaOpen(false);
-                              if (result.storageWarning === "persona_created_storage_failed") {
-                                setPersonaFb({
-                                  type: "warn",
-                                  text: t("charactersWarnStorageFailedMessage", {
-                                    name: createPersonaName.trim()
-                                  })
-                                });
                               } else {
+                                if (!editingPersonaId) return;
+                                await updateWorkspaceVideoPersona(
+                                  token,
+                                  assistant.workspaceId,
+                                  editingPersonaId,
+                                  {
+                                    displayName: createPersonaName.trim(),
+                                    heygenVoiceId: createPersonaVoiceId
+                                  }
+                                );
+                                setCreatePersonaOpen(false);
                                 setPersonaFb({
                                   type: "ok",
-                                  text: t("charactersCreateSuccess")
+                                  text: t("charactersEditSuccess")
                                 });
                               }
                               void loadPersonas();
@@ -3920,17 +4006,22 @@ export function AssistantSettings({
                             (createPersonaSubmitting ||
                               createPersonaName.trim().length === 0 ||
                               !createPersonaVoiceId ||
-                              !createPersonaPortrait ||
-                              (data.plan?.workspaceVcoinBalance.balanceVc ?? 0) <
-                                personaCreationVcoinCost) &&
+                              (personaModalMode === "create" &&
+                                (!createPersonaPortrait ||
+                                  (data.plan?.workspaceVcoinBalance.balanceVc ?? 0) <
+                                    personaCreationVcoinCost))) &&
                               "cursor-not-allowed opacity-50"
                           )}
                         >
                           {createPersonaSubmitting ? (
                             <span className="flex items-center gap-1.5">
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              {t("charactersFormSubmitting")}
+                              {personaModalMode === "edit"
+                                ? t("charactersFormSubmittingEdit")
+                                : t("charactersFormSubmitting")}
                             </span>
+                          ) : personaModalMode === "edit" ? (
+                            t("charactersFormSubmitEdit")
                           ) : (
                             t("charactersFormSubmit")
                           )}

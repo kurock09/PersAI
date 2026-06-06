@@ -65,6 +65,7 @@ const assistantApiMocks = vi.hoisted(() => ({
   getWorkspaceVideoPersonas: vi.fn(),
   getWorkspaceVoiceCatalog: vi.fn(),
   createWorkspaceVideoPersona: vi.fn(),
+  updateWorkspaceVideoPersona: vi.fn(),
   deleteWorkspaceVideoPersona: vi.fn()
 }));
 
@@ -114,6 +115,7 @@ vi.mock("../assistant-api-client", async () => {
     getWorkspaceVideoPersonas: assistantApiMocks.getWorkspaceVideoPersonas,
     getWorkspaceVoiceCatalog: assistantApiMocks.getWorkspaceVoiceCatalog,
     createWorkspaceVideoPersona: assistantApiMocks.createWorkspaceVideoPersona,
+    updateWorkspaceVideoPersona: assistantApiMocks.updateWorkspaceVideoPersona,
     deleteWorkspaceVideoPersona: assistantApiMocks.deleteWorkspaceVideoPersona
   };
 });
@@ -372,6 +374,16 @@ beforeEach(() => {
     },
     walletBalanceVc: 80,
     storageWarning: null
+  });
+  assistantApiMocks.updateWorkspaceVideoPersona.mockResolvedValue({
+    persona: {
+      id: "persona-1",
+      displayName: "Test",
+      portraitImageUrl: "/api/persona-portrait/ws-1/persona-1/hash.jpg",
+      heygenVoiceId: "en-US-Amy",
+      heygenVoiceLabel: "Amy",
+      createdAt: new Date().toISOString()
+    }
   });
   assistantApiMocks.deleteWorkspaceVideoPersona.mockResolvedValue(undefined);
 });

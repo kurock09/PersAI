@@ -7,6 +7,27 @@ async function run(): Promise<void> {
     {
       async listPersonas() {
         return { personas: [], limit: 3, creationVcoinCost: 0 };
+      },
+      async updatePersona(input: {
+        workspaceId: string;
+        personaId: string;
+        displayName: string;
+        heygenVoiceId: string;
+      }) {
+        assert.equal(input.workspaceId, "workspace-1");
+        assert.equal(input.personaId, "persona-1");
+        assert.equal(input.displayName, "Updated persona");
+        assert.equal(input.heygenVoiceId, "voice-2");
+        return {
+          persona: {
+            id: "persona-1",
+            displayName: "Updated persona",
+            portraitImageUrl: "/portrait.jpg",
+            heygenVoiceId: "voice-2",
+            heygenVoiceLabel: "Updated voice",
+            createdAt: "2026-06-06T12:00:00.000Z"
+          }
+        };
       }
     } as never,
     {
@@ -55,6 +76,13 @@ async function run(): Promise<void> {
       error instanceof UnauthorizedException &&
       error.message.includes("requested workspace does not match")
   );
+
+  const updated = await controller.updatePersona(reqWithNullWorkspace, "workspace-1", "persona-1", {
+    displayName: "Updated persona",
+    heygenVoiceId: "voice-2"
+  });
+  assert.equal(updated.persona.id, "persona-1");
+  assert.equal(updated.persona.heygenVoiceId, "voice-2");
 }
 
 run().catch((error) => {

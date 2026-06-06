@@ -5637,6 +5637,37 @@ export async function createWorkspaceVideoPersona(
   return data;
 }
 
+export async function updateWorkspaceVideoPersona(
+  token: string,
+  workspaceId: string,
+  personaId: string,
+  payload: {
+    displayName: string;
+    heygenVoiceId: string;
+  }
+): Promise<{
+  persona: PersonaListItemDto;
+}> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/workspaces/${encodeURIComponent(workspaceId)}/video-personas/${encodeURIComponent(personaId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...getAuthHeaders(token),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    }
+  );
+  if (!res.ok) {
+    const envelope = await readApiErrorEnvelope(res);
+    if (envelope) throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    throw new ApiStructuredError("Persona update failed", "update_failed");
+  }
+  return res.json() as Promise<{ persona: PersonaListItemDto }>;
+}
+
 export async function deleteWorkspaceVideoPersona(
   token: string,
   workspaceId: string,

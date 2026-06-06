@@ -2,6 +2,67 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-06 - ADR-109 Characters edit flow: shared modal, locked avatar identity
+
+### Baseline
+
+- Starting SHA: `9071c69de9649fe97834eb70da26b06926c0e924`
+
+### What changed & why
+
+The next operator correction narrowed the Characters UX in an important way: edit mode should not pretend avatar replacement is supported if the underlying HeyGen avatar identity is still modeled as a stable persona-side binding. Instead of adding a messy partial avatar-recreate path, this slice keeps edit behavior honest and bounded:
+
+1. Saved persona cards now open the same modal used by `Create character`, but in `Edit` mode.
+2. In `Edit`, only `displayName` and `voice` are mutable.
+3. The existing portrait stays visible and can still be opened large in the lightbox, but avatar replacement is explicitly blocked with a quiet hint telling the operator to create a new character for a new face.
+4. The mobile language-filter control was stabilized so switching `RU / EN / OTHER` no longer changes modal width.
+
+To support that UX honestly, the API now exposes a bounded update path:
+
+- new `PATCH /api/v1/workspaces/:workspaceId/video-personas/:personaId`
+- repository + service update support only `displayName`, `displayNameLower`, `heygenVoiceId`, `heygenVoiceLabel`
+- portrait storage key, portrait URL, and `heygenAvatarId` remain untouched
+
+This keeps the edit flow aligned with current architecture: no silent HeyGen avatar recreation, no orphan-cleanup complexity, and no hidden billing semantics for avatar swaps.
+
+### Files touched
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-video-persona.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-video-persona.repository.ts`
+- `apps/api/src/modules/workspace-management/interface/http/workspace-video-personas.controller.ts`
+- `apps/api/test/manage-workspace-video-personas.service.test.ts`
+- `apps/api/test/workspace-video-personas.controller.test.ts`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/assistant-settings.test.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/manage-workspace-video-personas.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-video-personas.controller.test.ts` - PASS
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx` - PASS
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/heygen-provider.client.test.ts` - PASS
+
+### Risks / residuals
+
+- The Characters edit slice is intentionally narrow: avatar replacement still requires create-new-persona, because current architecture treats the HeyGen avatar identity as stable once bound to the persona row.
+- The live delivery hotfix normalizes the observed HeyGen octet-stream case for completed video downloads. If HeyGen later serves another non-video payload with the same header and a misleading suffix, runtime could still accept it; for now this is a bounded provider-specific trust trade-off grounded in real dev-cluster evidence.
+
+### Next recommended step
+
+Deploy API + provider-gateway + web/runtime surfaces together, then re-check the exact previously stuck talking-avatar jobs (or reproduce one fresh job) and confirm the chat banner clears into delivered video instead of `media_job_completion_failed`.
+
 ## 2026-06-06 - ADR-109 live fix: HeyGen voices cursor parameter truth
 
 ### What changed & why

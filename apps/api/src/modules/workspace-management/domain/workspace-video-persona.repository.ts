@@ -52,6 +52,15 @@ export type WorkspaceVideoPersonaCreateInput = {
   heygenAvatarId: string;
 };
 
+export type WorkspaceVideoPersonaUpdateInput = {
+  workspaceId: string;
+  personaId: string;
+  displayName: string;
+  displayNameLower: string;
+  heygenVoiceId: string;
+  heygenVoiceLabel: string;
+};
+
 export interface WorkspaceVideoPersonaRepository {
   /**
    * Count of non-archived personas in the workspace.
@@ -96,6 +105,17 @@ export interface WorkspaceVideoPersonaRepository {
     input: WorkspaceVideoPersonaCreateInput,
     tx: Prisma.TransactionClient
   ): Promise<WorkspaceVideoPersonaRecord>;
+
+  /**
+   * Updates mutable persona fields without changing the stored portrait or
+   * HeyGen avatar identity. Used by the user-facing edit flow where operators
+   * may rename a persona or change its voice, but avatar replacement remains
+   * a create-new-persona flow.
+   */
+  update(
+    input: WorkspaceVideoPersonaUpdateInput,
+    tx?: Prisma.TransactionClient
+  ): Promise<WorkspaceVideoPersonaRecord | null>;
 
   /**
    * Soft-deletes the persona by setting `archived = true` and

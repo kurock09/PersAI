@@ -87,6 +87,13 @@ function makeVideoDownload(): Response {
   });
 }
 
+function makeOctetStreamVideoDownload(): Response {
+  return new Response(MOCK_VIDEO_BYTES, {
+    status: 200,
+    headers: { "Content-Type": "binary/octet-stream" }
+  });
+}
+
 export async function runHeyGenProviderClientTest(): Promise<void> {
   const client = new HeyGenProviderClient(createConfig());
   const originalFetch = globalThis.fetch;
@@ -218,6 +225,43 @@ export async function runHeyGenProviderClientTest(): Promise<void> {
       );
       assert.equal(submitBodies.length, 1);
       console.log("✓ Test 2: Scenario C (cached avatar_id) happy path");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 2b: HeyGen download may return octet-stream for a real mp4
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url === "https://api.heygen.com/v3/videos") {
+        return makeSubmitResponse("vid-octet-1");
+      }
+      if (url === "https://api.heygen.com/v3/videos/vid-octet-1") {
+        return makeCompletedPollResponse("https://cdn.heygen.com/vid-octet-1.mp4", 9.0);
+      }
+      if (url === "https://cdn.heygen.com/vid-octet-1.mp4") {
+        return makeOctetStreamVideoDownload();
+      }
+      throw new Error(`Unexpected fetch in octet-stream video test: ${url}`);
+    }) as typeof fetch;
+
+    try {
+      const result = await client.generateVideo(
+        createBaseRequest({
+          personaId: null,
+          portraitImageBytesBase64: Buffer.from("portrait-image-bytes").toString("base64"),
+          portraitImageMimeType: "image/jpeg"
+        }),
+        { credentialValue: MOCK_HEYGEN_API_KEY }
+      );
+
+      assert.equal(result.video.mimeType, "video/mp4");
+      console.log("✓ Test 2b: octet-stream HeyGen download normalizes to video/mp4");
     } finally {
       globalThis.fetch = originalFetch;
     }

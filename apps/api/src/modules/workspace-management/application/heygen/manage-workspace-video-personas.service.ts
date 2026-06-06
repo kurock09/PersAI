@@ -51,6 +51,10 @@ export type CreatePersonaResult = {
   storageWarning: string | null;
 };
 
+export type UpdatePersonaResult = {
+  persona: WorkspaceVideoPersonaDto;
+};
+
 /**
  * ADR-109 Slice 5 / Slice 5b — manages workspace video persona CRUD.
  *
@@ -393,6 +397,70 @@ export class ManageWorkspaceVideoPersonasService {
     // Drop the archived persona from the model-visible catalog on the next turn.
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
     return { archived: true, personaId: updated.id };
+  }
+
+  async updatePersona(input: {
+    workspaceId: string;
+    personaId: string;
+    displayName: string;
+    heygenVoiceId: string;
+  }): Promise<UpdatePersonaResult> {
+    const persona = await this.personaRepository.findById(input.workspaceId, input.personaId);
+    if (persona === null || persona.archived) {
+      throw new NotFoundException({
+        message: `Persona "${input.personaId}" not found in this workspace.`,
+        code: "persona_not_found"
+      });
+    }
+
+    const catalogEntries = await this.heyGenVoiceCatalogService.getFullVoiceCatalogEntries();
+    if (catalogEntries.length === 0) {
+      throw new BadRequestException({
+        message: "HeyGen voice catalog is unavailable. Please try again later.",
+        code: "voice_not_found"
+      });
+    }
+
+    const matchedVoice = catalogEntries.find(
+      (entry) => entry.providerVoiceId === input.heygenVoiceId
+    );
+    if (matchedVoice === undefined) {
+      throw new BadRequestException({
+        message: `Voice "${input.heygenVoiceId}" not found in the HeyGen voice catalog.`,
+        code: "voice_not_found"
+      });
+    }
+
+    const displayNameLower = input.displayName.toLowerCase();
+    const duplicate = await this.personaRepository.findActiveByLowerName(
+      input.workspaceId,
+      displayNameLower
+    );
+    if (duplicate !== null && duplicate.id !== input.personaId) {
+      throw new BadRequestException({
+        message: `A persona named "${input.displayName}" already exists in this workspace.`,
+        code: "persona_duplicate_name"
+      });
+    }
+
+    const updated = await this.personaRepository.update({
+      workspaceId: input.workspaceId,
+      personaId: input.personaId,
+      displayName: input.displayName,
+      displayNameLower,
+      heygenVoiceId: input.heygenVoiceId,
+      heygenVoiceLabel: matchedVoice.displayName
+    });
+
+    if (updated === null) {
+      throw new NotFoundException({
+        message: `Persona "${input.personaId}" not found in this workspace.`,
+        code: "persona_not_found"
+      });
+    }
+
+    await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    return { persona: this.toDto(updated) };
   }
 
   async readPersonaPortrait(input: {

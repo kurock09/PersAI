@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Patch,
   Delete,
   Get,
   HttpCode,
@@ -21,6 +22,7 @@ import type {
 import {
   ManageWorkspaceVideoPersonasService,
   type CreatePersonaResult,
+  type UpdatePersonaResult,
   type PersonaListItem
 } from "../../application/heygen/manage-workspace-video-personas.service";
 import {
@@ -122,6 +124,27 @@ export class WorkspaceVideoPersonasController {
     const userId = this.resolveUserId(req);
     await this.assertWorkspaceAccess(userId, workspaceId);
     return this.manageWorkspaceVideoPersonasService.archivePersona({ workspaceId, personaId });
+  }
+
+  @Patch(":personaId")
+  async updatePersona(
+    @Req() req: RequestWithPlatformContext,
+    @Param("workspaceId") workspaceId: string,
+    @Param("personaId") personaId: string,
+    @Body() body: unknown
+  ): Promise<UpdatePersonaResult> {
+    const userId = this.resolveUserId(req);
+    await this.assertWorkspaceAccess(userId, workspaceId);
+
+    const displayName = this.parseStringField(body, "displayName");
+    const heygenVoiceId = this.parseStringField(body, "heygenVoiceId");
+
+    return this.manageWorkspaceVideoPersonasService.updatePersona({
+      workspaceId,
+      personaId,
+      displayName,
+      heygenVoiceId
+    });
   }
 
   @Get(":personaId/portrait")

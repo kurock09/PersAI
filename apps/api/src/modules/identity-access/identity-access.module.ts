@@ -360,6 +360,10 @@ export class IdentityAccessModule implements NestModule {
       },
       {
         path: "api/v1/workspaces/:workspaceId/video-personas/:personaId",
+        method: RequestMethod.PATCH
+      },
+      {
+        path: "api/v1/workspaces/:workspaceId/video-personas/:personaId",
         method: RequestMethod.DELETE
       },
       {

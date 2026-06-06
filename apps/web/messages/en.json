@@ -1198,6 +1198,8 @@
     "charactersCancel": "Cancel",
     "charactersDeleteSuccess": "Character deleted.",
     "charactersCreateSuccess": "Character created.",
+    "charactersEdit": "Edit character",
+    "charactersEditSuccess": "Character updated.",
     "charactersFormName": "Name",
     "charactersFormPortrait": "Portrait photo",
     "charactersFormVoice": "Voice",
@@ -1206,6 +1208,8 @@
     "charactersFormLimitReached": "Character limit reached ({n})",
     "charactersFormSubmit": "Create character",
     "charactersFormSubmitting": "Creating...",
+    "charactersFormSubmitEdit": "Save changes",
+    "charactersFormSubmittingEdit": "Saving...",
     "charactersFormNamePlaceholder": "Character name",
     "charactersFormPortraitHint": "Upload a portrait photo (JPG or PNG, max 10 MB)",
     "charactersFormPortraitDrop": "Drop image here or click to select",
@@ -1229,7 +1233,8 @@
     "charactersMockPersonaVoice": "Russian (Female)",
     "charactersVoiceLabel": "Voice: {voice}",
     "charactersWarnStorageFailedTitle": "Persona created, portrait failed",
-    "charactersWarnStorageFailedMessage": "{name} was created but the portrait could not be saved. Try recreating to attach the portrait."
+    "charactersWarnStorageFailedMessage": "{name} was created but the portrait could not be saved. Try recreating to attach the portrait.",
+    "charactersAvatarEditHint": "Avatar changes are not available here. To use a new face, create a new character."
   },
   "telegram": {
     "title": "Telegram",

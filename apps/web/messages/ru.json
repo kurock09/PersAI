@@ -1198,6 +1198,8 @@
     "charactersCancel": "Отмена",
     "charactersDeleteSuccess": "Персонаж удалён.",
     "charactersCreateSuccess": "Персонаж создан.",
+    "charactersEdit": "Редактировать персонажа",
+    "charactersEditSuccess": "Персонаж обновлён.",
     "charactersFormName": "Имя",
     "charactersFormPortrait": "Фото",
     "charactersFormVoice": "Голос",
@@ -1206,6 +1208,8 @@
     "charactersFormLimitReached": "Достигнут лимит персонажей ({n})",
     "charactersFormSubmit": "Создать персонажа",
     "charactersFormSubmitting": "Создаётся...",
+    "charactersFormSubmitEdit": "Сохранить изменения",
+    "charactersFormSubmittingEdit": "Сохраняем...",
     "charactersFormNamePlaceholder": "Имя персонажа",
     "charactersFormPortraitHint": "Загрузите фото (JPG или PNG, до 10 МБ)",
     "charactersFormPortraitDrop": "Перетащите изображение или нажмите для выбора",
@@ -1229,7 +1233,8 @@
     "charactersMockPersonaVoice": "Русский (женский)",
     "charactersVoiceLabel": "Голос: {voice}",
     "charactersWarnStorageFailedTitle": "Персонаж создан, портрет — нет",
-    "charactersWarnStorageFailedMessage": "{name} создан, но портрет не сохранён. Создайте заново, чтобы прикрепить."
+    "charactersWarnStorageFailedMessage": "{name} создан, но портрет не сохранён. Создайте заново, чтобы прикрепить.",
+    "charactersAvatarEditHint": "Сменить аватар здесь нельзя. Если нужен другой образ, аккуратно создайте нового персонажа."
   },
   "telegram": {
     "title": "Telegram",

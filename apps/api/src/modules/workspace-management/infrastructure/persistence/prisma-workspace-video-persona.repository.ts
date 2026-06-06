@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
   WorkspaceVideoPersonaCreateInput,
+  WorkspaceVideoPersonaUpdateInput,
   WorkspaceVideoPersonaRecord,
   WorkspaceVideoPersonaRepository
 } from "../../domain/workspace-video-persona.repository";
@@ -94,6 +95,32 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
       }
     });
     return this.mapToDomain(row);
+  }
+
+  async update(
+    input: WorkspaceVideoPersonaUpdateInput,
+    tx?: Prisma.TransactionClient
+  ): Promise<WorkspaceVideoPersonaRecord | null> {
+    if (!isUuid(input.personaId)) {
+      return null;
+    }
+    const client = tx ?? this.prisma;
+    const existing = await client.workspaceVideoPersona.findFirst({
+      where: { id: input.personaId, workspaceId: input.workspaceId, archived: false }
+    });
+    if (existing === null) {
+      return null;
+    }
+    const updated = await client.workspaceVideoPersona.update({
+      where: { id: input.personaId },
+      data: {
+        displayName: input.displayName,
+        displayNameLower: input.displayNameLower,
+        heygenVoiceId: input.heygenVoiceId,
+        heygenVoiceLabel: input.heygenVoiceLabel
+      }
+    });
+    return this.mapToDomain(updated);
   }
 
   async archive(

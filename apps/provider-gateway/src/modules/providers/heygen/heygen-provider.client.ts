@@ -578,15 +578,46 @@ export class HeyGenProviderClient {
       throw new Error("HeyGen video generation returned an empty video payload.");
     }
     const mimeTypeHeader = response.headers.get("content-type");
-    const mimeType =
-      typeof mimeTypeHeader === "string" && mimeTypeHeader.trim().length > 0
-        ? mimeTypeHeader.split(";")[0]!.trim()
-        : "video/mp4";
+    const mimeType = this.normalizeDownloadedVideoMimeType(mimeTypeHeader, url);
     return {
       bytesBase64: buffer.toString("base64"),
       mimeType,
       downloadUrl: url
     };
+  }
+
+  private normalizeDownloadedVideoMimeType(headerValue: string | null, url: string): string {
+    const normalizedHeader =
+      typeof headerValue === "string" && headerValue.trim().length > 0
+        ? headerValue.split(";")[0]!.trim().toLowerCase()
+        : "";
+    if (normalizedHeader.startsWith("video/")) {
+      return normalizedHeader;
+    }
+    if (
+      normalizedHeader === "" ||
+      normalizedHeader === "application/octet-stream" ||
+      normalizedHeader === "binary/octet-stream"
+    ) {
+      const pathname = this.safeParseUrlPathname(url);
+      const lowerPath = pathname.toLowerCase();
+      if (lowerPath.endsWith(".webm")) {
+        return "video/webm";
+      }
+      if (lowerPath.endsWith(".mov")) {
+        return "video/quicktime";
+      }
+      return "video/mp4";
+    }
+    return normalizedHeader;
+  }
+
+  private safeParseUrlPathname(url: string): string {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return url;
+    }
   }
 
   // ── Billing ───────────────────────────────────────────────────────────────
