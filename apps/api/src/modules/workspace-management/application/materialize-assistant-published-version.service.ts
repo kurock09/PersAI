@@ -338,6 +338,20 @@ export function buildVideoGenerateToolCredentialRef(params: {
   };
 }
 
+export function resolveTtsModelKeyForProvider(params: {
+  runtimeProviderProfile: RuntimeProviderProfileState;
+  providerId: PersaiRuntimeTtsProviderId;
+}): string | null {
+  if (params.runtimeProviderProfile.mode !== "admin_managed" || params.providerId !== "openai") {
+    return null;
+  }
+  const models = getRuntimeProviderCatalogModelsByCapability(
+    params.runtimeProviderProfile.availableModelCatalogByProvider.openai,
+    "text_to_speech"
+  );
+  return models[0] ?? null;
+}
+
 function buildVideoProviderToolCredentialRef(params: {
   runtimeProviderProfile: RuntimeProviderProfileState;
   keyMetadata: Record<string, { configured: boolean } | undefined>;
@@ -1081,6 +1095,7 @@ export class MaterializeAssistantPublishedVersionService {
     }
     refs.tts = this.buildTtsToolCredentialRef(
       keyMetadata,
+      input.runtimeProviderProfile,
       await this.resolveTtsPrimaryProviderId(),
       input.voiceProfile
     );
@@ -1243,6 +1258,7 @@ export class MaterializeAssistantPublishedVersionService {
 
   private buildTtsToolCredentialRef(
     keyMetadata: Record<string, { configured: boolean } | undefined>,
+    runtimeProviderProfile: RuntimeProviderProfileState,
     primaryProviderId: PersaiRuntimeTtsProviderId,
     voiceProfile: AssistantRuntimeBundle["persona"]["voiceProfile"]
   ): AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string] {
@@ -1259,21 +1275,32 @@ export class MaterializeAssistantPublishedVersionService {
     const materializedProviderId = providerChain[0] ?? primaryProviderId;
     const primaryCredentialKey = TTS_PROVIDER_TO_CREDENTIAL_KEY[materializedProviderId];
     const primarySecretRef = buildToolCredentialSecretRef(primaryCredentialKey);
+    const primaryModelKey = this.resolveTtsModelKey(runtimeProviderProfile, materializedProviderId);
 
     return {
       ...primarySecretRef,
       configured: providerChain.length > 0,
       providerId: materializedProviderId,
+      ...(primaryModelKey === null ? {} : { modelKey: primaryModelKey }),
       fallbacks: providerChain.slice(1, 2).map((providerId) => {
         const credentialKey = TTS_PROVIDER_TO_CREDENTIAL_KEY[providerId];
         const secretRef = buildToolCredentialSecretRef(credentialKey);
+        const modelKey = this.resolveTtsModelKey(runtimeProviderProfile, providerId);
         return {
           ...secretRef,
           configured: true,
-          providerId
+          providerId,
+          ...(modelKey === null ? {} : { modelKey })
         };
       })
     };
+  }
+
+  private resolveTtsModelKey(
+    runtimeProviderProfile: RuntimeProviderProfileState,
+    providerId: PersaiRuntimeTtsProviderId
+  ): string | null {
+    return resolveTtsModelKeyForProvider({ runtimeProviderProfile, providerId });
   }
 
   private async resolveTtsPrimaryProviderId(): Promise<PersaiRuntimeTtsProviderId> {

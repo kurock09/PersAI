@@ -2949,6 +2949,7 @@ export interface ProviderGatewaySpeechGenerateRequest {
     toolCode: "tts";
     secretId: string;
     providerId: PersaiRuntimeTtsProviderId | null;
+    modelKey?: string | null;
   };
 }
 

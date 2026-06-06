@@ -55,6 +55,7 @@ function createBundle(options?: {
   fallbackConfigured?: boolean;
   primaryProviderId?: PersaiRuntimeTtsProviderId;
   fallbackProviderId?: PersaiRuntimeTtsProviderId;
+  openAiModelKey?: string;
 }) {
   const primaryProviderId = options?.primaryProviderId ?? "elevenlabs";
   const fallbackProviderId: PersaiRuntimeTtsProviderId =
@@ -164,6 +165,9 @@ function createBundle(options?: {
           },
           configured: options?.primaryConfigured ?? true,
           providerId: primaryProviderId,
+          ...(primaryProviderId === "openai"
+            ? { modelKey: options?.openAiModelKey ?? "gpt-4o-mini-tts" }
+            : {}),
           fallbacks: [
             {
               refKey: `persai:persai-runtime:tool/tts/${fallbackProviderId}`,
@@ -173,7 +177,10 @@ function createBundle(options?: {
                 id: `tool/tts/${fallbackProviderId}`
               },
               configured: options?.fallbackConfigured ?? true,
-              providerId: fallbackProviderId
+              providerId: fallbackProviderId,
+              ...(fallbackProviderId === "openai"
+                ? { modelKey: options?.openAiModelKey ?? "gpt-4o-mini-tts" }
+                : {})
             }
           ]
         }
@@ -420,6 +427,7 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   assert.equal(result.artifacts.length, 1);
   assert.equal(providerGatewayClientService.speechCalls.length, 1);
   assert.equal(providerGatewayClientService.speechCalls[0]?.credential.providerId, "openai");
+  assert.equal(providerGatewayClientService.speechCalls[0]?.credential.modelKey, "gpt-4o-mini-tts");
   assert.equal(mediaObjectStorage.savedObjects.length, 1);
   assert.equal(mediaObjectStorage.savedObjects[0]?.mimeType, "audio/ogg");
   assert.deepEqual(persaiInternalApiClientService.quotaCalls, [
@@ -450,6 +458,23 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   assert.equal(providerGatewayClientService.speechCalls.length, 3);
   assert.equal(providerGatewayClientService.speechCalls[1]?.credential.providerId, "elevenlabs");
   assert.equal(providerGatewayClientService.speechCalls[2]?.credential.providerId, "yandex");
+  assert.equal(providerGatewayClientService.speechCalls[2]?.credential.modelKey ?? null, null);
+
+  const customOpenAiModelBundle = createBundle({
+    primaryProviderId: "openai",
+    openAiModelKey: "gpt-4o-tts"
+  });
+  await service.executeToolCall({
+    bundle: customOpenAiModelBundle,
+    toolCall: createToolCall({
+      text: "Проверь, что runtime forwards catalog-owned OpenAI TTS model.",
+      toneTag: "warm"
+    }),
+    sessionId: "session-1",
+    requestId: "request-1c"
+  });
+  assert.equal(providerGatewayClientService.speechCalls[3]?.credential.providerId, "openai");
+  assert.equal(providerGatewayClientService.speechCalls[3]?.credential.modelKey, "gpt-4o-tts");
 
   const invalid = await service.executeToolCall({
     bundle,

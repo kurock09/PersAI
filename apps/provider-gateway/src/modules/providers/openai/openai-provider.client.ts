@@ -679,9 +679,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
     );
     const format = input.deliveryKind === "voice_note" ? "opus" : "mp3";
+    const model = input.credential.modelKey?.trim() || OPENAI_SPEECH_GENERATION_MODEL;
     try {
       const payload: OpenAISpeechCreateParams = {
-        model: OPENAI_SPEECH_GENERATION_MODEL,
+        model,
         voice: input.voiceProfile.openai.voice ?? "marin",
         input: input.text,
         response_format: format,
@@ -695,14 +696,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
       return {
         provider: "openai",
-        model: OPENAI_SPEECH_GENERATION_MODEL,
+        model,
         deliveryKind: input.deliveryKind,
         bytesBase64: buffer.toString("base64"),
         mimeType: format === "opus" ? "audio/ogg" : "audio/mpeg",
         respondedAt: new Date().toISOString(),
         usage: null,
         billingFacts: this.buildSpeechBillingFacts({
-          model: OPENAI_SPEECH_GENERATION_MODEL,
+          model,
           text: input.text
         }),
         warning: null

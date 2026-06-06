@@ -53,6 +53,7 @@ export class ProviderSpeechGenerationService {
   ): ProviderGatewaySpeechGenerateRequest & {
     credential: ProviderGatewaySpeechGenerateRequest["credential"] & {
       providerId: PersaiRuntimeTtsProviderId;
+      modelKey?: string | null;
     };
     voiceProfile: RuntimeAssistantVoiceProfile;
     traits: Record<string, number> | null;
@@ -104,7 +105,12 @@ export class ProviderSpeechGenerationService {
       credential: {
         toolCode: "tts",
         secretId: input.credential.secretId.trim(),
-        providerId: input.credential.providerId
+        providerId: input.credential.providerId,
+        modelKey:
+          typeof input.credential.modelKey === "string" &&
+          input.credential.modelKey.trim().length > 0
+            ? input.credential.modelKey.trim()
+            : null
       }
     };
   }

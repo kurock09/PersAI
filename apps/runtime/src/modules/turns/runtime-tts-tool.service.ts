@@ -161,7 +161,8 @@ export class RuntimeTtsToolService {
           credential: {
             toolCode: "tts",
             secretId: credential.secretRef.id,
-            providerId: credential.providerId
+            providerId: credential.providerId,
+            modelKey: credential.modelKey ?? null
           }
         });
         const artifact = await this.persistGeneratedArtifact({

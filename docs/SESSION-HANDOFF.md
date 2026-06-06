@@ -2,6 +2,64 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-06 - ADR-110 Slice 3: TTS model/default truth cleanup
+
+### Baseline
+
+- Starting SHA: `9b2ef1337fa5c775c80a3c0d44354bb295a40cf2`
+
+### What changed & why
+
+ADR-110 Slice 3 keeps the existing runtime TTS provider-chain fallback intact, but removes the last active hardcoded OpenAI TTS model truth from the runtime/provider-gateway execution path. The materialized assistant bundle now carries the OpenAI TTS `modelKey` from the existing admin-managed runtime catalog, and runtime forwards that selected model to provider-gateway instead of forcing a code-owned default at execution time.
+
+This slice landed three bounded changes:
+
+1. API materialization now resolves the OpenAI `text_to_speech` model from `availableModelCatalogByProvider.openai` and attaches it to the TTS tool credential ref when the runtime provider profile is `admin_managed`.
+2. Runtime and provider-gateway now pass that TTS `modelKey` through the active request contract so the successful OpenAI speech call, result payload, and billing facts all reflect the actual selected model.
+3. Yandex `speechkit-v3` remains intentional code-owned API/path truth. This slice does not make it operator-selectable, because the active Yandex path still treats that identifier as provider protocol/version truth rather than catalog-owned operator choice.
+
+The slice deliberately does **not** change STT or web-search behavior, add any embedding/generated-media fallback, rewrite assistant voice-profile UX, or alter the existing TTS fallback chain semantics.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/test/materialize-assistant-published-version.service.test.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/provider-speech-generation.service.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-speech-generation.service.test.ts`
+- `apps/runtime/src/modules/turns/runtime-tts-tool.service.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/runtime-tts-tool.service.test.ts`
+- `packages/runtime-contract/src/index.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-tts-tool.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/provider-gateway.client.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-speech-generation.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/openai-provider.client.test.ts` - PASS
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/yandex-provider.client.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/materialize-assistant-published-version.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+
+### Risks / residuals
+
+- OpenAI TTS model resolution now depends on the first `text_to_speech` row in the admin-managed OpenAI catalog. If operators later need multiple explicit OpenAI TTS choices at runtime, that will require a separate UX/policy slice rather than another execution-path hardcode.
+- The runtime-contract surface changed (`ProviderGatewaySpeechGenerateRequest.credential.modelKey`), but no generated artifacts were required for this slice because the contract is consumed directly by runtime/provider-gateway code.
+- Yandex remains intentionally code-owned for TTS model/version truth in the active path. If product direction changes and operators need to choose Yandex speech models explicitly, that should be designed as a separate full vertical slice.
+
+### Next recommended step
+
+Proceed to ADR-110 Slice 4: Anthropic prompt cache.
+
 ## 2026-06-06 - ADR-110 Slice 2: Runtime text failover and retrieval helper fallback
 
 ### Baseline

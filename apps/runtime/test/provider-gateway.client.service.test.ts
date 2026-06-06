@@ -208,7 +208,8 @@ function createSpeechGenerateRequest(): ProviderGatewaySpeechGenerateRequest {
     credential: {
       toolCode: "tts",
       secretId: "secret-1",
-      providerId: "openai"
+      providerId: "openai",
+      modelKey: "gpt-4o-mini-tts"
     }
   };
 }
@@ -799,6 +800,10 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       "http://provider-gateway.local/api/v1/providers/generate-speech"
     );
     assert.equal(requests[9]?.init?.method, "POST");
+    assert.equal(
+      JSON.parse(String(requests[9]?.init?.body ?? "{}")).credential?.modelKey,
+      "gpt-4o-mini-tts"
+    );
     assert.equal(
       requests[10]?.url,
       "http://provider-gateway.local/api/v1/providers/generate-document"

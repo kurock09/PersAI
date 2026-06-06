@@ -202,7 +202,8 @@ function createSpeechGenerateRequest(): ProviderGatewaySpeechGenerateRequest {
     credential: {
       toolCode: "tts",
       secretId: "tool/tts/openai",
-      providerId: "openai"
+      providerId: "openai",
+      modelKey: "gpt-4o-mini-tts"
     }
   };
 }
@@ -1033,6 +1034,29 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   assert.equal(speechResult.mimeType, "audio/ogg");
   assert.deepEqual(capturedSpeechPayload, {
     model: "gpt-4o-mini-tts",
+    voice: "marin",
+    input: "Привет, это тестовый голосовой ответ.",
+    response_format: "opus",
+    instructions:
+      "Speak naturally in ru-RU. Keep the delivery warm, close, and human. Use a feminine vocal character. Sound caring, kind, and emotionally present. Avoid sounding playful or joking."
+  });
+
+  capturedSpeechPayload = null;
+  const customSpeechResult = await client.generateSpeech(
+    {
+      ...createSpeechGenerateRequest(),
+      credential: {
+        ...createSpeechGenerateRequest().credential,
+        modelKey: "gpt-4o-tts"
+      }
+    },
+    {
+      apiKey: "tool-openai-key"
+    }
+  );
+  assert.equal(customSpeechResult.model, "gpt-4o-tts");
+  assert.deepEqual(capturedSpeechPayload, {
+    model: "gpt-4o-tts",
     voice: "marin",
     input: "Привет, это тестовый голосовой ответ.",
     response_format: "opus",

@@ -41,7 +41,8 @@ function createRequest(
     credential: {
       toolCode: "tts",
       secretId: "tool/tts/provider-key",
-      providerId
+      providerId,
+      ...(providerId === "openai" ? { modelKey: "gpt-4o-mini-tts" } : {})
     }
   };
 }
@@ -134,6 +135,7 @@ export async function runProviderSpeechGenerationServiceTest(): Promise<void> {
   assert.equal(openaiResult.provider, "openai");
   assert.equal(openaiProviderClient.calls.length, 1);
   assert.equal(openaiProviderClient.calls[0]?.apiKey, "resolved-tool-secret");
+  assert.equal(openaiProviderClient.calls[0]?.input.credential.modelKey, "gpt-4o-mini-tts");
 
   const elevenlabsResult = await service.generateSpeech(createRequest("elevenlabs"));
   assert.equal(elevenlabsResult.provider, "elevenlabs");
@@ -142,6 +144,7 @@ export async function runProviderSpeechGenerationServiceTest(): Promise<void> {
   const yandexResult = await service.generateSpeech(createRequest("yandex"));
   assert.equal(yandexResult.provider, "yandex");
   assert.equal(yandexProviderClient.calls.length, 1);
+  assert.equal(yandexProviderClient.calls[0]?.input.credential.modelKey ?? null, null);
 
   assert.deepEqual(persaiInternalApiClientService.secretIds, [
     "tool/tts/provider-key",

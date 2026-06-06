@@ -5,6 +5,7 @@ import {
   buildVideoGenerateToolCredentialRef,
   resolveAllowedPlanCapabilityModelKey,
   resolveAllowedPlanPrimaryModelKey,
+  resolveTtsModelKeyForProvider,
   resolveVideoGenerateProviderSelection
 } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
 import { buildToolCredentialSecretRef } from "../src/modules/workspace-management/application/tool-credential-settings";
@@ -135,6 +136,27 @@ async function run(): Promise<void> {
               tokenPricing: null,
               timePricing: { unit: "second", pricePerUnit: 0 },
               fixedOperationPricing: null,
+              tieredOperationPricing: null
+            }
+          },
+          {
+            model: "gpt-4o-mini-tts",
+            capabilities: ["text_to_speech"],
+            active: true,
+            billingMode: "text_chars_metered",
+            effectiveFrom: null,
+            effectiveTo: null,
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: {
+              currency: "USD",
+              tokenPricing: null,
+              timePricing: null,
+              fixedOperationPricing: null,
+              textCharsPricing: { pricePer1MChars: 18 },
               tieredOperationPricing: null
             }
           }
@@ -341,6 +363,20 @@ async function run(): Promise<void> {
       providerId: "kling",
       modelKey: "kling-v3"
     }
+  );
+  assert.equal(
+    resolveTtsModelKeyForProvider({
+      runtimeProviderProfile: adminManagedProfile,
+      providerId: "openai"
+    }),
+    "gpt-4o-mini-tts"
+  );
+  assert.equal(
+    resolveTtsModelKeyForProvider({
+      runtimeProviderProfile: adminManagedProfile,
+      providerId: "yandex"
+    }),
+    null
   );
 
   const openAiMediaRef = {
