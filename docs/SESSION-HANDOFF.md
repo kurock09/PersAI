@@ -2,6 +2,81 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-06 - ADR-110 Slice 4: Anthropic prompt cache
+
+### Baseline
+
+- Starting SHA: `ae6a3e87`
+- Ending SHA: `ae6a3e87` (no commit; user explicitly requested no commit)
+
+### What changed & why
+
+ADR-110 Slice 4 completes the Anthropic prompt-cache path in the active provider client without broad prompt rewrites or fake cache accounting.
+
+This slice landed four bounded changes:
+
+1. Anthropic `system` projection is now cache-aware when `promptCache` is present: the stable `systemPrompt` becomes the cacheable prefix block with `cache_control: { type: "ephemeral" }`, while per-turn `developerInstructions` stay as an uncached suffix system text block.
+2. The Anthropic path now keeps provider-role mapping honest: no literal `developer` role is emitted to Anthropic, and the legacy string-form `system` payload is still preserved when there is no Anthropic cache breakpoint and no developer suffix to project.
+3. Runtime usage/accounting now carries `cacheCreationInputTokens` separately from normal `inputTokens` and cache-read `cachedInputTokens`, so Anthropic cache-write tokens no longer collapse into ordinary billable input or disappear from stream aggregation.
+4. Token-metered price metadata now includes `cacheCreationInputPer1M`; the cost ledger and quota-weighting path charge cache writes as a dedicated bucket. Anthropic rows that temporarily lack the new price field fall back to the official 5m write multiplier (`1.25 * inputPer1M`) instead of zero or ordinary cache-read pricing.
+
+The slice deliberately does **not** change runtime prompt-cache key generation, OpenAI prompt caching behavior, STT/web-search/TTS behavior, or generated-media/model fallback behavior.
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`
+- `apps/api/src/modules/workspace-management/application/record-model-cost-ledger.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts`
+- `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts`
+- `apps/api/test/quota-accounting.test.ts`
+- `apps/api/test/record-model-cost-ledger.service.test.ts`
+- `apps/api/test/token-metered-credits.test.ts`
+- `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts`
+- `apps/runtime/src/modules/turns/runtime-image-edit-tool.service.ts`
+- `apps/runtime/src/modules/turns/runtime-image-generate-tool.service.ts`
+- `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/web/app/admin/knowledge/page.test.tsx`
+- `apps/web/app/admin/runtime/page.test.tsx`
+- `apps/web/app/admin/runtime/page.tsx`
+- `apps/web/app/app/assistant-api-client.test.ts`
+- `apps/web/app/app/runtime-provider-settings-admin.test.ts`
+- `apps/web/app/app/runtime-provider-settings-admin.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/model/runtimeProviderTokenPriceMetadataState.ts`
+- `packages/runtime-contract/src/index.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/anthropic-provider.client.test.ts` - PASS (module loads cleanly; the package test runner also exercised this file in the full provider-gateway suite below)
+- `corepack pnpm --filter @persai/api exec tsx test/token-metered-credits.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/provider-gateway test` - PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+
+### Risks / residuals
+
+- Anthropic stream usage events are now merged additively for the currently observed `message_start` + `message_delta` shapes. If Anthropic later changes the stream contract to resend full cumulative usage snapshots on multiple later events, the merge strategy may need to be revisited to avoid over-summing.
+- This slice widens runtime usage/accounting and token-pricing metadata but does not regenerate contracts with Orval; the affected generated TypeScript model was updated in-place to match `openapi.yaml`, following the repo's recent generated-file drift-isolation pattern.
+- Live dev Anthropic catalog rows may still need an operator-side `cacheCreationInputPer1M` value in Admin Runtime for explicit UI truth. Until then, backend ledger pricing uses the official 5m cache-write fallback for Anthropic rows only; no cluster/admin mutation was performed in this subagent.
+- The initial user-reported dirty-tree requirement was satisfied by completing the interrupted file honestly instead of reverting it; the tree is still intentionally dirty because this session did not commit.
+
+### Next recommended step
+
+ADR-110 has no next active slice after Slice 4 in the current execution order. The next sensible follow-up is operator review of this completed prompt-cache slice plus any later separate ADR for deferred STT or web-search provider/model truth if product priority requires it.
+
 ## 2026-06-06 - ADR-110 Slice 3: TTS model/default truth cleanup
 
 ### Baseline

@@ -2337,6 +2337,7 @@ export class TurnExecutionService {
         providerKey: usage.providerKey,
         modelKey: usage.modelKey,
         inputTokens: usage.inputTokens,
+        cacheCreationInputTokens: usage.cacheCreationInputTokens ?? null,
         cachedInputTokens: usage.cachedInputTokens ?? null,
         outputTokens: usage.outputTokens,
         totalTokens: usage.totalTokens
@@ -2439,6 +2440,7 @@ export class TurnExecutionService {
         providerKey: usage.providerKey,
         modelKey: usage.modelKey,
         inputTokens: usage.inputTokens,
+        cacheCreationInputTokens: usage.cacheCreationInputTokens ?? null,
         cachedInputTokens: usage.cachedInputTokens ?? null,
         outputTokens: usage.outputTokens,
         totalTokens: usage.totalTokens
@@ -5130,6 +5132,7 @@ export class TurnExecutionService {
       providerKey: input.usage.providerKey,
       modelKey: input.usage.modelKey,
       inputTokens: input.usage.inputTokens,
+      cacheCreationInputTokens: input.usage.cacheCreationInputTokens ?? null,
       cachedInputTokens: input.usage.cachedInputTokens ?? null,
       outputTokens: input.usage.outputTokens,
       totalTokens: input.usage.totalTokens,
@@ -5206,6 +5209,7 @@ export class TurnExecutionService {
     };
     return {
       inputTokens: sum((entry) => entry.inputTokens),
+      cacheCreationInputTokens: sum((entry) => entry.cacheCreationInputTokens),
       cachedInputTokens: sum((entry) => entry.cachedInputTokens),
       outputTokens: sum((entry) => entry.outputTokens),
       totalTokens: sum((entry) => entry.totalTokens),
@@ -5231,6 +5235,8 @@ export class TurnExecutionService {
       providerKey: this.asNonEmptyString(usage.providerKey),
       modelKey: this.asNonEmptyString(usage.modelKey),
       inputTokens: typeof usage.inputTokens === "number" ? usage.inputTokens : null,
+      cacheCreationInputTokens:
+        typeof usage.cacheCreationInputTokens === "number" ? usage.cacheCreationInputTokens : null,
       cachedInputTokens:
         typeof usage.cachedInputTokens === "number" ? usage.cachedInputTokens : null,
       outputTokens: typeof usage.outputTokens === "number" ? usage.outputTokens : null,

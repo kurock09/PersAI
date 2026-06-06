@@ -9,6 +9,7 @@ async function run(): Promise<void> {
   assert.deepEqual(
     deriveTokenMeteredWeightsFromPricing({
       inputPer1M: 2.5,
+      cacheCreationInputPer1M: 3.125,
       cachedInputPer1M: 0.25,
       outputPer1M: 15
     }),
@@ -21,11 +22,13 @@ async function run(): Promise<void> {
 
   const mini = deriveTokenMeteredWeightsFromPricing({
     inputPer1M: 0.4,
+    cacheCreationInputPer1M: 0.5,
     cachedInputPer1M: 0.04,
     outputPer1M: 2.4
   });
   const premium = deriveTokenMeteredWeightsFromPricing({
     inputPer1M: 2,
+    cacheCreationInputPer1M: 2.5,
     cachedInputPer1M: 0.2,
     outputPer1M: 12
   });
@@ -34,6 +37,7 @@ async function run(): Promise<void> {
 
   const pro = deriveTokenMeteredWeightsFromPricing({
     inputPer1M: 10,
+    cacheCreationInputPer1M: 12.5,
     cachedInputPer1M: 2.5,
     outputPer1M: 120
   });
@@ -49,6 +53,7 @@ async function run(): Promise<void> {
       currency: "USD",
       tokenPricing: {
         inputPer1M: 4,
+        cacheCreationInputPer1M: 5,
         cachedInputPer1M: 1,
         outputPer1M: 16
       }

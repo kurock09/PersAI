@@ -9,6 +9,8 @@ export interface RuntimeProviderTokenPriceMetadataState {
   /** @minimum 0 */
   inputPer1M: number;
   /** @minimum 0 */
+  cacheCreationInputPer1M: number;
+  /** @minimum 0 */
   cachedInputPer1M: number;
   /** @minimum 0 */
   outputPer1M: number;

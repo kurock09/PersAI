@@ -61,6 +61,10 @@ function mergeUsageSnapshots(
     providerKey: current.providerKey ?? next.providerKey,
     modelKey: current.modelKey ?? next.modelKey,
     inputTokens: sum(current.inputTokens, next.inputTokens),
+    cacheCreationInputTokens: sum(
+      current.cacheCreationInputTokens ?? null,
+      next.cacheCreationInputTokens ?? null
+    ),
     cachedInputTokens: sum(current.cachedInputTokens ?? null, next.cachedInputTokens ?? null),
     outputTokens: sum(current.outputTokens, next.outputTokens),
     totalTokens: sum(current.totalTokens, next.totalTokens)

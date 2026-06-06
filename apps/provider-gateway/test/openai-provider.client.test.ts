@@ -844,6 +844,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     providerKey: "openai",
     modelKey: "gpt-image-1.5",
     inputTokens: 30,
+    cacheCreationInputTokens: null,
     cachedInputTokens: null,
     outputTokens: 60,
     totalTokens: 90
@@ -856,6 +857,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     metering: {
       meteringKind: "token_metered",
       inputTokens: 30,
+      cacheCreationInputTokens: null,
       cachedInputTokens: null,
       outputTokens: 60,
       totalTokens: 90,
@@ -935,6 +937,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     providerKey: "openai",
     modelKey: "gpt-image-2",
     inputTokens: 24,
+    cacheCreationInputTokens: null,
     cachedInputTokens: null,
     outputTokens: 48,
     totalTokens: 72
@@ -947,6 +950,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     metering: {
       meteringKind: "token_metered",
       inputTokens: 24,
+      cacheCreationInputTokens: null,
       cachedInputTokens: null,
       outputTokens: 48,
       totalTokens: 72,

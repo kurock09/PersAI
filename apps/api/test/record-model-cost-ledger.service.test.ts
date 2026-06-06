@@ -53,6 +53,7 @@ describe("RecordModelCostLedgerService", () => {
                   currency: "USD",
                   tokenPricing: {
                     inputPer1M: 2,
+                    cacheCreationInputPer1M: 0,
                     cachedInputPer1M: 1,
                     outputPer1M: 8
                   }
@@ -74,6 +75,7 @@ describe("RecordModelCostLedgerService", () => {
                   currency: "USD",
                   tokenPricing: {
                     inputPer1M: 50,
+                    cacheCreationInputPer1M: 0,
                     cachedInputPer1M: 25,
                     outputPer1M: 100
                   }
@@ -131,6 +133,7 @@ describe("RecordModelCostLedgerService", () => {
             providerKey: "openai",
             modelKey: "gpt-5-mini",
             inputTokens: 10,
+            cacheCreationInputTokens: 0,
             cachedInputTokens: 0,
             outputTokens: 2,
             totalTokens: 12
@@ -141,6 +144,7 @@ describe("RecordModelCostLedgerService", () => {
             providerKey: "openai",
             modelKey: "gpt-5-mini",
             inputTokens: 120,
+            cacheCreationInputTokens: 0,
             cachedInputTokens: 20,
             outputTokens: 40,
             totalTokens: 160
@@ -185,7 +189,7 @@ describe("RecordModelCostLedgerService", () => {
           source: "web_chat_turn_sync",
           sourceEventId: "assistant-msg-1",
           requestCorrelationId: "trace-1",
-          actualCostMicros: BigInt(540),
+          actualCostMicros: BigInt(580),
           stepType: "main_turn",
           effectiveTo: "2026-05-01T00:00:00.000Z"
         }
@@ -601,7 +605,7 @@ describe("RecordModelCostLedgerService", () => {
         source: "background_task_evaluation",
         sourceEventId: "task-run-1",
         requestCorrelationId: "task-1",
-        actualCostMicros: BigInt(10_000),
+        actualCostMicros: BigInt(11_000),
         modelRole: "system_tool",
         stepType: "background_task_evaluation"
       }
@@ -1794,6 +1798,133 @@ describe("RecordModelCostLedgerService", () => {
     assert.equal(createdRows[0]?.model, "web_search:tavily");
     assert.equal(createdRows[0]?.billingMode, "fixed_operation");
     assert.equal(createdRows[0]?.actualCostMicros, 8000n);
+  });
+
+  test("records Anthropic cache creation input at dedicated write pricing", async () => {
+    const createdRows: Array<Record<string, unknown>> = [];
+    const prisma = {
+      modelCostLedgerEvent: {
+        createMany: async (input: { data: Array<Record<string, unknown>> }) => {
+          createdRows.push(...input.data);
+          return { count: input.data.length };
+        }
+      }
+    } as unknown as WorkspaceManagementPrismaService;
+
+    const settingsResolver = {
+      execute: async () => ({
+        schema: "persai.runtimeProviderProfile.v1",
+        mode: "admin_managed",
+        derivedFrom: {
+          policyEnvelopeSchema: "persai.runtimeProviderProfile.v1",
+          secretRefsSchema: "persai.runtimeProviderCredentialRefs.v1"
+        },
+        allowedProviders: ["openai", "anthropic"],
+        availableModelsByProvider: { openai: [], anthropic: ["claude-sonnet-4-5"] },
+        availableModelCatalogByProvider: {
+          openai: { models: [] },
+          anthropic: {
+            models: [
+              {
+                model: "claude-sonnet-4-5",
+                capabilities: ["chat"],
+                active: true,
+                billingMode: "token_metered",
+                effectiveFrom: "2026-01-01T00:00:00.000Z",
+                effectiveTo: null,
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  tokenPricing: {
+                    inputPer1M: 100,
+                    cacheCreationInputPer1M: 125,
+                    cachedInputPer1M: 10,
+                    outputPer1M: 400
+                  }
+                }
+              }
+            ]
+          }
+        },
+        primary: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-5",
+          credentialRef: {
+            refKey: "env:anthropic:ANTHROPIC_API_KEY",
+            secretRef: { source: "env", provider: "anthropic", id: "ANTHROPIC_API_KEY" },
+            updatedAt: null
+          }
+        },
+        fallback: null,
+        notes: []
+      })
+    } as ResolvePlatformRuntimeProviderSettingsService;
+
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
+
+    const writtenCount = await service.recordChatMainReplyEvents({
+      workspaceId: "workspace-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surface: "web",
+      purpose: "chat_main_reply",
+      source: "web_chat_turn_sync",
+      occurredAt: "2026-06-06T20:00:00.000Z",
+      sourceEventId: "assistant-msg-cache-write",
+      requestCorrelationId: "trace-cache-write",
+      usageAccounting: {
+        inputTokens: 80,
+        cacheCreationInputTokens: 20,
+        cachedInputTokens: 10,
+        outputTokens: 40,
+        totalTokens: 150,
+        entries: [
+          {
+            stepType: "main_turn",
+            modelRole: "normal_reply",
+            providerKey: "anthropic",
+            modelKey: "claude-sonnet-4-5",
+            inputTokens: 80,
+            cacheCreationInputTokens: 20,
+            cachedInputTokens: 10,
+            outputTokens: 40,
+            totalTokens: 150
+          }
+        ]
+      }
+    });
+
+    assert.equal(writtenCount, 1);
+    assert.equal(createdRows[0]?.actualCostMicros, 26600n);
+    assert.deepEqual(
+      (createdRows[0]?.priceCatalogSnapshot as { tokenPricing?: unknown })?.tokenPricing,
+      {
+        inputPer1M: 100,
+        cacheCreationInputPer1M: 125,
+        cachedInputPer1M: 10,
+        outputPer1M: 400
+      }
+    );
+    assert.deepEqual(
+      (createdRows[0]?.rawUsage as { cacheCreationInputTokens?: unknown })
+        ?.cacheCreationInputTokens,
+      20
+    );
   });
 
   test("records document generation usage with purpose document_generation (token_metered chat model)", async () => {

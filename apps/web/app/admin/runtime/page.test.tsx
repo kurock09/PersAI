@@ -76,6 +76,7 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
               currency: "USD",
               tokenPricing: {
                 inputPer1M: 1.25,
+                cacheCreationInputPer1M: 0,
                 cachedInputPer1M: 0.25,
                 outputPer1M: 10
               }

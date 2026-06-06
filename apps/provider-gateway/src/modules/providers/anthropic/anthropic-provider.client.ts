@@ -29,6 +29,14 @@ type AnthropicNonStreamingMessage = Extract<
   Awaited<ReturnType<Anthropic["messages"]["create"]>>,
   { content: unknown }
 >;
+type AnthropicPromptCacheControl = {
+  type: "ephemeral";
+};
+type AnthropicSystemTextBlock = {
+  type: "text";
+  text: string;
+  cache_control?: AnthropicPromptCacheControl;
+};
 type AnthropicBuiltMessageContent =
   | string
   | Array<
@@ -171,26 +179,12 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         });
       }
 
-      const inputTokens = response.usage?.input_tokens ?? null;
-      const outputTokens = response.usage?.output_tokens ?? null;
-      const totalTokens =
-        inputTokens === null && outputTokens === null
-          ? null
-          : (inputTokens ?? 0) + (outputTokens ?? 0);
-
       return {
         provider: "anthropic",
         model: input.model,
         text: text.length === 0 ? null : text,
         respondedAt: new Date().toISOString(),
-        usage: {
-          providerKey: "anthropic",
-          modelKey: input.model,
-          inputTokens,
-          cachedInputTokens: null,
-          outputTokens,
-          totalTokens
-        },
+        usage: this.toUsageSnapshot(input.model, response.usage),
         stopReason: "completed",
         toolCalls: []
       };
@@ -257,18 +251,23 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       for await (const rawEvent of stream) {
         const event = this.asObject(rawEvent);
         if (event?.type === "message_start") {
-          const message = this.asObject(event.message);
-          latestUsage = this.toUsageSnapshot(
-            input.model,
-            message?.usage as Anthropic.Messages.Usage | null | undefined
+          latestUsage = this.mergeUsageSnapshots(
+            latestUsage,
+            this.toUsageSnapshot(
+              input.model,
+              this.asObject(event.message)?.usage as Anthropic.Messages.Usage | null | undefined
+            )
           );
           continue;
         }
 
         if (event?.type === "message_delta") {
-          latestUsage = this.toUsageSnapshot(
-            input.model,
-            event.usage as Anthropic.Messages.MessageDeltaUsage | null | undefined
+          latestUsage = this.mergeUsageSnapshots(
+            latestUsage,
+            this.toUsageSnapshot(
+              input.model,
+              event.usage as Anthropic.Messages.MessageDeltaUsage | null | undefined
+            )
           );
           const stopReason = this.readAnthropicStreamStopReason(event);
           latestStopReason = stopReason ?? latestStopReason;
@@ -434,18 +433,28 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       return null;
     }
 
-    const inputTokens = usage.input_tokens ?? null;
-    const outputTokens = usage.output_tokens ?? null;
+    const rawInputTokens = this.readOptionalUsageNumber(usage, "input_tokens");
+    const cacheCreationInputTokens = this.readOptionalUsageNumber(
+      usage,
+      "cache_creation_input_tokens"
+    );
+    const cacheReadInputTokens = this.readOptionalUsageNumber(usage, "cache_read_input_tokens");
+    const outputTokens = this.readOptionalUsageNumber(usage, "output_tokens");
+    const totalInputTokens =
+      rawInputTokens === null && cacheCreationInputTokens === null && cacheReadInputTokens === null
+        ? null
+        : (rawInputTokens ?? 0) + (cacheCreationInputTokens ?? 0) + (cacheReadInputTokens ?? 0);
     return {
       providerKey: "anthropic",
       modelKey: model,
-      inputTokens,
-      cachedInputTokens: null,
+      inputTokens: rawInputTokens,
+      cacheCreationInputTokens,
+      cachedInputTokens: cacheReadInputTokens,
       outputTokens,
       totalTokens:
-        inputTokens === null && outputTokens === null
+        totalInputTokens === null && outputTokens === null
           ? null
-          : (inputTokens ?? 0) + (outputTokens ?? 0)
+          : (totalInputTokens ?? 0) + (outputTokens ?? 0)
     };
   }
 
@@ -486,15 +495,16 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   /**
    * ADR-074 P1: separate the cached system prefix from per-turn developer instructions.
    *
-   * Anthropic accepts `system` as either a string or an array of `TextBlockParam`. When per-turn
-   * developer guidance is present, we project two text blocks: the stable cached `systemPrompt`
-   * first (this is what future Anthropic prompt-cache slices will mark with `cache_control`), and
-   * the developer instructions appended after it. When only `systemPrompt` is set, we keep the
+   * Anthropic accepts `system` as either a string or an array of `TextBlockParam`. When prompt
+   * cache intent or per-turn developer guidance is present, we project system content as explicit
+   * text blocks so the stable `systemPrompt` prefix can carry Anthropic's provider-specific
+   * `cache_control` while volatile developer instructions remain uncached in the suffix block.
+   * When only `systemPrompt` is set and no Anthropic cache breakpoint is requested, we keep the
    * legacy string form to minimize behavioural drift.
    */
   private buildAnthropicSystemBlocks(
     input: ProviderGatewayTextGenerateRequest
-  ): string | Array<{ type: "text"; text: string }> | null {
+  ): string | AnthropicSystemTextBlock[] | null {
     const systemPrompt =
       typeof input.systemPrompt === "string" && input.systemPrompt.length > 0
         ? input.systemPrompt
@@ -504,18 +514,38 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       input.developerInstructions.trim().length > 0
         ? input.developerInstructions
         : null;
+    const cacheStableSystemPrompt = systemPrompt !== null && input.promptCache !== undefined;
     if (systemPrompt === null && developerInstructions === null) {
       return null;
     }
-    if (developerInstructions === null) {
+    if (developerInstructions === null && !cacheStableSystemPrompt) {
       return systemPrompt;
     }
-    const blocks: Array<{ type: "text"; text: string }> = [];
+    const blocks: AnthropicSystemTextBlock[] = [];
     if (systemPrompt !== null) {
-      blocks.push({ type: "text", text: systemPrompt });
+      blocks.push({
+        type: "text",
+        text: systemPrompt,
+        ...(cacheStableSystemPrompt
+          ? { cache_control: this.buildAnthropicCacheControl(input.promptCache) }
+          : {})
+      });
     }
-    blocks.push({ type: "text", text: developerInstructions });
+    if (developerInstructions !== null) {
+      blocks.push({ type: "text", text: developerInstructions });
+    }
     return blocks;
+  }
+
+  private buildAnthropicCacheControl(
+    promptCache: ProviderGatewayTextGenerateRequest["promptCache"] | undefined
+  ): AnthropicPromptCacheControl {
+    void promptCache;
+    // Anthropic prompt caching uses explicit ephemeral breakpoints. We intentionally rely on
+    // the provider default 5m TTL here; PersAI does not enable the optional 1h TTL by default.
+    return {
+      type: "ephemeral"
+    };
   }
 
   private toAnthropicTools(input: ProviderGatewayTextGenerateRequest): AnthropicTool[] {
@@ -644,6 +674,68 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private readOptionalUsageNumber(
+    usage: Anthropic.Messages.Usage | Anthropic.Messages.MessageDeltaUsage,
+    key:
+      | "input_tokens"
+      | "cache_creation_input_tokens"
+      | "cache_read_input_tokens"
+      | "output_tokens"
+  ): number | null {
+    const value = this.asObject(usage)?.[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+
+  private mergeUsageSnapshots(
+    current: RuntimeUsageSnapshot | null,
+    next: RuntimeUsageSnapshot | null
+  ): RuntimeUsageSnapshot | null {
+    if (current === null) {
+      return next;
+    }
+    if (next === null) {
+      return current;
+    }
+    const inputTokens = this.sumUsageNumbers(current.inputTokens, next.inputTokens);
+    const cacheCreationInputTokens = this.sumUsageNumbers(
+      current.cacheCreationInputTokens,
+      next.cacheCreationInputTokens
+    );
+    const cachedInputTokens = this.sumUsageNumbers(
+      current.cachedInputTokens,
+      next.cachedInputTokens
+    );
+    const outputTokens = this.sumUsageNumbers(current.outputTokens, next.outputTokens);
+    return {
+      providerKey: current.providerKey ?? next.providerKey,
+      modelKey: current.modelKey ?? next.modelKey,
+      inputTokens,
+      cacheCreationInputTokens,
+      cachedInputTokens,
+      outputTokens,
+      totalTokens:
+        inputTokens === null &&
+        cacheCreationInputTokens === null &&
+        cachedInputTokens === null &&
+        outputTokens === null
+          ? null
+          : (inputTokens ?? 0) +
+            (cacheCreationInputTokens ?? 0) +
+            (cachedInputTokens ?? 0) +
+            (outputTokens ?? 0)
+    };
+  }
+
+  private sumUsageNumbers(
+    current: number | null | undefined,
+    next: number | null | undefined
+  ): number | null {
+    if (typeof current !== "number" && typeof next !== "number") {
+      return null;
+    }
+    return (current ?? 0) + (next ?? 0);
   }
 
   private toAnthropicMessageContent(

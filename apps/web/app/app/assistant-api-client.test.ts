@@ -282,7 +282,12 @@ describe("admin rollout client", () => {
                 notes: null,
                 providerPriceMetadata: {
                   currency: "USD",
-                  tokenPricing: { inputPer1M: 0, cachedInputPer1M: 0, outputPer1M: 0 }
+                  tokenPricing: {
+                    inputPer1M: 0,
+                    cacheCreationInputPer1M: 0,
+                    cachedInputPer1M: 0,
+                    outputPer1M: 0
+                  }
                 }
               },
               {

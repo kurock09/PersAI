@@ -70,10 +70,12 @@ type RuntimeUsageEntryAccountingMetadata = {
   providerKey: string | null;
   modelKey: string | null;
   inputTokens: number;
+  cacheCreationInputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
   billableInputTokens: number;
   inputTokenWeight: number;
+  cacheCreationInputTokenWeight: number;
   cachedInputTokenWeight: number;
   outputTokenWeight: number;
   weightedCredits: number;
@@ -339,6 +341,14 @@ function defaultTokenWeights(): Pick<
   };
 }
 
+function resolveCacheCreationInputTokenWeight(profile: RuntimeProviderModelProfile | null): number {
+  if (profile === null || profile.billingMode !== "token_metered") {
+    return DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT;
+  }
+  const configured = profile.providerPriceMetadata.tokenPricing.cacheCreationInputPer1M;
+  return configured > 0 ? configured : profile.inputTokenWeight;
+}
+
 /**
  * ADR-108 Slice 8 — `video_generate` is VC-priced and has no plan-side
  * unit limit, so its `limitKey` is `null`. Consumers that index
@@ -488,6 +498,7 @@ export class TrackWorkspaceQuotaUsageService {
     const entryMetadata: RuntimeUsageEntryAccountingMetadata[] = [];
     let weightedCredits = 0;
     let inputTokens = 0;
+    let cacheCreationInputTokens = 0;
     let cachedInputTokens = 0;
     let outputTokens = 0;
     let unmatchedProfileCount = 0;
@@ -496,6 +507,7 @@ export class TrackWorkspaceQuotaUsageService {
       const accounted = this.resolveWeightedRuntimeUsageEntry(entry, runtimeProviderSettings);
       weightedCredits += accounted.weightedCredits;
       inputTokens += accounted.inputTokens;
+      cacheCreationInputTokens += accounted.cacheCreationInputTokens;
       cachedInputTokens += accounted.cachedInputTokens;
       outputTokens += accounted.outputTokens;
       if (!accounted.profileMatched) {
@@ -509,6 +521,7 @@ export class TrackWorkspaceQuotaUsageService {
       metadata: {
         accounting: TrackWorkspaceQuotaUsageService.RUNTIME_USAGE_ACCOUNTING,
         inputTokens,
+        cacheCreationInputTokens,
         cachedInputTokens,
         outputTokens,
         weightedCredits,
@@ -527,9 +540,10 @@ export class TrackWorkspaceQuotaUsageService {
     >
   ): RuntimeUsageEntryAccountingMetadata {
     const inputTokens = asNonNegativeInteger(entry.inputTokens);
-    const cachedInputTokens = Math.min(asNonNegativeInteger(entry.cachedInputTokens), inputTokens);
+    const cacheCreationInputTokens = asNonNegativeInteger(entry.cacheCreationInputTokens);
+    const cachedInputTokens = asNonNegativeInteger(entry.cachedInputTokens);
     const outputTokens = asNonNegativeInteger(entry.outputTokens);
-    const billableInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+    const billableInputTokens = inputTokens;
     const provider = normalizeManagedProvider(entry.providerKey);
     const modelKey =
       typeof entry.modelKey === "string" && entry.modelKey.trim().length > 0
@@ -543,8 +557,10 @@ export class TrackWorkspaceQuotaUsageService {
             modelKey
           );
     const weights = profile ?? defaultTokenWeights();
+    const cacheCreationInputTokenWeight = resolveCacheCreationInputTokenWeight(profile);
     const weightedCredits =
       billableInputTokens * weights.inputTokenWeight +
+      cacheCreationInputTokens * cacheCreationInputTokenWeight +
       cachedInputTokens * weights.cachedInputTokenWeight +
       outputTokens * weights.outputTokenWeight;
 
@@ -554,10 +570,12 @@ export class TrackWorkspaceQuotaUsageService {
       providerKey: entry.providerKey,
       modelKey: entry.modelKey,
       inputTokens,
+      cacheCreationInputTokens,
       cachedInputTokens,
       outputTokens,
       billableInputTokens,
       inputTokenWeight: weights.inputTokenWeight,
+      cacheCreationInputTokenWeight,
       cachedInputTokenWeight: weights.cachedInputTokenWeight,
       outputTokenWeight: weights.outputTokenWeight,
       weightedCredits,

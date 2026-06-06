@@ -1061,6 +1061,10 @@ function normalizeProviderPriceMetadata(
                   tokenPricingRow.inputPer1M,
                   `${path}.tokenPricing.inputPer1M`
                 ),
+                cacheCreationInputPer1M: normalizePriceNumber(
+                  tokenPricingRow.cacheCreationInputPer1M,
+                  `${path}.tokenPricing.cacheCreationInputPer1M`
+                ),
                 cachedInputPer1M: normalizePriceNumber(
                   tokenPricingRow.cachedInputPer1M,
                   `${path}.tokenPricing.cachedInputPer1M`

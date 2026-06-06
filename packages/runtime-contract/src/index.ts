@@ -357,6 +357,7 @@ export interface RuntimeUsageSnapshot {
   providerKey: string | null;
   modelKey: string | null;
   inputTokens: number | null;
+  cacheCreationInputTokens?: number | null;
   cachedInputTokens?: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
@@ -368,6 +369,7 @@ export interface RuntimeUsageAccountingEntry {
   providerKey: string | null;
   modelKey: string | null;
   inputTokens: number | null;
+  cacheCreationInputTokens: number | null;
   cachedInputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
@@ -376,6 +378,7 @@ export interface RuntimeUsageAccountingEntry {
 
 export interface RuntimeUsageAccounting {
   inputTokens: number | null;
+  cacheCreationInputTokens: number | null;
   cachedInputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
@@ -399,6 +402,7 @@ export type RuntimeBillingFactCapability = (typeof RUNTIME_BILLING_FACT_CAPABILI
 export interface RuntimeTokenMeteredBillingFact {
   meteringKind: "token_metered";
   inputTokens: number | null;
+  cacheCreationInputTokens: number | null;
   cachedInputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;

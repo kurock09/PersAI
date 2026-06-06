@@ -209,6 +209,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                   providerKey: "openai",
                   modelKey: input.model,
                   inputTokens: response.usage.input_tokens ?? null,
+                  cacheCreationInputTokens: null,
                   cachedInputTokens: response.usage.input_tokens_details?.cached_tokens ?? null,
                   outputTokens: response.usage.output_tokens ?? null,
                   totalTokens: response.usage.total_tokens ?? null
@@ -253,6 +254,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                 providerKey: "openai",
                 modelKey: input.model,
                 inputTokens: response.usage.input_tokens ?? null,
+                cacheCreationInputTokens: null,
                 cachedInputTokens: response.usage.input_tokens_details?.cached_tokens ?? null,
                 outputTokens: response.usage.output_tokens ?? null,
                 totalTokens: response.usage.total_tokens ?? null
@@ -974,6 +976,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           providerKey: "openai",
           modelKey: model,
           inputTokens: usage.input_tokens ?? null,
+          cacheCreationInputTokens: null,
           cachedInputTokens: usage.input_tokens_details?.cached_tokens ?? null,
           outputTokens: usage.output_tokens ?? null,
           totalTokens: usage.total_tokens ?? null
@@ -996,6 +999,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           providerKey: "openai",
           modelKey: model,
           inputTokens: usage.input_tokens ?? null,
+          cacheCreationInputTokens: null,
           cachedInputTokens: null,
           outputTokens: usage.output_tokens ?? null,
           totalTokens: usage.total_tokens ?? null
@@ -1052,6 +1056,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       metering: {
         meteringKind: "token_metered",
         inputTokens: input.usage.inputTokens ?? null,
+        cacheCreationInputTokens: input.usage.cacheCreationInputTokens ?? null,
         cachedInputTokens: input.usage.cachedInputTokens ?? null,
         outputTokens: input.usage.outputTokens ?? null,
         totalTokens: input.usage.totalTokens ?? null,

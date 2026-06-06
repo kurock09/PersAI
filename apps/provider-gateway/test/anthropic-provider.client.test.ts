@@ -72,16 +72,25 @@ async function collectStream(
   return events;
 }
 
+function assertNoDeveloperRole(messages: unknown): void {
+  assert.ok(Array.isArray(messages));
+  for (const message of messages) {
+    assert.notEqual((message as { role?: unknown }).role, "developer");
+  }
+}
+
 export async function runAnthropicProviderClientTest(): Promise<void> {
   const client = new AnthropicProviderClient(createConfig());
   let capturedGeneratePayload: {
     messages?: unknown;
+    system?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
     output_config?: unknown;
   } | null = null;
   let capturedStreamPayload: {
     messages?: unknown;
+    system?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
     output_config?: unknown;
@@ -104,6 +113,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
                 message: {
                   usage: {
                     input_tokens: 10,
+                    cache_creation_input_tokens: 4,
                     output_tokens: 0
                   }
                 }
@@ -133,6 +143,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
                   stop_sequence: null
                 },
                 usage: {
+                  cache_read_input_tokens: 6,
                   output_tokens: 2
                 }
               };
@@ -144,6 +155,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
               message: {
                 usage: {
                   input_tokens: 10,
+                  cache_creation_input_tokens: 4,
                   output_tokens: 0
                 }
               }
@@ -158,6 +170,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
             yield {
               type: "message_delta",
               usage: {
+                cache_read_input_tokens: 6,
                 output_tokens: 5
               }
             };
@@ -183,6 +196,8 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
             ],
             usage: {
               input_tokens: 10,
+              cache_creation_input_tokens: 4,
+              cache_read_input_tokens: 6,
               output_tokens: 2
             }
           };
@@ -196,6 +211,8 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
           ],
           usage: {
             input_tokens: 10,
+            cache_creation_input_tokens: 4,
+            cache_read_input_tokens: 6,
             output_tokens: 5
           }
         };
@@ -207,6 +224,15 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   const result = await client.generateText(request);
   assert.equal(result.text, "done");
   assert.equal(result.stopReason, "completed");
+  assert.deepEqual(result.usage, {
+    providerKey: "anthropic",
+    modelKey: "claude-sonnet-4-5",
+    inputTokens: 10,
+    cacheCreationInputTokens: 4,
+    cachedInputTokens: 6,
+    outputTokens: 5,
+    totalTokens: 25
+  });
   assert.deepEqual(capturedGeneratePayload!.messages, [
     {
       role: "user",
@@ -243,6 +269,8 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       content: "the connector pins"
     }
   ]);
+  assert.equal(capturedGeneratePayload!.system, "Be concise.");
+  assertNoDeveloperRole(capturedGeneratePayload!.messages);
   const baselineGenerateMessages = capturedGeneratePayload!.messages;
 
   const structuredRequest: ProviderGatewayTextGenerateRequest = {
@@ -324,6 +352,15 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   const toolResult = await client.generateText(toolRequest);
   assert.equal(toolResult.stopReason, "tool_calls");
   assert.equal(toolResult.toolCalls[0]?.name, "knowledge_fetch");
+  assert.deepEqual(toolResult.usage, {
+    providerKey: "anthropic",
+    modelKey: "claude-sonnet-4-5",
+    inputTokens: 10,
+    cacheCreationInputTokens: 4,
+    cachedInputTokens: 6,
+    outputTokens: 2,
+    totalTokens: 22
+  });
   assert.deepEqual(capturedGeneratePayload!.tools, [
     {
       name: "knowledge_fetch",
@@ -401,14 +438,54 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       ]
     }
   ]);
+  assertNoDeveloperRole(capturedGeneratePayload!.messages);
+
+  const cacheAwareRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    developerInstructions: "Volatile per-turn routing context.",
+    promptCache: {
+      key: "ps1:test-cache",
+      retention: "in_memory"
+    }
+  };
+  await client.generateText(cacheAwareRequest);
+  assert.deepEqual(capturedGeneratePayload!.system, [
+    {
+      type: "text",
+      text: "Be concise.",
+      cache_control: {
+        type: "ephemeral"
+      }
+    },
+    {
+      type: "text",
+      text: "Volatile per-turn routing context."
+    }
+  ]);
+  assertNoDeveloperRole(capturedGeneratePayload!.messages);
 
   const stream = await client.streamText(request);
   const events = await collectStream(stream);
   assert.deepEqual(capturedStreamPayload!.messages, baselineGenerateMessages);
+  assert.equal(capturedStreamPayload!.system, "Be concise.");
+  assertNoDeveloperRole(capturedStreamPayload!.messages);
   assert.deepEqual(
     events.map((event) => event.type),
     ["text_delta", "completed"]
   );
+  const completedStreamEvent = events[1];
+  assert.equal(completedStreamEvent?.type, "completed");
+  if (completedStreamEvent?.type === "completed") {
+    assert.deepEqual(completedStreamEvent.result.usage, {
+      providerKey: "anthropic",
+      modelKey: "claude-sonnet-4-5",
+      inputTokens: 10,
+      cacheCreationInputTokens: 4,
+      cachedInputTokens: 6,
+      outputTokens: 5,
+      totalTokens: 25
+    });
+  }
 
   const structuredStream = await client.streamText(structuredRequest);
   const structuredStreamEvents = await collectStream(structuredStream);
@@ -514,6 +591,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       ]
     }
   ]);
+  assertNoDeveloperRole(capturedStreamPayload!.messages);
   assert.deepEqual(
     toolStreamEvents.map((event) => event.type),
     ["tool_calls"]
@@ -528,5 +606,31 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       source: "memory",
       referenceId: "memory-1"
     });
+    assert.deepEqual(toolStreamEvent.result.usage, {
+      providerKey: "anthropic",
+      modelKey: "claude-sonnet-4-5",
+      inputTokens: 10,
+      cacheCreationInputTokens: 4,
+      cachedInputTokens: 6,
+      outputTokens: 2,
+      totalTokens: 22
+    });
   }
+
+  const cacheAwareStream = await client.streamText(cacheAwareRequest);
+  await collectStream(cacheAwareStream);
+  assert.deepEqual(capturedStreamPayload!.system, [
+    {
+      type: "text",
+      text: "Be concise.",
+      cache_control: {
+        type: "ephemeral"
+      }
+    },
+    {
+      type: "text",
+      text: "Volatile per-turn routing context."
+    }
+  ]);
+  assertNoDeveloperRole(capturedStreamPayload!.messages);
 }

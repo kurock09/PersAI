@@ -506,9 +506,10 @@ async function run(): Promise<void> {
     assistantContent: "response from assistant",
     usageAccounting: {
       inputTokens: 100,
+      cacheCreationInputTokens: 20,
       cachedInputTokens: 40,
       outputTokens: 25,
-      totalTokens: 125,
+      totalTokens: 185,
       entries: [
         {
           stepType: "main_turn",
@@ -516,9 +517,10 @@ async function run(): Promise<void> {
           providerKey: "openai",
           modelKey: "gpt-5-mini",
           inputTokens: 100,
+          cacheCreationInputTokens: 20,
           cachedInputTokens: 40,
           outputTokens: 25,
-          totalTokens: 125
+          totalTokens: 185
         }
       ]
     },
@@ -572,8 +574,9 @@ async function run(): Promise<void> {
   });
 
   assert.equal(tokenCalls.length, 1);
-  assert.equal(tokenCalls[0]?.delta, BigInt(170));
+  assert.equal(tokenCalls[0]?.delta, BigInt(230));
   assert.equal(tokenCalls[0]?.metadata?.accounting, "runtime_usage_accounting_weighted_v1");
+  assert.equal(tokenCalls[0]?.metadata?.cacheCreationInputTokens, 20);
   assert.equal(tokenCalls[0]?.metadata?.cachedInputTokens, 40);
   assert.equal(refreshCalls.length, 1);
   assert.equal(refreshCalls[0]?.currentActiveWebChats, 7);

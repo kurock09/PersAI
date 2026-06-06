@@ -17,6 +17,7 @@ function tokenMeteredDefaults() {
       currency: "USD",
       tokenPricing: {
         inputPer1M: 0,
+        cacheCreationInputPer1M: 0,
         cachedInputPer1M: 0,
         outputPer1M: 0
       }
@@ -177,6 +178,7 @@ async function run(): Promise<void> {
               currency: "USD",
               tokenPricing: {
                 inputPer1M: 4,
+                cacheCreationInputPer1M: 0,
                 cachedInputPer1M: 1,
                 outputPer1M: 16
               }
@@ -195,6 +197,7 @@ async function run(): Promise<void> {
               currency: "USD",
               tokenPricing: {
                 inputPer1M: 2,
+                cacheCreationInputPer1M: 0,
                 cachedInputPer1M: 0.4,
                 outputPer1M: 4
               }
@@ -499,6 +502,7 @@ async function run(): Promise<void> {
                   },
                   tokenPricing: {
                     inputPer1M: 1,
+                    cacheCreationInputPer1M: 1,
                     cachedInputPer1M: 1,
                     outputPer1M: 1
                   }
@@ -623,6 +627,7 @@ async function run(): Promise<void> {
                   },
                   tokenPricing: {
                     inputPer1M: 1,
+                    cacheCreationInputPer1M: 1,
                     cachedInputPer1M: 1,
                     outputPer1M: 1
                   }

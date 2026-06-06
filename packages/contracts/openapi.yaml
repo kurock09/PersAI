@@ -14939,10 +14939,14 @@ components:
       type: object
       required:
         - inputPer1M
+        - cacheCreationInputPer1M
         - cachedInputPer1M
         - outputPer1M
       properties:
         inputPer1M:
+          type: number
+          minimum: 0
+        cacheCreationInputPer1M:
           type: number
           minimum: 0
         cachedInputPer1M:

@@ -67,6 +67,7 @@ type RecordModelCostLedgerInput = {
 
 type TokenUsageFacts = {
   inputTokens: number;
+  cacheCreationInputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
   totalTokens: number | null;
@@ -83,6 +84,7 @@ type TokenPriceCatalogSnapshot = {
   currency: string;
   tokenPricing: {
     inputPer1M: number;
+    cacheCreationInputPer1M: number;
     cachedInputPer1M: number;
     outputPer1M: number;
   };
@@ -136,12 +138,14 @@ function resolveLedgerPurpose(
 
 function extractTokenUsageFacts(entry: {
   inputTokens: number | null | undefined;
+  cacheCreationInputTokens?: number | null | undefined;
   cachedInputTokens?: number | null | undefined;
   outputTokens: number | null | undefined;
   totalTokens: number | null | undefined;
 }): TokenUsageFacts {
   const inputTokens = asNonNegativeInteger(entry.inputTokens);
-  const cachedInputTokens = Math.min(asNonNegativeInteger(entry.cachedInputTokens), inputTokens);
+  const cacheCreationInputTokens = asNonNegativeInteger(entry.cacheCreationInputTokens);
+  const cachedInputTokens = asNonNegativeInteger(entry.cachedInputTokens);
   const outputTokens = asNonNegativeInteger(entry.outputTokens);
   const totalTokens =
     typeof entry.totalTokens === "number" &&
@@ -151,11 +155,30 @@ function extractTokenUsageFacts(entry: {
       : null;
   return {
     inputTokens,
+    cacheCreationInputTokens,
     cachedInputTokens,
     outputTokens,
     totalTokens,
-    billableInputTokens: Math.max(0, inputTokens - cachedInputTokens)
+    billableInputTokens: inputTokens
   };
+}
+
+function resolveCacheCreationInputPricePer1M(input: {
+  provider: ManagedRuntimeProvider;
+  profile: RuntimeProviderTokenMeteredModelProfile;
+}): number {
+  const rawConfigured = input.profile.providerPriceMetadata.tokenPricing.cacheCreationInputPer1M;
+  const configured =
+    typeof rawConfigured === "number" && Number.isFinite(rawConfigured) && rawConfigured >= 0
+      ? rawConfigured
+      : 0;
+  if (configured > 0) {
+    return configured;
+  }
+  if (input.provider === "anthropic") {
+    return input.profile.providerPriceMetadata.tokenPricing.inputPer1M * 1.25;
+  }
+  return configured;
 }
 
 function buildPriceCatalogSnapshot(input: {
@@ -172,6 +195,7 @@ function buildPriceCatalogSnapshot(input: {
     currency: input.profile.providerPriceMetadata.currency,
     tokenPricing: {
       inputPer1M: input.profile.providerPriceMetadata.tokenPricing.inputPer1M,
+      cacheCreationInputPer1M: resolveCacheCreationInputPricePer1M(input),
       cachedInputPer1M: input.profile.providerPriceMetadata.tokenPricing.cachedInputPer1M,
       outputPer1M: input.profile.providerPriceMetadata.tokenPricing.outputPer1M
     }
@@ -214,11 +238,17 @@ function buildDeterministicLedgerEventId(input: {
 
 function calculateTokenMeteredCostMicros(input: {
   usage: TokenUsageFacts;
+  provider: ManagedRuntimeProvider;
   profile: RuntimeProviderTokenMeteredModelProfile;
 }): bigint {
   const pricing = input.profile.providerPriceMetadata.tokenPricing;
+  const cacheCreationInputPer1M = resolveCacheCreationInputPricePer1M({
+    provider: input.provider,
+    profile: input.profile
+  });
   const totalMicros = Math.round(
     input.usage.billableInputTokens * pricing.inputPer1M +
+      input.usage.cacheCreationInputTokens * cacheCreationInputPer1M +
       input.usage.cachedInputTokens * pricing.cachedInputPer1M +
       input.usage.outputTokens * pricing.outputPer1M
   );
@@ -318,6 +348,11 @@ function normalizeRuntimeBillingFactMetering(value: unknown): RuntimeBillingFact
       inputTokens:
         typeof row.inputTokens === "number" && Number.isFinite(row.inputTokens)
           ? row.inputTokens
+          : null,
+      cacheCreationInputTokens:
+        typeof row.cacheCreationInputTokens === "number" &&
+        Number.isFinite(row.cacheCreationInputTokens)
+          ? row.cacheCreationInputTokens
           : null,
       cachedInputTokens:
         typeof row.cachedInputTokens === "number" && Number.isFinite(row.cachedInputTokens)
@@ -539,6 +574,7 @@ function calculateBillingFactsCostMicros(
       }
       return calculateTokenMeteredCostMicros({
         usage: extractTokenUsageFacts(facts.metering),
+        provider: normalizeManagedProvider(facts.providerKey) ?? "openai",
         profile
       });
     case "time_metered":
@@ -819,7 +855,11 @@ export class RecordModelCostLedgerService {
     const usage = extractTokenUsageFacts(input.usage);
     const priceCatalogSnapshot = buildPriceCatalogSnapshot({ provider: catalogProvider, profile });
     const priceCatalogVersion = buildPriceCatalogVersion(priceCatalogSnapshot);
-    const actualCostMicros = calculateTokenMeteredCostMicros({ usage, profile });
+    const actualCostMicros = calculateTokenMeteredCostMicros({
+      usage,
+      provider: catalogProvider,
+      profile
+    });
     const ledgerProvider = input.usage.providerKey?.trim() || catalogProvider;
     const row: Prisma.ModelCostLedgerEventCreateManyInput = {
       id: buildDeterministicLedgerEventId({
@@ -853,6 +893,7 @@ export class RecordModelCostLedgerService {
         modelRole: input.modelRole,
         toolCode: null,
         inputTokens: usage.inputTokens,
+        cacheCreationInputTokens: usage.cacheCreationInputTokens,
         cachedInputTokens: usage.cachedInputTokens,
         outputTokens: usage.outputTokens,
         totalTokens: usage.totalTokens,
@@ -922,7 +963,7 @@ export class RecordModelCostLedgerService {
       const usage = extractTokenUsageFacts(entry);
       const priceCatalogSnapshot = buildPriceCatalogSnapshot({ provider, profile });
       const priceCatalogVersion = buildPriceCatalogVersion(priceCatalogSnapshot);
-      const actualCostMicros = calculateTokenMeteredCostMicros({ usage, profile });
+      const actualCostMicros = calculateTokenMeteredCostMicros({ usage, provider, profile });
       const sourceEventId = input.sourceEventId ?? null;
       const requestCorrelationId = input.requestCorrelationId ?? null;
 
@@ -958,6 +999,7 @@ export class RecordModelCostLedgerService {
           modelRole: entry.modelRole,
           toolCode: entry.toolCode ?? null,
           inputTokens: usage.inputTokens,
+          cacheCreationInputTokens: usage.cacheCreationInputTokens,
           cachedInputTokens: usage.cachedInputTokens,
           outputTokens: usage.outputTokens,
           totalTokens: usage.totalTokens,

@@ -16,6 +16,7 @@ function tokenMeteredDefaults() {
       currency: "USD",
       tokenPricing: {
         inputPer1M: 0,
+        cacheCreationInputPer1M: 0,
         cachedInputPer1M: 0,
         outputPer1M: 0
       },

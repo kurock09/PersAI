@@ -87,6 +87,7 @@ export const RUNTIME_PROVIDER_TIME_PRICE_UNITS: RuntimeProviderTimePriceUnit[] =
 export const DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT = 1;
 export type RuntimeProviderTokenPriceMetadata = {
   inputPer1M: number;
+  cacheCreationInputPer1M: number;
   cachedInputPer1M: number;
   outputPer1M: number;
 };
@@ -684,6 +685,7 @@ export function createDefaultRuntimeProviderPriceMetadata(
         currency: "USD",
         tokenPricing: {
           inputPer1M: 0,
+          cacheCreationInputPer1M: 0,
           cachedInputPer1M: 0,
           outputPer1M: 0
         }
@@ -762,6 +764,9 @@ function normalizeProviderPriceMetadata(
             ? defaults.tokenPricing
             : {
                 inputPer1M: normalizeNonNegativeNumber(tokenPricingRow.inputPer1M),
+                cacheCreationInputPer1M: normalizeNonNegativeNumber(
+                  tokenPricingRow.cacheCreationInputPer1M
+                ),
                 cachedInputPer1M: normalizeNonNegativeNumber(tokenPricingRow.cachedInputPer1M),
                 outputPer1M: normalizeNonNegativeNumber(tokenPricingRow.outputPer1M)
               }
