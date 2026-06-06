@@ -20,9 +20,9 @@ The confirmed current truth is:
 - Admin Runtime primary/fallback provider/model settings are persisted and materialized into `runtimeProviderRouting`.
 - `runtimeProviderRouting.fallbackMatrix` exists, but provider-failure/timeout failover is not executed by `apps/runtime` turn execution today. Runtime text selection is slot-based (`normal_reply`, `premium_reply`, `reasoning`, `system_tool`, `retrieval`) and falls back to the Normal slot / primary path, not to a failed-provider retry path.
 - API does consume `fallbackMatrix` for the `cost_driving_restricted` degrade override, so the matrix is not completely unused.
-- STT is OpenAI-only and model-hardcoded.
+- STT is OpenAI-only and model-hardcoded, but it is no longer an active ADR-110 blocker.
 - TTS already has real provider-chain fallback execution across configured speech providers; it is not missing cross-provider fallback. The remaining TTS issue is hardcoded/default model truth.
-- Web-search already has Admin Tools provider selection, but provider-specific model strings remain hardcoded and cross-provider fallback is not executed.
+- Web-search already has Admin Tools provider selection, but provider-specific model strings remain hardcoded and cross-provider fallback is not executed; this is deferred out of the active ADR-110 slice order.
 - Admin Knowledge owns three model fields: embedding index, retrieval helper, authoring agent.
 - Admin Knowledge authoring falls back to platform primary when unset.
 - Retrieval helper rerank is optional; unset means graceful-off. If configured and provider/model fails, there is no model failover path today.
@@ -121,7 +121,7 @@ Target:
 - Move operator-selectable STT model/provider truth into catalog/settings rather than hardcoded constants.
 - Preserve billing facts/ledger truth for the successful provider.
 
-Acceptable caveat: fallback STT transcripts can differ slightly from primary STT transcripts during outage.
+Status: deferred from ADR-110 active implementation. It is not a current production blocker and should return as a separate full vertical ADR/slice only when product priority requires it.
 
 ### TTS
 
@@ -150,7 +150,9 @@ Confirmed current truth:
 - The request chooses one provider and fails if that provider fails; there is no TTS-style provider chain.
 - Tool-path billing facts already exist for successful web-search calls.
 
-Target:
+Status: deferred from ADR-110 active implementation. It is not a current production blocker and should return as a separate full vertical ADR/slice only when product priority requires it.
+
+Deferred target:
 
 - Move web-search model/default truth out of hardcoded source constants.
 - Add fallback-aware web-search execution across configured providers.
@@ -319,38 +321,11 @@ Required verification:
 - helper failure -> fallback tests
 - empty helper -> graceful-off tests
 
-### Slice 3 — STT and web-search provider/model truth
+### Deferred — STT and web-search provider/model truth
 
-Owner: GPT 5.4 subagent. Orchestrator reviews.
+STT and web-search are known gaps but are explicitly removed from the active ADR-110 execution order. They are not current production blockers and require a later full vertical slice/ADR that defines credential/model contract, bundle materialization, runtime execution, provider-gateway behavior, UI, and tests together.
 
-Scope:
-
-- Abstract STT provider selection.
-- Keep OpenAI as initial primary.
-- Add Yandex SpeechKit fallback.
-- Move STT provider/model truth into catalog/settings.
-- Preserve STT billing facts on successful transcription.
-- Move Perplexity/OpenRouter and Gemini web-search model defaults out of hardcoded provider-gateway constants.
-- Add fallback-aware execution across configured web-search providers.
-- Preserve tool-path billing facts for the successful provider.
-
-Non-goals:
-
-- Do not add a new third-party STT provider beyond Yandex in this slice.
-- Do not change TTS behavior.
-- Do not redesign Admin Tools web-search provider selection if current provider picker is sufficient.
-- Do not include browser/web-fetch tools unless a follow-up audit proves they share the same issue.
-
-Required verification:
-
-- provider-gateway STT tests
-- API/runtime transcription path tests
-- billing facts persistence tests
-- provider-gateway web-search fallback tests
-- Admin Tools/settings tests where web-search model defaults become configurable
-- ledger/billing facts tests where affected
-
-### Slice 4 — TTS model/default truth cleanup
+### Slice 3 — TTS model/default truth cleanup
 
 Owner: GPT 5.4 subagent. Orchestrator reviews.
 
@@ -371,7 +346,7 @@ Required verification:
 - existing TTS fallback tests remain green
 - billing facts behavior remains correct
 
-### Slice 5 — Anthropic prompt cache
+### Slice 4 — Anthropic prompt cache
 
 Owner: GPT 5.4 subagent. Orchestrator reviews.
 

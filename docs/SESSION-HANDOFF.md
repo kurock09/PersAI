@@ -54,7 +54,7 @@ The slice deliberately does **not** change embedding behavior, generated-media f
 
 ### Next recommended step
 
-Proceed to ADR-110 Slice 3: move STT and web-search provider/model truth out of hardcoded execution seams and add bounded fallback there, while keeping TTS behavior unchanged.
+Proceed to ADR-110 Slice 3: TTS model/default truth cleanup. STT and web-search are deferred out of the active ADR-110 execution order because they are not current production blockers and require a later full vertical contract/runtime/provider-gateway/UI/test slice.
 
 ## 2026-06-06 - ADR-110 Slice 1: Admin Knowledge owns embedding model truth
 
