@@ -120,7 +120,11 @@ interface AssistantSettingsProps {
 }
 
 type ActionFeedback = { type: "ok" | "err" | "warn"; text: string } | null;
-type PersonaVoiceLanguageFilter = "ru" | "en";
+type PersonaVoiceLanguageFilter = "ru" | "en" | "other";
+type PersonaLightboxState = { src: string; name: string } | null;
+
+const CHARACTERS_PRICING_URL = "https://persai.dev/app/pricing";
+const DEMO_PERSONA_PORTRAIT_URL = "/landing/demo-persona-portrait.png";
 
 type QuotaBucketState = UserPlanVisibilityState["limits"]["quotaBuckets"][number];
 type MonthlyToolQuotaSnapshot = UserPlanVisibilityState["limits"]["monthlyToolQuotas"];
@@ -704,6 +708,40 @@ function normalizeMemoryText(text: string): string {
   return text.trim().toLowerCase().replace(/\s+/g, " ").replace(/\.+$/u, "");
 }
 
+function matchesVoiceLanguageFilter(
+  language: string | null | undefined,
+  filter: PersonaVoiceLanguageFilter
+): boolean {
+  const normalized = language?.trim().toLowerCase() ?? "";
+  if (filter === "ru") {
+    return (
+      normalized === "ru" ||
+      normalized.startsWith("ru-") ||
+      normalized === "russian" ||
+      normalized.startsWith("russian ")
+    );
+  }
+  if (filter === "en") {
+    return (
+      normalized === "en" ||
+      normalized.startsWith("en-") ||
+      normalized === "english" ||
+      normalized.startsWith("english ")
+    );
+  }
+  return !matchesVoiceLanguageFilter(language, "ru") && !matchesVoiceLanguageFilter(language, "en");
+}
+
+function normalizeVoiceLanguageBucket(language: string | null | undefined): "ru" | "en" | "other" {
+  if (matchesVoiceLanguageFilter(language, "ru")) {
+    return "ru";
+  }
+  if (matchesVoiceLanguageFilter(language, "en")) {
+    return "en";
+  }
+  return "other";
+}
+
 // ADR-074 Slice M3.3 — Memory Center merged view row. The Workspace tab
 // renders both registry rows (structured `kind ∈ {fact, preference,
 // open_loop}`) and workspace rows; deduplicated by normalized text with
@@ -1086,6 +1124,7 @@ export function AssistantSettings({
   const [voiceLanguageFilter, setVoiceLanguageFilter] = useState<PersonaVoiceLanguageFilter>(
     locale.toLowerCase().startsWith("ru") ? "ru" : "en"
   );
+  const [personaLightbox, setPersonaLightbox] = useState<PersonaLightboxState>(null);
   const [createPersonaOpen, setCreatePersonaOpen] = useState(false);
   const [createPersonaName, setCreatePersonaName] = useState("");
   const [createPersonaVoiceId, setCreatePersonaVoiceId] = useState<string | null>(null);
@@ -1140,17 +1179,37 @@ export function AssistantSettings({
   const talkingVideoEnabled = data.plan?.entitlements?.talkingVideoEnabled === true;
   const filteredVoiceCatalog = useMemo(() => {
     return voiceCatalog.filter((voice) => {
-      const bucket = voice.languageBucket ?? null;
-      if (bucket === "ru" || bucket === "en") {
-        return bucket === voiceLanguageFilter;
-      }
-      const normalized = voice.language?.trim().toLowerCase() ?? "";
-      if (voiceLanguageFilter === "ru") {
-        return normalized === "ru" || normalized.startsWith("ru-");
-      }
-      return normalized === "en" || normalized.startsWith("en-");
+      const derivedBucket = normalizeVoiceLanguageBucket(voice.language);
+      const bucket =
+        voice.languageBucket === "ru" ||
+        voice.languageBucket === "en" ||
+        voice.languageBucket === "other"
+          ? voice.languageBucket === derivedBucket
+            ? voice.languageBucket
+            : derivedBucket
+          : derivedBucket;
+      return bucket === voiceLanguageFilter;
     });
   }, [voiceCatalog, voiceLanguageFilter]);
+  const demoPersonaVoice = useMemo(() => {
+    const preferredLanguage = locale.toLowerCase().startsWith("ru") ? "ru" : "en";
+    return (
+      voiceCatalog.find(
+        (voice) =>
+          normalizeVoiceLanguageBucket(voice.language) === preferredLanguage &&
+          typeof voice.previewAudioUrl === "string" &&
+          voice.previewAudioUrl.length > 0
+      ) ??
+      voiceCatalog.find(
+        (voice) => typeof voice.previewAudioUrl === "string" && voice.previewAudioUrl.length > 0
+      ) ??
+      voiceCatalog.find(
+        (voice) => normalizeVoiceLanguageBucket(voice.language) === preferredLanguage
+      ) ??
+      voiceCatalog[0] ??
+      null
+    );
+  }, [voiceCatalog, locale]);
 
   const refreshSupportUnreadCount = useCallback(async () => {
     if (!assistant?.id) {
@@ -1183,11 +1242,9 @@ export function AssistantSettings({
   useEffect(() => {
     if (openSection === "characters") {
       void loadPersonas();
-      if (talkingVideoEnabled) {
-        void loadVoiceCatalog();
-      }
+      void loadVoiceCatalog();
     }
-  }, [openSection, talkingVideoEnabled, loadPersonas, loadVoiceCatalog]);
+  }, [openSection, loadPersonas, loadVoiceCatalog]);
   const billingStatusLabel = useCallback(
     (
       status: AssistantBillingSubscriptionManagementState["subscriptionStatus"] | null | undefined
@@ -3252,7 +3309,7 @@ export function AssistantSettings({
               <p className="text-xs italic text-text-muted">
                 {t("charactersLockedHint", { plan: data.plan?.effectivePlan.code ?? "Pro" })}{" "}
                 <a
-                  href="/pricing"
+                  href={CHARACTERS_PRICING_URL}
                   className="text-text-muted underline underline-offset-2 opacity-70 hover:opacity-100"
                 >
                   {t("changePlan")}
@@ -3261,77 +3318,56 @@ export function AssistantSettings({
               <p className="rounded-xl border border-border/60 bg-surface-raised/30 px-3 py-2 text-xs text-text-subtle">
                 {t("charactersLockedBanner")}
               </p>
-              {/* Real workspace personas rendered as disabled cards; no edit/delete/use */}
-              {personaList.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  {personaList.map((persona) => (
-                    <div
-                      key={persona.id}
-                      className="rounded-xl border border-border/50 bg-surface-raised/20 p-3 opacity-60"
-                    >
-                      <div className="flex items-center gap-3">
-                        {persona.portraitImageUrl ? (
-                          <img
-                            src={persona.portraitImageUrl}
-                            alt={persona.displayName}
-                            className="h-10 w-10 shrink-0 rounded-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-sm font-medium text-accent">
-                            {persona.displayName.charAt(0)}
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-text">
-                            {persona.displayName}
-                          </p>
-                          <p className="text-xs text-text-subtle">
-                            {t("charactersVoiceLabel", { voice: persona.heygenVoiceLabel })}
-                          </p>
-                        </div>
-                        <VoicePreviewButton
-                          previewAudioUrl={null}
-                          voiceLabel={persona.heygenVoiceLabel}
-                          previewUnavailableLabel={t("charactersPreviewUnavailable")}
-                        />
-                      </div>
+              <div className="rounded-2xl border border-border/60 bg-surface-raised/20 p-3">
+                <div className="flex items-start gap-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPersonaLightbox({
+                        src: DEMO_PERSONA_PORTRAIT_URL,
+                        name: t("charactersDemoName")
+                      })
+                    }
+                    className="shrink-0 rounded-2xl transition-transform hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-accent/30"
+                    aria-label={t("charactersOpenPortrait", { name: t("charactersDemoName") })}
+                  >
+                    <img
+                      src={DEMO_PERSONA_PORTRAIT_URL}
+                      alt={t("charactersDemoName")}
+                      className="h-24 w-24 rounded-2xl object-cover"
+                    />
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-medium text-text">
+                        {t("charactersDemoName")}
+                      </p>
+                      <span className="rounded-full border border-border/60 bg-surface px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-subtle">
+                        {t("charactersDemoBadge")}
+                      </span>
                     </div>
-                  ))}
+                    <p className="mt-1 text-xs text-text-subtle">
+                      {t("charactersVoiceLabel", {
+                        voice: demoPersonaVoice?.name ?? t("charactersDemoVoiceFallback")
+                      })}
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-text-muted">
+                      {t("charactersUsageHint")}
+                    </p>
+                    <div className="mt-3 flex items-center gap-2">
+                      <VoicePreviewButton
+                        previewAudioUrl={demoPersonaVoice?.previewAudioUrl ?? null}
+                        voiceLabel={demoPersonaVoice?.name ?? t("charactersDemoVoiceFallback")}
+                        previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                      />
+                    </div>
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
           ) : (
             // State B — unlocked
             <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-2">
-                <span />
-                <button
-                  type="button"
-                  disabled={personaList.length >= personaLimit}
-                  title={
-                    personaList.length >= personaLimit
-                      ? t("charactersFormLimitReached", { n: personaLimit })
-                      : undefined
-                  }
-                  onClick={() => {
-                    setCreatePersonaName("");
-                    setCreatePersonaVoiceId(null);
-                    setCreatePersonaPortrait(null);
-                    setCreatePersonaPortraitPreview(null);
-                    setCreatePersonaError(null);
-                    setCreatePersonaPortraitError(null);
-                    setVoiceLanguageFilter(locale.toLowerCase().startsWith("ru") ? "ru" : "en");
-                    setCreatePersonaOpen(true);
-                  }}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-[11px] font-medium text-text transition-all hover:border-accent/50 hover:bg-accent/14",
-                    personaList.length >= personaLimit && "cursor-not-allowed opacity-50"
-                  )}
-                >
-                  {t("charactersCreate")}
-                </button>
-              </div>
-
               {personaFb !== null && (
                 <p
                   className={cn(
@@ -3346,6 +3382,10 @@ export function AssistantSettings({
                   {personaFb.text}
                 </p>
               )}
+
+              <p className="rounded-2xl border border-border/50 bg-surface-raised/20 px-3 py-2.5 text-xs leading-5 text-text-muted">
+                {t("charactersUsageHint")}
+              </p>
 
               {personaListLoading && personaList.length === 0 ? (
                 <div className="flex items-center gap-2 py-4 text-xs text-text-subtle">
@@ -3366,11 +3406,23 @@ export function AssistantSettings({
                         className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface p-3"
                       >
                         {persona.portraitImageUrl ? (
-                          <img
-                            src={persona.portraitImageUrl}
-                            alt={persona.displayName}
-                            className="h-10 w-10 shrink-0 rounded-full object-cover"
-                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPersonaLightbox({
+                                src: persona.portraitImageUrl,
+                                name: persona.displayName
+                              })
+                            }
+                            className="shrink-0 rounded-full transition-transform hover:scale-[1.03] focus:outline-none focus:ring-2 focus:ring-accent/30"
+                            aria-label={t("charactersOpenPortrait", { name: persona.displayName })}
+                          >
+                            <img
+                              src={persona.portraitImageUrl}
+                              alt={persona.displayName}
+                              className="h-10 w-10 rounded-full object-cover"
+                            />
+                          </button>
                         ) : (
                           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-sm font-medium text-accent">
                             {persona.displayName.charAt(0)}
@@ -3405,6 +3457,34 @@ export function AssistantSettings({
                   })}
                 </div>
               )}
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  disabled={personaList.length >= personaLimit}
+                  title={
+                    personaList.length >= personaLimit
+                      ? t("charactersFormLimitReached", { n: personaLimit })
+                      : undefined
+                  }
+                  onClick={() => {
+                    setCreatePersonaName("");
+                    setCreatePersonaVoiceId(null);
+                    setCreatePersonaPortrait(null);
+                    setCreatePersonaPortraitPreview(null);
+                    setCreatePersonaError(null);
+                    setCreatePersonaPortraitError(null);
+                    setVoiceLanguageFilter(locale.toLowerCase().startsWith("ru") ? "ru" : "en");
+                    setCreatePersonaOpen(true);
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-[11px] font-medium text-text transition-all hover:border-accent/50 hover:bg-accent/14",
+                    personaList.length >= personaLimit && "cursor-not-allowed opacity-50"
+                  )}
+                >
+                  {t("charactersCreate")}
+                </button>
+              </div>
 
               {/* Delete confirm modal */}
               {deletePersonaId !== null &&
@@ -3479,6 +3559,38 @@ export function AssistantSettings({
                           )}
                         </button>
                       </div>
+                    </div>
+                  </div>,
+                  document.body
+                )}
+
+              {personaLightbox !== null &&
+                typeof document !== "undefined" &&
+                createPortal(
+                  <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+                    onClick={(e) => {
+                      if (e.target === e.currentTarget) {
+                        setPersonaLightbox(null);
+                      }
+                    }}
+                    role="dialog"
+                    aria-modal="true"
+                  >
+                    <div className="relative w-full max-w-3xl">
+                      <button
+                        type="button"
+                        onClick={() => setPersonaLightbox(null)}
+                        className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white transition-colors hover:bg-black/55"
+                        aria-label={t("charactersLightboxClose")}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                      <img
+                        src={personaLightbox.src}
+                        alt={personaLightbox.name}
+                        className="max-h-[85vh] w-full rounded-3xl object-contain shadow-2xl"
+                      />
                     </div>
                   </div>,
                   document.body
@@ -3572,7 +3684,7 @@ export function AssistantSettings({
                           {t("charactersFormVoice")}
                         </p>
                         <div className="mb-2 inline-flex rounded-full border border-border/60 bg-surface-raised/20 p-1">
-                          {(["ru", "en"] as const).map((language) => (
+                          {(["ru", "en", "other"] as const).map((language) => (
                             <button
                               key={language}
                               type="button"
@@ -3584,7 +3696,9 @@ export function AssistantSettings({
                                   : "text-text-subtle hover:text-text"
                               )}
                             >
-                              {language.toUpperCase()}
+                              {language === "other"
+                                ? t("charactersFormVoiceFilterOther")
+                                : language.toUpperCase()}
                             </button>
                           ))}
                         </div>
@@ -3599,17 +3713,25 @@ export function AssistantSettings({
                           </p>
                         ) : filteredVoiceCatalog.length === 0 ? (
                           <p className="py-2 text-xs text-text-muted">
-                            {t("charactersFormVoiceUnavailable")}
+                            {t("charactersFormVoiceEmptyForFilter")}
                           </p>
                         ) : (
                           <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
                             {filteredVoiceCatalog.map((voice) => (
-                              <button
-                                type="button"
+                              <div
                                 key={voice.voiceId}
+                                role="button"
+                                tabIndex={0}
+                                aria-pressed={createPersonaVoiceId === voice.voiceId}
                                 onClick={() => setCreatePersonaVoiceId(voice.voiceId)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    setCreatePersonaVoiceId(voice.voiceId);
+                                  }
+                                }}
                                 className={cn(
-                                  "flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised",
+                                  "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-accent/20",
                                   createPersonaVoiceId === voice.voiceId && "bg-accent/10"
                                 )}
                               >
@@ -3627,7 +3749,7 @@ export function AssistantSettings({
                                   voiceLabel={voice.name}
                                   previewUnavailableLabel={t("charactersPreviewUnavailable")}
                                 />
-                              </button>
+                              </div>
                             ))}
                           </div>
                         )}

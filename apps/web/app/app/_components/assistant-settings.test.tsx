@@ -2829,8 +2829,21 @@ function makePlanData(
 }
 
 describe("characters section", () => {
-  it("State A (locked): renders header + lockedHint; no create button; getWorkspaceVideoPersonas IS called; voice catalog NOT called", async () => {
+  it("State A (locked): renders demo persona + pricing link; no create button; loads personas and voice catalog", async () => {
     // Default beforeEach mock returns empty personas list
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: [
+        {
+          voiceId: "voice-demo-en",
+          name: "Allison",
+          language: "English",
+          gender: "female",
+          previewAudioUrl: "https://cdn.heygen.com/allison.mp3",
+          languageBucket: "other"
+        }
+      ]
+    });
     renderSettings(
       makeAppData({ plan: makePlanData({ talkingVideoEnabled: false }) }),
       "characters"
@@ -2841,14 +2854,18 @@ describe("characters section", () => {
     });
 
     expect(screen.queryByRole("button", { name: "Create character" })).toBeNull();
-    // No mock "Masha" card when real persona list is empty
-    expect(screen.queryByText("Masha")).toBeNull();
+    expect(screen.getByText("Sophie")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Change plan" })).toHaveAttribute(
+      "href",
+      "https://persai.dev/app/pricing"
+    );
     // Personas ARE fetched even in locked state
     await waitFor(() => {
       expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
     });
-    // Voice catalog is NOT fetched in locked state
-    expect(assistantApiMocks.getWorkspaceVoiceCatalog).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(assistantApiMocks.getWorkspaceVoiceCatalog).toHaveBeenCalled();
+    });
   });
 
   it("State A (locked): no plan → locked state (talkingVideoEnabled defaults to false); personas still fetched", async () => {
@@ -2864,7 +2881,7 @@ describe("characters section", () => {
     });
   });
 
-  it("State A (locked) with real personas: shows disabled cards; no create/delete; voice catalog not called", async () => {
+  it("State A (locked) with real personas: does not show saved persona cards or delete controls; keeps demo card", async () => {
     assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
       personas: [
         {
@@ -2887,6 +2904,19 @@ describe("characters section", () => {
       limit: 3,
       creationVcoinCost: 20
     });
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: [
+        {
+          voiceId: "voice-demo-en",
+          name: "Allison",
+          language: "English",
+          gender: "female",
+          previewAudioUrl: "https://cdn.heygen.com/allison.mp3",
+          languageBucket: "other"
+        }
+      ]
+    });
 
     renderSettings(
       makeAppData({ plan: makePlanData({ talkingVideoEnabled: false }) }),
@@ -2897,20 +2927,17 @@ describe("characters section", () => {
       expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
     });
 
-    await waitFor(() => {
-      expect(screen.getByText("AliceDisabled")).toBeInTheDocument();
-      expect(screen.getByText("BobDisabled")).toBeInTheDocument();
-    });
-
-    // No create button in locked state
+    expect(screen.getByText("Sophie")).toBeInTheDocument();
+    expect(screen.queryByText("AliceDisabled")).toBeNull();
+    expect(screen.queryByText("BobDisabled")).toBeNull();
     expect(screen.queryByRole("button", { name: "Create character" })).toBeNull();
-    // No delete button in locked state
     expect(screen.queryByRole("button", { name: "Delete character" })).toBeNull();
-    // Voice catalog NOT fetched in locked state
-    expect(assistantApiMocks.getWorkspaceVoiceCatalog).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(assistantApiMocks.getWorkspaceVoiceCatalog).toHaveBeenCalled();
+    });
   });
 
-  it("State B (unlocked) empty: renders header + empty state + create button", async () => {
+  it("State B (unlocked) empty: renders header + empty state + create button below content", async () => {
     assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
       personas: [],
       limit: 3,
@@ -2939,6 +2966,11 @@ describe("characters section", () => {
     });
 
     expect(screen.getByRole("button", { name: "Create character" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Characters are used for talking-video generation, so the same face and voice stay consistent across requests."
+      )
+    ).toBeInTheDocument();
   });
 
   it("State B (unlocked) with personas: shows persona cards", async () => {
@@ -2991,6 +3023,40 @@ describe("characters section", () => {
     expect(screen.getByText("Voice: Boris Russian")).toBeInTheDocument();
   });
 
+  it("State B (unlocked): clicking a persona portrait opens a lightbox", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [
+        {
+          id: "p-1",
+          displayName: "Masha",
+          portraitImageUrl: "/api/persona-portrait/ws-1/p-1/hash.jpg",
+          heygenVoiceId: "ru-RU-Masha",
+          heygenVoiceLabel: "Masha Russian",
+          createdAt: new Date().toISOString()
+        }
+      ],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: []
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    const portraitButton = await screen.findByRole("button", { name: "Open portrait: Masha" });
+    fireEvent.click(portraitButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Close portrait preview" })).toBeInTheDocument();
+      expect(screen.getAllByRole("img", { name: "Masha" }).length).toBeGreaterThan(1);
+    });
+  });
+
   it("Create flow: opens modal on Create click", async () => {
     assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
       personas: [],
@@ -3012,6 +3078,69 @@ describe("characters section", () => {
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText("Character name")).toBeInTheDocument();
+    });
+  });
+
+  it("Create flow: EN filter still shows voices when API language is human-readable 'English', and OTHER filter is available", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: [
+        {
+          voiceId: "voice-en-1",
+          name: "Allison",
+          language: "English",
+          gender: "female",
+          previewAudioUrl: null,
+          languageBucket: "other"
+        },
+        {
+          voiceId: "voice-ru-1",
+          name: "Boris",
+          language: "Russian",
+          gender: "male",
+          previewAudioUrl: null,
+          languageBucket: "other"
+        },
+        {
+          voiceId: "voice-es-1",
+          name: "Carlos",
+          language: "Spanish",
+          gender: "male",
+          previewAudioUrl: null,
+          languageBucket: "other"
+        }
+      ]
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    const createBtn = await screen.findByRole("button", { name: "Create character" });
+    fireEvent.click(createBtn);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "EN" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "RU" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "OTHER" })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(within(dialog).getByText("Allison")).toBeInTheDocument();
+      expect(within(dialog).queryByText("Boris")).toBeNull();
+      expect(within(dialog).queryByText("Carlos")).toBeNull();
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "OTHER" }));
+    await waitFor(() => {
+      expect(within(dialog).getByText("Carlos")).toBeInTheDocument();
+      expect(within(dialog).queryByText("Allison")).toBeNull();
+      expect(within(dialog).queryByText("Boris")).toBeNull();
     });
   });
 
@@ -3189,7 +3318,8 @@ describe("characters section", () => {
           name: "StorageWarnVoice",
           language: "en-US",
           gender: "female",
-          previewAudioUrl: null
+          previewAudioUrl: null,
+          languageBucket: "en"
         }
       ]
     });
@@ -3236,7 +3366,7 @@ describe("characters section", () => {
     // Select voice from list (click on the span with the voice name inside the dialog)
     await waitFor(() => expect(within(dialog).getByText("StorageWarnVoice")).toBeInTheDocument());
     const voiceNameSpan = within(dialog).getByText("StorageWarnVoice");
-    fireEvent.click(voiceNameSpan.closest("button")!);
+    fireEvent.click(voiceNameSpan.closest('[role="button"]')!);
 
     // Attach portrait file via hidden file input inside the dialog
     const portraitInput = dialog.querySelector('input[type="file"]') as HTMLInputElement;
@@ -3282,7 +3412,8 @@ describe("characters section", () => {
           name: "ErrVoice",
           language: "en-US",
           gender: "male",
-          previewAudioUrl: null
+          previewAudioUrl: null,
+          languageBucket: "en"
         }
       ]
     });
@@ -3316,7 +3447,7 @@ describe("characters section", () => {
     });
 
     await waitFor(() => expect(within(dialog).getByText("ErrVoice")).toBeInTheDocument());
-    fireEvent.click(within(dialog).getByText("ErrVoice").closest("button")!);
+    fireEvent.click(within(dialog).getByText("ErrVoice").closest('[role="button"]')!);
 
     const portraitInput2 = dialog.querySelector('input[type="file"]') as HTMLInputElement;
     const fakeFile2 = new File(["data"], "portrait.jpg", { type: "image/jpeg" });
@@ -3358,7 +3489,8 @@ describe("characters section", () => {
           name: "DupVoice",
           language: "en-US",
           gender: "female",
-          previewAudioUrl: null
+          previewAudioUrl: null,
+          languageBucket: "en"
         }
       ]
     });
@@ -3392,7 +3524,7 @@ describe("characters section", () => {
     });
 
     await waitFor(() => expect(within(dialog).getByText("DupVoice")).toBeInTheDocument());
-    fireEvent.click(within(dialog).getByText("DupVoice").closest("button")!);
+    fireEvent.click(within(dialog).getByText("DupVoice").closest('[role="button"]')!);
 
     const portraitInput3 = dialog.querySelector('input[type="file"]') as HTMLInputElement;
     const fakeFile3 = new File(["data"], "portrait.jpg", { type: "image/jpeg" });

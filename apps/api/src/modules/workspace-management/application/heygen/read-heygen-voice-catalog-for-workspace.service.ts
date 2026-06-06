@@ -52,10 +52,20 @@ export class ReadHeygenVoiceCatalogForWorkspaceService {
 
   private toLanguageBucket(locale: string | null): "ru" | "en" | "other" {
     const normalized = locale?.trim().toLowerCase() ?? "";
-    if (normalized === "ru" || normalized.startsWith("ru-")) {
+    if (
+      normalized === "ru" ||
+      normalized.startsWith("ru-") ||
+      normalized === "russian" ||
+      normalized.startsWith("russian ")
+    ) {
       return "ru";
     }
-    if (normalized === "en" || normalized.startsWith("en-")) {
+    if (
+      normalized === "en" ||
+      normalized.startsWith("en-") ||
+      normalized === "english" ||
+      normalized.startsWith("english ")
+    ) {
       return "en";
     }
     return "other";

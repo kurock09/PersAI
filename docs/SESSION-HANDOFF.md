@@ -2,6 +2,45 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-06 - ADR-109 Characters UI polish + voice-filter truth-hardening
+
+### What changed & why
+
+The operator asked for a premium-feeling Characters UI cleanup rather than another backend-only fix. Two concrete user-facing issues were addressed in one bounded slice:
+
+1. The newly added `RU | EN` selector regressed valid HeyGen voices out of the create-persona picker. Live API logs from both `api` pods showed `GET /api/v1/workspaces/:workspaceId/video-personas/voice-catalog` returning `200`, so the bug was not auth or routing. Root cause: the new bucketing logic assumed BCP-47-like locales (`en-US`, `ru-RU`), but real HeyGen rows can arrive with human-readable values like `English` / `Russian`. Those rows were mis-bucketed into `other`, making the default `EN` or `RU` view look empty. Fixed by normalizing both API-side and UI-side language bucketing to treat `English`/`Russian` as `en`/`ru`.
+2. The Characters section UX was too bare in locked plans and too flat in unlocked plans. Locked plans now show a single demo character card with the operator-provided portrait, a real voice preview, and a direct pricing upsell link to `https://persai.dev/app/pricing`; unlocked plans hide that demo card, show a quieter premium usage hint, move `Create character` below the saved list, and open portrait thumbnails in a lightbox on click.
+
+During the same cleanup, the old create-persona voice list markup was corrected to remove invalid nested buttons (`VoicePreviewButton` inside a clickable voice-row button). The selectable row is now a keyboard-accessible `div[role="button"]`, so the old hydration warning disappears without changing the preview control behavior.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/heygen/read-heygen-voice-catalog-for-workspace.service.ts`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/assistant-settings.test.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `apps/web/public/landing/demo-persona-portrait.png`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+
+### Risks / residuals
+
+- The Characters demo card intentionally depends on the workspace voice catalog even in locked state so the preview button can stay real. This is read-only and plan-safe, but it is a behavior change compared with the old fully gated locked state.
+- The focused `assistant-settings` suite is green, but the wider web test suite was not re-run in full for this slice because the required AGENTS.md verification gate is lint + format + API/web typecheck. The touched surface has direct focused coverage.
+
+### Next recommended step
+
+Slice 11 remains the next ADR-109 macro-step: live HeyGen end-to-end smoke on dev plus cross-doc closure (`ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`) once the current UI + voice fixes are deployed and validated in the real talking-avatar flow.
+
 ## 2026-06-06 - ADR-109 root-cause fix: saved-persona render (model couldn't see personas + non-UUID lookup crash)
 
 ### What changed & why
