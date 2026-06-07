@@ -1,7 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
+  PersaiRuntimeMemoryWriteDurability,
   PersaiRuntimeMemoryWriteKind,
+  PersaiRuntimeMemoryWriteStability,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextMessage,
   RuntimeCompactionAutoExtractResult,
@@ -34,6 +36,9 @@ export interface AutoExtractToMemoryInput {
 interface AutoExtractCandidate {
   kind: PersaiRuntimeMemoryWriteKind;
   summary: string;
+  durability: PersaiRuntimeMemoryWriteDurability;
+  stability: PersaiRuntimeMemoryWriteStability;
+  confidence: number | null;
 }
 
 const AUTO_EXTRACT_OUTPUT_SCHEMA = {
@@ -53,9 +58,12 @@ const AUTO_EXTRACT_OUTPUT_SCHEMA = {
           additionalProperties: false,
           properties: {
             kind: { type: "string", enum: ["fact", "preference", "open_loop"] },
-            summary: { type: "string", minLength: 4, maxLength: AUTO_EXTRACT_SUMMARY_MAX_CHARS }
+            summary: { type: "string", minLength: 1, maxLength: AUTO_EXTRACT_SUMMARY_MAX_CHARS },
+            durability: { type: "string", enum: ["identity", "episodic"] },
+            stability: { type: "string", enum: ["stable", "time_bound"] },
+            confidence: { type: ["number", "null"], minimum: 0, maximum: 1 }
           },
-          required: ["kind", "summary"]
+          required: ["kind", "summary", "durability", "stability", "confidence"]
         }
       }
     },
@@ -129,7 +137,13 @@ export class AutoExtractToMemoryService {
       preference: 0,
       open_loop: 0
     };
-    const acceptedEntries: Array<{ kind: PersaiRuntimeMemoryWriteKind; summary: string }> = [];
+    const acceptedEntries: Array<{
+      kind: PersaiRuntimeMemoryWriteKind;
+      summary: string;
+      durability: PersaiRuntimeMemoryWriteDurability;
+      stability: PersaiRuntimeMemoryWriteStability;
+      confidence: number | null;
+    }> = [];
 
     const sourceTrust = input.conversationMode === "direct" ? "trusted_1to1" : "group";
 
@@ -140,6 +154,9 @@ export class AutoExtractToMemoryService {
           assistantId: input.bundle.metadata.assistantId,
           kind: candidate.kind,
           summary: candidate.summary,
+          durability: candidate.durability,
+          stability: candidate.stability,
+          confidence: candidate.confidence,
           transportSurface,
           sourceTrust,
           relatedUserMessageId: null,
@@ -156,7 +173,13 @@ export class AutoExtractToMemoryService {
       if (outcome.written) {
         written += 1;
         kindCounts[candidate.kind] += 1;
-        acceptedEntries.push({ kind: candidate.kind, summary: candidate.summary });
+        acceptedEntries.push({
+          kind: candidate.kind,
+          summary: candidate.summary,
+          durability: candidate.durability,
+          stability: candidate.stability,
+          confidence: candidate.confidence
+        });
         continue;
       }
 
@@ -210,8 +233,10 @@ export class AutoExtractToMemoryService {
       '- "fact": stable factual statements about the user or their world that are unlikely to change soon.',
       '- "preference": durable likes/dislikes/operating preferences for how you should help.',
       '- "open_loop": something the user explicitly wants to come back to later that is not yet resolved.',
+      'Durability: use "identity" for who the user is or a lasting preference about how to help; use "episodic" for a one-off task, wish, or event.',
+      'Stability: use "stable" for timeless or unlikely-to-change memories; use "time_bound" for memories tied to a moment or likely to expire.',
       synopsisHint,
-      'Return STRICT JSON of shape: {"items":[{"kind":"fact|preference|open_loop","summary":"..."}]}.',
+      'Return STRICT JSON of shape: {"items":[{"kind":"fact|preference|open_loop","summary":"...","durability":"identity|episodic","stability":"stable|time_bound","confidence":0.0}]}.',
       'If nothing durable belongs in memory, return {"items":[]}.',
       "Do not wrap the JSON in code fences. Do not include any other text."
     ];
@@ -252,11 +277,22 @@ export class AutoExtractToMemoryService {
       if (row === null) continue;
       const kind = this.asKind(row.kind);
       const summary = this.normalizeSummary(row.summary);
-      if (kind === null || summary === null) continue;
+      const durability = this.asDurability(row.durability);
+      const stability = this.asStability(row.stability);
+      const confidence = this.asOptionalConfidence(row.confidence);
+      if (
+        kind === null ||
+        summary === null ||
+        durability === null ||
+        stability === null ||
+        confidence === undefined
+      ) {
+        continue;
+      }
       const dedupeKey = `${kind}:${summary.toLowerCase()}`;
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
-      out.push({ kind, summary });
+      out.push({ kind, summary, durability, stability, confidence });
     }
     return out;
   }
@@ -270,10 +306,31 @@ export class AutoExtractToMemoryService {
   private normalizeSummary(value: unknown): string | null {
     if (typeof value !== "string") return null;
     const normalized = value.trim().replace(/\s+/g, " ");
-    if (normalized.length < 4 || normalized.length > AUTO_EXTRACT_SUMMARY_MAX_CHARS) {
+    if (normalized.length > AUTO_EXTRACT_SUMMARY_MAX_CHARS) {
       return null;
     }
     return normalized;
+  }
+
+  private asDurability(value: unknown): PersaiRuntimeMemoryWriteDurability | null {
+    return value === "identity" || value === "episodic"
+      ? (value as PersaiRuntimeMemoryWriteDurability)
+      : null;
+  }
+
+  private asStability(value: unknown): PersaiRuntimeMemoryWriteStability | null {
+    return value === "stable" || value === "time_bound"
+      ? (value as PersaiRuntimeMemoryWriteStability)
+      : null;
+  }
+
+  private asOptionalConfidence(value: unknown): number | null | undefined {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+      ? value
+      : undefined;
   }
 
   private resolveTransportSurface(channel: string): "web" | "telegram" | null {

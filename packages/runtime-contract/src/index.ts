@@ -1021,10 +1021,23 @@ export const PERSAI_RUNTIME_MEMORY_WRITE_KINDS = ["fact", "preference", "open_lo
 
 export type PersaiRuntimeMemoryWriteKind = (typeof PERSAI_RUNTIME_MEMORY_WRITE_KINDS)[number];
 
+export const PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES = ["identity", "episodic"] as const;
+
+export type PersaiRuntimeMemoryWriteDurability =
+  (typeof PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES)[number];
+
+export const PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES = ["stable", "time_bound"] as const;
+
+export type PersaiRuntimeMemoryWriteStability =
+  (typeof PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES)[number];
+
 export interface RuntimeMemoryWriteItem {
   id: string;
   summary: string;
   kind: PersaiRuntimeMemoryWriteKind;
+  durability: PersaiRuntimeMemoryWriteDurability | null;
+  stability: PersaiRuntimeMemoryWriteStability | null;
+  confidence: number | null;
   sourceLabel: string | null;
   createdAt: IsoTimestamp;
   chatId: string | null;
@@ -3530,6 +3543,9 @@ export interface RuntimeCompactionAutoExtractResult {
   entries: Array<{
     kind: PersaiRuntimeMemoryWriteKind;
     summary: string;
+    durability: PersaiRuntimeMemoryWriteDurability;
+    stability: PersaiRuntimeMemoryWriteStability;
+    confidence: number | null;
   }>;
   durationMs: number | null;
   reason: string | null;

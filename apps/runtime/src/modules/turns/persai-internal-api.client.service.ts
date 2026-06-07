@@ -265,6 +265,9 @@ export type InternalMemoryWriteInput = {
   assistantId: string;
   kind: PersaiRuntimeMemoryWriteKind;
   summary: string;
+  durability: "identity" | "episodic";
+  stability: "stable" | "time_bound";
+  confidence: number | null;
   transportSurface: "web" | "telegram";
   sourceTrust: "trusted_1to1" | "group";
   relatedUserMessageId: string | null;
@@ -1948,6 +1951,13 @@ export class PersaiInternalApiClientService {
       typeof row.id === "string" &&
       typeof row.summary === "string" &&
       (row.kind === "fact" || row.kind === "preference" || row.kind === "open_loop") &&
+      (row.durability === null || row.durability === "identity" || row.durability === "episodic") &&
+      (row.stability === null || row.stability === "stable" || row.stability === "time_bound") &&
+      (row.confidence === null ||
+        (typeof row.confidence === "number" &&
+          Number.isFinite(row.confidence) &&
+          row.confidence >= 0 &&
+          row.confidence <= 1)) &&
       (row.sourceLabel === null || typeof row.sourceLabel === "string") &&
       typeof row.createdAt === "string" &&
       (row.chatId === null || typeof row.chatId === "string")

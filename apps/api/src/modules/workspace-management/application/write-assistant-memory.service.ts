@@ -1,7 +1,11 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES,
   PERSAI_RUNTIME_MEMORY_WRITE_KINDS,
+  PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES,
+  type PersaiRuntimeMemoryWriteDurability,
   type PersaiRuntimeMemoryWriteKind,
+  type PersaiRuntimeMemoryWriteStability,
   type RuntimeMemoryWriteItem
 } from "@persai/runtime-contract";
 import {
@@ -18,21 +22,22 @@ import {
 } from "../domain/assistant-memory-registry.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
-import {
-  MEMORY_CORE_HARD_CAP,
-  classifyDurableMemoryWriteClass
-} from "../domain/memory-class-policy";
+import { MEMORY_CORE_HARD_CAP, routeDurableMemoryWrite } from "../domain/memory-class-policy";
 import {
   evaluateGlobalMemoryWritePolicy,
   type MemorySourceTrustClass,
   type MemoryTransportSurface
 } from "../domain/memory-source-policy";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { isObviouslyNonDurableMemorySummary } from "./memory-summary.util";
 
 export interface WriteAssistantMemoryInput {
   assistantId: string;
   kind: PersaiRuntimeMemoryWriteKind;
   summary: string;
+  durability: PersaiRuntimeMemoryWriteDurability;
+  stability: PersaiRuntimeMemoryWriteStability;
+  confidence: number | null;
   transportSurface: MemoryTransportSurface;
   sourceTrust: MemorySourceTrustClass;
   relatedUserMessageId: string | null;
@@ -70,6 +75,9 @@ export class WriteAssistantMemoryService {
     const assistantId = this.asNonEmptyString(row.assistantId);
     const kind = this.asMemoryWriteKind(row.kind);
     const summary = this.normalizeSummary(row.summary);
+    const durability = this.asDurability(row.durability);
+    const stability = this.asStability(row.stability);
+    const confidence = this.asOptionalConfidence(row.confidence);
     const transportSurface = this.asTransportSurface(row.transportSurface);
     const sourceTrust = this.asSourceTrust(row.sourceTrust);
     const relatedUserMessageId = this.asNullableString(row.relatedUserMessageId);
@@ -80,6 +88,9 @@ export class WriteAssistantMemoryService {
         key !== "assistantId" &&
         key !== "kind" &&
         key !== "summary" &&
+        key !== "durability" &&
+        key !== "stability" &&
+        key !== "confidence" &&
         key !== "transportSurface" &&
         key !== "sourceTrust" &&
         key !== "relatedUserMessageId" &&
@@ -91,6 +102,9 @@ export class WriteAssistantMemoryService {
       assistantId === null ||
       kind === null ||
       summary === null ||
+      durability === null ||
+      stability === null ||
+      confidence === undefined ||
       transportSurface === null ||
       sourceTrust === null
     ) {
@@ -101,6 +115,9 @@ export class WriteAssistantMemoryService {
       assistantId,
       kind,
       summary,
+      durability,
+      stability,
+      confidence,
       transportSurface,
       sourceTrust,
       relatedUserMessageId,
@@ -207,6 +224,9 @@ export class WriteAssistantMemoryService {
           id: existingDuplicate.id,
           summary: existingDuplicate.summary,
           kind: this.resolveItemKind(existingDuplicate.kind, input.kind),
+          durability: this.resolveItemDurability(existingDuplicate.durability, input.durability),
+          stability: this.resolveItemStability(existingDuplicate.stability, input.stability),
+          confidence: this.resolveItemConfidence(existingDuplicate.confidence, input.confidence),
           sourceLabel: existingDuplicate.sourceLabel,
           createdAt: existingDuplicate.createdAt.toISOString(),
           chatId: existingDuplicate.chatId
@@ -231,8 +251,21 @@ export class WriteAssistantMemoryService {
       chatId = relatedMessage.chatId;
     }
 
-    const memoryClass = classifyDurableMemoryWriteClass(input.kind);
-    if (memoryClass === "core") {
+    const route = routeDurableMemoryWrite({
+      durability: input.durability,
+      stability: input.stability,
+      guardrailRejected: isObviouslyNonDurableMemorySummary(input.summary)
+    });
+    if (route.action === "skip") {
+      return {
+        written: false,
+        code: route.reason,
+        message: "Memory is not durable enough to store.",
+        item: null
+      };
+    }
+
+    if (route.memoryClass === "core") {
       const currentCoreCount =
         await this.assistantMemoryRegistryRepository.countActiveCoreByAssistantId(assistant.id);
       const overflow = currentCoreCount + 1 - MEMORY_CORE_HARD_CAP;
@@ -254,8 +287,11 @@ export class WriteAssistantMemoryService {
       summary: input.summary,
       sourceType: "memory_write",
       sourceLabel: this.buildSourceLabel(input.kind),
-      memoryClass,
-      kind: input.kind
+      memoryClass: route.memoryClass,
+      kind: input.kind,
+      durability: input.durability,
+      stability: input.stability,
+      confidence: input.confidence
     });
 
     await this.appendAssistantAuditEventService.execute({
@@ -268,6 +304,9 @@ export class WriteAssistantMemoryService {
       details: {
         itemId: created.id,
         kind: input.kind,
+        durability: input.durability,
+        stability: input.stability,
+        confidence: input.confidence,
         transportSurface: input.transportSurface,
         sourceTrust: input.sourceTrust,
         relatedUserMessageId: created.relatedUserMessageId,
@@ -283,6 +322,9 @@ export class WriteAssistantMemoryService {
         id: created.id,
         summary: created.summary,
         kind: input.kind,
+        durability: created.durability,
+        stability: created.stability,
+        confidence: created.confidence,
         sourceLabel: created.sourceLabel,
         createdAt: created.createdAt.toISOString(),
         chatId: created.chatId
@@ -295,7 +337,7 @@ export class WriteAssistantMemoryService {
       return null;
     }
     const normalized = value.trim().replace(/\s+/g, " ");
-    if (normalized.length === 0 || normalized.length > 500) {
+    if (normalized.length > 500) {
       return null;
     }
     return normalized;
@@ -306,6 +348,29 @@ export class WriteAssistantMemoryService {
       PERSAI_RUNTIME_MEMORY_WRITE_KINDS.includes(value as PersaiRuntimeMemoryWriteKind)
       ? (value as PersaiRuntimeMemoryWriteKind)
       : null;
+  }
+
+  private asDurability(value: unknown): PersaiRuntimeMemoryWriteDurability | null {
+    return typeof value === "string" &&
+      PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES.includes(value as PersaiRuntimeMemoryWriteDurability)
+      ? (value as PersaiRuntimeMemoryWriteDurability)
+      : null;
+  }
+
+  private asStability(value: unknown): PersaiRuntimeMemoryWriteStability | null {
+    return typeof value === "string" &&
+      PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES.includes(value as PersaiRuntimeMemoryWriteStability)
+      ? (value as PersaiRuntimeMemoryWriteStability)
+      : null;
+  }
+
+  private asOptionalConfidence(value: unknown): number | null | undefined {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+      ? value
+      : undefined;
   }
 
   private asTransportSurface(value: unknown): MemoryTransportSurface | null {
@@ -332,6 +397,27 @@ export class WriteAssistantMemoryService {
     fallback: PersaiRuntimeMemoryWriteKind
   ): PersaiRuntimeMemoryWriteKind {
     return storedKind ?? fallback;
+  }
+
+  private resolveItemDurability(
+    storedDurability: PersaiRuntimeMemoryWriteDurability | null,
+    fallback: PersaiRuntimeMemoryWriteDurability
+  ): PersaiRuntimeMemoryWriteDurability {
+    return storedDurability ?? fallback;
+  }
+
+  private resolveItemStability(
+    storedStability: PersaiRuntimeMemoryWriteStability | null,
+    fallback: PersaiRuntimeMemoryWriteStability
+  ): PersaiRuntimeMemoryWriteStability {
+    return storedStability ?? fallback;
+  }
+
+  private resolveItemConfidence(
+    storedConfidence: number | null,
+    fallback: number | null
+  ): number | null {
+    return storedConfidence ?? fallback;
   }
 
   private buildSourceLabel(kind: PersaiRuntimeMemoryWriteKind): string {

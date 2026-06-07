@@ -12,7 +12,7 @@ import {
   evaluateGlobalMemoryWritePolicy,
   type GlobalMemoryWriteAttemptContext
 } from "../domain/memory-source-policy";
-import { buildWebChatMemorySummary } from "./memory-summary.util";
+import { buildWebChatMemorySummary, shouldSkipWebChatMemoryTurn } from "./memory-summary.util";
 
 @Injectable()
 export class RecordWebChatMemoryTurnService {
@@ -44,6 +44,10 @@ export class RecordWebChatMemoryTurnService {
       return;
     }
 
+    if (shouldSkipWebChatMemoryTurn(params.userContent, params.assistantContent)) {
+      return;
+    }
+
     const summary = buildWebChatMemorySummary(params.userContent, params.assistantContent);
     await this.memoryRegistryRepository.create({
       assistantId: params.assistantId,
@@ -56,7 +60,10 @@ export class RecordWebChatMemoryTurnService {
       sourceType: "web_chat",
       sourceLabel: "Web chat",
       memoryClass: "contextual",
-      kind: null
+      kind: null,
+      durability: null,
+      stability: null,
+      confidence: null
     });
   }
 }

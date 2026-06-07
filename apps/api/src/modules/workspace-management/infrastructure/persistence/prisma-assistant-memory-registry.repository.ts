@@ -26,7 +26,10 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
         sourceType: input.sourceType,
         sourceLabel: input.sourceLabel,
         memoryClass: input.memoryClass,
-        kind: input.kind
+        kind: input.kind,
+        durability: input.durability,
+        stability: input.stability,
+        confidence: input.confidence
       }
     });
 
@@ -364,6 +367,9 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       sourceLabel: row.sourceLabel,
       memoryClass: row.memoryClass,
       kind: row.kind,
+      durability: row.durability,
+      stability: row.stability,
+      confidence: row.confidence,
       lastUsedAt: row.lastUsedAt,
       resolvedAt: row.resolvedAt,
       forgottenAt: row.forgottenAt,

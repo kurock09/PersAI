@@ -3,6 +3,87 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-07 - ADR-112 Slice 1 memory capture schema + semantic routing
+
+### Baseline
+
+- Starting SHA: `ac4a321d5461973ccdea1d376b980e5e469448f2` (clean tree).
+- Scope: ADR-112 Slice 1 only — model-emitted durability/stability on the durable-memory write path, semantic core/contextual/skip routing, auto-extract parity, trivial web-chat suppression, and tighter `memory_write` guidance/tests.
+
+### What changed & why
+
+`memory_write` is no longer classified by syntactic `kind`. The runtime/API write path now requires model-emitted `durability` (`identity | episodic`) and `stability` (`stable | time_bound`) plus optional `confidence`, persists those fields on `assistant_memory_registry_items`, and routes deterministically: only `identity + stable` lands in always-on `core`; other durable writes land in `contextual`; negative guardrails (empty/too-short/obvious trivial) soft-skip with `code=not_durable` instead of throwing. Existing rows stay nullable/unreclassified in this slice.
+
+Auto-extract now emits the same semantic fields and forwards them through the same write API/router, keeping compaction memory writes aligned with the interactive tool path. Web-chat capture now uses a small pure guardrail to suppress clearly trivial greeting/acknowledgement turns (including RU/EN cases like `Привет · Привет`) while still storing substantive turns as contextual `web_chat` rows. Runtime tool projection/guidance was tightened so the model writes fewer marginal memories and sets durability/stability honestly.
+
+Orchestrator audit caught one blocking defect before acceptance: the auto-extract structured-output schema added `confidence` to `properties` but not to `required` under `strict: true` / `additionalProperties: false`, which OpenAI Structured Outputs rejects (every property must be required). It was fixed by making `confidence` `type: ["number","null"]` and listing it in `required`, matching the repo convention used by the other strict background schemas; the parser already tolerated a JSON `null`. `memory_write` tool inputSchema is unaffected because function tools use `strict: false`.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260607214000_adr112_slice1_memory_semantic_routing/migration.sql`
+- `apps/api/src/modules/workspace-management/domain/memory-class-policy.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-memory-registry-item.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-memory-registry.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-memory-registry.repository.ts`
+- `apps/api/src/modules/workspace-management/application/memory-summary.util.ts`
+- `apps/api/src/modules/workspace-management/application/record-web-chat-memory-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/write-assistant-memory.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-assistant-workspace-memory.service.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-memory-write-tool.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/auto-extract-to-memory.service.ts`
+- `apps/api/test/write-assistant-memory.service.test.ts`
+- `apps/api/test/hydrate-memory-for-turn.service.test.ts`
+- `apps/api/test/record-web-chat-memory-turn.service.test.ts` (new)
+- `apps/api/test/close-assistant-memory-by-ref.service.test.ts`
+- `apps/api/test/find-cross-session-carry-over.service.test.ts`
+- `apps/api/test/close-most-similar-open-loop.service.test.ts`
+- `apps/runtime/test/runtime-memory-write-tool.service.test.ts`
+- `apps/runtime/test/auto-extract-to-memory.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/112-context-memory-and-tool-surface-quality-program.md`
+- `docs/CHANGELOG.md`
+- `docs/DATA-MODEL.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused (subagent + orchestrator reruns):
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/write-assistant-memory.service.test.ts` - PASS (covers identity+stable -> core, episodic -> contextual, identity+time_bound -> contextual, trivial -> `not_durable` skip, core-cap demotion)
+- `corepack pnpm --filter @persai/api exec tsx test/hydrate-memory-for-turn.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/record-web-chat-memory-turn.service.test.ts` - PASS (RU/EN greeting/ack suppressed; substantive turn stored)
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/runtime-memory-write-tool.service.test.ts runRuntimeMemoryWriteToolServiceTest` - PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/auto-extract-to-memory.service.test.ts` - PASS (expected warning log in the provider-error branch test)
+
+Full AGENTS.md gate (orchestrator):
+
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- Contract regen note: `@persai/runtime-contract` has no `build` script and the changed memory route is internal (not in `packages/contracts/openapi.yaml`), so no OpenAPI regeneration was required; downstream api/runtime typecheck is the effective contract check.
+
+### Risks / residuals
+
+- This slice stores nullable `durability`, `stability`, and `confidence` only for new writes. Existing legacy rows remain NULL and are intentionally not reclassified/backfilled here; Slice 4 owns live-data cleanup.
+- The workspace-memory manual add path was widened just enough to keep repository callers compiling, but no broader workspace-memory UX/classification redesign was attempted in this slice.
+- The requested `runtime-contract` build command is currently a no-op because the package has no `build` script; the effective verification for that package here is downstream runtime/API typecheck plus focused tests.
+
+### Next recommended step
+
+Proceed to ADR-112 Slice 2 only: retrieval/render quality plus the single runtime-owned contextual-memory framing, while preserving ADR-110 prompt-cache placement.
+
+Carry-in for Slice 2 (prompt-cache invariant) — RESOLVED + live-verified 2026-06-07. The operator's worry (small `cache_creation` of 27-375 tokens on every turn) was investigated directly against the cluster: per-turn `runtime_turn_receipts.result_payload.usageAccounting` for session `78ae7b44` (28 turns, `claude-sonnet-4-6`), querying both top-level cacheCreation/cachedInput and the `entries[]` anthropic step. Result splits exactly at the ~18:25 UTC deploy of the typed-`cacheRole` contextual-memory fix (the `volatile_context` marker is present in the running provider-gateway `dist`, so the fix is live):
+- PRE-FIX (10:38-16:17): `cacheRead` PINNED at the 14.1k system block while a 3k->10.5k history segment was RE-WRITTEN at 1.25x every short turn (never read back) — a real ~2x cost inflation. This was the volatile contextual-memory block poisoning the cacheable prefix; it is the bug the typed-`cacheRole` fix targeted.
+- POST-FIX (18:47-19:11, same loaded chat): `cacheRead` grows monotonically (`31774 -> ... -> 34203`) with `cacheRead[n+1] ≈ cacheRead[n] + cacheCreation[n]` and writes shrink to the genuine new tail (`18, 27, 0, 375, 185, ...`). This is exactly the post-deploy verification line 204/209 below asked for — CONFIRMED working. The 27-375 per-turn write is HEALTHY incremental caching, not waste: it caches this turn's new content so the next turn reads it at 0.1x ("accumulate 3k then cache once" would be strictly worse). The only large writes left are after >5min idle (Anthropic 5m TTL expiry; `cacheRead=0, cacheCreation≈24.6k`), which is expected.
+Remaining Slice 2 cache work is narrow: keep ADR-110 green and add a regression guard asserting `cacheRole: "volatile_context"` stays out of the Anthropic cacheable prefix. Earlier ADR/handoff wording (both the "expected incremental frontier advance" and the later "source unknown / inconsistent" framings) is superseded by this live verification.
+
 ## 2026-06-07 - ADR-112 authored (context/memory/tool-surface quality program)
 
 ### Baseline
@@ -123,7 +204,7 @@ The PROD fix makes the volatility a first-class typed property instead of a stri
 
 - Provider/runtime deploy independently: during the transition window an old provider-gateway ignores the new flag (old in-prefix behavior, no regression) and an old runtime omits the flag (no optimization until both deploy). Safe both ways.
 - Provider prompt order for contextual memory intentionally changes: the block now sits as a `user` context block right before the question. Live smoke should confirm answer quality still uses retrieved memory.
-- After deploy, live verification should confirm contextual-memory Anthropic turns keep history cache reads and do not repeat `~10.5k` `cacheCreationInputTokens` on short turns.
+- After deploy, live verification should confirm contextual-memory Anthropic turns keep history cache reads and do not repeat `~10.5k` `cacheCreationInputTokens` on short turns. VERIFIED 2026-06-07 against live `runtime_turn_receipts` for session `78ae7b44`: post-deploy short turns (18:47-19:11 UTC) keep `cacheRead` growing (`31774 -> 34203`) with only tiny tail writes (`18, 27, 0, 375, 185`), versus pre-deploy turns (10:38-16:17) that re-wrote a 3k-10.5k segment every turn with `cacheRead` pinned at `14138`. Fix confirmed working; the only remaining large writes are >5min-idle TTL misses (`cacheRead=0, cacheCreation≈24.6k`).
 - Full-repo `format:check` / `pnpm -r lint` / `api`/`web` typecheck were intentionally not re-run here because the working tree is concurrently dirty with a separate UI/video cleanup; run the full gate at commit time once the tree settles.
 
 ### Next recommended step

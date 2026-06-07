@@ -89,7 +89,10 @@ export class ManageAssistantWorkspaceMemoryService {
       sourceType: "memory_write",
       sourceLabel: WORKSPACE_MEMORY_SOURCE_LABEL,
       memoryClass: "core",
-      kind: "fact"
+      kind: "fact",
+      durability: "identity",
+      stability: "stable",
+      confidence: null
     });
     return this.toWorkspaceMemoryItem(created);
   }

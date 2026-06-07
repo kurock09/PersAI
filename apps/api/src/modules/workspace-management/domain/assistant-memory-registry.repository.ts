@@ -1,7 +1,9 @@
 import type {
   AssistantMemoryRegistryClass,
+  AssistantMemoryRegistryDurability,
   AssistantMemoryRegistryItem,
-  AssistantMemoryRegistryKind
+  AssistantMemoryRegistryKind,
+  AssistantMemoryRegistryStability
 } from "./assistant-memory-registry-item.entity";
 
 export const ASSISTANT_MEMORY_REGISTRY_REPOSITORY = Symbol("ASSISTANT_MEMORY_REGISTRY_REPOSITORY");
@@ -18,6 +20,9 @@ export type CreateAssistantMemoryRegistryItemInput = {
   sourceLabel: string | null;
   memoryClass: AssistantMemoryRegistryClass;
   kind: AssistantMemoryRegistryKind | null;
+  durability: AssistantMemoryRegistryDurability | null;
+  stability: AssistantMemoryRegistryStability | null;
+  confidence: number | null;
 };
 
 export interface AssistantMemoryRegistryRepository {

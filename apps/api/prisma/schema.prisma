@@ -139,6 +139,16 @@ enum AssistantMemoryRegistryKind {
   open_loop
 }
 
+enum AssistantMemoryRegistryDurability {
+  identity
+  episodic
+}
+
+enum AssistantMemoryRegistryStability {
+  stable
+  time_bound
+}
+
 enum AssistantTaskRegistrySourceSurface {
   web
 }
@@ -2283,6 +2293,9 @@ model AssistantMemoryRegistryItem {
   sourceLabel               String?                           @map("source_label") @db.VarChar(64)
   memoryClass               AssistantMemoryRegistryClass      @default(contextual) @map("memory_class")
   kind                      AssistantMemoryRegistryKind?      @map("kind")
+  durability                AssistantMemoryRegistryDurability? @map("durability")
+  stability                 AssistantMemoryRegistryStability?  @map("stability")
+  confidence                Float?                             @map("confidence")
   lastUsedAt                DateTime?                         @map("last_used_at") @db.Timestamptz(6)
   resolvedAt                DateTime?                         @map("resolved_at") @db.Timestamptz(6)
   forgottenAt               DateTime?                         @map("forgotten_at") @db.Timestamptz(6)

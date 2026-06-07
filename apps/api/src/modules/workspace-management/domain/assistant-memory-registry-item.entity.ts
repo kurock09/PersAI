@@ -4,6 +4,10 @@ export type AssistantMemoryRegistryClass = "core" | "contextual";
 
 export type AssistantMemoryRegistryKind = "fact" | "preference" | "open_loop";
 
+export type AssistantMemoryRegistryDurability = "identity" | "episodic";
+
+export type AssistantMemoryRegistryStability = "stable" | "time_bound";
+
 export type AssistantMemoryRegistryItem = {
   id: string;
   assistantId: string;
@@ -17,6 +21,9 @@ export type AssistantMemoryRegistryItem = {
   sourceLabel: string | null;
   memoryClass: AssistantMemoryRegistryClass;
   kind: AssistantMemoryRegistryKind | null;
+  durability: AssistantMemoryRegistryDurability | null;
+  stability: AssistantMemoryRegistryStability | null;
+  confidence: number | null;
   lastUsedAt: Date | null;
   /**
    * ADR-074 Slice M3 — set when an `open_loop` durable memory is closed,

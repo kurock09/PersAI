@@ -1263,6 +1263,9 @@ class FakePersaiInternalApiClientService {
       id: "memory-1",
       summary: "User prefers concise answers.",
       kind: "preference" as const,
+      durability: "identity" as const,
+      stability: "stable" as const,
+      confidence: null,
       sourceLabel: "Memory write: preference",
       createdAt: "2026-04-14T18:45:00.000Z",
       chatId: null

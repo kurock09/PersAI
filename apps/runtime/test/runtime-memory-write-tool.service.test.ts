@@ -223,6 +223,9 @@ class FakePersaiInternalApiClientService {
       id: "memory-1",
       summary: "User prefers concise answers.",
       kind: "preference",
+      durability: "identity",
+      stability: "stable",
+      confidence: 0.91,
       sourceLabel: "Memory write: preference",
       createdAt: "2026-04-14T19:00:00.000Z",
       chatId: null
@@ -282,6 +285,14 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     projection.tools.some((tool) => tool.name === "memory_write"),
     true
   );
+  const memoryWriteDefinition = projection.tools.find((tool) => tool.name === "memory_write");
+  assert.ok(memoryWriteDefinition);
+  const memoryWriteSchema = memoryWriteDefinition?.inputSchema as {
+    properties?: Record<string, { description?: string }>;
+  };
+  assert.ok(memoryWriteSchema.properties?.durability);
+  assert.ok(memoryWriteSchema.properties?.stability);
+  assert.match(memoryWriteSchema.properties?.memory?.description ?? "", /genuinely durable/i);
   assert.equal(
     hiddenProjection.tools.some((tool) => tool.name === "memory_write"),
     false
@@ -304,7 +315,10 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     bundle,
     toolCall: createToolCall({
       kind: "preference",
-      memory: "User prefers concise answers."
+      memory: "User prefers concise answers.",
+      durability: "identity",
+      stability: "stable",
+      confidence: 0.91
     }),
     conversation: directWebConversation,
     currentUserMessageId: "not-a-uuid",
@@ -316,6 +330,9 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     assistantId: "assistant-1",
     kind: "preference",
     summary: "User prefers concise answers.",
+    durability: "identity",
+    stability: "stable",
+    confidence: 0.91,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
     relatedUserMessageId: null,
@@ -326,7 +343,9 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     bundle,
     toolCall: createToolCall({
       kind: "preference",
-      memory: ""
+      memory: 42 as unknown as string,
+      durability: "identity",
+      stability: "stable"
     }),
     conversation: directWebConversation,
     currentUserMessageId: null,
@@ -340,7 +359,9 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     bundle,
     toolCall: createToolCall({
       kind: "fact",
-      memory: "User works in finance."
+      memory: "User works in finance.",
+      durability: "identity",
+      stability: "stable"
     }),
     conversation: {
       ...directWebConversation,
@@ -362,7 +383,10 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     bundle,
     toolCall: createToolCall({
       kind: "open_loop",
-      memory: "Follow up on the analytics dashboard migration."
+      memory: "Follow up on the analytics dashboard migration.",
+      durability: "episodic",
+      stability: "time_bound",
+      confidence: 0.77
     }),
     conversation: {
       ...directWebConversation,
@@ -384,6 +408,9 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       id: "memory-2",
       summary: "User prefers concise answers.",
       kind: "preference",
+      durability: "identity",
+      stability: "stable",
+      confidence: 0.91,
       sourceLabel: "Memory write: preference",
       createdAt: "2026-04-14T19:00:00.000Z",
       chatId: null
@@ -394,7 +421,9 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     bundle,
     toolCall: createToolCall({
       kind: "fact",
-      memory: "User works in finance."
+      memory: "User works in finance.",
+      durability: "identity",
+      stability: "stable"
     }),
     conversation: directWebConversation,
     currentUserMessageId: null,
@@ -416,7 +445,9 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       bundle,
       toolCall: createToolCall({
         kind: "fact",
-        memory: "User lives in Berlin."
+        memory: "User lives in Berlin.",
+        durability: "identity",
+        stability: "stable"
       }),
       conversation: directWebConversation,
       currentUserMessageId: null,
@@ -442,6 +473,8 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "User lives in Berlin.",
+        durability: "identity",
+        stability: "stable",
         closeOpenLoop: false
       }),
       conversation: directWebConversation,
@@ -466,6 +499,8 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "Booked the Barcelona retreat venue.",
+        durability: "episodic",
+        stability: "time_bound",
         closeOpenLoop: true
       }),
       conversation: directWebConversation,
@@ -500,6 +535,8 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "Confirmed the venue.",
+        durability: "episodic",
+        stability: "time_bound",
         closeOpenLoop: true
       }),
       conversation: directWebConversation,
@@ -529,6 +566,8 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "open_loop",
         memory: "Confirmed the venue.",
+        durability: "episodic",
+        stability: "time_bound",
         closeOpenLoop: true
       }),
       conversation: directWebConversation,
@@ -552,6 +591,8 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "Some fact.",
+        durability: "identity",
+        stability: "stable",
         closeOpenLoop: "yes" as unknown as boolean
       }),
       conversation: directWebConversation,
@@ -795,7 +836,9 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         action: "write",
         kind: "fact",
-        memory: "User uses metric units."
+        memory: "User uses metric units.",
+        durability: "identity",
+        stability: "stable"
       }),
       conversation: directWebConversation,
       currentUserMessageId: null,
@@ -817,6 +860,8 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
         action: "write",
         kind: "fact",
         memory: "User uses metric units.",
+        durability: "identity",
+        stability: "stable",
         ref: SAMPLE_REF_UUID
       }),
       conversation: directWebConversation,
@@ -846,5 +891,70 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     assert.equal(result.payload.action, "skipped");
     assert.equal(result.payload.reason, "invalid_arguments");
     assert.equal(result.isError, true);
+  }
+
+  {
+    const api = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        kind: "fact",
+        memory: "User likes tea.",
+        stability: "stable"
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-missing-durability"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.equal(api.writeCalls.length, 0);
+  }
+
+  {
+    const api = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        kind: "fact",
+        memory: "User likes tea.",
+        durability: "identity",
+        stability: "sometimes"
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-invalid-stability"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.equal(api.writeCalls.length, 0);
+  }
+
+  {
+    const api = new FakePersaiInternalApiClientService();
+    api.outcome = {
+      written: false,
+      code: "not_durable",
+      message: "Memory is not durable enough to store.",
+      item: null
+    };
+    const svc = new RuntimeMemoryWriteToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        kind: "fact",
+        memory: "ok",
+        durability: "identity",
+        stability: "stable"
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-not-durable"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "not_durable");
+    assert.equal(result.payload.warning, "Memory is not durable enough to store.");
   }
 }

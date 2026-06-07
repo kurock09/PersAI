@@ -13,6 +13,7 @@ function createHarness(options?: {
   memoryControl?: Record<string, unknown> | null;
   relatedMessage?: { id: string; author: "user" | "assistant" | "system"; chatId: string } | null;
   existingDuplicate?: AssistantMemoryRegistryItem | null;
+  currentCoreCount?: number;
 }) {
   const createdInputs: Array<Record<string, unknown>> = [];
   const auditCalls: Array<Record<string, unknown>> = [];
@@ -99,6 +100,9 @@ function createHarness(options?: {
         sourceLabel: input.sourceLabel,
         memoryClass: input.memoryClass,
         kind: input.kind,
+        durability: input.durability,
+        stability: input.stability,
+        confidence: input.confidence,
         lastUsedAt: null,
         resolvedAt: null,
         forgottenAt: null,
@@ -106,7 +110,7 @@ function createHarness(options?: {
       } satisfies AssistantMemoryRegistryItem;
     },
     async countActiveCoreByAssistantId() {
-      return 0;
+      return options?.currentCoreCount ?? 0;
     },
     async demoteOldestCoreByAssistantId(assistantId, demoteCount) {
       demoteCalls.push({ assistantId, demoteCount });
@@ -179,6 +183,9 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "preference",
     summary: "  User prefers concise answers.  ",
+    durability: "identity",
+    stability: "stable",
+    confidence: 0.91,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
     relatedUserMessageId: "message-1",
@@ -200,7 +207,10 @@ async function run(): Promise<void> {
     sourceType: "memory_write",
     sourceLabel: "Memory write: preference",
     memoryClass: "core",
-    kind: "preference"
+    kind: "preference",
+    durability: "identity",
+    stability: "stable",
+    confidence: 0.91
   });
   assert.equal(happy.demoteCalls.length, 0);
   assert.equal(happy.auditCalls.length, 1);
@@ -213,6 +223,9 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "fact",
     summary: "User works in finance.",
+    durability: "identity",
+    stability: "stable",
+    confidence: null,
     transportSurface: "telegram",
     sourceTrust: "group",
     relatedUserMessageId: null,
@@ -229,6 +242,9 @@ async function run(): Promise<void> {
         assistantId: "assistant-1",
         kind: "fact",
         summary: "User works in finance.",
+        durability: "identity",
+        stability: "stable",
+        confidence: null,
         transportSurface: "web",
         sourceTrust: "trusted_1to1",
         relatedUserMessageId: "missing-message",
@@ -244,7 +260,10 @@ async function run(): Promise<void> {
       happy.service.parseInput({
         assistantId: "assistant-1",
         kind: "preference",
-        summary: "",
+        summary: "User prefers concise answers.",
+        durability: "identity",
+        stability: "stable",
+        confidence: 2,
         transportSurface: "web",
         sourceTrust: "trusted_1to1"
       }),
@@ -269,6 +288,9 @@ async function run(): Promise<void> {
     sourceLabel: "Memory write: preference",
     memoryClass: "core",
     kind: "preference",
+    durability: "identity",
+    stability: "stable",
+    confidence: 0.91,
     lastUsedAt: null,
     resolvedAt: null,
     forgottenAt: null,
@@ -287,6 +309,9 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "preference",
     summary: "User prefers concise answers.",
+    durability: "identity",
+    stability: "stable",
+    confidence: 0.91,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
     relatedUserMessageId: "message-1",
@@ -330,6 +355,9 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "open_loop",
     summary: "Need to pick a venue for the retreat.",
+    durability: "episodic",
+    stability: "time_bound",
+    confidence: 0.78,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
     relatedUserMessageId: "message-1",
@@ -368,6 +396,9 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "open_loop",
     summary: "Need to pick a venue for the retreat.",
+    durability: "episodic",
+    stability: "time_bound",
+    confidence: 0.78,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
     relatedUserMessageId: "message-1",
@@ -380,6 +411,80 @@ async function run(): Promise<void> {
   );
   const idempotentAuditDetails = idempotent.auditCalls[0]?.details as Record<string, unknown>;
   assert.equal(idempotentAuditDetails.implicitlyResolvedOpenLoop, false);
+
+  const episodicWish = createHarness({
+    memoryControl: createDefaultMemoryControlEnvelope()
+  });
+  const episodicWishResult = await episodicWish.service.execute({
+    assistantId: "assistant-1",
+    kind: "preference",
+    summary: "Wants a talking-avatar video in Italian.",
+    durability: "episodic",
+    stability: "stable",
+    confidence: 0.72,
+    transportSurface: "web",
+    sourceTrust: "trusted_1to1",
+    relatedUserMessageId: null,
+    requestId: "request-episodic"
+  });
+  assert.equal(episodicWishResult.written, true);
+  assert.equal(episodicWish.createdInputs[0]?.memoryClass, "contextual");
+
+  const timeBoundIdentity = createHarness({
+    memoryControl: createDefaultMemoryControlEnvelope()
+  });
+  const timeBoundIdentityResult = await timeBoundIdentity.service.execute({
+    assistantId: "assistant-1",
+    kind: "fact",
+    summary: "Is traveling this week and needs quick replies.",
+    durability: "identity",
+    stability: "time_bound",
+    confidence: 0.68,
+    transportSurface: "web",
+    sourceTrust: "trusted_1to1",
+    relatedUserMessageId: null,
+    requestId: "request-time-bound"
+  });
+  assert.equal(timeBoundIdentityResult.written, true);
+  assert.equal(timeBoundIdentity.createdInputs[0]?.memoryClass, "contextual");
+
+  const trivial = createHarness({
+    memoryControl: createDefaultMemoryControlEnvelope()
+  });
+  const trivialResult = await trivial.service.execute({
+    assistantId: "assistant-1",
+    kind: "fact",
+    summary: "ok",
+    durability: "identity",
+    stability: "stable",
+    confidence: 0.99,
+    transportSurface: "web",
+    sourceTrust: "trusted_1to1",
+    relatedUserMessageId: null,
+    requestId: "request-trivial"
+  });
+  assert.equal(trivialResult.written, false);
+  assert.equal(trivialResult.code, "not_durable");
+  assert.equal(trivial.createdInputs.length, 0);
+
+  const coreCap = createHarness({
+    memoryControl: createDefaultMemoryControlEnvelope(),
+    currentCoreCount: 15
+  });
+  const coreCapResult = await coreCap.service.execute({
+    assistantId: "assistant-1",
+    kind: "preference",
+    summary: "Prefers terse 3-bullet answers.",
+    durability: "identity",
+    stability: "stable",
+    confidence: 0.95,
+    transportSurface: "web",
+    sourceTrust: "trusted_1to1",
+    relatedUserMessageId: null,
+    requestId: "request-core-cap"
+  });
+  assert.equal(coreCapResult.written, true);
+  assert.deepEqual(coreCap.demoteCalls, [{ assistantId: "assistant-1", demoteCount: 1 }]);
 }
 
 void run();

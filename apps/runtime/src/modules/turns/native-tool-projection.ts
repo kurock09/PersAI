@@ -11,7 +11,9 @@ import {
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
   PERSAI_RUNTIME_FILES_TOOL_ACTIONS,
+  PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES,
   PERSAI_RUNTIME_MEMORY_WRITE_KINDS,
+  PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES,
   PERSAI_RUNTIME_IMAGE_BACKGROUNDS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
@@ -445,7 +447,7 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
     name: "memory_write",
     description: resolveToolDefinitionDescription(
       policy,
-      "Write one concise durable memory for the current assistant-user pair, or close a previously-recorded open loop by its ref."
+      "Write only genuinely durable memories for this assistant-user pair, using honest durability/stability fields, or close a previously recorded open loop by its ref."
     ),
     inputSchema: {
       type: "object",
@@ -461,13 +463,32 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
           type: "string",
           enum: [...PERSAI_RUNTIME_MEMORY_WRITE_KINDS],
           description:
-            'Required when action is "write" (or omitted). Durable memory class: fact, preference, or open_loop.'
+            'Required when action is "write" (or omitted). Label the memory as fact, preference, or open_loop.'
         },
         memory: {
           type: "string",
           maxLength: MEMORY_WRITE_MAX_CHARS,
           description:
-            'Required when action is "write" (or omitted). One concise durable memory statement to store.'
+            'Required when action is "write" (or omitted). One concise genuinely durable memory statement to store. Do not write greetings, acknowledgements, or one-off chatter.'
+        },
+        durability: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES],
+          description:
+            'Required when action is "write" (or omitted). Use "identity" for who the user is or a lasting preference about how to help; use "episodic" for a one-off task, wish, or event.'
+        },
+        stability: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES],
+          description:
+            'Required when action is "write" (or omitted). Use "stable" for timeless or unlikely-to-change memory; use "time_bound" for something tied to a moment or likely to expire.'
+        },
+        confidence: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description:
+            'Optional when action is "write". Confidence in this memory being worth storing. Use it honestly; low-confidence or marginal memories should usually be skipped instead of written.'
         },
         closeOpenLoop: {
           type: "boolean",

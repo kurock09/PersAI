@@ -1,7 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
-import type {
-  PersaiRuntimeMemoryWriteKind,
+import {
+  PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES,
+  PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES,
+  type PersaiRuntimeMemoryWriteDurability,
+  type PersaiRuntimeMemoryWriteKind,
+  type PersaiRuntimeMemoryWriteStability,
   ProviderGatewayToolCall,
   RuntimeMemoryWriteToolResult,
   RuntimeTurnRequest
@@ -19,6 +23,9 @@ type WriteRequest = {
   action: "write";
   kind: PersaiRuntimeMemoryWriteKind;
   memory: string;
+  durability: PersaiRuntimeMemoryWriteDurability;
+  stability: PersaiRuntimeMemoryWriteStability;
+  confidence: number | null;
   closeOpenLoop: boolean;
 };
 
@@ -210,6 +217,9 @@ export class RuntimeMemoryWriteToolService {
         assistantId: params.bundle.metadata.assistantId,
         kind: request.kind,
         summary: request.memory,
+        durability: request.durability,
+        stability: request.stability,
+        confidence: request.confidence,
         transportSurface,
         sourceTrust: params.conversation.mode === "direct" ? "trusted_1to1" : "group",
         relatedUserMessageId,
@@ -275,7 +285,16 @@ export class RuntimeMemoryWriteToolService {
   }
 
   private readArguments(args: Record<string, unknown>): ParsedRequest | Error {
-    const allowedKeys = new Set(["action", "kind", "memory", "closeOpenLoop", "ref"]);
+    const allowedKeys = new Set([
+      "action",
+      "kind",
+      "memory",
+      "durability",
+      "stability",
+      "confidence",
+      "closeOpenLoop",
+      "ref"
+    ]);
     const unknownKeys = Object.keys(args).filter((key) => !allowedKeys.has(key));
     if (unknownKeys.length > 0) {
       return new Error("Memory write arguments are invalid.");
@@ -294,6 +313,9 @@ export class RuntimeMemoryWriteToolService {
         ref === null ||
         args.kind !== undefined ||
         args.memory !== undefined ||
+        args.durability !== undefined ||
+        args.stability !== undefined ||
+        args.confidence !== undefined ||
         args.closeOpenLoop !== undefined
       ) {
         return new Error("Memory write arguments are invalid.");
@@ -307,11 +329,21 @@ export class RuntimeMemoryWriteToolService {
     }
     const kind = this.asKind(args.kind);
     const memory = this.normalizeMemory(args.memory);
+    const durability = this.asDurability(args.durability);
+    const stability = this.asStability(args.stability);
+    const confidence = this.asOptionalConfidence(args.confidence);
     const closeOpenLoop = this.asCloseOpenLoop(args.closeOpenLoop);
-    if (kind === null || memory === null || closeOpenLoop === null) {
+    if (
+      kind === null ||
+      memory === null ||
+      durability === null ||
+      stability === null ||
+      confidence === undefined ||
+      closeOpenLoop === null
+    ) {
       return new Error("Memory write arguments are invalid.");
     }
-    return { action: "write", kind, memory, closeOpenLoop };
+    return { action: "write", kind, memory, durability, stability, confidence, closeOpenLoop };
   }
 
   private asAction(value: unknown): "write" | "close" | null {
@@ -343,6 +375,29 @@ export class RuntimeMemoryWriteToolService {
       return value;
     }
     return null;
+  }
+
+  private asDurability(value: unknown): PersaiRuntimeMemoryWriteDurability | null {
+    return typeof value === "string" &&
+      PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES.includes(value as PersaiRuntimeMemoryWriteDurability)
+      ? (value as PersaiRuntimeMemoryWriteDurability)
+      : null;
+  }
+
+  private asStability(value: unknown): PersaiRuntimeMemoryWriteStability | null {
+    return typeof value === "string" &&
+      PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES.includes(value as PersaiRuntimeMemoryWriteStability)
+      ? (value as PersaiRuntimeMemoryWriteStability)
+      : null;
+  }
+
+  private asOptionalConfidence(value: unknown): number | null | undefined {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+      ? value
+      : undefined;
   }
 
   private createSkippedPayload(
@@ -378,7 +433,7 @@ export class RuntimeMemoryWriteToolService {
       return null;
     }
     const normalized = value.trim().replace(/\s+/g, " ");
-    if (normalized.length === 0 || normalized.length > 500) {
+    if (normalized.length > 500) {
       return null;
     }
     return normalized;
