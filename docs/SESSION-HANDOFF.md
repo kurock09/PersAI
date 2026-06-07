@@ -3,6 +3,48 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-07 - Anthropic contextual-memory cache-write hotfix
+
+### Baseline
+
+- Starting SHA: `fc42a8626dfee36c0aec4505c76817c244a28155`
+- Scope: live `persai-dev` Anthropic cache-write regression investigation and minimal provider-gateway hotfix.
+
+### What changed & why
+
+Live cluster receipts for runtime session `78ae7b44-b335-49e4-94b3-c684d1bd7fcf` showed one initial Anthropic write of `24,751` cache-creation tokens, then repeated short-turn writes around `10.5k` tokens while cache reads stayed at `14,138`. The chat had `168` stored messages, `durable_memory_contextual` was active, and runtime code intentionally labels that block as per-turn non-stable while prepending it before conversation history. That made the moving-history breakpoint include a changing memory prefix, so Anthropic had to rewrite the same history segment on every turn.
+
+Provider-gateway now skips the Anthropic moving-history message breakpoint when the hydrated message list contains the non-stable contextual-memory block. The stable system/tools cache remains enabled, and moving-history cache still applies for message lists without that volatile prefix.
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/run-suite.ts` - PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` - PASS
+- `corepack pnpm --filter @persai/provider-gateway run lint` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `git diff --check` - PASS
+- `corepack pnpm run test` - PASS
+
+### Risks / residuals
+
+- This is a cost-control hotfix, not the final optimal Anthropic cache architecture. Turns with contextual memory now keep stable system/tools cache but intentionally do not use moving-history message cache until runtime can move per-turn contextual memory outside the cache prefix.
+- After deploy, live verification should confirm contextual-memory Anthropic turns show `cachedInputTokens` for the stable prefix and no repeated `~10.5k` `cacheCreationInputTokens`.
+
+### Next recommended step
+
+Deploy this hotfix, then ask the operator to send two short Anthropic turns in the same loaded chat and inspect live `runtime_turn_receipts` / Anthropic logs for cache-write suppression.
+
 ## 2026-06-07 - ADR-111 Slice 5 voice clone UI
 
 ### Baseline

@@ -81,6 +81,8 @@ type AnthropicBuiltMessage = {
 };
 
 const APPROX_ANTHROPIC_CHARS_PER_TOKEN = 4;
+const DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER =
+  "[Relevant memories retrieved for this turn — may vary between turns]";
 
 @Injectable()
 export class AnthropicProviderClient implements ProviderWarmableClient {
@@ -692,8 +694,21 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     if (!Number.isFinite(minTokens) || typeof minTokens !== "number" || minTokens <= 0) {
       return false;
     }
+    if (input.messages.some((message) => this.isAnthropicNonStablePrefixMessage(message))) {
+      return false;
+    }
     const classification = input.requestMetadata?.classification;
     return classification === undefined || classification === "main_turn";
+  }
+
+  private isAnthropicNonStablePrefixMessage(
+    message: ProviderGatewayTextGenerateRequest["messages"][number]
+  ): boolean {
+    return (
+      message.role === "assistant" &&
+      typeof message.content === "string" &&
+      message.content.trim().startsWith(DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER)
+    );
   }
 
   private resolveAnthropicHistoryBreakpointText(

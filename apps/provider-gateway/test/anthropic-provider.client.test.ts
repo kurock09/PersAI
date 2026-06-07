@@ -711,6 +711,44 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     }
   ]);
 
+  const contextualMemoryMovingCacheRequest: ProviderGatewayTextGenerateRequest = {
+    ...movingHistoryCacheRequest,
+    messages: [
+      {
+        role: "assistant",
+        content:
+          "[Relevant memories retrieved for this turn — may vary between turns]\n- Per-turn memory result that changes with the latest user input."
+      },
+      ...movingHistoryCacheRequest.messages
+    ]
+  };
+  await client.generateText(contextualMemoryMovingCacheRequest);
+  assert.deepEqual(capturedGeneratePayload!.system, [
+    {
+      type: "text",
+      text: "Be concise.",
+      cache_control: {
+        type: "ephemeral"
+      }
+    }
+  ]);
+  assert.deepEqual(capturedGeneratePayload!.messages, [
+    {
+      role: "assistant",
+      content:
+        "[Relevant memories retrieved for this turn — may vary between turns]\n- Per-turn memory result that changes with the latest user input."
+    },
+    {
+      role: "assistant",
+      content:
+        "Stable earlier answer that should become the moving Anthropic history breakpoint once the uncached tail grows."
+    },
+    {
+      role: "user",
+      content: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+  ]);
+
   const mediaOnlyTailCacheRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
     promptCache: {
