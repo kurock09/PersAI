@@ -1255,7 +1255,7 @@
     "voicesArchive": "Archive cloned voice",
     "voicesArchiveSuccess": "Archived voice: {name}.",
     "voicesDefault": "Default",
-    "voicesMakeDefault": "Use by default",
+    "voicesMakeDefault": "Default",
     "voicesDefaultSuccess": "{name} is now the default cloned voice.",
     "voicesSubmittingShort": "Saving...",
     "voicesLinkedOne": "Linked to {name}",

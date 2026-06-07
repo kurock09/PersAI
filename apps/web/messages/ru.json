@@ -1255,7 +1255,7 @@
     "voicesArchive": "Архивировать клонированный голос",
     "voicesArchiveSuccess": "Голос архивирован: {name}.",
     "voicesDefault": "По умолчанию",
-    "voicesMakeDefault": "Использовать по умолчанию",
+    "voicesMakeDefault": "По умолчанию",
     "voicesDefaultSuccess": "Голос {name} теперь выбран по умолчанию.",
     "voicesSubmittingShort": "Сохранение...",
     "voicesLinkedOne": "Привязан к {name}",

@@ -397,14 +397,16 @@ function VoiceCloneCard({
   return (
     <div
       data-testid={`voice-clone-card-${voice.status}`}
-      className="rounded-2xl border border-border/60 bg-surface p-3"
+      className="flex min-h-[116px] flex-col rounded-2xl border border-border/60 bg-surface p-3"
     >
-      <div className="flex items-start justify-between gap-2.5">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="truncate text-sm font-medium text-text">{voice.displayName}</p>
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1 pr-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="min-w-0 truncate text-sm font-medium text-text" title={voice.displayName}>
+              {voice.displayName}
+            </p>
             {voice.isDefault ? (
-              <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+              <span className="shrink-0 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
                 {defaultLabel}
               </span>
             ) : null}
@@ -424,11 +426,6 @@ function VoiceCloneCard({
           >
             {statusLabel}
           </p>
-          {linkedSummary ? (
-            <p className="mt-1 truncate text-[11px] text-text-subtle" title={linkedSummary}>
-              {linkedSummary}
-            </p>
-          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <VoicePreviewButton
@@ -436,15 +433,6 @@ function VoiceCloneCard({
             voiceLabel={voice.displayName}
             previewUnavailableLabel={previewUnavailableLabel}
           />
-          {onMakeDefault ? (
-            <button
-              type="button"
-              onClick={onMakeDefault}
-              className="inline-flex h-7 items-center justify-center rounded-full px-2 text-[10.5px] font-medium text-text-subtle transition-colors hover:bg-surface-raised/70 hover:text-text"
-            >
-              {makeDefaultLabel}
-            </button>
-          ) : null}
           {onArchive ? (
             <button
               type="button"
@@ -457,6 +445,26 @@ function VoiceCloneCard({
           ) : null}
         </div>
       </div>
+      {linkedSummary || onMakeDefault ? (
+        <div className="mt-auto flex min-w-0 items-end justify-between gap-3 pt-2">
+          {linkedSummary ? (
+            <p className="min-w-0 truncate text-[11px] text-text-subtle" title={linkedSummary}>
+              {linkedSummary}
+            </p>
+          ) : (
+            <span aria-hidden="true" />
+          )}
+          {onMakeDefault ? (
+            <button
+              type="button"
+              onClick={onMakeDefault}
+              className="shrink-0 text-[11px] font-medium text-text-subtle underline-offset-4 transition-colors hover:text-text hover:underline"
+            >
+              {makeDefaultLabel}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

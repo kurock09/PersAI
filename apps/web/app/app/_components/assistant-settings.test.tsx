@@ -3365,8 +3365,8 @@ describe("characters section", () => {
   it("i18n keys exist for both locales with the cleaner voice label", () => {
     expect(enMessages.settings.charactersVoiceLabel).toBe("Voice - {voice}");
     expect(ruMessages.settings.charactersVoiceLabel).toBe("Голос - {voice}");
-    expect(enMessages.settings.voicesMakeDefault).toBe("Use by default");
-    expect(ruMessages.settings.voicesMakeDefault).toBe("Использовать по умолчанию");
+    expect(enMessages.settings.voicesMakeDefault).toBe("Default");
+    expect(ruMessages.settings.voicesMakeDefault).toBe("По умолчанию");
     expect(enMessages.settings.voicesCreateGuidance.length).toBeGreaterThan(0);
     expect(ruMessages.settings.voicesCreateGuidance.length).toBeGreaterThan(0);
     expect(enMessages.settings.charactersUsageHint.length).toBeGreaterThan(0);
@@ -3772,7 +3772,7 @@ describe("characters section", () => {
     expect(screen.getByText("Pending")).toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.getByText("Linked to Kurock")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Use by default" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Default" })).toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole("button", { name: "Create character" }));
     const dialog = await screen.findByRole("dialog");
