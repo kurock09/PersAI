@@ -3799,6 +3799,99 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/memory-backfill/preview:
+    post:
+      operationId: postAdminMemoryBackfillPreview
+      summary: Preview assistant-scoped legacy memory backfill impact
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminMemoryBackfillRequest"
+      responses:
+        "200":
+          description: Memory backfill preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminMemoryBackfillPreviewResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/memory-backfill/apply:
+    post:
+      operationId: postAdminMemoryBackfillApply
+      summary: Apply assistant-scoped legacy memory backfill
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.memory_backfill.apply.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminMemoryBackfillRequest"
+      responses:
+        "200":
+          description: Memory backfill applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminMemoryBackfillApplyResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (dangerous admin action + step-up required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/tools/economics:
     get:
       operationId: getAdminToolPathPricingCatalog
@@ -7964,6 +8057,111 @@ components:
           nullable: true
         impact:
           $ref: "#/components/schemas/AdminKnowledgeEmbeddingChangeImpact"
+    AdminMemoryBackfillRequest:
+      type: object
+      required:
+        - assistantId
+      properties:
+        assistantId:
+          type: string
+    AdminMemoryBackfillImpact:
+      type: object
+      required:
+        - assistantId
+        - scannedActive
+        - reclassifyCoreToContextual
+        - pruneTrivialWebChat
+      properties:
+        assistantId:
+          type: string
+        scannedActive:
+          type: integer
+        reclassifyCoreToContextual:
+          type: object
+          required:
+            - count
+            - sample
+          properties:
+            count:
+              type: integer
+            sample:
+              type: array
+              items:
+                type: object
+                required:
+                  - id
+                  - summary
+                  - durability
+                  - stability
+                properties:
+                  id:
+                    type: string
+                  summary:
+                    type: string
+                  durability:
+                    type: string
+                    nullable: true
+                  stability:
+                    type: string
+                    nullable: true
+        pruneTrivialWebChat:
+          type: object
+          required:
+            - count
+            - sample
+          properties:
+            count:
+              type: integer
+            sample:
+              type: array
+              items:
+                type: object
+                required:
+                  - id
+                  - summary
+                properties:
+                  id:
+                    type: string
+                  summary:
+                    type: string
+    MemoryBackfillResult:
+      type: object
+      required:
+        - assistantId
+        - reclassified
+        - pruned
+        - scannedActive
+      properties:
+        assistantId:
+          type: string
+        reclassified:
+          type: integer
+        pruned:
+          type: integer
+        scannedActive:
+          type: integer
+    PostAdminMemoryBackfillPreviewResponse:
+      type: object
+      required:
+        - requestId
+        - impact
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        impact:
+          $ref: "#/components/schemas/AdminMemoryBackfillImpact"
+    PostAdminMemoryBackfillApplyResponse:
+      type: object
+      required:
+        - requestId
+        - result
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        result:
+          $ref: "#/components/schemas/MemoryBackfillResult"
     SkillStatus:
       type: string
       enum:
@@ -16200,6 +16398,7 @@ components:
         - admin.plan.create
         - admin.plan.update
         - admin.plan.delete
+        - admin.memory_backfill.apply
         - admin.knowledge_retrieval_policy.update
         - admin.billing_lifecycle_settings.update
         - admin.runtime_provider_settings.update

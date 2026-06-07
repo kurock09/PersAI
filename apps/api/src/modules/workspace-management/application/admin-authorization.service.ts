@@ -9,6 +9,7 @@ export type DangerousAdminActionCode =
   | "admin.plan.create"
   | "admin.plan.update"
   | "admin.plan.delete"
+  | "admin.memory_backfill.apply"
   | "admin.knowledge_retrieval_policy.update"
   | "admin.billing_lifecycle_settings.update"
   | "admin.billing_provider_credentials.update"
@@ -56,6 +57,7 @@ function requiredRolesForDangerousAction(action: DangerousAdminActionCode): Supp
     return ["ops_admin", "super_admin"];
   }
   if (
+    action === "admin.memory_backfill.apply" ||
     action === "admin.knowledge_retrieval_policy.update" ||
     action === "admin.billing_provider_credentials.update" ||
     action === "admin.runtime_provider_settings.update" ||

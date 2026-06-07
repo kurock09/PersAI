@@ -1,6 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma, type AssistantMemoryRegistryItem as PrismaItem } from "@prisma/client";
-import type { AssistantMemoryRegistryItem } from "../../domain/assistant-memory-registry-item.entity";
+import type {
+  AssistantMemoryRegistryClass,
+  AssistantMemoryRegistryItem
+} from "../../domain/assistant-memory-registry-item.entity";
 import type {
   AssistantMemoryRegistryRepository,
   CreateAssistantMemoryRegistryItemInput
@@ -138,6 +141,44 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       data: { forgottenAt: new Date() }
     });
 
+    return result.count > 0;
+  }
+
+  async listActiveForBackfill(
+    assistantId: string,
+    limit: number
+  ): Promise<AssistantMemoryRegistryItem[]> {
+    if (limit <= 0) {
+      return [];
+    }
+    const rows = await this.prisma.assistantMemoryRegistryItem.findMany({
+      where: {
+        assistantId,
+        forgottenAt: null,
+        supersededAt: null
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit
+    });
+    return rows.map((row) => this.mapToDomain(row));
+  }
+
+  async reclassifyMemoryClassById(
+    id: string,
+    assistantId: string,
+    memoryClass: AssistantMemoryRegistryClass
+  ): Promise<boolean> {
+    const result = await this.prisma.assistantMemoryRegistryItem.updateMany({
+      where: {
+        id,
+        assistantId,
+        forgottenAt: null,
+        supersededAt: null
+      },
+      data: {
+        memoryClass
+      }
+    });
     return result.count > 0;
   }
 

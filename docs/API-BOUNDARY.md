@@ -19,6 +19,7 @@ Primary public API surface:
 - admin public-site-page routes under `/api/v1/admin/site-pages*`
 - Voice DNA admin routes: `GET /api/v1/admin/persona-archetypes`, `PATCH /api/v1/admin/persona-archetypes/:key`, `POST /api/v1/admin/persona-archetypes/:key/reset-to-default`
 - admin knowledge routes under `/api/v1/admin/knowledge-sources*`
+- admin memory backfill routes under `/api/v1/admin/memory-backfill*` (assistant-scoped dry-run preview + step-up confirmed apply for legacy durable-memory cleanup)
 - admin Skill routes under `/api/v1/admin/skills*`
 - future ADR-080 admin authoring routes for Skill knowledge cards, Skill draft enrichment, and Product KB text entries stay under `/api/v1/admin/skills*` and `/api/v1/admin/knowledge-sources*`
 - admin document-processing provider settings under `/api/v1/admin/tools/document-processing*`

@@ -3,6 +3,57 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-07 - ADR-112 Slice 4 safe memory backfill
+
+### Baseline
+
+- Starting SHA: `f04a41f3` (ADR-112 Slice 3 landed; clean tree).
+- Scope: ADR-112 Slice 4 only — assistant-scoped dry-run/apply backfill for legacy durable-memory pollution. Out of scope: web UI, multi-assistant scans, new schema/migrations, runtime/provider changes, contract regeneration.
+
+### What changed & why
+
+The API now exposes the established dangerous-admin two-phase pattern for safe memory backfill. `POST /api/v1/admin/memory-backfill/preview` is read-authorized and returns a bounded dry-run report for one assistant. `POST /api/v1/admin/memory-backfill/apply` requires a step-up token from `x-persai-step-up-token`, re-computes candidates from fresh active rows, applies soft cleanup, and appends one admin audit event.
+
+The cleanup rules are intentionally narrow and match the ADR backlog exactly. Target A ("legacy episodic core") selects active rows where `memoryClass = "core"` and NOT (`durability = "identity"` AND `stability = "stable"`), then reclassifies them to `contextual`. Target B ("trivial web_chat") selects active `sourceType = "web_chat"` rows whose stored summary matches `isObviouslyNonDurableMemorySummary(summary)`, then soft-prunes them with `markForgottenById` (never hard delete). If a row matches both targets, prune wins and it is not reclassified.
+
+Repository support was added in place rather than via a parallel path: `listActiveForBackfill(assistantId, limit)` and guarded `reclassifyMemoryClassById(id, assistantId, memoryClass)`. Step-up/action truth now includes `admin.memory_backfill.apply` with the same strict role gate as the other ops/super-admin dangerous settings actions, and the admin step-up challenge allowlist/OpenAPI were widened minimally so the challenge can be issued for this slice.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/manage-admin-memory-backfill.service.ts` (new)
+- `apps/api/src/modules/workspace-management/interface/http/admin-memory-maintenance.controller.ts` (new)
+- `apps/api/src/modules/workspace-management/domain/assistant-memory-registry.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-memory-registry.repository.ts`
+- `apps/api/src/modules/workspace-management/application/admin-authorization.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-security.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/manage-admin-memory-backfill.service.test.ts` (new)
+- `packages/contracts/openapi.yaml`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/112-context-memory-and-tool-surface-quality-program.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-memory-backfill.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-knowledge-retrieval-policy.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/consolidate-assistant-memory.service.test.ts` - PASS
+
+### Risks / residuals
+
+- This slice is intentionally bounded to the first `1000` active rows for one assistant (`MAX_BACKFILL_SCAN`). If an assistant somehow exceeds that active-memory volume, the preview/apply reports are safe but partial by design.
+- OpenAPI (`packages/contracts/openapi.yaml`) was hand-edited for the two new endpoints + the new dangerous-action enum; `packages/contracts/src/generated/*` (the orval TS client) was intentionally NOT regenerated. Reason verified this session: running `orval generate` rewrites ~625 generated files (~7.6k lines) of pure cosmetic churn because the committed client predates the current orval/prettier output style. There is no consumer of these admin endpoints (backend-only, no web UI) and no CI drift gate, so the spec carries boundary truth and the typed client should be regenerated only on-demand when a consumer is added (and that regen should be its own isolated commit).
+- Orchestrator note: audited and committed by the parent agent as part of the held memory block (Slices 1-4 land locally; unified push only after the operator's full check complex).
+
+### Next recommended step
+
+Run the full required verification complex for ADR-112 Slices 1-4 as a block, then review a real assistant preview/apply flow before any deploy/push decision.
+
 ## 2026-06-07 - ADR-112 Slice 3 memory normalization + consolidation + lifecycle
 
 ### Baseline

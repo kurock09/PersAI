@@ -27,6 +27,7 @@ import { AdminPromptTemplatesController } from "./interface/http/admin-bootstrap
 import { AdminPersonaArchetypesController } from "./interface/http/admin-persona-archetypes.controller";
 import { AdminToolMetadataController } from "./interface/http/admin-tool-metadata.controller";
 import { AdminKnowledgeSourcesController } from "./interface/http/admin-knowledge-sources.controller";
+import { AdminMemoryMaintenanceController } from "./interface/http/admin-memory-maintenance.controller";
 import { AdminSkillsController } from "./interface/http/admin-skills.controller";
 import { AssistantKnowledgeSourcesController } from "./interface/http/assistant-knowledge-sources.controller";
 import { AssistantBillingController } from "./interface/http/assistant-billing.controller";
@@ -121,6 +122,7 @@ import { ManageAdminKnowledgeSourcesService } from "./application/manage-admin-k
 import { ManageAdminSkillsService } from "./application/manage-admin-skills.service";
 import { GenerateSkillAuthoringDraftService } from "./application/generate-skill-authoring-draft.service";
 import { ManageAdminKnowledgeRetrievalPolicyService } from "./application/manage-admin-knowledge-retrieval-policy.service";
+import { ManageAdminMemoryBackfillService } from "./application/manage-admin-memory-backfill.service";
 import { ListKnowledgeIndexingJobsService } from "./application/list-knowledge-indexing-jobs.service";
 import { DocumentExtractionService } from "./application/document-extraction.service";
 import { DocumentSourceAttachmentExtractionService } from "./application/document-source-attachment-extraction.service";
@@ -390,6 +392,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AdminPromptTemplatesController,
     AdminPersonaArchetypesController,
     AdminKnowledgeSourcesController,
+    AdminMemoryMaintenanceController,
     AdminSkillsController,
     KnowledgeIndexingJobsController,
     AssistantSkillsController,
@@ -497,6 +500,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageAdminSkillsService,
     GenerateSkillAuthoringDraftService,
     ManageAdminKnowledgeRetrievalPolicyService,
+    ManageAdminMemoryBackfillService,
     ListKnowledgeIndexingJobsService,
     DocumentExtractionService,
     DocumentSourceAttachmentExtractionService,

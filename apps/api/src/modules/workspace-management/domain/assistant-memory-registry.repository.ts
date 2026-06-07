@@ -54,6 +54,12 @@ export interface AssistantMemoryRegistryRepository {
     modelKey: string
   ): Promise<boolean>;
   markForgottenById(id: string, assistantId: string): Promise<boolean>;
+  listActiveForBackfill(assistantId: string, limit: number): Promise<AssistantMemoryRegistryItem[]>;
+  reclassifyMemoryClassById(
+    id: string,
+    assistantId: string,
+    memoryClass: AssistantMemoryRegistryClass
+  ): Promise<boolean>;
   markSupersededById(
     id: string,
     assistantId: string,
