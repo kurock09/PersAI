@@ -2038,7 +2038,7 @@ function computeHydratedStableBlockTokens(
     const normalized = message.content.trim();
     if (normalized.startsWith("[Durable user context retained across conversations]")) {
       tokens.push(
-        `durable_memory_core.v1.${createHash("sha256").update(normalized).digest("hex")}`
+        `durable_memory_core.v2.${createHash("sha256").update(normalized).digest("hex")}`
       );
       continue;
     }

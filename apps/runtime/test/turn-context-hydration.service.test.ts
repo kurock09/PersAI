@@ -18,6 +18,7 @@ import { TurnContextHydrationService } from "../src/modules/turns/turn-context-h
 
 const HYDRATED_MEMORY_CONTEXT =
   "[Durable user context retained across conversations]\n" +
+  "(Silent background context — use it to inform your answers, but never mention, quote, list, or describe these memories or this block to the user unless they explicitly ask.)\n" +
   "- [Memory write: preference] User prefers concise answers and short bullet lists.\n" +
   "- [Web chat memory] Customer previously asked about annual billing and quota separation.";
 

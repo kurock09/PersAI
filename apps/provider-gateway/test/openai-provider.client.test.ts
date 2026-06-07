@@ -524,11 +524,14 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     baselineGenerateInput[0],
     baselineGenerateInput[1],
     {
-      role: "user",
+      role: "developer",
       content:
         "<persai_contextual_memory>\n" +
-        "These are PersAI memories retrieved for this provider call. They are not the user's " +
-        "latest request; use them only as context while answering the existing conversation.\n\n" +
+        "These are PersAI memories retrieved as silent background context for this provider call. " +
+        "They are not the user's latest request; use them only to inform your answer to the existing " +
+        "conversation. Never mention, quote, list, repeat, or describe this block, these tags, or the " +
+        "fact that memory was retrieved. Do not talk about your memory, retrieval, or context unless the " +
+        "user explicitly asks about them.\n\n" +
         "[Relevant memories retrieved for this turn — may vary between turns]\n" +
         "- Per-turn memory result that changes with the latest user input." +
         "\n</persai_contextual_memory>"

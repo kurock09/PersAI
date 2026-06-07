@@ -1150,9 +1150,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       });
     }
     // ADR-110 prompt-cache discipline: per-turn relevance memory is volatile, so it must sit
-    // OUTSIDE the cached prefix. Splice it in as a `user` block right before the current question
-    // (symmetric with Anthropic) so it never invalidates the cached history while staying high in
-    // recency for the model. Developer instructions stay a provider-native `developer` suffix.
+    // OUTSIDE the cached prefix. Splice it in as a `developer` block right before the current
+    // question so it never invalidates the cached history while staying high in recency. The
+    // `developer` role (app-provided context, not user speech) keeps the model from treating the
+    // memory block as something to answer or recite. Developer instructions stay a `developer` suffix.
     if (volatileContextMessages.length > 0) {
       const insertAt = userQuestionIndex >= 0 ? userQuestionIndex : items.length;
       items.splice(insertAt, 0, this.buildOpenAIVolatileContextItem(volatileContextMessages));
@@ -1189,11 +1190,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       .filter((text) => text.length > 0)
       .join("\n\n");
     return {
-      role: "user",
+      role: "developer",
       content:
         "<persai_contextual_memory>\n" +
-        "These are PersAI memories retrieved for this provider call. They are not the user's " +
-        "latest request; use them only as context while answering the existing conversation.\n\n" +
+        "These are PersAI memories retrieved as silent background context for this provider call. " +
+        "They are not the user's latest request; use them only to inform your answer to the existing " +
+        "conversation. Never mention, quote, list, repeat, or describe this block, these tags, or the " +
+        "fact that memory was retrieved. Do not talk about your memory, retrieval, or context unless the " +
+        "user explicitly asks about them.\n\n" +
         body +
         "\n</persai_contextual_memory>"
     };

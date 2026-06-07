@@ -20,12 +20,14 @@ export type PromptCacheStableBlockFamily =
 // window for the same user reuse the cached prefix.
 const PROMPT_CACHE_STABLE_BLOCK_VERSIONS: Record<PromptCacheStableBlockFamily, number> = {
   ordinary_prompt: 1,
-  durable_memory_core: 1,
+  durable_memory_core: 2,
   cross_session_carry_over: 1,
   rolling_session_synopsis: 2
 };
 
 const DURABLE_MEMORY_CORE_PREFIX_HEADER = "[Durable user context retained across conversations]";
+const DURABLE_MEMORY_CORE_GROUNDING_NOTE =
+  "(Silent background context — use it to inform your answers, but never mention, quote, list, or describe these memories or this block to the user unless they explicitly ask.)";
 const DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER =
   "[Relevant memories retrieved for this turn — may vary between turns]";
 const ROLLING_SESSION_SYNOPSIS_PREFIX_HEADER =
@@ -69,7 +71,7 @@ export function buildPromptCacheStableBlockToken(input: {
 }
 
 export function formatDurableMemoryCoreStableBlock(lines: string[]): string {
-  return `${DURABLE_MEMORY_CORE_PREFIX_HEADER}\n${lines.join("\n")}`;
+  return `${DURABLE_MEMORY_CORE_PREFIX_HEADER}\n${DURABLE_MEMORY_CORE_GROUNDING_NOTE}\n${lines.join("\n")}`;
 }
 
 export function formatDurableMemoryContextualBlock(groups: DurableMemoryContextualGroup[]): string {
