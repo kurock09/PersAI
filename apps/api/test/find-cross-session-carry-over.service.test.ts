@@ -72,6 +72,8 @@ function buildOpenLoop(
     lastUsedAt: null,
     resolvedAt: null,
     forgottenAt: null,
+    supersededAt: null,
+    supersededByMemoryId: null,
     createdAt,
     ...overrides
   };

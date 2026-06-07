@@ -2031,6 +2031,7 @@ export class ReadAssistantKnowledgeService {
         where: {
           assistantId: input.assistantId,
           forgottenAt: null,
+          supersededAt: null,
           ...(memoryClassFilter === null ? {} : { memoryClass: memoryClassFilter }),
           OR: queryInfo.searchTerms.flatMap((term) => [
             {

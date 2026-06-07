@@ -51,6 +51,8 @@ function createHarness() {
         lastUsedAt: null,
         resolvedAt: null,
         forgottenAt: null,
+        supersededAt: null,
+        supersededByMemoryId: null,
         createdAt: new Date("2026-06-07T00:00:00.000Z")
       };
     }

@@ -73,6 +73,7 @@ type MemoryRegistryRow = {
   sourceLabel: string | null;
   createdAt: Date;
   forgottenAt: Date | null;
+  supersededAt: Date | null;
 };
 
 type ChatMessageRow = {
@@ -316,7 +317,8 @@ const memoryRows: MemoryRegistryRow[] = [
     sourceType: "memory_write",
     sourceLabel: "Memory write: preference",
     createdAt: new Date("2026-04-14T18:45:00.000Z"),
-    forgottenAt: null
+    forgottenAt: null,
+    supersededAt: null
   },
   {
     id: "memory-2",
@@ -328,7 +330,8 @@ const memoryRows: MemoryRegistryRow[] = [
     sourceType: "web_chat",
     sourceLabel: "Web chat",
     createdAt: new Date("2026-04-14T17:00:00.000Z"),
-    forgottenAt: null
+    forgottenAt: null,
+    supersededAt: null
   },
   {
     id: "memory-3",
@@ -341,7 +344,21 @@ const memoryRows: MemoryRegistryRow[] = [
     sourceType: "web_chat",
     sourceLabel: "Renewal notes",
     createdAt: new Date("2026-04-14T19:15:00.000Z"),
-    forgottenAt: null
+    forgottenAt: null,
+    supersededAt: null
+  },
+  {
+    id: "memory-superseded",
+    assistantId: "assistant-1",
+    chatId: null,
+    relatedUserMessageId: null,
+    relatedAssistantMessageId: null,
+    summary: "User prefers verbose answers now.",
+    sourceType: "memory_write",
+    sourceLabel: "Memory write: preference",
+    createdAt: new Date("2026-04-14T20:00:00.000Z"),
+    forgottenAt: null,
+    supersededAt: new Date("2026-04-14T21:00:00.000Z")
   }
 ];
 
@@ -1190,6 +1207,9 @@ async function run(): Promise<void> {
           if (row.forgottenAt !== (where.forgottenAt ?? null)) {
             return false;
           }
+          if (row.supersededAt !== (where.supersededAt ?? null)) {
+            return false;
+          }
           if (Array.isArray(where.OR)) {
             return where.OR.some((entry) => {
               const summaryWhere = (entry as { summary?: { contains?: string } }).summary;
@@ -1451,6 +1471,17 @@ async function run(): Promise<void> {
   });
   assert.equal(memoryFetched?.source, "memory");
   assert.equal(memoryFetched?.content, "User prefers concise answers and short bullet lists.");
+
+  const supersededMemoryHits = await service.search({
+    assistantId: "assistant-1",
+    source: "memory",
+    query: "verbose answers now",
+    maxResults: 2
+  });
+  assert.equal(
+    supersededMemoryHits.some((hit) => hit.referenceId === "memory:memory-superseded"),
+    false
+  );
 
   const chatHits = await service.search({
     assistantId: "assistant-1",

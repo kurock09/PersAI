@@ -59,6 +59,8 @@ function buildOpenLoop(
     lastUsedAt: null,
     resolvedAt: null,
     forgottenAt: null,
+    supersededAt: null,
+    supersededByMemoryId: null,
     createdAt: new Date("2026-04-21T00:00:00.000Z"),
     ...overrides
   };

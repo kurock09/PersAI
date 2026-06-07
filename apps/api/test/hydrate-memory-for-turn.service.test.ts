@@ -31,6 +31,8 @@ function buildMemoryRow(overrides: Partial<MemoryRow>): MemoryRow {
     lastUsedAt: null,
     resolvedAt: null,
     forgottenAt: null,
+    supersededAt: null,
+    supersededByMemoryId: null,
     createdAt,
     ...overrides
   };
@@ -46,6 +48,12 @@ function createHarness(options?: {
   }>;
 }) {
   const bumpedIds: string[][] = [];
+  const coreListCalls: Array<{ assistantId: string; limit: number }> = [];
+  const supersedeCalls: Array<{
+    id: string;
+    assistantId: string;
+    supersededByMemoryId: string | null;
+  }> = [];
   const searchInputs: Array<{
     assistantId: string;
     query: string;
@@ -55,13 +63,18 @@ function createHarness(options?: {
   const coreItems = options?.coreItems ?? [];
   const memoryRepository: Pick<
     AssistantMemoryRegistryRepository,
-    "listActiveCoreByAssistantId" | "bumpLastUsedAt"
+    "listActiveCoreByAssistantId" | "bumpLastUsedAt" | "markSupersededById"
   > = {
-    async listActiveCoreByAssistantId() {
+    async listActiveCoreByAssistantId(assistantId, limit) {
+      coreListCalls.push({ assistantId, limit });
       return coreItems;
     },
     async bumpLastUsedAt(_assistantId, ids) {
       bumpedIds.push(ids);
+    },
+    async markSupersededById(id, assistantId, supersededByMemoryId) {
+      supersedeCalls.push({ id, assistantId, supersededByMemoryId });
+      return false;
     }
   };
   const readAssistantKnowledgeService: Pick<ReadAssistantKnowledgeService, "searchMemory"> = {
@@ -89,7 +102,10 @@ function createHarness(options?: {
       readAssistantKnowledgeService as ReadAssistantKnowledgeService
     ),
     bumpedIds,
-    searchInputs
+    coreListCalls,
+    searchInputs,
+    memoryRepository,
+    supersedeCalls
   };
 }
 
@@ -219,6 +235,7 @@ async function run(): Promise<void> {
   assert.equal(result.core[0]?.id, "core-1");
   assert.equal(result.core[0]?.memoryClass, "core");
   assert.equal(result.core[0]?.kind, "fact");
+  assert.deepEqual(harness.coreListCalls, [{ assistantId: "assistant-1", limit: 15 }]);
   assert.deepEqual(
     result.contextual.map((item) => item.id),
     ["ctx-keep-1", "ctx-keep-2"]
@@ -245,6 +262,23 @@ async function run(): Promise<void> {
   assert.equal(emptyQueryHarness.searchInputs.length, 0);
   assert.equal(emptyQueryHarness.bumpedIds.length, 1);
   assert.deepEqual(emptyQueryHarness.bumpedIds[0], ["core-1"]);
+
+  // ADR-112 Slice 3a — keep the mocked repository contract honest by
+  // exposing the supersession method on the same seam Hydrate uses.
+  const supersessionHarness = createHarness();
+  const superseded = await supersessionHarness.memoryRepository.markSupersededById(
+    "memory-old",
+    "assistant-1",
+    "memory-new"
+  );
+  assert.equal(superseded, false);
+  assert.deepEqual(supersessionHarness.supersedeCalls, [
+    {
+      id: "memory-old",
+      assistantId: "assistant-1",
+      supersededByMemoryId: "memory-new"
+    }
+  ]);
 }
 
 void run();

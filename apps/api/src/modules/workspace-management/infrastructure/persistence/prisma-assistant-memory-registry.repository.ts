@@ -45,6 +45,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       where: {
         assistantId,
         forgottenAt: null,
+        supersededAt: null,
         ...(filter?.sourceType === undefined ? {} : { sourceType: filter.sourceType })
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -64,6 +65,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       where: {
         assistantId,
         forgottenAt: null,
+        supersededAt: null,
         ...(filter?.sourceType === undefined ? {} : { sourceType: filter.sourceType }),
         summary: {
           contains: query,
@@ -82,7 +84,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     assistantId: string
   ): Promise<AssistantMemoryRegistryItem | null> {
     const row = await this.prisma.assistantMemoryRegistryItem.findFirst({
-      where: { id, assistantId, forgottenAt: null }
+      where: { id, assistantId, forgottenAt: null, supersededAt: null }
     });
 
     return row ? this.mapToDomain(row) : null;
@@ -94,7 +96,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     summary: string
   ): Promise<AssistantMemoryRegistryItem | null> {
     const existing = await this.prisma.assistantMemoryRegistryItem.findFirst({
-      where: { id, assistantId, forgottenAt: null },
+      where: { id, assistantId, forgottenAt: null, supersededAt: null },
       select: { id: true }
     });
     if (existing === null) {
@@ -110,8 +112,29 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
 
   async markForgottenById(id: string, assistantId: string): Promise<boolean> {
     const result = await this.prisma.assistantMemoryRegistryItem.updateMany({
-      where: { id, assistantId, forgottenAt: null },
+      where: { id, assistantId, forgottenAt: null, supersededAt: null },
       data: { forgottenAt: new Date() }
+    });
+
+    return result.count > 0;
+  }
+
+  async markSupersededById(
+    id: string,
+    assistantId: string,
+    supersededByMemoryId: string | null
+  ): Promise<boolean> {
+    const result = await this.prisma.assistantMemoryRegistryItem.updateMany({
+      where: {
+        id,
+        assistantId,
+        forgottenAt: null,
+        supersededAt: null
+      },
+      data: {
+        supersededAt: new Date(),
+        supersededByMemoryId
+      }
     });
 
     return result.count > 0;
@@ -132,6 +155,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       where: {
         assistantId,
         forgottenAt: null,
+        supersededAt: null,
         OR: or
       },
       data: { forgottenAt: new Date() }
@@ -148,6 +172,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       where: {
         assistantId,
         forgottenAt: null,
+        supersededAt: null,
         memoryClass: "core"
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -162,6 +187,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       where: {
         assistantId,
         forgottenAt: null,
+        supersededAt: null,
         memoryClass: "core"
       }
     });
@@ -175,6 +201,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       where: {
         assistantId,
         forgottenAt: null,
+        supersededAt: null,
         memoryClass: "core"
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -188,7 +215,8 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       where: {
         id: { in: candidates.map((row) => row.id) },
         memoryClass: "core",
-        forgottenAt: null
+        forgottenAt: null,
+        supersededAt: null
       },
       data: { memoryClass: "contextual" }
     });
@@ -206,6 +234,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       where: {
         assistantId,
         forgottenAt: null,
+        supersededAt: null,
         summary: { equals: normalizedSummary, mode: "insensitive" }
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }]
@@ -221,6 +250,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       where: {
         assistantId,
         forgottenAt: null,
+        supersededAt: null,
         id: { in: [...ids] }
       },
       data: { lastUsedAt: new Date() }
@@ -243,6 +273,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
         userId,
         kind: "open_loop",
         forgottenAt: null,
+        supersededAt: null,
         resolvedAt: null,
         createdAt: { gte: sinceCreatedAt }
       },
@@ -266,6 +297,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
         userId,
         kind: "open_loop",
         forgottenAt: null,
+        supersededAt: null,
         resolvedAt: null
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -281,6 +313,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
         userId,
         kind: "open_loop",
         forgottenAt: null,
+        supersededAt: null,
         resolvedAt: null
       }
     });
@@ -293,6 +326,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
         assistantId,
         kind: "open_loop",
         forgottenAt: null,
+        supersededAt: null,
         resolvedAt: null
       },
       data: { resolvedAt: new Date() }
@@ -320,6 +354,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
         userId,
         kind: "open_loop",
         forgottenAt: null,
+        supersededAt: null,
         resolvedAt: null
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -373,6 +408,8 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       lastUsedAt: row.lastUsedAt,
       resolvedAt: row.resolvedAt,
       forgottenAt: row.forgottenAt,
+      supersededAt: row.supersededAt,
+      supersededByMemoryId: row.supersededByMemoryId,
       createdAt: row.createdAt
     };
   }

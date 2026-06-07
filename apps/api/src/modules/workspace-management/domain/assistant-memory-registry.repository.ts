@@ -48,6 +48,11 @@ export interface AssistantMemoryRegistryRepository {
     summary: string
   ): Promise<AssistantMemoryRegistryItem | null>;
   markForgottenById(id: string, assistantId: string): Promise<boolean>;
+  markSupersededById(
+    id: string,
+    assistantId: string,
+    supersededByMemoryId: string | null
+  ): Promise<boolean>;
   markForgottenForMessages(
     assistantId: string,
     filters: { assistantMessageId: string; userMessageId: string | null }

@@ -2299,6 +2299,8 @@ model AssistantMemoryRegistryItem {
   lastUsedAt                DateTime?                         @map("last_used_at") @db.Timestamptz(6)
   resolvedAt                DateTime?                         @map("resolved_at") @db.Timestamptz(6)
   forgottenAt               DateTime?                         @map("forgotten_at") @db.Timestamptz(6)
+  supersededAt              DateTime?                         @map("superseded_at") @db.Timestamptz(6)
+  supersededByMemoryId      String?                           @map("superseded_by_memory_id")
   createdAt                 DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
   assistant                 Assistant                         @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
   workspaceMember           WorkspaceMember                   @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)

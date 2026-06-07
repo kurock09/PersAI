@@ -34,5 +34,11 @@ export type AssistantMemoryRegistryItem = {
    */
   resolvedAt: Date | null;
   forgottenAt: Date | null;
+  /**
+   * ADR-112 Slice 3a — set when a newer memory replaces this one; excluded
+   * from retrieval like forgotten but kept for audit.
+   */
+  supersededAt: Date | null;
+  supersededByMemoryId: string | null;
   createdAt: Date;
 };
