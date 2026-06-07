@@ -102,13 +102,14 @@ import { AssistantSupportSection } from "./assistant-support-section";
 import { resolveBillingSummaryCopy } from "./billing-summary";
 import {
   filterVoiceOptions,
-  findVoiceOption,
   OPENAI_VOICE_OPTIONS,
   resolveDefaultOpenAiVoiceOption,
   resolveDefaultYandexVoiceOption,
   YANDEX_VOICE_OPTIONS,
-  type VoiceOption
+  type VoiceOption,
+  type VoicePickerEntry
 } from "./assistant-voice-options";
+import { VoicePicker, type VoicePickerLabels } from "./voice-picker";
 import {
   ASSISTANT_AVATAR_PRESETS,
   findAssistantAvatarPresetByUrl
@@ -2211,14 +2212,6 @@ export function AssistantSettings({
     () => filterVoiceOptions(elevenLabsVoiceOptions, draftAssistantGender),
     [draftAssistantGender, elevenLabsVoiceOptions]
   );
-  const selectedElevenLabsVoiceOption = findVoiceOption(
-    elevenLabsVoiceOptions,
-    draftVoiceProfile.elevenlabs.voiceId
-  );
-  const selectedElevenLabsVoiceAllowed = findVoiceOption(
-    filteredElevenLabsVoiceOptions,
-    draftVoiceProfile.elevenlabs.voiceId
-  );
 
   const getTaskScheduleKind = useCallback(
     (sourceLabel: string | null): "one_time" | "recurring" | "scheduled" => {
@@ -2343,26 +2336,71 @@ export function AssistantSettings({
   );
   const mergedWorkspaceMemoryView = mergedMemoryViews.workspace;
   const mergedHistoryMemoryView = mergedMemoryViews.history;
-  const elevenLabsSelectOptions = useMemo(
+  const elevenLabsPickerEntries = useMemo<VoicePickerEntry[]>(() => {
+    const voices = voiceSettings?.elevenlabs?.voices ?? [];
+    const selectedId = draftVoiceProfile.elevenlabs.voiceId;
+    return voices
+      .filter(
+        (voice) =>
+          draftAssistantGender === "neutral" ||
+          voice.gender === draftAssistantGender ||
+          voice.voiceId === selectedId
+      )
+      .map((voice) => ({
+        value: voice.voiceId,
+        label: formatElevenLabsVoiceLabel(voice.name, locale),
+        gender: voice.gender,
+        language: voice.language,
+        languageBucket: voice.languageBucket,
+        category: voice.category,
+        previewUrl: voice.previewUrl
+      }));
+  }, [voiceSettings, draftAssistantGender, draftVoiceProfile.elevenlabs.voiceId, locale]);
+  const yandexPickerEntries = useMemo<VoicePickerEntry[]>(
     () =>
-      selectedElevenLabsVoiceOption !== null && selectedElevenLabsVoiceAllowed === null
-        ? [
-            {
-              value: selectedElevenLabsVoiceOption.value,
-              label: t("voiceSavedSelection", {
-                name: selectedElevenLabsVoiceOption.label
-              }),
-              gender: selectedElevenLabsVoiceOption.gender
-            },
-            ...filteredElevenLabsVoiceOptions
-          ]
-        : filteredElevenLabsVoiceOptions,
-    [
-      filteredElevenLabsVoiceOptions,
-      selectedElevenLabsVoiceAllowed,
-      selectedElevenLabsVoiceOption,
-      t
-    ]
+      yandexVoiceOptions.map((option) => ({
+        value: option.value,
+        label: option.label,
+        gender: option.gender,
+        language: null,
+        languageBucket: "other" as const,
+        category: null,
+        previewUrl: null
+      })),
+    [yandexVoiceOptions]
+  );
+  const openAiPickerEntries = useMemo<VoicePickerEntry[]>(
+    () =>
+      openAiVoiceOptions.map((option) => ({
+        value: option.value,
+        label: option.label,
+        gender: option.gender,
+        language: null,
+        languageBucket: "other" as const,
+        category: null,
+        previewUrl: null
+      })),
+    [openAiVoiceOptions]
+  );
+  const voicePickerLabels = useMemo<VoicePickerLabels>(
+    () => ({
+      searchPlaceholder: t("voicePickerSearch"),
+      all: t("all"),
+      filterGender: t("voicePickerFilterGender"),
+      filterLanguage: t("voicePickerFilterLanguage"),
+      filterCategory: t("voicePickerFilterCategory"),
+      genderMale: t("voicePickerGenderMale"),
+      genderFemale: t("voicePickerGenderFemale"),
+      genderNeutral: t("voicePickerGenderNeutral"),
+      genderUnknown: t("voicePickerGenderUnknown"),
+      langRu: t("voicePickerLangRu"),
+      langEn: t("voicePickerLangEn"),
+      langOther: t("voicePickerLangOther"),
+      empty: t("voicePickerEmpty"),
+      preview: t("voicePickerPreview"),
+      stopPreview: t("voicePickerStopPreview")
+    }),
+    [t]
   );
   useEffect(() => {
     setDraftName(assistant?.draft.displayName ?? "");
@@ -3266,82 +3304,69 @@ export function AssistantSettings({
               </div>
 
               <div className="mt-4">
-                <label className="block">
-                  <span className="mb-2 block text-sm font-medium text-text">{t("voice")}</span>
-                  {primaryVoiceProviderId === "elevenlabs" && (
-                    <select
-                      value={draftVoiceProfile.elevenlabs.voiceId ?? ""}
-                      onChange={(e) =>
+                <span className="mb-2 block text-sm font-medium text-text">{t("voice")}</span>
+                {primaryVoiceProviderId === "elevenlabs" &&
+                  (voiceSettingsLoading ? (
+                    <p className="rounded-xl border border-border/70 bg-surface px-4 py-3 text-xs text-text-muted">
+                      {t("voiceElevenlabsLoading")}
+                    </p>
+                  ) : voiceSettings?.elevenlabs?.loadState === "not_configured" ? (
+                    <p className="rounded-xl border border-border/70 bg-surface px-4 py-3 text-xs text-text-muted">
+                      {t("voiceElevenlabsNotConfigured")}
+                    </p>
+                  ) : voiceSettings?.elevenlabs?.loadState === "unavailable" ? (
+                    <p className="rounded-xl border border-border/70 bg-surface px-4 py-3 text-xs text-text-muted">
+                      {voiceSettings.elevenlabs.warning ?? t("voiceElevenlabsUnavailable")}
+                    </p>
+                  ) : (
+                    <VoicePicker
+                      entries={elevenLabsPickerEntries}
+                      selectedValue={draftVoiceProfile.elevenlabs.voiceId}
+                      onSelect={(value) =>
                         setDraftVoiceProfile((prev) => ({
                           ...prev,
-                          elevenlabs: {
-                            voiceId: e.target.value === "" ? null : e.target.value
-                          }
+                          elevenlabs: { voiceId: value }
                         }))
                       }
-                      disabled={
-                        voiceSettingsLoading || voiceSettings?.elevenlabs?.loadState !== "ready"
-                      }
-                      className="persai-select w-full"
-                    >
-                      <option value="">
-                        {voiceSettingsLoading ? t("voiceLoading") : t("voiceChooseBaseVoice")}
-                      </option>
-                      {elevenLabsSelectOptions.map((voice) => (
-                        <option key={voice.value} value={voice.value}>
-                          {voice.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {primaryVoiceProviderId === "yandex" && (
-                    <select
-                      value={draftVoiceProfile.yandex.voice ?? ""}
-                      onChange={(e) =>
-                        setDraftVoiceProfile((prev) => ({
-                          ...prev,
-                          yandex: {
-                            ...prev.yandex,
-                            voice:
-                              e.target.value === ""
-                                ? null
-                                : (e.target.value as (typeof YANDEX_VOICE_OPTIONS)[number]["value"])
-                          }
-                        }))
-                      }
-                      className="persai-select w-full"
-                    >
-                      {yandexVoiceOptions.map((voice) => (
-                        <option key={voice.value} value={voice.value}>
-                          {voice.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {primaryVoiceProviderId === "openai" && (
-                    <select
-                      value={draftVoiceProfile.openai.voice ?? ""}
-                      onChange={(e) =>
-                        setDraftVoiceProfile((prev) => ({
-                          ...prev,
-                          openai: {
-                            voice:
-                              e.target.value === ""
-                                ? null
-                                : (e.target.value as (typeof OPENAI_VOICE_OPTIONS)[number]["value"])
-                          }
-                        }))
-                      }
-                      className="persai-select w-full"
-                    >
-                      {openAiVoiceOptions.map((voice) => (
-                        <option key={voice.value} value={voice.value}>
-                          {voice.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </label>
+                      showGenderFilter
+                      showLanguageFilter
+                      showCategoryFilter
+                      labels={voicePickerLabels}
+                    />
+                  ))}
+                {primaryVoiceProviderId === "yandex" && (
+                  <VoicePicker
+                    entries={yandexPickerEntries}
+                    selectedValue={draftVoiceProfile.yandex.voice}
+                    onSelect={(value) =>
+                      setDraftVoiceProfile((prev) => ({
+                        ...prev,
+                        yandex: {
+                          ...prev.yandex,
+                          voice: value as (typeof YANDEX_VOICE_OPTIONS)[number]["value"]
+                        }
+                      }))
+                    }
+                    showGenderFilter
+                    labels={voicePickerLabels}
+                  />
+                )}
+                {primaryVoiceProviderId === "openai" && (
+                  <VoicePicker
+                    entries={openAiPickerEntries}
+                    selectedValue={draftVoiceProfile.openai.voice}
+                    onSelect={(value) =>
+                      setDraftVoiceProfile((prev) => ({
+                        ...prev,
+                        openai: {
+                          voice: value as (typeof OPENAI_VOICE_OPTIONS)[number]["value"]
+                        }
+                      }))
+                    }
+                    showGenderFilter
+                    labels={voicePickerLabels}
+                  />
+                )}
                 {voiceSettingsError && (
                   <p className="mt-2 text-xs text-destructive">{voiceSettingsError}</p>
                 )}

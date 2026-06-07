@@ -2034,6 +2034,125 @@ export function isPersaiRuntimeYandexRoleAllowedForVoice(params: {
   ).includes(params.role);
 }
 
+export const PERSAI_RUNTIME_TTS_DELIVERY_STYLES = [
+  "neutral",
+  "calm",
+  "warm",
+  "confident",
+  "playful",
+  "dramatic",
+  "whisper",
+  "narrator"
+] as const;
+
+export type TtsDeliveryStyle = (typeof PERSAI_RUNTIME_TTS_DELIVERY_STYLES)[number];
+
+export const PERSAI_RUNTIME_TTS_EMOTIONS = [
+  "neutral",
+  "happy",
+  "sad",
+  "excited",
+  "serious",
+  "curious"
+] as const;
+
+export type TtsEmotion = (typeof PERSAI_RUNTIME_TTS_EMOTIONS)[number];
+
+export const PERSAI_RUNTIME_TTS_PACES = ["slow", "normal", "fast"] as const;
+
+export type TtsPace = (typeof PERSAI_RUNTIME_TTS_PACES)[number];
+
+export const PERSAI_RUNTIME_TTS_INTENSITIES = ["low", "medium", "high"] as const;
+
+export type TtsIntensity = (typeof PERSAI_RUNTIME_TTS_INTENSITIES)[number];
+
+export const PERSAI_RUNTIME_TTS_PAUSE_KINDS = ["none", "short", "long"] as const;
+
+export type TtsPauseKind = (typeof PERSAI_RUNTIME_TTS_PAUSE_KINDS)[number];
+
+export const PERSAI_RUNTIME_TTS_NONVERBALS = [
+  "none",
+  "laugh",
+  "chuckle",
+  "sigh",
+  "clear_throat"
+] as const;
+
+export type TtsNonVerbal = (typeof PERSAI_RUNTIME_TTS_NONVERBALS)[number];
+
+/**
+ * TTS 2.0 (ADR-113) structured expressive delivery intent. The model chooses
+ * enum-constrained fields; runtime/provider-gateway own translation into
+ * conservative provider-native steering (ElevenLabs eleven_v3 audio tags via the
+ * safe compiler, or a derived legacy tone for other providers). The model never
+ * writes raw ElevenLabs tags directly.
+ */
+export interface RuntimeTtsDeliveryIntent {
+  delivery: TtsDeliveryStyle;
+  emotion: TtsEmotion;
+  pace: TtsPace;
+  intensity: TtsIntensity;
+  pause: TtsPauseKind;
+  nonVerbal: TtsNonVerbal;
+}
+
+export function createDefaultTtsDeliveryIntent(): RuntimeTtsDeliveryIntent {
+  return {
+    delivery: "neutral",
+    emotion: "neutral",
+    pace: "normal",
+    intensity: "medium",
+    pause: "none",
+    nonVerbal: "none"
+  };
+}
+
+/**
+ * Derive the legacy {@link TtsToneTag} from a structured delivery intent so
+ * non-eleven_v3 providers (Yandex / OpenAI) keep their existing tone-baseline
+ * behavior while ElevenLabs eleven_v3 uses the safe tag compiler. Deterministic.
+ */
+export function mapTtsDeliveryIntentToToneTag(intent: RuntimeTtsDeliveryIntent): TtsToneTag {
+  const base: TtsToneTag = (() => {
+    switch (intent.delivery) {
+      case "whisper":
+        return "gentle";
+      case "dramatic":
+        return "confident";
+      case "narrator":
+        return "calm";
+      case "calm":
+        return "calm";
+      case "warm":
+        return "warm";
+      case "confident":
+        return "confident";
+      case "playful":
+        return "playful";
+      case "neutral":
+      default:
+        return "neutral";
+    }
+  })();
+
+  // Whisper/narrator are intentionally quiet; do not let emotion override them.
+  if (intent.delivery === "whisper" || intent.delivery === "narrator") {
+    return base;
+  }
+  if (intent.emotion === "excited" || intent.emotion === "happy") {
+    return base === "neutral" || base === "warm" || base === "confident" || base === "playful"
+      ? "cheerful"
+      : base;
+  }
+  if (intent.emotion === "sad") {
+    return "gentle";
+  }
+  if (intent.emotion === "serious") {
+    return base === "neutral" ? "confident" : base;
+  }
+  return base;
+}
+
 export const PERSAI_RUNTIME_OPENAI_TTS_VOICES = [
   "alloy",
   "ash",
@@ -2071,6 +2190,9 @@ export interface RuntimeAssistantVoiceProfile {
 export interface RuntimeTtsRequest {
   toolCode: "tts";
   text: string;
+  // ADR-113 TTS 2.0: structured expressive delivery intent. Legacy `toneTag` is
+  // derived from `delivery` for non-eleven_v3 providers.
+  delivery: RuntimeTtsDeliveryIntent;
   toneTag: TtsToneTag;
   deliveryKind: PersaiRuntimeTtsDeliveryKind | null;
 }
@@ -2082,6 +2204,7 @@ export interface RuntimeTtsToolResult {
   model: string | null;
   requestedText: string | null;
   toneTag: TtsToneTag | null;
+  delivery: RuntimeTtsDeliveryIntent | null;
   deliveryKind: PersaiRuntimeTtsDeliveryKind | null;
   artifact: RuntimeOutputArtifact | null;
   attemptedProviders: PersaiRuntimeTtsProviderId[];
@@ -2983,6 +3106,9 @@ export interface ProviderGatewaySpeechGenerateRequest {
   text: string;
   locale: string;
   toneTag: TtsToneTag;
+  // ADR-113 TTS 2.0: structured expressive delivery intent. Optional for
+  // backward compatibility; absent means "use derived tone / provider defaults".
+  delivery?: RuntimeTtsDeliveryIntent | null;
   deliveryKind: PersaiRuntimeTtsDeliveryKind;
   assistantGender: string | null;
   traits: Record<string, number> | null;

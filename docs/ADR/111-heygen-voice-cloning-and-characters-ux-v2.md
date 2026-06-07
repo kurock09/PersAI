@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress (2026-06-07). Baseline SHA: `2f24b93d09b32af392199916245692acf0308690`.
+Closed as completed (2026-06-08). Baseline SHA: `2f24b93d09b32af392199916245692acf0308690`. Closure SHA: `1aabfd76`.
 
 This ADR is an orchestration program. The parent agent acts as an orchestrator/reviewer and does not write production code. Implementation work must be delegated to GPT-5.4 subagents unless the user explicitly overrides that rule for a specific slice.
 
@@ -143,7 +143,7 @@ Missing any item is grounds for rejection before diff-review.
 | 3 | Voice clone substrate | Add workspace cloned-voice persistence, admin/runtime settings, contract state, and VC ledger kind without calling HeyGen yet. **Completed 2026-06-07.** | API + CONTRACT |
 | 4a | Voice clone backend | Implement HeyGen voice clone submit/poll, workspace cloned-voice CRUD endpoints, successful-completion VC debit, and provider error mapping. **Completed 2026-06-07.** | API + PROVIDER-GATEWAY |
 | 4b | Persona linked-clone substrate + runtime resolve | Add persona cloned-voice linkage while preserving preset fallback, then implement talking-avatar voice resolution order. **Completed 2026-06-07.** | API + RUNTIME + CONTRACT |
-| 5 | Voice clone UI + docs + smoke | Add the "My voices" subsection, clone modal with upload/record modes, inline clone-from-character path, tool-description guidance, docs updates, full verification, and live smoke. **Implementation completed 2026-06-07; live authenticated smoke remains blocked.** | WEB + RUNTIME + DOCS |
+| 5 | Voice clone UI + docs + smoke | Add the "My voices" subsection, clone modal with upload/record modes, inline clone-from-character path, tool-description guidance, docs updates, full verification, and live smoke. **Completed 2026-06-08.** | WEB + RUNTIME + DOCS |
 
 Recommended execution order: `1 -> 2 -> 3 -> 4a -> 4b -> 5`.
 
@@ -417,7 +417,7 @@ Rationale: the provider-gateway/API clone CRUD + debit work is coherent, but the
 - Tool description includes cloned voice guidance only when talking video is enabled and cloned voices are materialized.
 - Cross-doc updates mention ADR-111.
 
-**Status (2026-06-07): Implementation completed; live smoke blocked.** The Characters surface now includes a `My voices` subsection with ready/pending/failed cloned-voice cards, preview/default/archive actions, linked-character summaries, VC cost/limit copy, and honest disabled states. The clone modal supports upload and browser recording modes with visible quality guidance, rights confirmation, sample prompt, preview playback, retry/remove, and microphone-permission fallback copy. Post-audit cleanup added stale microphone-start guards, clone/persona blob URL revocation, and UI limit gating aligned with API active-row truth. Persona create/edit can attach only ready cloned voices while preserving preset HeyGen fallback voice fields, and the inline clone flow attaches a newly ready clone to the open persona form. Runtime tool projection now surfaces safe linked cloned-voice labels from materialized persona catalog truth without raw provider ids or keyword routing. Archiving a cloned voice now best-effort marks workspace assistants config-dirty so materialized persona guidance refreshes. Cross-docs were updated in `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, and `TEST-PLAN`. Local focused tests and the full verification gate passed. Live authenticated smoke on `persai-dev` is still outstanding because no signed-in dev session or local app was available.
+**Status (2026-06-08): Completed.** The Characters surface now includes a `My voices` subsection with ready/pending/failed cloned-voice cards, preview/default/archive actions, linked-character summaries, VC cost/limit copy, and honest disabled states. The clone modal supports upload and browser recording modes with visible quality guidance, rights confirmation, sample prompt, preview playback, retry/remove, and microphone-permission fallback copy. Post-audit cleanup added stale microphone-start guards, clone/persona blob URL revocation, and UI limit gating aligned with API active-row truth. Persona create/edit can attach only ready cloned voices while preserving preset HeyGen fallback voice fields, and the inline clone flow attaches a newly ready clone to the open persona form. Runtime tool projection now surfaces safe linked cloned-voice labels from materialized persona catalog truth without raw provider ids or keyword routing. Archiving a cloned voice now best-effort marks workspace assistants config-dirty so materialized persona guidance refreshes. Cross-docs were updated in `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, and `TEST-PLAN`. Local focused tests and the full verification gate passed. Authenticated `persai-dev` live smoke was completed after the Clerk middleware and HeyGen audio MIME fixes: voice clone creation succeeded, the clone was usable from saved character UI, and later provider-gateway rollout noise was confirmed transient rather than an ADR defect.
 
 ## Acceptance checklist
 
@@ -438,7 +438,26 @@ Rationale: the provider-gateway/API clone CRUD + debit work is coherent, but the
 - [x] No keyword routing or fuzzy persona/voice intent detection was added.
 - [x] Docs updated: ARCHITECTURE, API-BOUNDARY, DATA-MODEL, TEST-PLAN.
 - [x] Full verification gate PASS.
-- [ ] Live dev smoke recorded for cloned voice creation + persona render.
+- [x] Live dev smoke recorded for cloned voice creation + persona render.
+
+## Program closure
+
+ADR-111 is closed as completed on 2026-06-08.
+
+Completed scope:
+
+- HeyGen voice cloning is workspace-scoped, limit/cost governed, and debits VC only after successful provider completion.
+- Characters UI v2, cloned-voice UI, upload/record voice clone creation, preset/cloned voice selection, and cloned-voice archive/default paths are implemented.
+- Talking-avatar runtime voice resolution follows explicit request `voiceKey` -> linked ready cloned voice -> preset persona voice.
+- Mobile/chat video preview and lightbox playback polish landed in the generic video surface.
+- Post-smoke fixes closed the real live blockers: Clerk auth coverage for cloned-voice routes, browser recording conversion to WAV, and HeyGen `audio/x-wav` projection.
+
+Out of scope remains out of scope and should not be reopened under ADR-111:
+
+- Custom audio lip-sync.
+- HeyGen Studio API / scene assembly.
+- Broad HeyGen voice/video passthrough tuning.
+- TTS/chat voice output; future TTS work belongs to a separate TTS v2 ADR/slice.
 
 ## Risks
 

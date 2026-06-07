@@ -60,6 +60,57 @@ export const OPENAI_VOICE_OPTIONS: readonly VoiceOption<
   { value: "cedar", label: "Cedar", gender: "male" }
 ] as const;
 
+export type VoiceLanguageBucket = "ru" | "en" | "other";
+
+/**
+ * ADR-113 Slice 3 — unified entry shape for the premium voice picker across
+ * all three TTS providers. ElevenLabs entries carry catalog metadata
+ * (language/category/preview); Yandex/OpenAI come from fixed enums and leave
+ * the catalog-only fields null/"other".
+ */
+export type VoicePickerEntry = {
+  value: string;
+  label: string;
+  gender: "male" | "female" | "neutral" | "unknown";
+  language: string | null;
+  languageBucket: VoiceLanguageBucket;
+  category: string | null;
+  previewUrl: string | null;
+};
+
+export type VoicePickerFilter = {
+  query: string;
+  gender: "all" | "male" | "female" | "neutral" | "unknown";
+  languageBucket: "all" | VoiceLanguageBucket;
+  category: "all" | string;
+};
+
+export function filterVoicePickerEntries(
+  entries: readonly VoicePickerEntry[],
+  filter: VoicePickerFilter
+): VoicePickerEntry[] {
+  const query = filter.query.trim().toLowerCase();
+  return entries.filter((entry) => {
+    if (filter.gender !== "all" && entry.gender !== filter.gender) {
+      return false;
+    }
+    if (filter.languageBucket !== "all" && entry.languageBucket !== filter.languageBucket) {
+      return false;
+    }
+    if (filter.category !== "all" && (entry.category ?? "") !== filter.category) {
+      return false;
+    }
+    if (query.length > 0) {
+      const haystack =
+        `${entry.label} ${entry.language ?? ""} ${entry.category ?? ""}`.toLowerCase();
+      if (!haystack.includes(query)) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
 export function filterVoiceOptions<T extends string>(
   options: readonly VoiceOption<T>[],
   assistantGender: AssistantGender
@@ -68,13 +119,6 @@ export function filterVoiceOptions<T extends string>(
     return [...options];
   }
   return options.filter((option) => option.gender === assistantGender);
-}
-
-export function findVoiceOption<T extends string>(
-  options: readonly VoiceOption<T>[],
-  value: T | null
-): VoiceOption<T> | null {
-  return options.find((option) => option.value === value) ?? null;
 }
 
 export function resolveDefaultYandexVoiceOption(

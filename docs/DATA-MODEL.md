@@ -182,6 +182,13 @@ ADR-109 / ADR-111 add a second, workspace-scoped persona layer on top of Voice D
 - persona reads/materialization may project both `clonedVoiceId` and `clonedVoiceDisplayName`, but user/model surfaces must never expose raw provider clone ids
 - runtime bundle projection keeps cloned-voice data additive: persona catalog rows may include a safe linked cloned-voice label plus preset fallback metadata, while the control plane remains responsible for validating that only ready active clones can be attached
 
+## Provider voice catalog caches
+
+These are platform-wide read-through caches of provider voice lists, not per-workspace truth. The workspace id is used only for auth-scoping at the controller layer.
+
+- `platform_heygen_voice_catalog_cache` (ADR-109 Slice 4) — single `cache_key` row holding the normalized HeyGen talking-video voice list as `voices_json` with `fetched_at`.
+- `platform_elevenlabs_voice_catalog_cache` (ADR-113 Slice 2) — single `cache_key` row (`elevenlabs-voices`) holding the normalized ElevenLabs chat-TTS voice list as `voices_json` with `fetched_at`. Each cached entry carries `voiceId`, `name`, `gender`, `category`, `language` + derived `languageBucket` (`ru`/`en`/`other`), and `previewUrl`. `ElevenLabsVoiceCatalogService` refreshes lazily on a 24h TTL, upserts on a successful live fetch, and serves the last known (stale) row with a warning when a refresh fails. `GET assistant/voice/settings` reads this cache instead of a live per-request ElevenLabs call.
+
 ## Runtime provider and plan model state
 
 Current active runtime-provider settings persistence includes:

@@ -137,9 +137,22 @@ export async function runProviderSpeechGenerationServiceTest(): Promise<void> {
   assert.equal(openaiProviderClient.calls[0]?.apiKey, "resolved-tool-secret");
   assert.equal(openaiProviderClient.calls[0]?.input.credential.modelKey, "gpt-4o-mini-tts");
 
-  const elevenlabsResult = await service.generateSpeech(createRequest("elevenlabs"));
+  const elevenlabsResult = await service.generateSpeech({
+    ...createRequest("elevenlabs"),
+    delivery: {
+      delivery: "whisper",
+      emotion: "neutral",
+      pace: "normal",
+      intensity: "low",
+      pause: "short",
+      nonVerbal: "sigh"
+    }
+  });
   assert.equal(elevenlabsResult.provider, "elevenlabs");
   assert.equal(elevenLabsProviderClient.calls.length, 1);
+  // Structured delivery is normalized and forwarded to the provider client.
+  assert.equal(elevenLabsProviderClient.calls[0]?.input.delivery?.delivery, "whisper");
+  assert.equal(elevenLabsProviderClient.calls[0]?.input.delivery?.nonVerbal, "sigh");
 
   const yandexResult = await service.generateSpeech(createRequest("yandex"));
   assert.equal(yandexResult.provider, "yandex");

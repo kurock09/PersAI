@@ -412,7 +412,8 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
     bundle: openAiPrimaryBundle,
     toolCall: createToolCall({
       text: "Привет, записываю тебе короткий голосовой ответ.",
-      toneTag: "warm"
+      delivery: "warm",
+      emotion: "happy"
     }),
     sessionId: "session-1",
     requestId: "request-1"
@@ -420,6 +421,11 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   assert.equal(result.payload.action, "generated");
   assert.equal(result.payload.provider, "openai");
   assert.deepEqual(result.payload.attemptedProviders, ["openai"]);
+  assert.equal(result.payload.delivery?.delivery, "warm");
+  assert.equal(result.payload.delivery?.emotion, "happy");
+  // delivery=warm + emotion=happy derives the legacy cheerful tone for OpenAI.
+  assert.equal(providerGatewayClientService.speechCalls[0]?.toneTag, "cheerful");
+  assert.equal(providerGatewayClientService.speechCalls[0]?.delivery?.delivery, "warm");
   assert.equal(result.payload.artifact?.voiceNote, true);
   assert.equal(result.payload.artifact?.mimeType, "audio/ogg");
   assert.equal(result.payload.artifact?.sourceToolCode, "tts");
@@ -446,7 +452,7 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
     bundle: yandexFallbackBundle,
     toolCall: createToolCall({
       text: "Привет, это должен быть стабильный fallback через Yandex.",
-      toneTag: "warm"
+      delivery: "warm"
     }),
     sessionId: "session-1",
     requestId: "request-1b"
@@ -468,7 +474,7 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
     bundle: customOpenAiModelBundle,
     toolCall: createToolCall({
       text: "Проверь, что runtime forwards catalog-owned OpenAI TTS model.",
-      toneTag: "warm"
+      delivery: "warm"
     }),
     sessionId: "session-1",
     requestId: "request-1c"
@@ -480,7 +486,7 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
     bundle,
     toolCall: createToolCall({
       text: "",
-      toneTag: "warm"
+      delivery: "warm"
     }),
     sessionId: "session-1",
     requestId: "request-2"
@@ -488,4 +494,17 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   assert.equal(invalid.payload.action, "skipped");
   assert.equal(invalid.payload.reason, "invalid_arguments");
   assert.equal(invalid.isError, true);
+
+  const unknownArg = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      text: "Старый аргумент toneTag больше не принимается.",
+      toneTag: "warm"
+    }),
+    sessionId: "session-1",
+    requestId: "request-3"
+  });
+  assert.equal(unknownArg.payload.action, "skipped");
+  assert.equal(unknownArg.payload.reason, "invalid_arguments");
+  assert.match(unknownArg.payload.warning ?? "", /Unexpected arguments: toneTag/);
 }

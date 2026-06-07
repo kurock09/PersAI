@@ -2232,15 +2232,19 @@ export type AssistantVoiceSettingsState = {
   elevenlabs: {
     configured: boolean;
     loadState: "ready" | "not_configured" | "unavailable";
-    voices: Array<{
-      voiceId: string;
-      name: string;
-      gender: "male" | "female" | "neutral" | "unknown";
-      category: string | null;
-      previewUrl: string | null;
-    }>;
+    voices: AssistantVoiceCatalogEntry[];
     warning: string | null;
   } | null;
+};
+
+export type AssistantVoiceCatalogEntry = {
+  voiceId: string;
+  name: string;
+  gender: "male" | "female" | "neutral" | "unknown";
+  category: string | null;
+  language: string | null;
+  languageBucket: "ru" | "en" | "other";
+  previewUrl: string | null;
 };
 
 export async function getWorkspaceMemoryItems(token: string): Promise<WorkspaceMemoryItem[]> {

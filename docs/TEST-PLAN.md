@@ -950,6 +950,52 @@ Interpretation rules:
 4. if publish/materialize logic changes, verify live archetype rows are preferred and `snapshot_voice_dna` remains the deletion fallback instead of becoming a silent primary source
 5. final V1-style closure still requires the live smoke pair on `persai-dev` (`emotional-long` and `chitchat-short`); do not mark the slice fully closed from local unit checks alone
 
+## ADR-113 TTS 2.0 expressive delivery focused checks
+
+When a change touches the chat `tts` worker tool, the structured TTS delivery intent, the ElevenLabs `eleven_v3` tag compiler, or the speech provider path, add this focused pack before broad verification:
+
+```bash
+corepack pnpm --filter @persai/provider-gateway exec tsx test/run-suite.ts
+corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/runtime-tts-tool.service.test.ts runRuntimeTtsToolServiceTest
+corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/native-tool-projection.test.ts runNativeToolProjectionTest
+corepack pnpm --filter @persai/provider-gateway run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+```
+
+Interpretation rules:
+
+1. The model-facing `tts` tool accepts only structured intent (`delivery`, `emotion`, `pace`, `intensity`, `pause`, `nonVerbal`) plus `text`/`deliveryKind`; the legacy `toneTag` argument must be rejected as unknown, and the runtime must derive `toneTag` internally for Yandex/OpenAI baselines.
+2. The safe compiler must stay conservative: whisper suppresses `[excited]`/`[dramatic]` and high-intensity escalation, the tag budget caps at `MAX_ELEVEN_V3_TAGS`, and model-authored `[...]` tags must be stripped from `text` on the v3 path so the model cannot inject raw tags.
+3. ElevenLabs defaults the quality path to `model_id: "eleven_v3"` (catalog `modelKey` overrides per ADR-110); non-`eleven_v3` ElevenLabs models and non-ElevenLabs providers must ignore v3 tags and keep prior tone-based behavior.
+4. The structured delivery intent is request-time only; it must not change the persisted `persai.assistantVoiceProfile.v1` schema or the saved ElevenLabs `voiceId`, and chat/Telegram audio delivery must keep flowing through the existing media/job path.
+
+When a change touches the ElevenLabs voice catalog cache (`ElevenLabsVoiceCatalogService`, `platform_elevenlabs_voice_catalog_cache`) or `GET assistant/voice/settings`, add this focused check:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/elevenlabs-voice-catalog.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+```
+
+Interpretation rules:
+
+1. The catalog is a platform-wide read-through cache, not per-workspace truth: a fresh cache row (within the 24h TTL) must be served without any network call, and a successful live fetch must upsert the single cache row.
+2. Load state must stay honest: `not_configured` when no ElevenLabs key (no network), `unavailable` only when the cache is empty and a live refresh fails, and `ready` otherwise — including serving the last known (stale) row with a warning when a refresh fails.
+3. The `GET assistant/voice/settings` response is additive: existing fields stay, and per-entry `language`/`languageBucket` are added without breaking existing web consumers. (The catalog result intentionally exposes no `shortlist`/`fetchedAt` — there is no consumer.)
+
+When a change touches the premium voice picker (`apps/web/app/app/_components/voice-picker.tsx`, `filterVoicePickerEntries`, or the assistant-settings voice section), add this focused pack:
+
+```bash
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-voice-options.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx app/app/setup/page.test.tsx
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. `filterVoicePickerEntries` must AND together the active filters (gender + languageBucket + category + query) and match the query against label/language/category; inactive filters (`"all"`) must not exclude anything.
+2. The picker is shared across all three providers but filter chips are surface-aware: language/category chips are ElevenLabs-only and each chip group renders only when it actually discriminates (>1 value present); the assistant-gender constraint on the selectable set is preserved.
+3. ElevenLabs non-ready states (`loading`/`not_configured`/`unavailable`) must render the honest inline message instead of the card grid, and preview playback applies only to entries that carry a `previewUrl`.
+
 ## ADR-111 talking-video cloned voice focused checks
 
 When a change touches `Settings -> Characters`, workspace video personas, cloned-voice UI, or runtime persona guidance, add this focused pack before broad verification:

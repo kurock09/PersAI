@@ -6,9 +6,12 @@ import type {
   ProviderGatewaySpeechGenerateResult
 } from "@persai/runtime-contract";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
+import { compileElevenV3Delivery } from "./elevenlabs-v3-tag-compiler";
 
 const ELEVENLABS_API_BASE_URL = "https://api.elevenlabs.io";
-const ELEVENLABS_MODEL_ID = "eleven_multilingual_v2";
+// ADR-113 TTS 2.0: eleven_v3 is the primary expressive quality model. The
+// previous default is retained only as a recognized non-v3 fallback model.
+const ELEVENLABS_QUALITY_MODEL_ID = "eleven_v3";
 
 @Injectable()
 export class ElevenLabsProviderClient {
@@ -23,11 +26,37 @@ export class ElevenLabsProviderClient {
       throw new Error("ElevenLabs requires a saved voice ID for this assistant.");
     }
 
+    const modelId = this.resolveModelId(input.credential.modelKey ?? null);
+    const isV3 = this.isV3Model(modelId);
+    const compiled =
+      isV3 && input.delivery !== undefined && input.delivery !== null
+        ? compileElevenV3Delivery({ text: input.text, delivery: input.delivery })
+        : null;
+    const spokenText = compiled?.text ?? input.text;
+
     const outputFormat = input.deliveryKind === "voice_note" ? "opus_48000_64" : "mp3_44100_128";
     const { signal, dispose } = this.createTimedSignal(
       this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
     );
     try {
+      const requestBody: Record<string, unknown> = {
+        text: spokenText,
+        model_id: modelId
+      };
+      if (isV3) {
+        // eleven_v3 expressivity is driven by inline audio tags from the safe
+        // compiler. Keep voice_settings minimal and conservative (discrete
+        // stability + speaker boost); omit unsupported style/speed knobs.
+        requestBody.voice_settings = {
+          stability: compiled?.stability ?? 0.5,
+          similarity_boost: 0.8,
+          use_speaker_boost: true
+        };
+      } else {
+        requestBody.language_code = this.resolveLanguageCode(input.locale);
+        requestBody.voice_settings = this.buildVoiceSettings(input);
+      }
+
       const response = await fetch(
         `${ELEVENLABS_API_BASE_URL}/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=${encodeURIComponent(outputFormat)}`,
         {
@@ -36,12 +65,7 @@ export class ElevenLabsProviderClient {
             "Content-Type": "application/json",
             "xi-api-key": options.apiKey
           },
-          body: JSON.stringify({
-            text: input.text,
-            model_id: ELEVENLABS_MODEL_ID,
-            language_code: this.resolveLanguageCode(input.locale),
-            voice_settings: this.buildVoiceSettings(input)
-          }),
+          body: JSON.stringify(requestBody),
           signal
         }
       );
@@ -60,18 +84,27 @@ export class ElevenLabsProviderClient {
 
       return {
         provider: "elevenlabs",
-        model: ELEVENLABS_MODEL_ID,
+        model: modelId,
         deliveryKind: input.deliveryKind,
         bytesBase64: buffer.toString("base64"),
         mimeType: input.deliveryKind === "voice_note" ? "audio/ogg" : "audio/mpeg",
         respondedAt: new Date().toISOString(),
         usage: null,
-        billingFacts: this.buildBillingFacts(input),
+        billingFacts: this.buildBillingFacts(input, modelId),
         warning: null
       };
     } finally {
       dispose();
     }
+  }
+
+  private resolveModelId(modelKey: string | null): string {
+    const trimmed = modelKey?.trim() ?? "";
+    return trimmed.length > 0 ? trimmed : ELEVENLABS_QUALITY_MODEL_ID;
+  }
+
+  private isV3Model(modelId: string): boolean {
+    return modelId.startsWith("eleven_v3");
   }
 
   private buildVoiceSettings(input: ProviderGatewaySpeechGenerateRequest): Record<string, number> {
@@ -159,10 +192,13 @@ export class ElevenLabsProviderClient {
     return Math.min(max, Math.max(min, value));
   }
 
-  private buildBillingFacts(input: ProviderGatewaySpeechGenerateRequest): RuntimeBillingFacts {
+  private buildBillingFacts(
+    input: ProviderGatewaySpeechGenerateRequest,
+    modelId: string
+  ): RuntimeBillingFacts {
     return {
       providerKey: "elevenlabs",
-      modelKey: ELEVENLABS_MODEL_ID,
+      modelKey: modelId,
       capability: "text_to_speech",
       occurredAt: new Date().toISOString(),
       metering: {

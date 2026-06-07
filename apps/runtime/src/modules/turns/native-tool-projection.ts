@@ -23,7 +23,12 @@ import {
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
   PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS,
   PERSAI_RUNTIME_TTS_DELIVERY_KINDS,
-  PERSAI_RUNTIME_TTS_TONE_TAGS,
+  PERSAI_RUNTIME_TTS_DELIVERY_STYLES,
+  PERSAI_RUNTIME_TTS_EMOTIONS,
+  PERSAI_RUNTIME_TTS_INTENSITIES,
+  PERSAI_RUNTIME_TTS_NONVERBALS,
+  PERSAI_RUNTIME_TTS_PACES,
+  PERSAI_RUNTIME_TTS_PAUSE_KINDS,
   PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
   type ProviderGatewayToolDefinition,
   type PersaiRuntimeKnowledgeSource,
@@ -1114,22 +1119,52 @@ function createTtsToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTool
     name: "tts",
     description: resolveToolDefinitionDescription(
       policy,
-      "Generate spoken audio for the current assistant persona."
+      [
+        "Generate spoken audio for the current assistant persona with structured expressive delivery.",
+        "Choose structured delivery fields to shape how it sounds; do NOT embed raw bracketed audio tags in text — PersAI compiles your structured choices into safe, conservative provider steering. Keep choices honest to the intended emotional delivery; combining whisper with excited/high intensity is automatically softened."
+      ].join(" ")
     ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["text", "toneTag"],
+      required: ["text"],
       properties: {
         text: {
           type: "string",
           description: "The exact text that should be spoken aloud."
         },
-        toneTag: {
+        delivery: {
           type: "string",
-          enum: [...PERSAI_RUNTIME_TTS_TONE_TAGS],
+          enum: [...PERSAI_RUNTIME_TTS_DELIVERY_STYLES],
           description:
-            "Speech tone steering tag. Match the assistant's intended emotional delivery for this audio."
+            "Optional overall speaking style. Defaults to neutral. Use whisper for quiet/intimate, narrator for steady storytelling, dramatic for heightened delivery."
+        },
+        emotion: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_TTS_EMOTIONS],
+          description: "Optional emotional color of the line. Defaults to neutral."
+        },
+        pace: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_TTS_PACES],
+          description: "Optional speaking pace. Defaults to normal."
+        },
+        intensity: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_TTS_INTENSITIES],
+          description: "Optional expressive intensity. Defaults to medium."
+        },
+        pause: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_TTS_PAUSE_KINDS],
+          description:
+            "Optional leading pause before speaking. Defaults to none. Use short/long sparingly for effect."
+        },
+        nonVerbal: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_TTS_NONVERBALS],
+          description:
+            "Optional single non-verbal sound (e.g. a laugh or sigh) for the line. Defaults to none. Use sparingly."
         },
         deliveryKind: {
           type: "string",

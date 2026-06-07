@@ -63,6 +63,7 @@ import { ResolveRuntimeProviderRoutingService } from "./application/resolve-runt
 import { ResolveTelegramIntegrationStateService } from "./application/resolve-telegram-integration-state.service";
 import { ResolveAssistantNotificationPreferenceService } from "./application/resolve-assistant-notification-preference.service";
 import { ResolveAssistantVoiceSettingsService } from "./application/resolve-assistant-voice-settings.service";
+import { ElevenLabsVoiceCatalogService } from "./application/elevenlabs/elevenlabs-voice-catalog.service";
 import { ConnectTelegramIntegrationService } from "./application/connect-telegram-integration.service";
 import { UpdateTelegramIntegrationConfigService } from "./application/update-telegram-integration-config.service";
 import { UpdateAssistantNotificationPreferenceService } from "./application/update-assistant-notification-preference.service";
@@ -589,6 +590,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ResolveTelegramIntegrationStateService,
     ResolveAssistantNotificationPreferenceService,
     ResolveAssistantVoiceSettingsService,
+    ElevenLabsVoiceCatalogService,
     ConnectTelegramIntegrationService,
     UpdateTelegramIntegrationConfigService,
     UpdateAssistantNotificationPreferenceService,

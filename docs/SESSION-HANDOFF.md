@@ -3,6 +3,178 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-08 - ADR-113 post-audit code-cleanliness cleanup
+
+Ran an independent read-only auditor over the TTS 2.0 code (Slices 1/2/3a). No blockers; the `as never` Prisma cast, derived legacy tone tag, migration/schema, and custom-harness `console.log("PASS")` markers are all established conventions. Acted on the real findings:
+
+- Removed the dead ElevenLabs `shortlist` machinery (`buildShortlist`/`balanceGender` + the `shortlist`/`fetchedAt` result fields) — it was built and plumbed end-to-end (`ElevenLabsVoiceCatalogService` → `ResolveAssistantVoiceSettingsService` → web `AssistantVoiceSettingsState`) but no consumer ever read it. The picker uses the full `voices` list with client-side filtering. Internal cache `fetchedAt` (TTL) is unchanged.
+- Removed the now-orphaned `findVoiceOption` export from `assistant-voice-options.ts` (its last consumer was deleted in Slice 3a).
+- Fixed a quiet UX regression: the picker now renders the enriched `formatElevenLabsVoiceLabel(...)` label (was being computed then discarded) instead of the raw voice name.
+- Simplified the redundant `isV3Model` condition in the ElevenLabs client.
+
+Re-verified: api/web/provider-gateway typecheck, api/web lint, ElevenLabs catalog test (5) + web voice-options test (9), format:check, `git diff --check` — all clean. Docs (ADR-113, API-BOUNDARY, CHANGELOG, TEST-PLAN) corrected to drop the `shortlist`/`fetchedAt` contract claims.
+
+## 2026-06-08 - ADR-113 Slice 3a premium voice picker UI
+
+### Baseline
+
+- Continued in the same working tree as ADR-113 Slices 1-2 (starting SHA `e124c8575e52515f7e989bab557e46ff9af4abe0`); the tree was already non-single-author clean. This slice added only the voice-picker UI scope on top, web-only (no backend changes).
+- Scope: ADR-113 Slice 3a only — premium voice picker UI in assistant settings, unified across all three TTS providers. Out of scope: `eleven_v3` test-phrase synthesis (Slice 3b, needs a metered backend endpoint), and the setup wizard voice step (kept on its existing simple selects).
+
+### What changed & why
+
+- New shared component `apps/web/app/app/_components/voice-picker.tsx`: card-based picker with search, gender/language/category filter chips (auto-shown only when they discriminate), selectable cards, and ElevenLabs stock-preview playback (single shared `Audio` element, cleaned up on unmount).
+- New pure helper `filterVoicePickerEntries` + `VoicePickerEntry`/`VoicePickerFilter` types in `assistant-voice-options.ts`, with unit tests.
+- `assistant-settings.tsx`: replaced the three `<select>` voice dropdowns with the shared `VoicePicker`. ElevenLabs entries come from the cached catalog (`voiceSettings.elevenlabs.voices`, enriched with language/category/preview), Yandex/OpenAI from their fixed enums. Removed the now-dead `elevenLabsSelectOptions`/`selectedElevenLabsVoiceOption`/`selectedElevenLabsVoiceAllowed` and the unused `findVoiceOption` import. Existing assistant-gender constraint effect and save path are unchanged.
+- Web API client `AssistantVoiceSettingsState` extended (additive) with per-entry `language`/`languageBucket`; added exported `AssistantVoiceCatalogEntry`. (The `shortlist`/`fetchedAt` fields drafted here were removed in the post-audit cleanup above.)
+- Added en/ru i18n keys `voicePicker*`.
+
+### Files touched
+
+- `apps/web/app/app/_components/voice-picker.tsx` (new)
+- `apps/web/app/app/_components/assistant-voice-options.ts`, `apps/web/app/app/_components/assistant-voice-options.test.ts`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/messages/en.json`, `apps/web/messages/ru.json`
+- docs: `docs/ADR/113-tts-2.0-expressive-chat-voice.md`, `docs/CHANGELOG.md`, `docs/TEST-PLAN.md`, this handoff
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run lint` — clean.
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-voice-options.test.ts` — 9 pass (incl. new picker-filter cases).
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx app/app/setup/page.test.tsx` — 82 pass (no regressions).
+- `corepack pnpm run format:check` clean; `git diff --check` no whitespace errors.
+
+### Risks / residuals
+
+- No preview audio for Yandex/OpenAI yet (their enums have no stock preview); preview/test-phrase for those + ElevenLabs expressive test-phrase is Slice 3b.
+- Setup wizard voice step still uses the old simple selects; can adopt the shared `VoicePicker` later.
+- Tree still not single-author clean: ADR-113 Slices 1/2/3a plus a concurrent ADR-111-closure scope coexist uncommitted — review/commit scopes separately.
+
+### Next recommended step
+
+ADR-113 is **complete** — Slice 3b (`eleven_v3` test-phrase synthesis) was **dropped** as unnecessary complexity (a paid preview-synthesis endpoint with billing/quota/anti-abuse is not justified for voice selection; the Slice 3a stock card preview plus the assistant's real in-chat voice notes already cover intonation verification). No further TTS 2.0 slices are planned. Recommended next action is repo hygiene: review/commit the four coexisting uncommitted scopes (ADR-113 Slices 1/2/3a + the concurrent ADR-111 closure) as separate clean commits and apply the Slice 2 migration before promoting the API image.
+
+## 2026-06-08 - ADR-113 Slice 2 ElevenLabs voice catalog v2 backend/cache
+
+### Baseline
+
+- Continued in the same working tree as ADR-113 Slice 1 (starting SHA `e124c8575e52515f7e989bab557e46ff9af4abe0`); the tree was already non-single-author clean (Slice 1 TTS + a concurrent ADR-111-closure scope). This slice added only ElevenLabs-catalog-scoped content and code on top.
+- Scope: ADR-113 Slice 2 only — platform-wide ElevenLabs voice catalog cache + normalized metadata + shortlist + honest load state, wired into `GET assistant/voice/settings`. Out of scope: premium voice picker UI (Slice 3), any web changes.
+
+### What changed & why
+
+- Added `platform_elevenlabs_voice_catalog_cache` Prisma model + additive migration `20260608000000_adr113_slice2_elevenlabs_voice_catalog_cache` (mirrors the HeyGen voice catalog cache table).
+- Added `ElevenLabsVoiceCatalogService` (`apps/api/src/modules/workspace-management/application/elevenlabs/`): DB-backed read-through cache (24h TTL, lazy refresh, upsert on success, stale-on-failure fallback), normalized entries (`gender`, `category`, `language` + `languageBucket` ru/en/other, `previewUrl`), and honest `ready`/`not_configured`/`unavailable` load state. (A shortlist builder was added here then removed in the post-audit cleanup above as unconsumed.)
+- Rewired `ResolveAssistantVoiceSettingsService` to read the cache instead of a live per-request ElevenLabs fetch; `AssistantVoiceSettingsState` additively gains per-entry `language` + `languageBucket`. Registered the new service in `workspace-management.module.ts` and regenerated the Prisma client.
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20260608000000_adr113_slice2_elevenlabs_voice_catalog_cache/migration.sql`
+- `apps/api/src/modules/workspace-management/application/elevenlabs/elevenlabs-voice-catalog.service.ts` (new)
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-voice-settings.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/elevenlabs-voice-catalog.service.test.ts` (new)
+- docs: `docs/ADR/113-tts-2.0-expressive-chat-voice.md`, `docs/DATA-MODEL.md`, `docs/API-BOUNDARY.md`, `docs/CHANGELOG.md`, `docs/TEST-PLAN.md`, this handoff
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/elevenlabs-voice-catalog.service.test.ts` — all 5 cases pass (fresh fetch, fresh-cache no-network, not_configured no-network, HTTP error → unavailable, stale-on-failure).
+- `corepack pnpm --filter @persai/api run typecheck`, `corepack pnpm --filter @persai/api run lint`, `corepack pnpm --filter @persai/web run typecheck`, `corepack pnpm run format:check` — all clean.
+- `git diff --check` — no whitespace errors.
+
+### Risks / residuals
+
+- New additive migration (`CREATE TABLE` only) must be applied before the API image that reads `platformElevenlabsVoiceCatalogCache` is promoted; it stacks on the already-pending memory-block migrations in this tree.
+- Tree is still not single-author clean: ADR-113 Slice 1, ADR-113 Slice 2, and a concurrent ADR-111-closure scope coexist uncommitted — review/commit the three scopes separately.
+
+### Next recommended step
+
+ADR-113 Slice 3 — premium voice picker UI, consuming the new `shortlist`/`voices`/`fetchedAt` contract. (Update: Slice 3a — the picker UI — landed later the same day; see the newer handoff section above. Remaining: Slice 3b `eleven_v3` test-phrase synthesis.)
+
+## 2026-06-08 - ADR-113 Slice 1 TTS 2.0 expressive delivery core
+
+### Baseline
+
+- Starting SHA: `e124c8575e52515f7e989bab557e46ff9af4abe0` (clean tree when this session began).
+- Scope: ADR-113 Slice 1 only — structured expressive TTS intent + safe `eleven_v3` tag compiler on the existing chat `tts` worker path. Out of scope: voice catalog v2 backend/cache (Slice 2), premium voice picker UI (Slice 3), HeyGen, Sound Effects, audio mixing.
+- NOTE: a concurrent session edited `docs/ADR/111-*`, `docs/CHANGELOG.md`, and `docs/SESSION-HANDOFF.md` (ADR-111 closure) in this same working tree during this session. Those edits were left intact; this slice only added TTS-scoped content and code. The tree is therefore not single-author clean — review/commit TTS and ADR-111-closure scopes separately.
+
+### What changed & why
+
+Chat voice replies were flat: the `tts` tool exposed a single `toneTag` enum and ElevenLabs ran on `eleven_multilingual_v2`, with no safe way to drive expressive `eleven_v3` audio tags. TTS 2.0 makes delivery structured and controllable.
+
+`@persai/runtime-contract` gained the TTS 2.0 structured intent (`RuntimeTtsDeliveryIntent` with `delivery|emotion|pace|intensity|pause|nonVerbal`), a default builder, and `mapTtsDeliveryIntentToToneTag` (deterministic legacy-tone derivation). `RuntimeTtsRequest`/`RuntimeTtsToolResult` carry the structured intent; `ProviderGatewaySpeechGenerateRequest` carries optional `delivery`.
+
+The runtime `tts` tool now parses the structured fields (rejecting the old `toneTag` argument as unknown), derives the legacy `toneTag` for Yandex/OpenAI baselines, and forwards the structured intent. The model-facing tool descriptor exposes the six structured enums and instructs the model not to embed raw audio tags.
+
+A new pure compiler (`apps/provider-gateway/src/modules/providers/elevenlabs/elevenlabs-v3-tag-compiler.ts`) converts intent into a conservative set of `eleven_v3` tags with conflict avoidance (whisper suppresses `[excited]`/`[dramatic]` and high-intensity escalation), a hard `MAX_ELEVEN_V3_TAGS = 3` budget by fixed priority (delivery > emotion > nonVerbal > pause), and model-authored-tag stripping from `text`. The ElevenLabs client defaults to `model_id: "eleven_v3"` (catalog `modelKey` overrides per ADR-110), prepends compiled tags, and sends minimal discrete-stability v3 voice settings; non-v3 ElevenLabs models keep the legacy full `voice_settings` + `language_code` path. The provider speech service normalizes/forwards `delivery`. The saved ElevenLabs `voiceId` and media/job delivery are unchanged.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/provider-gateway/src/modules/providers/elevenlabs/elevenlabs-v3-tag-compiler.ts` (new)
+- `apps/provider-gateway/src/modules/providers/elevenlabs/elevenlabs-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/provider-speech-generation.service.ts`
+- `apps/runtime/src/modules/turns/runtime-tts-tool.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- tests: `apps/provider-gateway/test/elevenlabs-v3-tag-compiler.test.ts` (new), `apps/provider-gateway/test/elevenlabs-provider.client.test.ts` (new), `apps/provider-gateway/test/provider-speech-generation.service.test.ts`, `apps/provider-gateway/test/run-suite.ts`, `apps/runtime/test/runtime-tts-tool.service.test.ts`
+- docs: `docs/ADR/113-tts-2.0-expressive-chat-voice.md` (new), `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/run-suite.ts` - PASS (full suite incl. new compiler + ElevenLabs client + speech-service delivery passthrough)
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/runtime-tts-tool.service.test.ts runRuntimeTtsToolServiceTest` - PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/native-tool-projection.test.ts runNativeToolProjectionTest` - PASS
+- `git diff --check` - PASS
+
+### Risks / residuals
+
+- ElevenLabs chat TTS now defaults to `eleven_v3` (intentional replacement of the `eleven_multilingual_v2` default). If the ElevenLabs account/key lacks `eleven_v3` access, the provider returns an honest error and the runtime fallback chain (`yandex`/`openai`) still applies; an explicit catalog `modelKey` can pin a different ElevenLabs model. Live `persai-dev` smoke of a real `eleven_v3` generation was not run this session.
+- `eleven_v3` voice-settings shape was kept deliberately minimal (discrete stability + speaker boost, no style/speed, no `language_code`) to avoid sending knobs the model may reject; confirm against a live v3 call.
+- Concurrent ADR-111-closure doc edits are present in the same tree (see baseline note). Commit TTS and ADR-111 scopes separately; do not fold them.
+- Voice catalog v2 backend/cache (Slice 2) and the premium picker UI with preview/test-phrase (Slice 3) are designed in ADR-113 but not implemented. (Update: Slice 2 landed later the same day — see the newer handoff section above.)
+
+### Next recommended step
+
+ADR-113 Slice 2 — voice catalog v2 backend/cache: cache service with normalized metadata, load/error state, preview URL, and a setup/settings shortlist (then Slice 3 premium picker UI). Start from a clean tree once the TTS and ADR-111 scopes are committed.
+
+## 2026-06-08 - ADR-111 HeyGen program closure
+
+### Baseline
+
+- Starting SHA: `1aabfd76` (clean tree after GitOps fast-forward).
+- Scope: docs-only closure of `docs/ADR/111-heygen-voice-cloning-and-characters-ux-v2.md`. Out of scope: ADR-112 implementation, TTS v2 implementation, HeyGen Studio API, custom audio lip-sync, and additional code changes.
+
+### What changed & why
+
+ADR-111 is now explicitly closed as completed. The ADR status, Slice 5 ledger, acceptance checklist, and closure notes now reflect the actual post-smoke state: HeyGen cloned voice creation succeeded after the Clerk route auth and audio MIME fixes, cloned voices are usable from the saved character surface, and the later provider-gateway `503` event was transient rollout noise rather than an ADR defect.
+
+### Files touched
+
+- `docs/ADR/111-heygen-voice-cloning-and-characters-ux-v2.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- Docs-only verification pending in this session: `corepack pnpm run format:check`, `git diff --check`.
+
+### Risks / residuals
+
+- ADR-111 remains closed. Do not reopen it for TTS/chat voice, HeyGen Studio API, sound effects, background music/noise, or custom audio lip-sync. Those require separate ADR/slices.
+
+### Next recommended step
+
+Continue the active ADR-112 memory/tool-surface program when requested, or open a new TTS 2.0 ADR for chat voice output if the operator chooses that next.
+
 ## 2026-06-07 - ADR-112 Slice 4 safe memory backfill
 
 ### Baseline
@@ -220,9 +392,10 @@ Full AGENTS.md gate (orchestrator):
 Proceed to ADR-112 Slice 2 only: retrieval/render quality plus the single runtime-owned contextual-memory framing, while preserving ADR-110 prompt-cache placement.
 
 Carry-in for Slice 2 (prompt-cache invariant) — RESOLVED + live-verified 2026-06-07. The operator's worry (small `cache_creation` of 27-375 tokens on every turn) was investigated directly against the cluster: per-turn `runtime_turn_receipts.result_payload.usageAccounting` for session `78ae7b44` (28 turns, `claude-sonnet-4-6`), querying both top-level cacheCreation/cachedInput and the `entries[]` anthropic step. Result splits exactly at the ~18:25 UTC deploy of the typed-`cacheRole` contextual-memory fix (the `volatile_context` marker is present in the running provider-gateway `dist`, so the fix is live):
+
 - PRE-FIX (10:38-16:17): `cacheRead` PINNED at the 14.1k system block while a 3k->10.5k history segment was RE-WRITTEN at 1.25x every short turn (never read back) — a real ~2x cost inflation. This was the volatile contextual-memory block poisoning the cacheable prefix; it is the bug the typed-`cacheRole` fix targeted.
 - POST-FIX (18:47-19:11, same loaded chat): `cacheRead` grows monotonically (`31774 -> ... -> 34203`) with `cacheRead[n+1] ≈ cacheRead[n] + cacheCreation[n]` and writes shrink to the genuine new tail (`18, 27, 0, 375, 185, ...`). This is exactly the post-deploy verification line 204/209 below asked for — CONFIRMED working. The 27-375 per-turn write is HEALTHY incremental caching, not waste: it caches this turn's new content so the next turn reads it at 0.1x ("accumulate 3k then cache once" would be strictly worse). The only large writes left are after >5min idle (Anthropic 5m TTL expiry; `cacheRead=0, cacheCreation≈24.6k`), which is expected.
-Remaining Slice 2 cache work is narrow: keep ADR-110 green and add a regression guard asserting `cacheRole: "volatile_context"` stays out of the Anthropic cacheable prefix. Earlier ADR/handoff wording (both the "expected incremental frontier advance" and the later "source unknown / inconsistent" framings) is superseded by this live verification.
+  Remaining Slice 2 cache work is narrow: keep ADR-110 green and add a regression guard asserting `cacheRole: "volatile_context"` stays out of the Anthropic cacheable prefix. Earlier ADR/handoff wording (both the "expected incremental frontier advance" and the later "source unknown / inconsistent" framings) is superseded by this live verification.
 
 ## 2026-06-07 - ADR-112 authored (context/memory/tool-surface quality program)
 

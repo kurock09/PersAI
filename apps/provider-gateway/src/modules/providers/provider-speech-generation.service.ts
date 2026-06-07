@@ -1,9 +1,16 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
+  createDefaultTtsDeliveryIntent,
   MAX_RUNTIME_TTS_TEXT_CHARS,
   PERSAI_RUNTIME_OPENAI_TTS_VOICES,
   PERSAI_RUNTIME_TTS_DEFAULT_LOCALE,
   PERSAI_RUNTIME_TTS_DELIVERY_KINDS,
+  PERSAI_RUNTIME_TTS_DELIVERY_STYLES,
+  PERSAI_RUNTIME_TTS_EMOTIONS,
+  PERSAI_RUNTIME_TTS_INTENSITIES,
+  PERSAI_RUNTIME_TTS_NONVERBALS,
+  PERSAI_RUNTIME_TTS_PACES,
+  PERSAI_RUNTIME_TTS_PAUSE_KINDS,
   PERSAI_RUNTIME_TTS_PROVIDER_IDS,
   PERSAI_RUNTIME_TTS_TONE_TAGS,
   PERSAI_RUNTIME_YANDEX_TTS_ROLES,
@@ -14,7 +21,8 @@ import {
   type PersaiRuntimeYandexTtsVoice,
   type ProviderGatewaySpeechGenerateRequest,
   type ProviderGatewaySpeechGenerateResult,
-  type RuntimeAssistantVoiceProfile
+  type RuntimeAssistantVoiceProfile,
+  type RuntimeTtsDeliveryIntent
 } from "@persai/runtime-contract";
 import { ElevenLabsProviderClient } from "./elevenlabs/elevenlabs-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
@@ -95,6 +103,7 @@ export class ProviderSpeechGenerationService {
       text: input.text.trim(),
       locale: input.locale.trim(),
       toneTag: input.toneTag,
+      delivery: this.normalizeDeliveryIntent(input.delivery),
       deliveryKind: input.deliveryKind,
       assistantGender:
         typeof input.assistantGender === "string" && input.assistantGender.trim().length > 0
@@ -113,6 +122,28 @@ export class ProviderSpeechGenerationService {
             : null
       }
     };
+  }
+
+  private normalizeDeliveryIntent(value: unknown): RuntimeTtsDeliveryIntent | null {
+    const row = this.asObject(value);
+    if (row === null) {
+      return null;
+    }
+    const fallback = createDefaultTtsDeliveryIntent();
+    return {
+      delivery:
+        this.parseEnum(row.delivery, PERSAI_RUNTIME_TTS_DELIVERY_STYLES) ?? fallback.delivery,
+      emotion: this.parseEnum(row.emotion, PERSAI_RUNTIME_TTS_EMOTIONS) ?? fallback.emotion,
+      pace: this.parseEnum(row.pace, PERSAI_RUNTIME_TTS_PACES) ?? fallback.pace,
+      intensity:
+        this.parseEnum(row.intensity, PERSAI_RUNTIME_TTS_INTENSITIES) ?? fallback.intensity,
+      pause: this.parseEnum(row.pause, PERSAI_RUNTIME_TTS_PAUSE_KINDS) ?? fallback.pause,
+      nonVerbal: this.parseEnum(row.nonVerbal, PERSAI_RUNTIME_TTS_NONVERBALS) ?? fallback.nonVerbal
+    };
+  }
+
+  private parseEnum<T extends string>(value: unknown, allowed: readonly T[]): T | null {
+    return typeof value === "string" && allowed.includes(value as T) ? (value as T) : null;
   }
 
   private normalizeVoiceProfile(value: unknown): RuntimeAssistantVoiceProfile {

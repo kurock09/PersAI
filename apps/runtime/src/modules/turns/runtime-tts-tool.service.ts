@@ -5,15 +5,23 @@ import type {
   AssistantRuntimeBundleToolCredentialRef
 } from "@persai/runtime-bundle";
 import {
+  createDefaultTtsDeliveryIntent,
+  mapTtsDeliveryIntentToToneTag,
   MAX_RUNTIME_TTS_TEXT_CHARS,
   PERSAI_RUNTIME_TTS_DELIVERY_KINDS,
+  PERSAI_RUNTIME_TTS_DELIVERY_STYLES,
+  PERSAI_RUNTIME_TTS_EMOTIONS,
+  PERSAI_RUNTIME_TTS_INTENSITIES,
+  PERSAI_RUNTIME_TTS_NONVERBALS,
+  PERSAI_RUNTIME_TTS_PACES,
+  PERSAI_RUNTIME_TTS_PAUSE_KINDS,
   PERSAI_RUNTIME_TTS_PROVIDER_IDS,
-  PERSAI_RUNTIME_TTS_TONE_TAGS,
   type PersaiRuntimeTtsDeliveryKind,
   type PersaiRuntimeTtsProviderId,
   type ProviderGatewayToolCall,
   type RuntimeOutputArtifact,
   type RuntimeToolPolicy,
+  type RuntimeTtsDeliveryIntent,
   type RuntimeTtsRequest,
   type RuntimeTtsToolResult
 } from "@persai/runtime-contract";
@@ -54,6 +62,7 @@ export class RuntimeTtsToolService {
           model: null,
           requestedText: null,
           toneTag: null,
+          delivery: null,
           deliveryKind: null,
           artifact: null,
           attemptedProviders: [],
@@ -77,6 +86,7 @@ export class RuntimeTtsToolService {
           model: null,
           requestedText: request.text,
           toneTag: request.toneTag,
+          delivery: request.delivery,
           deliveryKind: request.deliveryKind,
           artifact: null,
           attemptedProviders: [],
@@ -100,6 +110,7 @@ export class RuntimeTtsToolService {
           model: null,
           requestedText: request.text,
           toneTag: request.toneTag,
+          delivery: request.delivery,
           deliveryKind: request.deliveryKind,
           artifact: null,
           attemptedProviders: [],
@@ -131,6 +142,7 @@ export class RuntimeTtsToolService {
           model: null,
           requestedText: request.text,
           toneTag: request.toneTag,
+          delivery: request.delivery,
           deliveryKind: request.deliveryKind,
           artifact: null,
           attemptedProviders: [],
@@ -154,6 +166,7 @@ export class RuntimeTtsToolService {
           text: request.text,
           locale: params.bundle.persona.voiceProfile.defaultLocale,
           toneTag: request.toneTag,
+          delivery: request.delivery,
           deliveryKind: request.deliveryKind,
           assistantGender: params.bundle.persona.assistantGender,
           traits: params.bundle.persona.traits,
@@ -185,6 +198,7 @@ export class RuntimeTtsToolService {
             model: providerResult.model,
             requestedText: request.text,
             toneTag: request.toneTag,
+            delivery: request.delivery,
             deliveryKind: providerResult.deliveryKind,
             artifact,
             attemptedProviders,
@@ -217,6 +231,7 @@ export class RuntimeTtsToolService {
         model: null,
         requestedText: request.text,
         toneTag: request.toneTag,
+        delivery: request.delivery,
         deliveryKind: request.deliveryKind,
         artifact: null,
         attemptedProviders,
@@ -234,9 +249,17 @@ export class RuntimeTtsToolService {
     args: Record<string, unknown>,
     bundle: AssistantRuntimeBundle
   ): (RuntimeTtsRequest & { deliveryKind: PersaiRuntimeTtsDeliveryKind }) | Error {
-    const unknownKeys = Object.keys(args).filter(
-      (key) => key !== "text" && key !== "toneTag" && key !== "deliveryKind"
-    );
+    const allowedKeys = new Set([
+      "text",
+      "delivery",
+      "emotion",
+      "pace",
+      "intensity",
+      "pause",
+      "nonVerbal",
+      "deliveryKind"
+    ]);
+    const unknownKeys = Object.keys(args).filter((key) => !allowedKeys.has(key));
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
     }
@@ -249,11 +272,17 @@ export class RuntimeTtsToolService {
       return new Error(`text must be at most ${String(MAX_RUNTIME_TTS_TEXT_CHARS)} characters`);
     }
 
-    const toneTag =
-      typeof args.toneTag === "string" && this.isToneTag(args.toneTag) ? args.toneTag : null;
-    if (toneTag === null) {
-      return new Error(`toneTag must be one of ${PERSAI_RUNTIME_TTS_TONE_TAGS.join(", ")}`);
-    }
+    const defaults = createDefaultTtsDeliveryIntent();
+    const delivery: RuntimeTtsDeliveryIntent = {
+      delivery:
+        this.parseEnum(args.delivery, PERSAI_RUNTIME_TTS_DELIVERY_STYLES) ?? defaults.delivery,
+      emotion: this.parseEnum(args.emotion, PERSAI_RUNTIME_TTS_EMOTIONS) ?? defaults.emotion,
+      pace: this.parseEnum(args.pace, PERSAI_RUNTIME_TTS_PACES) ?? defaults.pace,
+      intensity:
+        this.parseEnum(args.intensity, PERSAI_RUNTIME_TTS_INTENSITIES) ?? defaults.intensity,
+      pause: this.parseEnum(args.pause, PERSAI_RUNTIME_TTS_PAUSE_KINDS) ?? defaults.pause,
+      nonVerbal: this.parseEnum(args.nonVerbal, PERSAI_RUNTIME_TTS_NONVERBALS) ?? defaults.nonVerbal
+    };
 
     const deliveryKind =
       args.deliveryKind === undefined || args.deliveryKind === null
@@ -270,9 +299,14 @@ export class RuntimeTtsToolService {
     return {
       toolCode: "tts",
       text,
-      toneTag,
+      delivery,
+      toneTag: mapTtsDeliveryIntentToToneTag(delivery),
       deliveryKind
     };
+  }
+
+  private parseEnum<T extends string>(value: unknown, allowed: readonly T[]): T | null {
+    return typeof value === "string" && allowed.includes(value as T) ? (value as T) : null;
   }
 
   private async persistGeneratedArtifact(input: {
@@ -441,10 +475,6 @@ export class RuntimeTtsToolService {
       default:
         return "ogg";
     }
-  }
-
-  private isToneTag(value: string): value is RuntimeTtsRequest["toneTag"] {
-    return PERSAI_RUNTIME_TTS_TONE_TAGS.includes(value as RuntimeTtsRequest["toneTag"]);
   }
 
   private isDeliveryKind(value: string): value is PersaiRuntimeTtsDeliveryKind {
