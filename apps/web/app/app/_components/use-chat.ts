@@ -47,6 +47,7 @@ const ACTIVE_TURN_RESTORE_MAX_ATTEMPTS = 30;
 const PENDING_RECONCILE_INTERVAL_MS = 1_000;
 const PENDING_RECONCILE_MAX_ATTEMPTS = 30;
 const ACTIVE_WEB_TURN_STORAGE_PREFIX = "persai.active-web-turn.v1.";
+const STREAM_DELTA_FRAME_CHAR_BUDGET = 48;
 
 function isStreamAuthRetryable(error: unknown): error is ContractsApiError {
   return error instanceof ContractsApiError && error.status === 401;
@@ -2691,14 +2692,19 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       }
       const pendingDelta = { text: "", raf: 0 };
       const pendingThought = { text: "", startedAt: null as string | null, raf: 0 };
-      const flushDelta = () => {
-        const chunk = pendingDelta.text;
-        pendingDelta.text = "";
+      const flushDelta = (force = false) => {
+        const chunk = force
+          ? pendingDelta.text
+          : pendingDelta.text.slice(0, STREAM_DELTA_FRAME_CHAR_BUDGET);
+        pendingDelta.text = force ? "" : pendingDelta.text.slice(STREAM_DELTA_FRAME_CHAR_BUDGET);
         pendingDelta.raf = 0;
         if (!chunk) return;
         applyThreadMessages(sendThreadKey, (prev) =>
           prev.map((m) => (m.id === assistantMsgId ? { ...m, content: m.content + chunk } : m))
         );
+        if (pendingDelta.text.length > 0 && !pendingDelta.raf) {
+          pendingDelta.raf = requestAnimationFrame(() => flushDelta());
+        }
       };
       const flushThought = () => {
         const thought = pendingThought.text;
@@ -2731,7 +2737,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           return;
         }
         const commit = () => {
-          flushDelta();
+          flushDelta(true);
           flushThought();
         };
         if (forceBoundaryCommit) {
@@ -2813,7 +2819,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         onDelta: ({ delta }: { delta: string }) => {
           pendingDelta.text += delta;
           if (!pendingDelta.raf) {
-            pendingDelta.raf = requestAnimationFrame(flushDelta);
+            pendingDelta.raf = requestAnimationFrame(() => flushDelta());
           }
         },
         onStreamReset: () => {
@@ -3510,14 +3516,19 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       /* `isStreaming = true`). Release the synchronous preflight gate.      */
       releasePreflight();
       const pendingDelta = { text: "", raf: 0 };
-      const flushDelta = () => {
-        const chunk = pendingDelta.text;
-        pendingDelta.text = "";
+      const flushDelta = (force = false) => {
+        const chunk = force
+          ? pendingDelta.text
+          : pendingDelta.text.slice(0, STREAM_DELTA_FRAME_CHAR_BUDGET);
+        pendingDelta.text = force ? "" : pendingDelta.text.slice(STREAM_DELTA_FRAME_CHAR_BUDGET);
         pendingDelta.raf = 0;
         if (!chunk) return;
         setMessages((prev) =>
           prev.map((m) => (m.id === assistantMsgId ? { ...m, content: m.content + chunk } : m))
         );
+        if (pendingDelta.text.length > 0 && !pendingDelta.raf) {
+          pendingDelta.raf = requestAnimationFrame(() => flushDelta());
+        }
       };
       const cancelBufferedAssistantFlush = () => {
         if (pendingDelta.raf) {
@@ -3532,7 +3543,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           return;
         }
         if (forceBoundaryCommit) {
-          flushSync(flushDelta);
+          flushSync(() => flushDelta(true));
           return;
         }
         flushDelta();
@@ -3560,7 +3571,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             onDelta: ({ delta }) => {
               pendingDelta.text += delta;
               if (!pendingDelta.raf) {
-                pendingDelta.raf = requestAnimationFrame(flushDelta);
+                pendingDelta.raf = requestAnimationFrame(() => flushDelta());
               }
             },
             onStreamReset: () => {

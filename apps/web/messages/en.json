@@ -1296,6 +1296,7 @@
     "voicesErrorPlanUpgradeRequired": "Your connected HeyGen account must be upgraded before voice cloning can be used.",
     "voicesErrorProviderLimitReached": "HeyGen has reached its own cloned-voice resource limit for this account.",
     "voicesErrorInsufficientBalance": "Insufficient VC balance.",
+    "voicesErrorUnsupportedAudioFormat": "Use an MP3 or WAV audio sample for voice cloning.",
     "voicesErrorGeneric": "Failed to create the cloned voice. Please try again."
   },
   "telegram": {

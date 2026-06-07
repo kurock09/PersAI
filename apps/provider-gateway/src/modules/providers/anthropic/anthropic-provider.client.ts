@@ -219,10 +219,11 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         inputJson: string;
       }
     >();
-    const { signal: timedSignal, dispose } = this.createTimedSignal(
-      this.config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS,
-      signal
-    );
+    const {
+      signal: timedSignal,
+      reset,
+      dispose
+    } = this.createTimedSignal(this.config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS, signal);
 
     try {
       const toolChoice = this.toAnthropicToolChoice(input);
@@ -250,9 +251,17 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         payload as unknown as AnthropicCreateMessageParams,
         { signal: timedSignal }
       )) as AsyncIterable<Record<string, unknown>>;
+      reset();
 
       for await (const rawEvent of stream) {
+        reset();
         const event = this.asObject(rawEvent);
+        if (event?.type === "ping") {
+          yield {
+            type: "keepalive"
+          };
+          continue;
+        }
         if (event?.type === "message_start") {
           latestUsage = this.mergeUsageSnapshots(
             latestUsage,
@@ -414,7 +423,18 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       };
       yield failedEvent;
     } catch (error) {
-      if (this.isAbortError(error) || signal?.aborted) {
+      if (signal?.aborted) {
+        return;
+      }
+      if (this.isAbortError(error)) {
+        const failedEvent: ProviderGatewayTextFailedEvent = {
+          type: "failed",
+          code: "provider_stream_timeout",
+          message: `Anthropic provider stream timed out after ${String(
+            this.config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS
+          )}ms without provider activity.`
+        };
+        yield failedEvent;
         return;
       }
       const failedEvent: ProviderGatewayTextFailedEvent = {
@@ -912,9 +932,16 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   private createTimedSignal(
     timeoutMs: number,
     externalSignal?: AbortSignal
-  ): { signal: AbortSignal; dispose: () => void } {
+  ): { signal: AbortSignal; reset: () => void; dispose: () => void } {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    let timeoutId: NodeJS.Timeout | null = null;
+    const scheduleAbort = () => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    };
+    scheduleAbort();
     if (externalSignal) {
       if (externalSignal.aborted) {
         controller.abort();
@@ -924,7 +951,17 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     }
     return {
       signal: controller.signal,
-      dispose: () => clearTimeout(timeoutId)
+      reset: () => {
+        if (!controller.signal.aborted) {
+          scheduleAbort();
+        }
+      },
+      dispose: () => {
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      }
     };
   }
 

@@ -4238,7 +4238,7 @@ describe("characters section", () => {
       target: { value: "Fresh Voice" }
     });
     const audioInput = document.getElementById("voice-clone-audio-input") as HTMLInputElement;
-    const audioFile = new File(["voice"], "fresh.webm", { type: "audio/webm" });
+    const audioFile = new File(["voice"], "fresh.wav", { type: "audio/wav" });
     Object.defineProperty(audioInput, "files", {
       value: [audioFile],
       configurable: true
@@ -4250,6 +4250,16 @@ describe("characters section", () => {
     await waitFor(() => {
       expect(assistantApiMocks.createWorkspaceVideoClonedVoice).toHaveBeenCalled();
     });
+    expect(assistantApiMocks.createWorkspaceVideoClonedVoice).toHaveBeenCalledWith(
+      "token-1",
+      "ws-1",
+      expect.objectContaining({
+        displayName: "Fresh Voice",
+        audio: audioFile,
+        removeBackgroundNoise: true
+      }),
+      { hardTimeoutMs: 180_000 }
+    );
     expect(clerkMocks.getToken).toHaveBeenCalledWith({ skipCache: true });
 
     await waitFor(() => {

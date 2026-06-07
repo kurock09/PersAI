@@ -57,6 +57,7 @@ function makeHarness(options?: {
     rows: [...(options?.seedRows ?? [])],
     balanceVc: options?.balanceVc ?? 120,
     ledgerEvents: [] as Array<{ kind: string; amountVc: number; referenceKey: string }>,
+    providerInputs: [] as Array<{ audioMimeType: string }>,
     providerCalls: 0,
     debitCalls: 0,
     configDirtyMarks: 0
@@ -218,8 +219,9 @@ function makeHarness(options?: {
     } as never,
     prisma as never,
     {
-      async createVoiceClone() {
+      async createVoiceClone(input: { audioMimeType: string }) {
         state.providerCalls += 1;
+        state.providerInputs.push(input);
         if (options?.providerFailure !== undefined) {
           throw options.providerFailure;
         }
@@ -252,6 +254,7 @@ async function run(): Promise<void> {
       removeBackgroundNoise: true
     });
     assert.equal(state.providerCalls, 1);
+    assert.equal(state.providerInputs[0]?.audioMimeType, "audio/mpeg");
     assert.equal(state.debitCalls, 1);
     assert.equal(state.ledgerEvents.length, 1);
     assert.equal(state.ledgerEvents[0]?.kind, "voice_clone_creation");
@@ -260,6 +263,37 @@ async function run(): Promise<void> {
     assert.equal(state.rows[0]?.status, "ready");
     assert.equal(state.rows[0]?.heygenVoiceCloneId, "heygen-clone-1");
     console.log("✓ Test 1: success marks cloned voice ready and debits VC once");
+  }
+
+  // Test 1b: HeyGen voice clone accepts MP3/WAV only. Browser-recorded WebM
+  // must be converted before upload instead of forwarding an unsupported MIME.
+  {
+    const { service, state } = makeHarness();
+    await assert.rejects(
+      () =>
+        service.createClonedVoice({
+          workspaceId: WORKSPACE_ID,
+          displayName: "Recorded WebM",
+          audioFile: {
+            buffer: Buffer.from("browser-webm-audio-container"),
+            mimeType: "audio/webm",
+            originalFilename: "voice-clone.webm"
+          },
+          languageHint: "ru",
+          removeBackgroundNoise: true
+        }),
+      (error: unknown) => {
+        assert.equal(error instanceof BadRequestException, true);
+        const response = (error as BadRequestException).getResponse() as {
+          error?: { code?: string };
+        };
+        assert.equal(response.error?.code, "voice_clone_audio_format_unsupported");
+        return true;
+      }
+    );
+    assert.equal(state.providerCalls, 0);
+    assert.equal(state.rows.length, 0);
+    console.log("✓ Test 1b: unsupported audio/webm fails before provider call");
   }
 
   // Test 2: failed provider clone marks row failed and does not debit.

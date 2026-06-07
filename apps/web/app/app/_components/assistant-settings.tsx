@@ -136,6 +136,70 @@ type ClonedVoiceModalMode = "upload" | "record";
 const CHARACTERS_PRICING_URL = "https://persai.dev/app/pricing";
 const DEMO_PERSONA_PORTRAIT_URL = "/landing/demo-persona-portrait.png";
 
+function encodeAudioBufferAsWav(audioBuffer: AudioBuffer): Blob {
+  const channelCount = Math.min(audioBuffer.numberOfChannels, 2);
+  const sampleRate = audioBuffer.sampleRate;
+  const samplesPerChannel = audioBuffer.length;
+  const bytesPerSample = 2;
+  const blockAlign = channelCount * bytesPerSample;
+  const dataSize = samplesPerChannel * blockAlign;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index));
+    }
+  };
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channelCount, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, dataSize, true);
+
+  const channelData = Array.from({ length: channelCount }, (_, index) =>
+    audioBuffer.getChannelData(index)
+  );
+  let offset = 44;
+  for (let sampleIndex = 0; sampleIndex < samplesPerChannel; sampleIndex += 1) {
+    for (let channelIndex = 0; channelIndex < channelCount; channelIndex += 1) {
+      const sample = Math.max(-1, Math.min(1, channelData[channelIndex]?.[sampleIndex] ?? 0));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += bytesPerSample;
+    }
+  }
+
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+async function convertRecordedVoiceBlobToWavFile(blob: Blob): Promise<File> {
+  const AudioContextCtor =
+    window.AudioContext ??
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextCtor) {
+    throw new Error("AudioContext is not available for recorded voice conversion.");
+  }
+
+  const audioContext = new AudioContextCtor();
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const decoded = await audioContext.decodeAudioData(arrayBuffer);
+    const wavBlob = encodeAudioBufferAsWav(decoded);
+    return new File([wavBlob], `voice-clone-${Date.now()}.wav`, { type: "audio/wav" });
+  } finally {
+    await audioContext.close().catch(() => undefined);
+  }
+}
+
 type CharacterCardProps = {
   name: string;
   voiceLabel: string;
@@ -2831,23 +2895,27 @@ export function AssistantSettings({
         }
       };
       recorder.onstop = () => {
-        if (attemptId !== clonedVoiceRecordingAttemptIdRef.current) {
+        void (async () => {
+          if (attemptId !== clonedVoiceRecordingAttemptIdRef.current) {
+            clonedVoiceRecorderChunksRef.current = [];
+            stream.getTracks().forEach((track) => track.stop());
+            return;
+          }
+          const blob = new Blob(clonedVoiceRecorderChunksRef.current, { type: mimeType });
           clonedVoiceRecorderChunksRef.current = [];
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        const blob = new Blob(clonedVoiceRecorderChunksRef.current, { type: mimeType });
-        clonedVoiceRecorderChunksRef.current = [];
-        cleanupClonedVoiceRecorder();
-        setCreateClonedVoiceRecordingState("idle");
-        setCreateClonedVoiceRecordingSeconds(0);
-        if (blob.size < 500) {
-          setCreateClonedVoiceMicError(t("voicesRecordTooShort"));
-          return;
-        }
-        handleClonedVoiceAudioFile(
-          new File([blob], `voice-clone-${Date.now()}.webm`, { type: mimeType })
-        );
+          cleanupClonedVoiceRecorder();
+          setCreateClonedVoiceRecordingState("idle");
+          setCreateClonedVoiceRecordingSeconds(0);
+          if (blob.size < 500) {
+            setCreateClonedVoiceMicError(t("voicesRecordTooShort"));
+            return;
+          }
+          try {
+            handleClonedVoiceAudioFile(await convertRecordedVoiceBlobToWavFile(blob));
+          } catch {
+            setCreateClonedVoiceMicError(t("voicesRecordPermissionFallback"));
+          }
+        })();
       };
       recorder.start(250);
       setCreateClonedVoiceRecordingState("recording");
@@ -2907,8 +2975,7 @@ export function AssistantSettings({
           removeBackgroundNoise: true
         },
         {
-          stallTimeoutMs: 15_000,
-          hardTimeoutMs: 120_000
+          hardTimeoutMs: 180_000
         }
       );
       closeClonedVoiceModal();
@@ -2934,7 +3001,9 @@ export function AssistantSettings({
                 ? t("voicesErrorProviderLimitReached")
                 : code === "vcoin_balance_exhausted"
                   ? t("voicesErrorInsufficientBalance")
-                  : t("voicesErrorGeneric")
+                  : code === "voice_clone_audio_format_unsupported"
+                    ? t("voicesErrorUnsupportedAudioFormat")
+                    : t("voicesErrorGeneric")
       );
     } finally {
       setCreateClonedVoiceSubmitting(false);
@@ -4993,7 +5062,7 @@ export function AssistantSettings({
                         <input
                           id="voice-clone-audio-input"
                           type="file"
-                          accept="audio/*,.webm,.wav,.mp3,.m4a"
+                          accept="audio/mpeg,audio/wav,audio/wave,audio/x-wav,.mp3,.wav"
                           className="sr-only"
                           onChange={(event) => {
                             const file = event.target.files?.[0];

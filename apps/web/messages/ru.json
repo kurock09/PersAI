@@ -1296,6 +1296,7 @@
     "voicesErrorPlanUpgradeRequired": "Чтобы использовать клонирование голоса, нужно повысить тариф подключенного аккаунта HeyGen.",
     "voicesErrorProviderLimitReached": "HeyGen достиг собственного лимита ресурсов на клоны голосов для этого аккаунта.",
     "voicesErrorInsufficientBalance": "Недостаточно VC на балансе.",
+    "voicesErrorUnsupportedAudioFormat": "Для клонирования голоса используйте аудио в формате MP3 или WAV.",
     "voicesErrorGeneric": "Не удалось создать клон голоса. Попробуйте еще раз."
   },
   "telegram": {

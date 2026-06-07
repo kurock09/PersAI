@@ -68,6 +68,7 @@ export class ManageWorkspaceVideoClonedVoicesService {
       originalFilename: input.audioFile.originalFilename,
       surface: "voice_transcription"
     });
+    this.assertHeyGenVoiceCloneAudioMimeType(validated.effectiveMimeType);
 
     const preActiveCount = await this.clonedVoiceRepository.countActiveForWorkspace(
       input.workspaceId
@@ -376,6 +377,23 @@ export class ManageWorkspaceVideoClonedVoicesService {
 
   private normalizeOptionalString(value: string | null | undefined): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private assertHeyGenVoiceCloneAudioMimeType(mimeType: string): void {
+    if (
+      mimeType === "audio/mpeg" ||
+      mimeType === "audio/wav" ||
+      mimeType === "audio/wave" ||
+      mimeType === "audio/x-wav"
+    ) {
+      return;
+    }
+    throw new BadRequestException({
+      error: {
+        code: "voice_clone_audio_format_unsupported",
+        message: "Voice clone samples must be MP3 or WAV audio."
+      }
+    });
   }
 
   /**
