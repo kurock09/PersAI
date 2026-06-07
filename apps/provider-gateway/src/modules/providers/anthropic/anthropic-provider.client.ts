@@ -43,6 +43,7 @@ type AnthropicBuiltMessageContent =
       | {
           type: "text";
           text: string;
+          cache_control?: AnthropicPromptCacheControl;
         }
       | {
           type: "image";
@@ -78,6 +79,8 @@ type AnthropicBuiltMessage = {
   role: "user" | "assistant";
   content: AnthropicBuiltMessageContent;
 };
+
+const APPROX_ANTHROPIC_CHARS_PER_TOKEN = 4;
 
 @Injectable()
 export class AnthropicProviderClient implements ProviderWarmableClient {
@@ -489,6 +492,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         ]
       });
     }
+    this.applyAnthropicMovingHistoryBreakpoint(messages, input.promptCache);
     return messages;
   }
 
@@ -546,6 +550,61 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     return {
       type: "ephemeral"
     };
+  }
+
+  private applyAnthropicMovingHistoryBreakpoint(
+    messages: AnthropicBuiltMessage[],
+    promptCache: ProviderGatewayTextGenerateRequest["promptCache"] | undefined
+  ): void {
+    const minTokens = promptCache?.anthropicHistoryBreakpointMinTokens;
+    if (!Number.isFinite(minTokens) || typeof minTokens !== "number" || minTokens <= 0) {
+      return;
+    }
+    const minTailChars = Math.ceil(minTokens * APPROX_ANTHROPIC_CHARS_PER_TOKEN);
+    let tailTextChars = 0;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message === undefined) {
+        continue;
+      }
+      const breakpointText = this.resolveAnthropicHistoryBreakpointText(message.content);
+      if (breakpointText !== null && tailTextChars >= minTailChars) {
+        messages[index] = {
+          ...message,
+          content: [
+            {
+              type: "text",
+              text: breakpointText,
+              cache_control: this.buildAnthropicCacheControl(promptCache)
+            }
+          ]
+        };
+        return;
+      }
+      tailTextChars += this.measureAnthropicTextTailChars(message);
+    }
+  }
+
+  private resolveAnthropicHistoryBreakpointText(
+    content: AnthropicBuiltMessageContent
+  ): string | null {
+    if (typeof content === "string") {
+      return content.length > 0 ? content : null;
+    }
+    if (content.length !== 1) {
+      return null;
+    }
+    const block = content[0];
+    return block?.type === "text" && block.text.length > 0 ? block.text : null;
+  }
+
+  private measureAnthropicTextTailChars(message: AnthropicBuiltMessage): number {
+    if (typeof message.content === "string") {
+      return message.content.length;
+    }
+    return message.content.reduce((total, block) => {
+      return block.type === "text" ? total + block.text.length : total;
+    }, 0);
   }
 
   private toAnthropicTools(input: ProviderGatewayTextGenerateRequest): AnthropicTool[] {

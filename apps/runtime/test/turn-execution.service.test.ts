@@ -4154,7 +4154,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeOverride + 1);
   assert.equal(providerGatewayClient.calls.at(-1)?.provider, "anthropic");
   assert.equal(providerGatewayClient.calls.at(-1)?.model, "claude-sonnet-4-5");
-  assert.deepEqual(providerGatewayClient.calls.at(-1)?.promptCache, {});
+  assert.deepEqual(providerGatewayClient.calls.at(-1)?.promptCache, {
+    anthropicHistoryBreakpointMinTokens: 3000
+  });
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 

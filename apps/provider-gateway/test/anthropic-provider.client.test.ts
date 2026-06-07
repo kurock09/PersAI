@@ -483,6 +483,87 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   ]);
   assertNoDeveloperRole(capturedGeneratePayload!.messages);
 
+  const movingHistoryCacheRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    promptCache: {
+      anthropicHistoryBreakpointMinTokens: 1
+    },
+    messages: [
+      {
+        role: "assistant",
+        content:
+          "Stable earlier answer that should become the moving Anthropic history breakpoint once the uncached tail grows."
+      },
+      {
+        role: "user",
+        content: "x".repeat(32)
+      }
+    ]
+  };
+  await client.generateText(movingHistoryCacheRequest);
+  assert.deepEqual(capturedGeneratePayload!.messages, [
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Stable earlier answer that should become the moving Anthropic history breakpoint once the uncached tail grows.",
+          cache_control: {
+            type: "ephemeral"
+          }
+        }
+      ]
+    },
+    {
+      role: "user",
+      content: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+  ]);
+
+  const mediaOnlyTailCacheRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    promptCache: {
+      anthropicHistoryBreakpointMinTokens: 1
+    },
+    messages: [
+      {
+        role: "assistant",
+        content: "Do not cache this yet because only binary tail grew."
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            mimeType: "image/jpeg",
+            dataBase64: "x".repeat(128),
+            filename: "tail.jpg"
+          }
+        ]
+      }
+    ]
+  };
+  await client.generateText(mediaOnlyTailCacheRequest);
+  assert.deepEqual(capturedGeneratePayload!.messages, [
+    {
+      role: "assistant",
+      content: "Do not cache this yet because only binary tail grew."
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/jpeg",
+            data: "x".repeat(128)
+          }
+        }
+      ]
+    }
+  ]);
+
   const stream = await client.streamText(request);
   const events = await collectStream(stream);
   assert.deepEqual(capturedStreamPayload!.messages, baselineGenerateMessages);

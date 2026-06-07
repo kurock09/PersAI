@@ -2887,6 +2887,15 @@ export type ProviderGatewayPromptCacheRetention =
 export interface ProviderGatewayPromptCacheConfig {
   key?: string;
   retention?: ProviderGatewayPromptCacheRetention;
+  /**
+   * Anthropic-only moving history breakpoint hint. When set to a positive integer, provider-gateway
+   * may place one additional explicit cache breakpoint on a stable historical message block only
+   * after the uncached tail behind that block grows past this approximate token threshold.
+   *
+   * This keeps the cheap stable system breakpoint always on, while allowing longer chats to
+   * periodically advance the cache frontier without forcing a new cache write on every turn.
+   */
+  anthropicHistoryBreakpointMinTokens?: number;
 }
 
 export interface ProviderGatewayTextGenerateRequest {

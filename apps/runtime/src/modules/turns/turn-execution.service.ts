@@ -137,6 +137,7 @@ type NativeManagedProvider = "openai" | "anthropic";
 const PROMPT_CACHE_KEY_BUCKETS = 8;
 const PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
 const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
+const ANTHROPIC_HISTORY_BREAKPOINT_MIN_TOKENS = 3_000;
 const APPROX_CHARS_PER_TOKEN = 4;
 const MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS = 4;
 const MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS = 4;
@@ -5003,7 +5004,11 @@ export class TurnExecutionService {
     projectedTools?: RuntimeNativeToolProjection;
   }): ProviderGatewayPromptCacheConfig | undefined {
     if (input.provider === "anthropic") {
-      return {};
+      return input.family === "ordinary_chat" || input.family === "deep_chat"
+        ? {
+            anthropicHistoryBreakpointMinTokens: ANTHROPIC_HISTORY_BREAKPOINT_MIN_TOKENS
+          }
+        : {};
     }
     if (input.provider !== "openai") {
       return undefined;
