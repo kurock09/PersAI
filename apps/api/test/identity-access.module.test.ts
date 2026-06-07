@@ -247,6 +247,16 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     { path: "api/v1/support/tickets/:ticketId/read", method: RequestMethod.POST },
     { path: "api/v1/support/attachments/:attachmentId", method: RequestMethod.GET },
     { path: "api/v1/admin/support/attachments/:attachmentId", method: RequestMethod.GET },
+    { path: "api/v1/workspaces/:workspaceId/video-cloned-voices", method: RequestMethod.POST },
+    { path: "api/v1/workspaces/:workspaceId/video-cloned-voices", method: RequestMethod.GET },
+    {
+      path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId",
+      method: RequestMethod.DELETE
+    },
+    {
+      path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId/default",
+      method: RequestMethod.POST
+    },
     { path: "api/v1/admin/plans/packages", method: RequestMethod.GET },
     { path: "api/v1/admin/plans/packages", method: RequestMethod.POST },
     { path: "api/v1/admin/plans/packages/:id", method: RequestMethod.PATCH },

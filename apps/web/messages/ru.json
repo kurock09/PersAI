@@ -1219,6 +1219,7 @@
     "charactersFormVoiceEmptyForFilter": "Для выбранного языкового фильтра голоса не найдены.",
     "charactersFormVoiceEmptyForLanguageSearch": "Для этого поиска по языку голоса не найдены.",
     "charactersFormVoiceFilterOther": "OTHER",
+    "charactersFormVoiceFilterMine": "МОИ",
     "charactersFormVoiceLanguageSearchPlaceholder": "Искать язык, например Spanish",
     "charactersFormNoVoiceSelected": "Выберите голос",
     "charactersErrorDuplicateName": "Персонаж с таким именем уже существует.",

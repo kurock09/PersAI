@@ -369,6 +369,26 @@ export class IdentityAccessModule implements NestModule {
       {
         path: "api/v1/workspaces/:workspaceId/video-personas/:personaId/portrait",
         method: RequestMethod.GET
+      },
+      // ADR-111: workspace-scoped cloned voice endpoints share the same
+      // fail-closed workspace auth model as video personas. Keep every
+      // concrete route registered here; otherwise controllers receive no
+      // resolved Clerk user and live requests fail as userId=null / 401.
+      {
+        path: "api/v1/workspaces/:workspaceId/video-cloned-voices",
+        method: RequestMethod.POST
+      },
+      {
+        path: "api/v1/workspaces/:workspaceId/video-cloned-voices",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId",
+        method: RequestMethod.DELETE
+      },
+      {
+        path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId/default",
+        method: RequestMethod.POST
       }
     );
   }

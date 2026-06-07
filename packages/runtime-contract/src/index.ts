@@ -2912,7 +2912,10 @@ export interface ProviderGatewayTextGenerateRequest {
    * routing/execution-mode hints, the per-turn heartbeat block, and (in later slices) time
    * awareness fields. Providers project this field provider-natively:
    *   - OpenAI Responses API: a `role: "developer"` input item appended after history.
-   *   - Anthropic: a second text block appended to the `system` array (no `cache_control`).
+   *   - Anthropic: normally a second text block appended to the `system` array (no
+   *     `cache_control`); when moving history prompt-cache is enabled, a provider-native suffix
+   *     message after history so volatile guidance cannot invalidate message-level cache
+   *     breakpoints.
    * The runtime owns assembly and must keep `systemPrompt` byte-stable across turns.
    */
   developerInstructions?: string | null;

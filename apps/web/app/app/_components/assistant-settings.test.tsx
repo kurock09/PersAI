@@ -3211,6 +3211,7 @@ describe("characters section", () => {
     expect(within(dialog).getByRole("button", { name: "EN" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "RU" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "OTHER" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "MY" })).toBeInTheDocument();
 
     await waitFor(() => {
       expect(within(dialog).getByText("Allison")).toBeInTheDocument();
@@ -3704,6 +3705,9 @@ describe("characters section", () => {
       expect(screen.getByText("My voices")).toBeInTheDocument();
     });
 
+    expect(screen.queryByText("Ready")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /My voices/i }));
+
     expect(screen.getByText("Ready")).toBeInTheDocument();
     expect(screen.getByText("Pending")).toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeInTheDocument();
@@ -3711,9 +3715,10 @@ describe("characters section", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Create character" }));
     const dialog = await screen.findByRole("dialog");
 
-    expect(
-      within(dialog).getByRole("button", { name: "Ready Voice · Default" })
-    ).toBeInTheDocument();
+    expect(within(dialog).queryByText("Ready Voice")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "MY" }));
+
+    expect(within(dialog).getByText("Ready Voice")).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Pending Voice" })).toBeNull();
     expect(within(dialog).queryByRole("button", { name: "Failed Voice" })).toBeNull();
   });
@@ -4128,7 +4133,7 @@ describe("characters section", () => {
           id: "persona-edit",
           displayName: "Masha",
           portraitImageUrl: "/api/persona-portrait/ws-1/p-1/hash.jpg",
-          heygenVoiceId: "preset-voice",
+          heygenVoiceId: "en-US-Amy",
           heygenVoiceLabel: "Preset Voice",
           clonedVoiceId: "clone-ready",
           clonedVoiceDisplayName: "Ready Voice",
@@ -4149,8 +4154,8 @@ describe("characters section", () => {
     fireEvent.change(within(dialog).getByPlaceholderText("Character name"), {
       target: { value: "Alice" }
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Ready Voice" }));
-    fireEvent.click(within(dialog).getByText("Amy").closest('[role="button"]')!);
+    fireEvent.click(within(dialog).getByRole("button", { name: "MY" }));
+    fireEvent.click(within(dialog).getByText("Ready Voice").closest('[role="button"]')!);
     const portraitInput = dialog.querySelector('input[type="file"]') as HTMLInputElement;
     const fakeFile = new File(["data"], "portrait.jpg", { type: "image/jpeg" });
     Object.defineProperty(portraitInput, "files", {
@@ -4175,7 +4180,8 @@ describe("characters section", () => {
 
     fireEvent.click(await screen.findByText("Masha"));
     dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Use preset voice only" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "EN" }));
+    fireEvent.click(within(dialog).getByText("Amy").closest('[role="button"]')!);
     fireEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
@@ -4185,7 +4191,7 @@ describe("characters section", () => {
         "persona-edit",
         {
           displayName: "Masha",
-          heygenVoiceId: "preset-voice",
+          heygenVoiceId: "en-US-Amy",
           clonedVoiceId: null
         }
       );
@@ -4222,6 +4228,7 @@ describe("characters section", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Create character" }));
     const personaDialog = await screen.findByRole("dialog");
+    fireEvent.click(within(personaDialog).getByRole("button", { name: "MY" }));
     fireEvent.click(within(personaDialog).getByRole("button", { name: "Clone a new voice" }));
 
     const cloneDialogs = screen.getAllByRole("dialog");
@@ -4243,6 +4250,7 @@ describe("characters section", () => {
     await waitFor(() => {
       expect(assistantApiMocks.createWorkspaceVideoClonedVoice).toHaveBeenCalled();
     });
+    expect(clerkMocks.getToken).toHaveBeenCalledWith({ skipCache: true });
 
     await waitFor(() => {
       expect(

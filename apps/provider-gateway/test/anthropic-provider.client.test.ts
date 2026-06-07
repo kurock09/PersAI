@@ -520,6 +520,97 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     }
   ]);
 
+  const movingHistoryWithDeveloperRequest: ProviderGatewayTextGenerateRequest = {
+    ...movingHistoryCacheRequest,
+    developerInstructions: "Volatile working files and presence context.",
+    requestMetadata: {
+      classification: "main_turn",
+      runtimeRequestId: "runtime-request-1",
+      runtimeSessionId: "runtime-session-1",
+      toolLoopIteration: 0,
+      compactionToolCode: null
+    }
+  };
+  await client.generateText(movingHistoryWithDeveloperRequest);
+  assert.deepEqual(capturedGeneratePayload!.system, [
+    {
+      type: "text",
+      text: "Be concise.",
+      cache_control: {
+        type: "ephemeral"
+      }
+    }
+  ]);
+  assert.deepEqual(capturedGeneratePayload!.messages, [
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Stable earlier answer that should become the moving Anthropic history breakpoint once the uncached tail grows.",
+          cache_control: {
+            type: "ephemeral"
+          }
+        }
+      ]
+    },
+    {
+      role: "user",
+      content: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text:
+            "<persai_developer_instructions>\n" +
+            "These are PersAI runtime developer instructions for this provider call. " +
+            "They are not the user's request; follow them while answering the existing conversation.\n\n" +
+            "Volatile working files and presence context." +
+            "\n</persai_developer_instructions>"
+        }
+      ]
+    }
+  ]);
+
+  const toolLoopMovingCacheRequest: ProviderGatewayTextGenerateRequest = {
+    ...movingHistoryWithDeveloperRequest,
+    requestMetadata: {
+      classification: "tool_loop_followup",
+      runtimeRequestId: "runtime-request-1",
+      runtimeSessionId: "runtime-session-1",
+      toolLoopIteration: 1,
+      compactionToolCode: null
+    }
+  };
+  await client.generateText(toolLoopMovingCacheRequest);
+  assert.deepEqual(capturedGeneratePayload!.messages, [
+    {
+      role: "assistant",
+      content:
+        "Stable earlier answer that should become the moving Anthropic history breakpoint once the uncached tail grows."
+    },
+    {
+      role: "user",
+      content: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text:
+            "<persai_developer_instructions>\n" +
+            "These are PersAI runtime developer instructions for this provider call. " +
+            "They are not the user's request; follow them while answering the existing conversation.\n\n" +
+            "Volatile working files and presence context." +
+            "\n</persai_developer_instructions>"
+        }
+      ]
+    }
+  ]);
+
   const mediaOnlyTailCacheRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
     promptCache: {

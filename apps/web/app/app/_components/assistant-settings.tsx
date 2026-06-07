@@ -128,7 +128,7 @@ interface AssistantSettingsProps {
 }
 
 type ActionFeedback = { type: "ok" | "err" | "warn"; text: string } | null;
-type PersonaVoiceLanguageFilter = "ru" | "en" | "other";
+type PersonaVoiceLanguageFilter = "ru" | "en" | "other" | "mine";
 type PersonaLightboxState = { src: string; name: string } | null;
 type PersonaModalMode = "create" | "edit";
 type ClonedVoiceModalMode = "upload" | "record";
@@ -991,6 +991,9 @@ function matchesVoiceLanguageFilter(
   filter: PersonaVoiceLanguageFilter
 ): boolean {
   const normalized = language?.trim().toLowerCase() ?? "";
+  if (filter === "mine") {
+    return false;
+  }
   if (filter === "ru") {
     return (
       normalized === "ru" ||
@@ -1428,6 +1431,7 @@ export function AssistantSettings({
   const [clonedVoiceCreationVcoinCost, setClonedVoiceCreationVcoinCost] = useState<number>(50);
   const [clonedVoiceListLoading, setClonedVoiceListLoading] = useState(false);
   const [clonedVoiceSubmittingId, setClonedVoiceSubmittingId] = useState<string | null>(null);
+  const [clonedVoicesExpanded, setClonedVoicesExpanded] = useState(false);
   const [voiceCatalog, setVoiceCatalog] = useState<VoiceCatalogEntry[]>([]);
   const [voiceCatalogLoading, setVoiceCatalogLoading] = useState(false);
   const [voiceCatalogUnavailable, setVoiceCatalogUnavailable] = useState(false);
@@ -1708,6 +1712,9 @@ export function AssistantSettings({
     }
     return readyClonedVoices.find((voice) => voice.id === createPersonaClonedVoiceId) ?? null;
   }, [createPersonaClonedVoiceId, readyClonedVoices]);
+  const personaFallbackVoiceId =
+    createPersonaVoiceId ??
+    (createPersonaClonedVoiceId ? (voiceCatalog[0]?.voiceId ?? null) : null);
   const cloneLinkedSummaryById = useMemo(() => {
     const map = new Map<string, string>();
     for (const voice of clonedVoiceList) {
@@ -2883,7 +2890,7 @@ export function AssistantSettings({
       setCreateClonedVoiceError(t("voicesFormRightsRequired"));
       return;
     }
-    const token = await getToken();
+    const token = (await getToken({ skipCache: true })) ?? (await getToken());
     if (!token) {
       return;
     }
@@ -4060,152 +4067,6 @@ export function AssistantSettings({
 
             <p className="text-xs leading-5 text-text-muted">{charactersHelperText}</p>
 
-            <div className="rounded-2xl border border-border/60 bg-surface/60 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-text">{t("voicesTitle")}</p>
-                  <p className="mt-1 text-xs leading-5 text-text-muted">{t("voicesHelperText")}</p>
-                </div>
-                <button
-                  type="button"
-                  disabled={clonedVoiceCreateDisabledReason !== null}
-                  title={clonedVoiceCreateDisabledReason ?? undefined}
-                  onClick={() => {
-                    if (clonedVoiceCreateDisabledReason !== null) {
-                      return;
-                    }
-                    resetClonedVoiceModal(false);
-                  }}
-                  className={cn(
-                    "inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all",
-                    clonedVoiceCreateDisabledReason !== null
-                      ? "cursor-not-allowed opacity-60"
-                      : "hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
-                  )}
-                >
-                  {t("voicesCreate")}
-                </button>
-              </div>
-              <div className="mt-3 rounded-xl border border-border/50 bg-surface-raised/20 px-3 py-2 text-xs text-text-muted">
-                {t("voicesCostSummary", {
-                  n: clonedVoiceCreationVcoinCost,
-                  m: data.plan?.workspaceVcoinBalance?.balanceVc ?? 0,
-                  limit: clonedVoiceLimit
-                })}
-              </div>
-              {clonedVoiceListLoading && clonedVoiceList.length === 0 ? (
-                <div className="mt-3 flex items-center gap-2 py-1 text-xs text-text-subtle">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>{t("charactersLoading")}</span>
-                </div>
-              ) : clonedVoiceList.length === 0 ? (
-                <p className="mt-3 text-xs text-text-subtle">{t("voicesEmpty")}</p>
-              ) : (
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  {clonedVoiceList.map((voice) => {
-                    const busy = clonedVoiceSubmittingId === voice.id;
-                    const statusLabel =
-                      voice.status === "ready"
-                        ? t("voicesStatusReady")
-                        : voice.status === "pending"
-                          ? t("voicesStatusPending")
-                          : t("voicesStatusFailed");
-                    const statusTone =
-                      voice.status === "ready"
-                        ? "success"
-                        : voice.status === "pending"
-                          ? "warn"
-                          : "error";
-                    return (
-                      <VoiceCloneCard
-                        key={voice.id}
-                        voice={voice}
-                        voiceLabel={t("voicesCardMeta", {
-                          language: voice.languageHint || t("voicesLanguageAuto")
-                        })}
-                        statusLabel={statusLabel}
-                        statusTone={statusTone}
-                        previewUnavailableLabel={t("charactersPreviewUnavailable")}
-                        linkedSummary={cloneLinkedSummaryById.get(voice.id) ?? null}
-                        archiveLabel={t("voicesArchive")}
-                        defaultLabel={t("voicesDefault")}
-                        makeDefaultLabel={
-                          busy ? t("voicesSubmittingShort") : t("voicesMakeDefault")
-                        }
-                        onArchive={
-                          voice.status === "pending" || busy
-                            ? undefined
-                            : async () => {
-                                if (!assistant?.workspaceId) return;
-                                const token = await getToken();
-                                if (!token) return;
-                                setClonedVoiceSubmittingId(voice.id);
-                                try {
-                                  await archiveWorkspaceVideoClonedVoice(
-                                    token,
-                                    assistant.workspaceId,
-                                    voice.id
-                                  );
-                                  setClonedVoiceFb({
-                                    type: "ok",
-                                    text: t("voicesArchiveSuccess", { name: voice.displayName })
-                                  });
-                                  if (createPersonaClonedVoiceId === voice.id) {
-                                    setCreatePersonaClonedVoiceId(null);
-                                  }
-                                  await loadClonedVoices();
-                                } catch (error) {
-                                  setClonedVoiceFb({
-                                    type: "err",
-                                    text:
-                                      error instanceof Error
-                                        ? error.message
-                                        : t("voicesErrorGeneric")
-                                  });
-                                } finally {
-                                  setClonedVoiceSubmittingId(null);
-                                }
-                              }
-                        }
-                        onMakeDefault={
-                          voice.status === "ready" && !voice.isDefault && !busy
-                            ? async () => {
-                                if (!assistant?.workspaceId) return;
-                                const token = await getToken();
-                                if (!token) return;
-                                setClonedVoiceSubmittingId(voice.id);
-                                try {
-                                  await setWorkspaceVideoClonedVoiceDefault(
-                                    token,
-                                    assistant.workspaceId,
-                                    voice.id
-                                  );
-                                  setClonedVoiceFb({
-                                    type: "ok",
-                                    text: t("voicesDefaultSuccess", { name: voice.displayName })
-                                  });
-                                  await loadClonedVoices();
-                                } catch (error) {
-                                  setClonedVoiceFb({
-                                    type: "err",
-                                    text:
-                                      error instanceof Error
-                                        ? error.message
-                                        : t("voicesErrorGeneric")
-                                  });
-                                } finally {
-                                  setClonedVoiceSubmittingId(null);
-                                }
-                              }
-                            : undefined
-                        }
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
             {personaListLoading && personaList.length === 0 ? (
               <div className="flex items-center gap-2 py-1 text-xs text-text-subtle">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4294,6 +4155,179 @@ export function AssistantSettings({
                 }}
               />
             </div>
+
+            {talkingVideoEnabled ? (
+              <div className="rounded-2xl border border-border/60 bg-surface/60 p-2.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <button
+                    type="button"
+                    aria-expanded={clonedVoicesExpanded}
+                    onClick={() => setClonedVoicesExpanded((open) => !open)}
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-surface-raised/40"
+                  >
+                    <ChevronRight
+                      className={cn(
+                        "h-4 w-4 shrink-0 text-text-subtle transition-transform",
+                        clonedVoicesExpanded && "rotate-90"
+                      )}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-text">{t("voicesTitle")}</p>
+                      <p className="truncate text-[11px] text-text-muted">
+                        {t("voicesCostSummary", {
+                          n: clonedVoiceCreationVcoinCost,
+                          m: data.plan?.workspaceVcoinBalance?.balanceVc ?? 0,
+                          limit: clonedVoiceLimit
+                        })}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-border/60 bg-surface px-2 py-0.5 text-[10px] font-medium text-text-subtle">
+                      {clonedVoiceList.length}/{clonedVoiceLimit}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={clonedVoiceCreateDisabledReason !== null}
+                    title={clonedVoiceCreateDisabledReason ?? undefined}
+                    onClick={() => {
+                      if (clonedVoiceCreateDisabledReason !== null) {
+                        return;
+                      }
+                      resetClonedVoiceModal(false);
+                    }}
+                    className={cn(
+                      "inline-flex min-h-8 shrink-0 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3 text-[11px] font-medium text-text transition-all",
+                      clonedVoiceCreateDisabledReason !== null
+                        ? "cursor-not-allowed opacity-60"
+                        : "hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
+                    )}
+                  >
+                    {t("voicesCreate")}
+                  </button>
+                </div>
+
+                {clonedVoicesExpanded ? (
+                  <div className="mt-3 border-t border-border/50 pt-3">
+                    <p className="text-xs leading-5 text-text-muted">{t("voicesHelperText")}</p>
+                    {clonedVoiceListLoading && clonedVoiceList.length === 0 ? (
+                      <div className="mt-3 flex items-center gap-2 py-1 text-xs text-text-subtle">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>{t("charactersLoading")}</span>
+                      </div>
+                    ) : clonedVoiceList.length === 0 ? (
+                      <p className="mt-3 text-xs text-text-subtle">{t("voicesEmpty")}</p>
+                    ) : (
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {clonedVoiceList.map((voice) => {
+                          const busy = clonedVoiceSubmittingId === voice.id;
+                          const statusLabel =
+                            voice.status === "ready"
+                              ? t("voicesStatusReady")
+                              : voice.status === "pending"
+                                ? t("voicesStatusPending")
+                                : t("voicesStatusFailed");
+                          const statusTone =
+                            voice.status === "ready"
+                              ? "success"
+                              : voice.status === "pending"
+                                ? "warn"
+                                : "error";
+                          return (
+                            <VoiceCloneCard
+                              key={voice.id}
+                              voice={voice}
+                              voiceLabel={t("voicesCardMeta", {
+                                language: voice.languageHint || t("voicesLanguageAuto")
+                              })}
+                              statusLabel={statusLabel}
+                              statusTone={statusTone}
+                              previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                              linkedSummary={cloneLinkedSummaryById.get(voice.id) ?? null}
+                              archiveLabel={t("voicesArchive")}
+                              defaultLabel={t("voicesDefault")}
+                              makeDefaultLabel={
+                                busy ? t("voicesSubmittingShort") : t("voicesMakeDefault")
+                              }
+                              onArchive={
+                                voice.status === "pending" || busy
+                                  ? undefined
+                                  : async () => {
+                                      if (!assistant?.workspaceId) return;
+                                      const token = await getToken({ skipCache: true });
+                                      if (!token) return;
+                                      setClonedVoiceSubmittingId(voice.id);
+                                      try {
+                                        await archiveWorkspaceVideoClonedVoice(
+                                          token,
+                                          assistant.workspaceId,
+                                          voice.id
+                                        );
+                                        setClonedVoiceFb({
+                                          type: "ok",
+                                          text: t("voicesArchiveSuccess", {
+                                            name: voice.displayName
+                                          })
+                                        });
+                                        if (createPersonaClonedVoiceId === voice.id) {
+                                          setCreatePersonaClonedVoiceId(null);
+                                        }
+                                        await loadClonedVoices();
+                                      } catch (error) {
+                                        setClonedVoiceFb({
+                                          type: "err",
+                                          text:
+                                            error instanceof Error
+                                              ? error.message
+                                              : t("voicesErrorGeneric")
+                                        });
+                                      } finally {
+                                        setClonedVoiceSubmittingId(null);
+                                      }
+                                    }
+                              }
+                              onMakeDefault={
+                                voice.status === "ready" && !voice.isDefault && !busy
+                                  ? async () => {
+                                      if (!assistant?.workspaceId) return;
+                                      const token = await getToken({ skipCache: true });
+                                      if (!token) return;
+                                      setClonedVoiceSubmittingId(voice.id);
+                                      try {
+                                        await setWorkspaceVideoClonedVoiceDefault(
+                                          token,
+                                          assistant.workspaceId,
+                                          voice.id
+                                        );
+                                        setClonedVoiceFb({
+                                          type: "ok",
+                                          text: t("voicesDefaultSuccess", {
+                                            name: voice.displayName
+                                          })
+                                        });
+                                        await loadClonedVoices();
+                                      } catch (error) {
+                                        setClonedVoiceFb({
+                                          type: "err",
+                                          text:
+                                            error instanceof Error
+                                              ? error.message
+                                              : t("voicesErrorGeneric")
+                                        });
+                                      } finally {
+                                        setClonedVoiceSubmittingId(null);
+                                      }
+                                    }
+                                  : undefined
+                              }
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {/* Delete confirm modal */}
             {deletePersonaId !== null &&
@@ -4532,70 +4566,8 @@ export function AssistantSettings({
                       <p className="mb-1 text-[11px] font-medium text-text-subtle">
                         {t("charactersFormVoice")}
                       </p>
-                      <div className="mb-3 rounded-xl border border-border/60 bg-surface-raised/20 p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-medium text-text">
-                              {t("charactersFormClonedVoice")}
-                            </p>
-                            <p className="mt-1 text-[11px] leading-5 text-text-muted">
-                              {t("charactersFormClonedVoiceHint")}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => resetClonedVoiceModal(true)}
-                            className="rounded-full border border-border px-3 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface hover:text-text"
-                          >
-                            {t("voicesCreateInline")}
-                          </button>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            aria-pressed={createPersonaClonedVoiceId === null}
-                            onClick={() => setCreatePersonaClonedVoiceId(null)}
-                            className={cn(
-                              "rounded-full border px-3 py-1 text-[11px] transition-colors",
-                              createPersonaClonedVoiceId === null
-                                ? "border-accent/40 bg-accent/10 text-text"
-                                : "border-border text-text-muted hover:bg-surface"
-                            )}
-                          >
-                            {t("charactersFormUsePresetVoice")}
-                          </button>
-                          {readyClonedVoices.map((voice) => (
-                            <button
-                              key={voice.id}
-                              type="button"
-                              aria-pressed={createPersonaClonedVoiceId === voice.id}
-                              onClick={() => setCreatePersonaClonedVoiceId(voice.id)}
-                              className={cn(
-                                "rounded-full border px-3 py-1 text-[11px] transition-colors",
-                                createPersonaClonedVoiceId === voice.id
-                                  ? "border-accent/40 bg-accent/10 text-text"
-                                  : "border-border text-text-muted hover:bg-surface"
-                              )}
-                            >
-                              {voice.displayName}
-                              {voice.isDefault ? ` · ${t("voicesDefault")}` : ""}
-                            </button>
-                          ))}
-                        </div>
-                        {readyClonedVoices.length === 0 ? (
-                          <p className="mt-2 text-[11px] text-text-subtle">
-                            {t("charactersFormNoClonedVoices")}
-                          </p>
-                        ) : activePersonaVoiceOption ? (
-                          <p className="mt-2 text-[11px] text-green-600">
-                            {t("charactersFormClonedVoiceSelected", {
-                              name: activePersonaVoiceOption.displayName
-                            })}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="mb-2 grid w-full grid-cols-3 rounded-full border border-border/60 bg-surface-raised/20 p-1">
-                        {(["ru", "en", "other"] as const).map((language) => (
+                      <div className="mb-2 grid w-full grid-cols-4 rounded-full border border-border/60 bg-surface-raised/20 p-1">
+                        {(["ru", "en", "other", "mine"] as const).map((language) => (
                           <button
                             key={language}
                             type="button"
@@ -4614,7 +4586,9 @@ export function AssistantSettings({
                           >
                             {language === "other"
                               ? t("charactersFormVoiceFilterOther")
-                              : language.toUpperCase()}
+                              : language === "mine"
+                                ? t("charactersFormVoiceFilterMine")
+                                : language.toUpperCase()}
                           </button>
                         ))}
                       </div>
@@ -4629,7 +4603,64 @@ export function AssistantSettings({
                           />
                         </div>
                       ) : null}
-                      {voiceCatalogLoading ? (
+                      {voiceLanguageFilter === "mine" ? (
+                        <div className="space-y-2">
+                          {readyClonedVoices.length === 0 ? (
+                            <p className="py-2 text-xs text-text-muted">
+                              {t("charactersFormNoClonedVoices")}
+                            </p>
+                          ) : (
+                            <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
+                              {readyClonedVoices.map((voice) => (
+                                <div
+                                  key={voice.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-pressed={createPersonaClonedVoiceId === voice.id}
+                                  onClick={() => setCreatePersonaClonedVoiceId(voice.id)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                      event.preventDefault();
+                                      setCreatePersonaClonedVoiceId(voice.id);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-accent/20",
+                                    createPersonaClonedVoiceId === voice.id && "bg-accent/10"
+                                  )}
+                                >
+                                  <span className="flex-1 truncate font-medium text-text">
+                                    {voice.displayName}
+                                  </span>
+                                  <span className="shrink-0 text-text-subtle">
+                                    {voice.languageHint || t("voicesLanguageAuto")}
+                                    {voice.isDefault ? ` · ${t("voicesDefault")}` : ""}
+                                  </span>
+                                  <VoicePreviewButton
+                                    previewAudioUrl={voice.previewAudioUrl}
+                                    voiceLabel={voice.displayName}
+                                    previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => resetClonedVoiceModal(true)}
+                            className="text-[11px] font-medium text-accent transition-opacity hover:opacity-80"
+                          >
+                            {t("voicesCreateInline")}
+                          </button>
+                          {activePersonaVoiceOption ? (
+                            <p className="text-[11px] text-green-600">
+                              {t("charactersFormClonedVoiceSelected", {
+                                name: activePersonaVoiceOption.displayName
+                              })}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : voiceCatalogLoading ? (
                         <div className="flex items-center gap-2 py-2 text-xs text-text-subtle">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           <span>{t("charactersLoading")}</span>
@@ -4653,11 +4684,15 @@ export function AssistantSettings({
                               role="button"
                               tabIndex={0}
                               aria-pressed={createPersonaVoiceId === voice.voiceId}
-                              onClick={() => setCreatePersonaVoiceId(voice.voiceId)}
+                              onClick={() => {
+                                setCreatePersonaVoiceId(voice.voiceId);
+                                setCreatePersonaClonedVoiceId(null);
+                              }}
                               onKeyDown={(event) => {
                                 if (event.key === "Enter" || event.key === " ") {
                                   event.preventDefault();
                                   setCreatePersonaVoiceId(voice.voiceId);
+                                  setCreatePersonaClonedVoiceId(null);
                                 }
                               }}
                               className={cn(
@@ -4732,14 +4767,14 @@ export function AssistantSettings({
                         disabled={
                           createPersonaSubmitting ||
                           createPersonaName.trim().length === 0 ||
-                          !createPersonaVoiceId ||
+                          !personaFallbackVoiceId ||
                           (personaModalMode === "create" &&
                             (!createPersonaPortrait ||
                               (data.plan?.workspaceVcoinBalance?.balanceVc ?? 0) <
                                 personaCreationVcoinCost))
                         }
                         onClick={async () => {
-                          if (!assistant?.workspaceId || !createPersonaVoiceId) return;
+                          if (!assistant?.workspaceId || !personaFallbackVoiceId) return;
                           const token = await getToken();
                           if (!token) return;
                           setCreatePersonaSubmitting(true);
@@ -4752,7 +4787,7 @@ export function AssistantSettings({
                                 assistant.workspaceId,
                                 {
                                   displayName: createPersonaName.trim(),
-                                  heygenVoiceId: createPersonaVoiceId,
+                                  heygenVoiceId: personaFallbackVoiceId,
                                   clonedVoiceId: createPersonaClonedVoiceId,
                                   portrait: createPersonaPortrait
                                 }
@@ -4779,7 +4814,7 @@ export function AssistantSettings({
                                 editingPersonaId,
                                 {
                                   displayName: createPersonaName.trim(),
-                                  heygenVoiceId: createPersonaVoiceId,
+                                  heygenVoiceId: personaFallbackVoiceId,
                                   clonedVoiceId: createPersonaClonedVoiceId
                                 }
                               );
@@ -4815,7 +4850,7 @@ export function AssistantSettings({
                           "rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-white transition-opacity",
                           (createPersonaSubmitting ||
                             createPersonaName.trim().length === 0 ||
-                            !createPersonaVoiceId ||
+                            !personaFallbackVoiceId ||
                             (personaModalMode === "create" &&
                               (!createPersonaPortrait ||
                                 (data.plan?.workspaceVcoinBalance?.balanceVc ?? 0) <

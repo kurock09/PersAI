@@ -492,7 +492,13 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         ]
       });
     }
-    this.applyAnthropicMovingHistoryBreakpoint(messages, input.promptCache);
+    if (this.shouldApplyAnthropicMovingHistoryBreakpoint(input)) {
+      this.applyAnthropicMovingHistoryBreakpoint(messages, input.promptCache);
+    }
+    const developerInstructionsSuffix = this.buildAnthropicDeveloperInstructionsSuffix(input);
+    if (developerInstructionsSuffix !== null) {
+      messages.push(developerInstructionsSuffix);
+    }
     return messages;
   }
 
@@ -502,7 +508,9 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
    * Anthropic accepts `system` as either a string or an array of `TextBlockParam`. When prompt
    * cache intent or per-turn developer guidance is present, we project system content as explicit
    * text blocks so the stable `systemPrompt` prefix can carry Anthropic's provider-specific
-   * `cache_control` while volatile developer instructions remain uncached in the suffix block.
+   * `cache_control`. For moving history caching, volatile developer instructions are projected
+   * after messages instead; otherwise they would sit before every message breakpoint in Anthropic's
+   * `tools -> system -> messages` cache order and force a fresh history cache write every turn.
    * When only `systemPrompt` is set and no Anthropic cache breakpoint is requested, we keep the
    * legacy string form to minimize behavioural drift.
    */
@@ -518,11 +526,19 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       input.developerInstructions.trim().length > 0
         ? input.developerInstructions
         : null;
+    const developerInstructionsAsMessageSuffix =
+      this.shouldProjectDeveloperInstructionsAsMessageSuffix(input);
     const cacheStableSystemPrompt = systemPrompt !== null && input.promptCache !== undefined;
-    if (systemPrompt === null && developerInstructions === null) {
+    if (
+      systemPrompt === null &&
+      (developerInstructions === null || developerInstructionsAsMessageSuffix)
+    ) {
       return null;
     }
-    if (developerInstructions === null && !cacheStableSystemPrompt) {
+    if (
+      (developerInstructions === null || developerInstructionsAsMessageSuffix) &&
+      !cacheStableSystemPrompt
+    ) {
       return systemPrompt;
     }
     const blocks: AnthropicSystemTextBlock[] = [];
@@ -535,10 +551,47 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           : {})
       });
     }
-    if (developerInstructions !== null) {
+    if (developerInstructions !== null && !developerInstructionsAsMessageSuffix) {
       blocks.push({ type: "text", text: developerInstructions });
     }
     return blocks;
+  }
+
+  private shouldProjectDeveloperInstructionsAsMessageSuffix(
+    input: ProviderGatewayTextGenerateRequest
+  ): boolean {
+    const minTokens = input.promptCache?.anthropicHistoryBreakpointMinTokens;
+    return typeof minTokens === "number" && Number.isFinite(minTokens) && minTokens > 0;
+  }
+
+  private buildAnthropicDeveloperInstructionsSuffix(
+    input: ProviderGatewayTextGenerateRequest
+  ): AnthropicBuiltMessage | null {
+    if (!this.shouldProjectDeveloperInstructionsAsMessageSuffix(input)) {
+      return null;
+    }
+    const developerInstructions =
+      typeof input.developerInstructions === "string" &&
+      input.developerInstructions.trim().length > 0
+        ? input.developerInstructions
+        : null;
+    if (developerInstructions === null) {
+      return null;
+    }
+    return {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text:
+            "<persai_developer_instructions>\n" +
+            "These are PersAI runtime developer instructions for this provider call. " +
+            "They are not the user's request; follow them while answering the existing conversation.\n\n" +
+            developerInstructions +
+            "\n</persai_developer_instructions>"
+        }
+      ]
+    };
   }
 
   private buildAnthropicCacheControl(
@@ -583,6 +636,17 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       }
       tailTextChars += this.measureAnthropicTextTailChars(message);
     }
+  }
+
+  private shouldApplyAnthropicMovingHistoryBreakpoint(
+    input: ProviderGatewayTextGenerateRequest
+  ): boolean {
+    const minTokens = input.promptCache?.anthropicHistoryBreakpointMinTokens;
+    if (!Number.isFinite(minTokens) || typeof minTokens !== "number" || minTokens <= 0) {
+      return false;
+    }
+    const classification = input.requestMetadata?.classification;
+    return classification === undefined || classification === "main_turn";
   }
 
   private resolveAnthropicHistoryBreakpointText(

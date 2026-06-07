@@ -1219,6 +1219,7 @@
     "charactersFormVoiceEmptyForFilter": "No voices found for this language filter.",
     "charactersFormVoiceEmptyForLanguageSearch": "No voices found for this language search.",
     "charactersFormVoiceFilterOther": "OTHER",
+    "charactersFormVoiceFilterMine": "MY",
     "charactersFormVoiceLanguageSearchPlaceholder": "Search language, e.g. Spanish",
     "charactersFormNoVoiceSelected": "Please select a voice",
     "charactersErrorDuplicateName": "A character with this name already exists.",
