@@ -56,6 +56,11 @@ const HYDRATED_STABLE_BLOCK_HEADERS: Array<{
 
 const HYDRATED_NON_STABLE_BLOCK_HEADERS: string[] = [DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER];
 
+export type DurableMemoryContextualGroup = {
+  heading: string;
+  lines: string[];
+};
+
 export function buildPromptCacheStableBlockToken(input: {
   family: PromptCacheStableBlockFamily;
   hash: string;
@@ -67,8 +72,17 @@ export function formatDurableMemoryCoreStableBlock(lines: string[]): string {
   return `${DURABLE_MEMORY_CORE_PREFIX_HEADER}\n${lines.join("\n")}`;
 }
 
-export function formatDurableMemoryContextualBlock(lines: string[]): string {
-  return `${DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER}\n${lines.join("\n")}`;
+export function formatDurableMemoryContextualBlock(groups: DurableMemoryContextualGroup[]): string {
+  const renderedGroups = groups.flatMap((group, index) => {
+    const normalizedLines = group.lines.filter((line) => line.trim().length > 0);
+    if (group.heading.trim().length === 0 || normalizedLines.length === 0) {
+      return [];
+    }
+    return index === 0
+      ? [`${group.heading}:`, ...normalizedLines]
+      : ["", `${group.heading}:`, ...normalizedLines];
+  });
+  return `${DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER}\n${renderedGroups.join("\n")}`;
 }
 
 export function formatSharedCompactionStableBlock(summaryText: string): string {

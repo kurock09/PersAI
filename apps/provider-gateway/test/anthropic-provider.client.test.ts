@@ -769,6 +769,28 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       content: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     }
   ]);
+  const contextualProjection = capturedGeneratePayload!.messages[1] as {
+    role?: unknown;
+    content?: Array<{ type?: unknown; text?: unknown; cache_control?: unknown }>;
+  };
+  assert.equal(contextualProjection.role, "user");
+  assert.ok(Array.isArray(contextualProjection.content));
+  assert.equal(contextualProjection.content?.length, 1);
+  assert.equal(contextualProjection.content?.[0]?.type, "text");
+  assert.equal("cache_control" in (contextualProjection.content?.[0] ?? {}), false);
+  assert.deepEqual(
+    (capturedGeneratePayload!.messages as Array<{ content?: unknown }>).map((message) =>
+      Array.isArray(message.content)
+        ? message.content.filter(
+            (block) =>
+              block !== null &&
+              typeof block === "object" &&
+              "cache_control" in (block as Record<string, unknown>)
+          ).length
+        : 0
+    ),
+    [1, 0, 0]
+  );
 
   const mediaOnlyTailCacheRequest: ProviderGatewayTextGenerateRequest = {
     ...request,

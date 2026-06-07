@@ -9,6 +9,7 @@ import type {
   AssistantMemoryRegistryKind
 } from "../domain/assistant-memory-registry-item.entity";
 import { ReadAssistantKnowledgeService } from "./read-assistant-knowledge.service";
+import { isObviouslyNonDurableMemorySummary, normalizeMemoryText } from "./memory-summary.util";
 
 /**
  * ADR-074 M1 — runtime-facing hydration of durable memory for one turn.
@@ -125,10 +126,20 @@ export class HydrateMemoryForTurnService {
         memoryClass: "contextual"
       });
       const coreIds = new Set(coreItems.map((item) => item.id));
+      const coreNormalizedSummaries = new Set(
+        coreItems
+          .map((item) => normalizeMemoryText(item.summary))
+          .filter((summary) => summary.length > 0)
+      );
       contextualItems = hits
         .map((hit) => this.toHydratedItem(hit))
         .filter((item): item is HydratedDurableMemoryItem => item !== null)
-        .filter((item) => !coreIds.has(item.id));
+        .filter((item) => !coreIds.has(item.id))
+        .filter((item) => !isObviouslyNonDurableMemorySummary(item.summary))
+        .filter((item) => {
+          const normalizedSummary = normalizeMemoryText(item.summary);
+          return normalizedSummary.length > 0 && !coreNormalizedSummaries.has(normalizedSummary);
+        });
     }
 
     const touchedIds = [...coreItems, ...contextualItems].map((item) => item.id);

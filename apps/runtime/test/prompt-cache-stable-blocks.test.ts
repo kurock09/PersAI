@@ -44,8 +44,33 @@ export async function runPromptCacheStableBlocksTest(): Promise<void> {
     "Stable facts:\n- Earlier project debrief."
   );
   const contextualContent = formatDurableMemoryContextualBlock([
-    "- [Web chat memory] Last week Alex visited Tbilisi and discussed photography spots."
+    {
+      heading: "Preferences",
+      lines: ["- Prefers walking routes over museum-heavy plans."]
+    },
+    {
+      heading: "Facts",
+      lines: ["- Last week Alex visited Tbilisi and discussed photography spots."]
+    },
+    {
+      heading: "Open loops",
+      lines: ["- Send a shortlist of old-town photo locations later."]
+    }
   ]);
+  assert.equal(
+    contextualContent,
+    [
+      "[Relevant memories retrieved for this turn — may vary between turns]",
+      "Preferences:",
+      "- Prefers walking routes over museum-heavy plans.",
+      "",
+      "Facts:",
+      "- Last week Alex visited Tbilisi and discussed photography spots.",
+      "",
+      "Open loops:",
+      "- Send a shortlist of old-town photo locations later."
+    ].join("\n")
+  );
 
   const tokens = resolveLeadingHydratedPromptCacheStableBlockTokens([
     { role: "assistant", content: coreContent },
@@ -85,7 +110,10 @@ export async function runPromptCacheStableBlocksTest(): Promise<void> {
   // Per-turn rotation of contextual content must NOT change the stable token
   // emitted for the core block — that's the whole point of M1's split.
   const rotatedContextual = formatDurableMemoryContextualBlock([
-    "- [Web chat memory] Different relevance hit from another turn."
+    {
+      heading: "Facts",
+      lines: ["- Different relevance hit from another turn."]
+    }
   ]);
   const rotatedTokens = resolveLeadingHydratedPromptCacheStableBlockTokens([
     { role: "assistant", content: coreContent },

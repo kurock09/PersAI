@@ -122,8 +122,9 @@ async function run(): Promise<void> {
   assert.equal(parsed.userQuery, "I am Alex");
   assert.equal(parsed.contextualLimit, null);
 
-  // execute: returns core items, deduplicates contextual against core,
-  // bumps last_used_at for both blocks.
+  // execute: returns core items, drops trivial contextual noise, filters
+  // normalized contextual duplicates of core, and preserves the search order
+  // of surviving contextual hits.
   const coreRow = buildMemoryRow({
     id: "core-1",
     summary: "User's name is Alex.",
@@ -132,43 +133,78 @@ async function run(): Promise<void> {
     sourceLabel: "Memory write: fact"
   });
   const contextualRow = buildMemoryRow({
-    id: "ctx-1",
+    id: "ctx-keep-1",
     summary: "Loves photography in Tbilisi.",
     memoryClass: "contextual",
     kind: null,
     sourceLabel: "Web chat memory",
     sourceType: "web_chat"
   });
+  const contextualPreferenceRow = buildMemoryRow({
+    id: "ctx-keep-2",
+    summary: "Prefers walking routes over museum-heavy plans.",
+    memoryClass: "contextual",
+    kind: "preference",
+    sourceLabel: "Memory write: preference"
+  });
   const harness = createHarness({
     coreItems: [coreRow],
     contextualHits: [
       {
-        referenceId: "memory:ctx-1",
-        score: 0.42,
-        snippet: "Loves photography in Tbilisi.",
+        referenceId: "memory:greeting-noise",
+        score: 99,
+        snippet: "hello",
+        metadata: {
+          memoryItemId: "greeting-noise",
+          sourceType: "web_chat",
+          sourceLabel: "Web chat memory",
+          memoryClass: "contextual",
+          kind: null,
+          summary: "hello",
+          createdAt: contextualRow.createdAt.toISOString()
+        }
+      },
+      {
+        referenceId: "memory:ctx-keep-1",
+        score: 42,
+        snippet: contextualRow.summary,
         metadata: {
           memoryItemId: contextualRow.id,
           sourceType: "web_chat",
           sourceLabel: "Web chat memory",
           memoryClass: "contextual",
           kind: null,
-          summary: "Loves photography in Tbilisi.",
+          summary: contextualRow.summary,
           createdAt: contextualRow.createdAt.toISOString()
         }
       },
       {
-        // duplicate of core entry — should be filtered out
-        referenceId: "memory:core-1",
-        score: 0.99,
+        // normalized duplicate of core entry with a different id — should be filtered out
+        referenceId: "memory:ctx-duplicate-core-text",
+        score: 41,
         snippet: "User's name is Alex.",
         metadata: {
-          memoryItemId: coreRow.id,
+          memoryItemId: "ctx-duplicate-core-text",
           sourceType: "memory_write",
           sourceLabel: "Memory write: fact",
-          memoryClass: "core",
+          memoryClass: "contextual",
           kind: "fact",
-          summary: "User's name is Alex.",
+          summary: "  User's   name is Alex.  ",
           createdAt: coreRow.createdAt.toISOString()
+        }
+      },
+      {
+        referenceId: "memory:ctx-keep-2",
+        score: 12,
+        snippet: contextualPreferenceRow.summary,
+        metadata: {
+          memoryItemId: contextualPreferenceRow.id,
+          sourceType: "memory_write",
+          sourceLabel: "Memory write: preference",
+          memoryClass: "contextual",
+          kind: "preference",
+          summary: contextualPreferenceRow.summary,
+          createdAt: contextualPreferenceRow.createdAt.toISOString()
         }
       }
     ]
@@ -183,14 +219,18 @@ async function run(): Promise<void> {
   assert.equal(result.core[0]?.id, "core-1");
   assert.equal(result.core[0]?.memoryClass, "core");
   assert.equal(result.core[0]?.kind, "fact");
-  assert.equal(result.contextual.length, 1);
-  assert.equal(result.contextual[0]?.id, "ctx-1");
-  assert.equal(result.contextual[0]?.memoryClass, "contextual");
-  assert.equal(result.contextual[0]?.summary, "Loves photography in Tbilisi.");
+  assert.deepEqual(
+    result.contextual.map((item) => item.id),
+    ["ctx-keep-1", "ctx-keep-2"]
+  );
+  assert.deepEqual(
+    result.contextual.map((item) => item.summary),
+    ["Loves photography in Tbilisi.", "Prefers walking routes over museum-heavy plans."]
+  );
   assert.equal(harness.searchInputs.length, 1);
   assert.equal(harness.searchInputs[0]?.memoryClass, "contextual");
   assert.equal(harness.bumpedIds.length, 1);
-  assert.deepEqual(new Set(harness.bumpedIds[0]), new Set(["core-1", "ctx-1"]));
+  assert.deepEqual(new Set(harness.bumpedIds[0]), new Set(["core-1", "ctx-keep-1", "ctx-keep-2"]));
 
   // empty query skips contextual lookup entirely
   const emptyQueryHarness = createHarness({

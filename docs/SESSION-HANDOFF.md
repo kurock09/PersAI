@@ -3,6 +3,49 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-07 - ADR-112 Slice 2 retrieval/render quality + single runtime-owned framing
+
+### Baseline
+
+- Starting SHA: `6f44f754` (ADR-112 Slice 1 landed; clean tree).
+- Scope: ADR-112 Slice 2 only — durable-memory retrieval quality (drop trivial/legacy greeting hits, semantic dedup vs core), single runtime-owned contextual framing (one grouped volatile block), and an ADR-110 prompt-cache regression guard. Out of scope: embeddings/consolidation (Slice 3), backfill (Slice 4), tool/developer-block work (Slices 5/6).
+
+### What changed & why
+
+API-side runtime hydration (`hydrate-memory-for-turn.service.ts`) now drops contextual hits whose summary is obviously non-durable (reusing Slice 1's `isObviouslyNonDurableMemorySummary`) — this is the negative guardrail that removes legacy greeting/ack rows which still pass `searchMemory`'s lexical exact-token relevance floor (a high-score `"hello"` match is dropped in test). It also de-duplicates contextual vs core by `normalizeMemoryText` instead of only by id, so the same fact never renders in both blocks. Surviving contextual hits keep the search relevance order. No positive classifier was added (model-as-judge preserved).
+
+Runtime render now emits the per-turn contextual memory as ONE volatile block under the existing header, deterministically grouped by kind (`Preferences -> Facts -> Open loops -> Other`) via `formatDurableMemoryContextualBlock(groups)`; the block still carries `cacheRole: "volatile_context"` and stays last in the prefix, so the provider keeps re-projecting it into the uncached tail. The core block, carry-over block, synopsis block, headers, versions, and stable-prefix order are untouched.
+
+ADR-110 invariant is now locked by tests: a provider-gateway guard asserts the `volatile_context` block is re-projected as a non-cacheable `user` block before the current question and never carries `cache_control` (`[1,0,0]` cache_control distribution); the stable-blocks test asserts the core stable token is invariant under contextual rotation.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/hydrate-memory-for-turn.service.ts`
+- `apps/api/test/hydrate-memory-for-turn.service.test.ts`
+- `apps/runtime/src/modules/turns/prompt-cache-stable-blocks.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/test/prompt-cache-stable-blocks.test.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- docs: `docs/ADR/112-...md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- focused (via tsx): `hydrate-memory-for-turn.service.test.ts`, `prompt-cache-stable-blocks.test.ts`, `turn-execution.service.test.ts`, `anthropic-provider.client.test.ts` - PASS
+
+### Risks / residuals
+
+- Local commit only; NOT pushed (per repo rule; awaiting explicit operator go-ahead to push/deploy).
+- Legacy greeting/ack rows are now suppressed at retrieval but still exist in the DB; their permanent cleanup is ADR-112 Slice 4 (backfill).
+- Grouping char/item budget is an approximation (heading length counted into the group budget); acceptable for the soft per-turn memory cap.
+
+### Next recommended step
+
+ADR-112 Slice 3 — memory normalization + consolidation + lifecycle (A Layers 2-4): embedding-based dedup/merge, periodic background reflection extending auto-extract, supersession/decay. Start from a clean tree at the Slice 2 commit.
+
 ## 2026-06-07 - ADR-112 Slice 1 memory capture schema + semantic routing
 
 ### Baseline
