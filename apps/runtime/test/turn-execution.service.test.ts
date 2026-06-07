@@ -3824,7 +3824,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           name: "memory_write",
           arguments: {
             kind: "preference",
-            memory: "User prefers concise answers."
+            memory: "User prefers concise answers.",
+            durability: "identity",
+            stability: "stable"
           }
         }
       ]
@@ -3845,6 +3847,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     assistantId: "assistant-1",
     kind: "preference",
     summary: "User prefers concise answers.",
+    durability: "identity",
+    stability: "stable",
+    confidence: null,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
     relatedUserMessageId: null,
@@ -6785,7 +6790,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       name: "memory_write",
       arguments: {
         kind: "preference",
-        memory: `Preference memory ${String(index + 1)}`
+        memory: `Preference memory ${String(index + 1)}`,
+        durability: "identity",
+        stability: "stable"
       }
     }))
   });
