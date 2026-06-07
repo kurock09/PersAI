@@ -8,6 +8,7 @@ import {
   type InternalRuntimeCompactAndExtractOutcome
 } from "./internal-runtime-compaction.client.service";
 import { BackgroundSchedulerMetricsService } from "./background-scheduler-metrics.service";
+import { ConsolidateAssistantMemoryService } from "./consolidate-assistant-memory.service";
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
 
@@ -55,6 +56,7 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     private readonly internalRuntimeCompactionClientService: InternalRuntimeCompactionClientService,
+    private readonly consolidateAssistantMemoryService: ConsolidateAssistantMemoryService,
     private readonly schedulerLeaseService: SchedulerLeaseService,
     private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService
   ) {}
@@ -309,6 +311,19 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
 
     if (outcome.ok) {
       await this.completeJob(job, outcome.result);
+      try {
+        await this.consolidateAssistantMemoryService.execute({
+          assistantId: job.assistantId,
+          workspaceId: job.workspaceId,
+          requestId: job.enqueuedRequestId
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Background compaction consolidation hook failed for assistant ${job.assistantId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
       return;
     }
 

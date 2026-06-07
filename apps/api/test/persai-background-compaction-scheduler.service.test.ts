@@ -178,6 +178,34 @@ class FakeInternalRuntimeCompactionClientService {
   }
 }
 
+class FakeConsolidateAssistantMemoryService {
+  public calls: Array<{ assistantId: string; workspaceId: string; requestId?: string | null }> = [];
+  public throwNext = false;
+
+  async execute(input: {
+    assistantId: string;
+    workspaceId: string;
+    requestId?: string | null;
+  }): Promise<{
+    embedded: number;
+    mergedSuperseded: number;
+    prunedDecayed: number;
+    durationMs: number;
+  }> {
+    this.calls.push(input);
+    if (this.throwNext) {
+      this.throwNext = false;
+      throw new Error("consolidation boom");
+    }
+    return {
+      embedded: 0,
+      mergedSuperseded: 0,
+      prunedDecayed: 0,
+      durationMs: 1
+    };
+  }
+}
+
 class FakeSchedulerLeaseService {
   acquireResult: { token: string } | null = { token: "lease-compaction-1" };
   heartbeatResults: boolean[] = [];
@@ -232,6 +260,7 @@ function createScheduler(
   epochs: FakeBumpConfigGenerationService,
   client: FakeInternalRuntimeCompactionClientService,
   overrides?: {
+    consolidateAssistantMemoryService?: FakeConsolidateAssistantMemoryService;
     schedulerLeaseService?: FakeSchedulerLeaseService;
     backgroundSchedulerMetricsService?: FakeBackgroundSchedulerMetricsService;
   }
@@ -240,6 +269,8 @@ function createScheduler(
     prisma as never,
     epochs as never,
     client as never,
+    (overrides?.consolidateAssistantMemoryService ??
+      new FakeConsolidateAssistantMemoryService()) as never,
     (overrides?.schedulerLeaseService ?? new FakeSchedulerLeaseService()) as never,
     (overrides?.backgroundSchedulerMetricsService ??
       new FakeBackgroundSchedulerMetricsService()) as never
@@ -277,6 +308,7 @@ async function runSuccessClaimsAndCompletes(): Promise<void> {
   const epochs = new FakeBumpConfigGenerationService(3);
   const prisma = new FakeWorkspaceManagementPrismaService([makeRow()], () => epochs.currentEpoch);
   const client = new FakeInternalRuntimeCompactionClientService();
+  const consolidation = new FakeConsolidateAssistantMemoryService();
   client.outcomes.push({
     ok: true,
     result: {
@@ -285,7 +317,9 @@ async function runSuccessClaimsAndCompletes(): Promise<void> {
       toolResult: { ok: true, value: { compacted: true } }
     } as never
   });
-  const service = createScheduler(prisma, epochs, client);
+  const service = createScheduler(prisma, epochs, client, {
+    consolidateAssistantMemoryService: consolidation
+  });
 
   const processed = await service.processDueJobsBatch();
 
@@ -300,12 +334,20 @@ async function runSuccessClaimsAndCompletes(): Promise<void> {
   assert.equal(row.attemptCount, 1);
   assert.equal(row.pendingDedupeKey, null);
   assert.ok(row.completedAt instanceof Date);
+  assert.deepEqual(consolidation.calls, [
+    {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      requestId: null
+    }
+  ]);
 }
 
 async function runRetryableFailureSchedulesRetry(): Promise<void> {
   const epochs = new FakeBumpConfigGenerationService(3);
   const prisma = new FakeWorkspaceManagementPrismaService([makeRow()], () => epochs.currentEpoch);
   const client = new FakeInternalRuntimeCompactionClientService();
+  const consolidation = new FakeConsolidateAssistantMemoryService();
   client.outcomes.push({
     ok: false,
     retryable: true,
@@ -313,7 +355,9 @@ async function runRetryableFailureSchedulesRetry(): Promise<void> {
     code: "http_503",
     message: "runtime is down"
   });
-  const service = createScheduler(prisma, epochs, client);
+  const service = createScheduler(prisma, epochs, client, {
+    consolidateAssistantMemoryService: consolidation
+  });
 
   const processed = await service.processDueJobsBatch();
 
@@ -328,6 +372,7 @@ async function runRetryableFailureSchedulesRetry(): Promise<void> {
   assert.ok((row.retryAfterAt?.getTime() ?? 0) > Date.now());
   assert.equal(row.attemptCount, 1);
   assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1");
+  assert.equal(consolidation.calls.length, 0);
 }
 
 async function runNonRetryableFailureMarksFailed(): Promise<void> {

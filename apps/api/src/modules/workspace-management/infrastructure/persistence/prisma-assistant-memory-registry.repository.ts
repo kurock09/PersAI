@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { AssistantMemoryRegistryItem as PrismaItem } from "@prisma/client";
+import { Prisma, type AssistantMemoryRegistryItem as PrismaItem } from "@prisma/client";
 import type { AssistantMemoryRegistryItem } from "../../domain/assistant-memory-registry-item.entity";
 import type {
   AssistantMemoryRegistryRepository,
@@ -110,6 +110,28 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     return this.mapToDomain(row);
   }
 
+  async updateEmbeddingById(
+    id: string,
+    assistantId: string,
+    embedding: number[],
+    modelKey: string
+  ): Promise<boolean> {
+    const result = await this.prisma.assistantMemoryRegistryItem.updateMany({
+      where: {
+        id,
+        assistantId,
+        forgottenAt: null,
+        supersededAt: null
+      },
+      data: {
+        embeddingVector: embedding as Prisma.InputJsonValue,
+        embeddingModelKey: modelKey,
+        embeddingGeneratedAt: new Date()
+      }
+    });
+    return result.count > 0;
+  }
+
   async markForgottenById(id: string, assistantId: string): Promise<boolean> {
     const result = await this.prisma.assistantMemoryRegistryItem.updateMany({
       where: { id, assistantId, forgottenAt: null, supersededAt: null },
@@ -138,6 +160,25 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     });
 
     return result.count > 0;
+  }
+
+  async listActiveForConsolidation(
+    assistantId: string,
+    limit: number
+  ): Promise<AssistantMemoryRegistryItem[]> {
+    if (limit <= 0) {
+      return [];
+    }
+    const rows = await this.prisma.assistantMemoryRegistryItem.findMany({
+      where: {
+        assistantId,
+        forgottenAt: null,
+        supersededAt: null
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit
+    });
+    return rows.map((row) => this.mapToDomain(row));
   }
 
   async markForgottenForMessages(
@@ -405,6 +446,9 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       durability: row.durability,
       stability: row.stability,
       confidence: row.confidence,
+      embeddingVector: parseEmbeddingVector(row.embeddingVector),
+      embeddingModelKey: normalizeOptionalString(row.embeddingModelKey),
+      embeddingGeneratedAt: row.embeddingGeneratedAt,
       lastUsedAt: row.lastUsedAt,
       resolvedAt: row.resolvedAt,
       forgottenAt: row.forgottenAt,
@@ -456,4 +500,20 @@ function tokenizeForLexicalMatch(value: string): Set<string> {
     tokens.add(rawToken);
   }
   return tokens;
+}
+
+function parseEmbeddingVector(value: Prisma.JsonValue | null): number[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const parsed = value.filter((entry): entry is number => typeof entry === "number");
+  return parsed.length === value.length ? parsed : null;
+}
+
+function normalizeOptionalString(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }

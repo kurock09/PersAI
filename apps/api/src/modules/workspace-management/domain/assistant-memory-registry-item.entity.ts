@@ -24,6 +24,9 @@ export type AssistantMemoryRegistryItem = {
   durability: AssistantMemoryRegistryDurability | null;
   stability: AssistantMemoryRegistryStability | null;
   confidence: number | null;
+  embeddingVector: number[] | null;
+  embeddingModelKey: string | null;
+  embeddingGeneratedAt: Date | null;
   lastUsedAt: Date | null;
   /**
    * ADR-074 Slice M3 — set when an `open_loop` durable memory is closed,

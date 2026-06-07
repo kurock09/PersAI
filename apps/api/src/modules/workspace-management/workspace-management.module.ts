@@ -254,6 +254,7 @@ import { HandleInternalCronFireService } from "./application/handle-internal-cro
 import { BuildReminderContextSnapshotService } from "./application/build-reminder-context-snapshot.service";
 import { PersaiScheduledActionSchedulerService } from "./application/persai-scheduled-action-scheduler.service";
 import { PersaiBackgroundCompactionSchedulerService } from "./application/persai-background-compaction-scheduler.service";
+import { ConsolidateAssistantMemoryService } from "./application/consolidate-assistant-memory.service";
 import { ProactivePushPolicyService } from "./application/proactive-push-policy.service";
 import { EnqueueBackgroundCompactionJobService } from "./application/enqueue-background-compaction-job.service";
 import { InternalRuntimeCompactionClientService } from "./application/internal-runtime-compaction.client.service";
@@ -527,6 +528,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     BackgroundSchedulerMetricsService,
     BackgroundCompactionQueueService,
     PersaiScheduledActionSchedulerService,
+    ConsolidateAssistantMemoryService,
     PersaiBackgroundCompactionSchedulerService,
     PersaiBackgroundTaskSchedulerService,
     ProactivePushPolicyService,

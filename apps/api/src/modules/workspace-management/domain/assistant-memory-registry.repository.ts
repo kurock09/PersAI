@@ -47,12 +47,22 @@ export interface AssistantMemoryRegistryRepository {
     assistantId: string,
     summary: string
   ): Promise<AssistantMemoryRegistryItem | null>;
+  updateEmbeddingById(
+    id: string,
+    assistantId: string,
+    embedding: number[],
+    modelKey: string
+  ): Promise<boolean>;
   markForgottenById(id: string, assistantId: string): Promise<boolean>;
   markSupersededById(
     id: string,
     assistantId: string,
     supersededByMemoryId: string | null
   ): Promise<boolean>;
+  listActiveForConsolidation(
+    assistantId: string,
+    limit: number
+  ): Promise<AssistantMemoryRegistryItem[]>;
   markForgottenForMessages(
     assistantId: string,
     filters: { assistantMessageId: string; userMessageId: string | null }
