@@ -5600,6 +5600,8 @@ export type PersonaListItemDto = {
   portraitImageUrl: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
+  clonedVoiceId: string | null;
+  clonedVoiceDisplayName: string | null;
   createdAt: string;
 };
 
@@ -5622,6 +5624,122 @@ export type VoiceCatalogResponse = {
   provider: "heygen";
   voices: VoiceCatalogEntry[];
 };
+
+export type WorkspaceVideoClonedVoiceDto = {
+  id: string;
+  displayName: string;
+  status: "pending" | "ready" | "failed";
+  languageHint: string | null;
+  isDefault: boolean;
+  previewAudioUrl: string | null;
+  createdAt: string;
+};
+
+export type WorkspaceVideoClonedVoiceListResponse = {
+  clonedVoices: WorkspaceVideoClonedVoiceDto[];
+  limit: number;
+  creationVcoinCost: number;
+};
+
+export async function getWorkspaceVideoClonedVoices(
+  token: string,
+  workspaceId: string
+): Promise<WorkspaceVideoClonedVoiceListResponse> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/workspaces/${encodeURIComponent(workspaceId)}/video-cloned-voices`,
+    {
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    const envelope = await readApiErrorEnvelope(res);
+    if (envelope) throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    throw new Error("Failed to load cloned voices.");
+  }
+  return res.json() as Promise<WorkspaceVideoClonedVoiceListResponse>;
+}
+
+export async function createWorkspaceVideoClonedVoice(
+  token: string,
+  workspaceId: string,
+  payload: {
+    displayName: string;
+    audio: File;
+    languageHint?: string | null;
+    removeBackgroundNoise?: boolean;
+  },
+  opts?: UploadResilienceOptions
+): Promise<{
+  clonedVoice: WorkspaceVideoClonedVoiceDto;
+  walletBalanceVc: number;
+}> {
+  const base = getApiBaseUrl();
+  const form = new FormData();
+  form.set("displayName", payload.displayName);
+  form.set("audio", payload.audio);
+  if (typeof payload.languageHint === "string" && payload.languageHint.trim().length > 0) {
+    form.set("languageHint", payload.languageHint.trim());
+  }
+  if (payload.removeBackgroundNoise === true) {
+    form.set("removeBackgroundNoise", "true");
+  }
+  const res = await uploadWithProgress(
+    `${base}/workspaces/${encodeURIComponent(workspaceId)}/video-cloned-voices`,
+    form,
+    toXhrOptions(token, opts)
+  );
+  if (!res.ok) {
+    const envelope = readXhrErrorEnvelope(res.responseText, res.headers.get("content-type") ?? "");
+    if (envelope) {
+      throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    }
+    throw new ApiStructuredError("Cloned voice creation failed", "create_failed");
+  }
+  return JSON.parse(res.responseText) as {
+    clonedVoice: WorkspaceVideoClonedVoiceDto;
+    walletBalanceVc: number;
+  };
+}
+
+export async function archiveWorkspaceVideoClonedVoice(
+  token: string,
+  workspaceId: string,
+  clonedVoiceId: string
+): Promise<void> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/workspaces/${encodeURIComponent(workspaceId)}/video-cloned-voices/${encodeURIComponent(clonedVoiceId)}`,
+    { method: "DELETE", headers: getAuthHeaders(token) }
+  );
+  if (!res.ok) {
+    const envelope = await readApiErrorEnvelope(res);
+    if (envelope) throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    throw new Error("Failed to archive cloned voice.");
+  }
+}
+
+export async function setWorkspaceVideoClonedVoiceDefault(
+  token: string,
+  workspaceId: string,
+  clonedVoiceId: string
+): Promise<WorkspaceVideoClonedVoiceDto> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/workspaces/${encodeURIComponent(workspaceId)}/video-cloned-voices/${encodeURIComponent(clonedVoiceId)}/default`,
+    { method: "POST", headers: getAuthHeaders(token) }
+  );
+  if (!res.ok) {
+    const envelope = await readApiErrorEnvelope(res);
+    if (envelope) throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    throw new Error("Failed to set default cloned voice.");
+  }
+  const data = (await res.json()) as { clonedVoice?: WorkspaceVideoClonedVoiceDto };
+  if (!data.clonedVoice) {
+    throw new Error("Cloned voice default response missing clonedVoice.");
+  }
+  return data.clonedVoice;
+}
 
 export async function getWorkspaceVideoPersonas(
   token: string,
@@ -5662,6 +5780,7 @@ export async function createWorkspaceVideoPersona(
   payload: {
     displayName: string;
     heygenVoiceId: string;
+    clonedVoiceId?: string | null;
     portrait: File;
   }
 ): Promise<{
@@ -5673,6 +5792,9 @@ export async function createWorkspaceVideoPersona(
   const form = new FormData();
   form.set("displayName", payload.displayName);
   form.set("heygenVoiceId", payload.heygenVoiceId);
+  if (payload.clonedVoiceId !== undefined) {
+    form.set("clonedVoiceId", payload.clonedVoiceId ?? "");
+  }
   form.set("portrait", payload.portrait);
 
   const res = await fetch(`${base}/workspaces/${encodeURIComponent(workspaceId)}/video-personas`, {
@@ -5699,7 +5821,8 @@ export async function updateWorkspaceVideoPersona(
   personaId: string,
   payload: {
     displayName: string;
-    heygenVoiceId: string;
+    heygenVoiceId?: string;
+    clonedVoiceId?: string | null;
   }
 ): Promise<{
   persona: PersonaListItemDto;
@@ -5713,7 +5836,11 @@ export async function updateWorkspaceVideoPersona(
         ...getAuthHeaders(token),
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        displayName: payload.displayName,
+        ...(payload.heygenVoiceId !== undefined ? { heygenVoiceId: payload.heygenVoiceId } : {}),
+        ...(payload.clonedVoiceId !== undefined ? { clonedVoiceId: payload.clonedVoiceId } : {})
+      })
     }
   );
   if (!res.ok) {

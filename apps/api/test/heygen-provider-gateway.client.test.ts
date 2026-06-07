@@ -31,6 +31,7 @@ function setGatewayUrl(url: string | undefined): void {
 
 const GATEWAY_URL = "http://gateway.test:3011";
 const MOCK_AVATAR_ID = "ava-gateway-1";
+const MOCK_VOICE_CLONE_ID = "voice-clone-gateway-1";
 
 function makeSuccessResponse(avatarId: string): Response {
   return new Response(
@@ -64,6 +65,17 @@ function makeInput() {
     name: "Test Persona",
     portraitImageBytesBase64: Buffer.from("portrait-bytes").toString("base64"),
     portraitImageMimeType: "image/jpeg"
+  };
+}
+
+function makeVoiceCloneInput() {
+  return {
+    credentialSecretId: "tool/video_generate/heygen/api-key",
+    displayName: "My Voice Clone",
+    audioBytesBase64: Buffer.from("voice-bytes").toString("base64"),
+    audioMimeType: "audio/mpeg",
+    languageHint: "en",
+    removeBackgroundNoise: true
   };
 }
 
@@ -312,6 +324,152 @@ async function run(): Promise<void> {
       assert.equal(body["portraitImageMimeType"], testInput.portraitImageMimeType);
 
       console.log("✓ Test 8: request body shape is correct");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 9: createVoiceClone success → returns { voiceCloneId, previewAudioUrl }
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    setGatewayUrl(GATEWAY_URL);
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          schema: "persai.providerGatewayHeyGenCreateVoiceCloneResult.v1",
+          provider: "heygen",
+          voiceCloneId: MOCK_VOICE_CLONE_ID,
+          status: "complete",
+          previewAudioUrl: "https://cdn.heygen.com/clone-preview.mp3",
+          respondedAt: new Date().toISOString()
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+    try {
+      const client = new HeyGenProviderGatewayClient();
+      const result = await client.createVoiceClone(makeVoiceCloneInput());
+      assert.equal(result.voiceCloneId, MOCK_VOICE_CLONE_ID);
+      assert.equal(result.previewAudioUrl, "https://cdn.heygen.com/clone-preview.mp3");
+      console.log("✓ Test 9: createVoiceClone success parses the provider-gateway result");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 10: resource_limit_reached maps to stable BadRequestException code
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    setGatewayUrl(GATEWAY_URL);
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "heygen_voice_clone_limit_reached",
+            message: "You have reached the HeyGen clone limit."
+          }
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+    try {
+      const client = new HeyGenProviderGatewayClient();
+      await assert.rejects(
+        () => client.createVoiceClone(makeVoiceCloneInput()),
+        (err: Error) => {
+          assert.ok(err instanceof BadRequestException);
+          const body = err.getResponse() as Record<string, unknown>;
+          const error = body["error"] as Record<string, unknown>;
+          assert.equal(error["code"], "heygen_voice_clone_limit_reached");
+          return true;
+        }
+      );
+      console.log("✓ Test 10: clone limit maps to stable BadRequestException code");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 11: plan_upgrade_required maps to stable BadRequestException code
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    setGatewayUrl(GATEWAY_URL);
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "heygen_voice_clone_plan_upgrade_required",
+            message: "Please upgrade your HeyGen plan."
+          }
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+    try {
+      const client = new HeyGenProviderGatewayClient();
+      await assert.rejects(
+        () => client.createVoiceClone(makeVoiceCloneInput()),
+        (err: Error) => {
+          assert.ok(err instanceof BadRequestException);
+          const body = err.getResponse() as Record<string, unknown>;
+          const error = body["error"] as Record<string, unknown>;
+          assert.equal(error["code"], "heygen_voice_clone_plan_upgrade_required");
+          return true;
+        }
+      );
+      console.log("✓ Test 11: plan-upgrade maps to stable BadRequestException code");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 12: createVoiceClone request body shape verification
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    setGatewayUrl(GATEWAY_URL);
+    let capturedBody: unknown = null;
+    let capturedUrl: string | undefined;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      capturedUrl =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
+      capturedBody = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          schema: "persai.providerGatewayHeyGenCreateVoiceCloneResult.v1",
+          provider: "heygen",
+          voiceCloneId: MOCK_VOICE_CLONE_ID,
+          status: "complete",
+          previewAudioUrl: null,
+          respondedAt: new Date().toISOString()
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+    try {
+      const client = new HeyGenProviderGatewayClient();
+      const testInput = makeVoiceCloneInput();
+      await client.createVoiceClone(testInput);
+
+      assert.ok(
+        capturedUrl?.endsWith("/api/v1/providers/heygen/create-voice-clone"),
+        `Expected URL to end with /api/v1/providers/heygen/create-voice-clone, got: ${String(capturedUrl)}`
+      );
+      const body = capturedBody as Record<string, unknown>;
+      assert.equal(body["schema"], "persai.providerGatewayHeyGenCreateVoiceCloneRequest.v1");
+      const cred = body["credential"] as Record<string, unknown>;
+      assert.equal(cred["secretId"], testInput.credentialSecretId);
+      assert.equal(cred["providerId"], "heygen");
+      assert.equal(body["displayName"], testInput.displayName);
+      assert.equal(body["audioBytesBase64"], testInput.audioBytesBase64);
+      assert.equal(body["audioMimeType"], testInput.audioMimeType);
+      assert.equal(body["languageHint"], testInput.languageHint);
+      assert.equal(body["removeBackgroundNoise"], true);
+      console.log("✓ Test 12: createVoiceClone request body shape is correct");
     } finally {
       globalThis.fetch = originalFetch;
     }

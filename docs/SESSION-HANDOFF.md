@@ -3,6 +3,354 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-07 - ADR-111 Slice 5 voice clone UI
+
+### Baseline
+
+- Starting SHA: `ec32253e68acb759fefd1c1471ca74735ea5f2bc`
+- Scope: ADR-111 Slice 5, voice clone UI + runtime guidance + cross-docs, stacked on accepted uncommitted Slice 1-4b work by operator approval.
+
+### What changed & why
+
+Settings -> Characters now includes a compact `My voices` subsection. It renders ready/pending/failed cloned voices, preview/default/archive actions, linked-character summaries, VC cost/limit copy, and keeps pending/failed clones visible but not selectable for persona voice use.
+
+The clone modal supports upload and browser recording modes with visible quality guidance, prepared reading/consent text, rights confirmation, preview playback, retry/remove, and microphone-permission fallback copy. It uses a bounded local wrapper around the same browser `getUserMedia` / `MediaRecorder` primitives as chat recording rather than changing the existing chat voice-message flow.
+
+Persona create/edit can attach a ready cloned voice while preserving preset `heygenVoiceId` fallback. Inline `Clone a new voice` from the persona form opens the clone modal and attaches the newly ready clone after success. Runtime tool guidance now surfaces safe linked cloned-voice labels only from the materialized persona catalog and does not expose provider clone ids or add keyword routing.
+
+Post-audit cleanliness repairs landed before commit: stale clone-recorder permission resolutions are ignored and stopped, duplicate recorder starts are guarded, clone/persona preview blob URLs are revoked on replace/close, failed cloned-voice rows count toward the UI limit gate to match API active-row truth, and cloned-voice archive now best-effort marks workspace assistants config-dirty so materialized persona guidance refreshes.
+
+### Files touched
+
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/assistant-settings.test.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/assistant-api-client.test.ts`
+- `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-cloned-voices.service.ts`
+- `apps/api/test/manage-workspace-video-cloned-voices.service.test.ts`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/ADR/111-heygen-voice-cloning-and-characters-ux-v2.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts app/app/_components/assistant-settings.test.tsx --config vitest.config.ts` - PASS (`128` tests)
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts` - PASS (`72` tests after audit repairs)
+- `corepack pnpm --filter @persai/api exec tsx test/manage-workspace-video-cloned-voices.service.test.ts` - PASS after audit repairs
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `git diff --check` - PASS
+
+### Risks / residuals
+
+- Live authenticated smoke on `persai-dev` is still outstanding. The implementation subagent confirmed `https://persai.dev` is reachable, but could not complete Settings -> Characters clone/persona/render smoke because no signed-in dev session or local dev server was available.
+- The clone modal recorder intentionally avoided extracting shared `ChatInput` recorder code in this slice to avoid destabilizing existing chat voice messages. It remains a small guarded wrapper around the same browser APIs and should be revisited if more recording surfaces appear.
+- DB migrations have been statically verified through Prisma generation/typechecks/tests but not applied in a live database during this session.
+
+### Next recommended step
+
+Complete the one remaining ADR-111 acceptance item: authenticated dev smoke for cloned voice creation, persona attachment, talking-avatar render, and separate clone/render VC debit verification. After that, commit the full ADR-111 stack if the operator wants one combined commit.
+
+## 2026-06-07 - ADR-111 Slice 4b persona clone runtime resolve
+
+### Baseline
+
+- Starting SHA: `ec32253e68acb759fefd1c1471ca74735ea5f2bc`
+- Scope: ADR-111 Slice 4b, persona linked-clone substrate plus runtime voice resolution, stacked on accepted uncommitted Slice 1-4a work by operator approval.
+
+### What changed & why
+
+Personas now persist an optional workspace cloned-voice link through `clonedVoiceId` while preserving the existing preset `heygenVoiceId` / `heygenVoiceLabel` fallback fields. API create/update validates linked clones as same-workspace, active, ready, and provider-backed, and rejects archived, failed, missing, or cross-workspace links.
+
+Internal persona reads now carry linked cloned-voice display/provider metadata for runtime. Materialized model-facing persona catalogs use safe display labels and never raw HeyGen clone ids. Talking-avatar runtime voice resolution now follows ADR-111 order: explicit request `voiceKey`, then linked ready cloned voice, then preset persona voice.
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260607153000_adr111_slice4b_persona_cloned_voice_linkage/migration.sql`
+- `apps/api/src/modules/workspace-management/domain/workspace-video-persona.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-video-persona.repository.ts`
+- `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service.ts`
+- `apps/api/src/modules/workspace-management/application/heygen/read-workspace-video-persona.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/workspace-video-personas.controller.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-workspace-video-personas.controller.ts`
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`
+- focused API/runtime tests for persona linkage, materialization, controller parsing, and voice precedence
+- `docs/ADR/111-heygen-voice-cloning-and-characters-ux-v2.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/manage-workspace-video-personas.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/read-workspace-video-persona.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-video-personas.controller.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/materialize-assistant-published-version.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `corepack pnpm run format:check` - PASS
+- `git diff --check` - PASS
+
+### Risks / residuals
+
+- Migration execution has been statically verified through Prisma generation/type/tests, but not applied to a live database in this slice.
+- The internal runtime persona response was widened additively without a schema string bump; current callers are tolerant, but future schema-hardening may want an explicit version.
+- Voice clone UI, recording/upload UX, cross-doc updates, full verification, and live dev smoke remain in Slice 5.
+
+### Next recommended step
+
+Continue with ADR-111 Slice 5: Voice clone UI + docs + smoke.
+
+## 2026-06-07 - ADR-111 Slice 4a voice clone backend
+
+### Baseline
+
+- Starting SHA: `ec32253e68acb759fefd1c1471ca74735ea5f2bc`
+- Scope: ADR-111 Slice 4a, provider-gateway/API cloned voice backend stacked on accepted uncommitted Slice 1-3 and split-decision work by operator approval.
+
+### What changed & why
+
+Provider-gateway now supports HeyGen voice clone submission and polling. The clone path uses `POST /v3/voices/clone` and `GET /v3/voices/{voice_clone_id}`, accepts only exact `complete` as success, keeps non-terminal statuses polling, and maps clone limit / plan upgrade / auth / rate-limit failures to stable product errors.
+
+API now exposes workspace-scoped cloned voice create/list/archive/set-default behavior. Create accepts multipart audio upload, validates the audio file, enforces clone limit and duplicate-name checks, persists failed provider attempts as `failed` with no VC debit, and finalizes successful clones by marking the row `ready` and recording a `voice_clone_creation` debit in the same transaction. Runtime/persona linked-clone resolution remains explicitly out of scope for 4a and moves to 4b.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/provider-heygen-voices.service.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-heygen-voices.controller.ts`
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`
+- `apps/provider-gateway/test/heygen-provider.client.test.ts`
+- `apps/api/src/modules/workspace-management/application/heygen/heygen-provider-gateway.client.ts`
+- `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-cloned-voices.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/workspace-video-cloned-voices.controller.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-video-cloned-voice.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-video-cloned-voice.repository.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/heygen-provider-gateway.client.test.ts`
+- `apps/api/test/manage-workspace-video-cloned-voices.service.test.ts`
+- `apps/api/test/workspace-video-cloned-voices.controller.test.ts`
+- `apps/api/test/workspace-video-cloned-voice.repository.test.ts`
+- `docs/ADR/111-heygen-voice-cloning-and-characters-ux-v2.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/heygen-provider.client.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/heygen-provider-gateway.client.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/manage-workspace-video-cloned-voices.service.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-video-cloned-voices.controller.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-video-cloned-voice.repository.test.ts` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS after removing one unused test type alias
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `git diff --check` - PASS
+
+### Risks / residuals
+
+- The provider-gateway HeyGen client test remains slow because older video-polling cases use real intervals.
+- OpenAPI/generated client exposure for cloned voice endpoints was not added in 4a.
+- Cloned voices are not yet selectable in Characters UI or used by runtime talking-avatar generation until 4b/5.
+
+### Next recommended step
+
+Continue with ADR-111 Slice 4b: persona linked-clone substrate plus runtime voice resolution.
+
+## 2026-06-07 - ADR-111 Slice 4 split decision
+
+### Baseline
+
+- Starting SHA: `ec32253e68acb759fefd1c1471ca74735ea5f2bc`
+- Scope: ADR-111 Slice 4 orchestration decision, stacked on accepted uncommitted Slice 1-3 work by operator approval.
+
+### What changed & why
+
+The first GPT-5.4 Slice 4 implementation subagent stopped before code changes and identified the ADR-allowed split point. Provider-gateway/API cloned-voice CRUD + successful-completion VC debit is coherent as `4a`; runtime precedence requires `4b` because current persona persistence/internal runtime fetches only carry preset HeyGen voice fields, not both a linked cloned voice and preset fallback.
+
+ADR-111 now records the actual execution split: `4a` for HeyGen clone submit/poll, cloned-voice CRUD, provider error mapping, and clone VC debit; `4b` for persona linked-clone substrate, contract widening, and runtime voice resolution order.
+
+### Files touched
+
+- `docs/ADR/111-heygen-voice-cloning-and-characters-ux-v2.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- Docs-only split decision; full verification will run after the next implementation slice.
+
+### Next recommended step
+
+Continue with ADR-111 Slice 4a: provider-gateway/API cloned-voice CRUD and successful-completion VC debit.
+
+## 2026-06-07 - ADR-111 Slice 3 voice clone substrate
+
+### Baseline
+
+- Starting SHA: `ec32253e68acb759fefd1c1471ca74735ea5f2bc`
+- Scope: ADR-111 Slice 3, API substrate stacked on accepted uncommitted Slice 1 and Slice 2 work by operator approval.
+
+### What changed & why
+
+The API now has durable workspace-scoped cloned voice persistence via `workspace_video_cloned_voices`, including Prisma schema/migration, a repository port, a Prisma adapter, and module provider registration. Rows store display-name normalization, nullable HeyGen clone id, language hint, lifecycle status, default flag, preview URL, source metadata, timestamps, and soft archive state.
+
+Platform runtime settings now include `heygenVoiceCloneWorkspaceLimit` and `heygenVoiceCloneCreationVcoin` with ADR-111 defaults (`5` and `50`) and a hard cap of `10` for the workspace limit. The VC ledger kind union now permits `voice_clone_creation`, but this slice intentionally did not add debit behavior, HeyGen HTTP calls, REST endpoints, runtime resolution, or web UI.
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260607141500_adr111_slice3_voice_clone_substrate/migration.sql`
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-platform-runtime-provider-settings.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-runtime-provider-settings.service.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-vcoin-ledger-event.repository.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-video-cloned-voice.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-video-cloned-voice.repository.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/platform-runtime-provider-settings.test.ts`
+- `apps/api/test/workspace-vcoin-ledger-event.repository.test.ts`
+- `apps/api/test/workspace-video-cloned-voice.repository.test.ts`
+- `apps/api/test/knowledge-retrieval-helper.service.test.ts`
+- `docs/ADR/111-heygen-voice-cloning-and-characters-ux-v2.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-video-cloned-voice.repository.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-vcoin-ledger-event.repository.test.ts` - PASS
+- `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `git diff --check` - PASS
+
+### Risks / residuals
+
+- Name reuse after archive is blocked by the unconditional `(workspaceId, displayNameLower)` uniqueness constraint, matching the existing persona table pattern.
+- `isDefault` is stored but not yet constrained to one active default per workspace; Slice 4 service behavior should own that if product logic requires it.
+- Cloned voice statuses are intentionally minimal (`pending`, `ready`, `failed`) until Slice 4 maps the provider lifecycle.
+
+### Next recommended step
+
+Continue with ADR-111 Slice 4: HeyGen voice clone backend plus runtime voice resolution.
+
+## 2026-06-07 - ADR-111 Slice 2 Characters UI v2
+
+### Baseline
+
+- Starting SHA: `ec32253e68acb759fefd1c1471ca74735ea5f2bc`
+- Scope: ADR-111 Slice 2, Characters UI v2 stacked on accepted uncommitted Slice 1 work by operator approval.
+
+### What changed & why
+
+Characters now use a compact premium responsive grid instead of the old sparse/wide layout. `assistant-settings.tsx` has shared local card/create-slot helpers for unlocked personas, locked saved personas, and the locked demo record. Locked saved personas stay visible but disabled, and locked cards expose no edit/delete/portrait-open actions.
+
+The create action now lives in the grid as a compact slot. It is enabled only when talking video is available and the persona limit has not been reached; plan-gated or limit-gated states stay visible but disabled and do not open the create modal. Voice labels use the cleaner `Voice - {voice}` / `Голос - {voice}` copy.
+
+### Files touched
+
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/assistant-settings.test.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/ADR/111-heygen-voice-cloning-and-characters-ux-v2.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `git diff --check` - PASS
+
+### Risks / residuals
+
+- `assistant-settings.tsx` remains large. Slice 2 kept extraction local to avoid new files, but future Characters/voices work will continue increasing pressure on this module.
+- Coverage is DOM behavior focused; no pixel/screenshot test was added for the premium visual language.
+
+### Next recommended step
+
+Continue with ADR-111 Slice 3: voice clone substrate.
+
+## 2026-06-07 - ADR-111 Slice 1 video preview polish
+
+### Baseline
+
+- Starting SHA: `ec32253e68acb759fefd1c1471ca74735ea5f2bc`
+- Scope: ADR-111 Slice 1, video lightbox playback polish plus Capacitor-relevant same-origin assistant-file MIME/Range verification.
+
+### What changed & why
+
+The inline chat video preview no longer depends on Android WebView decoding the first video frame. Chat video cards now render a deterministic compact play placeholder while keeping a hidden metadata-only `<video>` for duration, so Capacitor does not show a blank grey rectangle before opening playback.
+
+The video lightbox no longer keeps the hero play overlay mounted over a playing video. The overlay now disappears once `videoPlaying` is true, independent of chrome visibility, so it does not block playback after start. Video chrome also auto-hides after playback starts and can be restored by tapping the video surface; pause/end restores the hero play affordance and controls.
+
+The same-origin `assistant-file` BFF route received focused regression coverage for the Capacitor WebView preview path: it forwards `Range`, `If-Range`, `If-None-Match`, and `If-Modified-Since`, and preserves upstream `206`, `Content-Range`, `Accept-Ranges`, `Content-Length`, and `Content-Type: video/mp4`. Upstream API download code already served real ranged responses, so no API change was needed. No `persai-mobile` files changed and no APK rebuild was required.
+
+### Files touched
+
+- `apps/web/app/app/_components/image-lightbox.tsx`
+- `apps/web/app/app/_components/image-lightbox.test.tsx`
+- `apps/web/app/app/_components/chat-message.tsx`
+- `apps/web/app/app/_components/chat-message.test.tsx`
+- `apps/web/app/api/assistant-file/[fileRef]/route.test.ts`
+- `docs/ADR/111-heygen-voice-cloning-and-characters-ux-v2.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/image-lightbox.test.tsx --config vitest.config.ts` - PASS
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx --config vitest.config.ts` - PASS
+- `corepack pnpm --filter @persai/web exec vitest run "app/api/assistant-file/[fileRef]/route.test.ts" --config vitest.config.ts` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `git diff --check` - PASS
+
+### Risks / residuals
+
+- The generic fallback for an upstream response that omits `Content-Type` remains `application/octet-stream`; this is documented by test and intentionally does not invent HeyGen-specific MIME inference in the BFF.
+- Live Capacitor smoke was not run in this slice; the code-level BFF and upstream API behaviors are now covered.
+
+### Next recommended step
+
+Continue with ADR-111 Slice 2: Characters UI v2.
+
 ## 2026-06-07 - History archive compaction
 
 ### Baseline

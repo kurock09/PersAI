@@ -7,6 +7,7 @@ import { ProviderImageGenerationController } from "./interface/http/provider-ima
 import { ProviderSpeechGenerationController } from "./interface/http/provider-speech-generation.controller";
 import { ProviderTextGenerationController } from "./interface/http/provider-text-generation.controller";
 import { ProviderHeyGenAvatarsController } from "./interface/http/provider-heygen-avatars.controller";
+import { ProviderHeyGenVoicesController } from "./interface/http/provider-heygen-voices.controller";
 import { ProviderVideoGenerationController } from "./interface/http/provider-video-generation.controller";
 import { ProviderWebFetchController } from "./interface/http/provider-web-fetch.controller";
 import { ProviderWebSearchController } from "./interface/http/provider-web-search.controller";
@@ -25,6 +26,7 @@ import { ProviderImageGenerationService } from "./provider-image-generation.serv
 import { ProviderSpeechGenerationService } from "./provider-speech-generation.service";
 import { ProviderTextGenerationService } from "./provider-text-generation.service";
 import { ProviderHeyGenAvatarsService } from "./provider-heygen-avatars.service";
+import { ProviderHeyGenVoicesService } from "./provider-heygen-voices.service";
 import { ProviderVideoGenerationService } from "./provider-video-generation.service";
 import { ProviderWebFetchService } from "./provider-web-fetch.service";
 import { ProviderWebSearchService } from "./provider-web-search.service";
@@ -44,6 +46,7 @@ import { RunwayProviderClient } from "./runway/runway-provider.client";
     ProviderImageGenerationController,
     ProviderSpeechGenerationController,
     ProviderHeyGenAvatarsController,
+    ProviderHeyGenVoicesController,
     ProviderVideoGenerationController,
     ProviderWarmupController,
     ProviderTextGenerationController,
@@ -69,6 +72,7 @@ import { RunwayProviderClient } from "./runway/runway-provider.client";
     ProviderImageGenerationService,
     ProviderSpeechGenerationService,
     ProviderHeyGenAvatarsService,
+    ProviderHeyGenVoicesService,
     ProviderVideoGenerationService,
     ProviderTextGenerationService,
     ProviderStreamObservabilityService,

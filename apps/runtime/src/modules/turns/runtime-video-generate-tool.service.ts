@@ -2267,6 +2267,9 @@ export class RuntimeVideoGenerateToolService {
         heygenAvatarId: string;
         heygenVoiceId: string;
         heygenVoiceLabel: string;
+        clonedVoiceId: string | null;
+        linkedClonedVoiceDisplayName: string | null;
+        linkedClonedVoiceProviderId: string | null;
         portraitImageStorageKey: string;
       } | null;
       try {
@@ -2365,7 +2368,10 @@ export class RuntimeVideoGenerateToolService {
         };
       }
 
-      // Voice resolution: explicit voiceKey overrides persona default.
+      // Voice precedence for linked personas:
+      // 1) explicit request voiceKey
+      // 2) linked ready cloned voice provider id
+      // 3) stored preset HeyGen voice fallback
       if (voiceKeyRaw !== null) {
         const providerVoiceId = byKey.get(voiceKeyRaw.toLowerCase());
         if (providerVoiceId === undefined) {
@@ -2394,8 +2400,13 @@ export class RuntimeVideoGenerateToolService {
           };
         }
         resolvedVoiceId = providerVoiceId;
+      } else if (
+        typeof persona.linkedClonedVoiceProviderId === "string" &&
+        persona.linkedClonedVoiceProviderId.trim().length > 0
+      ) {
+        resolvedVoiceId = persona.linkedClonedVoiceProviderId;
       } else {
-        // Fall back to the persona's stored HeyGen voice ID (validated at create time).
+        // Fall back to the persona's stored preset HeyGen voice ID.
         resolvedVoiceId = persona.heygenVoiceId;
       }
 

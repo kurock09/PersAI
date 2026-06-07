@@ -34,7 +34,8 @@ import {
   ThumbsUp,
   ThumbsDown,
   FileText,
-  Loader2
+  Loader2,
+  Play
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
@@ -921,11 +922,10 @@ function formatVideoDuration(totalSeconds: number): string | null {
  * play+duration chip in the bottom-left signals that it is playable; tapping
  * the card opens the same {@link ImageLightbox} that images use.
  *
- * Why a real `<video preload="metadata">` is mounted rather than a static
- * thumbnail: there is no server-side poster pipeline yet, so the first
- * decoded frame is the only thing we can show without an extra round-trip.
- * Range-aware downloads (see {@link MediaAttachmentController.downloadAssistantFile})
- * make this work in Capacitor Android WebView too.
+ * A real `<video preload="metadata">` stays mounted only for duration metadata.
+ * The visible surface is deterministic because Android WebView may render a
+ * grey rectangle when the first decoded frame is unavailable even with correct
+ * same-origin Range/MIME behavior.
  */
 function VideoAttachmentPreview({
   variant,
@@ -975,21 +975,30 @@ function VideoAttachmentPreview({
             : "rounded-[14px] border border-border hover:border-border-strong"
         )}
       >
-        <video
-          preload="metadata"
-          muted
-          playsInline
-          // `disableRemotePlayback` keeps Android WebView from showing
-          // an AirPlay/Cast button in the inline preview.
-          disableRemotePlayback
-          className="max-h-48 max-w-[240px] object-cover"
-          src={fullUrl}
-          onLoadedMetadata={(e) => {
-            setDurationSec(e.currentTarget.duration);
-          }}
+        <div
+          data-testid="chat-video-preview-placeholder"
+          className="relative flex aspect-video max-h-48 w-[min(240px,70vw)] items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_30%_20%,rgba(191,148,84,0.34),transparent_32%),linear-gradient(135deg,rgba(32,26,20,0.92),rgba(14,12,10,0.96))]"
         >
-          <track kind="captions" />
-        </video>
+          <video
+            preload="metadata"
+            muted
+            playsInline
+            // `disableRemotePlayback` keeps Android WebView from showing
+            // an AirPlay/Cast button in the inline preview.
+            disableRemotePlayback
+            className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
+            src={fullUrl}
+            onLoadedMetadata={(e) => {
+              setDurationSec(e.currentTarget.duration);
+            }}
+          >
+            <track kind="captions" />
+          </video>
+          <span className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),transparent_38%,rgba(0,0,0,0.24))]" />
+          <span className="relative flex h-12 w-12 items-center justify-center rounded-full border border-white/18 bg-white/14 text-white shadow-[0_18px_44px_-24px_rgba(0,0,0,0.9)] backdrop-blur-md transition group-hover:scale-[1.03]">
+            <Play className="ml-0.5 h-5 w-5 fill-current" />
+          </span>
+        </div>
         <span
           className="pointer-events-none absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm"
           aria-hidden="true"

@@ -27,8 +27,13 @@ import {
   streamAssistantWebChatTurn,
   getWorkspaceVideoPersonas,
   getWorkspaceVoiceCatalog,
+  getWorkspaceVideoClonedVoices,
+  createWorkspaceVideoClonedVoice,
   createWorkspaceVideoPersona,
-  deleteWorkspaceVideoPersona
+  updateWorkspaceVideoPersona,
+  deleteWorkspaceVideoPersona,
+  archiveWorkspaceVideoClonedVoice,
+  setWorkspaceVideoClonedVoiceDefault
 } from "./assistant-api-client";
 
 const contractMocks = vi.hoisted(() => {
@@ -937,6 +942,7 @@ describe("streamAssistantWebChatTurn", () => {
 describe("video-persona client URL shape (Slice 9 double-prefix fix)", () => {
   const WORKSPACE_ID = "ws-test-123";
   const PERSONA_ID = "persona-abc";
+  const CLONED_VOICE_ID = "clone-abc";
 
   function stubOkFetch(body: unknown): void {
     global.fetch = vi.fn().mockResolvedValue({
@@ -988,6 +994,177 @@ describe("video-persona client URL shape (Slice 9 double-prefix fix)", () => {
     const url = ((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string])[0];
     expect(url).not.toContain("api/v1/api/v1");
     expect(url).toContain(`/workspaces/${WORKSPACE_ID}/video-personas/${PERSONA_ID}`);
+  });
+
+  it("getWorkspaceVideoClonedVoices does not double-prefix api/v1 and targets /workspaces/:id/video-cloned-voices", async () => {
+    stubOkFetch({ clonedVoices: [], limit: 5, creationVcoinCost: 50 });
+    await getWorkspaceVideoClonedVoices("tok", WORKSPACE_ID);
+    const url = ((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string])[0];
+    expect(url).not.toContain("api/v1/api/v1");
+    expect(url).toContain(`/workspaces/${WORKSPACE_ID}/video-cloned-voices`);
+  });
+
+  it("createWorkspaceVideoClonedVoice uploads to /workspaces/:id/video-cloned-voices without double-prefix", async () => {
+    const originalXhr = global.XMLHttpRequest;
+    const xhrState: {
+      url: string | null;
+      body: FormData | null;
+      authHeader: string | null;
+    } = {
+      url: null,
+      body: null,
+      authHeader: null
+    };
+
+    class MockXmlHttpRequest {
+      upload = { addEventListener: vi.fn() };
+      status = 200;
+      statusText = "OK";
+      responseText = JSON.stringify({
+        clonedVoice: { id: CLONED_VOICE_ID, displayName: "Brand Voice", status: "ready" },
+        walletBalanceVc: 75
+      });
+      private listeners = new Map<string, Array<() => void>>();
+
+      open(_method: string, url: string) {
+        xhrState.url = url;
+      }
+
+      setRequestHeader(name: string, value: string) {
+        if (name.toLowerCase() === "authorization") {
+          xhrState.authHeader = value;
+        }
+      }
+
+      addEventListener(event: string, listener: () => void) {
+        const current = this.listeners.get(event) ?? [];
+        current.push(listener);
+        this.listeners.set(event, current);
+      }
+
+      getAllResponseHeaders() {
+        return "content-type: application/json\r\n";
+      }
+
+      abort() {}
+
+      send(body: FormData) {
+        xhrState.body = body;
+        for (const listener of this.listeners.get("load") ?? []) {
+          listener();
+        }
+      }
+    }
+
+    // @ts-expect-error test stub
+    global.XMLHttpRequest = MockXmlHttpRequest;
+
+    try {
+      const audioFile = new File(["voice"], "voice.webm", { type: "audio/webm" });
+      await createWorkspaceVideoClonedVoice("tok", WORKSPACE_ID, {
+        displayName: "Brand Voice",
+        audio: audioFile,
+        languageHint: "en",
+        removeBackgroundNoise: true
+      });
+    } finally {
+      global.XMLHttpRequest = originalXhr;
+    }
+
+    expect(xhrState.url).not.toContain("api/v1/api/v1");
+    expect(xhrState.url).toContain(`/workspaces/${WORKSPACE_ID}/video-cloned-voices`);
+    expect(xhrState.authHeader).toBe("Bearer tok");
+    expect(xhrState.body?.get("displayName")).toBe("Brand Voice");
+    expect(xhrState.body?.get("languageHint")).toBe("en");
+    expect(xhrState.body?.get("removeBackgroundNoise")).toBe("true");
+    expect(xhrState.body?.get("audio")).toBeInstanceOf(File);
+  });
+
+  it("archiveWorkspaceVideoClonedVoice does not double-prefix api/v1 and targets /workspaces/:id/video-cloned-voices/:clonedVoiceId", async () => {
+    stubOkFetchNoBody();
+    await archiveWorkspaceVideoClonedVoice("tok", WORKSPACE_ID, CLONED_VOICE_ID);
+    const url = ((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string])[0];
+    expect(url).not.toContain("api/v1/api/v1");
+    expect(url).toContain(`/workspaces/${WORKSPACE_ID}/video-cloned-voices/${CLONED_VOICE_ID}`);
+  });
+
+  it("setWorkspaceVideoClonedVoiceDefault does not double-prefix api/v1 and targets /workspaces/:id/video-cloned-voices/:clonedVoiceId/default", async () => {
+    stubOkFetch({ clonedVoice: { id: CLONED_VOICE_ID } });
+    await setWorkspaceVideoClonedVoiceDefault("tok", WORKSPACE_ID, CLONED_VOICE_ID);
+    const url = ((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string])[0];
+    expect(url).not.toContain("api/v1/api/v1");
+    expect(url).toContain(
+      `/workspaces/${WORKSPACE_ID}/video-cloned-voices/${CLONED_VOICE_ID}/default`
+    );
+  });
+});
+
+describe("video persona cloned voice forwarding", () => {
+  const WORKSPACE_ID = "ws-forward-123";
+  const PERSONA_ID = "persona-forward-123";
+
+  it("createWorkspaceVideoPersona forwards clonedVoiceId alongside heygenVoiceId", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        persona: {
+          id: PERSONA_ID,
+          clonedVoiceId: "clone-1",
+          clonedVoiceDisplayName: "Brand Voice"
+        },
+        walletBalanceVc: 90,
+        storageWarning: null
+      })
+    }) as typeof fetch;
+
+    const fakeFile = new File(["portrait"], "portrait.jpg", { type: "image/jpeg" });
+    await createWorkspaceVideoPersona("tok", WORKSPACE_ID, {
+      displayName: "Alice",
+      heygenVoiceId: "voice-1",
+      clonedVoiceId: "clone-1",
+      portrait: fakeFile
+    });
+
+    const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      { body: FormData }
+    ];
+    expect(init.body.get("displayName")).toBe("Alice");
+    expect(init.body.get("heygenVoiceId")).toBe("voice-1");
+    expect(init.body.get("clonedVoiceId")).toBe("clone-1");
+  });
+
+  it("updateWorkspaceVideoPersona forwards clonedVoiceId without double-prefix", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        persona: {
+          id: PERSONA_ID,
+          clonedVoiceId: "clone-2",
+          clonedVoiceDisplayName: "Founder Voice"
+        }
+      })
+    }) as typeof fetch;
+
+    await updateWorkspaceVideoPersona("tok", WORKSPACE_ID, PERSONA_ID, {
+      displayName: "Alice",
+      heygenVoiceId: "voice-1",
+      clonedVoiceId: "clone-2"
+    });
+
+    const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      { body: string }
+    ];
+    expect(url).not.toContain("api/v1/api/v1");
+    expect(url).toContain(`/workspaces/${WORKSPACE_ID}/video-personas/${PERSONA_ID}`);
+    expect(JSON.parse(init.body)).toEqual({
+      displayName: "Alice",
+      heygenVoiceId: "voice-1",
+      clonedVoiceId: "clone-2"
+    });
   });
 });
 

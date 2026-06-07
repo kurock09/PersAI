@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, WorkspaceVideoClonedVoiceStatus } from "@prisma/client";
 
 /**
  * ADR-109 Slice 5 — domain port for the workspace-scoped talking-avatar
@@ -26,6 +26,11 @@ export type WorkspaceVideoPersonaRecord = {
   portraitImageStorageKey: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
+  clonedVoiceId: string | null;
+  linkedClonedVoiceDisplayName: string | null;
+  linkedClonedVoiceProviderId: string | null;
+  linkedClonedVoiceStatus: WorkspaceVideoClonedVoiceStatus | null;
+  linkedClonedVoiceArchived: boolean | null;
   /** Set at persona creation (Slice 5b E12). Sentinel "unset_legacy" may appear on rows created before the Slice 5b migration. */
   heygenAvatarId: string;
   archived: boolean;
@@ -48,6 +53,7 @@ export type WorkspaceVideoPersonaCreateInput = {
   portraitImageStorageKey: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
+  clonedVoiceId?: string | null;
   /** HeyGen Photo Avatar ID created eagerly at persona POST time (Slice 5b E12). */
   heygenAvatarId: string;
 };
@@ -57,8 +63,9 @@ export type WorkspaceVideoPersonaUpdateInput = {
   personaId: string;
   displayName: string;
   displayNameLower: string;
-  heygenVoiceId: string;
-  heygenVoiceLabel: string;
+  heygenVoiceId?: string;
+  heygenVoiceLabel?: string;
+  clonedVoiceId?: string | null;
 };
 
 export interface WorkspaceVideoPersonaRepository {

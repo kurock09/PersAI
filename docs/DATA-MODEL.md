@@ -168,6 +168,15 @@ Current active Voice DNA persistence includes:
 
 Materialization prefers the live `persona_archetypes` row when it exists, and only falls back to `snapshot_voice_dna` if the referenced archetype is no longer present.
 
+## Workspace talking-video voice state
+
+ADR-109 / ADR-111 add a second, workspace-scoped persona layer on top of Voice DNA:
+
+- `workspace_video_personas` stores saved talking-video character truth for a workspace, including `displayName`, portrait reference, preset `heygenVoiceId` / label fallback, and optional linked `clonedVoiceId`
+- `workspace_video_cloned_voices` stores workspace-owned cloned voices with safe product display name, provider lifecycle status (`pending`, `ready`, `failed`, archived/inactive state), optional preview audio, default flag, and provider linkage hidden behind PersAI-owned labels
+- persona reads/materialization may project both `clonedVoiceId` and `clonedVoiceDisplayName`, but user/model surfaces must never expose raw provider clone ids
+- runtime bundle projection keeps cloned-voice data additive: persona catalog rows may include a safe linked cloned-voice label plus preset fallback metadata, while the control plane remains responsible for validating that only ready active clones can be attached
+
 ## Runtime provider and plan model state
 
 Current active runtime-provider settings persistence includes:

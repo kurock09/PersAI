@@ -16,7 +16,8 @@ export class HeyGenProviderClientError extends Error {
   constructor(
     message: string,
     public readonly httpStatus: number,
-    public readonly providerMessage: string
+    public readonly providerMessage: string,
+    public readonly providerCode: string | null = null
   ) {
     super(message);
     this.name = "HeyGenProviderClientError";
@@ -34,6 +35,17 @@ const HEYGEN_MAX_TRANSIENT_POLL_FETCH_FAILURES = 3;
 const HEYGEN_SUBMIT_VIDEO_PATH = "/v3/videos";
 const HEYGEN_AVATAR_CREATE_PATH = "/v3/avatars";
 const HEYGEN_ASSETS_UPLOAD_PATH = "/v3/assets";
+const HEYGEN_VOICE_CLONE_SUBMIT_PATH = "/v3/voices/clone";
+const HEYGEN_VOICE_CLONE_POLL_PATH = "/v3/voices";
+const HEYGEN_VOICE_CLONE_TIMEOUT_MS = 300_000;
+const HEYGEN_VOICE_CLONE_POLL_INTERVAL_MS = 5_000;
+const HEYGEN_VOICE_CLONE_FAILED_STATUSES = new Set([
+  "failed",
+  "error",
+  "rejected",
+  "cancelled",
+  "canceled"
+]);
 
 type HeyGenAcceptedTask = {
   videoId: string;
@@ -249,6 +261,44 @@ export class HeyGenProviderClient {
     }
   }
 
+  async createVoiceClone(
+    input: {
+      displayName: string;
+      audioBytesBase64: string;
+      audioMimeType: string;
+      languageHint?: string | null;
+      removeBackgroundNoise?: boolean;
+    },
+    options: { credentialValue: string; pollIntervalMs?: number }
+  ): Promise<{ voiceCloneId: string; previewAudioUrl: string | null; status: "complete" }> {
+    const apiKey = this.resolveApiKey(options.credentialValue);
+    const { signal, dispose } = this.createTimedSignal(
+      Math.max(this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS, HEYGEN_VOICE_CLONE_TIMEOUT_MS)
+    );
+
+    try {
+      const voiceCloneId = await this.submitVoiceClone(input, apiKey, signal);
+      const completedBody = await this.pollVoiceClone(
+        voiceCloneId,
+        apiKey,
+        signal,
+        options.pollIntervalMs ?? HEYGEN_VOICE_CLONE_POLL_INTERVAL_MS
+      );
+      return {
+        voiceCloneId,
+        status: "complete",
+        previewAudioUrl: this.readPreviewAudioUrl(completedBody)
+      };
+    } catch (error) {
+      if (this.isAbortError(error)) {
+        throw new Error("HeyGen voice clone timed out before the clone reached a terminal status.");
+      }
+      throw error;
+    } finally {
+      dispose();
+    }
+  }
+
   // ── Lazy avatar creation (Scenario C first-use defensive fallback) ────────
 
   private async lazyCreateAvatar(
@@ -310,6 +360,110 @@ export class HeyGenProviderClient {
       throw new Error("HeyGen asset upload returned a response missing data.asset_id.");
     }
     return assetId;
+  }
+
+  private async submitVoiceClone(
+    input: {
+      displayName: string;
+      audioBytesBase64: string;
+      audioMimeType: string;
+      languageHint?: string | null;
+      removeBackgroundNoise?: boolean;
+    },
+    apiKey: string,
+    signal: AbortSignal
+  ): Promise<string> {
+    const response = await fetch(`${HEYGEN_API_BASE_URL}${HEYGEN_VOICE_CLONE_SUBMIT_PATH}`, {
+      method: "POST",
+      headers: {
+        "X-Api-Key": apiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        voice_name: input.displayName,
+        audio: {
+          type: "base64",
+          media_type: input.audioMimeType,
+          data: input.audioBytesBase64
+        },
+        ...(this.asNonEmptyString(input.languageHint) === null
+          ? {}
+          : { language: this.asNonEmptyString(input.languageHint) }),
+        ...(typeof input.removeBackgroundNoise === "boolean"
+          ? { remove_background_noise: input.removeBackgroundNoise }
+          : {})
+      }),
+      signal
+    });
+
+    const responseBody = await this.readJsonBody(response);
+    if (!response.ok) {
+      const providerMessage = this.readHeyGenErrorMessage(responseBody, response.status);
+      throw new HeyGenProviderClientError(
+        providerMessage,
+        response.status,
+        providerMessage,
+        this.readHeyGenErrorCode(responseBody)
+      );
+    }
+
+    const voiceCloneId =
+      this.readString(responseBody, ["data", "voice_clone_id"]) ??
+      this.readString(responseBody, ["data", "voiceCloneId"]);
+    if (voiceCloneId === null) {
+      throw new Error("HeyGen voice clone submit returned a response missing data.voice_clone_id.");
+    }
+    return voiceCloneId;
+  }
+
+  private async pollVoiceClone(
+    voiceCloneId: string,
+    apiKey: string,
+    signal: AbortSignal,
+    pollIntervalMs: number
+  ): Promise<unknown> {
+    while (!signal.aborted) {
+      await this.delay(Math.max(0, pollIntervalMs), signal);
+      const response = await fetch(
+        `${HEYGEN_API_BASE_URL}${HEYGEN_VOICE_CLONE_POLL_PATH}/${encodeURIComponent(voiceCloneId)}`,
+        {
+          method: "GET",
+          headers: {
+            "X-Api-Key": apiKey
+          },
+          signal
+        }
+      );
+
+      const body = await this.readJsonBody(response);
+      if (!response.ok) {
+        const providerMessage = this.readHeyGenErrorMessage(body, response.status);
+        throw new HeyGenProviderClientError(
+          providerMessage,
+          response.status,
+          providerMessage,
+          this.readHeyGenErrorCode(body)
+        );
+      }
+
+      const status = this.readString(body, ["data", "status"]);
+      if (status === null) {
+        throw new Error("HeyGen voice clone poll response was missing data.status.");
+      }
+      if (status === "complete") {
+        return body;
+      }
+      if (HEYGEN_VOICE_CLONE_FAILED_STATUSES.has(status)) {
+        const reason =
+          this.readString(body, ["data", "failure_message"]) ??
+          this.readString(body, ["data", "failureMessage"]) ??
+          this.readString(body, ["data", "error", "message"]) ??
+          this.readString(body, ["data", "error"]) ??
+          `HeyGen voice clone ended with status "${status}".`;
+        throw new HeyGenProviderClientError(reason, 400, reason, "voice_clone_failed");
+      }
+    }
+    throw new Error("HeyGen voice clone polling stopped before a terminal status.");
   }
 
   // ── Video submission ──────────────────────────────────────────────────────
@@ -660,6 +814,26 @@ export class HeyGenProviderClient {
       this.readString(body, ["message"]) ??
       this.readString(body, ["msg"]) ??
       `HeyGen request failed with HTTP status ${String(status)}.`
+    );
+  }
+
+  private readHeyGenErrorCode(body: unknown): string | null {
+    return (
+      this.readString(body, ["error", "code"]) ??
+      this.readString(body, ["data", "error_code"]) ??
+      this.readString(body, ["data", "errorCode"]) ??
+      this.readString(body, ["code"])
+    );
+  }
+
+  private readPreviewAudioUrl(body: unknown): string | null {
+    return (
+      this.readString(body, ["data", "preview_audio_url"]) ??
+      this.readString(body, ["data", "previewAudioUrl"]) ??
+      this.readString(body, ["data", "sample_audio_url"]) ??
+      this.readString(body, ["data", "sampleAudioUrl"]) ??
+      this.readString(body, ["data", "audio_url"]) ??
+      this.readString(body, ["data", "audioUrl"])
     );
   }
 

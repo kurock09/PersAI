@@ -26,7 +26,9 @@ import {
   CreditCard,
   ExternalLink,
   X,
-  UserCircle2
+  UserCircle2,
+  Plus,
+  Mic
 } from "lucide-react";
 import type {
   AssistantLimitState,
@@ -81,13 +83,18 @@ import {
   type AssistantSkillsState,
   getAssistantSupportTickets,
   getWorkspaceVideoPersonas,
+  getWorkspaceVideoClonedVoices,
   getWorkspaceVoiceCatalog,
+  createWorkspaceVideoClonedVoice,
   createWorkspaceVideoPersona,
   updateWorkspaceVideoPersona,
   deleteWorkspaceVideoPersona,
+  archiveWorkspaceVideoClonedVoice,
+  setWorkspaceVideoClonedVoiceDefault,
   ApiStructuredError,
   type PersonaListItemDto,
-  type VoiceCatalogEntry
+  type VoiceCatalogEntry,
+  type WorkspaceVideoClonedVoiceDto
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
 import { VoicePreviewButton } from "../../_components/voice-preview-button";
@@ -124,9 +131,269 @@ type ActionFeedback = { type: "ok" | "err" | "warn"; text: string } | null;
 type PersonaVoiceLanguageFilter = "ru" | "en" | "other";
 type PersonaLightboxState = { src: string; name: string } | null;
 type PersonaModalMode = "create" | "edit";
+type ClonedVoiceModalMode = "upload" | "record";
 
 const CHARACTERS_PRICING_URL = "https://persai.dev/app/pricing";
 const DEMO_PERSONA_PORTRAIT_URL = "/landing/demo-persona-portrait.png";
+
+type CharacterCardProps = {
+  name: string;
+  voiceLabel: string;
+  portraitImageUrl: string | null;
+  previewAudioUrl?: string | null | undefined;
+  previewVoiceLabel?: string | undefined;
+  previewUnavailableLabel: string;
+  fallbackInitial: string;
+  badgeLabel?: string | undefined;
+  disabled?: boolean | undefined;
+  showPreview?: boolean | undefined;
+  openPortraitLabel?: string | undefined;
+  deleteLabel?: string | undefined;
+  onOpenPortrait?: (() => void) | undefined;
+  onSelect?: (() => void) | undefined;
+  onDelete?: (() => void) | undefined;
+  testId?: string | undefined;
+};
+
+function CharacterCard({
+  name,
+  voiceLabel,
+  portraitImageUrl,
+  previewAudioUrl,
+  previewVoiceLabel,
+  previewUnavailableLabel,
+  fallbackInitial,
+  badgeLabel,
+  disabled = false,
+  showPreview = false,
+  openPortraitLabel,
+  deleteLabel,
+  onOpenPortrait,
+  onSelect,
+  onDelete,
+  testId = "character-card"
+}: CharacterCardProps) {
+  const interactive = !disabled && typeof onSelect === "function";
+
+  return (
+    <div
+      data-testid={testId}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-disabled={disabled ? "true" : undefined}
+      onClick={interactive ? onSelect : undefined}
+      onKeyDown={
+        interactive
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect?.();
+              }
+            }
+          : undefined
+      }
+      className={cn(
+        "flex min-h-[88px] items-center gap-3 rounded-2xl border border-border/60 bg-surface p-3 text-left transition-colors",
+        interactive
+          ? "cursor-pointer hover:bg-surface-raised/60 focus:outline-none focus:ring-2 focus:ring-accent/20"
+          : "opacity-75"
+      )}
+    >
+      {portraitImageUrl ? (
+        onOpenPortrait && !disabled ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenPortrait();
+            }}
+            className="shrink-0 rounded-2xl transition-transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-accent/30"
+            aria-label={openPortraitLabel}
+          >
+            <img src={portraitImageUrl} alt={name} className="h-14 w-14 rounded-2xl object-cover" />
+          </button>
+        ) : (
+          <img
+            src={portraitImageUrl}
+            alt={name}
+            className="h-14 w-14 shrink-0 rounded-2xl object-cover"
+          />
+        )
+      ) : (
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-accent/10 text-sm font-medium text-accent">
+          {fallbackInitial}
+        </div>
+      )}
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm font-medium text-text">{name}</p>
+          {badgeLabel ? (
+            <span className="rounded-full border border-border/60 bg-surface px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-subtle">
+              {badgeLabel}
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-1 truncate text-xs text-text-muted">{voiceLabel}</p>
+      </div>
+
+      {showPreview || onDelete ? (
+        <div
+          className="flex shrink-0 items-center gap-1.5"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          {showPreview ? (
+            <VoicePreviewButton
+              previewAudioUrl={previewAudioUrl ?? null}
+              voiceLabel={previewVoiceLabel ?? name}
+              previewUnavailableLabel={previewUnavailableLabel}
+            />
+          ) : null}
+          {onDelete && !disabled ? (
+            <button
+              type="button"
+              onClick={onDelete}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
+              aria-label={deleteLabel}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CharacterCreateCard({
+  label,
+  helperText,
+  disabled,
+  title,
+  onClick
+}: {
+  label: string;
+  helperText: string;
+  disabled: boolean;
+  title?: string | undefined;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid="character-create-slot"
+      aria-label={label}
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+      className={cn(
+        "flex min-h-[88px] w-full items-center gap-3 rounded-2xl border border-dashed border-accent/35 bg-accent/5 p-3 text-left transition-colors",
+        disabled
+          ? "cursor-not-allowed opacity-60"
+          : "hover:border-accent/50 hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent/20"
+      )}
+    >
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-accent/10 text-accent">
+        <Plus className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-text">{label}</p>
+        <p className="mt-1 text-xs text-text-muted">{helperText}</p>
+      </div>
+    </button>
+  );
+}
+
+function VoiceCloneCard({
+  voice,
+  voiceLabel,
+  statusLabel,
+  statusTone,
+  previewUnavailableLabel,
+  linkedSummary,
+  archiveLabel,
+  defaultLabel,
+  makeDefaultLabel,
+  onArchive,
+  onMakeDefault
+}: {
+  voice: WorkspaceVideoClonedVoiceDto;
+  voiceLabel: string;
+  statusLabel: string;
+  statusTone: "default" | "warn" | "success" | "error";
+  previewUnavailableLabel: string;
+  linkedSummary: string | null;
+  archiveLabel: string;
+  defaultLabel: string;
+  makeDefaultLabel: string;
+  onArchive?: (() => void) | undefined;
+  onMakeDefault?: (() => void) | undefined;
+}) {
+  return (
+    <div
+      data-testid={`voice-clone-card-${voice.status}`}
+      className="rounded-2xl border border-border/60 bg-surface p-3"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm font-medium text-text">{voice.displayName}</p>
+            {voice.isDefault ? (
+              <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+                {defaultLabel}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-text-muted">{voiceLabel}</p>
+          <p
+            className={cn(
+              "mt-1 text-[11px]",
+              statusTone === "success"
+                ? "text-green-600"
+                : statusTone === "warn"
+                  ? "text-yellow-600"
+                  : statusTone === "error"
+                    ? "text-destructive"
+                    : "text-text-subtle"
+            )}
+          >
+            {statusLabel}
+          </p>
+          {linkedSummary ? (
+            <p className="mt-1 text-[11px] text-text-subtle">{linkedSummary}</p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <VoicePreviewButton
+            previewAudioUrl={voice.previewAudioUrl}
+            voiceLabel={voice.displayName}
+            previewUnavailableLabel={previewUnavailableLabel}
+          />
+          {onMakeDefault ? (
+            <button
+              type="button"
+              onClick={onMakeDefault}
+              className="inline-flex h-7 items-center justify-center rounded-full border border-border px-2 text-[11px] text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
+            >
+              {makeDefaultLabel}
+            </button>
+          ) : null}
+          {onArchive ? (
+            <button
+              type="button"
+              onClick={onArchive}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
+              aria-label={archiveLabel}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type QuotaBucketState = UserPlanVisibilityState["limits"]["quotaBuckets"][number];
 type MonthlyToolQuotaSnapshot = UserPlanVisibilityState["limits"]["monthlyToolQuotas"];
@@ -367,6 +634,15 @@ function formatQuotaBytes(bytes: number): string {
   }
   const precision = value >= 100 || unitIndex === 0 ? 0 : 1;
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function formatDuration(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safeSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const remainingSeconds = (safeSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${remainingSeconds}`;
 }
 
 function formatQuotaBucketScalar(bucket: QuotaBucketState, value: number): string {
@@ -1147,6 +1423,11 @@ export function AssistantSettings({
   const [personaLimit, setPersonaLimit] = useState<number>(3);
   const [personaCreationVcoinCost, setPersonaCreationVcoinCost] = useState<number>(0);
   const [personaListLoading, setPersonaListLoading] = useState(false);
+  const [clonedVoiceList, setClonedVoiceList] = useState<WorkspaceVideoClonedVoiceDto[]>([]);
+  const [clonedVoiceLimit, setClonedVoiceLimit] = useState<number>(5);
+  const [clonedVoiceCreationVcoinCost, setClonedVoiceCreationVcoinCost] = useState<number>(50);
+  const [clonedVoiceListLoading, setClonedVoiceListLoading] = useState(false);
+  const [clonedVoiceSubmittingId, setClonedVoiceSubmittingId] = useState<string | null>(null);
   const [voiceCatalog, setVoiceCatalog] = useState<VoiceCatalogEntry[]>([]);
   const [voiceCatalogLoading, setVoiceCatalogLoading] = useState(false);
   const [voiceCatalogUnavailable, setVoiceCatalogUnavailable] = useState(false);
@@ -1160,6 +1441,7 @@ export function AssistantSettings({
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
   const [createPersonaName, setCreatePersonaName] = useState("");
   const [createPersonaVoiceId, setCreatePersonaVoiceId] = useState<string | null>(null);
+  const [createPersonaClonedVoiceId, setCreatePersonaClonedVoiceId] = useState<string | null>(null);
   const [createPersonaPortrait, setCreatePersonaPortrait] = useState<File | null>(null);
   const [createPersonaPortraitPreview, setCreatePersonaPortraitPreview] = useState<string | null>(
     null
@@ -1171,7 +1453,49 @@ export function AssistantSettings({
   const [deletePersonaName, setDeletePersonaName] = useState<string | null>(null);
   const [deletePersonaSubmitting, setDeletePersonaSubmitting] = useState(false);
   const [personaFb, setPersonaFb] = useState<ActionFeedback>(null);
+  const [clonedVoiceFb, setClonedVoiceFb] = useState<ActionFeedback>(null);
   const personaPortraitInputRef = useRef<HTMLInputElement>(null);
+  const [createClonedVoiceOpen, setCreateClonedVoiceOpen] = useState(false);
+  const [createClonedVoiceAttachToPersona, setCreateClonedVoiceAttachToPersona] = useState(false);
+  const [createClonedVoiceMode, setCreateClonedVoiceMode] =
+    useState<ClonedVoiceModalMode>("upload");
+  const [createClonedVoiceName, setCreateClonedVoiceName] = useState("");
+  const [createClonedVoiceLanguageHint, setCreateClonedVoiceLanguageHint] = useState("");
+  const [createClonedVoiceRightsConfirmed, setCreateClonedVoiceRightsConfirmed] = useState(false);
+  const [createClonedVoiceAudio, setCreateClonedVoiceAudio] = useState<File | null>(null);
+  const [createClonedVoiceAudioPreviewUrl, setCreateClonedVoiceAudioPreviewUrl] = useState<
+    string | null
+  >(null);
+  const [createClonedVoiceSubmitting, setCreateClonedVoiceSubmitting] = useState(false);
+  const [createClonedVoiceError, setCreateClonedVoiceError] = useState<string | null>(null);
+  const [createClonedVoiceRecordingState, setCreateClonedVoiceRecordingState] = useState<
+    "idle" | "recording"
+  >("idle");
+  const [createClonedVoiceRecordingSeconds, setCreateClonedVoiceRecordingSeconds] = useState(0);
+  const [createClonedVoiceMicError, setCreateClonedVoiceMicError] = useState<string | null>(null);
+  const clonedVoiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const clonedVoiceRecorderStreamRef = useRef<MediaStream | null>(null);
+  const clonedVoiceRecorderChunksRef = useRef<Blob[]>([]);
+  const clonedVoiceRecorderTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clonedVoiceRecordingAttemptIdRef = useRef(0);
+
+  const revokeBlobUrl = useCallback((url: string | null) => {
+    if (typeof url === "string" && url.startsWith("blob:")) {
+      URL.revokeObjectURL(url);
+    }
+  }, []);
+
+  const replacePersonaPortraitPreview = useCallback(
+    (nextUrl: string | null) => {
+      setCreatePersonaPortraitPreview((current) => {
+        if (current && current !== nextUrl) {
+          revokeBlobUrl(current);
+        }
+        return nextUrl;
+      });
+    },
+    [revokeBlobUrl]
+  );
 
   const resetPersonaModal = useCallback(
     (mode: PersonaModalMode, persona?: PersonaListItemDto | null) => {
@@ -1179,15 +1503,88 @@ export function AssistantSettings({
       setEditingPersonaId(mode === "edit" ? (persona?.id ?? null) : null);
       setCreatePersonaName(mode === "edit" ? (persona?.displayName ?? "") : "");
       setCreatePersonaVoiceId(mode === "edit" ? (persona?.heygenVoiceId ?? null) : null);
+      setCreatePersonaClonedVoiceId(mode === "edit" ? (persona?.clonedVoiceId ?? null) : null);
       setCreatePersonaPortrait(null);
-      setCreatePersonaPortraitPreview(mode === "edit" ? (persona?.portraitImageUrl ?? null) : null);
+      replacePersonaPortraitPreview(mode === "edit" ? (persona?.portraitImageUrl ?? null) : null);
       setCreatePersonaError(null);
       setCreatePersonaPortraitError(null);
       setOtherVoiceLanguageSearch("");
       setVoiceLanguageFilter(locale.toLowerCase().startsWith("ru") ? "ru" : "en");
       setCreatePersonaOpen(true);
     },
-    [locale]
+    [locale, replacePersonaPortraitPreview]
+  );
+
+  const cleanupClonedVoiceRecorder = useCallback(() => {
+    if (clonedVoiceRecorderTimerRef.current) {
+      clearInterval(clonedVoiceRecorderTimerRef.current);
+      clonedVoiceRecorderTimerRef.current = null;
+    }
+    clonedVoiceRecorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+    clonedVoiceRecorderStreamRef.current = null;
+    clonedVoiceRecorderRef.current = null;
+  }, []);
+
+  const clearClonedVoiceAudioPreview = useCallback(() => {
+    setCreateClonedVoiceAudioPreviewUrl((current) => {
+      if (current) {
+        revokeBlobUrl(current);
+      }
+      return null;
+    });
+  }, [revokeBlobUrl]);
+
+  const cancelClonedVoiceRecordingAttempt = useCallback(() => {
+    clonedVoiceRecordingAttemptIdRef.current += 1;
+    cleanupClonedVoiceRecorder();
+  }, [cleanupClonedVoiceRecorder]);
+
+  const closePersonaModal = useCallback(() => {
+    setCreatePersonaOpen(false);
+    setCreatePersonaPortrait(null);
+    replacePersonaPortraitPreview(null);
+  }, [replacePersonaPortraitPreview]);
+
+  const closeClonedVoiceModal = useCallback(() => {
+    cancelClonedVoiceRecordingAttempt();
+    clearClonedVoiceAudioPreview();
+    setCreateClonedVoiceAudio(null);
+    setCreateClonedVoiceRecordingState("idle");
+    setCreateClonedVoiceRecordingSeconds(0);
+    setCreateClonedVoiceMicError(null);
+    setCreateClonedVoiceError(null);
+    setCreateClonedVoiceOpen(false);
+  }, [cancelClonedVoiceRecordingAttempt, clearClonedVoiceAudioPreview]);
+
+  const setClonedVoiceAudioFile = useCallback(
+    (file: File | null) => {
+      clearClonedVoiceAudioPreview();
+      setCreateClonedVoiceAudio(file);
+      if (file) {
+        setCreateClonedVoiceAudioPreviewUrl(URL.createObjectURL(file));
+      }
+    },
+    [clearClonedVoiceAudioPreview]
+  );
+
+  const resetClonedVoiceModal = useCallback(
+    (attachToPersona: boolean) => {
+      cancelClonedVoiceRecordingAttempt();
+      clearClonedVoiceAudioPreview();
+      setCreateClonedVoiceAttachToPersona(attachToPersona);
+      setCreateClonedVoiceMode("upload");
+      setCreateClonedVoiceName("");
+      setCreateClonedVoiceLanguageHint("");
+      setCreateClonedVoiceRightsConfirmed(false);
+      setCreateClonedVoiceAudio(null);
+      setCreateClonedVoiceSubmitting(false);
+      setCreateClonedVoiceError(null);
+      setCreateClonedVoiceMicError(null);
+      setCreateClonedVoiceRecordingState("idle");
+      setCreateClonedVoiceRecordingSeconds(0);
+      setCreateClonedVoiceOpen(true);
+    },
+    [cancelClonedVoiceRecordingAttempt, clearClonedVoiceAudioPreview]
   );
 
   const loadPersonas = useCallback(async () => {
@@ -1205,6 +1602,24 @@ export function AssistantSettings({
       // Keep last known list on refresh failure
     } finally {
       setPersonaListLoading(false);
+    }
+  }, [assistant?.workspaceId, getToken]);
+
+  const loadClonedVoices = useCallback(async () => {
+    const workspaceId = assistant?.workspaceId;
+    if (!workspaceId) return;
+    const token = await getToken();
+    if (!token) return;
+    setClonedVoiceListLoading(true);
+    try {
+      const result = await getWorkspaceVideoClonedVoices(token, workspaceId);
+      setClonedVoiceList(result.clonedVoices);
+      setClonedVoiceLimit(result.limit);
+      setClonedVoiceCreationVcoinCost(result.creationVcoinCost);
+    } catch {
+      // Keep last known voice list on refresh failure
+    } finally {
+      setClonedVoiceListLoading(false);
     }
   }, [assistant?.workspaceId, getToken]);
 
@@ -1265,6 +1680,60 @@ export function AssistantSettings({
       null
     );
   }, [voiceCatalog, locale]);
+  const charactersPlanGateLabel = t("charactersLockedHint", {
+    plan: data.plan?.effectivePlan.code ?? "Pro"
+  });
+  const createPersonaDisabledReason = !talkingVideoEnabled
+    ? charactersPlanGateLabel
+    : personaList.length >= personaLimit
+      ? t("charactersFormLimitReached", { n: personaLimit })
+      : null;
+  const charactersHelperText = !talkingVideoEnabled
+    ? t("charactersLockedBanner")
+    : personaList.length === 0
+      ? t("charactersEmpty")
+      : t("charactersUsageHint");
+  const clonedVoiceCreateDisabledReason = !talkingVideoEnabled
+    ? charactersPlanGateLabel
+    : clonedVoiceList.length >= clonedVoiceLimit
+      ? t("voicesFormLimitReached", { n: clonedVoiceLimit })
+      : null;
+  const readyClonedVoices = useMemo(
+    () => clonedVoiceList.filter((voice) => voice.status === "ready"),
+    [clonedVoiceList]
+  );
+  const activePersonaVoiceOption = useMemo(() => {
+    if (!createPersonaClonedVoiceId) {
+      return null;
+    }
+    return readyClonedVoices.find((voice) => voice.id === createPersonaClonedVoiceId) ?? null;
+  }, [createPersonaClonedVoiceId, readyClonedVoices]);
+  const cloneLinkedSummaryById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const voice of clonedVoiceList) {
+      const linked = personaList.filter((persona) => persona.clonedVoiceId === voice.id);
+      if (linked.length === 0) {
+        continue;
+      }
+      const firstNames = linked.slice(0, 2).map((persona) => persona.displayName);
+      const moreCount = linked.length - firstNames.length;
+      map.set(
+        voice.id,
+        firstNames.length === 1 && moreCount === 0
+          ? t("voicesLinkedOne", { name: firstNames[0]! })
+          : moreCount > 0
+            ? t("voicesLinkedMany", {
+                names: firstNames.join(", "),
+                count: linked.length
+              })
+            : t("voicesLinkedMany", {
+                names: firstNames.join(", "),
+                count: linked.length
+              })
+      );
+    }
+    return map;
+  }, [clonedVoiceList, personaList, t]);
 
   const refreshSupportUnreadCount = useCallback(async () => {
     if (!assistant?.id) {
@@ -1297,9 +1766,23 @@ export function AssistantSettings({
   useEffect(() => {
     if (openSection === "characters") {
       void loadPersonas();
+      void loadClonedVoices();
       void loadVoiceCatalog();
     }
-  }, [openSection, loadPersonas, loadVoiceCatalog]);
+  }, [openSection, loadClonedVoices, loadPersonas, loadVoiceCatalog]);
+
+  useEffect(() => {
+    return () => {
+      cleanupClonedVoiceRecorder();
+      clearClonedVoiceAudioPreview();
+    };
+  }, [cleanupClonedVoiceRecorder, clearClonedVoiceAudioPreview]);
+
+  useEffect(() => {
+    return () => {
+      revokeBlobUrl(createPersonaPortraitPreview);
+    };
+  }, [createPersonaPortraitPreview, revokeBlobUrl]);
   const billingStatusLabel = useCallback(
     (
       status: AssistantBillingSubscriptionManagementState["subscriptionStatus"] | null | undefined
@@ -2285,8 +2768,182 @@ export function AssistantSettings({
     setCreatePersonaPortraitError(null);
     setCreatePersonaPortrait(file);
     const url = URL.createObjectURL(file);
-    setCreatePersonaPortraitPreview(url);
+    replacePersonaPortraitPreview(url);
   }
+
+  function handleClonedVoiceAudioFile(file: File): void {
+    const MAX_SIZE = 25 * 1024 * 1024;
+    const lowerName = file.name.toLowerCase();
+    const accepted =
+      file.type.startsWith("audio/") ||
+      lowerName.endsWith(".webm") ||
+      lowerName.endsWith(".wav") ||
+      lowerName.endsWith(".mp3") ||
+      lowerName.endsWith(".m4a");
+    if (!accepted) {
+      setCreateClonedVoiceError(t("voicesFormAudioTypeError"));
+      return;
+    }
+    if (file.size > MAX_SIZE) {
+      setCreateClonedVoiceError(t("voicesFormAudioSizeError"));
+      return;
+    }
+    setCreateClonedVoiceError(null);
+    setCreateClonedVoiceMicError(null);
+    setClonedVoiceAudioFile(file);
+  }
+
+  const startClonedVoiceRecording = useCallback(async () => {
+    const attemptId = clonedVoiceRecordingAttemptIdRef.current + 1;
+    clonedVoiceRecordingAttemptIdRef.current = attemptId;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        if (attemptId !== clonedVoiceRecordingAttemptIdRef.current) {
+          return;
+        }
+        setCreateClonedVoiceMicError(t("voicesRecordPermissionFallback"));
+        return;
+      }
+      setCreateClonedVoiceMicError(null);
+      setCreateClonedVoiceError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (attemptId !== clonedVoiceRecordingAttemptIdRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      clonedVoiceRecorderStreamRef.current = stream;
+      clonedVoiceRecorderRef.current = recorder;
+      clonedVoiceRecorderChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          clonedVoiceRecorderChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        if (attemptId !== clonedVoiceRecordingAttemptIdRef.current) {
+          clonedVoiceRecorderChunksRef.current = [];
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        const blob = new Blob(clonedVoiceRecorderChunksRef.current, { type: mimeType });
+        clonedVoiceRecorderChunksRef.current = [];
+        cleanupClonedVoiceRecorder();
+        setCreateClonedVoiceRecordingState("idle");
+        setCreateClonedVoiceRecordingSeconds(0);
+        if (blob.size < 500) {
+          setCreateClonedVoiceMicError(t("voicesRecordTooShort"));
+          return;
+        }
+        handleClonedVoiceAudioFile(
+          new File([blob], `voice-clone-${Date.now()}.webm`, { type: mimeType })
+        );
+      };
+      recorder.start(250);
+      setCreateClonedVoiceRecordingState("recording");
+      setCreateClonedVoiceRecordingSeconds(0);
+      clonedVoiceRecorderTimerRef.current = setInterval(() => {
+        setCreateClonedVoiceRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch {
+      if (attemptId !== clonedVoiceRecordingAttemptIdRef.current) {
+        return;
+      }
+      cleanupClonedVoiceRecorder();
+      setCreateClonedVoiceRecordingState("idle");
+      setCreateClonedVoiceRecordingSeconds(0);
+      setCreateClonedVoiceMicError(t("voicesRecordPermissionFallback"));
+    }
+  }, [cleanupClonedVoiceRecorder, handleClonedVoiceAudioFile, t]);
+
+  const stopClonedVoiceRecording = useCallback(() => {
+    const recorder = clonedVoiceRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+      return;
+    }
+    cleanupClonedVoiceRecorder();
+    setCreateClonedVoiceRecordingState("idle");
+    setCreateClonedVoiceRecordingSeconds(0);
+  }, [cleanupClonedVoiceRecorder]);
+
+  const submitClonedVoice = useCallback(async () => {
+    if (!assistant?.workspaceId || !createClonedVoiceAudio) {
+      return;
+    }
+    const trimmedName = createClonedVoiceName.trim();
+    if (trimmedName.length === 0) {
+      setCreateClonedVoiceError(t("voicesFormNameRequired"));
+      return;
+    }
+    if (!createClonedVoiceRightsConfirmed) {
+      setCreateClonedVoiceError(t("voicesFormRightsRequired"));
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      return;
+    }
+    setCreateClonedVoiceSubmitting(true);
+    setCreateClonedVoiceError(null);
+    try {
+      const result = await createWorkspaceVideoClonedVoice(
+        token,
+        assistant.workspaceId,
+        {
+          displayName: trimmedName,
+          audio: createClonedVoiceAudio,
+          languageHint: createClonedVoiceLanguageHint.trim() || null,
+          removeBackgroundNoise: true
+        },
+        {
+          stallTimeoutMs: 15_000,
+          hardTimeoutMs: 120_000
+        }
+      );
+      closeClonedVoiceModal();
+      setClonedVoiceFb({
+        type: "ok",
+        text: t("voicesCreateSuccess", { name: result.clonedVoice.displayName })
+      });
+      if (createClonedVoiceAttachToPersona && result.clonedVoice.status === "ready") {
+        setCreatePersonaClonedVoiceId(result.clonedVoice.id);
+        setCreatePersonaError(null);
+      }
+      await loadClonedVoices();
+    } catch (error) {
+      const code = error instanceof ApiStructuredError ? error.code : null;
+      setCreateClonedVoiceError(
+        code === "cloned_voice_limit_reached"
+          ? t("voicesErrorLimitReached")
+          : code === "cloned_voice_duplicate_name"
+            ? t("voicesErrorDuplicateName")
+            : code === "provider_plan_upgrade_required"
+              ? t("voicesErrorPlanUpgradeRequired")
+              : code === "provider_resource_limit_reached"
+                ? t("voicesErrorProviderLimitReached")
+                : code === "vcoin_balance_exhausted"
+                  ? t("voicesErrorInsufficientBalance")
+                  : t("voicesErrorGeneric")
+      );
+    } finally {
+      setCreateClonedVoiceSubmitting(false);
+    }
+  }, [
+    assistant?.workspaceId,
+    createClonedVoiceAttachToPersona,
+    createClonedVoiceAudio,
+    createClonedVoiceLanguageHint,
+    createClonedVoiceName,
+    createClonedVoiceRightsConfirmed,
+    closeClonedVoiceModal,
+    getToken,
+    loadClonedVoices,
+    t
+  ]);
 
   if (resetting) {
     return (
@@ -3359,10 +4016,9 @@ export function AssistantSettings({
           className="order-10"
         >
           {!talkingVideoEnabled ? (
-            // State A — locked-with-upsell
             <div className="flex flex-col gap-3">
               <p className="text-xs italic text-text-muted">
-                {t("charactersLockedHint", { plan: data.plan?.effectivePlan.code ?? "Pro" })}{" "}
+                {charactersPlanGateLabel}{" "}
                 <a
                   href={CHARACTERS_PRICING_URL}
                   className="text-text-muted underline underline-offset-2 opacity-70 hover:opacity-100"
@@ -3370,669 +4026,1089 @@ export function AssistantSettings({
                   {t("changePlan")}
                 </a>
               </p>
-              <p className="rounded-xl border border-border/60 bg-surface-raised/30 px-3 py-2 text-xs text-text-subtle">
-                {t("charactersLockedBanner")}
-              </p>
-              <div className="rounded-2xl border border-border/60 bg-surface-raised/20 p-3">
-                <div className="flex items-start gap-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPersonaLightbox({
-                        src: DEMO_PERSONA_PORTRAIT_URL,
-                        name: t("charactersDemoName")
-                      })
-                    }
-                    className="shrink-0 rounded-2xl transition-transform hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-accent/30"
-                    aria-label={t("charactersOpenPortrait", { name: t("charactersDemoName") })}
-                  >
-                    <img
-                      src={DEMO_PERSONA_PORTRAIT_URL}
-                      alt={t("charactersDemoName")}
-                      className="h-24 w-24 rounded-2xl object-cover"
-                    />
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate text-sm font-medium text-text">
-                        {t("charactersDemoName")}
-                      </p>
-                      <span className="rounded-full border border-border/60 bg-surface px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-subtle">
-                        {t("charactersDemoBadge")}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-text-subtle">
-                      {t("charactersVoiceLabel", {
-                        voice: demoPersonaVoice?.name ?? t("charactersDemoVoiceFallback")
-                      })}
-                    </p>
-                    <p className="mt-2 text-xs leading-5 text-text-muted">
-                      {t("charactersUsageHint")}
-                    </p>
-                    <div className="mt-3 flex items-center gap-2">
-                      <VoicePreviewButton
-                        previewAudioUrl={demoPersonaVoice?.previewAudioUrl ?? null}
-                        voiceLabel={demoPersonaVoice?.name ?? t("charactersDemoVoiceFallback")}
-                        previewUnavailableLabel={t("charactersPreviewUnavailable")}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
-          ) : (
-            // State B — unlocked
-            <div className="flex flex-col gap-3">
-              {personaFb !== null && (
-                <p
+          ) : null}
+          <div className="flex flex-col gap-3">
+            {talkingVideoEnabled && personaFb !== null && (
+              <p
+                className={cn(
+                  "rounded-lg px-3 py-2 text-xs",
+                  personaFb.type === "ok"
+                    ? "bg-green-500/10 text-green-600"
+                    : personaFb.type === "warn"
+                      ? "bg-yellow-500/10 text-yellow-600"
+                      : "bg-destructive/10 text-destructive"
+                )}
+              >
+                {personaFb.text}
+              </p>
+            )}
+            {talkingVideoEnabled && clonedVoiceFb !== null && (
+              <p
+                className={cn(
+                  "rounded-lg px-3 py-2 text-xs",
+                  clonedVoiceFb.type === "ok"
+                    ? "bg-green-500/10 text-green-600"
+                    : clonedVoiceFb.type === "warn"
+                      ? "bg-yellow-500/10 text-yellow-600"
+                      : "bg-destructive/10 text-destructive"
+                )}
+              >
+                {clonedVoiceFb.text}
+              </p>
+            )}
+
+            <p className="text-xs leading-5 text-text-muted">{charactersHelperText}</p>
+
+            <div className="rounded-2xl border border-border/60 bg-surface/60 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-text">{t("voicesTitle")}</p>
+                  <p className="mt-1 text-xs leading-5 text-text-muted">{t("voicesHelperText")}</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={clonedVoiceCreateDisabledReason !== null}
+                  title={clonedVoiceCreateDisabledReason ?? undefined}
+                  onClick={() => {
+                    if (clonedVoiceCreateDisabledReason !== null) {
+                      return;
+                    }
+                    resetClonedVoiceModal(false);
+                  }}
                   className={cn(
-                    "rounded-lg px-3 py-2 text-xs",
-                    personaFb.type === "ok"
-                      ? "bg-green-500/10 text-green-600"
-                      : personaFb.type === "warn"
-                        ? "bg-yellow-500/10 text-yellow-600"
-                        : "bg-destructive/10 text-destructive"
+                    "inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all",
+                    clonedVoiceCreateDisabledReason !== null
+                      ? "cursor-not-allowed opacity-60"
+                      : "hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
                   )}
                 >
-                  {personaFb.text}
-                </p>
-              )}
-
-              <p className="rounded-2xl border border-border/50 bg-surface-raised/20 px-3 py-2.5 text-xs leading-5 text-text-muted">
-                {t("charactersUsageHint")}
-              </p>
-
-              {personaListLoading && personaList.length === 0 ? (
-                <div className="flex items-center gap-2 py-4 text-xs text-text-subtle">
+                  {t("voicesCreate")}
+                </button>
+              </div>
+              <div className="mt-3 rounded-xl border border-border/50 bg-surface-raised/20 px-3 py-2 text-xs text-text-muted">
+                {t("voicesCostSummary", {
+                  n: clonedVoiceCreationVcoinCost,
+                  m: data.plan?.workspaceVcoinBalance?.balanceVc ?? 0,
+                  limit: clonedVoiceLimit
+                })}
+              </div>
+              {clonedVoiceListLoading && clonedVoiceList.length === 0 ? (
+                <div className="mt-3 flex items-center gap-2 py-1 text-xs text-text-subtle">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   <span>{t("charactersLoading")}</span>
                 </div>
-              ) : personaList.length === 0 ? (
-                <p className="py-4 text-center text-xs text-text-subtle">{t("charactersEmpty")}</p>
+              ) : clonedVoiceList.length === 0 ? (
+                <p className="mt-3 text-xs text-text-subtle">{t("voicesEmpty")}</p>
               ) : (
-                <div className="flex flex-col gap-2">
-                  {personaList.map((persona) => {
-                    const catalogEntry = voiceCatalog.find(
-                      (v) => v.voiceId === persona.heygenVoiceId
-                    );
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {clonedVoiceList.map((voice) => {
+                    const busy = clonedVoiceSubmittingId === voice.id;
+                    const statusLabel =
+                      voice.status === "ready"
+                        ? t("voicesStatusReady")
+                        : voice.status === "pending"
+                          ? t("voicesStatusPending")
+                          : t("voicesStatusFailed");
+                    const statusTone =
+                      voice.status === "ready"
+                        ? "success"
+                        : voice.status === "pending"
+                          ? "warn"
+                          : "error";
                     return (
-                      <div
-                        key={persona.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => resetPersonaModal("edit", persona)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            resetPersonaModal("edit", persona);
-                          }
-                        }}
-                        className="flex w-full items-center gap-3 rounded-xl border border-border/60 bg-surface p-3 text-left transition-colors hover:bg-surface-raised/60 focus:outline-none focus:ring-2 focus:ring-accent/20"
-                      >
-                        {persona.portraitImageUrl ? (
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setPersonaLightbox({
-                                src: persona.portraitImageUrl,
-                                name: persona.displayName
-                              });
-                            }}
-                            className="shrink-0 rounded-full transition-transform hover:scale-[1.03] focus:outline-none focus:ring-2 focus:ring-accent/30"
-                            aria-label={t("charactersOpenPortrait", { name: persona.displayName })}
-                          >
-                            <img
-                              src={persona.portraitImageUrl}
-                              alt={persona.displayName}
-                              className="h-10 w-10 rounded-full object-cover"
-                            />
-                          </button>
-                        ) : (
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-sm font-medium text-accent">
-                            {persona.displayName.charAt(0)}
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-text">
-                            {persona.displayName}
-                          </p>
-                          <p className="text-xs text-text-subtle">
-                            {t("charactersVoiceLabel", { voice: persona.heygenVoiceLabel })}
-                          </p>
-                        </div>
-                        <div
-                          onClick={(event) => event.stopPropagation()}
-                          onKeyDown={(event) => event.stopPropagation()}
-                        >
-                          <VoicePreviewButton
-                            previewAudioUrl={catalogEntry?.previewAudioUrl ?? null}
-                            voiceLabel={persona.heygenVoiceLabel}
-                            previewUnavailableLabel={t("charactersPreviewUnavailable")}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setDeletePersonaId(persona.id);
-                            setDeletePersonaName(persona.displayName);
-                          }}
-                          className="ml-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
-                          aria-label={t("charactersDeleteTitle")}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                      <VoiceCloneCard
+                        key={voice.id}
+                        voice={voice}
+                        voiceLabel={t("voicesCardMeta", {
+                          language: voice.languageHint || t("voicesLanguageAuto")
+                        })}
+                        statusLabel={statusLabel}
+                        statusTone={statusTone}
+                        previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                        linkedSummary={cloneLinkedSummaryById.get(voice.id) ?? null}
+                        archiveLabel={t("voicesArchive")}
+                        defaultLabel={t("voicesDefault")}
+                        makeDefaultLabel={
+                          busy ? t("voicesSubmittingShort") : t("voicesMakeDefault")
+                        }
+                        onArchive={
+                          voice.status === "pending" || busy
+                            ? undefined
+                            : async () => {
+                                if (!assistant?.workspaceId) return;
+                                const token = await getToken();
+                                if (!token) return;
+                                setClonedVoiceSubmittingId(voice.id);
+                                try {
+                                  await archiveWorkspaceVideoClonedVoice(
+                                    token,
+                                    assistant.workspaceId,
+                                    voice.id
+                                  );
+                                  setClonedVoiceFb({
+                                    type: "ok",
+                                    text: t("voicesArchiveSuccess", { name: voice.displayName })
+                                  });
+                                  if (createPersonaClonedVoiceId === voice.id) {
+                                    setCreatePersonaClonedVoiceId(null);
+                                  }
+                                  await loadClonedVoices();
+                                } catch (error) {
+                                  setClonedVoiceFb({
+                                    type: "err",
+                                    text:
+                                      error instanceof Error
+                                        ? error.message
+                                        : t("voicesErrorGeneric")
+                                  });
+                                } finally {
+                                  setClonedVoiceSubmittingId(null);
+                                }
+                              }
+                        }
+                        onMakeDefault={
+                          voice.status === "ready" && !voice.isDefault && !busy
+                            ? async () => {
+                                if (!assistant?.workspaceId) return;
+                                const token = await getToken();
+                                if (!token) return;
+                                setClonedVoiceSubmittingId(voice.id);
+                                try {
+                                  await setWorkspaceVideoClonedVoiceDefault(
+                                    token,
+                                    assistant.workspaceId,
+                                    voice.id
+                                  );
+                                  setClonedVoiceFb({
+                                    type: "ok",
+                                    text: t("voicesDefaultSuccess", { name: voice.displayName })
+                                  });
+                                  await loadClonedVoices();
+                                } catch (error) {
+                                  setClonedVoiceFb({
+                                    type: "err",
+                                    text:
+                                      error instanceof Error
+                                        ? error.message
+                                        : t("voicesErrorGeneric")
+                                  });
+                                } finally {
+                                  setClonedVoiceSubmittingId(null);
+                                }
+                              }
+                            : undefined
+                        }
+                      />
                     );
                   })}
                 </div>
               )}
+            </div>
 
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  disabled={personaList.length >= personaLimit}
-                  title={
-                    personaList.length >= personaLimit
-                      ? t("charactersFormLimitReached", { n: personaLimit })
-                      : undefined
-                  }
-                  onClick={() => resetPersonaModal("create")}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-[11px] font-medium text-text transition-all hover:border-accent/50 hover:bg-accent/14",
-                    personaList.length >= personaLimit && "cursor-not-allowed opacity-50"
-                  )}
-                >
-                  {t("charactersCreate")}
-                </button>
+            {personaListLoading && personaList.length === 0 ? (
+              <div className="flex items-center gap-2 py-1 text-xs text-text-subtle">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>{t("charactersLoading")}</span>
               </div>
+            ) : null}
 
-              {/* Delete confirm modal */}
-              {deletePersonaId !== null &&
-                typeof document !== "undefined" &&
-                createPortal(
-                  <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-                    onClick={(e) => {
-                      if (e.target === e.currentTarget) {
-                        setDeletePersonaId(null);
-                        setDeletePersonaName(null);
-                      }
-                    }}
-                    role="dialog"
-                    aria-modal="true"
-                  >
-                    <div className="mx-4 w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-xl">
-                      <h2 className="text-sm font-semibold text-text">
-                        {t("charactersDeleteTitle")}
-                      </h2>
-                      <p className="mt-2 text-xs text-text-muted">
-                        {t("charactersDeleteConfirm", { name: deletePersonaName ?? "" })}
-                      </p>
-                      <div className="mt-4 flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDeletePersonaId(null);
-                            setDeletePersonaName(null);
-                          }}
-                          className="rounded-full border border-border px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-raised"
-                        >
-                          {t("charactersCancel")}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={deletePersonaSubmitting}
-                          onClick={async () => {
-                            if (!deletePersonaId || !assistant?.workspaceId) return;
-                            const token = await getToken();
-                            if (!token) return;
-                            setDeletePersonaSubmitting(true);
-                            try {
-                              await deleteWorkspaceVideoPersona(
-                                token,
-                                assistant.workspaceId,
-                                deletePersonaId
-                              );
-                              setDeletePersonaId(null);
-                              setDeletePersonaName(null);
-                              setPersonaFb({ type: "ok", text: t("charactersDeleteSuccess") });
-                              void loadPersonas();
-                            } catch (err) {
-                              setPersonaFb({
-                                type: "err",
-                                text:
-                                  err instanceof Error ? err.message : t("charactersErrorGeneric")
-                              });
-                            } finally {
-                              setDeletePersonaSubmitting(false);
-                            }
-                          }}
-                          className={cn(
-                            "rounded-full bg-destructive px-3 py-1.5 text-xs font-medium text-white transition-opacity",
-                            deletePersonaSubmitting && "opacity-60"
-                          )}
-                        >
-                          {deletePersonaSubmitting ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            t("charactersDelete")
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </div>,
-                  document.body
-                )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {personaList.map((persona) => {
+                const clonedVoice = clonedVoiceList.find(
+                  (voice) => voice.id === persona.clonedVoiceId
+                );
+                const catalogEntry = voiceCatalog.find((v) => v.voiceId === persona.heygenVoiceId);
+                const activeVoiceLabel = persona.clonedVoiceDisplayName ?? persona.heygenVoiceLabel;
+                return (
+                  <CharacterCard
+                    key={persona.id}
+                    name={persona.displayName}
+                    voiceLabel={t("charactersVoiceLabel", { voice: activeVoiceLabel })}
+                    portraitImageUrl={persona.portraitImageUrl || null}
+                    fallbackInitial={persona.displayName.charAt(0)}
+                    previewAudioUrl={
+                      clonedVoice?.previewAudioUrl ?? catalogEntry?.previewAudioUrl ?? null
+                    }
+                    previewVoiceLabel={activeVoiceLabel}
+                    previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                    showPreview={talkingVideoEnabled}
+                    disabled={!talkingVideoEnabled}
+                    openPortraitLabel={
+                      talkingVideoEnabled
+                        ? t("charactersOpenPortrait", { name: persona.displayName })
+                        : undefined
+                    }
+                    deleteLabel={t("charactersDeleteTitle")}
+                    onOpenPortrait={
+                      talkingVideoEnabled && persona.portraitImageUrl
+                        ? () =>
+                            setPersonaLightbox({
+                              src: persona.portraitImageUrl,
+                              name: persona.displayName
+                            })
+                        : undefined
+                    }
+                    onSelect={
+                      talkingVideoEnabled ? () => resetPersonaModal("edit", persona) : undefined
+                    }
+                    onDelete={
+                      talkingVideoEnabled
+                        ? () => {
+                            setDeletePersonaId(persona.id);
+                            setDeletePersonaName(persona.displayName);
+                          }
+                        : undefined
+                    }
+                  />
+                );
+              })}
 
-              {personaLightbox !== null &&
-                typeof document !== "undefined" &&
-                createPortal(
-                  <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-                    onClick={(e) => {
-                      if (e.target === e.currentTarget) {
-                        setPersonaLightbox(null);
-                      }
-                    }}
-                    role="dialog"
-                    aria-modal="true"
-                  >
-                    <div className="relative w-full max-w-3xl">
+              {!talkingVideoEnabled ? (
+                <CharacterCard
+                  name={t("charactersDemoName")}
+                  voiceLabel={t("charactersVoiceLabel", {
+                    voice: demoPersonaVoice?.name ?? t("charactersDemoVoiceFallback")
+                  })}
+                  portraitImageUrl={DEMO_PERSONA_PORTRAIT_URL}
+                  fallbackInitial={t("charactersDemoName").charAt(0)}
+                  previewAudioUrl={demoPersonaVoice?.previewAudioUrl ?? null}
+                  previewVoiceLabel={demoPersonaVoice?.name ?? t("charactersDemoVoiceFallback")}
+                  previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                  badgeLabel={t("charactersDemoBadge")}
+                  disabled
+                  showPreview
+                />
+              ) : null}
+
+              <CharacterCreateCard
+                label={t("charactersCreate")}
+                helperText={createPersonaDisabledReason ?? t("charactersUsageHint")}
+                disabled={createPersonaDisabledReason !== null}
+                title={createPersonaDisabledReason ?? undefined}
+                onClick={() => {
+                  if (createPersonaDisabledReason !== null) {
+                    return;
+                  }
+                  resetPersonaModal("create");
+                }}
+              />
+            </div>
+
+            {/* Delete confirm modal */}
+            {deletePersonaId !== null &&
+              typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+                  onClick={(e) => {
+                    if (e.target === e.currentTarget) {
+                      setDeletePersonaId(null);
+                      setDeletePersonaName(null);
+                    }
+                  }}
+                  role="dialog"
+                  aria-modal="true"
+                >
+                  <div className="mx-4 w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-xl">
+                    <h2 className="text-sm font-semibold text-text">
+                      {t("charactersDeleteTitle")}
+                    </h2>
+                    <p className="mt-2 text-xs text-text-muted">
+                      {t("charactersDeleteConfirm", { name: deletePersonaName ?? "" })}
+                    </p>
+                    <div className="mt-4 flex justify-end gap-2">
                       <button
                         type="button"
-                        onClick={() => setPersonaLightbox(null)}
-                        className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white transition-colors hover:bg-black/55"
-                        aria-label={t("charactersLightboxClose")}
+                        onClick={() => {
+                          setDeletePersonaId(null);
+                          setDeletePersonaName(null);
+                        }}
+                        className="rounded-full border border-border px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-raised"
                       >
-                        <X className="h-4 w-4" />
+                        {t("charactersCancel")}
                       </button>
-                      <img
-                        src={personaLightbox.src}
-                        alt={personaLightbox.name}
-                        className="max-h-[85vh] w-full rounded-3xl object-contain shadow-2xl"
-                      />
+                      <button
+                        type="button"
+                        disabled={deletePersonaSubmitting}
+                        onClick={async () => {
+                          if (!deletePersonaId || !assistant?.workspaceId) return;
+                          const token = await getToken();
+                          if (!token) return;
+                          setDeletePersonaSubmitting(true);
+                          try {
+                            await deleteWorkspaceVideoPersona(
+                              token,
+                              assistant.workspaceId,
+                              deletePersonaId
+                            );
+                            setDeletePersonaId(null);
+                            setDeletePersonaName(null);
+                            setPersonaFb({ type: "ok", text: t("charactersDeleteSuccess") });
+                            void loadPersonas();
+                          } catch (err) {
+                            setPersonaFb({
+                              type: "err",
+                              text: err instanceof Error ? err.message : t("charactersErrorGeneric")
+                            });
+                          } finally {
+                            setDeletePersonaSubmitting(false);
+                          }
+                        }}
+                        className={cn(
+                          "rounded-full bg-destructive px-3 py-1.5 text-xs font-medium text-white transition-opacity",
+                          deletePersonaSubmitting && "opacity-60"
+                        )}
+                      >
+                        {deletePersonaSubmitting ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          t("charactersDelete")
+                        )}
+                      </button>
                     </div>
-                  </div>,
-                  document.body
-                )}
+                  </div>
+                </div>,
+                document.body
+              )}
 
-              {/* Create / edit persona modal */}
-              {createPersonaOpen &&
-                typeof document !== "undefined" &&
-                createPortal(
-                  <div
-                    className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 backdrop-blur-sm"
-                    onClick={(e) => {
-                      if (e.target === e.currentTarget) setCreatePersonaOpen(false);
-                    }}
-                    role="dialog"
-                    aria-modal="true"
-                  >
-                    <div className="relative mx-4 my-10 w-full min-w-0 max-w-md rounded-2xl border border-border bg-surface p-5 shadow-xl">
-                      <h2 className="mb-4 text-sm font-semibold text-text">
-                        {personaModalMode === "edit" ? t("charactersEdit") : t("charactersCreate")}
-                      </h2>
+            {personaLightbox !== null &&
+              typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+                  onClick={(e) => {
+                    if (e.target === e.currentTarget) {
+                      setPersonaLightbox(null);
+                    }
+                  }}
+                  role="dialog"
+                  aria-modal="true"
+                >
+                  <div className="relative w-full max-w-3xl">
+                    <button
+                      type="button"
+                      onClick={() => setPersonaLightbox(null)}
+                      className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white transition-colors hover:bg-black/55"
+                      aria-label={t("charactersLightboxClose")}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                    <img
+                      src={personaLightbox.src}
+                      alt={personaLightbox.name}
+                      className="max-h-[85vh] w-full rounded-3xl object-contain shadow-2xl"
+                    />
+                  </div>
+                </div>,
+                document.body
+              )}
 
-                      {/* Portrait */}
-                      <div className="mb-3">
-                        <p className="mb-1 text-[11px] font-medium text-text-subtle">
-                          {t("charactersFormPortrait")}
-                        </p>
-                        {personaModalMode === "edit" ? (
-                          <div className="rounded-xl border border-border/60 bg-surface-raised/20 p-3">
-                            <div className="flex items-center gap-3">
-                              {createPersonaPortraitPreview ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setPersonaLightbox({
-                                      src: createPersonaPortraitPreview,
-                                      name: createPersonaName.trim() || t("charactersEdit")
-                                    })
-                                  }
-                                  className="shrink-0 rounded-2xl transition-transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-accent/20"
-                                  aria-label={t("charactersOpenPortrait", {
+            {/* Create / edit persona modal */}
+            {createPersonaOpen &&
+              typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 backdrop-blur-sm"
+                  onClick={(e) => {
+                    if (e.target === e.currentTarget) closePersonaModal();
+                  }}
+                  role="dialog"
+                  aria-modal="true"
+                >
+                  <div className="relative mx-4 my-10 w-full min-w-0 max-w-md rounded-2xl border border-border bg-surface p-5 shadow-xl">
+                    <h2 className="mb-4 text-sm font-semibold text-text">
+                      {personaModalMode === "edit" ? t("charactersEdit") : t("charactersCreate")}
+                    </h2>
+
+                    {/* Portrait */}
+                    <div className="mb-3">
+                      <p className="mb-1 text-[11px] font-medium text-text-subtle">
+                        {t("charactersFormPortrait")}
+                      </p>
+                      {personaModalMode === "edit" ? (
+                        <div className="rounded-xl border border-border/60 bg-surface-raised/20 p-3">
+                          <div className="flex items-center gap-3">
+                            {createPersonaPortraitPreview ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPersonaLightbox({
+                                    src: createPersonaPortraitPreview,
                                     name: createPersonaName.trim() || t("charactersEdit")
-                                  })}
-                                >
-                                  <img
-                                    src={createPersonaPortraitPreview}
-                                    alt="Portrait preview"
-                                    className="h-20 w-20 rounded-2xl object-cover"
-                                  />
-                                </button>
-                              ) : (
-                                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-accent/10 text-sm font-medium text-accent">
-                                  {createPersonaName.trim().charAt(0) || "?"}
-                                </div>
-                              )}
-                              <div className="min-w-0 flex-1">
-                                <p className="text-xs text-text-muted">
-                                  {t("charactersAvatarEditHint")}
-                                </p>
+                                  })
+                                }
+                                className="shrink-0 rounded-2xl transition-transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-accent/20"
+                                aria-label={t("charactersOpenPortrait", {
+                                  name: createPersonaName.trim() || t("charactersEdit")
+                                })}
+                              >
+                                <img
+                                  src={createPersonaPortraitPreview}
+                                  alt="Portrait preview"
+                                  className="h-20 w-20 rounded-2xl object-cover"
+                                />
+                              </button>
+                            ) : (
+                              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-accent/10 text-sm font-medium text-accent">
+                                {createPersonaName.trim().charAt(0) || "?"}
                               </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs text-text-muted">
+                                {t("charactersAvatarEditHint")}
+                              </p>
                             </div>
                           </div>
-                        ) : (
-                          <div
-                            className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-surface-raised/30 py-5 transition-colors hover:border-border"
-                            onClick={() => personaPortraitInputRef.current?.click()}
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              const file = e.dataTransfer.files?.[0];
+                        </div>
+                      ) : (
+                        <div
+                          className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-surface-raised/30 py-5 transition-colors hover:border-border"
+                          onClick={() => personaPortraitInputRef.current?.click()}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const file = e.dataTransfer.files?.[0];
+                            if (file) handlePersonaPortraitFile(file);
+                          }}
+                        >
+                          {createPersonaPortraitPreview ? (
+                            <img
+                              src={createPersonaPortraitPreview}
+                              alt="Portrait preview"
+                              className="h-20 w-20 rounded-full object-cover"
+                            />
+                          ) : (
+                            <>
+                              <Upload className="mb-1 h-5 w-5 text-text-subtle" />
+                              <p className="text-xs text-text-subtle">
+                                {t("charactersFormPortraitDrop")}
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-text-subtle/70">
+                                {t("charactersFormPortraitHint")}
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {personaModalMode === "create" ? (
+                        <>
+                          <input
+                            ref={personaPortraitInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png"
+                            className="sr-only"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
                               if (file) handlePersonaPortraitFile(file);
                             }}
-                          >
-                            {createPersonaPortraitPreview ? (
-                              <img
-                                src={createPersonaPortraitPreview}
-                                alt="Portrait preview"
-                                className="h-20 w-20 rounded-full object-cover"
-                              />
-                            ) : (
-                              <>
-                                <Upload className="mb-1 h-5 w-5 text-text-subtle" />
-                                <p className="text-xs text-text-subtle">
-                                  {t("charactersFormPortraitDrop")}
-                                </p>
-                                <p className="mt-0.5 text-[10px] text-text-subtle/70">
-                                  {t("charactersFormPortraitHint")}
-                                </p>
-                              </>
-                            )}
+                          />
+                          {createPersonaPortraitError && (
+                            <p className="mt-1 text-[11px] text-destructive">
+                              {createPersonaPortraitError}
+                            </p>
+                          )}
+                        </>
+                      ) : null}
+                    </div>
+
+                    {/* Name */}
+                    <div className="mb-3">
+                      <label className="mb-1 block text-[11px] font-medium text-text-subtle">
+                        {t("charactersFormName")}
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={60}
+                        value={createPersonaName}
+                        onChange={(e) => setCreatePersonaName(e.target.value)}
+                        placeholder={t("charactersFormNamePlaceholder")}
+                        className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+                      />
+                    </div>
+
+                    {/* Voice picker */}
+                    <div className="mb-3">
+                      <p className="mb-1 text-[11px] font-medium text-text-subtle">
+                        {t("charactersFormVoice")}
+                      </p>
+                      <div className="mb-3 rounded-xl border border-border/60 bg-surface-raised/20 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-medium text-text">
+                              {t("charactersFormClonedVoice")}
+                            </p>
+                            <p className="mt-1 text-[11px] leading-5 text-text-muted">
+                              {t("charactersFormClonedVoiceHint")}
+                            </p>
                           </div>
-                        )}
-                        {personaModalMode === "create" ? (
-                          <>
-                            <input
-                              ref={personaPortraitInputRef}
-                              type="file"
-                              accept="image/jpeg,image/png"
-                              className="sr-only"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handlePersonaPortraitFile(file);
-                              }}
-                            />
-                            {createPersonaPortraitError && (
-                              <p className="mt-1 text-[11px] text-destructive">
-                                {createPersonaPortraitError}
-                              </p>
+                          <button
+                            type="button"
+                            onClick={() => resetClonedVoiceModal(true)}
+                            className="rounded-full border border-border px-3 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface hover:text-text"
+                          >
+                            {t("voicesCreateInline")}
+                          </button>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            aria-pressed={createPersonaClonedVoiceId === null}
+                            onClick={() => setCreatePersonaClonedVoiceId(null)}
+                            className={cn(
+                              "rounded-full border px-3 py-1 text-[11px] transition-colors",
+                              createPersonaClonedVoiceId === null
+                                ? "border-accent/40 bg-accent/10 text-text"
+                                : "border-border text-text-muted hover:bg-surface"
                             )}
-                          </>
-                        ) : null}
-                      </div>
-
-                      {/* Name */}
-                      <div className="mb-3">
-                        <label className="mb-1 block text-[11px] font-medium text-text-subtle">
-                          {t("charactersFormName")}
-                        </label>
-                        <input
-                          type="text"
-                          maxLength={60}
-                          value={createPersonaName}
-                          onChange={(e) => setCreatePersonaName(e.target.value)}
-                          placeholder={t("charactersFormNamePlaceholder")}
-                          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
-                        />
-                      </div>
-
-                      {/* Voice picker */}
-                      <div className="mb-3">
-                        <p className="mb-1 text-[11px] font-medium text-text-subtle">
-                          {t("charactersFormVoice")}
-                        </p>
-                        <div className="mb-2 grid w-full grid-cols-3 rounded-full border border-border/60 bg-surface-raised/20 p-1">
-                          {(["ru", "en", "other"] as const).map((language) => (
+                          >
+                            {t("charactersFormUsePresetVoice")}
+                          </button>
+                          {readyClonedVoices.map((voice) => (
                             <button
-                              key={language}
+                              key={voice.id}
                               type="button"
-                              onClick={() => {
-                                setVoiceLanguageFilter(language);
-                                if (language !== "other") {
-                                  setOtherVoiceLanguageSearch("");
-                                }
-                              }}
+                              aria-pressed={createPersonaClonedVoiceId === voice.id}
+                              onClick={() => setCreatePersonaClonedVoiceId(voice.id)}
                               className={cn(
-                                "min-w-0 rounded-full px-2 py-1 text-[11px] font-medium transition-colors",
-                                voiceLanguageFilter === language
-                                  ? "bg-accent/15 text-text"
-                                  : "text-text-subtle hover:text-text"
+                                "rounded-full border px-3 py-1 text-[11px] transition-colors",
+                                createPersonaClonedVoiceId === voice.id
+                                  ? "border-accent/40 bg-accent/10 text-text"
+                                  : "border-border text-text-muted hover:bg-surface"
                               )}
                             >
-                              {language === "other"
-                                ? t("charactersFormVoiceFilterOther")
-                                : language.toUpperCase()}
+                              {voice.displayName}
+                              {voice.isDefault ? ` · ${t("voicesDefault")}` : ""}
                             </button>
                           ))}
                         </div>
-                        {voiceLanguageFilter === "other" ? (
-                          <div className="mb-2 flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={otherVoiceLanguageSearch}
-                              onChange={(event) => setOtherVoiceLanguageSearch(event.target.value)}
-                              placeholder={t("charactersFormVoiceLanguageSearchPlaceholder")}
-                              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
-                            />
-                          </div>
+                        {readyClonedVoices.length === 0 ? (
+                          <p className="mt-2 text-[11px] text-text-subtle">
+                            {t("charactersFormNoClonedVoices")}
+                          </p>
+                        ) : activePersonaVoiceOption ? (
+                          <p className="mt-2 text-[11px] text-green-600">
+                            {t("charactersFormClonedVoiceSelected", {
+                              name: activePersonaVoiceOption.displayName
+                            })}
+                          </p>
                         ) : null}
-                        {voiceCatalogLoading ? (
-                          <div className="flex items-center gap-2 py-2 text-xs text-text-subtle">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            <span>{t("charactersLoading")}</span>
-                          </div>
-                        ) : voiceCatalogUnavailable || voiceCatalog.length === 0 ? (
-                          <p className="py-2 text-xs text-text-muted">
-                            {t("charactersFormVoiceUnavailable")}
-                          </p>
-                        ) : filteredVoiceCatalog.length === 0 ? (
-                          <p className="py-2 text-xs text-text-muted">
-                            {voiceLanguageFilter === "other" &&
-                            otherVoiceLanguageSearch.trim().length > 0
-                              ? t("charactersFormVoiceEmptyForLanguageSearch")
-                              : t("charactersFormVoiceEmptyForFilter")}
-                          </p>
-                        ) : (
-                          <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
-                            {filteredVoiceCatalog.map((voice) => (
-                              <div
-                                key={voice.voiceId}
-                                role="button"
-                                tabIndex={0}
-                                aria-pressed={createPersonaVoiceId === voice.voiceId}
-                                onClick={() => setCreatePersonaVoiceId(voice.voiceId)}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter" || event.key === " ") {
-                                    event.preventDefault();
-                                    setCreatePersonaVoiceId(voice.voiceId);
-                                  }
-                                }}
-                                className={cn(
-                                  "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-accent/20",
-                                  createPersonaVoiceId === voice.voiceId && "bg-accent/10"
-                                )}
-                              >
-                                <span className="flex-1 truncate font-medium text-text">
-                                  {voice.name}
-                                </span>
-                                <span className="shrink-0 text-text-subtle">
-                                  {formatVoiceLanguageLabel(voice)} · {voice.gender}
-                                </span>
-                                <VoicePreviewButton
-                                  previewAudioUrl={voice.previewAudioUrl}
-                                  voiceLabel={voice.name}
-                                  previewUnavailableLabel={t("charactersPreviewUnavailable")}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </div>
-
-                      {/* VC cost line */}
-                      {personaModalMode === "create"
-                        ? (() => {
-                            const balance = data.plan?.workspaceVcoinBalance.balanceVc ?? 0;
-                            const cost = personaCreationVcoinCost;
-                            const remaining = balance - cost;
-                            const insufficient = balance < cost;
-                            return (
-                              <div className="mb-4 rounded-xl border border-border/50 bg-surface-raised/30 px-3 py-2 text-xs text-text-muted">
-                                {t("charactersFormCost", {
-                                  n: cost,
-                                  m: balance,
-                                  remaining: Math.max(0, remaining)
-                                })}
-                                {insufficient && (
-                                  <div className="mt-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setCreatePersonaOpen(false);
-                                        onOpenPackagesPage?.();
-                                      }}
-                                      className="text-accent underline underline-offset-2"
-                                    >
-                                      {t("charactersFormInsufficient")}
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()
-                        : null}
-
-                      {createPersonaError && (
-                        <p className="mb-3 text-xs text-destructive">{createPersonaError}</p>
+                      <div className="mb-2 grid w-full grid-cols-3 rounded-full border border-border/60 bg-surface-raised/20 p-1">
+                        {(["ru", "en", "other"] as const).map((language) => (
+                          <button
+                            key={language}
+                            type="button"
+                            onClick={() => {
+                              setVoiceLanguageFilter(language);
+                              if (language !== "other") {
+                                setOtherVoiceLanguageSearch("");
+                              }
+                            }}
+                            className={cn(
+                              "min-w-0 rounded-full px-2 py-1 text-[11px] font-medium transition-colors",
+                              voiceLanguageFilter === language
+                                ? "bg-accent/15 text-text"
+                                : "text-text-subtle hover:text-text"
+                            )}
+                          >
+                            {language === "other"
+                              ? t("charactersFormVoiceFilterOther")
+                              : language.toUpperCase()}
+                          </button>
+                        ))}
+                      </div>
+                      {voiceLanguageFilter === "other" ? (
+                        <div className="mb-2 flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={otherVoiceLanguageSearch}
+                            onChange={(event) => setOtherVoiceLanguageSearch(event.target.value)}
+                            placeholder={t("charactersFormVoiceLanguageSearchPlaceholder")}
+                            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+                          />
+                        </div>
+                      ) : null}
+                      {voiceCatalogLoading ? (
+                        <div className="flex items-center gap-2 py-2 text-xs text-text-subtle">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span>{t("charactersLoading")}</span>
+                        </div>
+                      ) : voiceCatalogUnavailable || voiceCatalog.length === 0 ? (
+                        <p className="py-2 text-xs text-text-muted">
+                          {t("charactersFormVoiceUnavailable")}
+                        </p>
+                      ) : filteredVoiceCatalog.length === 0 ? (
+                        <p className="py-2 text-xs text-text-muted">
+                          {voiceLanguageFilter === "other" &&
+                          otherVoiceLanguageSearch.trim().length > 0
+                            ? t("charactersFormVoiceEmptyForLanguageSearch")
+                            : t("charactersFormVoiceEmptyForFilter")}
+                        </p>
+                      ) : (
+                        <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
+                          {filteredVoiceCatalog.map((voice) => (
+                            <div
+                              key={voice.voiceId}
+                              role="button"
+                              tabIndex={0}
+                              aria-pressed={createPersonaVoiceId === voice.voiceId}
+                              onClick={() => setCreatePersonaVoiceId(voice.voiceId)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setCreatePersonaVoiceId(voice.voiceId);
+                                }
+                              }}
+                              className={cn(
+                                "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-accent/20",
+                                createPersonaVoiceId === voice.voiceId && "bg-accent/10"
+                              )}
+                            >
+                              <span className="flex-1 truncate font-medium text-text">
+                                {voice.name}
+                              </span>
+                              <span className="shrink-0 text-text-subtle">
+                                {formatVoiceLanguageLabel(voice)} · {voice.gender}
+                              </span>
+                              <VoicePreviewButton
+                                previewAudioUrl={voice.previewAudioUrl}
+                                voiceLabel={voice.name}
+                                previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                              />
+                            </div>
+                          ))}
+                        </div>
                       )}
+                    </div>
 
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setCreatePersonaOpen(false)}
-                          className="rounded-full border border-border px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-raised"
-                        >
-                          {t("charactersCancel")}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={
-                            createPersonaSubmitting ||
+                    {/* VC cost line */}
+                    {personaModalMode === "create"
+                      ? (() => {
+                          const balance = data.plan?.workspaceVcoinBalance?.balanceVc ?? 0;
+                          const cost = personaCreationVcoinCost;
+                          const remaining = balance - cost;
+                          const insufficient = balance < cost;
+                          return (
+                            <div className="mb-4 rounded-xl border border-border/50 bg-surface-raised/30 px-3 py-2 text-xs text-text-muted">
+                              {t("charactersFormCost", {
+                                n: cost,
+                                m: balance,
+                                remaining: Math.max(0, remaining)
+                              })}
+                              {insufficient && (
+                                <div className="mt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      closePersonaModal();
+                                      onOpenPackagesPage?.();
+                                    }}
+                                    className="text-accent underline underline-offset-2"
+                                  >
+                                    {t("charactersFormInsufficient")}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()
+                      : null}
+
+                    {createPersonaError && (
+                      <p className="mb-3 text-xs text-destructive">{createPersonaError}</p>
+                    )}
+
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={closePersonaModal}
+                        className="rounded-full border border-border px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-raised"
+                      >
+                        {t("charactersCancel")}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          createPersonaSubmitting ||
+                          createPersonaName.trim().length === 0 ||
+                          !createPersonaVoiceId ||
+                          (personaModalMode === "create" &&
+                            (!createPersonaPortrait ||
+                              (data.plan?.workspaceVcoinBalance?.balanceVc ?? 0) <
+                                personaCreationVcoinCost))
+                        }
+                        onClick={async () => {
+                          if (!assistant?.workspaceId || !createPersonaVoiceId) return;
+                          const token = await getToken();
+                          if (!token) return;
+                          setCreatePersonaSubmitting(true);
+                          setCreatePersonaError(null);
+                          try {
+                            if (personaModalMode === "create") {
+                              if (!createPersonaPortrait) return;
+                              const result = await createWorkspaceVideoPersona(
+                                token,
+                                assistant.workspaceId,
+                                {
+                                  displayName: createPersonaName.trim(),
+                                  heygenVoiceId: createPersonaVoiceId,
+                                  clonedVoiceId: createPersonaClonedVoiceId,
+                                  portrait: createPersonaPortrait
+                                }
+                              );
+                              closePersonaModal();
+                              if (result.storageWarning === "persona_created_storage_failed") {
+                                setPersonaFb({
+                                  type: "warn",
+                                  text: t("charactersWarnStorageFailedMessage", {
+                                    name: createPersonaName.trim()
+                                  })
+                                });
+                              } else {
+                                setPersonaFb({
+                                  type: "ok",
+                                  text: t("charactersCreateSuccess")
+                                });
+                              }
+                            } else {
+                              if (!editingPersonaId) return;
+                              await updateWorkspaceVideoPersona(
+                                token,
+                                assistant.workspaceId,
+                                editingPersonaId,
+                                {
+                                  displayName: createPersonaName.trim(),
+                                  heygenVoiceId: createPersonaVoiceId,
+                                  clonedVoiceId: createPersonaClonedVoiceId
+                                }
+                              );
+                              closePersonaModal();
+                              setPersonaFb({
+                                type: "ok",
+                                text: t("charactersEditSuccess")
+                              });
+                            }
+                            void loadPersonas();
+                          } catch (err) {
+                            const code = err instanceof ApiStructuredError ? err.code : null;
+                            setCreatePersonaError(
+                              code === "persona_duplicate_name"
+                                ? t("charactersErrorDuplicateName")
+                                : code === "voice_not_found"
+                                  ? t("charactersErrorVoiceNotFound")
+                                  : code === "heygen_unavailable"
+                                    ? t("charactersErrorHeygenUnavailable")
+                                    : code === "heygen_avatar_create_failed"
+                                      ? t("charactersErrorHeygenAvatarCreateFailed")
+                                      : code === "persona_limit_reached"
+                                        ? t("charactersErrorPersonaLimitReached")
+                                        : code === "vcoin_balance_exhausted"
+                                          ? t("charactersErrorInsufficientBalance")
+                                          : t("charactersErrorGeneric")
+                            );
+                          } finally {
+                            setCreatePersonaSubmitting(false);
+                          }
+                        }}
+                        className={cn(
+                          "rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-white transition-opacity",
+                          (createPersonaSubmitting ||
                             createPersonaName.trim().length === 0 ||
                             !createPersonaVoiceId ||
                             (personaModalMode === "create" &&
                               (!createPersonaPortrait ||
-                                (data.plan?.workspaceVcoinBalance.balanceVc ?? 0) <
-                                  personaCreationVcoinCost))
-                          }
-                          onClick={async () => {
-                            if (!assistant?.workspaceId || !createPersonaVoiceId) return;
-                            const token = await getToken();
-                            if (!token) return;
-                            setCreatePersonaSubmitting(true);
-                            setCreatePersonaError(null);
-                            try {
-                              if (personaModalMode === "create") {
-                                if (!createPersonaPortrait) return;
-                                const result = await createWorkspaceVideoPersona(
-                                  token,
-                                  assistant.workspaceId,
-                                  {
-                                    displayName: createPersonaName.trim(),
-                                    heygenVoiceId: createPersonaVoiceId,
-                                    portrait: createPersonaPortrait
-                                  }
-                                );
-                                setCreatePersonaOpen(false);
-                                if (result.storageWarning === "persona_created_storage_failed") {
-                                  setPersonaFb({
-                                    type: "warn",
-                                    text: t("charactersWarnStorageFailedMessage", {
-                                      name: createPersonaName.trim()
-                                    })
-                                  });
-                                } else {
-                                  setPersonaFb({
-                                    type: "ok",
-                                    text: t("charactersCreateSuccess")
-                                  });
-                                }
-                              } else {
-                                if (!editingPersonaId) return;
-                                await updateWorkspaceVideoPersona(
-                                  token,
-                                  assistant.workspaceId,
-                                  editingPersonaId,
-                                  {
-                                    displayName: createPersonaName.trim(),
-                                    heygenVoiceId: createPersonaVoiceId
-                                  }
-                                );
-                                setCreatePersonaOpen(false);
-                                setPersonaFb({
-                                  type: "ok",
-                                  text: t("charactersEditSuccess")
-                                });
-                              }
-                              void loadPersonas();
-                            } catch (err) {
-                              const code = err instanceof ApiStructuredError ? err.code : null;
-                              setCreatePersonaError(
-                                code === "persona_duplicate_name"
-                                  ? t("charactersErrorDuplicateName")
-                                  : code === "voice_not_found"
-                                    ? t("charactersErrorVoiceNotFound")
-                                    : code === "heygen_unavailable"
-                                      ? t("charactersErrorHeygenUnavailable")
-                                      : code === "heygen_avatar_create_failed"
-                                        ? t("charactersErrorHeygenAvatarCreateFailed")
-                                        : code === "persona_limit_reached"
-                                          ? t("charactersErrorPersonaLimitReached")
-                                          : code === "vcoin_balance_exhausted"
-                                            ? t("charactersErrorInsufficientBalance")
-                                            : t("charactersErrorGeneric")
-                              );
-                            } finally {
-                              setCreatePersonaSubmitting(false);
-                            }
+                                (data.plan?.workspaceVcoinBalance?.balanceVc ?? 0) <
+                                  personaCreationVcoinCost))) &&
+                            "cursor-not-allowed opacity-50"
+                        )}
+                      >
+                        {createPersonaSubmitting ? (
+                          <span className="flex items-center gap-1.5">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            {personaModalMode === "edit"
+                              ? t("charactersFormSubmittingEdit")
+                              : t("charactersFormSubmitting")}
+                          </span>
+                        ) : personaModalMode === "edit" ? (
+                          t("charactersFormSubmitEdit")
+                        ) : (
+                          t("charactersFormSubmit")
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
+
+            {createClonedVoiceOpen &&
+              typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/40 backdrop-blur-sm"
+                  onClick={(event) => {
+                    if (event.target === event.currentTarget) {
+                      closeClonedVoiceModal();
+                    }
+                  }}
+                  role="dialog"
+                  aria-modal="true"
+                >
+                  <div className="relative mx-4 my-10 w-full max-w-lg rounded-2xl border border-border bg-surface p-5 shadow-xl">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h2 className="text-sm font-semibold text-text">
+                          {t("voicesCreateTitle")}
+                        </h2>
+                        <p className="mt-1 text-xs leading-5 text-text-muted">
+                          {t("voicesCreateSubtitle")}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={closeClonedVoiceModal}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
+                        aria-label={t("charactersCancel")}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="mt-4 rounded-xl border border-border/60 bg-surface-raised/20 p-3 text-xs text-text-muted">
+                      <p className="font-medium text-text">{t("voicesQualityTitle")}</p>
+                      <p className="mt-1 leading-5">{t("voicesQualityBody")}</p>
+                    </div>
+
+                    <div className="mt-4">
+                      <label className="mb-1 block text-[11px] font-medium text-text-subtle">
+                        {t("voicesFormName")}
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={60}
+                        value={createClonedVoiceName}
+                        onChange={(event) => setCreateClonedVoiceName(event.target.value)}
+                        placeholder={t("voicesFormNamePlaceholder")}
+                        className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+                      />
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="mb-1 block text-[11px] font-medium text-text-subtle">
+                        {t("voicesFormLanguage")}
+                      </label>
+                      <input
+                        type="text"
+                        value={createClonedVoiceLanguageHint}
+                        onChange={(event) => setCreateClonedVoiceLanguageHint(event.target.value)}
+                        placeholder={t("voicesFormLanguagePlaceholder")}
+                        className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+                      />
+                    </div>
+
+                    <div className="mt-4 grid w-full grid-cols-2 rounded-full border border-border/60 bg-surface-raised/20 p-1">
+                      {(["upload", "record"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => {
+                            cancelClonedVoiceRecordingAttempt();
+                            setCreateClonedVoiceRecordingState("idle");
+                            setCreateClonedVoiceRecordingSeconds(0);
+                            setCreateClonedVoiceMode(mode);
+                            setCreateClonedVoiceMicError(null);
                           }}
                           className={cn(
-                            "rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-white transition-opacity",
-                            (createPersonaSubmitting ||
-                              createPersonaName.trim().length === 0 ||
-                              !createPersonaVoiceId ||
-                              (personaModalMode === "create" &&
-                                (!createPersonaPortrait ||
-                                  (data.plan?.workspaceVcoinBalance.balanceVc ?? 0) <
-                                    personaCreationVcoinCost))) &&
-                              "cursor-not-allowed opacity-50"
+                            "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                            createClonedVoiceMode === mode
+                              ? "bg-accent/15 text-text"
+                              : "text-text-subtle hover:text-text"
                           )}
                         >
-                          {createPersonaSubmitting ? (
-                            <span className="flex items-center gap-1.5">
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              {personaModalMode === "edit"
-                                ? t("charactersFormSubmittingEdit")
-                                : t("charactersFormSubmitting")}
-                            </span>
-                          ) : personaModalMode === "edit" ? (
-                            t("charactersFormSubmitEdit")
-                          ) : (
-                            t("charactersFormSubmit")
-                          )}
+                          {mode === "upload" ? t("voicesModeUpload") : t("voicesModeRecord")}
                         </button>
-                      </div>
+                      ))}
                     </div>
-                  </div>,
-                  document.body
-                )}
-            </div>
-          )}
+
+                    {createClonedVoiceMode === "upload" ? (
+                      <div className="mt-4">
+                        <div
+                          className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-surface-raised/30 py-5 transition-colors hover:border-border"
+                          onClick={() =>
+                            (
+                              document.getElementById(
+                                "voice-clone-audio-input"
+                              ) as HTMLInputElement | null
+                            )?.click()
+                          }
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            const file = event.dataTransfer.files?.[0];
+                            if (file) handleClonedVoiceAudioFile(file);
+                          }}
+                        >
+                          <Upload className="mb-1 h-5 w-5 text-text-subtle" />
+                          <p className="text-xs text-text-subtle">{t("voicesFormAudioDrop")}</p>
+                          <p className="mt-0.5 text-[10px] text-text-subtle/70">
+                            {t("voicesFormAudioHint")}
+                          </p>
+                        </div>
+                        <input
+                          id="voice-clone-audio-input"
+                          type="file"
+                          accept="audio/*,.webm,.wav,.mp3,.m4a"
+                          className="sr-only"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) handleClonedVoiceAudioFile(file);
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-xl border border-border/60 bg-surface-raised/20 p-3">
+                        <p className="text-xs font-medium text-text">
+                          {t("voicesRecordPromptTitle")}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-text-muted">
+                          {t("voicesRecordPromptBody")}
+                        </p>
+                        <div className="mt-3 rounded-lg border border-border/50 bg-surface px-3 py-2 text-sm leading-6 text-text">
+                          {t("voicesRecordSampleText")}
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {createClonedVoiceRecordingState === "recording" ? (
+                            <button
+                              type="button"
+                              onClick={stopClonedVoiceRecording}
+                              className="inline-flex min-h-10 items-center justify-center rounded-full bg-accent px-4 text-sm font-medium text-white"
+                            >
+                              {t("voicesRecordStop", {
+                                duration: formatDuration(createClonedVoiceRecordingSeconds)
+                              })}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => void startClonedVoiceRecording()}
+                              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:bg-surface-raised"
+                            >
+                              <Mic className="h-4 w-4" />
+                              {createClonedVoiceAudio
+                                ? t("voicesRecordRetry")
+                                : t("voicesRecordStart")}
+                            </button>
+                          )}
+                          {createClonedVoiceAudio ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setClonedVoiceAudioFile(null);
+                                setCreateClonedVoiceMicError(null);
+                              }}
+                              className="rounded-full border border-border px-3 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface hover:text-text"
+                            >
+                              {t("voicesRecordClear")}
+                            </button>
+                          ) : null}
+                        </div>
+                        {createClonedVoiceMicError ? (
+                          <p className="mt-2 text-xs text-text-muted">
+                            {createClonedVoiceMicError}
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {createClonedVoiceAudioPreviewUrl ? (
+                      <div className="mt-4 rounded-xl border border-border/60 bg-surface-raised/20 p-3">
+                        <p className="text-xs font-medium text-text">{t("voicesPreviewTitle")}</p>
+                        <audio
+                          controls
+                          className="mt-2 w-full"
+                          src={createClonedVoiceAudioPreviewUrl}
+                        />
+                      </div>
+                    ) : null}
+
+                    <label className="mt-4 flex items-start gap-2 rounded-xl border border-border/60 bg-surface-raised/20 p-3 text-xs text-text-muted">
+                      <input
+                        type="checkbox"
+                        checked={createClonedVoiceRightsConfirmed}
+                        onChange={(event) =>
+                          setCreateClonedVoiceRightsConfirmed(event.target.checked)
+                        }
+                        className="mt-0.5"
+                      />
+                      <span>{t("voicesRightsConfirmation")}</span>
+                    </label>
+
+                    <div className="mt-4 rounded-xl border border-border/50 bg-surface-raised/30 px-3 py-2 text-xs text-text-muted">
+                      {t("voicesCostSummary", {
+                        n: clonedVoiceCreationVcoinCost,
+                        m: data.plan?.workspaceVcoinBalance?.balanceVc ?? 0,
+                        limit: clonedVoiceLimit
+                      })}
+                      {(data.plan?.workspaceVcoinBalance?.balanceVc ?? 0) <
+                      clonedVoiceCreationVcoinCost ? (
+                        <div className="mt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              closeClonedVoiceModal();
+                              onOpenPackagesPage?.();
+                            }}
+                            className="text-accent underline underline-offset-2"
+                          >
+                            {t("voicesErrorInsufficientBalance")}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {createClonedVoiceError ? (
+                      <p className="mt-3 text-xs text-destructive">{createClonedVoiceError}</p>
+                    ) : null}
+
+                    <div className="mt-4 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={closeClonedVoiceModal}
+                        className="rounded-full border border-border px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-raised"
+                      >
+                        {t("charactersCancel")}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          createClonedVoiceSubmitting ||
+                          createClonedVoiceName.trim().length === 0 ||
+                          createClonedVoiceAudio === null ||
+                          !createClonedVoiceRightsConfirmed ||
+                          (data.plan?.workspaceVcoinBalance?.balanceVc ?? 0) <
+                            clonedVoiceCreationVcoinCost
+                        }
+                        onClick={() => void submitClonedVoice()}
+                        className={cn(
+                          "rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-white transition-opacity",
+                          (createClonedVoiceSubmitting ||
+                            createClonedVoiceName.trim().length === 0 ||
+                            createClonedVoiceAudio === null ||
+                            !createClonedVoiceRightsConfirmed ||
+                            (data.plan?.workspaceVcoinBalance?.balanceVc ?? 0) <
+                              clonedVoiceCreationVcoinCost) &&
+                            "cursor-not-allowed opacity-50"
+                        )}
+                      >
+                        {createClonedVoiceSubmitting ? t("voicesSubmitting") : t("voicesSubmit")}
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
+          </div>
         </Section>
 
         {/* 6. Limits & Plan */}

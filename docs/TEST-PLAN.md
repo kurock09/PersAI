@@ -950,6 +950,24 @@ Interpretation rules:
 4. if publish/materialize logic changes, verify live archetype rows are preferred and `snapshot_voice_dna` remains the deletion fallback instead of becoming a silent primary source
 5. final V1-style closure still requires the live smoke pair on `persai-dev` (`emotional-long` and `chitchat-short`); do not mark the slice fully closed from local unit checks alone
 
+## ADR-111 talking-video cloned voice focused checks
+
+When a change touches `Settings -> Characters`, workspace video personas, cloned-voice UI, or runtime persona guidance, add this focused pack before broad verification:
+
+```bash
+corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts app/app/_components/assistant-settings.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts
+corepack pnpm --filter @persai/web run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+```
+
+Interpretation rules:
+
+1. `My voices` must render honest ready/pending/failed state, visible legal guidance, and VC/limit gating without pretending clone creation is instant.
+2. Persona forms may attach only ready active cloned voices; pending/failed rows stay visible in management UI but never become selectable persona voice truth.
+3. Persona create/update payloads must preserve preset `heygenVoiceId` fallback while forwarding optional `clonedVoiceId`.
+4. Runtime `video_generate` guidance may mention safe cloned-voice display labels only when talking video is enabled and the materialized persona catalog already carries that label; it must not expose provider ids or add keyword/fuzzy routing.
+
 ## Step 20 files/sandbox/media focused checks
 
 When a change touches the public `files` tool, sandbox execution, `AssistantFile` handling, admin prompt-tool vocabulary, `files.send` / `files.write_and_send` / internal media delivery, or shared channel media delivery, add the focused pack below before calling the slice clean:

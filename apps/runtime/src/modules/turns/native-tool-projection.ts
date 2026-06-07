@@ -124,12 +124,32 @@ function describeVideoPersonaCatalogHint(
   }
   const lines = personas
     .slice(0, 10)
-    .map(
-      (p) =>
-        `- personaId="${p.personaId}", displayName="${p.displayName}", voiceLabel="${p.voiceLabel}"`
-    )
+    .map((p) => {
+      const linkedClone =
+        typeof p.linkedClonedVoiceDisplayName === "string" &&
+        p.linkedClonedVoiceDisplayName.trim().length > 0
+          ? p.linkedClonedVoiceDisplayName.trim()
+          : null;
+      const presetFallback =
+        typeof p.presetVoiceLabel === "string" && p.presetVoiceLabel.trim().length > 0
+          ? p.presetVoiceLabel.trim()
+          : null;
+      if (linkedClone) {
+        const fallbackNote = presetFallback ? `, presetFallbackVoiceLabel="${presetFallback}"` : "";
+        return `- personaId="${p.personaId}", displayName="${p.displayName}", voiceLabel="${p.voiceLabel}", linkedClonedVoiceLabel="${linkedClone}"${fallbackNote}`;
+      }
+      return `- personaId="${p.personaId}", displayName="${p.displayName}", voiceLabel="${p.voiceLabel}"`;
+    })
     .join("\n");
-  return `Available saved characters (videoPersonas):\n${lines}`;
+  const hasLinkedClone = personas.some(
+    (p) =>
+      typeof p.linkedClonedVoiceDisplayName === "string" &&
+      p.linkedClonedVoiceDisplayName.trim().length > 0
+  );
+  const cloneGuidance = hasLinkedClone
+    ? " Some saved personas use a linked cloned voice. When the user selects that persona, keep its saved voice by default; the linkedClonedVoiceLabel is a safe human label, not a provider id, and the presetFallbackVoiceLabel remains only as fallback metadata."
+    : "";
+  return `Available saved characters (videoPersonas):\n${lines}${cloneGuidance}`;
 }
 
 /**

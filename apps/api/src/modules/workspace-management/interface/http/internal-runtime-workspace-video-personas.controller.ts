@@ -43,6 +43,9 @@ export class InternalRuntimeWorkspaceVideoPersonasController {
       heygenAvatarId: string;
       heygenVoiceId: string;
       heygenVoiceLabel: string;
+      clonedVoiceId: string | null;
+      linkedClonedVoiceDisplayName: string | null;
+      linkedClonedVoiceProviderId: string | null;
       portraitImageStorageKey: string;
     };
   }> {

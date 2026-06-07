@@ -70,6 +70,8 @@ async function run(): Promise<void> {
       vcoinExchangeRate: 20,
       heygenPersonaWorkspaceLimit: 10,
       heygenPersonaCreationVcoin: 20,
+      heygenVoiceCloneWorkspaceLimit: 5,
+      heygenVoiceCloneCreationVcoin: 50,
       notes: []
     })
   } as ResolvePlatformRuntimeProviderSettingsService;

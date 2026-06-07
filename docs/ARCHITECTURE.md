@@ -34,6 +34,15 @@ ADR-072 remains the historical migration ADR through the native-path closeout. A
 - unified notification platform (ADR-088 Slices 1+2+3+2.5 implemented): global truth + auto-derived per-workspace channel availability; Postmark via `Admin > Tools` secret store. `NotificationIntentService` is the single entry point; all conversational producers and `BillingLifecycleProducerService` create intents; `NotificationDeliveryWorkerService` claims/renders/delivers via typed channel adapters using `ResolveWorkspaceNotificationChannelsService` for per-workspace availability; `notification_channel_registry`, `notification_policies`, `notification_quiet_hours` are global singletons (no `workspaceId`); per-workspace availability derived at delivery time from `AppUser.email`, `AssistantChannelSurfaceBinding`, intent context; `Admin > Notifications` is the compact operator control plane; legacy tables deleted; Postmark credentials in `Admin > Tools`; seed writes zero notification rows
 - PersAI-owned billing lifecycle state, trusted provider/admin billing event snapshots, append-only lifecycle events; billing email delivered via Postmark through the notification platform (`class=transactional`, six template modules, dedupeKey, traceId=billing event id). ADR-092 is now active runtime truth: last successful payment method and the auto-renew instrument are distinct truths; managed SBP upgrade flows persist explicit `recurringMigration` state instead of implying SBP auto-renew from one-time success; provider recurring descriptions are synchronized with PersAI plan naming; payment-success communications include branded PersAI copy plus an official provider-receipt footer when available; billing intents remain visible in `Admin > Notifications` delivery history for platform-scoped admins.
 
+### Talking-video personas and cloned voices
+
+ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active PersAI-native path:
+
+- `apps/api` owns workspace-scoped talking-video persona truth plus workspace-scoped cloned-voice truth, including limit/cost gating, persona materialization, and safe display labels
+- `apps/web` owns the `Settings -> Characters` UX for persona CRUD, `My voices`, clone upload/record flows, and honest pending/ready/failed status rendering
+- `apps/runtime` does not route on freeform voice keywords; it only receives structured `videoPersonaCatalog` guidance and may surface safe cloned-voice display labels when a saved persona already carries one
+- provider clone ids are never user-facing product labels and must not become model-facing routing hints
+
 ### Runtime plane
 
 `apps/runtime` owns:

@@ -29,6 +29,7 @@ const WHEEL_SENSITIVITY = 0.0015;
 const MIN_SCALE = 1;
 const MAX_SCALE = 6;
 const SWIPE_CLOSE_THRESHOLD_PX = 120;
+const VIDEO_CHROME_AUTO_HIDE_MS = 1800;
 
 function safeMediaFilename(
   filename: string | undefined,
@@ -92,6 +93,7 @@ export function ImageLightbox({
   const [swipeDismissOffsetY, setSwipeDismissOffsetY] = useState(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoChromeHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Active pointer tracking for pinch + drag.
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchRef = useRef<{
@@ -131,6 +133,10 @@ export function ImageLightbox({
       setVideoCurrentTimeSec(0);
       setChromeVisible(true);
       setSwipeDismissOffsetY(0);
+      if (videoChromeHideTimeoutRef.current !== null) {
+        clearTimeout(videoChromeHideTimeoutRef.current);
+        videoChromeHideTimeoutRef.current = null;
+      }
       pointersRef.current.clear();
       pinchRef.current = null;
       dragRef.current = null;
@@ -141,6 +147,33 @@ export function ImageLightbox({
   useEffect(() => {
     swipeDismissOffsetYRef.current = swipeDismissOffsetY;
   }, [swipeDismissOffsetY]);
+
+  useEffect(() => {
+    if (videoChromeHideTimeoutRef.current !== null) {
+      clearTimeout(videoChromeHideTimeoutRef.current);
+      videoChromeHideTimeoutRef.current = null;
+    }
+    if (!open || mediaType !== "video") {
+      return;
+    }
+    if (!videoPlaying) {
+      setChromeVisible(true);
+      return;
+    }
+    if (!chromeVisible) {
+      return;
+    }
+    videoChromeHideTimeoutRef.current = setTimeout(() => {
+      setChromeVisible(false);
+      videoChromeHideTimeoutRef.current = null;
+    }, VIDEO_CHROME_AUTO_HIDE_MS);
+    return () => {
+      if (videoChromeHideTimeoutRef.current !== null) {
+        clearTimeout(videoChromeHideTimeoutRef.current);
+        videoChromeHideTimeoutRef.current = null;
+      }
+    };
+  }, [chromeVisible, mediaType, open, videoPlaying]);
 
   useEffect(() => {
     if (!open || mediaType !== "video") {
@@ -493,7 +526,7 @@ export function ImageLightbox({
   const mediaTitle = safeMediaFilename(filename ?? alt, mediaType);
   const showTopChrome = chromeVisible;
   const showVideoTransportChrome = mediaType !== "video" || chromeVisible;
-  const showVideoHeroPlay = mediaType === "video" && (!videoPlaying || chromeVisible);
+  const showVideoHeroPlay = mediaType === "video" && !videoPlaying;
   const mediaSurfaceTransform =
     mediaType === "image"
       ? `translate3d(${pan.x}px, ${pan.y + swipeDismissOffsetY}px, 0) scale(${scale})`

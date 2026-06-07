@@ -598,6 +598,11 @@ async function run(): Promise<void> {
       portraitImageStorageKey: "storage/masha.jpg",
       heygenVoiceId: "voice-masha",
       heygenVoiceLabel: "Russian (Female)",
+      clonedVoiceId: "clone-masha",
+      linkedClonedVoiceDisplayName: "Masha Brand",
+      linkedClonedVoiceProviderId: "heygen-clone-masha",
+      linkedClonedVoiceStatus: "ready",
+      linkedClonedVoiceArchived: false,
       heygenAvatarId: "avatar-masha",
       archived: false,
       archivedAt: null,
@@ -613,6 +618,11 @@ async function run(): Promise<void> {
       portraitImageStorageKey: "storage/anna.jpg",
       heygenVoiceId: "voice-anna",
       heygenVoiceLabel: "English (Female)",
+      clonedVoiceId: null,
+      linkedClonedVoiceDisplayName: null,
+      linkedClonedVoiceProviderId: null,
+      linkedClonedVoiceStatus: null,
+      linkedClonedVoiceArchived: null,
       heygenAvatarId: "avatar-anna",
       archived: false,
       archivedAt: null,
@@ -635,7 +645,17 @@ async function run(): Promise<void> {
       personas: workspacePersonas.map((row) => ({
         personaId: row.id,
         displayName: row.displayName,
-        voiceLabel: row.heygenVoiceLabel
+        voiceLabel:
+          row.linkedClonedVoiceArchived === false &&
+          row.linkedClonedVoiceStatus === "ready" &&
+          row.linkedClonedVoiceDisplayName !== null
+            ? row.linkedClonedVoiceDisplayName
+            : row.heygenVoiceLabel,
+        presetVoiceLabel: row.heygenVoiceLabel,
+        linkedClonedVoiceDisplayName:
+          row.linkedClonedVoiceArchived === false && row.linkedClonedVoiceStatus === "ready"
+            ? row.linkedClonedVoiceDisplayName
+            : null
       }))
     };
     return { ...ref, videoPersonaCatalog: catalog };
@@ -653,9 +673,18 @@ async function run(): Promise<void> {
     ).videoPersonaCatalog;
     assert.equal(catalog.provider, "heygen", "Slice 10: catalog provider must be 'heygen'");
     assert.equal(catalog.personas.length, 2, "Slice 10: catalog must contain 2 persona entries");
-    const p0 = catalog.personas[0] as { personaId: string; displayName: string };
+    const p0 = catalog.personas[0] as {
+      personaId: string;
+      displayName: string;
+      voiceLabel: string;
+      presetVoiceLabel: string | null;
+      linkedClonedVoiceDisplayName: string | null;
+    };
     assert.equal(p0.personaId, "01937c8a-0000-4000-8000-000000000001");
     assert.equal(p0.displayName, "Маша");
+    assert.equal(p0.voiceLabel, "Masha Brand");
+    assert.equal(p0.presetVoiceLabel, "Russian (Female)");
+    assert.equal(p0.linkedClonedVoiceDisplayName, "Masha Brand");
     console.log("PASS Slice 10: heygen + talkingVideoEnabled=true + 2 personas → catalog attached");
   }
 

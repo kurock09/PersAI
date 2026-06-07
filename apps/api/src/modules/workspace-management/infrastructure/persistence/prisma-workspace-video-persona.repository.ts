@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, type WorkspaceVideoClonedVoiceStatus } from "@prisma/client";
 import type {
   WorkspaceVideoPersonaCreateInput,
   WorkspaceVideoPersonaUpdateInput,
@@ -31,6 +31,18 @@ function isUuid(value: string): boolean {
 export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPersonaRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
+  private readonly clonedVoiceInclude = {
+    clonedVoice: {
+      select: {
+        id: true,
+        displayName: true,
+        heygenVoiceCloneId: true,
+        status: true,
+        archived: true
+      }
+    }
+  } satisfies Prisma.WorkspaceVideoPersonaInclude;
+
   async countActiveForWorkspace(
     workspaceId: string,
     tx?: Prisma.TransactionClient
@@ -48,7 +60,8 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
   ): Promise<WorkspaceVideoPersonaRecord | null> {
     const client = tx ?? this.prisma;
     const row = await client.workspaceVideoPersona.findFirst({
-      where: { workspaceId, displayNameLower, archived: false }
+      where: { workspaceId, displayNameLower, archived: false },
+      include: this.clonedVoiceInclude
     });
     return row === null ? null : this.mapToDomain(row);
   }
@@ -63,7 +76,8 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
     }
     const client = tx ?? this.prisma;
     const row = await client.workspaceVideoPersona.findFirst({
-      where: { id: personaId, workspaceId }
+      where: { id: personaId, workspaceId },
+      include: this.clonedVoiceInclude
     });
     return row === null ? null : this.mapToDomain(row);
   }
@@ -71,7 +85,8 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
   async listActive(workspaceId: string): Promise<WorkspaceVideoPersonaRecord[]> {
     const rows = await this.prisma.workspaceVideoPersona.findMany({
       where: { workspaceId, archived: false },
-      orderBy: { createdAt: "asc" }
+      orderBy: { createdAt: "asc" },
+      include: this.clonedVoiceInclude
     });
     return rows.map((row) => this.mapToDomain(row));
   }
@@ -90,9 +105,11 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
         portraitImageStorageKey: input.portraitImageStorageKey,
         heygenVoiceId: input.heygenVoiceId,
         heygenVoiceLabel: input.heygenVoiceLabel,
+        clonedVoiceId: input.clonedVoiceId ?? null,
         heygenAvatarId: input.heygenAvatarId,
         archived: false
-      }
+      },
+      include: this.clonedVoiceInclude
     });
     return this.mapToDomain(row);
   }
@@ -116,9 +133,13 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
       data: {
         displayName: input.displayName,
         displayNameLower: input.displayNameLower,
-        heygenVoiceId: input.heygenVoiceId,
-        heygenVoiceLabel: input.heygenVoiceLabel
-      }
+        ...(input.heygenVoiceId === undefined ? {} : { heygenVoiceId: input.heygenVoiceId }),
+        ...(input.heygenVoiceLabel === undefined
+          ? {}
+          : { heygenVoiceLabel: input.heygenVoiceLabel }),
+        ...(input.clonedVoiceId === undefined ? {} : { clonedVoiceId: input.clonedVoiceId })
+      },
+      include: this.clonedVoiceInclude
     });
     return this.mapToDomain(updated);
   }
@@ -140,7 +161,8 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
     }
     const updated = await client.workspaceVideoPersona.update({
       where: { id: personaId },
-      data: { archived: true, archivedAt: new Date() }
+      data: { archived: true, archivedAt: new Date() },
+      include: this.clonedVoiceInclude
     });
     return this.mapToDomain(updated);
   }
@@ -154,11 +176,19 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
     portraitImageStorageKey: string;
     heygenVoiceId: string;
     heygenVoiceLabel: string;
+    clonedVoiceId: string | null;
     heygenAvatarId: string;
     archived: boolean;
     archivedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
+    clonedVoice?: {
+      id: string;
+      displayName: string;
+      heygenVoiceCloneId: string | null;
+      status: WorkspaceVideoClonedVoiceStatus;
+      archived: boolean;
+    } | null;
   }): WorkspaceVideoPersonaRecord {
     return {
       id: row.id,
@@ -169,6 +199,11 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
       portraitImageStorageKey: row.portraitImageStorageKey,
       heygenVoiceId: row.heygenVoiceId,
       heygenVoiceLabel: row.heygenVoiceLabel,
+      clonedVoiceId: row.clonedVoiceId,
+      linkedClonedVoiceDisplayName: row.clonedVoice?.displayName ?? null,
+      linkedClonedVoiceProviderId: row.clonedVoice?.heygenVoiceCloneId ?? null,
+      linkedClonedVoiceStatus: row.clonedVoice?.status ?? null,
+      linkedClonedVoiceArchived: row.clonedVoice?.archived ?? null,
       heygenAvatarId: row.heygenAvatarId,
       archived: row.archived,
       archivedAt: row.archivedAt,

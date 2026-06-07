@@ -4,6 +4,7 @@ import type { ComponentProps, ReactNode } from "react";
 import type { AssistantLifecycleState, AssistantMemoryRegistryItemState } from "@persai/contracts";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../messages/en.json";
+import ruMessages from "../../../messages/ru.json";
 
 import { AssistantSettings, mergeMemoryViews } from "./assistant-settings";
 import { AssistantSettingsApkFooter } from "./assistant-settings-apk-footer";
@@ -63,10 +64,14 @@ const assistantApiMocks = vi.hoisted(() => ({
   postAssistantBillingDisableAutoRenew: vi.fn(),
   postAssistantBillingChangePlan: vi.fn(),
   getWorkspaceVideoPersonas: vi.fn(),
+  getWorkspaceVideoClonedVoices: vi.fn(),
   getWorkspaceVoiceCatalog: vi.fn(),
+  createWorkspaceVideoClonedVoice: vi.fn(),
   createWorkspaceVideoPersona: vi.fn(),
   updateWorkspaceVideoPersona: vi.fn(),
-  deleteWorkspaceVideoPersona: vi.fn()
+  deleteWorkspaceVideoPersona: vi.fn(),
+  archiveWorkspaceVideoClonedVoice: vi.fn(),
+  setWorkspaceVideoClonedVoiceDefault: vi.fn()
 }));
 
 vi.mock("@clerk/nextjs", () => ({
@@ -113,10 +118,14 @@ vi.mock("../assistant-api-client", async () => {
     postAssistantBillingDisableAutoRenew: assistantApiMocks.postAssistantBillingDisableAutoRenew,
     postAssistantBillingChangePlan: assistantApiMocks.postAssistantBillingChangePlan,
     getWorkspaceVideoPersonas: assistantApiMocks.getWorkspaceVideoPersonas,
+    getWorkspaceVideoClonedVoices: assistantApiMocks.getWorkspaceVideoClonedVoices,
     getWorkspaceVoiceCatalog: assistantApiMocks.getWorkspaceVoiceCatalog,
+    createWorkspaceVideoClonedVoice: assistantApiMocks.createWorkspaceVideoClonedVoice,
     createWorkspaceVideoPersona: assistantApiMocks.createWorkspaceVideoPersona,
     updateWorkspaceVideoPersona: assistantApiMocks.updateWorkspaceVideoPersona,
-    deleteWorkspaceVideoPersona: assistantApiMocks.deleteWorkspaceVideoPersona
+    deleteWorkspaceVideoPersona: assistantApiMocks.deleteWorkspaceVideoPersona,
+    archiveWorkspaceVideoClonedVoice: assistantApiMocks.archiveWorkspaceVideoClonedVoice,
+    setWorkspaceVideoClonedVoiceDefault: assistantApiMocks.setWorkspaceVideoClonedVoiceDefault
   };
 });
 
@@ -280,6 +289,14 @@ beforeEach(() => {
     writable: true,
     value: vi.fn()
   });
+  Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    value: vi.fn().mockReturnValue("blob:test-default")
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    value: vi.fn()
+  });
   clerkMocks.isLoaded = true;
   clerkMocks.getToken.mockResolvedValue("token-1");
   assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
@@ -359,9 +376,26 @@ beforeEach(() => {
     limit: 3,
     creationVcoinCost: 20
   });
+  assistantApiMocks.getWorkspaceVideoClonedVoices.mockResolvedValue({
+    clonedVoices: [],
+    limit: 5,
+    creationVcoinCost: 50
+  });
   assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
     provider: "heygen",
     voices: []
+  });
+  assistantApiMocks.createWorkspaceVideoClonedVoice.mockResolvedValue({
+    clonedVoice: {
+      id: "clone-1",
+      displayName: "Brand Voice",
+      status: "ready",
+      languageHint: "en",
+      isDefault: false,
+      previewAudioUrl: null,
+      createdAt: new Date().toISOString()
+    },
+    walletBalanceVc: 60
   });
   assistantApiMocks.createWorkspaceVideoPersona.mockResolvedValue({
     persona: {
@@ -370,6 +404,8 @@ beforeEach(() => {
       portraitImageUrl: "/api/persona-portrait/ws-1/persona-1/hash.jpg",
       heygenVoiceId: "en-US-Amy",
       heygenVoiceLabel: "Amy",
+      clonedVoiceId: null,
+      clonedVoiceDisplayName: null,
       createdAt: new Date().toISOString()
     },
     walletBalanceVc: 80,
@@ -382,10 +418,22 @@ beforeEach(() => {
       portraitImageUrl: "/api/persona-portrait/ws-1/persona-1/hash.jpg",
       heygenVoiceId: "en-US-Amy",
       heygenVoiceLabel: "Amy",
+      clonedVoiceId: null,
+      clonedVoiceDisplayName: null,
       createdAt: new Date().toISOString()
     }
   });
   assistantApiMocks.deleteWorkspaceVideoPersona.mockResolvedValue(undefined);
+  assistantApiMocks.archiveWorkspaceVideoClonedVoice.mockResolvedValue(undefined);
+  assistantApiMocks.setWorkspaceVideoClonedVoiceDefault.mockResolvedValue({
+    id: "clone-1",
+    displayName: "Brand Voice",
+    status: "ready",
+    languageHint: "en",
+    isDefault: true,
+    previewAudioUrl: null,
+    createdAt: new Date().toISOString()
+  });
 });
 
 afterEach(() => {
@@ -2841,7 +2889,7 @@ function makePlanData(
 }
 
 describe("characters section", () => {
-  it("State A (locked): renders demo persona + pricing link; no create button; loads personas and voice catalog", async () => {
+  it("State A (locked): renders shared cards with a disabled create slot and pricing link", async () => {
     // Default beforeEach mock returns empty personas list
     assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
       provider: "heygen",
@@ -2865,8 +2913,13 @@ describe("characters section", () => {
       expect(screen.getByText("Characters")).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole("button", { name: "Create character" })).toBeNull();
+    expect(screen.getAllByTestId("character-card")).toHaveLength(1);
     expect(screen.getByText("Sophie")).toBeInTheDocument();
+    expect(
+      screen.getByText("Saved characters stay visible here and unlock with plan activation.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Voice - Allison")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create character" })).toBeDisabled();
     expect(screen.getByRole("link", { name: "Change plan" })).toHaveAttribute(
       "href",
       "https://persai.dev/app/pricing"
@@ -2880,20 +2933,20 @@ describe("characters section", () => {
     });
   });
 
-  it("State A (locked): no plan → locked state (talkingVideoEnabled defaults to false); personas still fetched", async () => {
+  it("State A (locked): no plan still shows disabled create slot and fetches personas", async () => {
     renderSettings(makeAppData({ plan: null }), "characters");
 
     await waitFor(() => {
       expect(screen.getByText("Characters")).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole("button", { name: "Create character" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Create character" })).toBeDisabled();
     await waitFor(() => {
       expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
     });
   });
 
-  it("State A (locked) with real personas: does not show saved persona cards or delete controls; keeps demo card", async () => {
+  it("State A (locked) with real personas: shows saved personas in shared disabled cards and no delete controls", async () => {
     assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
       personas: [
         {
@@ -2939,17 +2992,24 @@ describe("characters section", () => {
       expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
     });
 
+    expect(screen.getAllByTestId("character-card")).toHaveLength(3);
     expect(screen.getByText("Sophie")).toBeInTheDocument();
-    expect(screen.queryByText("AliceDisabled")).toBeNull();
-    expect(screen.queryByText("BobDisabled")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Create character" })).toBeNull();
+    expect(screen.getByText("AliceDisabled")).toBeInTheDocument();
+    expect(screen.getByText("BobDisabled")).toBeInTheDocument();
+    expect(screen.getByText("Voice - Voice 1")).toBeInTheDocument();
+    expect(screen.getByText("Voice - Voice 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create character" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Delete character" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open portrait: AliceDisabled" })).toBeNull();
+    expect(
+      screen.getByText("AliceDisabled").closest('[data-testid="character-card"]')
+    ).toHaveAttribute("aria-disabled", "true");
     await waitFor(() => {
       expect(assistantApiMocks.getWorkspaceVoiceCatalog).toHaveBeenCalled();
     });
   });
 
-  it("State B (unlocked) empty: renders header + empty state + create button below content", async () => {
+  it("State B (unlocked) empty: renders helper copy and enabled create slot", async () => {
     assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
       personas: [],
       limit: 3,
@@ -2971,21 +3031,14 @@ describe("characters section", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(
-          "Create a character to make talking videos with a consistent face and voice"
-        )
+        screen.getByText("Save a face and voice for consistent talking videos.")
       ).toBeInTheDocument();
     });
 
-    expect(screen.getByRole("button", { name: "Create character" })).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Characters are used for talking-video generation, so the same face and voice stay consistent across requests."
-      )
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create character" })).toBeEnabled();
   });
 
-  it("State B (unlocked) with personas: shows persona cards", async () => {
+  it("State B (unlocked) with personas: shows shared persona cards", async () => {
     assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
       personas: [
         {
@@ -3030,9 +3083,10 @@ describe("characters section", () => {
       expect(screen.getByText("Masha")).toBeInTheDocument();
     });
 
+    expect(screen.getAllByTestId("character-card")).toHaveLength(2);
     expect(screen.getByText("Boris")).toBeInTheDocument();
-    expect(screen.getByText("Voice: Masha Russian")).toBeInTheDocument();
-    expect(screen.getByText("Voice: Boris Russian")).toBeInTheDocument();
+    expect(screen.getByText("Voice - Masha Russian")).toBeInTheDocument();
+    expect(screen.getByText("Voice - Boris Russian")).toBeInTheDocument();
   });
 
   it("State B (unlocked): clicking a persona portrait opens a lightbox", async () => {
@@ -3090,6 +3144,22 @@ describe("characters section", () => {
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText("Character name")).toBeInTheDocument();
+    });
+  });
+
+  it("Create flow: locked create slot stays disabled and does not open the modal", async () => {
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: false }) }),
+      "characters"
+    );
+
+    const createBtn = await screen.findByRole("button", { name: "Create character" });
+    expect(createBtn).toBeDisabled();
+
+    fireEvent.click(createBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
     });
   });
 
@@ -3203,7 +3273,7 @@ describe("characters section", () => {
     });
   });
 
-  it("Create flow: persona limit reached disables top-level Create button", async () => {
+  it("Create flow: persona limit reached disables the shared create slot", async () => {
     assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
       personas: [
         {
@@ -3244,11 +3314,20 @@ describe("characters section", () => {
       expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
     });
 
-    // When personas.length >= limit, the Create button should be disabled
     await waitFor(() => {
       const createBtn = screen.getByRole("button", { name: "Create character" });
       expect(createBtn).toBeDisabled();
+      expect(createBtn).toHaveAttribute("title", "Character limit reached (3)");
     });
+  });
+
+  it("i18n keys exist for both locales with the cleaner voice label", () => {
+    expect(enMessages.settings.charactersVoiceLabel).toBe("Voice - {voice}");
+    expect(ruMessages.settings.charactersVoiceLabel).toBe("Голос - {voice}");
+    expect(enMessages.settings.charactersUsageHint.length).toBeGreaterThan(0);
+    expect(ruMessages.settings.charactersUsageHint.length).toBeGreaterThan(0);
+    expect(enMessages.settings.charactersLockedBanner.length).toBeGreaterThan(0);
+    expect(ruMessages.settings.charactersLockedBanner.length).toBeGreaterThan(0);
   });
 
   it("Delete flow: opens confirm modal on delete click", async () => {
@@ -3579,6 +3658,597 @@ describe("characters section", () => {
       expect(screen.getByText("A character with this name already exists.")).toBeInTheDocument();
     });
     expect(screen.queryByText("Failed to create character. Please try again.")).toBeNull();
+  });
+
+  it("renders ready, pending, and failed cloned voices and keeps pending/failed out of persona selection", async () => {
+    assistantApiMocks.getWorkspaceVideoClonedVoices.mockResolvedValue({
+      clonedVoices: [
+        {
+          id: "clone-ready",
+          displayName: "Ready Voice",
+          status: "ready",
+          languageHint: "en",
+          isDefault: true,
+          previewAudioUrl: "https://cdn.example.com/ready.mp3",
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "clone-pending",
+          displayName: "Pending Voice",
+          status: "pending",
+          languageHint: "en",
+          isDefault: false,
+          previewAudioUrl: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "clone-failed",
+          displayName: "Failed Voice",
+          status: "failed",
+          languageHint: "en",
+          isDefault: false,
+          previewAudioUrl: null,
+          createdAt: new Date().toISOString()
+        }
+      ],
+      limit: 5,
+      creationVcoinCost: 50
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("My voices")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create character" }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(
+      within(dialog).getByRole("button", { name: "Ready Voice · Default" })
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Pending Voice" })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: "Failed Voice" })).toBeNull();
+  });
+
+  it("counts failed cloned voices toward the clone-create limit gate", async () => {
+    assistantApiMocks.getWorkspaceVideoClonedVoices.mockResolvedValue({
+      clonedVoices: [
+        {
+          id: "clone-ready-1",
+          displayName: "Ready One",
+          status: "ready",
+          languageHint: "en",
+          isDefault: false,
+          previewAudioUrl: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "clone-ready-2",
+          displayName: "Ready Two",
+          status: "ready",
+          languageHint: "en",
+          isDefault: false,
+          previewAudioUrl: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "clone-pending-1",
+          displayName: "Pending One",
+          status: "pending",
+          languageHint: "en",
+          isDefault: false,
+          previewAudioUrl: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "clone-pending-2",
+          displayName: "Pending Two",
+          status: "pending",
+          languageHint: "en",
+          isDefault: false,
+          previewAudioUrl: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "clone-failed-1",
+          displayName: "Failed One",
+          status: "failed",
+          languageHint: "en",
+          isDefault: false,
+          previewAudioUrl: null,
+          createdAt: new Date().toISOString()
+        }
+      ],
+      limit: 5,
+      creationVcoinCost: 50
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    const cloneButton = await screen.findByRole("button", { name: "Clone a voice" });
+    await waitFor(() => {
+      expect(cloneButton).toBeDisabled();
+    });
+
+    fireEvent.click(cloneButton);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("validates clone upload name, audio, rights, and balance gating", async () => {
+    renderSettings(
+      makeAppData({
+        plan: {
+          ...makePlanData({ talkingVideoEnabled: true }),
+          workspaceVcoinBalance: { balanceVc: 10, videoVcoinMonthlyGrant: 0, vcoinExchangeRate: 20 }
+        } as unknown as NonNullable<AppData["plan"]>
+      }),
+      "characters"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clone a voice" }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(
+      screen.getAllByText("Cost: 50 VC. Balance: 10 VC. Limit: 5 voices").length
+    ).toBeGreaterThan(0);
+    expect(within(dialog).getByRole("button", { name: "Create voice clone" })).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByPlaceholderText("Voice name"), {
+      target: { value: "Founder Voice" }
+    });
+
+    const audioInput = document.getElementById("voice-clone-audio-input") as HTMLInputElement;
+    const invalidFile = new File(["bad"], "notes.txt", { type: "text/plain" });
+    Object.defineProperty(audioInput, "files", {
+      value: [invalidFile],
+      configurable: true
+    });
+    fireEvent.change(audioInput);
+
+    await waitFor(() => {
+      expect(screen.getByText("Only audio files are accepted.")).toBeInTheDocument();
+    });
+
+    const validFile = new File(["voice"], "voice.webm", { type: "audio/webm" });
+    Object.defineProperty(audioInput, "files", {
+      value: [validFile],
+      configurable: true
+    });
+    fireEvent.change(audioInput);
+    fireEvent.click(within(dialog).getByRole("checkbox"));
+
+    await waitFor(() => {
+      expect(within(dialog).getByRole("button", { name: "Create voice clone" })).toBeDisabled();
+    });
+  });
+
+  it("revokes cloned-voice preview URLs on replacement and close", async () => {
+    const createObjectURL = vi
+      .fn()
+      .mockReturnValueOnce("blob:voice-preview-1")
+      .mockReturnValueOnce("blob:voice-preview-2");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clone a voice" }));
+    const dialog = await screen.findByRole("dialog");
+    const audioInput = document.getElementById("voice-clone-audio-input") as HTMLInputElement;
+
+    const firstFile = new File(["voice-one"], "voice-one.webm", { type: "audio/webm" });
+    Object.defineProperty(audioInput, "files", {
+      value: [firstFile],
+      configurable: true
+    });
+    fireEvent.change(audioInput);
+
+    const secondFile = new File(["voice-two"], "voice-two.webm", { type: "audio/webm" });
+    Object.defineProperty(audioInput, "files", {
+      value: [secondFile],
+      configurable: true
+    });
+    fireEvent.change(audioInput);
+
+    await waitFor(() => {
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:voice-preview-1");
+    });
+
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Cancel" })[0]!);
+
+    await waitFor(() => {
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:voice-preview-2");
+    });
+  });
+
+  it("shows record-mode microphone fallback copy when permission fails", async () => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn().mockRejectedValue(new Error("Permission denied"))
+      }
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clone a voice" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Record" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Start recording" }));
+
+    await waitFor(() => {
+      expect(
+        within(dialog).getByText(
+          "Microphone access failed. You can upload an audio sample instead."
+        )
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("ignores a stale getUserMedia result after the clone modal closes", async () => {
+    const stop = vi.fn();
+    const stream = {
+      getTracks: () => [{ stop }]
+    } as unknown as MediaStream;
+    let resolveGetUserMedia: (value: MediaStream) => void = () => undefined;
+    const getUserMedia = vi.fn(
+      () =>
+        new Promise<MediaStream>((resolve) => {
+          resolveGetUserMedia = resolve;
+        })
+    );
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    const mediaRecorder = vi.fn();
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: Object.assign(mediaRecorder, {
+        isTypeSupported: vi.fn(() => true)
+      })
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clone a voice" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Record" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Start recording" }));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Cancel" })[0]!);
+
+    resolveGetUserMedia(stream);
+
+    await waitFor(() => {
+      expect(stop).toHaveBeenCalled();
+    });
+    expect(mediaRecorder).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Stop recording/i })).toBeNull();
+  });
+
+  it("ignores an older clone recording start attempt when a newer one begins", async () => {
+    const firstStop = vi.fn();
+    const secondStop = vi.fn();
+    const firstStream = {
+      getTracks: () => [{ stop: firstStop }]
+    } as unknown as MediaStream;
+    const secondStream = {
+      getTracks: () => [{ stop: secondStop }]
+    } as unknown as MediaStream;
+    let resolveFirst: (value: MediaStream) => void = () => undefined;
+    let resolveSecond: (value: MediaStream) => void = () => undefined;
+    const getUserMedia = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<MediaStream>((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<MediaStream>((resolve) => {
+            resolveSecond = resolve;
+          })
+      );
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    const mediaRecorder = vi.fn(function MediaRecorderMock(this: Record<string, unknown>) {
+      this.state = "inactive";
+      this.start = vi.fn(() => {
+        this.state = "recording";
+      });
+      this.stop = vi.fn(() => {
+        this.state = "inactive";
+      });
+      this.ondataavailable = null;
+      this.onstop = null;
+    });
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: Object.assign(mediaRecorder, {
+        isTypeSupported: vi.fn(() => true)
+      })
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clone a voice" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Record" }));
+
+    const startButton = within(dialog).getByRole("button", { name: "Start recording" });
+    fireEvent.click(startButton);
+    fireEvent.click(startButton);
+
+    resolveFirst(firstStream);
+    await waitFor(() => {
+      expect(firstStop).toHaveBeenCalled();
+    });
+    expect(mediaRecorder).not.toHaveBeenCalled();
+
+    resolveSecond(secondStream);
+    await waitFor(() => {
+      expect(mediaRecorder).toHaveBeenCalledTimes(1);
+    });
+    expect(mediaRecorder).toHaveBeenCalledWith(secondStream, {
+      mimeType: "audio/webm;codecs=opus"
+    });
+    expect(secondStop).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("button", { name: /Stop recording/i })).toBeInTheDocument();
+  });
+
+  it("revokes persona portrait preview URLs on replacement and cancel", async () => {
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: [
+        {
+          voiceId: "voice-1",
+          name: "Amy",
+          language: "English",
+          gender: "female",
+          previewAudioUrl: null,
+          languageBucket: "en"
+        }
+      ]
+    });
+    const createObjectURL = vi
+      .fn()
+      .mockReturnValueOnce("blob:portrait-preview-1")
+      .mockReturnValueOnce("blob:portrait-preview-2");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create character" }));
+    const dialog = await screen.findByRole("dialog");
+    const portraitInput = dialog.querySelector('input[type="file"]') as HTMLInputElement;
+
+    const firstFile = new File(["portrait-one"], "portrait-one.jpg", { type: "image/jpeg" });
+    Object.defineProperty(portraitInput, "files", {
+      value: [firstFile],
+      configurable: true
+    });
+    fireEvent.change(portraitInput);
+
+    const secondFile = new File(["portrait-two"], "portrait-two.jpg", { type: "image/jpeg" });
+    Object.defineProperty(portraitInput, "files", {
+      value: [secondFile],
+      configurable: true
+    });
+    fireEvent.change(portraitInput);
+
+    await waitFor(() => {
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:portrait-preview-1");
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:portrait-preview-2");
+    });
+  });
+
+  it("forwards clonedVoiceId on create and preserves preset fallback on edit clear", async () => {
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: [
+        {
+          voiceId: "en-US-Amy",
+          name: "Amy",
+          language: "English",
+          gender: "female",
+          previewAudioUrl: null,
+          languageBucket: "en"
+        }
+      ]
+    });
+    assistantApiMocks.getWorkspaceVideoClonedVoices.mockResolvedValue({
+      clonedVoices: [
+        {
+          id: "clone-ready",
+          displayName: "Ready Voice",
+          status: "ready",
+          languageHint: "en",
+          isDefault: false,
+          previewAudioUrl: null,
+          createdAt: new Date().toISOString()
+        }
+      ],
+      limit: 5,
+      creationVcoinCost: 50
+    });
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [
+        {
+          id: "persona-edit",
+          displayName: "Masha",
+          portraitImageUrl: "/api/persona-portrait/ws-1/p-1/hash.jpg",
+          heygenVoiceId: "preset-voice",
+          heygenVoiceLabel: "Preset Voice",
+          clonedVoiceId: "clone-ready",
+          clonedVoiceDisplayName: "Ready Voice",
+          createdAt: new Date().toISOString()
+        }
+      ],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create character" }));
+    let dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByPlaceholderText("Character name"), {
+      target: { value: "Alice" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ready Voice" }));
+    fireEvent.click(within(dialog).getByText("Amy").closest('[role="button"]')!);
+    const portraitInput = dialog.querySelector('input[type="file"]') as HTMLInputElement;
+    const fakeFile = new File(["data"], "portrait.jpg", { type: "image/jpeg" });
+    Object.defineProperty(portraitInput, "files", {
+      value: [fakeFile],
+      configurable: true
+    });
+    fireEvent.change(portraitInput);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create character" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.createWorkspaceVideoPersona).toHaveBeenCalledWith(
+        "token-1",
+        "ws-1",
+        {
+          displayName: "Alice",
+          heygenVoiceId: "en-US-Amy",
+          clonedVoiceId: "clone-ready",
+          portrait: fakeFile
+        }
+      );
+    });
+
+    fireEvent.click(await screen.findByText("Masha"));
+    dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Use preset voice only" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.updateWorkspaceVideoPersona).toHaveBeenCalledWith(
+        "token-1",
+        "ws-1",
+        "persona-edit",
+        {
+          displayName: "Masha",
+          heygenVoiceId: "preset-voice",
+          clonedVoiceId: null
+        }
+      );
+    });
+  });
+
+  it("inline clone path attaches the new ready voice to the persona form", async () => {
+    assistantApiMocks.getWorkspaceVideoClonedVoices
+      .mockResolvedValueOnce({
+        clonedVoices: [],
+        limit: 5,
+        creationVcoinCost: 50
+      })
+      .mockResolvedValueOnce({
+        clonedVoices: [
+          {
+            id: "clone-1",
+            displayName: "Fresh Voice",
+            status: "ready",
+            languageHint: "en",
+            isDefault: false,
+            previewAudioUrl: null,
+            createdAt: new Date().toISOString()
+          }
+        ],
+        limit: 5,
+        creationVcoinCost: 50
+      });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create character" }));
+    const personaDialog = await screen.findByRole("dialog");
+    fireEvent.click(within(personaDialog).getByRole("button", { name: "Clone a new voice" }));
+
+    const cloneDialogs = screen.getAllByRole("dialog");
+    expect(cloneDialogs).toHaveLength(2);
+    const cloneDialog = cloneDialogs[1]!;
+    fireEvent.change(within(cloneDialog).getByPlaceholderText("Voice name"), {
+      target: { value: "Fresh Voice" }
+    });
+    const audioInput = document.getElementById("voice-clone-audio-input") as HTMLInputElement;
+    const audioFile = new File(["voice"], "fresh.webm", { type: "audio/webm" });
+    Object.defineProperty(audioInput, "files", {
+      value: [audioFile],
+      configurable: true
+    });
+    fireEvent.change(audioInput);
+    fireEvent.click(within(cloneDialog).getByRole("checkbox"));
+    fireEvent.click(within(cloneDialog).getByRole("button", { name: "Create voice clone" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.createWorkspaceVideoClonedVoice).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      expect(
+        within(screen.getByRole("dialog")).getByText("Using cloned voice: Fresh Voice")
+      ).toBeInTheDocument();
+    });
   });
 });
 

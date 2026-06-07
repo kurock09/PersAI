@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-06-07). Baseline SHA: `2f24b93d09b32af392199916245692acf0308690`.
+In progress (2026-06-07). Baseline SHA: `2f24b93d09b32af392199916245692acf0308690`.
 
 This ADR is an orchestration program. The parent agent acts as an orchestrator/reviewer and does not write production code. Implementation work must be delegated to GPT-5.4 subagents unless the user explicitly overrides that rule for a specific slice.
 
@@ -138,20 +138,21 @@ Missing any item is grounds for rejection before diff-review.
 
 | Slice | Title | Purpose | Deploy |
 | ----- | ----- | ------- | ------ |
-| 1 | Video player and Capacitor preview polish | Fix generic video-preview/playback polish before adding more video-heavy UI. Hero play overlay disappears when playback starts; chrome auto-hides; file download path preserves video MIME and Range truth; investigate `blob:` preview only if MIME/Range does not close the Capacitor issue. | WEB + API if MIME path is touched |
-| 2 | Characters UI v2 | Replace the sparse wide Characters list with a premium/minimal two-column grid and use the same card component for locked and unlocked states. Remove custom locked demo layout. | WEB |
-| 3 | Voice clone substrate | Add workspace cloned-voice persistence, admin/runtime settings, contract state, and VC ledger kind without calling HeyGen yet. | API + CONTRACT |
-| 4 | Voice clone backend + runtime resolve | Implement HeyGen voice clone submit/poll, CRUD endpoints, successful-completion VC debit, provider error mapping, and talking-avatar voice resolution order. | API + PROVIDER-GATEWAY + RUNTIME |
-| 5 | Voice clone UI + docs + smoke | Add the "My voices" subsection, clone modal with upload/record modes, inline clone-from-character path, tool-description guidance, docs updates, full verification, and live smoke. | WEB + RUNTIME + DOCS |
+| 1 | Video player and Capacitor preview polish | Fix generic video-preview/playback polish before adding more video-heavy UI. Hero play overlay disappears when playback starts; chrome auto-hides; file download path preserves video MIME and Range truth; investigate `blob:` preview only if MIME/Range does not close the Capacitor issue. **Completed 2026-06-07.** | WEB |
+| 2 | Characters UI v2 | Replace the sparse wide Characters list with a premium/minimal two-column grid and use the same card component for locked and unlocked states. Remove custom locked demo layout. **Completed 2026-06-07.** | WEB |
+| 3 | Voice clone substrate | Add workspace cloned-voice persistence, admin/runtime settings, contract state, and VC ledger kind without calling HeyGen yet. **Completed 2026-06-07.** | API + CONTRACT |
+| 4a | Voice clone backend | Implement HeyGen voice clone submit/poll, workspace cloned-voice CRUD endpoints, successful-completion VC debit, and provider error mapping. **Completed 2026-06-07.** | API + PROVIDER-GATEWAY |
+| 4b | Persona linked-clone substrate + runtime resolve | Add persona cloned-voice linkage while preserving preset fallback, then implement talking-avatar voice resolution order. **Completed 2026-06-07.** | API + RUNTIME + CONTRACT |
+| 5 | Voice clone UI + docs + smoke | Add the "My voices" subsection, clone modal with upload/record modes, inline clone-from-character path, tool-description guidance, docs updates, full verification, and live smoke. **Implementation completed 2026-06-07; live authenticated smoke remains blocked.** | WEB + RUNTIME + DOCS |
 
-Recommended execution order: `1 -> 2 -> 3 -> 4 -> 5`.
+Recommended execution order: `1 -> 2 -> 3 -> 4a -> 4b -> 5`.
 
-If Slice 4 is too large for a single GPT-5.4 implementation return, the orchestrator may split it once into:
+Slice 4 was split after the first GPT-5.4 implementation subagent returned an architectural blocker before code changes:
 
-- `4a` HeyGen provider-gateway clone client + polling;
-- `4b` API CRUD + VC debit + runtime resolve order.
+- `4a` HeyGen provider-gateway clone client + polling, API cloned-voice CRUD, and successful-completion VC debit;
+- `4b` persona linked-clone substrate + runtime resolve order.
 
-The split is allowed only after the first subagent return proves the slice is too large; do not pre-split unless necessary.
+Rationale: the provider-gateway/API clone CRUD + debit work is coherent, but the runtime precedence rule `explicit voiceKey -> persona linked cloned voice -> persona preset voice` requires a persona linkage field first. Current persona persistence and internal runtime fetches only carry preset HeyGen voice fields, so implementing runtime precedence in `4a` would either overload preset fields or lose the fallback.
 
 ## Slice specifications
 
@@ -193,6 +194,8 @@ The split is allowed only after the first subagent return proves the slice is to
 - Lightbox hero play button reappears on `onPause` / `onEnded`.
 - Video file route preserves `Range` passthrough and `206` status where upstream supports it.
 - Video MIME remains `video/mp4` (or the stored video MIME), not `application/octet-stream`.
+
+**Status (2026-06-07): Completed.** The video lightbox hero play overlay now depends only on `videoPlaying`, so it disappears once playback starts even when chrome is visible. Video chrome auto-hides after playback starts and returns on user tap. Inline chat video previews no longer rely on Android WebView decoding the first frame: the chat card renders a deterministic compact play placeholder while keeping a hidden metadata-only `<video>` for duration. The same-origin `assistant-file` BFF has focused regression coverage proving `Range`/validator passthrough plus upstream `206`, `Content-Range`, `Accept-Ranges`, `Content-Length`, and `Content-Type: video/mp4` preservation. Upstream API download already served real ranged responses, so no API or `persai-mobile` change was needed.
 
 ### Slice 2 - Characters UI v2
 
@@ -239,6 +242,8 @@ The split is allowed only after the first subagent return proves the slice is to
 - Create CTA is enabled only when plan and limits allow.
 - i18n keys exist for both locales.
 
+**Status (2026-06-07): Completed.** Characters now render through shared compact card/create-slot helpers inside `assistant-settings.tsx`, with a one-column mobile grid and two-column desktop/tablet grid. Locked and unlocked states share the same card geometry: locked saved personas remain visible but disabled, the demo persona uses the same card path, and locked cards expose no edit/delete/portrait-open actions. The create CTA lives in the grid and disables for plan gating or persona-limit gating without opening the modal. Voice labels now use the cleaner `Voice - {voice}` / `Голос - {voice}` copy, and focused tests cover unlocked cards, locked disabled cards, gated create behavior, limit behavior, and locale keys.
+
 ### Slice 3 - Voice clone substrate
 
 **Scope**
@@ -284,6 +289,8 @@ The split is allowed only after the first subagent return proves the slice is to
 - Display-name uniqueness enforced within workspace.
 - Settings default to 5 clone limit and 50 VC cost.
 - Ledger kind parses/round-trips where kind unions are typed.
+
+**Status (2026-06-07): Completed.** The API substrate now has workspace-scoped `workspace_video_cloned_voices` persistence, a Prisma migration, domain/repository ports, and module registration. The model stores normalized display names, nullable HeyGen clone id, language hint, status, default flag, preview URL, source metadata, timestamps, and soft-archive state. Platform runtime settings now carry `heygenVoiceCloneWorkspaceLimit` (default 5, hard cap 10) and `heygenVoiceCloneCreationVcoin` (default 50), with parser/default/round-trip tests. The VC ledger typed kind now permits `voice_clone_creation`, but no wallet debit, HeyGen HTTP call, REST endpoint, runtime resolve, or web UI was added in this slice.
 
 ### Slice 4 - Voice clone backend + runtime resolve
 
@@ -339,6 +346,12 @@ The split is allowed only after the first subagent return proves the slice is to
 - Successful clone creates/updates a ready cloned-voice row and debits VC once.
 - Failed clone does not debit VC.
 - Runtime uses explicit voice override before persona cloned voice before persona preset voice.
+
+**Split status (2026-06-07): Split into 4a/4b before code changes.** A GPT-5.4 subagent confirmed the provider-gateway/API clone CRUD + debit work can land independently, but runtime voice precedence needs persona linked-clone substrate first. 4a owns HeyGen clone submit/poll, cloned-voice CRUD, stable product error mapping, and successful-completion VC debit. 4b owns persona cloned-voice linkage, internal/runtime contract widening, and the final runtime precedence implementation.
+
+**4a Status (2026-06-07): Completed.** Provider-gateway now exposes HeyGen voice clone submit/poll via `POST /v3/voices/clone` and `GET /v3/voices/{voice_clone_id}`, with exact `status === "complete"` success handling and stable product error mapping for clone limit, plan-upgrade, auth, and rate-limit conditions. API now exposes workspace-scoped cloned voice create/list/archive/set-default endpoints, accepts multipart audio upload, validates the audio file, enforces workspace limit and duplicate-name checks, marks failed provider attempts as `failed` without debit, and finalizes successful clones by marking the row `ready` and recording a `voice_clone_creation` VC debit in the same transaction. Runtime/persona linked-clone resolution remains in 4b.
+
+**4b Status (2026-06-07): Completed.** Personas now persist optional workspace cloned-voice linkage via `clonedVoiceId` while retaining preset `heygenVoiceId` / `heygenVoiceLabel` fallback fields. API create/update validates linked cloned voices as same-workspace, active, ready, and provider-backed. Internal runtime persona reads expose linked cloned-voice metadata only when the link remains usable, materialized persona catalogs expose safe display labels rather than provider ids, and talking-avatar runtime voice resolution now follows ADR order: explicit request `voiceKey`, then linked ready cloned voice, then preset persona voice.
 
 ### Slice 5 - Voice clone UI + docs + smoke
 
@@ -404,25 +417,27 @@ The split is allowed only after the first subagent return proves the slice is to
 - Tool description includes cloned voice guidance only when talking video is enabled and cloned voices are materialized.
 - Cross-doc updates mention ADR-111.
 
+**Status (2026-06-07): Implementation completed; live smoke blocked.** The Characters surface now includes a `My voices` subsection with ready/pending/failed cloned-voice cards, preview/default/archive actions, linked-character summaries, VC cost/limit copy, and honest disabled states. The clone modal supports upload and browser recording modes with visible quality guidance, rights confirmation, sample prompt, preview playback, retry/remove, and microphone-permission fallback copy. Post-audit cleanup added stale microphone-start guards, clone/persona blob URL revocation, and UI limit gating aligned with API active-row truth. Persona create/edit can attach only ready cloned voices while preserving preset HeyGen fallback voice fields, and the inline clone flow attaches a newly ready clone to the open persona form. Runtime tool projection now surfaces safe linked cloned-voice labels from materialized persona catalog truth without raw provider ids or keyword routing. Archiving a cloned voice now best-effort marks workspace assistants config-dirty so materialized persona guidance refreshes. Cross-docs were updated in `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, and `TEST-PLAN`. Local focused tests and the full verification gate passed. Live authenticated smoke on `persai-dev` is still outstanding because no signed-in dev session or local app was available.
+
 ## Acceptance checklist
 
-- [ ] Video lightbox hero play overlay no longer covers playing video.
-- [ ] Capacitor video preview path has verified MIME/Range behavior.
-- [ ] Characters UI uses a compact premium two-column grid on desktop.
-- [ ] Locked and unlocked Characters states share the same card component.
-- [ ] `workspace_video_cloned_voices` (or final equivalent) exists and is workspace-scoped.
-- [ ] Clone limit and clone VC price are admin/runtime settings.
-- [ ] HeyGen `POST /v3/voices/clone` and poll path are implemented.
-- [ ] Voice clone success debits VC once through ADR-108 wallet/ledger.
-- [ ] Failed clone attempts do not debit VC.
-- [ ] Persona can use either a preset HeyGen voice or a workspace cloned voice.
-- [ ] Runtime resolves voice in the ADR-111 precedence order.
-- [ ] Voice clone UI supports upload and record modes.
-- [ ] Existing chat recorder / Capacitor recording path is reused or a blocker is documented.
-- [ ] UI includes quality guidance and rights confirmation.
-- [ ] No keyword routing or fuzzy persona/voice intent detection was added.
-- [ ] Docs updated: ARCHITECTURE, API-BOUNDARY, DATA-MODEL, TEST-PLAN.
-- [ ] Full verification gate PASS.
+- [x] Video lightbox hero play overlay no longer covers playing video.
+- [x] Capacitor video preview path has verified MIME/Range behavior.
+- [x] Characters UI uses a compact premium two-column grid on desktop.
+- [x] Locked and unlocked Characters states share the same card component.
+- [x] `workspace_video_cloned_voices` (or final equivalent) exists and is workspace-scoped.
+- [x] Clone limit and clone VC price are admin/runtime settings.
+- [x] HeyGen `POST /v3/voices/clone` and poll path are implemented.
+- [x] Voice clone success debits VC once through ADR-108 wallet/ledger.
+- [x] Failed clone attempts do not debit VC.
+- [x] Persona can use either a preset HeyGen voice or a workspace cloned voice.
+- [x] Runtime resolves voice in the ADR-111 precedence order.
+- [x] Voice clone UI supports upload and record modes.
+- [x] Existing chat recorder / Capacitor recording path is reused or a blocker is documented.
+- [x] UI includes quality guidance and rights confirmation.
+- [x] No keyword routing or fuzzy persona/voice intent detection was added.
+- [x] Docs updated: ARCHITECTURE, API-BOUNDARY, DATA-MODEL, TEST-PLAN.
+- [x] Full verification gate PASS.
 - [ ] Live dev smoke recorded for cloned voice creation + persona render.
 
 ## Risks

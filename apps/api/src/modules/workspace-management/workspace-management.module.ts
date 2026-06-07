@@ -232,12 +232,16 @@ import { KlingVoiceCatalogService } from "./application/kling/kling-voice-catalo
 import { HeyGenVoiceCatalogService } from "./application/heygen/heygen-voice-catalog.service";
 import { HeyGenProviderGatewayClient } from "./application/heygen/heygen-provider-gateway.client";
 import { ManageWorkspaceVideoPersonasService } from "./application/heygen/manage-workspace-video-personas.service";
+import { ManageWorkspaceVideoClonedVoicesService } from "./application/heygen/manage-workspace-video-cloned-voices.service";
 import { ReadWorkspaceVideoPersonaService } from "./application/heygen/read-workspace-video-persona.service";
 import { ReadHeygenVoiceCatalogForWorkspaceService } from "./application/heygen/read-heygen-voice-catalog-for-workspace.service";
 import { WorkspaceVideoPersonasController } from "./interface/http/workspace-video-personas.controller";
+import { WorkspaceVideoClonedVoicesController } from "./interface/http/workspace-video-cloned-voices.controller";
 import { InternalRuntimeWorkspaceVideoPersonasController } from "./interface/http/internal-runtime-workspace-video-personas.controller";
 import { WORKSPACE_VIDEO_PERSONA_REPOSITORY } from "./domain/workspace-video-persona.repository";
 import { PrismaWorkspaceVideoPersonaRepository } from "./infrastructure/persistence/prisma-workspace-video-persona.repository";
+import { WORKSPACE_VIDEO_CLONED_VOICE_REPOSITORY } from "./domain/workspace-video-cloned-voice.repository";
+import { PrismaWorkspaceVideoClonedVoiceRepository } from "./infrastructure/persistence/prisma-workspace-video-cloned-voice.repository";
 import { EnqueueRuntimeDeferredMediaJobService } from "./application/enqueue-runtime-deferred-media-job.service";
 import { InternalRuntimeDocumentJobClientService } from "./application/internal-runtime-document-job.client.service";
 import { InternalRuntimeMediaJobClientService } from "./application/internal-runtime-media-job.client.service";
@@ -413,6 +417,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     MediaAttachmentController,
     TelegramWebhookController,
     WorkspaceVideoPersonasController,
+    WorkspaceVideoClonedVoicesController,
     InternalRuntimeWorkspaceVideoPersonasController
   ],
   providers: [
@@ -771,8 +776,13 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageMediaPackagePurchaseService,
     HeyGenProviderGatewayClient,
     ManageWorkspaceVideoPersonasService,
+    ManageWorkspaceVideoClonedVoicesService,
     ReadWorkspaceVideoPersonaService,
     ReadHeygenVoiceCatalogForWorkspaceService,
+    {
+      provide: WORKSPACE_VIDEO_CLONED_VOICE_REPOSITORY,
+      useClass: PrismaWorkspaceVideoClonedVoiceRepository
+    },
     {
       provide: WORKSPACE_VIDEO_PERSONA_REPOSITORY,
       useClass: PrismaWorkspaceVideoPersonaRepository

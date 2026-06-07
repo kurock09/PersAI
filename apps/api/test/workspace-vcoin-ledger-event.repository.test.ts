@@ -169,6 +169,31 @@ async function runNegativeAmountVcIsAccepted(): Promise<void> {
   assert.equal(storedAmountVc, -1000, "negative amountVc must be stored as-is");
 }
 
+// ── ADR-111 Slice 3 kind union accepts voice_clone_creation ───────────────────
+
+async function runVoiceCloneCreationKindIsAccepted(): Promise<void> {
+  let storedKind: string | null = null;
+  let storedReferenceKey: string | null = null;
+  const tx = makeTx(async (args: CreateArgs) => {
+    storedKind = args.data.kind;
+    storedReferenceKey = args.data.referenceKey;
+    return { id: "evt-voice-clone-1" };
+  });
+
+  const repo = new PrismaWorkspaceVcoinLedgerEventRepository();
+  const result = await repo.recordEvent({
+    workspaceId: "ws-clone-1",
+    kind: "voice_clone_creation",
+    amountVc: -50,
+    referenceKey: "00000000-0000-0000-0000-000000000321",
+    tx: tx as never
+  });
+
+  assert.equal(result.recorded, true);
+  assert.equal(storedKind, "voice_clone_creation");
+  assert.equal(storedReferenceKey, "00000000-0000-0000-0000-000000000321");
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 
 async function run(): Promise<void> {
@@ -177,6 +202,7 @@ async function run(): Promise<void> {
   await runDifferentKindIsAllowed();
   await runNonP2002ErrorIsRethrown();
   await runNegativeAmountVcIsAccepted();
+  await runVoiceCloneCreationKindIsAccepted();
   console.log("workspace-vcoin-ledger-event.repository: all assertions passed");
 }
 

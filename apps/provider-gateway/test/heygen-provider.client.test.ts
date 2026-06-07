@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
+import { BadRequestException } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type { ProviderGatewayVideoGenerateRequest } from "@persai/runtime-contract";
-import { HeyGenProviderClient } from "../src/modules/providers/heygen/heygen-provider.client";
+import {
+  HeyGenProviderClient,
+  HeyGenProviderClientError
+} from "../src/modules/providers/heygen/heygen-provider.client";
+import { ProviderHeyGenVoicesService } from "../src/modules/providers/provider-heygen-voices.service";
 
 function createConfig(): ProviderGatewayConfig {
   return {
@@ -75,6 +80,20 @@ function makeUploadAssetResponse(assetId: string): Response {
 
 function makeAvatarCreateResponse(avatarId: string): Response {
   return new Response(JSON.stringify({ data: { avatar_item: { id: avatarId } } }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
+function makeVoiceCloneSubmitResponse(voiceCloneId: string): Response {
+  return new Response(JSON.stringify({ data: { voice_clone_id: voiceCloneId } }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
+function makeVoiceClonePollResponse(status: string, extra: Record<string, unknown> = {}): Response {
+  return new Response(JSON.stringify({ data: { status, ...extra } }), {
     status: 200,
     headers: { "Content-Type": "application/json" }
   });
@@ -778,6 +797,191 @@ export async function runHeyGenProviderClientTest(): Promise<void> {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 14: createVoiceClone submits JSON clone request and accepts exact complete only
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    let pollCount = 0;
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (init !== undefined) {
+        requests.push({ url, init });
+      } else {
+        requests.push({ url });
+      }
+
+      if (url === "https://api.heygen.com/v3/voices/clone") {
+        const headers = (init?.headers as Record<string, string>) ?? {};
+        assert.equal(init?.method, "POST");
+        assert.equal(headers["X-Api-Key"], MOCK_HEYGEN_API_KEY);
+        assert.equal(headers["Content-Type"], "application/json");
+        const body = JSON.parse(String(init?.body));
+        assert.equal(body.voice_name, "My Voice Clone");
+        assert.equal(body.audio.type, "base64");
+        assert.equal(body.audio.media_type, "audio/mpeg");
+        assert.ok(typeof body.audio.data === "string" && body.audio.data.length > 0);
+        assert.equal(body.language, "en");
+        assert.equal(body.remove_background_noise, true);
+        return makeVoiceCloneSubmitResponse("clone-voice-1");
+      }
+      if (url === "https://api.heygen.com/v3/voices/clone-voice-1") {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return makeVoiceClonePollResponse("pending");
+        }
+        if (pollCount === 2) {
+          return makeVoiceClonePollResponse("completed");
+        }
+        return makeVoiceClonePollResponse("complete", {
+          preview_audio_url: "https://cdn.heygen.com/clone-preview-1.mp3"
+        });
+      }
+      throw new Error(`Unexpected fetch in voice-clone happy-path test: ${url}`);
+    }) as typeof fetch;
+
+    try {
+      const result = await client.createVoiceClone(
+        {
+          displayName: "My Voice Clone",
+          audioBytesBase64: Buffer.from("voice-bytes").toString("base64"),
+          audioMimeType: "audio/mpeg",
+          languageHint: "en",
+          removeBackgroundNoise: true
+        },
+        { credentialValue: MOCK_HEYGEN_API_KEY, pollIntervalMs: 0 }
+      );
+      assert.equal(result.voiceCloneId, "clone-voice-1");
+      assert.equal(result.status, "complete");
+      assert.equal(result.previewAudioUrl, "https://cdn.heygen.com/clone-preview-1.mp3");
+      assert.equal(pollCount, 3, 'Polling must continue past "completed" until exact "complete".');
+      console.log(
+        '✓ Test 14: voice clone uses POST /v3/voices/clone and only exact "complete" succeeds'
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 15: createVoiceClone surfaces terminal failed status honestly
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === "https://api.heygen.com/v3/voices/clone") {
+        return makeVoiceCloneSubmitResponse("clone-failed-1");
+      }
+      if (url === "https://api.heygen.com/v3/voices/clone-failed-1") {
+        return makeVoiceClonePollResponse("failed", {
+          failure_message: "Voice sample quality is too low"
+        });
+      }
+      throw new Error(`Unexpected fetch in voice-clone failed-status test: ${url}`);
+    }) as typeof fetch;
+
+    try {
+      await assert.rejects(
+        () =>
+          client.createVoiceClone(
+            {
+              displayName: "Failed Clone",
+              audioBytesBase64: Buffer.from("voice-bytes").toString("base64"),
+              audioMimeType: "audio/mpeg"
+            },
+            { credentialValue: MOCK_HEYGEN_API_KEY, pollIntervalMs: 0 }
+          ),
+        /Voice sample quality is too low/i
+      );
+      console.log("✓ Test 15: voice clone failed status surfaces honest provider error");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 16: provider voice service maps limit and plan-upgrade errors stably
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    const service = new ProviderHeyGenVoicesService(
+      {
+        async createVoiceClone() {
+          throw new HeyGenProviderClientError(
+            "Clone limit reached",
+            400,
+            "Clone limit reached",
+            "resource_limit_reached"
+          );
+        }
+      } as never,
+      {
+        async resolveSecretValue() {
+          return MOCK_HEYGEN_API_KEY;
+        }
+      } as never
+    );
+    await assert.rejects(
+      () =>
+        service.createVoiceClone({
+          schema: "persai.providerGatewayHeyGenCreateVoiceCloneRequest.v1",
+          credential: {
+            secretId: "tool/video_generate/heygen/api-key",
+            providerId: "heygen"
+          },
+          displayName: "Limit Clone",
+          audioBytesBase64: Buffer.from("voice-bytes").toString("base64"),
+          audioMimeType: "audio/mpeg"
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof BadRequestException);
+        const body = error.getResponse() as { error?: { code?: string } };
+        assert.equal(body.error?.code, "heygen_voice_clone_limit_reached");
+        return true;
+      }
+    );
+
+    const planUpgradeService = new ProviderHeyGenVoicesService(
+      {
+        async createVoiceClone() {
+          throw new HeyGenProviderClientError(
+            "Please upgrade your HeyGen plan",
+            403,
+            "Please upgrade your HeyGen plan",
+            "plan_upgrade_required"
+          );
+        }
+      } as never,
+      {
+        async resolveSecretValue() {
+          return MOCK_HEYGEN_API_KEY;
+        }
+      } as never
+    );
+    await assert.rejects(
+      () =>
+        planUpgradeService.createVoiceClone({
+          schema: "persai.providerGatewayHeyGenCreateVoiceCloneRequest.v1",
+          credential: {
+            secretId: "tool/video_generate/heygen/api-key",
+            providerId: "heygen"
+          },
+          displayName: "Upgrade Clone",
+          audioBytesBase64: Buffer.from("voice-bytes").toString("base64"),
+          audioMimeType: "audio/mpeg"
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof BadRequestException);
+        const body = error.getResponse() as { error?: { code?: string } };
+        assert.equal(body.error?.code, "heygen_voice_clone_plan_upgrade_required");
+        return true;
+      }
+    );
+    console.log("✓ Test 16: provider voice service maps stable limit/plan-upgrade errors");
   }
 
   console.log("\n✅ All HeyGen provider client tests passed.");

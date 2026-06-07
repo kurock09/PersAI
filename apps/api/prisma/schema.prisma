@@ -691,6 +691,7 @@ model Workspace {
   workspaceVcoinBalance             WorkspaceVcoinBalance?
   workspaceVcoinLedgerEvents        WorkspaceVcoinLedgerEvent[]
   workspaceVideoPersonas            WorkspaceVideoPersona[]
+  workspaceVideoClonedVoices        WorkspaceVideoClonedVoice[]
 
   @@map("workspaces")
 }
@@ -967,6 +968,10 @@ model PlatformRuntimeProviderSettings {
   heygenPersonaWorkspaceLimit     Int                             @default(10) @map("heygen_persona_workspace_limit")
   /// ADR-109 Slice 5 — VC cost to create one persona. Default 20 (= $1.00 at 1 VC = $0.05). Set to 0 for free creation.
   heygenPersonaCreationVcoin      Int                             @default(20) @map("heygen_persona_creation_vcoin")
+  /// ADR-111 Slice 3 — maximum active (non-archived) cloned voices allowed per workspace. Default 5, hard cap 10.
+  heygenVoiceCloneWorkspaceLimit  Int                             @default(5) @map("heygen_voice_clone_workspace_limit")
+  /// ADR-111 Slice 3 — VC cost to create one cloned voice. Default 50 (= $2.50 at 1 VC = $0.05). Set to 0 for free creation.
+  heygenVoiceCloneCreationVcoin   Int                             @default(50) @map("heygen_voice_clone_creation_vcoin")
   updatedByUserId                 String?                         @map("updated_by_user_id") @db.Uuid
   createdAt                       DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -3353,6 +3358,12 @@ model SupportTicketAttachment {
   @@map("support_ticket_attachments")
 }
 
+enum WorkspaceVideoClonedVoiceStatus {
+  pending
+  ready
+  failed
+}
+
 /// ADR-109 Slice 5 — workspace-scoped talking-avatar persona.
 ///
 /// One persona = one HeyGen avatar identity (display name + voice binding +
@@ -3375,14 +3386,56 @@ model WorkspaceVideoPersona {
   heygenVoiceId          String    @map("heygen_voice_id") @db.VarChar(128)
   heygenVoiceLabel       String    @map("heygen_voice_label") @db.VarChar(120)
   heygenAvatarId         String    @map("heygen_avatar_id") @db.VarChar(128)
+  clonedVoiceId          String?   @map("cloned_voice_id") @db.Uuid
   archived               Boolean   @default(false)
   archivedAt             DateTime? @map("archived_at") @db.Timestamptz(6)
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace   Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  clonedVoice WorkspaceVideoClonedVoice? @relation("WorkspaceVideoPersonaClonedVoice", fields: [workspaceId, clonedVoiceId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([workspaceId, displayNameLower], name: "uniq_workspace_video_persona_name")
   @@index([workspaceId, archived])
+  @@index([workspaceId, clonedVoiceId])
   @@map("workspace_video_personas")
+}
+
+/// ADR-111 Slice 3 — workspace-scoped HeyGen cloned voice substrate.
+///
+/// One row = one reusable workspace voice resource. The row is never assistant-
+/// scoped. `heygenVoiceCloneId` is provider metadata and must not be surfaced as
+/// a user-facing label.
+///
+/// Soft-delete: the `archived` flag is set to true on delete so historical rows
+/// remain available for audit / future cleanup tooling.
+///
+/// Known limitation: like `WorkspaceVideoPersona`, the unconditional unique
+/// constraint on `(workspaceId, displayNameLower)` blocks name reuse after
+/// archive. ADR-111 accepts this for now instead of introducing a filtered
+/// unique index in this slice.
+model WorkspaceVideoClonedVoice {
+  id                 String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId        String                         @map("workspace_id") @db.Uuid
+  displayName        String                         @map("display_name") @db.VarChar(80)
+  displayNameLower   String                         @map("display_name_lower") @db.VarChar(80)
+  heygenVoiceCloneId String?                        @map("heygen_voice_clone_id") @db.VarChar(128)
+  languageHint       String?                        @map("language_hint") @db.VarChar(32)
+  status             WorkspaceVideoClonedVoiceStatus @default(pending)
+  isDefault          Boolean                        @default(false) @map("is_default")
+  previewAudioUrl    String?                        @map("preview_audio_url")
+  sourceMetadata     Json                           @default("{}") @map("source_metadata") @db.JsonB
+  archived           Boolean                        @default(false)
+  archivedAt         DateTime?                      @map("archived_at") @db.Timestamptz(6)
+  createdAt          DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  personas  WorkspaceVideoPersona[] @relation("WorkspaceVideoPersonaClonedVoice")
+
+  @@unique([workspaceId, displayNameLower], name: "uniq_workspace_video_cloned_voice_name")
+  @@unique([workspaceId, id], name: "uniq_workspace_video_cloned_voice_workspace_id_id")
+  @@index([workspaceId, archived])
+  @@index([workspaceId, status])
+  @@map("workspace_video_cloned_voices")
 }

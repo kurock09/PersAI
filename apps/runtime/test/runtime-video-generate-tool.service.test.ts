@@ -445,6 +445,9 @@ type FakePersona = {
   heygenAvatarId: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
+  clonedVoiceId?: string | null;
+  linkedClonedVoiceDisplayName?: string | null;
+  linkedClonedVoiceProviderId?: string | null;
   portraitImageStorageKey: string;
 };
 
@@ -1567,7 +1570,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   // resolution and dispatch. No multi-character refusal in code; that lives in
   // the LLM-facing tool description (Slice 8 territory).
 
-  // ── Slice 7: Test 1 — Persona path happy path (voiceKey uses persona default) ──
+  // ── Slice 7 / ADR-111 Slice 4b: preset fallback is used when no explicit voiceKey and no linked clone exists ──
   // Register a fake persona so fetchWorkspaceVideoPersona returns it.
   persaiInternalApiClientService.personaMap.set("workspace-1:persona-anya", {
     id: "persona-anya",
@@ -1575,6 +1578,9 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     heygenAvatarId: "ava-cached-1",
     heygenVoiceId: "heygen-voice-warm-001",
     heygenVoiceLabel: "Anya Warm",
+    clonedVoiceId: null,
+    linkedClonedVoiceDisplayName: null,
+    linkedClonedVoiceProviderId: null,
     portraitImageStorageKey: "workspaces/workspace-1/personas/persona-anya/portrait/current"
   });
 
@@ -1601,7 +1607,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(talkingAvatarPersonaCall.payload.requestedPortraitImageAlias, null);
   assert.equal(talkingAvatarPersonaCall.payload.requestedVoiceKey, null);
   assert.equal(talkingAvatarPersonaCall.payload.requestedTalkingAvatarAspectRatio, null);
-  // Gateway call: cachedHeygenAvatarId from persona, voiceKey = persona.heygenVoiceId, no portrait bytes.
+  // Gateway call: cachedHeygenAvatarId from persona, voiceKey = persona preset fallback, no portrait bytes.
   const personaGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
   assert.equal(personaGatewayCall?.mode, "talking_avatar");
   assert.equal(personaGatewayCall?.speechText, "Hello, welcome to PersAI.");
@@ -1610,12 +1616,45 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(personaGatewayCall?.portraitImageAlias, null);
   assert.equal(personaGatewayCall?.cachedHeygenAvatarId, "ava-cached-1");
   assert.equal(personaGatewayCall?.portraitImageBytesBase64, null);
-  assert.equal(personaGatewayCall?.voiceKey, "heygen-voice-warm-001"); // persona.heygenVoiceId
+  assert.equal(personaGatewayCall?.voiceKey, "heygen-voice-warm-001"); // persona preset fallback
   assert.deepEqual(personaGatewayCall?.providerParameters, {
     resolution: "720p",
     aspectRatio: "9:16",
     engine: "avatar_v"
   });
+
+  // ── ADR-111 Slice 4b: linked cloned voice is used when no explicit voiceKey is provided ──
+  persaiInternalApiClientService.personaMap.set("workspace-1:persona-linked-clone", {
+    id: "persona-linked-clone",
+    displayName: "Clone Persona",
+    heygenAvatarId: "ava-cached-clone",
+    heygenVoiceId: "heygen-voice-warm-001",
+    heygenVoiceLabel: "Anya Warm",
+    clonedVoiceId: "clone-1",
+    linkedClonedVoiceDisplayName: "Brand Voice",
+    linkedClonedVoiceProviderId: "heygen-clone-provider-1",
+    portraitImageStorageKey: "workspaces/workspace-1/personas/persona-linked-clone/portrait/current"
+  });
+  const talkingAvatarLinkedCloneCall = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Render the linked clone persona",
+      mode: "talking_avatar",
+      speechText: "Use the cloned voice please.",
+      speechLanguage: "en-US",
+      personaId: "persona-linked-clone",
+      seconds: 15,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-linked-clone"
+  });
+  assert.equal(talkingAvatarLinkedCloneCall.payload.action, "generated");
+  assert.equal(
+    providerGatewayClientService.videoCalls.at(-1)?.input.voiceKey,
+    "heygen-clone-provider-1"
+  );
 
   // ── Slice 7: Test 2 — Persona path with explicit voiceKey override ─────────
   const talkingAvatarPersonaExplicitVoiceCall = await service.executeToolCall({
@@ -1625,7 +1664,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       mode: "talking_avatar",
       speechText: "Good morning.",
       speechLanguage: "en-US",
-      personaId: "persona-anya",
+      personaId: "persona-linked-clone",
       voiceKey: "voice-other", // explicit override — must be in HeyGen shortlist
       seconds: 15,
       size: "1280x720"
@@ -1637,7 +1676,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(talkingAvatarPersonaExplicitVoiceCall.payload.action, "generated");
   assert.equal(talkingAvatarPersonaExplicitVoiceCall.payload.requestedVoiceKey, "voice-other");
   const personaExplicitVoiceGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
-  assert.equal(personaExplicitVoiceGatewayCall?.voiceKey, "heygen-voice-other-002"); // providerVoiceId
+  assert.equal(personaExplicitVoiceGatewayCall?.voiceKey, "heygen-voice-other-002"); // explicit override wins over linked clone
 
   // ── Slice 7: Test 2b — Persona path with invalid voiceKey override → voice_not_found ──
   const talkingAvatarInvalidVoiceKey = await service.executeToolCall({

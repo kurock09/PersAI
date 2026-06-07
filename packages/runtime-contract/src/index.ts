@@ -1761,8 +1761,12 @@ export interface RuntimeVideoVoiceCatalog {
 export interface RuntimeVideoPersonaCatalogEntry {
   personaId: string;
   displayName: string;
-  /** Human-readable voice label, e.g. "Russian (Female)" — from persona.heygenVoiceLabel */
+  /** Human-readable active voice label; never a raw provider voice/clone id. */
   voiceLabel: string;
+  /** Preset HeyGen fallback voice label kept on the persona row. */
+  presetVoiceLabel?: string | null;
+  /** Linked cloned voice display name when a ready cloned voice is attached. */
+  linkedClonedVoiceDisplayName?: string | null;
 }
 
 export interface RuntimeVideoPersonaCatalog {
@@ -3563,5 +3567,26 @@ export interface ProviderGatewayHeyGenCreatePhotoAvatarResult {
   schema: "persai.providerGatewayHeyGenCreatePhotoAvatarResult.v1";
   provider: "heygen";
   avatarId: string;
+  respondedAt: string;
+}
+
+// ADR-111 Slice 4a — HeyGen voice-clone submit/poll through provider-gateway.
+
+export interface ProviderGatewayHeyGenCreateVoiceCloneRequest {
+  schema: "persai.providerGatewayHeyGenCreateVoiceCloneRequest.v1";
+  credential: { secretId: string; providerId: "heygen" };
+  displayName: string;
+  audioBytesBase64: string;
+  audioMimeType: string;
+  languageHint?: string | null;
+  removeBackgroundNoise?: boolean;
+}
+
+export interface ProviderGatewayHeyGenCreateVoiceCloneResult {
+  schema: "persai.providerGatewayHeyGenCreateVoiceCloneResult.v1";
+  provider: "heygen";
+  voiceCloneId: string;
+  status: "complete";
+  previewAudioUrl: string | null;
   respondedAt: string;
 }

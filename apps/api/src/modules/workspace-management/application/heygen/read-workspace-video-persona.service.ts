@@ -23,6 +23,9 @@ export class ReadWorkspaceVideoPersonaService {
     heygenAvatarId: string;
     heygenVoiceId: string;
     heygenVoiceLabel: string;
+    clonedVoiceId: string | null;
+    linkedClonedVoiceDisplayName: string | null;
+    linkedClonedVoiceProviderId: string | null;
     portraitImageStorageKey: string;
   } | null> {
     const row = await this.personaRepository.findById(input.workspaceId, input.personaId);
@@ -35,6 +38,12 @@ export class ReadWorkspaceVideoPersonaService {
       heygenAvatarId: row.heygenAvatarId,
       heygenVoiceId: row.heygenVoiceId,
       heygenVoiceLabel: row.heygenVoiceLabel,
+      clonedVoiceId: row.clonedVoiceId,
+      linkedClonedVoiceDisplayName: row.linkedClonedVoiceDisplayName,
+      linkedClonedVoiceProviderId:
+        row.linkedClonedVoiceArchived === false && row.linkedClonedVoiceStatus === "ready"
+          ? row.linkedClonedVoiceProviderId
+          : null,
       portraitImageStorageKey: row.portraitImageStorageKey
     };
   }

@@ -1151,7 +1151,17 @@ export class MaterializeAssistantPublishedVersionService {
       personas: rows.map((row) => ({
         personaId: row.id,
         displayName: row.displayName,
-        voiceLabel: row.heygenVoiceLabel
+        voiceLabel:
+          row.linkedClonedVoiceArchived === false &&
+          row.linkedClonedVoiceStatus === "ready" &&
+          row.linkedClonedVoiceDisplayName !== null
+            ? row.linkedClonedVoiceDisplayName
+            : row.heygenVoiceLabel,
+        presetVoiceLabel: row.heygenVoiceLabel,
+        linkedClonedVoiceDisplayName:
+          row.linkedClonedVoiceArchived === false && row.linkedClonedVoiceStatus === "ready"
+            ? row.linkedClonedVoiceDisplayName
+            : null
       }))
     };
     return {

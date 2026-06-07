@@ -33,6 +33,11 @@ function makePersonaRecord(
     portraitImageStorageKey: "workspaces/ws/personas/pid/portrait/current",
     heygenVoiceId: "en-US-Amy-HeyGen",
     heygenVoiceLabel: "Amy",
+    clonedVoiceId: null,
+    linkedClonedVoiceDisplayName: null,
+    linkedClonedVoiceProviderId: null,
+    linkedClonedVoiceStatus: null,
+    linkedClonedVoiceArchived: null,
     heygenAvatarId: AVATAR_ID,
     archived: false,
     archivedAt: null,
@@ -68,6 +73,9 @@ class FakePersonaRepository implements WorkspaceVideoPersonaRepository {
   async create(): Promise<WorkspaceVideoPersonaRecord> {
     throw new Error("create not used in read-only service tests");
   }
+  async update(): Promise<WorkspaceVideoPersonaRecord | null> {
+    return null;
+  }
   async archive(): Promise<WorkspaceVideoPersonaRecord | null> {
     return null;
   }
@@ -85,6 +93,8 @@ export async function runReadWorkspaceVideoPersonaServiceTest(): Promise<void> {
   assert.equal(found.displayName, "Anya");
   assert.equal(found.heygenVoiceId, "en-US-Amy-HeyGen");
   assert.equal(found.heygenVoiceLabel, "Amy");
+  assert.equal(found.clonedVoiceId, null);
+  assert.equal(found.linkedClonedVoiceProviderId, null);
   assert.equal(found.portraitImageStorageKey, "workspaces/ws/personas/pid/portrait/current");
 
   // ── 2. Returns null when personaId not found ─────────────────────────────
@@ -116,7 +126,44 @@ export async function runReadWorkspaceVideoPersonaServiceTest(): Promise<void> {
   assert.ok(withAvatar.heygenAvatarId.length > 0, "heygenAvatarId must be non-empty (post-E12)");
   assert.equal(withAvatar.heygenAvatarId, AVATAR_ID);
 
-  console.log("read-workspace-video-persona.service.test: 5/5 assertions PASS");
+  // ── 6. Ready linked cloned voice returns runtime provider id + safe display name ──
+  repo.seed([
+    makePersonaRecord({
+      clonedVoiceId: "clone-1",
+      linkedClonedVoiceDisplayName: "Brand Voice",
+      linkedClonedVoiceProviderId: "heygen-clone-ready-1",
+      linkedClonedVoiceStatus: "ready",
+      linkedClonedVoiceArchived: false
+    })
+  ]);
+  const withLinkedClone = await service.execute({
+    workspaceId: WORKSPACE_ID,
+    personaId: PERSONA_ID
+  });
+  assert.ok(withLinkedClone !== null);
+  assert.equal(withLinkedClone.clonedVoiceId, "clone-1");
+  assert.equal(withLinkedClone.linkedClonedVoiceDisplayName, "Brand Voice");
+  assert.equal(withLinkedClone.linkedClonedVoiceProviderId, "heygen-clone-ready-1");
+
+  // ── 7. Archived/non-ready linked cloned voice is exposed safely but not as runtime provider id ──
+  repo.seed([
+    makePersonaRecord({
+      clonedVoiceId: "clone-2",
+      linkedClonedVoiceDisplayName: "Pending Voice",
+      linkedClonedVoiceProviderId: "heygen-clone-pending-2",
+      linkedClonedVoiceStatus: "pending",
+      linkedClonedVoiceArchived: false
+    })
+  ]);
+  const withPendingClone = await service.execute({
+    workspaceId: WORKSPACE_ID,
+    personaId: PERSONA_ID
+  });
+  assert.ok(withPendingClone !== null);
+  assert.equal(withPendingClone.linkedClonedVoiceDisplayName, "Pending Voice");
+  assert.equal(withPendingClone.linkedClonedVoiceProviderId, null);
+
+  console.log("read-workspace-video-persona.service.test: 7/7 assertions PASS");
 }
 
 runReadWorkspaceVideoPersonaServiceTest().catch((error) => {

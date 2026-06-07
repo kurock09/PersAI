@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ImageLightbox } from "./image-lightbox";
 
@@ -10,10 +10,17 @@ vi.mock("./use-history-back-to-close", () => ({
   useHistoryBackToClose: () => undefined
 }));
 
+function blockVideoAutoplay() {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(
+    () => new Promise<void>(() => undefined)
+  );
+}
+
 describe("ImageLightbox", () => {
   afterEach(() => {
     cleanup();
     delete (window as unknown as { PersaiNative?: unknown }).PersaiNative;
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -111,6 +118,7 @@ describe("ImageLightbox", () => {
   });
 
   it("renders the custom action chrome for video too", () => {
+    blockVideoAutoplay();
     render(
       <ImageLightbox
         open
@@ -131,7 +139,9 @@ describe("ImageLightbox", () => {
     expect(screen.getByRole("button", { name: "lightboxUnmute" })).toBeInTheDocument();
   });
 
-  it("toggles video chrome visibility when the media surface is tapped", () => {
+  it("restores video chrome visibility when the playing media surface is tapped", async () => {
+    vi.useFakeTimers();
+    blockVideoAutoplay();
     render(
       <ImageLightbox
         open
@@ -145,16 +155,27 @@ describe("ImageLightbox", () => {
     );
 
     const surface = screen.getByTestId("media-lightbox-video-surface");
+    const video = surface.querySelector("video");
+    expect(video).not.toBeNull();
     expect(screen.getByTestId("media-lightbox-top-chrome")).toBeInTheDocument();
     expect(screen.getByTestId("media-lightbox-video-controls")).toBeInTheDocument();
 
-    fireEvent.click(surface);
+    fireEvent.play(video!);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1800);
+    });
 
     expect(screen.queryByTestId("media-lightbox-top-chrome")).toBeNull();
     expect(screen.queryByTestId("media-lightbox-video-controls")).toBeNull();
+
+    fireEvent.click(surface);
+
+    expect(screen.getByTestId("media-lightbox-top-chrome")).toBeInTheDocument();
+    expect(screen.getByTestId("media-lightbox-video-controls")).toBeInTheDocument();
   });
 
   it("closes the video viewer on a downward swipe", () => {
+    blockVideoAutoplay();
     const onClose = vi.fn();
     render(
       <ImageLightbox
@@ -190,5 +211,89 @@ describe("ImageLightbox", () => {
     });
 
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("hides the hero play overlay after playback starts and restores chrome on tap", async () => {
+    vi.useFakeTimers();
+    blockVideoAutoplay();
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-video-1"
+        downloadUrl="/api/assistant-file/file-ref-video-1?download=1"
+        filename="video.mp4"
+        alt="Generated video"
+        mediaType="video"
+        onClose={() => undefined}
+      />
+    );
+
+    const surface = screen.getByTestId("media-lightbox-video-surface");
+    const video = surface.querySelector("video");
+    expect(video).not.toBeNull();
+    expect(screen.getByRole("button", { name: "lightboxPlayHero" })).toBeInTheDocument();
+
+    fireEvent.play(video!);
+
+    expect(screen.queryByRole("button", { name: "lightboxPlayHero" })).toBeNull();
+    expect(screen.getByTestId("media-lightbox-top-chrome")).toBeInTheDocument();
+    expect(screen.getByTestId("media-lightbox-video-controls")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1800);
+    });
+
+    expect(screen.queryByTestId("media-lightbox-top-chrome")).toBeNull();
+    expect(screen.queryByTestId("media-lightbox-video-controls")).toBeNull();
+    expect(screen.queryByRole("button", { name: "lightboxPlayHero" })).toBeNull();
+
+    fireEvent.click(surface);
+
+    expect(screen.getByTestId("media-lightbox-top-chrome")).toBeInTheDocument();
+    expect(screen.getByTestId("media-lightbox-video-controls")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "lightboxPlayHero" })).toBeNull();
+  });
+
+  it("shows the hero play overlay again when playback pauses or ends", async () => {
+    vi.useFakeTimers();
+    blockVideoAutoplay();
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-video-1"
+        downloadUrl="/api/assistant-file/file-ref-video-1?download=1"
+        filename="video.mp4"
+        alt="Generated video"
+        mediaType="video"
+        onClose={() => undefined}
+      />
+    );
+
+    const surface = screen.getByTestId("media-lightbox-video-surface");
+    const video = surface.querySelector("video");
+    expect(video).not.toBeNull();
+
+    fireEvent.play(video!);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1800);
+    });
+    expect(screen.queryByTestId("media-lightbox-top-chrome")).toBeNull();
+
+    await act(async () => {
+      fireEvent.pause(video!);
+    });
+
+    expect(screen.getByRole("button", { name: "lightboxPlayHero" })).toBeInTheDocument();
+    expect(screen.getByTestId("media-lightbox-top-chrome")).toBeInTheDocument();
+    expect(screen.getByTestId("media-lightbox-video-controls")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.play(video!);
+      fireEvent.ended(video!);
+    });
+
+    expect(screen.getByRole("button", { name: "lightboxPlayHero" })).toBeInTheDocument();
+    expect(screen.getByTestId("media-lightbox-top-chrome")).toBeInTheDocument();
+    expect(screen.getByTestId("media-lightbox-video-controls")).toBeInTheDocument();
   });
 });

@@ -97,6 +97,10 @@ export const DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT = 10;
 export const DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN = 20;
 const MAX_HEYGEN_PERSONA_WORKSPACE_LIMIT = 1_000;
 const MAX_HEYGEN_PERSONA_CREATION_VCOIN = 1_000_000;
+export const DEFAULT_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT = 5;
+export const DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN = 50;
+const MAX_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT = 10;
+const MAX_HEYGEN_VOICE_CLONE_CREATION_VCOIN = 1_000_000;
 
 export type PlatformRuntimeProviderSelection = {
   provider: ManagedRuntimeProvider;
@@ -181,6 +185,19 @@ export type PlatformRuntimeProviderSettingsState = {
    * `1 VC ≈ $0.05`, so the default is $1.00 per persona.
    */
   heygenPersonaCreationVcoin: number;
+  /**
+   * ADR-111 Slice 3 — maximum number of active (non-archived) cloned voices
+   * allowed per workspace. Defaults to
+   * `DEFAULT_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT` (5) when the persisted
+   * record omits the field.
+   */
+  heygenVoiceCloneWorkspaceLimit: number;
+  /**
+   * ADR-111 Slice 3 — VC cost to create one cloned voice. Non-negative
+   * integer. When 0, clone creation is free. Defaults to
+   * `DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN` (50) when omitted.
+   */
+  heygenVoiceCloneCreationVcoin: number;
   notes: string[];
 };
 
@@ -209,6 +226,16 @@ export type PlatformRuntimeProviderSettingsRecord = {
    * Nullable so rows predating Slice 5 resolve to the platform default.
    */
   heygenPersonaCreationVcoin: number | null;
+  /**
+   * ADR-111 Slice 3 — persisted max active cloned voices per workspace.
+   * Nullable so rows predating Slice 3 resolve to the platform default.
+   */
+  heygenVoiceCloneWorkspaceLimit: number | null;
+  /**
+   * ADR-111 Slice 3 — persisted cloned voice creation VC cost.
+   * Nullable so rows predating Slice 3 resolve to the platform default.
+   */
+  heygenVoiceCloneCreationVcoin: number | null;
 };
 
 export type UpdatePlatformRuntimeProviderSettingsInput = {
@@ -237,6 +264,18 @@ export type UpdatePlatformRuntimeProviderSettingsInput = {
    * Defaults to `DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN` (20) when omitted.
    */
   heygenPersonaCreationVcoin: number;
+  /**
+   * ADR-111 Slice 3 — max active cloned voices per workspace. Positive
+   * integer. Defaults to `DEFAULT_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT` (5)
+   * when omitted.
+   */
+  heygenVoiceCloneWorkspaceLimit: number;
+  /**
+   * ADR-111 Slice 3 — VC cost to create one cloned voice. Non-negative
+   * integer. Defaults to `DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN` (50)
+   * when omitted.
+   */
+  heygenVoiceCloneCreationVcoin: number;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -1714,6 +1753,14 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     row.heygenPersonaCreationVcoin,
     "heygenPersonaCreationVcoin"
   );
+  const heygenVoiceCloneWorkspaceLimit = normalizeHeygenVoiceCloneWorkspaceLimit(
+    row.heygenVoiceCloneWorkspaceLimit,
+    "heygenVoiceCloneWorkspaceLimit"
+  );
+  const heygenVoiceCloneCreationVcoin = normalizeHeygenVoiceCloneCreationVcoin(
+    row.heygenVoiceCloneCreationVcoin,
+    "heygenVoiceCloneCreationVcoin"
+  );
   return {
     primary,
     fallback,
@@ -1725,7 +1772,9 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     providerKeys,
     vcoinExchangeRate,
     heygenPersonaWorkspaceLimit,
-    heygenPersonaCreationVcoin
+    heygenPersonaCreationVcoin,
+    heygenVoiceCloneWorkspaceLimit,
+    heygenVoiceCloneCreationVcoin
   };
 }
 
@@ -1837,6 +1886,74 @@ function resolveStoredHeygenPersonaCreationVcoin(value: number | null | undefine
   return value;
 }
 
+/**
+ * ADR-111 Slice 3 — normalize admin-input cloned voice workspace limit.
+ * Accepts `undefined`/`null` → returns `DEFAULT_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT`.
+ * Rejects non-integers, zero, negatives, and values above the hard cap 10.
+ */
+function normalizeHeygenVoiceCloneWorkspaceLimit(value: unknown, path: string): number {
+  if (value === undefined || value === null) {
+    return DEFAULT_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`${path} must be a positive integer.`);
+  }
+  if (value > MAX_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT) {
+    throw new Error(`${path} must be at most ${String(MAX_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT)}.`);
+  }
+  return value;
+}
+
+/**
+ * ADR-111 Slice 3 — normalize admin-input cloned voice creation VC cost.
+ * Accepts `undefined`/`null` → returns `DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN`.
+ * Rejects non-integers and negatives (0 is allowed: free creation).
+ */
+function normalizeHeygenVoiceCloneCreationVcoin(value: unknown, path: string): number {
+  if (value === undefined || value === null) {
+    return DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${path} must be a non-negative integer.`);
+  }
+  if (value > MAX_HEYGEN_VOICE_CLONE_CREATION_VCOIN) {
+    throw new Error(`${path} must be at most ${String(MAX_HEYGEN_VOICE_CLONE_CREATION_VCOIN)}.`);
+  }
+  return value;
+}
+
+/**
+ * ADR-111 Slice 3 — read-side coercion for persisted cloned voice limit.
+ */
+function resolveStoredHeygenVoiceCloneWorkspaceLimit(value: number | null | undefined): number {
+  if (value === undefined || value === null) {
+    return DEFAULT_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    return DEFAULT_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT;
+  }
+  if (value > MAX_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT) {
+    return DEFAULT_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT;
+  }
+  return value;
+}
+
+/**
+ * ADR-111 Slice 3 — read-side coercion for persisted cloned voice creation cost.
+ */
+function resolveStoredHeygenVoiceCloneCreationVcoin(value: number | null | undefined): number {
+  if (value === undefined || value === null) {
+    return DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    return DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN;
+  }
+  if (value > MAX_HEYGEN_VOICE_CLONE_CREATION_VCOIN) {
+    return DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN;
+  }
+  return value;
+}
+
 export function buildPlatformRuntimeProviderSettingsState(params: {
   settings: PlatformRuntimeProviderSettingsRecord | null;
   providerKeys: Record<ManagedRuntimeProvider, PlatformRuntimeProviderKeyMetadata>;
@@ -1856,6 +1973,8 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
       vcoinExchangeRate: DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE,
       heygenPersonaWorkspaceLimit: DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT,
       heygenPersonaCreationVcoin: DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN,
+      heygenVoiceCloneWorkspaceLimit: DEFAULT_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT,
+      heygenVoiceCloneCreationVcoin: DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN,
       notes: [
         "Global runtime provider settings are not configured yet.",
         "The active runtime keeps its existing configured default model path until global settings are saved.",
@@ -1921,6 +2040,12 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
     ),
     heygenPersonaCreationVcoin: resolveStoredHeygenPersonaCreationVcoin(
       params.settings.heygenPersonaCreationVcoin
+    ),
+    heygenVoiceCloneWorkspaceLimit: resolveStoredHeygenVoiceCloneWorkspaceLimit(
+      params.settings.heygenVoiceCloneWorkspaceLimit
+    ),
+    heygenVoiceCloneCreationVcoin: resolveStoredHeygenVoiceCloneCreationVcoin(
+      params.settings.heygenVoiceCloneCreationVcoin
     ),
     notes: [
       "Provider keys are managed as one global platform setting for all assistants.",

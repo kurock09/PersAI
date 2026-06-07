@@ -41,13 +41,17 @@ export const WORKSPACE_VCOIN_LEDGER_EVENT_REPOSITORY = Symbol(
  *   - `"persona_creation"` (ADR-109 Slice 5) → persona UUID. Records a VC
  *     debit when a new workspace video persona is created. The debit is
  *     part of the same `prisma.$transaction` that inserts the persona row.
+ *   - `"voice_clone_creation"` (ADR-111 Slice 3) → cloned voice UUID. Slice 3
+ *     only adds the allowed discriminator; future slices will record the debit
+ *     only after the clone reaches successful completion.
  */
 export type WorkspaceVcoinLedgerEventKind =
   | "monthly_grant"
   | "package_purchase"
   | "package_refund"
   | "manual"
-  | "persona_creation";
+  | "persona_creation"
+  | "voice_clone_creation";
 
 /**
  * Input for recording a single VC ledger event.
@@ -58,6 +62,7 @@ export type WorkspaceVcoinLedgerEventKind =
  *   - `"package_purchase"` / `"package_refund"` → media package purchase UUID.
  *   - `"manual"` → arbitrary admin-supplied reference.
  *   - `"persona_creation"` → persona UUID (ADR-109 Slice 5).
+ *   - `"voice_clone_creation"` → cloned voice UUID (ADR-111 Slice 3).
  *
  * `tx` MUST be the same `Prisma.TransactionClient` that is also passed to
  * `WorkspaceVcoinBalanceRepository.credit` in the same call so the ledger

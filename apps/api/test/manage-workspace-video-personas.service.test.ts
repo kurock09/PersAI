@@ -38,6 +38,10 @@ import type {
   WorkspaceVideoPersonaRecord,
   WorkspaceVideoPersonaRepository
 } from "../src/modules/workspace-management/domain/workspace-video-persona.repository";
+import type {
+  WorkspaceVideoClonedVoiceRecord,
+  WorkspaceVideoClonedVoiceRepository
+} from "../src/modules/workspace-management/domain/workspace-video-cloned-voice.repository";
 import type { WorkspaceVcoinBalanceRepository } from "../src/modules/workspace-management/domain/workspace-vcoin-balance.repository";
 import type { WorkspaceVcoinLedgerEventRepository } from "../src/modules/workspace-management/domain/workspace-vcoin-ledger-event.repository";
 import type { HeyGenProviderGatewayClient } from "../src/modules/workspace-management/application/heygen/heygen-provider-gateway.client";
@@ -62,7 +66,34 @@ function makePersonaRecord(
     portraitImageStorageKey: "workspaces/ws/personas/pid/portrait/current",
     heygenVoiceId: VOICE_ID,
     heygenVoiceLabel: VOICE_DISPLAY_NAME,
+    clonedVoiceId: null,
+    linkedClonedVoiceDisplayName: null,
+    linkedClonedVoiceProviderId: null,
+    linkedClonedVoiceStatus: null,
+    linkedClonedVoiceArchived: null,
     heygenAvatarId: MOCK_AVATAR_ID,
+    archived: false,
+    archivedAt: null,
+    createdAt: new Date("2026-06-04T22:00:00.000Z"),
+    updatedAt: new Date("2026-06-04T22:00:00.000Z"),
+    ...overrides
+  };
+}
+
+function makeClonedVoiceRecord(
+  overrides: Partial<WorkspaceVideoClonedVoiceRecord> = {}
+): WorkspaceVideoClonedVoiceRecord {
+  return {
+    id: "cloned-voice-test-id",
+    workspaceId: WORKSPACE_ID,
+    displayName: "Brand Voice",
+    displayNameLower: "brand voice",
+    heygenVoiceCloneId: "heygen-clone-1",
+    languageHint: "en",
+    status: "ready",
+    isDefault: false,
+    previewAudioUrl: null,
+    sourceMetadata: {},
     archived: false,
     archivedAt: null,
     createdAt: new Date("2026-06-04T22:00:00.000Z"),
@@ -108,24 +139,66 @@ function makeHeyGenGatewayClient(opts: {
 }
 
 function makeVoiceCatalog() {
+  const shortlist = [
+    {
+      voiceKey: "en-US-Amy",
+      providerVoiceId: VOICE_ID,
+      displayName: VOICE_DISPLAY_NAME,
+      locale: "en-US",
+      gender: "female" as const,
+      description: null,
+      styleTags: [],
+      previewAudioUrl: null
+    }
+  ];
   return {
     async getMaterializedVoiceCatalog() {
       return {
         provider: "heygen" as const,
         fetchedAt: new Date().toISOString(),
-        shortlist: [
-          {
-            voiceKey: "en-US-Amy",
-            providerVoiceId: VOICE_ID,
-            displayName: VOICE_DISPLAY_NAME,
-            locale: "en-US",
-            gender: "female" as const,
-            description: null,
-            styleTags: [],
-            previewAudioUrl: null
-          }
-        ]
+        shortlist
       };
+    },
+    async getFullVoiceCatalogEntries() {
+      return shortlist;
+    }
+  };
+}
+
+function makeClonedVoiceRepository(
+  rows: WorkspaceVideoClonedVoiceRecord[] = []
+): WorkspaceVideoClonedVoiceRepository {
+  return {
+    async countActiveForWorkspace(workspaceId: string) {
+      return rows.filter((row) => row.workspaceId === workspaceId && !row.archived).length;
+    },
+    async findActiveByLowerName(workspaceId, lowerName) {
+      return (
+        rows.find(
+          (row) =>
+            row.workspaceId === workspaceId && row.displayNameLower === lowerName && !row.archived
+        ) ?? null
+      );
+    },
+    async findById(workspaceId, clonedVoiceId) {
+      return (
+        rows.find((row) => row.workspaceId === workspaceId && row.id === clonedVoiceId) ?? null
+      );
+    },
+    async listActive(workspaceId) {
+      return rows.filter((row) => row.workspaceId === workspaceId && !row.archived);
+    },
+    async create() {
+      throw new Error("create not used in persona service tests");
+    },
+    async update() {
+      return null;
+    },
+    async setDefault() {
+      return null;
+    },
+    async archive() {
+      return null;
     }
   };
 }
@@ -145,6 +218,7 @@ function makeService(opts: {
   debits?: Array<Record<string, unknown>>;
   insertedPersonas?: WorkspaceVideoPersonaRecord[];
   heygenClient?: HeyGenProviderGatewayClient;
+  clonedVoices?: WorkspaceVideoClonedVoiceRecord[];
 }) {
   const {
     activePersonaCount = 0,
@@ -157,7 +231,8 @@ function makeService(opts: {
     ledgerEvents = [],
     debits = [],
     insertedPersonas = [],
-    heygenClient = makeHeyGenGatewayClient({})
+    heygenClient = makeHeyGenGatewayClient({}),
+    clonedVoices = []
   } = opts;
 
   const personaRepository: WorkspaceVideoPersonaRepository = {
@@ -177,12 +252,21 @@ function makeService(opts: {
       return [];
     },
     async create(input, _tx) {
+      const linkedClone =
+        input.clonedVoiceId === null || input.clonedVoiceId === undefined
+          ? null
+          : (clonedVoices.find((row) => row.id === input.clonedVoiceId) ?? null);
       const record = makePersonaRecord({
         id: input.id,
         displayName: input.displayName,
         displayNameLower: input.displayNameLower,
         heygenVoiceId: input.heygenVoiceId,
         heygenVoiceLabel: input.heygenVoiceLabel,
+        clonedVoiceId: input.clonedVoiceId ?? null,
+        linkedClonedVoiceDisplayName: linkedClone?.displayName ?? null,
+        linkedClonedVoiceProviderId: linkedClone?.heygenVoiceCloneId ?? null,
+        linkedClonedVoiceStatus: linkedClone?.status ?? null,
+        linkedClonedVoiceArchived: linkedClone?.archived ?? null,
         heygenAvatarId: input.heygenAvatarId
       });
       insertedPersonas.push(record);
@@ -261,6 +345,7 @@ function makeService(opts: {
 
   const service = new ManageWorkspaceVideoPersonasService(
     personaRepository,
+    makeClonedVoiceRepository(clonedVoices),
     vcoinBalanceRepository,
     ledgerEventRepository,
     resolvePlatformRuntimeProviderSettingsService as never,
@@ -304,6 +389,7 @@ async function run(): Promise<void> {
           displayNameLower: input.displayNameLower,
           heygenVoiceId: input.heygenVoiceId,
           heygenVoiceLabel: input.heygenVoiceLabel,
+          clonedVoiceId: input.clonedVoiceId ?? null,
           heygenAvatarId: input.heygenAvatarId
         });
         insertedPersonas.push(record);
@@ -369,6 +455,7 @@ async function run(): Promise<void> {
 
     const service = new ManageWorkspaceVideoPersonasService(
       personaRepository,
+      makeClonedVoiceRepository(),
       vcoinBalanceRepository,
       ledgerEventRepository,
       {
@@ -492,7 +579,11 @@ async function run(): Promise<void> {
         return [];
       },
       async create(input) {
-        return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+        return makePersonaRecord({
+          id: input.id,
+          clonedVoiceId: input.clonedVoiceId ?? null,
+          heygenAvatarId: input.heygenAvatarId
+        });
       },
       async update() {
         return null;
@@ -503,6 +594,7 @@ async function run(): Promise<void> {
     };
     const service = new ManageWorkspaceVideoPersonasService(
       personaRepository,
+      makeClonedVoiceRepository(),
       {
         async getOrCreate() {
           return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
@@ -647,6 +739,7 @@ async function run(): Promise<void> {
         return makePersonaRecord({
           id: input.id,
           displayName: input.displayName,
+          clonedVoiceId: input.clonedVoiceId ?? null,
           heygenAvatarId: input.heygenAvatarId
         });
       },
@@ -660,6 +753,7 @@ async function run(): Promise<void> {
 
     const service = new ManageWorkspaceVideoPersonasService(
       personaRepository,
+      makeClonedVoiceRepository(),
       {
         async getOrCreate() {
           return { workspaceId: WORKSPACE_ID, balanceVc: 0 };
@@ -729,7 +823,11 @@ async function run(): Promise<void> {
         return [];
       },
       async create(input) {
-        return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+        return makePersonaRecord({
+          id: input.id,
+          clonedVoiceId: input.clonedVoiceId ?? null,
+          heygenAvatarId: input.heygenAvatarId
+        });
       },
       async update() {
         return null;
@@ -758,6 +856,7 @@ async function run(): Promise<void> {
 
     const service = new ManageWorkspaceVideoPersonasService(
       personaRepository,
+      makeClonedVoiceRepository(),
       {
         async getOrCreate() {
           return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
@@ -830,7 +929,11 @@ async function run(): Promise<void> {
         return [];
       },
       async create(input) {
-        const record = makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+        const record = makePersonaRecord({
+          id: input.id,
+          clonedVoiceId: input.clonedVoiceId ?? null,
+          heygenAvatarId: input.heygenAvatarId
+        });
         insertedPersonas.push(record);
         return record;
       },
@@ -844,6 +947,7 @@ async function run(): Promise<void> {
 
     const service = new ManageWorkspaceVideoPersonasService(
       personaRepository,
+      makeClonedVoiceRepository(),
       {
         async getOrCreate() {
           return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
@@ -926,7 +1030,11 @@ async function run(): Promise<void> {
         return [];
       },
       async create(input) {
-        return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+        return makePersonaRecord({
+          id: input.id,
+          clonedVoiceId: input.clonedVoiceId ?? null,
+          heygenAvatarId: input.heygenAvatarId
+        });
       },
       async update() {
         return null;
@@ -954,6 +1062,7 @@ async function run(): Promise<void> {
     // Capture logger.warn calls
     const service = new ManageWorkspaceVideoPersonasService(
       personaRepository,
+      makeClonedVoiceRepository(),
       {
         async getOrCreate() {
           return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
@@ -1138,7 +1247,11 @@ async function run(): Promise<void> {
         return [makePersonaRecord({ heygenAvatarId })];
       },
       async create(input) {
-        return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+        return makePersonaRecord({
+          id: input.id,
+          clonedVoiceId: input.clonedVoiceId ?? null,
+          heygenAvatarId: input.heygenAvatarId
+        });
       },
       async update() {
         return null;
@@ -1150,6 +1263,7 @@ async function run(): Promise<void> {
 
     const service = new ManageWorkspaceVideoPersonasService(
       personaRepository,
+      makeClonedVoiceRepository(),
       {
         async getOrCreate() {
           return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
@@ -1194,6 +1308,322 @@ async function run(): Promise<void> {
     console.log("✓ Test 15: listPersonas does NOT expose heygenAvatarId");
   }
 
+  // Test 15b: createPersona can link a ready cloned voice while preserving preset fallback voice fields
+  {
+    const insertedPersonas: WorkspaceVideoPersonaRecord[] = [];
+    const linkedClone = makeClonedVoiceRecord({
+      id: "linked-clone-ready",
+      displayName: "Brand Voice",
+      displayNameLower: "brand voice",
+      heygenVoiceCloneId: "heygen-clone-brand-1",
+      status: "ready",
+      archived: false
+    });
+    const { service } = makeService({
+      insertedPersonas,
+      clonedVoices: [linkedClone]
+    });
+    const result = await service.createPersona({
+      workspaceId: WORKSPACE_ID,
+      userId: USER_ID,
+      displayName: "Linked Persona",
+      portraitImageFile: makePortraitFile(),
+      heygenVoiceId: VOICE_ID,
+      clonedVoiceId: linkedClone.id
+    });
+    assert.equal(insertedPersonas.length, 1);
+    assert.equal(insertedPersonas[0]?.clonedVoiceId, linkedClone.id);
+    assert.equal(insertedPersonas[0]?.heygenVoiceId, VOICE_ID);
+    assert.equal(insertedPersonas[0]?.heygenVoiceLabel, VOICE_DISPLAY_NAME);
+    assert.equal(result.persona.clonedVoiceId, linkedClone.id);
+    assert.equal(result.persona.clonedVoiceDisplayName, "Brand Voice");
+    assert.equal(result.persona.heygenVoiceId, VOICE_ID);
+    console.log("✓ Test 15b: createPersona links ready cloned voice and preserves preset fallback");
+  }
+
+  // Test 15c: updatePersona can link a ready cloned voice without overwriting preset fallback voice
+  {
+    const existingPersona = makePersonaRecord({
+      id: "persona-link-update",
+      displayName: "Existing Persona",
+      clonedVoiceId: null
+    });
+    const linkedClone = makeClonedVoiceRecord({
+      id: "linked-clone-update",
+      displayName: "Founder Voice",
+      displayNameLower: "founder voice",
+      heygenVoiceCloneId: "heygen-clone-founder-1",
+      status: "ready",
+      archived: false
+    });
+    let lastUpdateInput:
+      | import("../src/modules/workspace-management/domain/workspace-video-persona.repository").WorkspaceVideoPersonaUpdateInput
+      | null = null;
+    const personaRepository: WorkspaceVideoPersonaRepository = {
+      async countActiveForWorkspace() {
+        return 1;
+      },
+      async findActiveByLowerName(_workspaceId, lowerName) {
+        return lowerName === existingPersona.displayNameLower ? existingPersona : null;
+      },
+      async findById(_workspaceId, personaId) {
+        return personaId === existingPersona.id ? existingPersona : null;
+      },
+      async listActive() {
+        return [existingPersona];
+      },
+      async create() {
+        throw new Error("create not used");
+      },
+      async update(input) {
+        lastUpdateInput = input;
+        return {
+          ...existingPersona,
+          displayName: input.displayName,
+          displayNameLower: input.displayNameLower,
+          clonedVoiceId: input.clonedVoiceId ?? null,
+          linkedClonedVoiceDisplayName: "Founder Voice",
+          linkedClonedVoiceProviderId: "heygen-clone-founder-1",
+          linkedClonedVoiceStatus: "ready",
+          linkedClonedVoiceArchived: false
+        };
+      },
+      async archive() {
+        return null;
+      }
+    };
+    const service = new ManageWorkspaceVideoPersonasService(
+      personaRepository,
+      makeClonedVoiceRepository([linkedClone]),
+      {
+        async getOrCreate() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async credit() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async debit() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 80 };
+        }
+      } as never,
+      {
+        async recordEvent() {
+          return { recorded: true };
+        }
+      } as never,
+      {
+        async execute() {
+          return { heygenPersonaWorkspaceLimit: 10, heygenPersonaCreationVcoin: 20 };
+        }
+      } as never,
+      makeVoiceCatalog() as never,
+      {
+        async saveObject() {
+          /* noop */
+        }
+      } as never,
+      {
+        async $transaction<T>(fn: (tx: unknown) => Promise<T>) {
+          return fn({});
+        }
+      } as never,
+      makeHeyGenGatewayClient({})
+    );
+    const result = await service.updatePersona({
+      workspaceId: WORKSPACE_ID,
+      personaId: existingPersona.id,
+      displayName: existingPersona.displayName,
+      clonedVoiceId: linkedClone.id
+    });
+    assert.equal(lastUpdateInput?.heygenVoiceId, undefined);
+    assert.equal(lastUpdateInput?.clonedVoiceId, linkedClone.id);
+    assert.equal(result.persona.heygenVoiceId, VOICE_ID);
+    assert.equal(result.persona.heygenVoiceLabel, VOICE_DISPLAY_NAME);
+    assert.equal(result.persona.clonedVoiceId, linkedClone.id);
+    assert.equal(result.persona.clonedVoiceDisplayName, "Founder Voice");
+    console.log("✓ Test 15c: updatePersona links cloned voice and preserves preset fallback");
+  }
+
+  // Test 15d: cloned voice linkage rejects archived, non-ready, missing, and cross-workspace voices
+  {
+    const archivedClone = makeClonedVoiceRecord({
+      id: "clone-archived",
+      archived: true,
+      archivedAt: new Date("2026-06-07T10:00:00.000Z")
+    });
+    const pendingClone = makeClonedVoiceRecord({
+      id: "clone-pending",
+      status: "pending",
+      heygenVoiceCloneId: null
+    });
+    const otherWorkspaceClone = makeClonedVoiceRecord({
+      id: "clone-other-workspace",
+      workspaceId: "00000000-0000-0000-0000-000000000999"
+    });
+    const { service } = makeService({
+      clonedVoices: [archivedClone, pendingClone, otherWorkspaceClone]
+    });
+
+    await assert.rejects(
+      () =>
+        service.createPersona({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          displayName: "Archived Clone Persona",
+          portraitImageFile: makePortraitFile(),
+          heygenVoiceId: VOICE_ID,
+          clonedVoiceId: archivedClone.id
+        }),
+      (err: Error) => {
+        assert.ok(err instanceof BadRequestException);
+        const body = (err as BadRequestException).getResponse() as Record<string, unknown>;
+        assert.equal(body["code"], "cloned_voice_archived");
+        return true;
+      }
+    );
+
+    await assert.rejects(
+      () =>
+        service.createPersona({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          displayName: "Pending Clone Persona",
+          portraitImageFile: makePortraitFile(),
+          heygenVoiceId: VOICE_ID,
+          clonedVoiceId: pendingClone.id
+        }),
+      (err: Error) => {
+        assert.ok(err instanceof BadRequestException);
+        const body = (err as BadRequestException).getResponse() as Record<string, unknown>;
+        assert.equal(body["code"], "cloned_voice_not_ready");
+        return true;
+      }
+    );
+
+    await assert.rejects(
+      () =>
+        service.createPersona({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          displayName: "Missing Clone Persona",
+          portraitImageFile: makePortraitFile(),
+          heygenVoiceId: VOICE_ID,
+          clonedVoiceId: "clone-missing"
+        }),
+      (err: Error) => {
+        assert.ok(err instanceof NotFoundException);
+        const body = (err as NotFoundException).getResponse() as Record<string, unknown>;
+        assert.equal(body["code"], "cloned_voice_not_found");
+        return true;
+      }
+    );
+
+    await assert.rejects(
+      () =>
+        service.createPersona({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          displayName: "Cross Workspace Clone Persona",
+          portraitImageFile: makePortraitFile(),
+          heygenVoiceId: VOICE_ID,
+          clonedVoiceId: otherWorkspaceClone.id
+        }),
+      (err: Error) => {
+        assert.ok(err instanceof NotFoundException);
+        const body = (err as NotFoundException).getResponse() as Record<string, unknown>;
+        assert.equal(body["code"], "cloned_voice_not_found");
+        return true;
+      }
+    );
+    console.log(
+      "✓ Test 15d: cloned voice linkage rejects archived/non-ready/missing/cross-workspace"
+    );
+  }
+
+  // Test 15e: updatePersona still works when only preset heygenVoiceId is provided
+  {
+    const existingPersona = makePersonaRecord({
+      id: "persona-preset-only-update",
+      displayName: "Preset Update Persona"
+    });
+    const personaRepository: WorkspaceVideoPersonaRepository = {
+      async countActiveForWorkspace() {
+        return 1;
+      },
+      async findActiveByLowerName(_workspaceId, lowerName) {
+        return lowerName === existingPersona.displayNameLower ? existingPersona : null;
+      },
+      async findById(_workspaceId, personaId) {
+        return personaId === existingPersona.id ? existingPersona : null;
+      },
+      async listActive() {
+        return [existingPersona];
+      },
+      async create() {
+        throw new Error("create not used");
+      },
+      async update(input) {
+        return {
+          ...existingPersona,
+          displayName: input.displayName,
+          displayNameLower: input.displayNameLower,
+          heygenVoiceId: input.heygenVoiceId ?? existingPersona.heygenVoiceId,
+          heygenVoiceLabel: input.heygenVoiceLabel ?? existingPersona.heygenVoiceLabel,
+          clonedVoiceId: existingPersona.clonedVoiceId
+        };
+      },
+      async archive() {
+        return null;
+      }
+    };
+    const service = new ManageWorkspaceVideoPersonasService(
+      personaRepository,
+      makeClonedVoiceRepository(),
+      {
+        async getOrCreate() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async credit() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 100 };
+        },
+        async debit() {
+          return { workspaceId: WORKSPACE_ID, balanceVc: 80 };
+        }
+      } as never,
+      {
+        async recordEvent() {
+          return { recorded: true };
+        }
+      } as never,
+      {
+        async execute() {
+          return { heygenPersonaWorkspaceLimit: 10, heygenPersonaCreationVcoin: 20 };
+        }
+      } as never,
+      makeVoiceCatalog() as never,
+      {
+        async saveObject() {
+          /* noop */
+        }
+      } as never,
+      {
+        async $transaction<T>(fn: (tx: unknown) => Promise<T>) {
+          return fn({});
+        }
+      } as never,
+      makeHeyGenGatewayClient({})
+    );
+    const result = await service.updatePersona({
+      workspaceId: WORKSPACE_ID,
+      personaId: existingPersona.id,
+      displayName: "Preset Update Persona",
+      heygenVoiceId: VOICE_ID
+    });
+    assert.equal(result.persona.heygenVoiceId, VOICE_ID);
+    assert.equal(result.persona.clonedVoiceId, null);
+    console.log("✓ Test 15e: updatePersona still supports preset-only requests");
+  }
+
   // Test 16: Conditional debit — tx-side race (count=0 from conditional update) → vcoin_balance_exhausted + orphan warning
   {
     let warnLogged = false;
@@ -1213,7 +1643,11 @@ async function run(): Promise<void> {
         return [];
       },
       async create(input) {
-        return makePersonaRecord({ id: input.id, heygenAvatarId: input.heygenAvatarId });
+        return makePersonaRecord({
+          id: input.id,
+          clonedVoiceId: input.clonedVoiceId ?? null,
+          heygenAvatarId: input.heygenAvatarId
+        });
       },
       async update() {
         return null;
@@ -1253,6 +1687,7 @@ async function run(): Promise<void> {
 
     const service = new ManageWorkspaceVideoPersonasService(
       personaRepository,
+      makeClonedVoiceRepository(),
       vcoinBalanceRepository,
       {
         async recordEvent() {
@@ -1353,6 +1788,7 @@ async function run(): Promise<void> {
 
     const service = new ManageWorkspaceVideoPersonasService(
       personaRepository,
+      makeClonedVoiceRepository(),
       {
         async getOrCreate() {
           return { workspaceId: WORKSPACE_ID, balanceVc: 100 };

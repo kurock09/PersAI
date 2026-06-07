@@ -12,12 +12,14 @@ async function run(): Promise<void> {
         workspaceId: string;
         personaId: string;
         displayName: string;
-        heygenVoiceId: string;
+        heygenVoiceId?: string;
+        clonedVoiceId?: string | null;
       }) {
         assert.equal(input.workspaceId, "workspace-1");
         assert.equal(input.personaId, "persona-1");
         assert.equal(input.displayName, "Updated persona");
         assert.equal(input.heygenVoiceId, "voice-2");
+        assert.equal(input.clonedVoiceId, "clone-1");
         return {
           persona: {
             id: "persona-1",
@@ -25,6 +27,8 @@ async function run(): Promise<void> {
             portraitImageUrl: "/portrait.jpg",
             heygenVoiceId: "voice-2",
             heygenVoiceLabel: "Updated voice",
+            clonedVoiceId: "clone-1",
+            clonedVoiceDisplayName: "Brand Voice",
             createdAt: "2026-06-06T12:00:00.000Z"
           }
         };
@@ -79,10 +83,12 @@ async function run(): Promise<void> {
 
   const updated = await controller.updatePersona(reqWithNullWorkspace, "workspace-1", "persona-1", {
     displayName: "Updated persona",
-    heygenVoiceId: "voice-2"
+    heygenVoiceId: "voice-2",
+    clonedVoiceId: "clone-1"
   });
   assert.equal(updated.persona.id, "persona-1");
   assert.equal(updated.persona.heygenVoiceId, "voice-2");
+  assert.equal(updated.persona.clonedVoiceId, "clone-1");
 }
 
 run().catch((error) => {

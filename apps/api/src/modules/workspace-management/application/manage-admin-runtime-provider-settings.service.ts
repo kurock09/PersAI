@@ -85,6 +85,8 @@ export class ManageAdminRuntimeProviderSettingsService {
         vcoinExchangeRate: input.vcoinExchangeRate,
         heygenPersonaWorkspaceLimit: input.heygenPersonaWorkspaceLimit,
         heygenPersonaCreationVcoin: input.heygenPersonaCreationVcoin,
+        heygenVoiceCloneWorkspaceLimit: input.heygenVoiceCloneWorkspaceLimit,
+        heygenVoiceCloneCreationVcoin: input.heygenVoiceCloneCreationVcoin,
         updatedByUserId: userId
       },
       update: {
@@ -103,6 +105,8 @@ export class ManageAdminRuntimeProviderSettingsService {
         vcoinExchangeRate: input.vcoinExchangeRate,
         heygenPersonaWorkspaceLimit: input.heygenPersonaWorkspaceLimit,
         heygenPersonaCreationVcoin: input.heygenPersonaCreationVcoin,
+        heygenVoiceCloneWorkspaceLimit: input.heygenVoiceCloneWorkspaceLimit,
+        heygenVoiceCloneCreationVcoin: input.heygenVoiceCloneCreationVcoin,
         updatedByUserId: userId
       }
     });

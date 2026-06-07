@@ -21,6 +21,11 @@ import { HeyGenVoiceCatalogService } from "./heygen-voice-catalog.service";
 import { HeyGenProviderGatewayClient } from "./heygen-provider-gateway.client";
 import { TOOL_CREDENTIAL_IDS } from "../tool-credential-settings";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
+import {
+  WORKSPACE_VIDEO_CLONED_VOICE_REPOSITORY,
+  type WorkspaceVideoClonedVoiceRecord,
+  type WorkspaceVideoClonedVoiceRepository
+} from "../../domain/workspace-video-cloned-voice.repository";
 
 const PORTRAIT_NORMALIZED_MIME_TYPE = "image/jpeg";
 const PORTRAIT_NORMALIZED_DIMENSION = 1024;
@@ -33,6 +38,8 @@ export type WorkspaceVideoPersonaDto = {
   portraitImageUrl: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
+  clonedVoiceId: string | null;
+  clonedVoiceDisplayName: string | null;
   createdAt: string;
 };
 
@@ -42,6 +49,8 @@ export type PersonaListItem = {
   portraitImageUrl: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
+  clonedVoiceId: string | null;
+  clonedVoiceDisplayName: string | null;
   createdAt: string;
 };
 
@@ -95,6 +104,8 @@ export class ManageWorkspaceVideoPersonasService {
   constructor(
     @Inject(WORKSPACE_VIDEO_PERSONA_REPOSITORY)
     private readonly personaRepository: WorkspaceVideoPersonaRepository,
+    @Inject(WORKSPACE_VIDEO_CLONED_VOICE_REPOSITORY)
+    private readonly clonedVoiceRepository: WorkspaceVideoClonedVoiceRepository,
     @Inject(WORKSPACE_VCOIN_BALANCE_REPOSITORY)
     private readonly vcoinBalanceRepository: WorkspaceVcoinBalanceRepository,
     @Inject(WORKSPACE_VCOIN_LEDGER_EVENT_REPOSITORY)
@@ -112,6 +123,7 @@ export class ManageWorkspaceVideoPersonasService {
     displayName: string;
     portraitImageFile: { buffer: Buffer; mimeType: string; originalFilename: string };
     heygenVoiceId: string;
+    clonedVoiceId?: string | null;
   }): Promise<CreatePersonaResult> {
     const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
     const limit = settings.heygenPersonaWorkspaceLimit;
@@ -134,6 +146,10 @@ export class ManageWorkspaceVideoPersonasService {
       });
     }
     const heygenVoiceLabel = matchedVoice.displayName;
+    const linkedClonedVoice = await this.resolveLinkedClonedVoiceOrThrow(
+      input.workspaceId,
+      input.clonedVoiceId
+    );
 
     const validated = await validatePersaiMediaFile({
       buffer: input.portraitImageFile.buffer,
@@ -251,6 +267,7 @@ export class ManageWorkspaceVideoPersonasService {
             portraitImageStorageKey: storageKey,
             heygenVoiceId: input.heygenVoiceId,
             heygenVoiceLabel,
+            clonedVoiceId: linkedClonedVoice?.id ?? null,
             heygenAvatarId: avatarId
           },
           tx
@@ -403,7 +420,8 @@ export class ManageWorkspaceVideoPersonasService {
     workspaceId: string;
     personaId: string;
     displayName: string;
-    heygenVoiceId: string;
+    heygenVoiceId?: string;
+    clonedVoiceId?: string | null;
   }): Promise<UpdatePersonaResult> {
     const persona = await this.personaRepository.findById(input.workspaceId, input.personaId);
     if (persona === null || persona.archived) {
@@ -413,22 +431,26 @@ export class ManageWorkspaceVideoPersonasService {
       });
     }
 
-    const catalogEntries = await this.heyGenVoiceCatalogService.getFullVoiceCatalogEntries();
-    if (catalogEntries.length === 0) {
-      throw new BadRequestException({
-        message: "HeyGen voice catalog is unavailable. Please try again later.",
-        code: "voice_not_found"
-      });
-    }
+    let matchedVoiceLabel: string | undefined;
+    if (input.heygenVoiceId !== undefined) {
+      const catalogEntries = await this.heyGenVoiceCatalogService.getFullVoiceCatalogEntries();
+      if (catalogEntries.length === 0) {
+        throw new BadRequestException({
+          message: "HeyGen voice catalog is unavailable. Please try again later.",
+          code: "voice_not_found"
+        });
+      }
 
-    const matchedVoice = catalogEntries.find(
-      (entry) => entry.providerVoiceId === input.heygenVoiceId
-    );
-    if (matchedVoice === undefined) {
-      throw new BadRequestException({
-        message: `Voice "${input.heygenVoiceId}" not found in the HeyGen voice catalog.`,
-        code: "voice_not_found"
-      });
+      const matchedVoice = catalogEntries.find(
+        (entry) => entry.providerVoiceId === input.heygenVoiceId
+      );
+      if (matchedVoice === undefined) {
+        throw new BadRequestException({
+          message: `Voice "${input.heygenVoiceId}" not found in the HeyGen voice catalog.`,
+          code: "voice_not_found"
+        });
+      }
+      matchedVoiceLabel = matchedVoice.displayName;
     }
 
     const displayNameLower = input.displayName.toLowerCase();
@@ -443,13 +465,16 @@ export class ManageWorkspaceVideoPersonasService {
       });
     }
 
+    await this.resolveLinkedClonedVoiceOrThrow(input.workspaceId, input.clonedVoiceId);
+
     const updated = await this.personaRepository.update({
       workspaceId: input.workspaceId,
       personaId: input.personaId,
       displayName: input.displayName,
       displayNameLower,
-      heygenVoiceId: input.heygenVoiceId,
-      heygenVoiceLabel: matchedVoice.displayName
+      ...(input.heygenVoiceId === undefined ? {} : { heygenVoiceId: input.heygenVoiceId }),
+      ...(matchedVoiceLabel === undefined ? {} : { heygenVoiceLabel: matchedVoiceLabel }),
+      ...(input.clonedVoiceId === undefined ? {} : { clonedVoiceId: input.clonedVoiceId })
     });
 
     if (updated === null) {
@@ -540,6 +565,8 @@ export class ManageWorkspaceVideoPersonasService {
       portraitImageUrl: row.portraitImageUrl,
       heygenVoiceId: row.heygenVoiceId,
       heygenVoiceLabel: row.heygenVoiceLabel,
+      clonedVoiceId: row.clonedVoiceId,
+      clonedVoiceDisplayName: row.linkedClonedVoiceDisplayName,
       createdAt: row.createdAt.toISOString()
     };
   }
@@ -551,7 +578,38 @@ export class ManageWorkspaceVideoPersonasService {
       portraitImageUrl: row.portraitImageUrl,
       heygenVoiceId: row.heygenVoiceId,
       heygenVoiceLabel: row.heygenVoiceLabel,
+      clonedVoiceId: row.clonedVoiceId,
+      clonedVoiceDisplayName: row.linkedClonedVoiceDisplayName,
       createdAt: row.createdAt.toISOString()
     };
+  }
+
+  private async resolveLinkedClonedVoiceOrThrow(
+    workspaceId: string,
+    clonedVoiceId: string | null | undefined
+  ): Promise<WorkspaceVideoClonedVoiceRecord | null> {
+    if (clonedVoiceId === undefined || clonedVoiceId === null) {
+      return null;
+    }
+    const clonedVoice = await this.clonedVoiceRepository.findById(workspaceId, clonedVoiceId);
+    if (clonedVoice === null) {
+      throw new NotFoundException({
+        message: `Cloned voice "${clonedVoiceId}" not found in this workspace.`,
+        code: "cloned_voice_not_found"
+      });
+    }
+    if (clonedVoice.archived) {
+      throw new BadRequestException({
+        message: `Cloned voice "${clonedVoice.displayName}" is archived and cannot be linked to a persona.`,
+        code: "cloned_voice_archived"
+      });
+    }
+    if (clonedVoice.status !== "ready" || clonedVoice.heygenVoiceCloneId === null) {
+      throw new BadRequestException({
+        message: `Cloned voice "${clonedVoice.displayName}" is not ready yet.`,
+        code: "cloned_voice_not_ready"
+      });
+    }
+    return clonedVoice;
   }
 }

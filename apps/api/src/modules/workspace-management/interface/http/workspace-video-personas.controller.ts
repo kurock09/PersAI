@@ -75,6 +75,7 @@ export class WorkspaceVideoPersonasController {
 
     const displayName = this.parseStringField(body, "displayName");
     const heygenVoiceId = this.parseStringField(body, "heygenVoiceId");
+    const clonedVoiceId = this.parseNullableStringField(body, "clonedVoiceId");
 
     return this.manageWorkspaceVideoPersonasService.createPersona({
       workspaceId,
@@ -85,7 +86,8 @@ export class WorkspaceVideoPersonasController {
         mimeType: file.mimetype,
         originalFilename: file.originalname
       },
-      heygenVoiceId
+      heygenVoiceId,
+      ...(clonedVoiceId === undefined ? {} : { clonedVoiceId })
     });
   }
 
@@ -137,13 +139,15 @@ export class WorkspaceVideoPersonasController {
     await this.assertWorkspaceAccess(userId, workspaceId);
 
     const displayName = this.parseStringField(body, "displayName");
-    const heygenVoiceId = this.parseStringField(body, "heygenVoiceId");
+    const heygenVoiceId = this.parseOptionalStringField(body, "heygenVoiceId");
+    const clonedVoiceId = this.parseNullableStringField(body, "clonedVoiceId");
 
     return this.manageWorkspaceVideoPersonasService.updatePersona({
       workspaceId,
       personaId,
       displayName,
-      heygenVoiceId
+      ...(heygenVoiceId === undefined ? {} : { heygenVoiceId }),
+      ...(clonedVoiceId === undefined ? {} : { clonedVoiceId })
     });
   }
 
@@ -205,5 +209,41 @@ export class WorkspaceVideoPersonasController {
       });
     }
     return value.trim();
+  }
+
+  private parseOptionalStringField(rawBody: unknown, fieldName: string): string | undefined {
+    const body =
+      rawBody !== null && typeof rawBody === "object" ? (rawBody as Record<string, unknown>) : {};
+    if (!(fieldName in body)) {
+      return undefined;
+    }
+    const value = body[fieldName];
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new BadRequestException({
+        message: `Field "${fieldName}" must be a non-empty string when provided.`,
+        code: "invalid_field"
+      });
+    }
+    return value.trim();
+  }
+
+  private parseNullableStringField(rawBody: unknown, fieldName: string): string | null | undefined {
+    const body =
+      rawBody !== null && typeof rawBody === "object" ? (rawBody as Record<string, unknown>) : {};
+    if (!(fieldName in body)) {
+      return undefined;
+    }
+    const value = body[fieldName];
+    if (value === null) {
+      return null;
+    }
+    if (typeof value !== "string") {
+      throw new BadRequestException({
+        message: `Field "${fieldName}" must be a string, null, or omitted.`,
+        code: "invalid_field"
+      });
+    }
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
   }
 }

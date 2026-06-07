@@ -887,7 +887,12 @@ async function run(): Promise<void> {
             }
           ]
         }
-      }
+      },
+      vcoinExchangeRate: null,
+      heygenPersonaWorkspaceLimit: null,
+      heygenPersonaCreationVcoin: null,
+      heygenVoiceCloneWorkspaceLimit: null,
+      heygenVoiceCloneCreationVcoin: null
     },
     providerKeys
   });
@@ -933,6 +938,9 @@ async function run(): Promise<void> {
   // ADR-109 Slice 5 — new platform knobs surface defaults when omitted.
   assert.equal(settings.heygenPersonaWorkspaceLimit, 10);
   assert.equal(settings.heygenPersonaCreationVcoin, 20);
+  // ADR-111 Slice 3 — new cloned voice knobs surface defaults when omitted.
+  assert.equal(settings.heygenVoiceCloneWorkspaceLimit, 5);
+  assert.equal(settings.heygenVoiceCloneCreationVcoin, 50);
 
   const settingsWithExplicitRate = buildPlatformRuntimeProviderSettingsState({
     settings: {
@@ -946,7 +954,9 @@ async function run(): Promise<void> {
       availableModelCatalogByProvider: null,
       vcoinExchangeRate: 25,
       heygenPersonaWorkspaceLimit: null,
-      heygenPersonaCreationVcoin: null
+      heygenPersonaCreationVcoin: null,
+      heygenVoiceCloneWorkspaceLimit: null,
+      heygenVoiceCloneCreationVcoin: null
     },
     providerKeys
   });
@@ -969,7 +979,9 @@ async function run(): Promise<void> {
       // row should not break the resolver.
       vcoinExchangeRate: -7 as unknown as number,
       heygenPersonaWorkspaceLimit: null,
-      heygenPersonaCreationVcoin: null
+      heygenPersonaCreationVcoin: null,
+      heygenVoiceCloneWorkspaceLimit: null,
+      heygenVoiceCloneCreationVcoin: null
     },
     providerKeys
   });
@@ -988,18 +1000,25 @@ async function run(): Promise<void> {
       availableModelCatalogByProvider: null,
       vcoinExchangeRate: null,
       heygenPersonaWorkspaceLimit: 5,
-      heygenPersonaCreationVcoin: 0
+      heygenPersonaCreationVcoin: 0,
+      heygenVoiceCloneWorkspaceLimit: 3,
+      heygenVoiceCloneCreationVcoin: 75
     },
     providerKeys
   });
   assert.equal(settingsWithPersonaKnobs.heygenPersonaWorkspaceLimit, 5);
   assert.equal(settingsWithPersonaKnobs.heygenPersonaCreationVcoin, 0);
+  assert.equal(settingsWithPersonaKnobs.heygenVoiceCloneWorkspaceLimit, 3);
+  assert.equal(settingsWithPersonaKnobs.heygenVoiceCloneCreationVcoin, 75);
 
   // Parser default: when admin payload omits the field, normalize to 20.
   assert.equal(parsed.vcoinExchangeRate, 20);
   // ADR-109 Slice 5 — parser defaults for new persona knobs.
   assert.equal(parsed.heygenPersonaWorkspaceLimit, 10);
   assert.equal(parsed.heygenPersonaCreationVcoin, 20);
+  // ADR-111 Slice 3 — parser defaults for cloned voice knobs.
+  assert.equal(parsed.heygenVoiceCloneWorkspaceLimit, 5);
+  assert.equal(parsed.heygenVoiceCloneCreationVcoin, 50);
 
   const parsedWithExplicitRate = parseUpdatePlatformRuntimeProviderSettingsInput({
     ...parsed,
@@ -1030,10 +1049,14 @@ async function run(): Promise<void> {
   const parsedWithPersonaKnobs = parseUpdatePlatformRuntimeProviderSettingsInput({
     ...parsed,
     heygenPersonaWorkspaceLimit: 15,
-    heygenPersonaCreationVcoin: 0
+    heygenPersonaCreationVcoin: 0,
+    heygenVoiceCloneWorkspaceLimit: 10,
+    heygenVoiceCloneCreationVcoin: 0
   });
   assert.equal(parsedWithPersonaKnobs.heygenPersonaWorkspaceLimit, 15);
   assert.equal(parsedWithPersonaKnobs.heygenPersonaCreationVcoin, 0);
+  assert.equal(parsedWithPersonaKnobs.heygenVoiceCloneWorkspaceLimit, 10);
+  assert.equal(parsedWithPersonaKnobs.heygenVoiceCloneCreationVcoin, 0);
 
   // Reject zero/negative/fractional for persona workspace limit (must be ≥ 1).
   assert.throws(
@@ -1076,6 +1099,46 @@ async function run(): Promise<void> {
         heygenPersonaCreationVcoin: 1.5
       }),
     /heygenPersonaCreationVcoin must be a non-negative integer/
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        heygenVoiceCloneWorkspaceLimit: 0
+      }),
+    /heygenVoiceCloneWorkspaceLimit must be a positive integer/
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        heygenVoiceCloneWorkspaceLimit: 11
+      }),
+    /heygenVoiceCloneWorkspaceLimit must be at most 10/
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        heygenVoiceCloneWorkspaceLimit: 1.5
+      }),
+    /heygenVoiceCloneWorkspaceLimit must be a positive integer/
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        heygenVoiceCloneCreationVcoin: -1
+      }),
+    /heygenVoiceCloneCreationVcoin must be a non-negative integer/
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        heygenVoiceCloneCreationVcoin: 1.5
+      }),
+    /heygenVoiceCloneCreationVcoin must be a non-negative integer/
   );
 
   const profile = buildPlatformRuntimeProviderProfileState(settings);

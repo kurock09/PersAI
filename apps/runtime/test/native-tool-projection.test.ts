@@ -958,7 +958,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   const PERSONA_A = {
     personaId: "01937c8a-0000-4000-8000-000000000001",
     displayName: "Маша",
-    voiceLabel: "Russian (Female)"
+    voiceLabel: "Brand Voice",
+    presetVoiceLabel: "Russian (Female)",
+    linkedClonedVoiceDisplayName: "Brand Voice"
   };
   const PERSONA_B = {
     personaId: "01937d12-0000-4000-8000-000000000002",
@@ -1032,6 +1034,16 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     slice10TwoPersonasTool?.description ?? "",
+    /linkedClonedVoiceLabel="Brand Voice"/,
+    "Slice 10: linked cloned voice label must appear for personas that carry cloned voice metadata"
+  );
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /presetFallbackVoiceLabel="Russian \(Female\)"/,
+    "Slice 10: preset fallback voice label must remain additive metadata when a linked cloned voice exists"
+  );
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
     new RegExp(PERSONA_A.personaId),
     "Slice 10: persona A personaId must appear in description"
   );
@@ -1066,6 +1078,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /up to 10 EN and 10 RU voices, balanced across female\/male/,
     "Slice 10: talking-avatar hint should explain the 10 EN + 10 RU balanced target"
   );
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /Some saved personas use a linked cloned voice\./,
+    "Slice 5: cloned voice guidance should appear only when persona catalog includes linked clone metadata"
+  );
 
   // Case 2: talkingVideoEnabled=true + empty videoPersonaCatalog
   const slice10EmptyPersonasBundle = makeHeygenTalkingBundle({
@@ -1096,6 +1113,20 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     slice10UndefinedTool?.description ?? "",
     /none yet/,
     "Slice 10: missing persona catalog must render 'none yet' message (defensive default)"
+  );
+
+  const slice5PresetOnlyBundle = makeHeygenTalkingBundle({
+    provider: "heygen",
+    schema: "persai.runtimeVideoPersonaCatalog.v1",
+    personas: [PERSONA_B]
+  });
+  const slice5PresetOnlyTool = projectRuntimeNativeTools(slice5PresetOnlyBundle).tools.find(
+    (t) => t.name === "video_generate"
+  );
+  assert.doesNotMatch(
+    slice5PresetOnlyTool?.description ?? "",
+    /Some saved personas use a linked cloned voice\./,
+    "Slice 5: cloned voice guidance must stay absent when persona catalog has no linked clone metadata"
   );
 
   // Case 4: talkingVideoEnabled=false → none of the talking-avatar sections appear
@@ -1132,6 +1163,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     slice10TalkingDisabledTool?.description ?? "",
     /videoPersonas/,
     "Slice 10: persona shortlist must NOT appear when talkingVideoEnabled=false"
+  );
+  assert.doesNotMatch(
+    slice10TalkingDisabledTool?.description ?? "",
+    /linkedClonedVoiceLabel=/,
+    "Slice 5: cloned voice guidance must not appear when talking video is disabled"
   );
 
   // Snapshot test: canonical fixture (talkingVideoEnabled=true, 1 voice, 2 personas)

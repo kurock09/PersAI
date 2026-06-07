@@ -1,8 +1,10 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forwardRef } from "react";
 import { ChatMessageBubble, resolveInternalChatCta } from "./chat-message";
 import type { ChatMessage } from "./use-chat";
+
+const imageLightboxMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -23,7 +25,24 @@ vi.mock("./voice-message-player", () => ({
 }));
 
 vi.mock("./image-lightbox", () => ({
-  ImageLightbox: () => null
+  ImageLightbox: (props: {
+    open: boolean;
+    src: string;
+    downloadUrl?: string;
+    filename?: string;
+    mediaType?: string;
+  }) => {
+    imageLightboxMock(props);
+    return props.open ? (
+      <div
+        data-testid="mock-image-lightbox"
+        data-src={props.src}
+        data-download-url={props.downloadUrl}
+        data-filename={props.filename}
+        data-media-type={props.mediaType}
+      />
+    ) : null;
+  }
 }));
 
 vi.mock("../assistant-api-client", () => ({
@@ -119,6 +138,19 @@ function makeImageAttachment(id: string): NonNullable<ChatMessage["attachments"]
   };
 }
 
+function makeVideoAttachment(id: string): NonNullable<ChatMessage["attachments"]>[number] {
+  return {
+    id,
+    fileRef: "file-ref-video-1",
+    attachmentType: "video",
+    originalFilename: "clip.mp4",
+    mimeType: "video/mp4",
+    sizeBytes: 4096,
+    processingStatus: "ready",
+    createdAt: "2026-06-07T10:00:00.000Z"
+  };
+}
+
 function makeAssistantMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
     id: "assistant-1",
@@ -136,6 +168,7 @@ const FAILED_SHORT_LABEL = "failedShort";
 
 afterEach(() => {
   cleanup();
+  imageLightboxMock.mockClear();
   vi.useRealTimers();
 });
 
@@ -539,6 +572,77 @@ describe("ChatMessageBubble — canonical file attachments", () => {
     expect(screen.queryByRole("link", { name: /deleted\.pdf/i })).toBeNull();
     expect(screen.getByText("deleted.pdf")).toBeInTheDocument();
     expect(screen.getByText("fileDeleted")).toBeInTheDocument();
+  });
+});
+
+describe("ChatMessageBubble — video attachment preview", () => {
+  it("renders a deterministic visible play placeholder before metadata or frames load", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
+          attachments: [makeVideoAttachment("video-att-1")]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "openVideo" })).toBeInTheDocument();
+    expect(screen.getByTestId("chat-video-preview-placeholder")).toBeInTheDocument();
+    expect(screen.getByText("Video")).toBeInTheDocument();
+  });
+
+  it("opens the video lightbox through the existing card click path", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
+          attachments: [makeVideoAttachment("video-att-2")]
+        })}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "openVideo" }));
+
+    const lightbox = screen.getByTestId("mock-image-lightbox");
+    expect(lightbox).toHaveAttribute("data-src", "/api/assistant-file/file-ref-video-1");
+    expect(lightbox).toHaveAttribute(
+      "data-download-url",
+      "/api/assistant-file/file-ref-video-1?download=1"
+    );
+    expect(lightbox).toHaveAttribute("data-filename", "clip.mp4");
+    expect(lightbox).toHaveAttribute("data-media-type", "video");
+    expect(imageLightboxMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        open: true,
+        src: "/api/assistant-file/file-ref-video-1",
+        mediaType: "video"
+      })
+    );
+  });
+
+  it("updates the compact duration label after metadata loads", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
+          attachments: [makeVideoAttachment("video-att-3")]
+        })}
+      />
+    );
+
+    const video = container.querySelector("video");
+    expect(video).not.toBeNull();
+    if (video === null) {
+      throw new Error("Expected inline video metadata element to render.");
+    }
+    Object.defineProperty(video, "duration", {
+      configurable: true,
+      value: 65
+    });
+
+    fireEvent.loadedMetadata(video);
+
+    expect(screen.getByText("1:05")).toBeInTheDocument();
   });
 });
 

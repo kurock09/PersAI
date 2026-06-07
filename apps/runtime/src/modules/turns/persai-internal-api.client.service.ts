@@ -1617,6 +1617,9 @@ export class PersaiInternalApiClientService {
     heygenAvatarId: string;
     heygenVoiceId: string;
     heygenVoiceLabel: string;
+    clonedVoiceId: string | null;
+    linkedClonedVoiceDisplayName: string | null;
+    linkedClonedVoiceProviderId: string | null;
     portraitImageStorageKey: string;
   } | null> {
     if (!this.isConfigured()) {
@@ -1646,6 +1649,11 @@ export class PersaiInternalApiClientService {
         typeof persona.heygenAvatarId === "string" &&
         typeof persona.heygenVoiceId === "string" &&
         typeof persona.heygenVoiceLabel === "string" &&
+        (persona.clonedVoiceId === null || typeof persona.clonedVoiceId === "string") &&
+        (persona.linkedClonedVoiceDisplayName === null ||
+          typeof persona.linkedClonedVoiceDisplayName === "string") &&
+        (persona.linkedClonedVoiceProviderId === null ||
+          typeof persona.linkedClonedVoiceProviderId === "string") &&
         typeof persona.portraitImageStorageKey === "string"
       ) {
         return {
@@ -1654,6 +1662,9 @@ export class PersaiInternalApiClientService {
           heygenAvatarId: persona.heygenAvatarId,
           heygenVoiceId: persona.heygenVoiceId,
           heygenVoiceLabel: persona.heygenVoiceLabel,
+          clonedVoiceId: persona.clonedVoiceId ?? null,
+          linkedClonedVoiceDisplayName: persona.linkedClonedVoiceDisplayName ?? null,
+          linkedClonedVoiceProviderId: persona.linkedClonedVoiceProviderId ?? null,
           portraitImageStorageKey: persona.portraitImageStorageKey
         };
       }
