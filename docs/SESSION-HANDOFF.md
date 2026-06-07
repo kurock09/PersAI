@@ -3,6 +3,52 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-07 - ADR-112 Slice 3 memory normalization + consolidation + lifecycle
+
+### Baseline
+
+- Starting SHA: `1b9440d9` (ADR-112 Slice 2 landed; clean tree).
+- Scope: ADR-112 Slice 3 only — durable-memory supersession lifecycle + an off-band consolidation pass (embedding near-duplicate merge + decay prune). Out of scope: backfill of existing rows (Slice 4), tool/developer-block work (Slices 5/6+).
+- Landed as two tightly-coupled sub-slices: 3a substrate (`56613bff`), 3b engine (`8433dd6d`).
+
+### What changed & why
+
+3a (lifecycle substrate): `assistant_memory_registry_items` gained nullable `supersededAt` / `supersededByMemoryId`, the repository gained `markSupersededById` (audit-preserving, mirrors the forgotten/resolved guards), and EVERY active read/hydration/search path now also filters `supersededAt: null` (alongside `forgottenAt: null`) — including `searchMemory`. This is the mechanism by which a superseded fact stops resurfacing while its row is retained for audit. No consolidation logic yet.
+
+3b (consolidation engine): durable memories can now carry an embedding (`embedding_vector` JSONB + `embedding_model_key` + `embedding_generated_at`; model key resolved via the existing `KnowledgeModelPolicyService` knowledge path). New `ConsolidateAssistantMemoryService` runs best-effort after each successful background compaction job (hooked into `PersaiBackgroundCompactionSchedulerService` after `completeJob`, inside the existing lease — never throws into / fails / delays the compaction job). Per pass it: loads up to 200 most-recent active memories; lazily embeds rows lacking a current-model embedding; merges near-duplicates within the same `kind` (cosine >= 0.92 -> supersede the loser via `markSupersededById`, survivor priority core > confidence > recency > id); and decay-prunes (`markForgottenById`) `contextual` + `time_bound` rows whose `lastUsedAt ?? createdAt` is older than 45 days. Unresolved open loops are never merged or pruned; identity/stable/core rows are never decay-pruned. If no embedding model/credentials are available it skips merge but still runs decay (graceful). Reuses the existing scheduler/lease/cadence — no new job table or scheduler. Mechanical cosine merge, not a positive classifier (model-as-judge preserved).
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma` (+ migrations `20260607230000_adr112_slice3a_memory_supersession`, `20260607231500_adr112_slice3b_memory_embeddings`)
+- `apps/api/src/modules/workspace-management/domain/assistant-memory-registry-item.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-memory-registry.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-memory-registry.repository.ts`
+- `apps/api/src/modules/workspace-management/application/read-assistant-knowledge.service.ts` (searchMemory superseded exclusion)
+- `apps/api/src/modules/workspace-management/application/consolidate-assistant-memory.service.ts` (new)
+- `apps/api/src/modules/workspace-management/application/persai-background-compaction-scheduler.service.ts` (post-success hook)
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- tests: `consolidate-assistant-memory.service.test.ts` (new), `persai-background-compaction-scheduler.service.test.ts`, and memory fixtures across `write-assistant-memory` / `hydrate-memory-for-turn` / `read-assistant-knowledge` / close/carry-over/web-chat suites
+- docs: `docs/ADR/112-...md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS (api, runtime, provider-gateway)
+- focused (via tsx): `consolidate-assistant-memory.service.test.ts`, `persai-background-compaction-scheduler.service.test.ts`, `write-assistant-memory.service.test.ts`, `hydrate-memory-for-turn.service.test.ts`, `read-assistant-knowledge.service.test.ts` - PASS
+
+### Risks / residuals
+
+- HELD from push by operator direction: the whole memory block (Slices 1-4) is being landed locally and will be deployed together after a dedicated "complex of checks" — do NOT push memory commits piecemeal. Slices 1, 2, 3a, 3b are committed locally only.
+- Two additive Prisma migrations are pending DB apply; both are nullable ADD COLUMN only (safe/backward-compatible) but must be applied before the consolidation pass writes embeddings/supersession in PROD.
+- Consolidation runs on every successful compaction (bounded O(n^2) cosine + lazy embedding of new rows); cheap now, revisit if working sets grow. Could add a per-assistant cadence gate later.
+- Embedding-based merge depends on the admin knowledge embedding model key being configured; without it, only decay runs (acceptable, logged).
+
+### Next recommended step
+
+ADR-112 Slice 4 — safe memory backfill: dry-run report of legacy episodic `core` rows + trivial `web_chat` rows, then step-up confirmed reclassify/prune. After Slice 4, run the full check complex and deploy the memory block together (push on explicit operator go).
+
 ## 2026-06-07 - ADR-112 Slice 2 retrieval/render quality + single runtime-owned framing
 
 ### Baseline
