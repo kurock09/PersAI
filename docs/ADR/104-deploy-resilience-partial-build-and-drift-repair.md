@@ -1,6 +1,6 @@
 # ADR-104: Deploy resilience — partial-build isolation, pin-only-succeeded, and drift repair
 
-**Status:** Accepted (2026-05-30) — **D1 + D2 implemented** in this slice (`fail-fast: false` + pin-only-successfully-built on the dev non-migration path). **D3 (drift-repair cron) is planned, not built** (deferred to avoid shipping an auto-mutating cron before it is trusted; D1+D2 already prevent stranding of successfully-built services). **D4 (prod-atomic) is design-only** (no `values-prod.yaml` exists yet).
+**Status:** Completed / closed (2026-06-07) — **D1 + D2 implemented** (`fail-fast: false` + pin-only-successfully-built on the dev non-migration path). **D3 (drift-repair cron) is cancelled/deferred indefinitely** and is no longer an active backlog item; D1+D2 close the production pain without introducing an auto-mutating GitOps cron. **D4 (prod-atomic) remains a design note only** for a future production pipeline; no `values-prod.yaml` exists yet and this ADR schedules no further work.
 **Date:** 2026-05-30
 **Relates to:** [ADR-093](093-clean-prod-launch-readiness-and-concurrency-hardening.md) (deploy discipline), [ADR-102](102-pre-prod-architectural-cleanup-and-truth-hardening.md) (Slice 9 CI hygiene), [AGENTS.md](../../AGENTS.md) (CI/deploy truth), [infra/dev/gitops/README.md](../../infra/dev/gitops/README.md)
 
@@ -25,7 +25,7 @@ Push affects `api` + `runtime`; `runtime` build fails → `fail-fast` cancels th
 - Changing `detect-affected` risk/escalation rules or the `persai-dev-migrations` approval gate.
 - Changing Argo CD auto-sync or the `api-migrate` PreSync hook.
 - Building a real production pipeline now (no `values-prod.yaml` exists); prod-atomic is captured as design only.
-- Per-service partial rollout semantics for PROD (PROD is intentionally atomic — see Decision D3).
+- Per-service partial rollout semantics for PROD (PROD is intentionally atomic — see Decision D4).
 
 ## Decision
 
@@ -42,11 +42,11 @@ Set `strategy.fail-fast: false` on the `build-and-push` matrix so a single servi
 
 **Happy-path invariant:** when all affected builds succeed, the computed subset equals the full affected set, so behavior is identical to today. The only behavioral change is on partial failure of a non-migration push, where succeeded services now still roll forward.
 
-### D3 — Drift repair backstop (dev) — PLANNED, not built in this slice
+### D3 — Drift repair backstop (dev) — cancelled/deferred indefinitely
 
 A future scheduled workflow `dev-deploy-reconcile.yml` (daily + `workflow_dispatch`) should detect per-service drift between `values-dev.yaml` and the newest successfully-built image on `main`, and re-pin any service that is behind to its newest existing image SHA. This is a backstop for the residual case where a service's build genuinely failed and its code has not changed since.
 
-It is intentionally **deferred**: D2 already prevents stranding of services whose builds succeed, so the remaining stranding window is narrow; and an auto-mutating cron that rewrites `values-dev.yaml` (triggering Argo CD rollouts unattended) should be introduced only once its drift-detection is proven, to avoid surprise deploys. Until then, drift after a genuine build failure is repaired by the normal next push of that service (or a manual `workflow_dispatch` of `dev-image-publish` with `base_sha`).
+It is intentionally **not active work**: D2 already prevents stranding of services whose builds succeed, so the remaining stranding window is narrow; and an auto-mutating cron that rewrites `values-dev.yaml` (triggering Argo CD rollouts unattended) should not be introduced without a fresh decision. Drift after a genuine build failure is repaired by the normal next push of that service (or a manual `workflow_dispatch` of `dev-image-publish` with `base_sha`). If real operational evidence later shows this is insufficient, open a new ADR or deploy-runbook slice.
 
 ### D4 — PROD is atomic (design only, not built here)
 
@@ -58,12 +58,14 @@ When a production pipeline is introduced it must be **atomic**, not per-service 
 
 Rationale: dev optimizes for "keep the green services moving" (iteration speed); prod optimizes for "never run a half-applied, internally-inconsistent release" (correctness). These are deliberately different policies.
 
+**Closure note (2026-06-07):** D4 is only a future-prod design constraint, not an active implementation tail of ADR-104.
+
 ## Consequences
 
 ### Positive
 
 - A single flaky/failed service build no longer blocks or reverts every other service on dev.
-- Stranded-service drift is repaired automatically by the reconcile backstop instead of waiting for the next unrelated code change.
+- Successfully-built services no longer get stranded when another non-migration service build fails; residual drift after a genuine failed build is handled manually or by the next relevant push.
 - Happy-path deploys are unchanged (no new risk on the common case).
 - The prod policy is written down before prod exists, so the eventual prod pipeline starts atomic-by-design.
 

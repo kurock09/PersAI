@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-06-01)
+Completed (2026-06-07). All ADR-106 slices landed and the acceptance checklist is complete. OpenAI/Runway/Kling video provider catalog, credential, plan selection, materialization, runtime dispatch, provider-gateway execution, fallback, and billing-fact attribution are live-callable after deployment. Follow-up work moved into later ADRs (ADR-107 for provider-native audio/modes, ADR-108 for Vcoin settlement, ADR-109 for HeyGen talking-avatar).
 
 ## Context
 

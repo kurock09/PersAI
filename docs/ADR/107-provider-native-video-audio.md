@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-06-01), corrected to live/doc truth (2026-06-02)
+Closed as partial program (2026-06-07). Landed items remain active; the remaining provider-native video audio / multi-image / Omni / audio-priced-ledger items are deferred indefinitely with no active follow-up program. See `## Program closure (2026-06-03)` for the landed/deferred split. HeyGen talking-avatar work is handled separately by ADR-109, and voice-cloning / Characters UX v2 follow-up is handled by ADR-111.
 
 ## Context
 

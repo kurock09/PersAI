@@ -2,16 +2,7 @@
 
 ## Status
 
-Accepted — **Slice A landed (frontend demo system, stubbed replies)**; Slice B not
-started. This ADR is the source of truth for the new premium landing redesign and its
-interactive hero demo, and is **executed by subagents under an orchestrator** (see
-"Execution model" below) — the orchestrator writes no production code, dispatches one
-coding subagent per task, and owns diff-review + the verification gate. Implementation
-is split into two bounded slices (Slice A — frontend demo system, stubbed replies;
-Slice B — public demo LLM endpoint). Slice A (tasks A1–A6) is **complete and verified
-(typecheck / lint / format / full web vitest all green; both-theme browser pass done)**.
-Slice B remains gated behind its own boundary review because it introduces a new public,
-unauthenticated trust surface, and is dispatched only on explicit founder go-ahead.
+Completed / closed (2026-06-07). Slice A landed the frontend demo system with stubbed replies and is the completed ADR-103 product scope. Slice B (public demo LLM endpoint) is **cancelled/deferred indefinitely** and is no longer an active backlog item, because it introduces a public unauthenticated trust/cost surface. If PersAI later needs a real public LLM landing demo, that work requires a new ADR with explicit abuse/rate-limit/credential/cost boundaries.
 
 ## Date
 
@@ -165,9 +156,8 @@ at every step.
 - **Reply source is abstracted behind a single `getReply()` adapter:**
   - Slice A: **stubbed** intent→reply mapping from `demo-script.ts` (deterministic,
     zero-risk, zero-backend).
-  - Slice B: **real, capped LLM** stream via `POST /api/demo/turn`, with graceful
-    fallback to the stub on error/limit/timeout — so calm/trust never breaks even if
-    the network fails.
+  - Slice B was originally considered as a **real, capped LLM** stream via
+    `POST /api/demo/turn`, but is cancelled/deferred indefinitely as of 2026-06-07.
 - **Hybrid by design:** autoplay and the first frame are always scripted; the LLM is
   only ever invoked during takeover. The takeover request carries the demo context
   *up to the current step* (compact transcript + assistant state: "Aurora, warm,
@@ -236,10 +226,10 @@ the whole page feeling alive.
 - Every new surface is verified in both `dark` (default) and `html.light` before a
   slice is declared clean, including artifact pills, sidebar, composer, and backdrop.
 
-### D7 — Slice B: public demo LLM endpoint (separate, gated)
+### D7 — Slice B: public demo LLM endpoint (cancelled/deferred indefinitely)
 
-Real LLM is delivered by a new narrow public endpoint that bypasses the runtime turn
-stack and calls provider-gateway directly:
+This was the historical design for a narrow public endpoint that would bypass the runtime turn
+stack and call provider-gateway directly:
 
 ```
 web HeroDemo → POST /api/demo/turn (@persai/api, public, unauthenticated)
@@ -255,10 +245,10 @@ Hard guardrails:
 - Streaming via the existing gateway `streamText` for the premium "typing" feel.
 - Graceful fallback to the scripted stub on any error/limit/timeout.
 
-Because this adds a new public, unauthenticated trust surface and a new dedicated
-credential, Slice B requires updates to `docs/API-BOUNDARY.md` and
-`docs/DATA-MODEL.md`, plus abuse-surface review against ADR-044/ADR-055, in the same
-slice that lands it.
+Because this would add a new public, unauthenticated trust surface and a new dedicated
+credential, it is not active ADR-103 work. Reviving it requires a new ADR with
+`docs/API-BOUNDARY.md` / `docs/DATA-MODEL.md` updates and abuse-surface review
+against ADR-044/ADR-055 in the same slice.
 
 ## File structure
 
@@ -291,8 +281,9 @@ Modify:
   reusable atoms into `demo/chat-atoms.tsx` (single source of truth) or remove.
 - `apps/web/messages/en.json` — add `landing.demo.*` and `landing.blocks.*`.
 
-Slice B adds an `/api/demo/turn` route (web BFF) + a public demo-turn service in
-`@persai/api`, plus the demo credential wiring.
+Cancelled Slice B would have added an `/api/demo/turn` route (web BFF) + a public
+demo-turn service in `@persai/api`, plus demo credential wiring. This is not active
+work after the 2026-06-07 closure.
 
 ## Motion, accessibility, and mobile rules
 
@@ -327,7 +318,7 @@ working model mirrors the ADR-102 session:
   2. `corepack pnpm run format:check`
   3. `corepack pnpm --filter @persai/web run typecheck`
   4. `corepack pnpm --filter @persai/web run test` (focused on the touched files)
-  Slice B additionally runs `@persai/api` typecheck + focused tests.
+  Cancelled Slice B would additionally have run `@persai/api` typecheck + focused tests.
 - **Sequencing:** tasks run in the documented order; a task is dispatched only after
   its predecessor is accepted. Independent tasks (e.g. i18n copy authoring) may run in
   parallel subagents when they do not touch the same files.
@@ -376,8 +367,8 @@ Each `A#`/`B#` below is a single dispatchable subagent task. Status legend:
     `prefers-reduced-motion`). The "…or type your own" affordance is the real composer
     placeholder, not a blinking typewriter.
   - `get-reply.ts` adapter was **not yet extracted**; Slice A calls `getStubReply()`
-    from `demo-script.ts` directly inside `HeroDemo`. **Slice B must introduce the
-    `getReply()` seam** (stub ↔ `/api/demo/turn`) at that call site.
+    from `demo-script.ts` directly inside `HeroDemo`. The previously planned Slice B
+    `getReply()` seam is cancelled/deferred indefinitely and is not active work.
   - `block-media.tsx` uses a **token gradient before/after composition** (cool→warm
     clip-path wipe), not a real photo. The swap point is the named
     `PHOTO_AFTER_LAYER_CLASS` / `PHOTO_BASE_CLASS`; dropping in a real `next/image`
@@ -386,16 +377,17 @@ Each `A#`/`B#` below is a single dispatchable subagent task. Status legend:
     duplicated per breakpoint.
   - `ChatBubble` was split into the more accurate `AssistantRow` (no bubble) +
     `UserBubble` (right-aligned bubble), matching `chat-message.tsx` exactly.
-- **Slice B — Public demo LLM endpoint (full-stack, gated; dispatched only on explicit
-  founder go-ahead):**
-  - `[ ]` **B1 — Endpoint + service.** `POST /api/demo/turn` (web BFF) + public
+- **Slice B — Public demo LLM endpoint (cancelled/deferred indefinitely; no active follow-up):**
+  - `[~]` **B1 — Endpoint + service.** `POST /api/demo/turn` (web BFF) + public
     demo-turn service in `@persai/api` → provider-gateway `generate-text`/`streamText`,
     dedicated demo credential, fixed system prompt, `maxOutputTokens` cap, ≤3 turns.
-  - `[ ]` **B2 — Abuse hardening.** IP rate-limit (ADR-044) + review against ADR-055;
+  - `[~]` **B2 — Abuse hardening.** IP rate-limit (ADR-044) + review against ADR-055;
     bot/origin guards.
-  - `[ ]` **B3 — Wire real reply.** Stream into `get-reply.ts` behind a feature flag,
+  - `[~]` **B3 — Wire real reply.** Stream into `get-reply.ts` behind a feature flag,
     with stub fallback on error/limit/timeout.
-  - `[ ]` **B4 — Boundary docs.** Update `docs/API-BOUNDARY.md` + `docs/DATA-MODEL.md`.
+  - `[~]` **B4 — Boundary docs.** Update `docs/API-BOUNDARY.md` + `docs/DATA-MODEL.md`.
+
+  **Closure note (2026-06-07):** these items are intentionally not active work. The stubbed interactive landing demo is the accepted completed shape for ADR-103. A real public LLM endpoint would be a new public attack/cost surface and must be designed in a new ADR if the product later needs it.
 
 ## Consequences
 
@@ -405,8 +397,8 @@ Each `A#`/`B#` below is a single dispatchable subagent task. Status legend:
   the real product UI — maximizing trust and conversion.
 - One coherent narrative instead of a noisy feature gallery; calm/premium preserved.
 - Clean seam: a single client island; SSR/SEO/LCP unaffected; copy stays in i18n.
-- Reply source abstraction (`getReply`) lets Slice A ship immediately on stubs and
-  Slice B add real LLM with zero frontend rewrite.
+- Stubbed replies let the landing demo ship with deterministic UX, zero backend cost,
+  and no public unauthenticated LLM surface.
 - Dark/light correctness is enforced by reusing tokens and existing shadow recipes.
 - Tiered interactivity keeps performance high and the system maintainable by a small
   team (change data, not code, to evolve the script/blocks).
@@ -416,9 +408,8 @@ Each `A#`/`B#` below is a single dispatchable subagent task. Status legend:
 - A new always-mounted client island on the landing increases hero JS weight
   (mitigated: small island, lazy-mounted blocks, no heavy deps beyond existing
   framer-motion).
-- Slice B introduces a new public, unauthenticated trust/cost surface that must be
-  rate-limited and abuse-reviewed; it carries a dedicated credential and recurring
-  inference cost.
+- A future real public LLM demo would introduce a public, unauthenticated trust/cost
+  surface; ADR-103 deliberately does not carry that work forward.
 - Premium polish (typography rhythm, timings, artifact quality) needs a few visual
   iterations; "build once and forget" is explicitly not the bar.
 - Replacing the 6-scene gallery removes some breadth; mitigated by the System section
@@ -428,10 +419,10 @@ Each `A#`/`B#` below is a single dispatchable subagent task. Status legend:
 
 - **Keep static landing + a marketing video.** Rejected: video adds weight, drifts
   from light/dark theming, and is less honest/trust-building than the live UI.
-- **Real LLM in the hero as MVP (no stub).** Rejected as the first step: no public
+- **Real LLM in the hero as MVP (no stub).** Rejected: no public
   endpoint exists; network latency/errors would damage the calm first impression and
-  break the curated narrative. Real LLM is deferred to gated Slice B with a stub
-  fallback.
+  break the curated narrative. The real LLM Slice B path is cancelled/deferred
+  indefinitely as of 2026-06-07.
 - **Keep the pseudo-3D `WorkflowSurface` language.** Rejected: founder judges it
   toy-like and not premium; replaced by flat product-window blocks.
 - **Make all lower blocks fully live like the hero.** Rejected: heavy and slow,
