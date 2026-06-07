@@ -634,28 +634,55 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       return;
     }
     const minTailChars = Math.ceil(minTokens * APPROX_ANTHROPIC_CHARS_PER_TOKEN);
-    let tailTextChars = 0;
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const totalTextChars = messages.reduce((total, message) => {
+      return total + this.measureAnthropicTextTailChars(message);
+    }, 0);
+    const maxCachedPrefixChars =
+      Math.floor((totalTextChars - minTailChars) / minTailChars) * minTailChars;
+    if (maxCachedPrefixChars < minTailChars) {
+      return;
+    }
+
+    let cachedPrefixTextChars = 0;
+    let candidate: {
+      index: number;
+      text: string;
+    } | null = null;
+    for (let index = 0; index < messages.length; index += 1) {
       const message = messages[index];
       if (message === undefined) {
         continue;
       }
+      cachedPrefixTextChars += this.measureAnthropicTextTailChars(message);
       const breakpointText = this.resolveAnthropicHistoryBreakpointText(message.content);
-      if (breakpointText !== null && tailTextChars >= minTailChars) {
-        messages[index] = {
-          ...message,
-          content: [
-            {
-              type: "text",
-              text: breakpointText,
-              cache_control: this.buildAnthropicCacheControl(promptCache)
-            }
-          ]
+      if (
+        message.role === "assistant" &&
+        breakpointText !== null &&
+        cachedPrefixTextChars <= maxCachedPrefixChars
+      ) {
+        candidate = {
+          index,
+          text: breakpointText
         };
-        return;
       }
-      tailTextChars += this.measureAnthropicTextTailChars(message);
     }
+    if (candidate === null) {
+      return;
+    }
+    const message = messages[candidate.index];
+    if (message === undefined) {
+      return;
+    }
+    messages[candidate.index] = {
+      ...message,
+      content: [
+        {
+          type: "text",
+          text: candidate.text,
+          cache_control: this.buildAnthropicCacheControl(promptCache)
+        }
+      ]
+    };
   }
 
   private shouldApplyAnthropicMovingHistoryBreakpoint(

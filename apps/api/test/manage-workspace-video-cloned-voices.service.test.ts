@@ -18,6 +18,24 @@ function makeAudioBuffer(): Buffer {
   return Buffer.from([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21]);
 }
 
+function makeWavBuffer(): Buffer {
+  const buffer = Buffer.alloc(48);
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(40, 4);
+  buffer.write("WAVE", 8);
+  buffer.write("fmt ", 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(48_000, 24);
+  buffer.writeUInt32LE(96_000, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(4, 40);
+  return buffer;
+}
+
 function makeRow(
   overrides: Partial<WorkspaceVideoClonedVoiceRecord> = {}
 ): WorkspaceVideoClonedVoiceRecord {
@@ -294,6 +312,26 @@ async function run(): Promise<void> {
     assert.equal(state.providerCalls, 0);
     assert.equal(state.rows.length, 0);
     console.log("✓ Test 1b: unsupported audio/webm fails before provider call");
+  }
+
+  // Test 1c: HeyGen validates WAV samples as audio/x-wav even when PersAI
+  // stores and validates the sample as audio/wav.
+  {
+    const { service, state } = makeHarness();
+    await service.createClonedVoice({
+      workspaceId: WORKSPACE_ID,
+      displayName: "Recorded Wav",
+      audioFile: {
+        buffer: makeWavBuffer(),
+        mimeType: "audio/wav",
+        originalFilename: "voice-clone.wav"
+      },
+      languageHint: "ru",
+      removeBackgroundNoise: true
+    });
+    assert.equal(state.providerInputs[0]?.audioMimeType, "audio/x-wav");
+    assert.equal(state.rows[0]?.sourceMetadata?.["source"]?.["mimeType"], "audio/wav");
+    console.log("✓ Test 1c: audio/wav is sent to HeyGen as audio/x-wav");
   }
 
   // Test 2: failed provider clone marks row failed and does not debit.

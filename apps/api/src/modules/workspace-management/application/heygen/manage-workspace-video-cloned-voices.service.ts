@@ -153,7 +153,7 @@ export class ManageWorkspaceVideoClonedVoicesService {
         credentialSecretId: TOOL_CREDENTIAL_IDS.tool_video_generate_heygen,
         displayName: input.displayName,
         audioBytesBase64: input.audioFile.buffer.toString("base64"),
-        audioMimeType: validated.effectiveMimeType,
+        audioMimeType: this.toHeyGenVoiceCloneAudioMimeType(validated.effectiveMimeType),
         languageHint: this.normalizeOptionalString(input.languageHint),
         removeBackgroundNoise: input.removeBackgroundNoise === true
       });
@@ -394,6 +394,13 @@ export class ManageWorkspaceVideoClonedVoicesService {
         message: "Voice clone samples must be MP3 or WAV audio."
       }
     });
+  }
+
+  private toHeyGenVoiceCloneAudioMimeType(mimeType: string): string {
+    if (mimeType === "audio/wav" || mimeType === "audio/wave" || mimeType === "audio/x-wav") {
+      return "audio/x-wav";
+    }
+    return mimeType;
   }
 
   /**

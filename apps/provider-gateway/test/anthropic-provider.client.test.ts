@@ -520,6 +520,106 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     }
   ]);
 
+  const bucketedMovingHistoryRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    promptCache: {
+      anthropicHistoryBreakpointMinTokens: 10
+    },
+    messages: [
+      {
+        role: "assistant",
+        content: "A".repeat(50)
+      },
+      {
+        role: "user",
+        content: "u".repeat(10)
+      },
+      {
+        role: "assistant",
+        content: "B".repeat(45)
+      },
+      {
+        role: "user",
+        content: "t".repeat(35)
+      }
+    ]
+  };
+  await client.generateText(bucketedMovingHistoryRequest);
+  assert.deepEqual(capturedGeneratePayload!.messages, [
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "A".repeat(50),
+          cache_control: {
+            type: "ephemeral"
+          }
+        }
+      ]
+    },
+    {
+      role: "user",
+      content: "u".repeat(10)
+    },
+    {
+      role: "assistant",
+      content: "B".repeat(45)
+    },
+    {
+      role: "user",
+      content: "t".repeat(35)
+    }
+  ]);
+
+  await client.generateText({
+    ...bucketedMovingHistoryRequest,
+    messages: [
+      ...bucketedMovingHistoryRequest.messages,
+      {
+        role: "user",
+        content: "x".repeat(10)
+      }
+    ]
+  });
+  assert.deepEqual(capturedGeneratePayload!.messages[0], {
+    role: "assistant",
+    content: [
+      {
+        type: "text",
+        text: "A".repeat(50),
+        cache_control: {
+          type: "ephemeral"
+        }
+      }
+    ]
+  });
+  assert.equal(capturedGeneratePayload!.messages[2]?.content, "B".repeat(45));
+
+  await client.generateText({
+    ...bucketedMovingHistoryRequest,
+    messages: [
+      ...bucketedMovingHistoryRequest.messages,
+      {
+        role: "user",
+        content: "x".repeat(30)
+      }
+    ]
+  });
+  assert.equal(capturedGeneratePayload!.messages[0]?.content, "A".repeat(50));
+  assert.deepEqual(capturedGeneratePayload!.messages[2], {
+    role: "assistant",
+    content: [
+      {
+        type: "text",
+        text: "B".repeat(45),
+        cache_control: {
+          type: "ephemeral"
+        }
+      }
+    ]
+  });
+
   const movingHistoryWithDeveloperRequest: ProviderGatewayTextGenerateRequest = {
     ...movingHistoryCacheRequest,
     developerInstructions: "Volatile working files and presence context.",
