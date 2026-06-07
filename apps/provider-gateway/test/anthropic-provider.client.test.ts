@@ -717,12 +717,16 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       {
         role: "assistant",
         content:
-          "[Relevant memories retrieved for this turn — may vary between turns]\n- Per-turn memory result that changes with the latest user input."
+          "[Relevant memories retrieved for this turn — may vary between turns]\n- Per-turn memory result that changes with the latest user input.",
+        cacheRole: "volatile_context"
       },
       ...movingHistoryCacheRequest.messages
     ]
   };
   await client.generateText(contextualMemoryMovingCacheRequest);
+  // The stable history breakpoint stays cached; the flagged volatile-context block is moved out of
+  // the prefix and re-projected as a `user` block immediately before the current user question, so
+  // its per-turn rotation cannot invalidate the cached history.
   assert.deepEqual(capturedGeneratePayload!.system, [
     {
       type: "text",
@@ -735,13 +739,30 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   assert.deepEqual(capturedGeneratePayload!.messages, [
     {
       role: "assistant",
-      content:
-        "[Relevant memories retrieved for this turn — may vary between turns]\n- Per-turn memory result that changes with the latest user input."
+      content: [
+        {
+          type: "text",
+          text: "Stable earlier answer that should become the moving Anthropic history breakpoint once the uncached tail grows.",
+          cache_control: {
+            type: "ephemeral"
+          }
+        }
+      ]
     },
     {
-      role: "assistant",
-      content:
-        "Stable earlier answer that should become the moving Anthropic history breakpoint once the uncached tail grows."
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text:
+            "<persai_contextual_memory>\n" +
+            "These are PersAI memories retrieved for this provider call. They are not the user's " +
+            "latest request; use them only as context while answering the existing conversation.\n\n" +
+            "[Relevant memories retrieved for this turn — may vary between turns]\n" +
+            "- Per-turn memory result that changes with the latest user input." +
+            "\n</persai_contextual_memory>"
+        }
+      ]
     },
     {
       role: "user",

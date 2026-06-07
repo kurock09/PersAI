@@ -1121,10 +1121,21 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   }
 
   private buildOpenAIInputItems(input: ProviderGatewayTextGenerateRequest): OpenAIBuiltInputItem[] {
-    const items: OpenAIBuiltInputItem[] = input.messages.map((message) => ({
-      role: message.role,
-      content: this.toOpenAIMessageContent(message.content)
-    }));
+    const volatileContextMessages: ProviderGatewayTextGenerateRequest["messages"] = [];
+    const items: OpenAIBuiltInputItem[] = [];
+    for (const message of input.messages) {
+      if (this.isOpenAIVolatileContextMessage(message)) {
+        volatileContextMessages.push(message);
+        continue;
+      }
+      items.push({
+        role: message.role,
+        content: this.toOpenAIMessageContent(message.content)
+      });
+    }
+    // Index of the current user question (before tool-history items are appended). Volatile
+    // context is spliced in just ahead of it so the question keeps the highest recency.
+    const userQuestionIndex = items.length - 1;
     for (const exchange of input.toolHistory ?? []) {
       items.push({
         type: "function_call",
@@ -1137,6 +1148,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         call_id: exchange.toolCall.id,
         output: exchange.toolResult.content
       });
+    }
+    // ADR-110 prompt-cache discipline: per-turn relevance memory is volatile, so it must sit
+    // OUTSIDE the cached prefix. Splice it in as a `user` block right before the current question
+    // (symmetric with Anthropic) so it never invalidates the cached history while staying high in
+    // recency for the model. Developer instructions stay a provider-native `developer` suffix.
+    if (volatileContextMessages.length > 0) {
+      const insertAt = userQuestionIndex >= 0 ? userQuestionIndex : items.length;
+      items.splice(insertAt, 0, this.buildOpenAIVolatileContextItem(volatileContextMessages));
     }
     // ADR-074 P1: per-turn developer instructions live OUTSIDE the cached `instructions` prefix.
     // Appending them as the last input item (after history and any tool exchange) keeps the
@@ -1154,6 +1173,30 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       });
     }
     return items;
+  }
+
+  private isOpenAIVolatileContextMessage(
+    message: ProviderGatewayTextGenerateRequest["messages"][number]
+  ): boolean {
+    return message.cacheRole === "volatile_context";
+  }
+
+  private buildOpenAIVolatileContextItem(
+    messages: ProviderGatewayTextGenerateRequest["messages"]
+  ): OpenAIBuiltInputItem {
+    const body = messages
+      .map((message) => String(message.content).trim())
+      .filter((text) => text.length > 0)
+      .join("\n\n");
+    return {
+      role: "user",
+      content:
+        "<persai_contextual_memory>\n" +
+        "These are PersAI memories retrieved for this provider call. They are not the user's " +
+        "latest request; use them only as context while answering the existing conversation.\n\n" +
+        body +
+        "\n</persai_contextual_memory>"
+    };
   }
 
   private toOpenAITools(input: ProviderGatewayTextGenerateRequest): OpenAIBuiltTool[] {

@@ -3,47 +3,132 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
-## 2026-06-07 - Anthropic contextual-memory cache-write hotfix
+## 2026-06-07 - ADR-112 authored (context/memory/tool-surface quality program)
 
 ### Baseline
 
-- Starting SHA: `fc42a8626dfee36c0aec4505c76817c244a28155`
-- Scope: live `persai-dev` Anthropic cache-write regression investigation and minimal provider-gateway hotfix.
+- Starting SHA: `b4fbe24c` (working tree concurrently dirty with ADR-111 UI/video work and the ADR-110 contextual-memory cache fix; ADR-112 authoring is doc-only).
+- Scope: deep read-only analysis + new program ADR. No production code in this session.
 
 ### What changed & why
 
-Live cluster receipts for runtime session `78ae7b44-b335-49e4-94b3-c684d1bd7fcf` showed one initial Anthropic write of `24,751` cache-creation tokens, then repeated short-turn writes around `10.5k` tokens while cache reads stayed at `14,138`. The chat had `168` stored messages, `durable_memory_contextual` was active, and runtime code intentionally labels that block as per-turn non-stable while prepending it before conversation history. That made the moving-history breakpoint include a changing memory prefix, so Anthropic had to rewrite the same history segment on every turn.
-
-Provider-gateway now skips the Anthropic moving-history message breakpoint when the hydrated message list contains the non-stable contextual-memory block. The stable system/tools cache remains enabled, and moving-history cache still applies for message lists without that volatile prefix.
+Authored `docs/ADR/112-context-memory-and-tool-surface-quality-program.md`. Five read-only GPT-5.4 audits mapped the truth/defects for durable memory, prompt/developer assembly, file aliases, background jobs/turns, and tool descriptors. The ADR encodes seven workstreams (A-G) and a 9-slice subagent-coded backlog, with the explicit orchestration rule (parent orchestrates/audits, GPT-5.4 subagents implement) and the memory methodology (model-as-judge + embedding dedup + periodic consolidation + lifecycle; heuristics only as a guardrail). Registered in `docs/CHANGELOG.md`.
 
 ### Files touched
 
-- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
-- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `docs/ADR/112-context-memory-and-tool-surface-quality-program.md` (new)
 - `docs/CHANGELOG.md`
 - `docs/SESSION-HANDOFF.md`
 
 ### Verification
 
-- `corepack pnpm --filter @persai/provider-gateway exec tsx test/run-suite.ts` - PASS
-- `corepack pnpm --filter @persai/provider-gateway run typecheck` - PASS
-- `corepack pnpm --filter @persai/provider-gateway run lint` - PASS
-- `corepack pnpm -r --if-present run lint` - PASS
-- `corepack pnpm run format:check` - PASS
-- `corepack pnpm --filter @persai/api run typecheck` - PASS
-- `corepack pnpm --filter @persai/web run typecheck` - PASS
-- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
-- `git diff --check` - PASS
-- `corepack pnpm run test` - PASS
+- Doc-only session; no code/tests run. Verification gate applies per implementation slice, not to this authoring step.
 
 ### Risks / residuals
 
-- This is a cost-control hotfix, not the final optimal Anthropic cache architecture. Turns with contextual memory now keep stable system/tools cache but intentionally do not use moving-history message cache until runtime can move per-turn contextual memory outside the cache prefix.
-- After deploy, live verification should confirm contextual-memory Anthropic turns show `cachedInputTokens` for the stable prefix and no repeated `~10.5k` `cacheCreationInputTokens`.
+- Live-data memory backfill (Slice 4) and the alias-scheme migration (Slice 5) are the highest-risk slices; both require careful single-slice execution and (for backfill) operator step-up.
+- Prompt-cache stability (ADR-110) must not regress in Slices 2/6.
 
 ### Next recommended step
 
-Deploy this hotfix, then ask the operator to send two short Anthropic turns in the same loaded chat and inspect live `runtime_turn_receipts` / Anthropic logs for cache-write suppression.
+Begin ADR-112 Slice 1 (memory capture schema + classification + web-chat gate) as a bounded GPT-5.4 subagent task on a clean baseline, after the concurrent ADR-110/ADR-111 working-tree changes are committed.
+
+## 2026-06-07 - ADR-111 post-smoke UX/video cleanup
+
+### Baseline
+
+- Starting SHA: `fc42a8626dfee36c0aec4505c76817c244a28155`
+- Scope: post-live-smoke cleanup for mobile video preview/player polish, demo voice selection, talking-avatar aspect ratio, and cloned-voice UI noise.
+- Note: this work is stacked in a dirty tree that already contained provider prompt-cache changes in `apps/provider-gateway/*` plus existing docs edits. Those provider changes are intentionally not part of this UI/video cleanup.
+
+### What changed & why
+
+Inline chat video previews now keep the Android-safe deterministic placeholder approach but size the visible card from video metadata once available, so mobile previews no longer stay forced into a generic `16:9` box. The visible card uses filename/duration/play affordances instead of a blurred frame dependency.
+
+The video lightbox no longer swallows clicks on the playing `<video>`, so after chrome auto-hides the user can tap the actual video surface to restore controls without closing the lightbox.
+
+Characters cleanup: the locked demo character now prefers a female localized voice when the catalog contains one; cloned-voice cards use concise linked-persona copy and clearer default-action wording; the clone modal top copy is collapsed into one quiet guidance block.
+
+Talking-avatar runtime generation now treats explicit `talkingAvatarAspectRatio` as authoritative. When no explicit request exists, it avoids letting a generic landscape `16:9` catalog default silently decide HeyGen talking-avatar renders and defers that case to provider `auto` / talking-avatar source policy instead.
+
+### Files touched
+
+- `apps/web/app/app/_components/chat-message.tsx`
+- `apps/web/app/app/_components/chat-message.test.tsx`
+- `apps/web/app/app/_components/image-lightbox.tsx`
+- `apps/web/app/app/_components/image-lightbox.test.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/assistant-settings.test.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`
+- `apps/runtime/test/runtime-video-generate-tool.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run test -- app/app/_components/image-lightbox.test.tsx app/app/_components/chat-message.test.tsx app/app/_components/assistant-settings.test.tsx` - PASS (`66` files / `701` tests due existing web test script behavior)
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/runtime-video-generate-tool.service.test.ts runRuntimeVideoGenerateToolServiceTest` - PASS
+- `corepack pnpm --filter @persai/web run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `corepack pnpm run format:check` - PASS
+- `corepack pnpm -r --if-present run lint` - PASS
+- `corepack pnpm --filter @persai/api run typecheck` - PASS
+- `git diff --check` - PASS
+
+### Risks / residuals
+
+- Chat preview still intentionally avoids rendering the decoded first frame on Android/Capacitor; when metadata never arrives, the card uses a portrait-safe deterministic fallback rather than a true thumbnail.
+- Exact source portrait dimensions are not yet materialized into the runtime talking-avatar path; the no-explicit-aspect fallback now defers generic landscape defaults to provider `auto` rather than inventing a runtime-side portrait ratio.
+- Existing dirty provider prompt-cache files (`apps/provider-gateway/src/modules/providers/{anthropic,openai}/...` and tests) remain separate from this cleanup and should be reviewed/committed as their own hotfix scope.
+
+### Next recommended step
+
+Run a mobile/Capacitor smoke for inline preview geometry, lightbox tap-to-controls recovery, and one talking-avatar render using a portrait persona. If accepted, commit this cleanup separately from the provider prompt-cache hotfix unless the operator explicitly wants one combined commit.
+
+## 2026-06-07 - Contextual-memory prompt-cache PROD fix (typed flag)
+
+### Baseline
+
+- Starting SHA: `fc42a8626dfee36c0aec4505c76817c244a28155`
+- Scope: turn the earlier contextual-memory cache hotfix into a PROD-quality fix. Replace fragile header string-matching with a typed contract flag, and project the volatile block with one symmetric provider schema.
+
+### What changed & why
+
+Live cluster receipts for runtime session `78ae7b44-b335-49e4-94b3-c684d1bd7fcf` showed one initial Anthropic write of `24,751` cache-creation tokens, then repeated short-turn writes around `10.5k` tokens while cache reads stayed at `14,138`. The chat had `168` stored messages, the moving-history marker itself stayed on the same stored assistant message across the sampled turns, and runtime code intentionally labels `durable_memory_contextual` as query-dependent / non-stable while prepending it before conversation history. That meant the Anthropic history breakpoint could include a potentially changing memory prefix before the otherwise-stable history marker.
+
+The PROD fix makes the volatility a first-class typed property instead of a string heuristic. `ProviderGatewayTextMessage` now carries `cacheRole?: "volatile_context"`, set by the runtime when it builds the contextual-memory message in `turn-context-hydration.service.ts`. Both provider clients detect the flag (not the block header text), drop the message from the cacheable prefix, and re-project it as a `user` block spliced in immediately before the current user question — symmetric across Anthropic and OpenAI. This keeps the user's actual question highest in recency, keeps the stable system/tools cache and the Anthropic moving-history breakpoint hot, and never lets per-turn memory rotation invalidate the cached prefix. OpenAI per-turn developer instructions stay a provider-native trailing `developer` suffix; Anthropic developer instructions stay the `user`-wrapped suffix (Anthropic has no `developer` role). `cross_session_carry_over` and `rolling_session_synopsis` are stable-when-present and remain in the cached prefix unchanged.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts` (new `cacheRole` typed flag)
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts` (set flag on contextual block)
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/provider-gateway run test` - PASS
+- `corepack pnpm --filter @persai/runtime run test` - PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` - PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` - PASS
+- `corepack pnpm --filter @persai/provider-gateway --filter @persai/runtime -r --if-present run lint` - PASS
+
+### Risks / residuals
+
+- Provider/runtime deploy independently: during the transition window an old provider-gateway ignores the new flag (old in-prefix behavior, no regression) and an old runtime omits the flag (no optimization until both deploy). Safe both ways.
+- Provider prompt order for contextual memory intentionally changes: the block now sits as a `user` context block right before the question. Live smoke should confirm answer quality still uses retrieved memory.
+- After deploy, live verification should confirm contextual-memory Anthropic turns keep history cache reads and do not repeat `~10.5k` `cacheCreationInputTokens` on short turns.
+- Full-repo `format:check` / `pnpm -r lint` / `api`/`web` typecheck were intentionally not re-run here because the working tree is concurrently dirty with a separate UI/video cleanup; run the full gate at commit time once the tree settles.
+
+### Next recommended step
+
+Hold commit until the concurrent UI/video cleanup in the dirty tree settles, then commit this cache fix as its own scope (contract + runtime + provider-gateway + tests + docs). After deploy, ask the operator to send two short Anthropic turns in the same loaded chat and inspect live `runtime_turn_receipts` / Anthropic logs for cache-write suppression.
 
 ## 2026-06-07 - ADR-111 Slice 5 voice clone UI
 

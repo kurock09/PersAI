@@ -399,8 +399,8 @@ function VoiceCloneCard({
       data-testid={`voice-clone-card-${voice.status}`}
       className="rounded-2xl border border-border/60 bg-surface p-3"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-sm font-medium text-text">{voice.displayName}</p>
             {voice.isDefault ? (
@@ -409,7 +409,7 @@ function VoiceCloneCard({
               </span>
             ) : null}
           </div>
-          <p className="mt-1 text-xs text-text-muted">{voiceLabel}</p>
+          <p className="mt-1 truncate text-[11px] text-text-muted">{voiceLabel}</p>
           <p
             className={cn(
               "mt-1 text-[11px]",
@@ -425,10 +425,12 @@ function VoiceCloneCard({
             {statusLabel}
           </p>
           {linkedSummary ? (
-            <p className="mt-1 text-[11px] text-text-subtle">{linkedSummary}</p>
+            <p className="mt-1 truncate text-[11px] text-text-subtle" title={linkedSummary}>
+              {linkedSummary}
+            </p>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1">
           <VoicePreviewButton
             previewAudioUrl={voice.previewAudioUrl}
             voiceLabel={voice.displayName}
@@ -438,7 +440,7 @@ function VoiceCloneCard({
             <button
               type="button"
               onClick={onMakeDefault}
-              className="inline-flex h-7 items-center justify-center rounded-full border border-border px-2 text-[11px] text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
+              className="inline-flex h-7 items-center justify-center rounded-full px-2 text-[10.5px] font-medium text-text-subtle transition-colors hover:bg-surface-raised/70 hover:text-text"
             >
               {makeDefaultLabel}
             </button>
@@ -1735,9 +1737,28 @@ export function AssistantSettings({
       voiceCatalog.find(
         (voice) =>
           normalizeVoiceLanguageBucket(voice.language) === preferredLanguage &&
+          voice.gender === "female" &&
           typeof voice.previewAudioUrl === "string" &&
           voice.previewAudioUrl.length > 0
       ) ??
+      voiceCatalog.find(
+        (voice) =>
+          voice.gender === "female" &&
+          typeof voice.previewAudioUrl === "string" &&
+          voice.previewAudioUrl.length > 0
+      ) ??
+      voiceCatalog.find(
+        (voice) =>
+          normalizeVoiceLanguageBucket(voice.language) === preferredLanguage &&
+          typeof voice.previewAudioUrl === "string" &&
+          voice.previewAudioUrl.length > 0
+      ) ??
+      voiceCatalog.find(
+        (voice) =>
+          normalizeVoiceLanguageBucket(voice.language) === preferredLanguage &&
+          voice.gender === "female"
+      ) ??
+      voiceCatalog.find((voice) => voice.gender === "female") ??
       voiceCatalog.find(
         (voice) => typeof voice.previewAudioUrl === "string" && voice.previewAudioUrl.length > 0
       ) ??
@@ -1786,21 +1807,13 @@ export function AssistantSettings({
       if (linked.length === 0) {
         continue;
       }
-      const firstNames = linked.slice(0, 2).map((persona) => persona.displayName);
-      const moreCount = linked.length - firstNames.length;
       map.set(
         voice.id,
-        firstNames.length === 1 && moreCount === 0
-          ? t("voicesLinkedOne", { name: firstNames[0]! })
-          : moreCount > 0
-            ? t("voicesLinkedMany", {
-                names: firstNames.join(", "),
-                count: linked.length
-              })
-            : t("voicesLinkedMany", {
-                names: firstNames.join(", "),
-                count: linked.length
-              })
+        linked.length === 1
+          ? t("voicesLinkedOne", { name: linked[0]!.displayName })
+          : t("voicesLinkedMany", {
+              count: linked.length
+            })
       );
     }
     return map;
@@ -4961,14 +4974,7 @@ export function AssistantSettings({
                 >
                   <div className="relative mx-4 my-10 w-full max-w-lg rounded-2xl border border-border bg-surface p-5 shadow-xl">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h2 className="text-sm font-semibold text-text">
-                          {t("voicesCreateTitle")}
-                        </h2>
-                        <p className="mt-1 text-xs leading-5 text-text-muted">
-                          {t("voicesCreateSubtitle")}
-                        </p>
-                      </div>
+                      <h2 className="text-sm font-semibold text-text">{t("voicesCreateTitle")}</h2>
                       <button
                         type="button"
                         onClick={closeClonedVoiceModal}
@@ -4979,9 +4985,8 @@ export function AssistantSettings({
                       </button>
                     </div>
 
-                    <div className="mt-4 rounded-xl border border-border/60 bg-surface-raised/20 p-3 text-xs text-text-muted">
-                      <p className="font-medium text-text">{t("voicesQualityTitle")}</p>
-                      <p className="mt-1 leading-5">{t("voicesQualityBody")}</p>
+                    <div className="mt-4 rounded-xl border border-border/60 bg-surface-raised/20 p-3 text-xs leading-5 text-text-muted">
+                      {t("voicesCreateGuidance")}
                     </div>
 
                     <div className="mt-4">

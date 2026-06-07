@@ -502,7 +502,48 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   });
   assert.equal(capturedGeneratePayload!.prompt_cache_key, "persai:ordinary_chat:bundle-hash-1:b03");
   assert.equal(capturedGeneratePayload!.prompt_cache_retention, "in_memory");
-  const baselineGenerateInput = capturedGeneratePayload!.input;
+  const baselineGenerateInput = capturedGeneratePayload!.input as unknown[];
+
+  await client.generateText({
+    ...request,
+    developerInstructions: "Volatile working files and presence context.",
+    messages: [
+      {
+        role: "assistant",
+        content:
+          "[Relevant memories retrieved for this turn — may vary between turns]\n- Per-turn memory result that changes with the latest user input.",
+        cacheRole: "volatile_context"
+      },
+      ...request.messages
+    ]
+  });
+  // The flagged volatile-context block is moved out of the cached prefix and projected as a `user`
+  // block immediately before the current user question (symmetric with Anthropic). Developer
+  // instructions stay a provider-native `developer` suffix at the very end.
+  assert.deepEqual(capturedGeneratePayload!.input, [
+    baselineGenerateInput[0],
+    baselineGenerateInput[1],
+    {
+      role: "user",
+      content:
+        "<persai_contextual_memory>\n" +
+        "These are PersAI memories retrieved for this provider call. They are not the user's " +
+        "latest request; use them only as context while answering the existing conversation.\n\n" +
+        "[Relevant memories retrieved for this turn — may vary between turns]\n" +
+        "- Per-turn memory result that changes with the latest user input." +
+        "\n</persai_contextual_memory>"
+    },
+    baselineGenerateInput[2],
+    {
+      role: "developer",
+      content: [
+        {
+          type: "input_text",
+          text: "Volatile working files and presence context."
+        }
+      ]
+    }
+  ]);
 
   const structuredRequest: ProviderGatewayTextGenerateRequest = {
     ...request,

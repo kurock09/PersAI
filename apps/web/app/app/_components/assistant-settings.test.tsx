@@ -2946,6 +2946,46 @@ describe("characters section", () => {
     });
   });
 
+  it("State A (locked): demo character prefers a female localized voice", async () => {
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: [
+        {
+          voiceId: "voice-ru-male-1",
+          name: "Andrei",
+          language: "Russian",
+          gender: "male",
+          previewAudioUrl: "https://cdn.heygen.com/andrei.mp3",
+          languageBucket: "ru"
+        },
+        {
+          voiceId: "voice-ru-female-1",
+          name: "Alena",
+          language: "Russian",
+          gender: "female",
+          previewAudioUrl: "https://cdn.heygen.com/alena.mp3",
+          languageBucket: "ru"
+        }
+      ]
+    });
+
+    render(
+      <NextIntlClientProvider locale="ru" messages={ruMessages}>
+        <AssistantSettings
+          data={makeAppData({ plan: makePlanData({ talkingVideoEnabled: false }) })}
+          initialSection="characters"
+        />
+      </NextIntlClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Софи")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Голос - Alena")).toBeInTheDocument();
+    expect(screen.queryByText("Голос - Andrei")).toBeNull();
+  });
+
   it("State A (locked) with real personas: shows saved personas in shared disabled cards and no delete controls", async () => {
     assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
       personas: [
@@ -3325,6 +3365,10 @@ describe("characters section", () => {
   it("i18n keys exist for both locales with the cleaner voice label", () => {
     expect(enMessages.settings.charactersVoiceLabel).toBe("Voice - {voice}");
     expect(ruMessages.settings.charactersVoiceLabel).toBe("Голос - {voice}");
+    expect(enMessages.settings.voicesMakeDefault).toBe("Use by default");
+    expect(ruMessages.settings.voicesMakeDefault).toBe("Использовать по умолчанию");
+    expect(enMessages.settings.voicesCreateGuidance.length).toBeGreaterThan(0);
+    expect(ruMessages.settings.voicesCreateGuidance.length).toBeGreaterThan(0);
     expect(enMessages.settings.charactersUsageHint.length).toBeGreaterThan(0);
     expect(ruMessages.settings.charactersUsageHint.length).toBeGreaterThan(0);
     expect(enMessages.settings.charactersLockedBanner.length).toBeGreaterThan(0);
@@ -3662,6 +3706,22 @@ describe("characters section", () => {
   });
 
   it("renders ready, pending, and failed cloned voices and keeps pending/failed out of persona selection", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [
+        {
+          id: "persona-linked",
+          displayName: "Kurock",
+          portraitImageUrl: "",
+          heygenVoiceId: "voice-default",
+          heygenVoiceLabel: "Warm Voice",
+          clonedVoiceId: "clone-ready",
+          clonedVoiceDisplayName: "Ready Voice",
+          createdAt: new Date().toISOString()
+        }
+      ],
+      limit: 3,
+      creationVcoinCost: 20
+    });
     assistantApiMocks.getWorkspaceVideoClonedVoices.mockResolvedValue({
       clonedVoices: [
         {
@@ -3669,7 +3729,7 @@ describe("characters section", () => {
           displayName: "Ready Voice",
           status: "ready",
           languageHint: "en",
-          isDefault: true,
+          isDefault: false,
           previewAudioUrl: "https://cdn.example.com/ready.mp3",
           createdAt: new Date().toISOString()
         },
@@ -3711,6 +3771,8 @@ describe("characters section", () => {
     expect(screen.getByText("Ready")).toBeInTheDocument();
     expect(screen.getByText("Pending")).toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByText("Linked to Kurock")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use by default" })).toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole("button", { name: "Create character" }));
     const dialog = await screen.findByRole("dialog");
@@ -3804,6 +3866,11 @@ describe("characters section", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Clone a voice" }));
     const dialog = await screen.findByRole("dialog");
 
+    expect(
+      within(dialog).getByText(
+        "One clean sample is enough. Use one speaker in a quiet room and record 20-60 seconds of steady speech."
+      )
+    ).toBeInTheDocument();
     expect(
       screen.getAllByText("Cost: 50 VC. Balance: 10 VC. Limit: 5 voices").length
     ).toBeGreaterThan(0);

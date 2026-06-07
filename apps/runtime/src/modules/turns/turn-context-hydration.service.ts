@@ -1559,7 +1559,11 @@ export class TurnContextHydrationService {
     }
     return {
       role: "assistant",
-      content: formatDurableMemoryContextualBlock(lines)
+      content: formatDurableMemoryContextualBlock(lines),
+      // ADR-110: per-turn relevance-retrieved memory is volatile and must never sit inside the
+      // cached prompt prefix. The typed flag lets each provider client reposition it next to the
+      // latest user message without relying on fragile string matching of the block header.
+      cacheRole: "volatile_context"
     };
   }
 

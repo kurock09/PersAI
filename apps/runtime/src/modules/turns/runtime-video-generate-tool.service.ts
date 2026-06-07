@@ -1713,20 +1713,53 @@ export class RuntimeVideoGenerateToolService {
         audio: params.audioMode === "provider_native_audio"
       };
     }
-    if (params.providerId === "heygen") {
-      const requestedAspectRatio = params.request.talkingAvatarAspectRatio ?? null;
-      const configuredAspectRatio = params.providerParameters?.aspectRatio ?? null;
-      if (
-        requestedAspectRatio !== null &&
-        (configuredAspectRatio === null || configuredAspectRatio === "auto")
-      ) {
-        return {
-          ...(params.providerParameters ?? {}),
-          aspectRatio: requestedAspectRatio
-        };
-      }
+    if (params.providerId === "heygen" && params.request.mode === "talking_avatar") {
+      return {
+        ...(params.providerParameters ?? {}),
+        aspectRatio: this.resolveTalkingAvatarAspectRatio({
+          requestedAspectRatio: params.request.talkingAvatarAspectRatio ?? null,
+          configuredAspectRatio: params.providerParameters?.aspectRatio ?? null
+        })
+      };
     }
     return params.providerParameters ?? null;
+  }
+
+  private resolveTalkingAvatarAspectRatio(params: {
+    requestedAspectRatio:
+      | RuntimeVideoGenerateRequest["talkingAvatarAspectRatio"]
+      | "auto"
+      | "4:5"
+      | "5:4"
+      | null
+      | undefined;
+    configuredAspectRatio: "auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4" | null | undefined;
+  }): "auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4" {
+    if (
+      params.requestedAspectRatio === "auto" ||
+      params.requestedAspectRatio === "16:9" ||
+      params.requestedAspectRatio === "9:16" ||
+      params.requestedAspectRatio === "1:1" ||
+      params.requestedAspectRatio === "4:5" ||
+      params.requestedAspectRatio === "5:4"
+    ) {
+      return params.requestedAspectRatio;
+    }
+    if (params.configuredAspectRatio === "auto") {
+      return "auto";
+    }
+    if (
+      params.configuredAspectRatio === "9:16" ||
+      params.configuredAspectRatio === "1:1" ||
+      params.configuredAspectRatio === "4:5"
+    ) {
+      return params.configuredAspectRatio;
+    }
+    // Do not let a generic cinematic landscape default silently decide the
+    // talking-avatar output. If the user/model did not provide explicit intent
+    // and the catalog default is landscape-oriented, defer to HeyGen's
+    // talking-avatar/source policy rather than inventing a portrait ratio here.
+    return "auto";
   }
 
   private resolveVoiceIdsForAttempt(

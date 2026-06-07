@@ -81,8 +81,6 @@ type AnthropicBuiltMessage = {
 };
 
 const APPROX_ANTHROPIC_CHARS_PER_TOKEN = 4;
-const DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER =
-  "[Relevant memories retrieved for this turn — may vary between turns]";
 
 @Injectable()
 export class AnthropicProviderClient implements ProviderWarmableClient {
@@ -486,10 +484,21 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   private buildAnthropicMessages(
     input: ProviderGatewayTextGenerateRequest
   ): AnthropicBuiltMessage[] {
-    const messages: AnthropicBuiltMessage[] = input.messages.map((message) => ({
-      role: message.role,
-      content: this.toAnthropicMessageContent(message.content)
-    }));
+    const volatileContextMessages: ProviderGatewayTextGenerateRequest["messages"] = [];
+    const messages: AnthropicBuiltMessage[] = [];
+    for (const message of input.messages) {
+      if (this.isAnthropicVolatileContextMessage(message)) {
+        volatileContextMessages.push(message);
+        continue;
+      }
+      messages.push({
+        role: message.role,
+        content: this.toAnthropicMessageContent(message.content)
+      });
+    }
+    // Index of the current user question within `messages` (before tool-history is appended).
+    // Volatile context is spliced in just ahead of it so the question keeps the highest recency.
+    const userQuestionIndex = messages.length - 1;
     for (const exchange of input.toolHistory ?? []) {
       messages.push({
         role: "assistant",
@@ -516,6 +525,16 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     }
     if (this.shouldApplyAnthropicMovingHistoryBreakpoint(input)) {
       this.applyAnthropicMovingHistoryBreakpoint(messages, input.promptCache);
+    }
+    if (volatileContextMessages.length > 0) {
+      const insertAt = userQuestionIndex >= 0 ? userQuestionIndex : messages.length;
+      messages.splice(
+        insertAt,
+        0,
+        ...volatileContextMessages.map((message) =>
+          this.buildAnthropicVolatileContextMessage(message)
+        )
+      );
     }
     const developerInstructionsSuffix = this.buildAnthropicDeveloperInstructionsSuffix(input);
     if (developerInstructionsSuffix !== null) {
@@ -694,21 +713,33 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     if (!Number.isFinite(minTokens) || typeof minTokens !== "number" || minTokens <= 0) {
       return false;
     }
-    if (input.messages.some((message) => this.isAnthropicNonStablePrefixMessage(message))) {
-      return false;
-    }
     const classification = input.requestMetadata?.classification;
     return classification === undefined || classification === "main_turn";
   }
 
-  private isAnthropicNonStablePrefixMessage(
+  private isAnthropicVolatileContextMessage(
     message: ProviderGatewayTextGenerateRequest["messages"][number]
   ): boolean {
-    return (
-      message.role === "assistant" &&
-      typeof message.content === "string" &&
-      message.content.trim().startsWith(DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER)
-    );
+    return message.cacheRole === "volatile_context";
+  }
+
+  private buildAnthropicVolatileContextMessage(
+    message: ProviderGatewayTextGenerateRequest["messages"][number]
+  ): AnthropicBuiltMessage {
+    return {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text:
+            "<persai_contextual_memory>\n" +
+            "These are PersAI memories retrieved for this provider call. They are not the user's " +
+            "latest request; use them only as context while answering the existing conversation.\n\n" +
+            String(message.content).trim() +
+            "\n</persai_contextual_memory>"
+        }
+      ]
+    };
   }
 
   private resolveAnthropicHistoryBreakpointText(

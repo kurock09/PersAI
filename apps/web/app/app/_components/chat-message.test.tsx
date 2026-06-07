@@ -576,7 +576,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 });
 
 describe("ChatMessageBubble — video attachment preview", () => {
-  it("renders a deterministic visible play placeholder before metadata or frames load", () => {
+  it("renders a deterministic premium play placeholder before metadata or frames load", () => {
     render(
       <ChatMessageBubble
         message={makeUserMessage("committed", {
@@ -588,7 +588,7 @@ describe("ChatMessageBubble — video attachment preview", () => {
 
     expect(screen.getByRole("button", { name: "openVideo" })).toBeInTheDocument();
     expect(screen.getByTestId("chat-video-preview-placeholder")).toBeInTheDocument();
-    expect(screen.getByText("Video")).toBeInTheDocument();
+    expect(screen.getAllByText("clip.mp4").length).toBeGreaterThan(0);
   });
 
   it("opens the video lightbox through the existing card click path", () => {
@@ -620,7 +620,7 @@ describe("ChatMessageBubble — video attachment preview", () => {
     );
   });
 
-  it("updates the compact duration label after metadata loads", () => {
+  it("updates the compact duration label and preview geometry after metadata loads", () => {
     const { container } = render(
       <ChatMessageBubble
         message={makeUserMessage("committed", {
@@ -639,10 +639,22 @@ describe("ChatMessageBubble — video attachment preview", () => {
       configurable: true,
       value: 65
     });
+    Object.defineProperty(video, "videoWidth", {
+      configurable: true,
+      value: 720
+    });
+    Object.defineProperty(video, "videoHeight", {
+      configurable: true,
+      value: 1280
+    });
 
     fireEvent.loadedMetadata(video);
 
     expect(screen.getByText("1:05")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveAttribute(
+      "data-aspect-ratio",
+      "0.5625"
+    );
   });
 });
 

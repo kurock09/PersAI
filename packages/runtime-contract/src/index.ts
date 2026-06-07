@@ -2781,6 +2781,15 @@ export interface RuntimeTurnAutoCompactionState {
 export interface ProviderGatewayTextMessage {
   role: "user" | "assistant";
   content: ProviderGatewayMessageContent;
+  /**
+   * ADR-110 prompt-cache discipline: marks a per-turn, query-dependent context message
+   * (e.g. relevance-retrieved `durable_memory_contextual`) that providers MUST project
+   * OUTSIDE the cached prompt prefix. Such messages are repositioned by the provider client
+   * next to the latest user message so their per-turn rotation can never invalidate the stable
+   * system / history prompt-cache breakpoints. Omit (undefined) for normal turn messages, which
+   * remain part of the cacheable prefix in their natural conversation order.
+   */
+  cacheRole?: "volatile_context";
 }
 
 export interface ProviderGatewayTextContentBlock {

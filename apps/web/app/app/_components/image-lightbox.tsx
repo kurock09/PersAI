@@ -670,7 +670,6 @@ export function ImageLightbox({
             muted={videoMuted}
             disableRemotePlayback
             className="max-h-full max-w-full object-contain"
-            onClick={(e) => e.stopPropagation()}
             onPlay={() => setVideoPlaying(true)}
             onPause={() => setVideoPlaying(false)}
             onEnded={() => setVideoPlaying(false)}

@@ -915,6 +915,31 @@ function formatVideoDuration(totalSeconds: number): string | null {
   return `${String(minutes)}:${String(seconds).padStart(2, "0")}`;
 }
 
+function resolveVideoPreviewFrame(aspectRatio: number | null): {
+  width: number;
+  height: number;
+  aspectRatio: number;
+} {
+  const fallbackAspectRatio = 4 / 5;
+  const resolvedAspectRatio =
+    typeof aspectRatio === "number" && Number.isFinite(aspectRatio) && aspectRatio > 0
+      ? aspectRatio
+      : fallbackAspectRatio;
+  const maxWidth = 240;
+  const maxHeight = 288;
+  let width = maxWidth;
+  let height = Math.round(width / resolvedAspectRatio);
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = Math.round(height * resolvedAspectRatio);
+  }
+  return {
+    width,
+    height,
+    aspectRatio: resolvedAspectRatio
+  };
+}
+
 /**
  * Video attachment preview rendered inline in a chat bubble. Mirrors the
  * still-image card shape (max-h-48, ~240px wide, rounded-[14px], plain
@@ -950,7 +975,12 @@ function VideoAttachmentPreview({
 }) {
   const t = useTranslations("chat");
   const [durationSec, setDurationSec] = useState<number | null>(null);
+  const [videoAspectRatio, setVideoAspectRatio] = useState<number | null>(null);
   const durationLabel = durationSec !== null ? formatVideoDuration(durationSec) : null;
+  const previewFrame = useMemo(
+    () => resolveVideoPreviewFrame(videoAspectRatio),
+    [videoAspectRatio]
+  );
 
   if (!fullUrl || isPending) {
     return (
@@ -972,12 +1002,17 @@ function VideoAttachmentPreview({
           "group relative block overflow-hidden transition focus:ring-2 focus:ring-accent focus:outline-none",
           variant === "user-media"
             ? `${USER_MEDIA_CARD_RADIUS_CLASS} bg-transparent`
-            : "rounded-[14px] border border-border hover:border-border-strong"
+            : "rounded-[18px] border border-border/70 hover:border-border-strong"
         )}
       >
         <div
           data-testid="chat-video-preview-placeholder"
-          className="relative flex aspect-video max-h-48 w-[min(240px,70vw)] items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_30%_20%,rgba(191,148,84,0.34),transparent_32%),linear-gradient(135deg,rgba(32,26,20,0.92),rgba(14,12,10,0.96))]"
+          data-aspect-ratio={previewFrame.aspectRatio.toFixed(4)}
+          className="relative flex items-center justify-center overflow-hidden border border-white/8 bg-[radial-gradient(circle_at_24%_18%,rgba(202,162,95,0.32),transparent_32%),linear-gradient(145deg,rgba(42,33,24,0.96),rgba(14,12,10,0.98))] shadow-[0_24px_60px_-30px_rgba(0,0,0,0.72)]"
+          style={{
+            width: `${previewFrame.width}px`,
+            height: `${previewFrame.height}px`
+          }}
         >
           <video
             preload="metadata"
@@ -990,24 +1025,39 @@ function VideoAttachmentPreview({
             src={fullUrl}
             onLoadedMetadata={(e) => {
               setDurationSec(e.currentTarget.duration);
+              const intrinsicWidth =
+                typeof e.currentTarget.videoWidth === "number" ? e.currentTarget.videoWidth : 0;
+              const intrinsicHeight =
+                typeof e.currentTarget.videoHeight === "number" ? e.currentTarget.videoHeight : 0;
+              if (intrinsicWidth > 0 && intrinsicHeight > 0) {
+                setVideoAspectRatio(intrinsicWidth / intrinsicHeight);
+              }
             }}
           >
             <track kind="captions" />
           </video>
-          <span className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),transparent_38%,rgba(0,0,0,0.24))]" />
+          <span className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),transparent_34%,rgba(0,0,0,0.38))]" />
+          <span className="absolute inset-x-0 top-0 h-16 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),transparent)]" />
+          <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2">
+            <span className="max-w-[70%] truncate rounded-full bg-black/28 px-2.5 py-1 text-[10px] font-medium tracking-[0.02em] text-white/88 backdrop-blur-sm">
+              {filename ?? "Video"}
+            </span>
+            {durationLabel ? (
+              <span className="rounded-full bg-black/42 px-2 py-1 text-[10px] font-medium text-white/88 backdrop-blur-sm">
+                {durationLabel}
+              </span>
+            ) : null}
+          </div>
           <span className="relative flex h-12 w-12 items-center justify-center rounded-full border border-white/18 bg-white/14 text-white shadow-[0_18px_44px_-24px_rgba(0,0,0,0.9)] backdrop-blur-md transition group-hover:scale-[1.03]">
             <Play className="ml-0.5 h-5 w-5 fill-current" />
           </span>
+          <div className="pointer-events-none absolute inset-x-3 bottom-3">
+            <div className="rounded-2xl border border-white/10 bg-black/24 px-3 py-2 text-left backdrop-blur-sm">
+              <p className="truncate text-sm font-medium text-white">{filename ?? "Video"}</p>
+              <p className="mt-0.5 text-[11px] text-white/68">{t("openVideo")}</p>
+            </div>
+          </div>
         </div>
-        <span
-          className="pointer-events-none absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm"
-          aria-hidden="true"
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor" className="h-2.5 w-2.5">
-            <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.68L9.54 5.98A1 1 0 0 0 8 6.82Z" />
-          </svg>
-          <span>{durationLabel ?? "Video"}</span>
-        </span>
       </button>
       <ImageLightbox
         open={isLightboxOpen}

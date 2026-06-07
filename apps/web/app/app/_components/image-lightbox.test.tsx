@@ -139,7 +139,7 @@ describe("ImageLightbox", () => {
     expect(screen.getByRole("button", { name: "lightboxUnmute" })).toBeInTheDocument();
   });
 
-  it("restores video chrome visibility when the playing media surface is tapped", async () => {
+  it("restores video chrome visibility when the playing video is tapped", async () => {
     vi.useFakeTimers();
     blockVideoAutoplay();
     render(
@@ -168,7 +168,7 @@ describe("ImageLightbox", () => {
     expect(screen.queryByTestId("media-lightbox-top-chrome")).toBeNull();
     expect(screen.queryByTestId("media-lightbox-video-controls")).toBeNull();
 
-    fireEvent.click(surface);
+    fireEvent.click(video!);
 
     expect(screen.getByTestId("media-lightbox-top-chrome")).toBeInTheDocument();
     expect(screen.getByTestId("media-lightbox-video-controls")).toBeInTheDocument();
@@ -213,7 +213,7 @@ describe("ImageLightbox", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("hides the hero play overlay after playback starts and restores chrome on tap", async () => {
+  it("hides the hero play overlay after playback starts and restores chrome on video tap", async () => {
     vi.useFakeTimers();
     blockVideoAutoplay();
     render(
@@ -247,7 +247,7 @@ describe("ImageLightbox", () => {
     expect(screen.queryByTestId("media-lightbox-video-controls")).toBeNull();
     expect(screen.queryByRole("button", { name: "lightboxPlayHero" })).toBeNull();
 
-    fireEvent.click(surface);
+    fireEvent.click(video!);
 
     expect(screen.getByTestId("media-lightbox-top-chrome")).toBeInTheDocument();
     expect(screen.getByTestId("media-lightbox-video-controls")).toBeInTheDocument();

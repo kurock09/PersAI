@@ -1934,7 +1934,58 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(talkingAvatarFixedAspectChoice.payload.requestedTalkingAvatarAspectRatio, "1:1");
   assert.equal(
     providerGatewayClientService.videoCalls.at(-1)?.input.providerParameters?.aspectRatio,
-    "9:16"
+    "1:1"
+  );
+
+  const heygenLandscapeDefaultBundle = createBundle({
+    providerId: "heygen",
+    secretId: "tool/video_generate/heygen/api-key",
+    modelKey: "heygen-photo-avatar-v3",
+    videoModelParameters: {
+      ...HEYGEN_VIDEO_MODEL_PARAMETERS,
+      providerParameters: {
+        resolution: "720p",
+        aspectRatio: "16:9",
+        engine: "avatar_v"
+      }
+    },
+    videoVoiceCatalog: {
+      provider: "heygen",
+      fetchedAt: "2026-06-05T00:00:00.000Z",
+      shortlist: [
+        {
+          voiceKey: "anya-warm",
+          providerVoiceId: "heygen-voice-warm-001",
+          displayName: "Anya Warm",
+          locale: "ru-RU",
+          gender: "female",
+          description: null,
+          styleTags: []
+        }
+      ]
+    },
+    includeTalkingAvatarRef: true
+  });
+
+  const talkingAvatarLandscapeDefaultChoice = await service.executeToolCall({
+    bundle: heygenLandscapeDefaultBundle,
+    toolCall: createToolCall({
+      prompt: "Render talking avatar without explicit aspect",
+      mode: "talking_avatar",
+      speechText: "Let the talking-avatar policy choose the format.",
+      speechLanguage: "ru-RU",
+      portraitImageAlias: "current image #1",
+      voiceKey: "anya-warm"
+    }),
+    availableAttachments: [createReferenceAttachment()],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-landscape-default-choice"
+  });
+  assert.equal(talkingAvatarLandscapeDefaultChoice.payload.action, "generated");
+  assert.equal(talkingAvatarLandscapeDefaultChoice.payload.requestedTalkingAvatarAspectRatio, null);
+  assert.equal(
+    providerGatewayClientService.videoCalls.at(-1)?.input.providerParameters?.aspectRatio,
+    "auto"
   );
 
   // ── Slice 7: Test 7 — Plan toggle off → talking_avatar_plan_disabled ───────
