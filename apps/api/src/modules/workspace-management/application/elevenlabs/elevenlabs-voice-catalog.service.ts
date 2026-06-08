@@ -220,7 +220,7 @@ export class ElevenLabsVoiceCatalogService {
         return [];
       }
       return voices
-        .map((voice) => this.parseSharedVoiceRow(voice))
+        .map((voice) => this.parseSharedVoiceRow(voice, input.gender))
         .filter((voice): voice is ParsedSharedVoiceRow => voice !== null)
         .filter((voice) => input.gender === "neutral" || voice.gender === input.gender)
         .filter((voice) => voice.languageBucket === input.bucket);
@@ -229,7 +229,10 @@ export class ElevenLabsVoiceCatalogService {
     }
   }
 
-  private parseSharedVoiceRow(value: unknown): ParsedSharedVoiceRow | null {
+  private parseSharedVoiceRow(
+    value: unknown,
+    requestedGender: SharedVoiceSearchGender
+  ): ParsedSharedVoiceRow | null {
     const row = this.asObject(value);
     if (row === null) {
       return null;
@@ -244,7 +247,7 @@ export class ElevenLabsVoiceCatalogService {
     return {
       voiceId,
       name,
-      gender: this.normalizeGender(labels?.gender),
+      gender: this.normalizeGender(labels?.gender, requestedGender),
       category: this.asNonEmptyString(row.category),
       language,
       languageBucket: this.toLanguageBucket(language),
@@ -381,12 +384,15 @@ export class ElevenLabsVoiceCatalogService {
     );
   }
 
-  private normalizeGender(value: unknown): ElevenLabsVoiceGenderTag {
+  private normalizeGender(
+    value: unknown,
+    fallback: ElevenLabsVoiceGenderTag = "unknown"
+  ): ElevenLabsVoiceGenderTag {
     const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
     if (normalized === "male" || normalized === "female" || normalized === "neutral") {
       return normalized;
     }
-    return "unknown";
+    return fallback;
   }
 
   private isExpired(fetchedAt: Date): boolean {

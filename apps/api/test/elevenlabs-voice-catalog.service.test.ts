@@ -39,7 +39,7 @@ async function run(): Promise<void> {
                 name: "Anna",
                 category: "professional",
                 preview_url: "https://cdn.elevenlabs.io/anna.mp3",
-                labels: { gender: "female", language: "ru" },
+                labels: { language: "ru" },
                 featured: true,
                 liked_by_count: 10,
                 cloned_by_count: 3

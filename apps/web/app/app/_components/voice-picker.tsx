@@ -96,7 +96,7 @@ export function VoicePicker({
   return (
     <div className="space-y-3" aria-disabled={disabled}>
       {showLanguageFilter ? (
-        <div className="grid grid-cols-3 gap-1 rounded-2xl border border-border/70 bg-surface p-1">
+        <div className="grid w-full grid-cols-3 rounded-full border border-border/60 bg-surface-raised/20 p-1">
           {LANGUAGE_TABS.map((tab) => (
             <button
               key={tab.value}
@@ -105,9 +105,9 @@ export function VoicePicker({
               disabled={disabled}
               aria-pressed={languageBucket === tab.value}
               className={cn(
-                "rounded-[18px] px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60",
+                "min-w-0 rounded-full px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-60",
                 languageBucket === tab.value
-                  ? "bg-surface-raised text-text"
+                  ? "bg-accent/15 text-text"
                   : "text-text-muted hover:text-text"
               )}
             >
