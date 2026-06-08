@@ -143,8 +143,8 @@ export interface RuntimeFilesToolExecutionResult {
    * Files registry-resolved refs that the model just discovered through
    * `files.search` / `files.list` / `files.get` / `files.read`. The runtime
    * caller merges these into `turnState.fileRefs` so the next iteration's
-   * Working Files developer block carries the fresh discovery aliases
-   * (`found file #N`, `listed image #N`, `fetched file`, `read image`, ...).
+   * Working Files developer block carries sticky `file #N` / `image #N`
+   * handles for the discovered rows.
    * This is runtime-internal state only; the public model-visible
    * `RuntimeFilesToolResult` schema is unchanged beyond populating the
    * already-optional `aliases` field on `items[]` / `item`.
@@ -229,9 +229,19 @@ export class RuntimeFilesToolService {
 
       switch (request.action) {
         case "list":
-          return await this.executeListAction(params.bundle, request);
+          return await this.executeListAction(
+            params.bundle,
+            params.currentFileRefs,
+            params.availableWorkingFileRefs ?? [],
+            request
+          );
         case "search":
-          return await this.executeSearchAction(params.bundle, request);
+          return await this.executeSearchAction(
+            params.bundle,
+            params.currentFileRefs,
+            params.availableWorkingFileRefs ?? [],
+            request
+          );
         case "get":
           return await this.executeGetAction(
             params.bundle,
@@ -267,6 +277,8 @@ export class RuntimeFilesToolService {
 
   private async executeSearchAction(
     bundle: AssistantRuntimeBundle,
+    currentFileRefs: RuntimeFileRef[],
+    availableWorkingFileRefs: RuntimeFileRef[],
     request: FilesSearchRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
     const records = await this.runtimeAssistantFileRegistryService.search({
@@ -275,7 +287,10 @@ export class RuntimeFilesToolService {
       query: request.query,
       limit: request.limit
     });
-    const { items, discoveredFileRefs } = this.buildDiscoveredFromRecords(records, "found");
+    const { items, discoveredFileRefs } = this.buildDiscoveredFromRecords(records, [
+      ...currentFileRefs,
+      ...availableWorkingFileRefs
+    ]);
     return {
       payload: {
         toolCode: "files",
@@ -299,6 +314,8 @@ export class RuntimeFilesToolService {
 
   private async executeListAction(
     bundle: AssistantRuntimeBundle,
+    currentFileRefs: RuntimeFileRef[],
+    availableWorkingFileRefs: RuntimeFileRef[],
     request: FilesListRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
     const listing = await this.runtimeAssistantFileRegistryService.listDirectory({
@@ -308,7 +325,10 @@ export class RuntimeFilesToolService {
       recursive: request.recursive,
       limit: request.limit
     });
-    const { items, discoveredFileRefs } = this.buildDiscoveredFromRecords(listing.files, "listed");
+    const { items, discoveredFileRefs } = this.buildDiscoveredFromRecords(listing.files, [
+      ...currentFileRefs,
+      ...availableWorkingFileRefs
+    ]);
     return {
       payload: {
         toolCode: "files",
@@ -366,12 +386,15 @@ export class RuntimeFilesToolService {
         isError: true
       };
     }
-    const fetchedAliases = this.buildSingleResultAliases(resolved.item, "fetched");
-    const itemWithAliases = this.applyAliasesToItem(resolved.item, fetchedAliases);
+    const stickyRef =
+      this.assignStickyAliasesToRuntimeFileRefs(
+        [resolved.runtimeFileRef],
+        [...currentFileRefs, ...availableWorkingFileRefs]
+      )[0] ?? resolved.runtimeFileRef;
+    const itemWithAliases = this.toItemFromRuntimeFileRef(stickyRef);
     const discoveredFileRefs = [
       {
-        ...resolved.runtimeFileRef,
-        aliases: this.mergeAliasList(resolved.runtimeFileRef.aliases ?? null, fetchedAliases)
+        ...stickyRef
       }
     ];
     return {
@@ -431,12 +454,15 @@ export class RuntimeFilesToolService {
       };
     }
 
-    const readAliases = this.buildSingleResultAliases(resolved.item, "read");
-    const itemWithAliases = this.applyAliasesToItem(resolved.item, readAliases);
+    const stickyRef =
+      this.assignStickyAliasesToRuntimeFileRefs(
+        [resolved.runtimeFileRef],
+        [...params.currentFileRefs, ...(params.availableWorkingFileRefs ?? [])]
+      )[0] ?? resolved.runtimeFileRef;
+    const itemWithAliases = this.toItemFromRuntimeFileRef(stickyRef);
     const discoveredFileRefs = [
       {
-        ...resolved.runtimeFileRef,
-        aliases: this.mergeAliasList(resolved.runtimeFileRef.aliases ?? null, readAliases)
+        ...stickyRef
       }
     ];
 
@@ -1512,78 +1538,126 @@ export class RuntimeFilesToolService {
     }));
   }
 
-  /**
-   * Build runtime working-files discovery aliases for a multi-result action
-   * (`files.search` / `files.list`). The returned `items` carry the same
-   * `aliases` the model sees in the tool-result JSON; `discoveredFileRefs`
-   * carries those aliases on a `RuntimeFileRef[]` so the runtime caller can
-   * merge them into `turnState.fileRefs` for the next iteration.
-   *
-   * Aliases per item N (1-indexed across the result set):
-   * - image: `["${verb} image #N", "${verb} file #N"]`
-   * - non-image: `["${verb} file #N"]`
-   */
   private buildDiscoveredFromRecords(
     records: RuntimeAssistantFileRecord[],
-    verb: "found" | "listed"
+    existingFileRefs: RuntimeFileRef[]
   ): { items: RuntimeFilesToolItem[]; discoveredFileRefs: RuntimeFileRef[] } {
-    const items: RuntimeFilesToolItem[] = [];
-    const discoveredFileRefs: RuntimeFileRef[] = [];
-    let imageOrdinal = 0;
-    let fileOrdinal = 0;
-    for (const record of records) {
-      fileOrdinal += 1;
-      const isImage = this.isImageMimeType(record.mimeType);
-      const aliases: string[] = [];
-      if (isImage) {
-        imageOrdinal += 1;
-        aliases.push(`${verb} image #${String(imageOrdinal)}`);
-      }
-      aliases.push(`${verb} file #${String(fileOrdinal)}`);
-      const item = this.applyAliasesToItem(
-        this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(record),
-        aliases
-      );
-      items.push(item);
-      const fileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record);
-      discoveredFileRefs.push({
-        ...fileRef,
-        aliases: this.mergeAliasList(fileRef.aliases ?? null, aliases)
-      });
-    }
+    const stickyRefs = this.assignStickyAliasesToRuntimeFileRefs(
+      records.map((record) => this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record)),
+      existingFileRefs
+    );
+    const items = stickyRefs.map((fileRef) => this.toItemFromRuntimeFileRef(fileRef));
+    const discoveredFileRefs = stickyRefs.map((fileRef) => ({ ...fileRef }));
     return { items, discoveredFileRefs };
-  }
-
-  private buildSingleResultAliases(item: RuntimeFilesToolItem, verb: "fetched" | "read"): string[] {
-    if (this.isImageMimeType(item.mimeType)) {
-      return [`${verb} image`, `${verb} file`];
-    }
-    return [`${verb} file`];
-  }
-
-  private applyAliasesToItem(item: RuntimeFilesToolItem, aliases: string[]): RuntimeFilesToolItem {
-    return {
-      ...item,
-      aliases: this.mergeAliasList(item.aliases ?? null, aliases)
-    };
   }
 
   private mergeAliasList(existing: string[] | null | undefined, next: string[]): string[] {
     const seen = new Set<string>();
-    const merged: string[] = [];
+    const stickyImageAliases: string[] = [];
+    const stickyFileAliases: string[] = [];
+    const otherAliases: string[] = [];
     for (const alias of [...(existing ?? []), ...next]) {
       const normalized = alias.trim().toLowerCase();
-      if (normalized.length === 0 || seen.has(normalized)) {
+      if (
+        normalized.length === 0 ||
+        seen.has(normalized) ||
+        this.isLegacyModelVisibleAlias(alias)
+      ) {
         continue;
       }
       seen.add(normalized);
-      merged.push(alias);
+      if (/^image #\d+$/i.test(alias)) {
+        stickyImageAliases.push(alias);
+        continue;
+      }
+      if (/^file #\d+$/i.test(alias)) {
+        stickyFileAliases.push(alias);
+        continue;
+      }
+      otherAliases.push(alias);
     }
-    return merged;
+    return [...stickyImageAliases, ...stickyFileAliases, ...otherAliases];
   }
 
   private isImageMimeType(mimeType: string): boolean {
     return mimeType.trim().toLowerCase().startsWith("image/");
+  }
+
+  private assignStickyAliasesToRuntimeFileRefs(
+    files: RuntimeFileRef[],
+    existingFileRefs: RuntimeFileRef[]
+  ): RuntimeFileRef[] {
+    const existingOrdinals = this.collectExistingStickyAliasOrdinals(existingFileRefs);
+    const stickyByFileRef = new Map<string, string[]>();
+    for (const file of existingFileRefs) {
+      stickyByFileRef.set(file.fileRef, this.extractStickyAliases(file.aliases ?? []));
+    }
+
+    let nextFileOrdinal = existingOrdinals.fileOrdinal;
+    let nextImageOrdinal = existingOrdinals.imageOrdinal;
+    return files.map((file) => {
+      const stickyAliases = stickyByFileRef.get(file.fileRef) ?? [];
+      const resolvedAliases = [...stickyAliases];
+      if (!resolvedAliases.some((alias) => /^file #\d+$/i.test(alias))) {
+        resolvedAliases.push(`file #${String(++nextFileOrdinal)}`);
+      }
+      if (
+        this.isImageMimeType(file.mimeType) &&
+        !resolvedAliases.some((alias) => /^image #\d+$/i.test(alias))
+      ) {
+        resolvedAliases.unshift(`image #${String(++nextImageOrdinal)}`);
+      }
+      return {
+        ...file,
+        aliases: this.mergeAliasList(file.aliases ?? null, resolvedAliases)
+      };
+    });
+  }
+
+  private collectExistingStickyAliasOrdinals(existingFileRefs: RuntimeFileRef[]): {
+    fileOrdinal: number;
+    imageOrdinal: number;
+  } {
+    let fileOrdinal = 0;
+    let imageOrdinal = 0;
+    for (const file of existingFileRefs) {
+      for (const alias of file.aliases ?? []) {
+        const parsedFileOrdinal = this.parseStickyAliasOrdinal(alias, "file");
+        if (parsedFileOrdinal !== null) {
+          fileOrdinal = Math.max(fileOrdinal, parsedFileOrdinal);
+        }
+        const parsedImageOrdinal = this.parseStickyAliasOrdinal(alias, "image");
+        if (parsedImageOrdinal !== null) {
+          imageOrdinal = Math.max(imageOrdinal, parsedImageOrdinal);
+        }
+      }
+    }
+    return { fileOrdinal, imageOrdinal };
+  }
+
+  private extractStickyAliases(aliases: string[]): string[] {
+    return aliases.filter((alias) => /^image #\d+$/i.test(alias) || /^file #\d+$/i.test(alias));
+  }
+
+  private parseStickyAliasOrdinal(alias: string, kind: "file" | "image"): number | null {
+    const match = alias
+      .trim()
+      .toLowerCase()
+      .match(new RegExp(`^${kind} #(\\d+)$`, "i"));
+    if (match === null) {
+      return null;
+    }
+    const parsed = Number.parseInt(match[1] ?? "", 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private isLegacyModelVisibleAlias(alias: string): boolean {
+    const normalized = alias.trim().toLowerCase();
+    return (
+      /^(?:current|previous|recent|found|listed|fetched|read)\s+(?:attachment|file|image) #\d+$/i.test(
+        normalized
+      ) || normalized === "last generated image"
+    );
   }
 
   private toItemFromRuntimeFileRef(fileRef: RuntimeFileRef): RuntimeFilesToolItem {

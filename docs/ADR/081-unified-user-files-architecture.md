@@ -49,16 +49,20 @@ PersAI will expose a single product-level Files architecture.
 
 Every user-visible or assistant-reusable file receives a durable `fileRef` immediately at persistence time. File registration is not lazy and is not dependent on a later runtime hydration pass.
 
-The product-facing selector contract is one stable identifier:
+The product/storage selector contract is one stable identifier:
 
 - `fileRef`
 
 The ordinary model-facing selector contract is alias-first and runtime-owned:
 
-- human-readable working-file aliases such as `current image #1`, `previous attachment #1`, and `last generated image`
+- stable human-readable Working Files aliases such as `file #1` and `image #1`
+- recency or role is expressed as a separate marker in the Working Files block, for example `current source` or `last delivered result`
+
+Legacy positional aliases such as `current image #1`, `previous attachment #1`, and `last generated image` were retired from active runtime guidance by ADR-112 Slice 5.
 
 The following identifiers are internal implementation details and must not be primary model-facing selectors:
 
+- `fileRef`
 - `attachmentId`
 - `artifactId`
 - `objectKey`

@@ -2848,7 +2848,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       mimeType: "image/png",
       sizeBytes: 64,
       logicalSizeBytes: 64,
-      aliases: ["current image #1", "current attachment #1"]
+      aliases: ["image #1", "file #1"]
     }
   ];
   const workingFilesOffset = providerGatewayClient.calls.length;
@@ -2856,11 +2856,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(workingFilesCompleted.assistantText, "runtime reply");
   assert.match(
     providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
-    /## File history \(newest first\)/
+    /## Working Files/
   );
   assert.match(
     providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
-    /\| user \| current image #1 \| working-image\.png \|/
+    /\| user \| image #1 \(file #1\) \| working-image\.png \|/
   );
   assert.doesNotMatch(
     providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
@@ -3317,7 +3317,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const nextDeveloperSectionStartCandidates = [
     "\n## Open Media Jobs",
     "\n## Open Document Jobs",
-    "\n## File history (newest first)",
+    "\n## Working Files",
     "\n## Sense of Time",
     "\nDo not write markdown links"
   ]
@@ -6114,7 +6114,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           name: "video_generate",
           arguments: {
             prompt: "Animate the attached image into a calm sunrise clip",
-            referenceImageAlias: "current image #1",
+            referenceImageAlias: "image #1",
             filename: "sunrise-clip.mp4",
             size: "1280x720",
             seconds: 4
@@ -6361,8 +6361,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           name: "image_edit",
           arguments: {
             prompt: "Place the car from image #2 into the yard in image #1",
-            sourceImageAlias: "current image #1",
-            referenceImageAlias: "current image #2",
+            sourceImageAlias: "image #1",
+            referenceImageAlias: "image #2",
             filename: "yard-with-car.png"
           }
         }
@@ -7380,7 +7380,7 @@ export async function runRecentPdfsHintTests(): Promise<void> {
           mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           sizeBytes: 512,
           logicalSizeBytes: 512,
-          aliases: ["current attachment #1"],
+          aliases: ["file #1"],
           semanticSummaryHint: "Current source document for the new PDF."
         },
         {
@@ -7393,7 +7393,7 @@ export async function runRecentPdfsHintTests(): Promise<void> {
           mimeType: "application/pdf",
           sizeBytes: 1024,
           logicalSizeBytes: 1024,
-          aliases: ["last generated file", "previous attachment #1"],
+          aliases: ["file #2"],
           semanticSummaryHint: "Most recent delivered PDF result."
         }
       ],

@@ -2891,8 +2891,9 @@ export interface RuntimeTurnResult {
    * ADR-100 Piece 1 — canonical AssistantFile ids discovered via
    * `files.list / search / get / read` during this turn's tool loop.
    * Capped at 20, insertion order. API persists this on the assistant
-   * message metadata so future turn hydration can surface them as
-   * "recent file #N" entries in Working Files.
+   * message metadata so future turn hydration can surface them with
+   * the stable Working Files aliases (`file #N` / `image #N`) assigned
+   * in that chat.
    */
   discoveredFileRefIds?: string[];
 }

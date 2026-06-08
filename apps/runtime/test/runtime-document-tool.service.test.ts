@@ -38,7 +38,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-1",
         sourceUserMessageText: "Сделай PDF",
-        attachments: []
+        currentAttachments: [],
+        availableAttachments: []
       }
     });
     assert.equal(result.isError, false);
@@ -77,7 +78,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-2",
         sourceUserMessageText: "Создай новый PDF на основе моего документа",
-        attachments: [
+        currentAttachments: [],
+        availableAttachments: [
           {
             attachmentId: "att-previous-pdf",
             kind: "file",
@@ -85,7 +87,7 @@ describe("RuntimeDocumentToolService", () => {
             mimeType: "application/pdf",
             filename: "source.pdf",
             sizeBytes: 1024,
-            aliases: ["previous attachment #1"]
+            aliases: ["file #1"]
           }
         ]
       }
@@ -100,7 +102,7 @@ describe("RuntimeDocumentToolService", () => {
       mimeType: "application/pdf",
       filename: "source.pdf",
       sizeBytes: 1024,
-      aliases: ["previous attachment #1"]
+      aliases: ["file #1"]
     });
   });
 
@@ -131,7 +133,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-3",
         sourceUserMessageText: "Сделай PDF про тарифы PersAI",
-        attachments: [
+        currentAttachments: [],
+        availableAttachments: [
           {
             attachmentId: "att-previous-pdf",
             kind: "file",
@@ -139,7 +142,7 @@ describe("RuntimeDocumentToolService", () => {
             mimeType: "application/pdf",
             filename: "source.pdf",
             sizeBytes: 1024,
-            aliases: ["previous attachment #1"]
+            aliases: ["file #1"]
           }
         ]
       }
@@ -151,7 +154,7 @@ describe("RuntimeDocumentToolService", () => {
   // ADR-097 Slice 2: the old silent revise → create_pdf_document fallback is
   // gone for PDF. The mode must remain revise_document and the API layer
   // handles honest rejection / auto-resolution via latestRevisionContextForChat.
-  test("revise_document silent fallback to create_pdf_document path is gone", async () => {
+  test("revise_document drops non-UUID docId aliases instead of forwarding them", async () => {
     const capturedInputs: Array<{
       attachments: unknown[];
       directToolExecution: { descriptorMode: string; request: { docId?: string | null } };
@@ -185,7 +188,7 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-4",
         sourceUserMessageText: "Пересобери мой документ в новый PDF",
-        attachments: [
+        currentAttachments: [
           {
             attachmentId: "att-current-pdf",
             kind: "file",
@@ -193,15 +196,18 @@ describe("RuntimeDocumentToolService", () => {
             mimeType: "application/pdf",
             filename: "current.pdf",
             sizeBytes: 2048,
-            aliases: ["current attachment #1"]
+            aliases: ["file #1"]
           }
-        ]
+        ],
+        availableAttachments: []
       }
     });
 
     const input = capturedInputs[0]!;
-    // Must NOT fall back to create_pdf_document — revise_document is preserved.
+    // Must NOT fall back to create_pdf_document — revise_document is preserved,
+    // and legacy alias-like docId values are nulled before enqueue.
     assert.equal(input.directToolExecution.descriptorMode, "revise_document");
+    assert.equal(input.directToolExecution.request.docId ?? null, null);
     assert.equal(result.payload.descriptorMode, "revise_document");
   });
 
@@ -232,7 +238,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-revise-no-doc",
         sourceUserMessageText: "Исправь заголовок на первой странице",
-        attachments: []
+        currentAttachments: [],
+        availableAttachments: []
       }
     });
 
@@ -269,7 +276,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-legacy-revise",
         sourceUserMessageText: "Обнови заключение",
-        attachments: []
+        currentAttachments: [],
+        availableAttachments: []
       }
     });
 
@@ -304,7 +312,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-1",
         sourceUserMessageText: "Отправь документ еще раз",
-        attachments: []
+        currentAttachments: [],
+        availableAttachments: []
       }
     });
     assert.equal(result.isError, false);
@@ -349,7 +358,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-default-pdf",
         sourceUserMessageText: "Сделай презентацию для 6 класса по биологии",
-        attachments: []
+        currentAttachments: [],
+        availableAttachments: []
       }
     });
 
@@ -396,7 +406,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-pptx-1",
         sourceUserMessageText: "Сделай презентацию",
-        attachments: []
+        currentAttachments: [],
+        availableAttachments: []
       }
     });
 
@@ -443,7 +454,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-target-1",
         sourceUserMessageText: "Сделай 7 слайдов",
-        attachments: []
+        currentAttachments: [],
+        availableAttachments: []
       }
     });
 
@@ -461,7 +473,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-target-2",
         sourceUserMessageText: "Сделай очень большую презентацию",
-        attachments: []
+        currentAttachments: [],
+        availableAttachments: []
       }
     });
 
@@ -479,7 +492,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-target-3",
         sourceUserMessageText: "Сделай отрицательное число слайдов",
-        attachments: []
+        currentAttachments: [],
+        availableAttachments: []
       }
     });
 
@@ -529,7 +543,8 @@ describe("RuntimeDocumentToolService", () => {
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-alias-1",
         sourceUserMessageText: "Make it shorter",
-        attachments: []
+        currentAttachments: [],
+        availableAttachments: []
       }
     });
 

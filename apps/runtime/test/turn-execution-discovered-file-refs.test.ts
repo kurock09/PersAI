@@ -11,8 +11,8 @@ import { TurnExecutionService } from "../src/modules/turns/turn-execution.servic
 // ADR-100 follow-up — Fix A. The files tool now surfaces registry-resolved
 // `discoveredFileRefs` on its execution outcome. The runtime caller has to
 // merge those into `turnState.fileRefs` so the next provider iteration's
-// Working Files developer block carries the discovery aliases (`found
-// file #N`, `fetched file`, ...). This focused test exercises the private
+// Working Files developer block carries the stable sticky labels (`file #N`,
+// `image #N`). This focused test exercises the private
 // `applyToolExecutionOutcome` merge directly (constructed against a mostly
 // empty service shell, since the merge has no dependency surface).
 
@@ -139,7 +139,7 @@ async function run(): Promise<void> {
     const turnState = createTurnState();
     const discovered = createDiscoveredFileRef({
       fileRef: "file-ref-discovered-1",
-      aliases: ["found image #1", "found file #1"],
+      aliases: ["image #1", "file #1"],
       mimeType: "image/png",
       displayName: "persai_logo.png"
     });
@@ -160,7 +160,7 @@ async function run(): Promise<void> {
     assert.equal(turnState.fileRefs[0]?.fileRef, "file-ref-discovered-1");
     assert.deepEqual(
       turnState.fileRefs[0]?.aliases,
-      ["found image #1", "found file #1"],
+      ["image #1", "file #1"],
       "discoveredFileRefs aliases survive the merge"
     );
     // ADR-100 Piece 1 — fileRef id must also be tracked in discoveredFileRefIdSet.
@@ -178,14 +178,14 @@ async function run(): Promise<void> {
     turnState.fileRefs.push(
       createDiscoveredFileRef({
         fileRef: "file-ref-shared-1",
-        aliases: ["current attachment #1", "current image #1"],
+        aliases: ["file #1", "image #1"],
         mimeType: "image/png",
         displayName: "input.png"
       })
     );
     const discovered = createDiscoveredFileRef({
       fileRef: "file-ref-shared-1",
-      aliases: ["found image #1", "found file #1"],
+      aliases: ["image #1", "file #1"],
       mimeType: "image/png",
       displayName: "input.png"
     });
@@ -205,7 +205,7 @@ async function run(): Promise<void> {
     );
     assert.deepEqual(
       turnState.fileRefs[0]?.aliases,
-      ["current attachment #1", "current image #1", "found image #1", "found file #1"],
+      ["file #1", "image #1"],
       "second discovery merges aliases case-insensitively without losing existing markers"
     );
   }
@@ -217,14 +217,14 @@ async function run(): Promise<void> {
     turnState.fileRefs.push(
       createDiscoveredFileRef({
         fileRef: "file-ref-shared-2",
-        aliases: ["found file #1"],
+        aliases: ["file #1"],
         mimeType: "text/plain",
         displayName: "report.txt"
       })
     );
     const discovered = createDiscoveredFileRef({
       fileRef: "file-ref-shared-2",
-      aliases: ["FOUND FILE #1", "fetched file"],
+      aliases: ["FILE #1", "file #2"],
       mimeType: "text/plain",
       displayName: "report.txt"
     });
@@ -240,7 +240,7 @@ async function run(): Promise<void> {
     assert.equal(turnState.fileRefs.length, 1);
     assert.deepEqual(
       turnState.fileRefs[0]?.aliases,
-      ["found file #1", "fetched file"],
+      ["file #1", "file #2"],
       "case-insensitive dedupe keeps the first-seen alias casing and adds only new aliases"
     );
   }

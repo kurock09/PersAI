@@ -382,7 +382,7 @@ function createToolCall(argumentsObject: Record<string, unknown>): ProviderGatew
 }
 
 function createReferenceAttachment(
-  aliases: string[] = ["current image #1", "current attachment #1"],
+  aliases: string[] = ["image #1", "current attachment #1"],
   options?: { objectKey?: string; filename?: string; attachmentId?: string }
 ): RuntimeAttachmentRef {
   return {
@@ -838,15 +838,15 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     bundle,
     toolCall: createToolCall({
       prompt: "Animate the attached image into a calm sunrise clip",
-      referenceImageAlias: "current image #1",
+      referenceImageAlias: "image #1",
       seconds: 8
     }),
-    availableAttachments: [createReferenceAttachment()],
+    availableAttachments: [createReferenceAttachment(["current image #1", "image #1", "file #1"])],
     sessionId: "session-1",
     requestId: "request-2"
   });
   assert.equal(referenceResult.payload.action, "generated");
-  assert.equal(referenceResult.payload.referenceImageAlias, "current image #1");
+  assert.equal(referenceResult.payload.referenceImageAlias, "image #1");
   assert.equal(referenceResult.payload.referenceFilename, "forest.png");
   assert.equal(referenceResult.payload.artifact?.filename, "forest-video.mp4");
   assert.equal(referenceResult.payload.model, "sora-2");
@@ -1239,9 +1239,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       prompt: "Animate this reference image into a short sunrise clip",
       seconds: 4
     }),
-    availableAttachments: [
-      createReferenceAttachment(["last generated image", "previous image #1"])
-    ],
+    availableAttachments: [createReferenceAttachment(["image #1", "previous image #1"])],
     sessionId: "session-1",
     requestId: "request-2b"
   });
@@ -1277,7 +1275,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     toolCall: createToolCall({
       prompt: "Create a stormy coastline video with natural wave audio",
       audioMode: "provider_native_audio",
-      referenceImageAlias: "current image #1",
+      referenceImageAlias: "image #1",
       seconds: 4
     }),
     availableAttachments: [createReferenceAttachment()],
@@ -1376,12 +1374,12 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     toolCall: createToolCall({
       prompt: "Blend these two images into one cinematic video",
       inputMode: "multi_image",
-      referenceImageAliases: ["current image #1", "current image #2"],
+      referenceImageAliases: ["image #1", "image #2"],
       seconds: 4
     }),
     availableAttachments: [
-      createReferenceAttachment(["current image #1"]),
-      createReferenceAttachment(["current image #2"])
+      createReferenceAttachment(["image #1"]),
+      createReferenceAttachment(["image #2"])
     ],
     sessionId: "session-1",
     requestId: "request-multi-image-unsupported"
@@ -1397,7 +1395,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     bundle: klingBundle,
     toolCall: createToolCall({
       prompt: 'A presenter<<<voice_1>>> says: "Welcome to the launch."',
-      referenceImageAlias: "current image #1",
+      referenceImageAlias: "image #1",
       audioMode: "voice_control",
       seconds: 4,
       voiceIds: ["voice-1"]
@@ -1458,7 +1456,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     bundle: klingBundle,
     toolCall: createToolCall({
       prompt: 'A presenter<<<voice_1>>> says: "This is the keynote opening."',
-      referenceImageAlias: "current image #1",
+      referenceImageAlias: "image #1",
       audioMode: "voice_control",
       seconds: 4,
       voiceKeys: ["owen"]
@@ -1475,16 +1473,16 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     toolCall: createToolCall({
       prompt: "Transition from the first product photo into the second lifestyle shot",
       inputMode: "multi_image",
-      referenceImageAliases: ["current image #1", "current image #2"],
+      referenceImageAliases: ["image #1", "image #2"],
       seconds: 4
     }),
     availableAttachments: [
-      createReferenceAttachment(["current image #1"], {
+      createReferenceAttachment(["image #1"], {
         objectKey: "media/reference-1.png",
         filename: "forest.png",
         attachmentId: "attachment-1"
       }),
-      createReferenceAttachment(["current image #2"], {
+      createReferenceAttachment(["image #2"], {
         objectKey: "media/reference-2.png",
         filename: "forest-2.png",
         attachmentId: "attachment-2"
@@ -1729,7 +1727,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       mode: "talking_avatar",
       speechText: "Welcome aboard.",
       speechLanguage: "ru-RU",
-      portraitImageAlias: "current image #1",
+      portraitImageAlias: "image #1",
       voiceKey: "anya-warm", // required for portrait path
       seconds: 15,
       size: "720x1280"
@@ -1741,7 +1739,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(talkingAvatarPortraitCall.payload.action, "generated");
   assert.equal(talkingAvatarPortraitCall.payload.requestedMode, "talking_avatar");
   assert.equal(talkingAvatarPortraitCall.payload.requestedPersonaId, null);
-  assert.equal(talkingAvatarPortraitCall.payload.requestedPortraitImageAlias, "current image #1");
+  assert.equal(talkingAvatarPortraitCall.payload.requestedPortraitImageAlias, "image #1");
   assert.equal(talkingAvatarPortraitCall.payload.requestedVoiceKey, "anya-warm");
   assert.equal(talkingAvatarPortraitCall.payload.requestedTalkingAvatarAspectRatio, null);
   const portraitGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
@@ -1763,7 +1761,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       mode: "talking_avatar",
       speechText: "Hello.",
       speechLanguage: "en-US",
-      portraitImageAlias: "current image #1"
+      portraitImageAlias: "image #1"
       // voiceKey intentionally absent
     }),
     availableAttachments: [createReferenceAttachment()],
@@ -1877,7 +1875,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       mode: "talking_avatar",
       speechText: "Vertical format please.",
       speechLanguage: "ru-RU",
-      portraitImageAlias: "current image #1",
+      portraitImageAlias: "image #1",
       voiceKey: "anya-warm",
       talkingAvatarAspectRatio: "9:16"
     }),
@@ -1922,7 +1920,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       mode: "talking_avatar",
       speechText: "Still use fixed admin aspect.",
       speechLanguage: "ru-RU",
-      portraitImageAlias: "current image #1",
+      portraitImageAlias: "image #1",
       voiceKey: "anya-warm",
       talkingAvatarAspectRatio: "1:1"
     }),
@@ -1974,7 +1972,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       mode: "talking_avatar",
       speechText: "Let the talking-avatar policy choose the format.",
       speechLanguage: "ru-RU",
-      portraitImageAlias: "current image #1",
+      portraitImageAlias: "image #1",
       voiceKey: "anya-warm"
     }),
     availableAttachments: [createReferenceAttachment()],
@@ -2186,7 +2184,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       speechText: "Hello.",
       speechLanguage: "en-US",
       personaId: "persona-anya",
-      portraitImageAlias: "current image #1"
+      portraitImageAlias: "image #1"
     }),
     availableAttachments: [createReferenceAttachment()],
     sessionId: "session-1",

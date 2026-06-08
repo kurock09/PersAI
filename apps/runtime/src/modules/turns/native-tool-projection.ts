@@ -79,6 +79,47 @@ function appendToolDefinitionHint(base: string, hint: string): string {
   return base.includes(hint) ? base : `${base} ${hint}`;
 }
 
+function buildPendingDeliveryHint(params: {
+  subject: string;
+  quotaToolCode: "image_generate" | "image_edit" | "video_generate" | "document";
+  extra?: string;
+}): string {
+  return [
+    `If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that ${params.subject} and will arrive separately; do NOT claim anything is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId.`,
+    "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message.",
+    `If concrete package or upgrade options are still missing, call quota_status for ${params.quotaToolCode} before the final answer.`,
+    params.extra ?? null
+  ]
+    .filter((line): line is string => line !== null)
+    .join(" ");
+}
+
+function containsLegacyScheduledActionGuidance(text: string): boolean {
+  return /assistant_check|hidden assistant follow-?up|actionPayload|actionType|audience/i.test(
+    text
+  );
+}
+
+function containsGhostBackgroundTaskAction(text: string): boolean {
+  return /\bcreate\b[^.]*\bupdate\b|\bupdate\b[^.]*\b(pause|resume|cancel|list)\b/i.test(text);
+}
+
+function resolveSanitizedScheduledActionDescription(
+  policy: RuntimeToolPolicy,
+  fallback: string
+): string {
+  const description = resolveToolDefinitionDescription(policy, fallback);
+  return containsLegacyScheduledActionGuidance(description) ? fallback : description;
+}
+
+function resolveSanitizedBackgroundTaskDescription(
+  policy: RuntimeToolPolicy,
+  fallback: string
+): string {
+  const description = resolveToolDefinitionDescription(policy, fallback);
+  return containsGhostBackgroundTaskAction(description) ? fallback : description;
+}
+
 function describeVideoVoiceCatalogHint(
   credential: AssistantRuntimeBundleToolCredentialRef,
   talkingAvatarEnabled: boolean
@@ -461,7 +502,7 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
           type: "string",
           enum: ["write", "close"],
           description:
-            'ADR-074 Slice M3.1: defaults to "write" (record a new durable memory). Use "close" to deterministically resolve a known open loop by its `ref`. When "close", `ref` is required and `kind`/`memory`/`closeOpenLoop` MUST be omitted.'
+            'Defaults to "write" (record a new memory). Use "close" to deterministically resolve a known open loop by its `ref`. When "close", `ref` is required and `kind`/`memory`/`closeOpenLoop` MUST be omitted.'
         },
         kind: {
           type: "string",
@@ -491,7 +532,7 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
         closeOpenLoop: {
           type: "boolean",
           description:
-            'ADR-074 Slice M3 (legacy lexical close): set true on a `write` action ONLY when this memory_write also resolves a previously-recorded open loop and you do NOT have a precise `ref` from the carry-over block. The runtime will look up the most-similar active open-loop and mark it resolved. Prefer `action:"close"` with a `ref` from the carry-over block when one is available.'
+            'Set true on a `write` action ONLY when this memory_write also resolves a previously recorded open loop and you do NOT have a precise `ref` from the carry-over block. The runtime will look up the most similar active open loop and mark it resolved. Prefer `action:"close"` with a `ref` from the carry-over block when one is available.'
         },
         ref: {
           type: "string",
@@ -814,7 +855,10 @@ function createImageGenerateToolDefinition(
         ),
         "count=N means N separate final images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one single-image instruction per item in seriesItems. If the current turn already includes a reusable product/source image and the outputs should stay tied to that same image across slides, do not use image_generate; use image_edit with sourceImageAlias instead."
       ),
-      "If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the images are being prepared and will arrive separately; do NOT claim they are already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for image_generate before the final answer."
+      buildPendingDeliveryHint({
+        subject: "the images are being prepared",
+        quotaToolCode: "image_generate"
+      })
     ),
     inputSchema: {
       type: "object",
@@ -881,7 +925,10 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           ),
           "count=N means N separate final edited images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one single-image instruction per item in seriesItems. In series mode, keep the same source product/object identity across slides unless the user explicitly asked to change products."
         ),
-        "If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the edit is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for image_edit before the final answer."
+        buildPendingDeliveryHint({
+          subject: "the edit is being prepared",
+          quotaToolCode: "image_edit"
+        })
       ),
       "Do not claim the edit is done, ready, visible, attached, or sent unless this same turn actually called image_edit and got a successful result or explicit delivered artifact/result."
     ),
@@ -915,12 +962,12 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
         sourceImageAlias: {
           type: "string",
           description:
-            'Optional human-readable alias of the available image to edit, for example "current image #1" or "last generated image". Required when multiple reusable images are available and the source image is clear.'
+            'Optional human-readable sticky alias of the available image to edit, for example "image #1". Required when multiple reusable images are available and the source image is clear.'
         },
         referenceImageAlias: {
           type: "string",
           description:
-            'Optional human-readable alias of a second available image to use only as a visual style, appearance, or background reference, for example "current image #2". The tool must still return one edited version of the source image, not a separate edit of the reference image.'
+            'Optional human-readable sticky alias of a second available image to use only as a visual style, appearance, or background reference, for example "image #2". The tool must still return one edited version of the source image, not a separate edit of the reference image.'
         },
         filename: {
           type: "string",
@@ -959,7 +1006,7 @@ function createVideoGenerateToolDefinition(
         // Section 2: persona resolution
         "The videoPersonas block below lists this workspace's saved characters with their personaId and displayName. When the user names a character (e.g. 'have Masha read this'), find the matching persona by exact displayName (case-insensitive) and pass its personaId. Persona names are unique within a workspace, so a name match is unambiguous. If no persona matches, do not invent IDs — either ask the user to clarify which character, or suggest creating one via Settings → Characters first.",
         // Section 3: persona creation guidance
-        "You cannot create personas yourself. Creating a saved character requires the user to visit Assistant Settings → Characters and upload a portrait + name + voice. When the user asks to 'save this photo as <name>' or similar, instruct them to use Settings → Characters; do NOT attempt to create the persona via this tool.",
+        "You cannot create personas yourself. Creating a saved character requires the user to visit Settings → Characters and upload a portrait + name + voice. When the user asks to 'save this photo as <name>' or similar, instruct them to use Settings → Characters; do NOT attempt to create the persona via this tool.",
         // Section 4: single character per call
         "Each video_generate call produces ONE clip with ONE speaker (or no speaker for cinematic). If the user requests multiple speakers in a single clip, propose splitting into multiple sequential calls — one per speaker — and combining the results (or playing them in sequence). Do NOT call video_generate with multiple personas; the contract supports exactly one persona OR one portrait alias per call.",
         // Section 5: voice selection precedence
@@ -990,7 +1037,13 @@ function createVideoGenerateToolDefinition(
         )
       ),
       [
-        "Prefer calling this tool immediately when the user clearly wants a video. For cinematic mode, pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. For talking_avatar mode, do not pass cinematic seconds/size/audio/input/filename controls; provide speechText plus exactly one avatar source (personaId or portraitImageAlias), and use talkingAvatarAspectRatio when the user or context implies a specific vertical, square, or widescreen format. If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer.",
+        [
+          "Prefer calling this tool immediately when the user clearly wants a video. For cinematic mode, pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. For talking_avatar mode, do not pass cinematic seconds/size/audio/input/filename controls; provide speechText plus exactly one avatar source (personaId or portraitImageAlias), and use talkingAvatarAspectRatio when the user or context implies a specific vertical, square, or widescreen format.",
+          buildPendingDeliveryHint({
+            subject: "the video is being prepared",
+            quotaToolCode: "video_generate"
+          })
+        ].join(" "),
         talkingAvatarHint,
         voiceCatalogHint,
         talkingAvatarVoiceCatalogHint
@@ -1034,7 +1087,7 @@ function createVideoGenerateToolDefinition(
               portraitImageAlias: {
                 type: "string",
                 description:
-                  "Optional human-readable alias of an available portrait image to use as an ad-hoc talking-avatar base, for example 'current image #1'. Use only when the user explicitly identifies a specific portrait alias. Mutually exclusive with personaId."
+                  'Optional human-readable sticky alias of an available portrait image to use as an ad-hoc talking-avatar base, for example "image #1". Use only when the user explicitly identifies a specific portrait alias. Mutually exclusive with personaId.'
               },
               voiceKey: {
                 type: "string",
@@ -1052,7 +1105,7 @@ function createVideoGenerateToolDefinition(
         referenceImageAlias: {
           type: "string",
           description:
-            'Cinematic-only optional image alias for a visual reference or first frame, for example "current image #1" or "last generated image". Omit when mode=\'talking_avatar\'; use portraitImageAlias instead. Provide this only when the user explicitly identifies or selects a specific available image alias, or when an upstream structured UI/tool has already provided that alias. Do not guess or infer aliases heuristically from context; otherwise omit this field so runtime uses text-to-video.'
+            "Cinematic-only optional sticky image alias for a visual reference or first frame, for example \"image #1\". Omit when mode='talking_avatar'; use portraitImageAlias instead. Provide this only when the user explicitly identifies or selects a specific available image alias, or when an upstream structured UI/tool has already provided that alias. Do not guess or infer aliases heuristically from context; otherwise omit this field so runtime uses text-to-video."
         },
         referenceImageAliases: {
           type: "array",
@@ -1114,6 +1167,7 @@ function createTtsToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTool
       policy,
       [
         "Generate spoken audio for the current assistant persona with structured expressive delivery.",
+        "When the user wants a spoken reply or voice note, call this tool instead of only promising one. Do not claim the audio or voice note already exists unless this same turn returns action='generated'.",
         "Choose structured delivery fields to shape how it sounds; do NOT embed raw bracketed audio tags in text — PersAI compiles your structured choices into safe, conservative provider steering. Keep choices honest to the intended emotional delivery; combining whisper with excited/high intensity is automatically softened."
       ].join(" ")
     ),
@@ -1177,7 +1231,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
       policy,
       [
         "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
-        "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to modify an existing PDF (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. Follow the Working Files document-role guidance: prefer CURRENT_SOURCE for a newly attached source file the user wants turned into a PDF, and use LAST_DELIVERED_RESULT only when the user explicitly wants to modify an already generated PDF. revise_document with no docId or fileRef auto-resolves to the latest matching PDF in the current chat. Use fileRef when the PDF you want to revise was produced by the assistant in this or any earlier chat (its AssistantFile id is visible via files.search, the Working Files developer block, or files.read results). Use doc_id for the current chat's most recent PDF when you have the exact id. Do not pass both fileRef and doc_id.",
+        "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to modify an existing PDF (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. Follow the Working Files document-role guidance: prefer CURRENT_SOURCE for a newly attached source file the user wants turned into a PDF, and use LAST_DELIVERED_RESULT only when the user explicitly wants to modify an already generated PDF. revise_document with no docId or fileRef auto-resolves to the latest matching PDF in the current chat. Use fileRef when the PDF you want to revise was produced by the assistant in this or any earlier chat (its AssistantFile id is visible via files.search, the Working Files developer block, or files.read results). Use docId only when you already have the exact UUID for the current chat's existing document. docId is not a Working Files alias. Do not pass both fileRef and docId.",
         "Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
         "When the user has attached a source file (txt, md, csv, json, html, xml, pdf, docx) and asks to rebuild, convert, restyle, translate, or summarize it, the backend worker will AUTOMATICALLY inline that file's text content into document generation; you do not need to pre-read it. Call create_pdf_document with transferMode=verbatim when the user wants the source text copied without rewriting. Call transferMode=transform when the user wants restyling or layout/color changes — the worker keeps the full extracted source text and applies presentation styling; it does NOT summarize or drop sections.",
         "You SHOULD also set contentIntent explicitly. Use contentIntent=preserve_content when the user wants the original document content preserved and only the formatting, visual style, layout, or output format should change. Use contentIntent=rewrite_content only when the user explicitly wants the document text/content rewritten. If contentIntent is omitted, the runtime defaults to preserving content.",
@@ -1186,8 +1240,11 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         "For school, educational, explainer, and ordinary client decks, do not choose imagePolicy=text_only or visualDensity=text_heavy unless the user explicitly asks for text-only slides or unusually dense slide copy. Prefer balanced density and ordinary visual policies; do not force pictographic/business icon decks unless the user asked for that exact style.",
         "For Gamma presentations, keep outline simple when you provide it: a short flat list of slide titles or title plus brief bullets. Do not send deeply nested JSON outlines, speaker notes, layout directives, or provider-specific theme guesses.",
         'For create_presentation and for presentation revise_document, you SHOULD set targetSlideCount to a concrete integer between 1 and 30 — even when the user did not specify one. If the user did mention a number ("7 slides", "deck of 10", "до 5 слайдов", "увеличь до 8"), you MUST set targetSlideCount to that exact integer. If the user did not specify a number, pick a reasonable count from the topic (typical school/explainer deck is 7-10, ordinary client deck is 8-12, deep report is 12-16) and pass that integer.',
-        "If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the document is being prepared and will arrive separately; do NOT claim it is ready/sent and do NOT call files.send for it this turn.",
-        "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and call quota_status if the user needs concrete package or upgrade options."
+        buildPendingDeliveryHint({
+          subject: "the document is being prepared",
+          quotaToolCode: "document",
+          extra: "Do not call files.send for it this turn."
+        })
       ].join(" ")
     ),
     inputSchema: {
@@ -1223,12 +1280,12 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         docId: {
           type: "string",
           description:
-            "Existing document id for revise_document (current chat) and export_or_redeliver. Use fileRef instead of docId when the PDF was produced in a different chat."
+            "docId MUST be the exact document UUID for revise_document (current chat) and export_or_redeliver. docId is not a Working Files alias. Use fileRef instead of docId when the PDF was produced in a different chat."
         },
         fileRef: {
           type: "string",
           description:
-            'fileRef MUST be a UUID — the exact `fileRef` value returned by `files.search`/`files.read` response items, or a UUID surfaced in the Working Files developer block. Example valid value: `"abc12345-0000-4000-8000-deadbeef1234"`. Aliases such as `"last generated file"`, `"recent file #1"`, `"previous attachment #1"`, or `"current attachment #1"` are NOT valid fileRef values — they belong to different resolution paths and will fail with `file_alias_not_found`. Mutually exclusive with `docId`; do not pass both.'
+            'fileRef MUST be a UUID — the exact `fileRef` value returned by `files.search` or `files.read` response items. Example valid value: `"abc12345-0000-4000-8000-deadbeef1234"`. Sticky aliases such as `"file #1"` or `"image #1"` are not valid fileRef values; pass them through alias-based fields or selection flows instead. Mutually exclusive with `docId`; do not pass both.'
         },
         requestedName: {
           type: "string",
@@ -1307,9 +1364,9 @@ function createScheduledActionToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: "scheduled_action",
-    description: resolveToolDefinitionDescription(
+    description: resolveSanitizedScheduledActionDescription(
       policy,
-      "Schedule simple unconditional user-visible reminders. Use background_task for assistant-side checks."
+      "Schedule simple unconditional user-visible reminders. Use background_task for assistant-side conditional checks."
     ),
     inputSchema: {
       type: "object",
@@ -1391,10 +1448,10 @@ function createBackgroundTaskToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: "background_task",
-    description: resolveToolDefinitionDescription(
+    description: resolveSanitizedBackgroundTaskDescription(
       policy,
       appendPerTurnCapHint(
-        "Create and manage quiet assistant-side background tasks. Use this for conditional checks and delayed assistant follow-through; the platform will later evaluate the brief and push the user directly only when warranted. Before creating a new task, avoid duplicates: if the user seems to be referring to an already-existing follow-up with the same purpose, first call list and reuse, update, or cancel/resume the existing task instead of creating a second equivalent one.",
+        "Create and manage quiet assistant-side background tasks. Use this for conditional checks and delayed assistant follow-through; the platform will later evaluate the brief and push the user directly only when warranted. Before creating a new task, avoid duplicates: if the user seems to be referring to an already existing follow-up with the same purpose, first call list and then pause, resume, cancel, or keep the existing task instead of creating a second equivalent one.",
         "background_task",
         policy
       )
@@ -1487,7 +1544,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         query: {
           type: "string",
           description:
-            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", "delete", or "send" when no working-file alias or exact path is available. Search spans the assistant Files registry, including uploaded chat files, generated outputs, and sandbox files. If the user asks to send or resend a found file, discovering it is not enough: call action="send" with the resolved target in the same turn.'
+            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", "delete", or "send" when no working-file alias or exact path is available. Search spans the assistant Files registry, including uploaded chat files, generated outputs, and sandbox files. If the user asks to send or resend a discovered file, discovering it is not enough: call action="send" with the resolved target in the same turn.'
         },
         limit: {
           type: "integer",
@@ -1504,7 +1561,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         alias: {
           type: "string",
           description:
-            'Human-readable working-file alias for action="get", "read", "edit", "delete", or "send", for example "current attachment #1", "previous attachment #1", or "last generated image". Prefer this for current or prior reusable chat files when available.'
+            'Human-readable sticky working-file alias for action="get", "read", "edit", "delete", or "send", for example "file #1" or "image #1". Prefer this for reusable chat files when available.'
         },
         content: {
           type: "string",

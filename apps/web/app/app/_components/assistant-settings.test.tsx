@@ -3688,8 +3688,12 @@ describe("characters section", () => {
     expect(ruMessages.settings.charactersVoiceLabel).toBe("Голос - {voice}");
     expect(enMessages.settings.voicesMakeDefault).toBe("Default");
     expect(ruMessages.settings.voicesMakeDefault).toBe("По умолчанию");
-    expect(enMessages.settings.voicesCreateGuidance.length).toBeGreaterThan(0);
-    expect(ruMessages.settings.voicesCreateGuidance.length).toBeGreaterThan(0);
+    expect(enMessages.settings.voicesRecordPromptTitle).toBe("Quick guide");
+    expect(ruMessages.settings.voicesRecordPromptTitle).toBe("Краткая инструкция");
+    expect(enMessages.settings.voicesRightsConfirmation).toBe("I confirm that I own this voice.");
+    expect(ruMessages.settings.voicesRightsConfirmation).toBe(
+      "Я подтверждаю, что владею этим голосом."
+    );
     expect(enMessages.settings.charactersUsageHint.length).toBeGreaterThan(0);
     expect(ruMessages.settings.charactersUsageHint.length).toBeGreaterThan(0);
     expect(enMessages.settings.charactersLockedBanner.length).toBeGreaterThan(0);
@@ -4188,10 +4192,16 @@ describe("characters section", () => {
     const dialog = await screen.findByRole("dialog");
 
     expect(
-      within(dialog).getByText(
+      within(dialog).queryByText(
         "One clean sample is enough. Use one speaker in a quiet room and record 20-60 seconds of steady speech."
       )
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        "Accepted: audio files up to 25 MB. A clean voice sample of at least 60 seconds works best."
+      )
     ).toBeInTheDocument();
+    expect(within(dialog).getByText("I confirm that I own this voice.")).toBeInTheDocument();
     expect(
       screen.getAllByText("Cost: 50 VC. Balance: 10 VC. Limit: 5 voices").length
     ).toBeGreaterThan(0);

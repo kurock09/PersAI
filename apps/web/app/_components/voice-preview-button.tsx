@@ -18,78 +18,147 @@ import { cn } from "@/app/lib/utils";
 // Module-level coordination: only one audio element plays at a time.
 let currentlyPlayingAudio: HTMLAudioElement | null = null;
 let currentlyPlayingSetPlaying: ((v: boolean) => void) | null = null;
+let currentPlaybackSessionId = 0;
 
 export function VoicePreviewButton({
   previewAudioUrl,
   voiceLabel,
-  previewUnavailableLabel = "Preview unavailable"
+  previewUnavailableLabel = "Preview unavailable",
+  playLabel,
+  pauseLabel,
+  className,
+  iconClassName,
+  disabled = false
 }: {
   previewAudioUrl: string | null;
   voiceLabel: string;
   previewUnavailableLabel?: string;
+  playLabel?: string;
+  pauseLabel?: string;
+  className?: string;
+  iconClassName?: string;
+  disabled?: boolean;
 }): React.ReactElement {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playbackSessionRef = useRef(0);
 
   const isActive = previewAudioUrl !== null && previewAudioUrl.length > 0;
+  const resolvedPlayLabel = playLabel ?? `Play preview: ${voiceLabel}`;
+  const resolvedPauseLabel = pauseLabel ?? `Pause preview: ${voiceLabel}`;
+
+  const clearCurrentPlayback = (audio: HTMLAudioElement | null) => {
+    if (audio !== null && currentlyPlayingAudio === audio) {
+      currentlyPlayingAudio = null;
+      currentlyPlayingSetPlaying = null;
+    }
+  };
+
+  const stopLocalPlayback = (audio: HTMLAudioElement | null) => {
+    currentPlaybackSessionId += 1;
+    playbackSessionRef.current = currentPlaybackSessionId;
+    setIsStarting(false);
+    if (audio !== null) {
+      audio.pause();
+      clearCurrentPlayback(audio);
+    }
+    setIsPlaying(false);
+  };
+
+  const ensureAudio = (src: string): HTMLAudioElement => {
+    const existing = audioRef.current;
+    if (existing !== null && existing.src === src) {
+      return existing;
+    }
+    if (existing !== null) {
+      existing.pause();
+      clearCurrentPlayback(existing);
+    }
+    const audio = new Audio(src);
+    audioRef.current = audio;
+    audio.addEventListener("ended", () => {
+      clearCurrentPlayback(audio);
+      setIsStarting(false);
+      setIsPlaying(false);
+    });
+    audio.addEventListener("pause", () => {
+      clearCurrentPlayback(audio);
+      setIsStarting(false);
+      setIsPlaying(false);
+    });
+    audio.addEventListener("error", () => {
+      clearCurrentPlayback(audio);
+      setIsStarting(false);
+      setIsPlaying(false);
+    });
+    return audio;
+  };
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        if (currentlyPlayingAudio === audioRef.current) {
-          currentlyPlayingAudio = null;
-          currentlyPlayingSetPlaying = null;
-        }
-        audioRef.current = null;
-      }
+      stopLocalPlayback(audioRef.current);
+      audioRef.current = null;
     };
   }, []);
 
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio === null) {
+      return;
+    }
+    if (!previewAudioUrl || audio.src !== previewAudioUrl) {
+      stopLocalPlayback(audio);
+      audioRef.current = null;
+    }
+  }, [previewAudioUrl]);
+
   function handleClick(): void {
-    if (!isActive || !previewAudioUrl) {
+    if (!isActive || !previewAudioUrl || disabled) {
       return;
     }
 
-    if (isPlaying && audioRef.current) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-      currentlyPlayingAudio = null;
-      currentlyPlayingSetPlaying = null;
+    const audio = ensureAudio(previewAudioUrl);
+    if ((isPlaying || isStarting) && audioRef.current === audio) {
+      stopLocalPlayback(audio);
       return;
     }
 
-    // Pause whatever is currently playing
-    if (currentlyPlayingAudio !== null && currentlyPlayingAudio !== audioRef.current) {
+    if (currentlyPlayingAudio !== null && currentlyPlayingAudio !== audio) {
       currentlyPlayingAudio.pause();
       currentlyPlayingSetPlaying?.(false);
     }
 
-    // Create audio element if needed
-    if (audioRef.current === null) {
-      const audio = new Audio(previewAudioUrl);
-      audioRef.current = audio;
-      audio.addEventListener("ended", () => {
-        setIsPlaying(false);
-        if (currentlyPlayingAudio === audio) {
-          currentlyPlayingAudio = null;
-          currentlyPlayingSetPlaying = null;
-        }
-      });
-      audio.addEventListener("pause", () => {
-        setIsPlaying(false);
-      });
+    if ("currentTime" in audio && typeof audio.currentTime === "number") {
+      audio.currentTime = 0;
     }
 
-    currentlyPlayingAudio = audioRef.current;
+    const sessionId = ++currentPlaybackSessionId;
+    playbackSessionRef.current = sessionId;
+    currentlyPlayingAudio = audio;
     currentlyPlayingSetPlaying = setIsPlaying;
-    void audioRef.current.play().then(() => {
-      setIsPlaying(true);
-    });
+    setIsStarting(true);
+    void audio
+      .play()
+      .then(() => {
+        if (playbackSessionRef.current !== sessionId || currentPlaybackSessionId !== sessionId) {
+          return;
+        }
+        setIsStarting(false);
+        setIsPlaying(true);
+      })
+      .catch(() => {
+        if (playbackSessionRef.current !== sessionId || currentPlaybackSessionId !== sessionId) {
+          return;
+        }
+        clearCurrentPlayback(audio);
+        setIsStarting(false);
+        setIsPlaying(false);
+      });
   }
 
-  if (!isActive) {
+  if (!isActive || disabled) {
     return (
       <button
         type="button"
@@ -97,7 +166,8 @@ export function VoicePreviewButton({
         title={previewUnavailableLabel}
         className={cn(
           "inline-flex h-6 w-6 shrink-0 cursor-not-allowed items-center justify-center rounded-full",
-          "text-text-subtle opacity-40"
+          "text-text-subtle opacity-40",
+          className
         )}
         onClick={(e) => {
           e.preventDefault();
@@ -105,7 +175,7 @@ export function VoicePreviewButton({
         }}
         aria-label={previewUnavailableLabel}
       >
-        <Play className="h-3 w-3" />
+        <Play className={cn("h-3 w-3", iconClassName)} />
       </button>
     );
   }
@@ -113,15 +183,20 @@ export function VoicePreviewButton({
   return (
     <button
       type="button"
-      title={isPlaying ? `Pause preview: ${voiceLabel}` : `Play preview: ${voiceLabel}`}
-      aria-label={isPlaying ? `Pause preview: ${voiceLabel}` : `Play preview: ${voiceLabel}`}
+      title={isPlaying ? resolvedPauseLabel : resolvedPlayLabel}
+      aria-label={isPlaying ? resolvedPauseLabel : resolvedPlayLabel}
       onClick={handleClick}
       className={cn(
         "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
-        "border border-border bg-surface hover:bg-surface-raised text-accent"
+        "border border-border bg-surface hover:bg-surface-raised text-accent",
+        className
       )}
     >
-      {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+      {isPlaying ? (
+        <Pause className={cn("h-3 w-3", iconClassName)} />
+      ) : (
+        <Play className={cn("h-3 w-3", iconClassName)} />
+      )}
     </button>
   );
 }

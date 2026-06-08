@@ -873,7 +873,7 @@ export class RuntimeImageEditToolService {
         ok: false,
         reason: "source_image_alias_required",
         warning:
-          "Multiple reusable images are available. Ask the user which image alias is the source image, for example current image #1 or last generated image."
+          'Multiple reusable images are available. Ask the user which sticky image alias is the source image, for example "image #1".'
       };
     }
 
@@ -1252,7 +1252,16 @@ export class RuntimeImageEditToolService {
   }
 
   private resolvePrimaryAttachmentAlias(attachment: RuntimeAttachmentRef): string {
-    return attachment.aliases?.[0] ?? attachment.filename ?? "selected image";
+    const aliases = attachment.aliases ?? [];
+    const stickyImageAlias = aliases.find((alias) => /^image #\d+$/i.test(alias));
+    if (stickyImageAlias !== undefined) {
+      return stickyImageAlias;
+    }
+    const stickyFileAlias = aliases.find((alias) => /^file #\d+$/i.test(alias));
+    if (stickyFileAlias !== undefined) {
+      return stickyFileAlias;
+    }
+    return aliases[0] ?? attachment.filename ?? "selected image";
   }
 
   private normalizeAlias(value: string): string {

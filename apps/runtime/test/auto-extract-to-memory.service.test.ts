@@ -246,7 +246,7 @@ async function runWritesAcceptedCandidates(): Promise<void> {
       items: [
         {
           kind: "preference",
-          summary: "She prefers Saturday mornings for planning calls.",
+          summary: "Prefers Saturday mornings for planning calls.",
           layer: "long",
           confidence: 0.93
         },
@@ -254,12 +254,12 @@ async function runWritesAcceptedCandidates(): Promise<void> {
           kind: "fact",
           summary: "User works on PersAI runtime.",
           layer: "long",
-          confidence: 0.81
+          confidence: 0.91
         },
         {
           kind: "open_loop",
-          summary: "Need to circle back on Step 12 transcription.",
-          layer: "short",
+          summary: "Follow up on Step 12 transcription decision.",
+          layer: "long",
           confidence: 0.88
         }
       ]
@@ -302,14 +302,17 @@ async function runWritesAcceptedCandidates(): Promise<void> {
   assert.equal(result.entries[0]?.layer, "long");
   assert.equal(result.entries[2]?.layer, "short");
 
-  // Provider request must use auto_extract_to_memory classification and
-  // respect human-voice instructions.
+  // Provider request must use auto_extract_to_memory classification and lock
+  // the tightened extraction rules directly in the prompt.
   assert.equal(gateway.requests.length, 1);
   assert.equal(gateway.requests[0]?.requestMetadata?.classification, "auto_extract_to_memory");
   const systemPrompt = gateway.requests[0]?.systemPrompt ?? "";
-  assert.match(systemPrompt, /warm, attentive friend/i);
-  assert.match(systemPrompt, /Never write in the user's voice/);
-  assert.match(systemPrompt, /Layer choice: use "long"/);
+  assert.match(systemPrompt, /Write concise neutral memory notes/i);
+  assert.match(systemPrompt, /Return at most 3 items total/i);
+  assert.match(systemPrompt, /Never quote the user verbatim/i);
+  assert.match(systemPrompt, /concrete unresolved action, follow-up, or decision/i);
+  assert.match(systemPrompt, /confidence is at least 0\.85/i);
+  assert.match(systemPrompt, /If unsure, use "short" or skip/i);
   assert.match(systemPrompt, /STRICT JSON/);
 }
 
@@ -466,8 +469,141 @@ async function runEnforcesSoftCap(): Promise<void> {
     providerSelection: { provider: "openai", model: "gpt-5.4" }
   });
 
-  assert.equal(api.writeCalls.length, 8);
-  assert.equal(result.written, 8);
+  assert.equal(api.writeCalls.length, 3);
+  assert.equal(result.written, 3);
+}
+
+async function runSkipsVagueOrEphemeralCandidates(): Promise<void> {
+  const { service, gateway, api } = buildService();
+  gateway.nextResult = {
+    ...gateway.nextResult,
+    text: JSON.stringify({
+      items: [
+        {
+          kind: "open_loop",
+          summary: "User is focused on PersAI product direction.",
+          layer: "short"
+        },
+        {
+          kind: "fact",
+          summary: "Record test voice for demo.",
+          layer: "short"
+        },
+        {
+          kind: "preference",
+          summary: "Prefers concise runtime checklists.",
+          layer: "long"
+        }
+      ]
+    })
+  };
+  api.outcomes = [{ written: true, code: null, message: null, item: makeWrittenItem("m1") }];
+
+  const result = await service.execute({
+    bundle: createBundle(),
+    channel: "web",
+    conversationMode: "direct",
+    compactedMessages: SAMPLE_MESSAGES,
+    rollingSynopsisText: null,
+    runtimeRequestId: null,
+    runtimeSessionId: "session-1",
+    providerSelection: { provider: "openai", model: "gpt-5.4" }
+  });
+
+  assert.equal(api.writeCalls.length, 1);
+  assert.equal(api.writeCalls[0]?.kind, "preference");
+  assert.equal(api.writeCalls[0]?.summary, "Prefers concise runtime checklists.");
+  assert.equal(result.written, 1);
+}
+
+async function runSkipsLowConfidenceLongFactsAndPreferences(): Promise<void> {
+  const { service, gateway, api } = buildService();
+  gateway.nextResult = {
+    ...gateway.nextResult,
+    text: JSON.stringify({
+      items: [
+        {
+          kind: "fact",
+          summary: "User is a deeply strategic operator.",
+          layer: "long",
+          confidence: 0.79
+        },
+        {
+          kind: "preference",
+          summary: "Prefers concise runtime checklists.",
+          layer: "long",
+          confidence: 0.84
+        },
+        {
+          kind: "fact",
+          summary: "User works on PersAI runtime memory quality.",
+          layer: "long",
+          confidence: 0.91
+        }
+      ]
+    })
+  };
+  api.outcomes = [{ written: true, code: null, message: null, item: makeWrittenItem("m1") }];
+
+  const result = await service.execute({
+    bundle: createBundle(),
+    channel: "web",
+    conversationMode: "direct",
+    compactedMessages: SAMPLE_MESSAGES,
+    rollingSynopsisText: null,
+    runtimeRequestId: null,
+    runtimeSessionId: "session-1",
+    providerSelection: { provider: "openai", model: "gpt-5.4" }
+  });
+
+  assert.equal(api.writeCalls.length, 1);
+  assert.equal(api.writeCalls[0]?.kind, "fact");
+  assert.equal(api.writeCalls[0]?.summary, "User works on PersAI runtime memory quality.");
+  assert.equal(api.writeCalls[0]?.confidence, 0.91);
+  assert.equal(result.written, 1);
+  assert.equal(result.entries[0]?.confidence, 0.91);
+}
+
+async function runKeepsOnlyExplicitlyDurableLongOpenLoops(): Promise<void> {
+  const { service, gateway, api } = buildService();
+  gateway.nextResult = {
+    ...gateway.nextResult,
+    text: JSON.stringify({
+      items: [
+        {
+          kind: "open_loop",
+          summary: "Long-term goal is to launch PersAI in the EU this year.",
+          layer: "long"
+        },
+        {
+          kind: "open_loop",
+          summary: "Follow up on the next runtime polish pass.",
+          layer: "long"
+        }
+      ]
+    })
+  };
+  api.outcomes = [
+    { written: true, code: null, message: null, item: makeWrittenItem("m1") },
+    { written: true, code: null, message: null, item: makeWrittenItem("m2") }
+  ];
+
+  const result = await service.execute({
+    bundle: createBundle(),
+    channel: "web",
+    conversationMode: "direct",
+    compactedMessages: SAMPLE_MESSAGES,
+    rollingSynopsisText: null,
+    runtimeRequestId: null,
+    runtimeSessionId: "session-1",
+    providerSelection: { provider: "openai", model: "gpt-5.4" }
+  });
+
+  assert.equal(api.writeCalls.length, 2);
+  assert.equal(api.writeCalls[0]?.layer, "long");
+  assert.equal(api.writeCalls[1]?.layer, "short");
+  assert.equal(result.entries[0]?.layer, "long");
+  assert.equal(result.entries[1]?.layer, "short");
 }
 
 async function runReturnsEmptyWhenProviderFails(): Promise<void> {
@@ -533,6 +669,9 @@ async function run(): Promise<void> {
   await runHonoursServerSideDuplicateOutcome();
   await runHonoursServerSidePolicyDenial();
   await runEnforcesSoftCap();
+  await runSkipsVagueOrEphemeralCandidates();
+  await runSkipsLowConfidenceLongFactsAndPreferences();
+  await runKeepsOnlyExplicitlyDurableLongOpenLoops();
   await runReturnsEmptyWhenProviderFails();
   await runShortCircuitsForUnsupportedTransport();
   await runShortCircuitsWhenNoMessages();

@@ -906,13 +906,11 @@ export class RuntimeImageGenerateToolService {
     const preferredAlias =
       this.resolvePreferredCurrentImageAlias(
         reusableImages.find((attachment) =>
-          this.resolveAttachmentAliases(attachment).some((alias) =>
-            alias.startsWith("current image #")
-          )
+          this.resolveAttachmentAliases(attachment).some((alias) => alias.startsWith("image #"))
         ) ?? null
       ) ??
       this.resolvePreferredCurrentImageAlias(reusableImages[0] ?? null) ??
-      "current image #1";
+      "image #1";
     return {
       toolCode: IMAGE_GENERATE_TOOL_CODE,
       executionMode: "worker",
@@ -937,7 +935,7 @@ export class RuntimeImageGenerateToolService {
       return null;
     }
     const aliases = this.resolveAttachmentAliases(attachment);
-    return aliases.find((alias) => alias.startsWith("current image #")) ?? aliases[0] ?? null;
+    return aliases.find((alias) => alias.startsWith("image #")) ?? aliases[0] ?? null;
   }
 
   private resolveAttachmentAliases(attachment: RuntimeAttachmentRef): string[] {

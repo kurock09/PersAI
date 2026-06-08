@@ -7,6 +7,7 @@ type MockAudio = {
   play: ReturnType<typeof vi.fn>;
   pause: ReturnType<typeof vi.fn>;
   src: string;
+  currentTime: number;
   _eventHandlers: Record<string, (() => void)[]>;
   addEventListener: (event: string, handler: () => void) => void;
 };
@@ -16,6 +17,7 @@ function createMockAudio(): MockAudio {
     play: vi.fn().mockResolvedValue(undefined),
     pause: vi.fn(),
     src: "",
+    currentTime: 0,
     _eventHandlers: {},
     addEventListener(event: string, handler: () => void) {
       if (!this._eventHandlers[event]) {
@@ -127,6 +129,76 @@ describe("VoicePreviewButton", () => {
 
     await waitFor(() => {
       expect(mockAudioInstances[0]!.pause).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not get stuck in playing state when a rapid second click interrupts the first play", async () => {
+    let resolveFirstPlay: (() => void) | null = null;
+    mockAudioInstances = [];
+    vi.stubGlobal(
+      "Audio",
+      vi.fn().mockImplementation((_src: string) => {
+        const audio = createMockAudio();
+        audio.src = _src;
+        audio.play = vi.fn().mockImplementation(
+          () =>
+            new Promise<void>((resolve) => {
+              resolveFirstPlay = resolve;
+            })
+        );
+        mockAudioInstances.push(audio);
+        return audio;
+      })
+    );
+
+    render(
+      <VoicePreviewButton
+        previewAudioUrl="https://cdn.heygen.com/voice.mp3"
+        voiceLabel="Amy"
+        previewUnavailableLabel="Preview unavailable"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play preview: Amy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Play preview: Amy" }));
+    if (typeof resolveFirstPlay === "function") {
+      (resolveFirstPlay as () => void)();
+    }
+
+    await waitFor(() => {
+      expect(mockAudioInstances[0]!.play).toHaveBeenCalledTimes(1);
+      expect(mockAudioInstances[0]!.pause).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "Play preview: Amy" })).toBeInTheDocument();
+    });
+  });
+
+  it("recreates the audio element when previewAudioUrl changes", async () => {
+    const { rerender } = render(
+      <VoicePreviewButton
+        previewAudioUrl="https://cdn.heygen.com/voice-1.mp3"
+        voiceLabel="Amy"
+        previewUnavailableLabel="Preview unavailable"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play preview: Amy" }));
+    await waitFor(() => {
+      expect(mockAudioInstances[0]!.play).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <VoicePreviewButton
+        previewAudioUrl="https://cdn.heygen.com/voice-2.mp3"
+        voiceLabel="Amy"
+        previewUnavailableLabel="Preview unavailable"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play preview: Amy" }));
+    await waitFor(() => {
+      expect(mockAudioInstances).toHaveLength(2);
+      expect(mockAudioInstances[1]!.src).toBe("https://cdn.heygen.com/voice-2.mp3");
+      expect(mockAudioInstances[1]!.play).toHaveBeenCalledTimes(1);
     });
   });
 });

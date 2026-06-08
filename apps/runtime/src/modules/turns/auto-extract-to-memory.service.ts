@@ -12,9 +12,16 @@ import { ProviderGatewayClientService } from "./provider-gateway.client.service"
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import type { InternalMemoryWriteOutcome } from "./persai-internal-api.client.service";
 
-const AUTO_EXTRACT_SOFT_CAP = 8;
+const AUTO_EXTRACT_SOFT_CAP = 3;
 const AUTO_EXTRACT_MAX_OUTPUT_TOKENS = 700;
 const AUTO_EXTRACT_SUMMARY_MAX_CHARS = 220;
+const AUTO_EXTRACT_LONG_MEMORY_MIN_CONFIDENCE = 0.85;
+const AUTO_EXTRACT_VAGUE_OPEN_LOOP_PATTERN =
+  /\b(interested in|interest in|curious about|exploring|learning about|working on|focused on|product direction|roadmap|strategy|vision|ongoing interest)\b/i;
+const AUTO_EXTRACT_DURABLE_OPEN_LOOP_PATTERN =
+  /\b(long[- ]term|this year|this quarter|over the next|for the next|multi[- ]month|months\b|goal|commitment|committed to|deadline|target)\b/i;
+const AUTO_EXTRACT_EPHEMERAL_SUMMARY_PATTERN =
+  /\b(test voice|record(?:ing)? (?:a )?test voice|demo voice|placeholder|try(?:ing)? out|small talk|greeting|acknowledg(?:e)?ment)\b/i;
 
 export interface AutoExtractToMemoryInput {
   bundle: AssistantRuntimeBundle;
@@ -41,8 +48,7 @@ interface AutoExtractCandidate {
 
 const AUTO_EXTRACT_OUTPUT_SCHEMA = {
   name: "auto_extract_to_memory_v1",
-  description:
-    "ADR-074 M2 — durable memory items extracted by the assistant after an auto-compaction round.",
+  description: "Durable memory candidates extracted from a compacted conversation slice.",
   strict: true,
   schema: {
     type: "object",
@@ -213,21 +219,23 @@ export class AutoExtractToMemoryService {
         : `Existing rolling synopsis (already known, do NOT restate verbatim):\n${input.rollingSynopsisText}`;
 
     const sections: Array<string | null> = [
-      `You are ${personaName}, a warm, attentive friend. You are reviewing the most recent conversation slice with ${userName} and writing brief notes to remember durably.`,
-      "Your job is to extract ONLY genuinely durable, useful items: stable facts, lasting preferences, and unresolved open loops the user clearly cares about.",
-      "Voice rules:",
-      '- Write each note in a warm, human first-person friend voice as if you (the assistant) were saying it about the user. Example: "She prefers Saturday mornings for our planning calls."',
+      `You are ${personaName}. Review the most recent conversation slice with ${userName} and decide whether any memory items are worth writing.`,
+      "Your job is to extract ONLY genuinely durable, useful items: stable facts, lasting preferences, and concrete unresolved open loops the user clearly cares about.",
+      "Writing rules:",
+      "- Write concise neutral memory notes, not warm friend-style narration.",
       "- Never write in the user's voice. Never quote the user verbatim.",
       "- Each note must be a single short sentence, no markdown, no greetings, no follow-up questions.",
       "Content rules:",
-      "- Skip small talk, transient context, anything the user clearly retracted, anything you only inferred weakly, and anything already covered by the prior synopsis.",
-      "- Prefer fewer high-quality items over many marginal ones. It is fine to return zero items.",
+      "- Prefer zero items over weak items. Return at most 3 items total, and only when they are high-confidence and clearly supported by explicit evidence in this slice.",
+      "- Skip small talk, acknowledgements, test/demo turns, ephemeral tasks like recording a test voice, anything the user clearly retracted, anything already covered by the prior synopsis, and anything you only inferred weakly.",
+      "- Do not write broad portraits, personality takes, or generalized style preferences from one or two casual turns.",
+      "- For long fact/preference items, only output them when confidence is at least 0.85. If confidence is lower, use short only for current working context or skip.",
       `- Hard cap: at most ${String(AUTO_EXTRACT_SOFT_CAP)} items total across all kinds.`,
       "Kind taxonomy:",
-      '- "fact": stable factual statements about the user or their world that are unlikely to change soon.',
-      '- "preference": durable likes/dislikes/operating preferences for how you should help.',
-      '- "open_loop": something the user explicitly wants to come back to later that is not yet resolved.',
-      'Layer choice: use "long" for stable long-term facts, lasting preferences, or durable decisions. Use "short" for recent working context that matters for now but should decay naturally once it stops being useful.',
+      '- "fact": a stable factual statement about the user or their world that is unlikely to change soon.',
+      '- "preference": a durable like/dislike or decision-grade operating preference for how you should help.',
+      '- "open_loop": a concrete unresolved action, follow-up, or decision to return to later. Not a vague ongoing interest or product direction.',
+      'Layer choice: use "long" only for explicit, repeated, or clearly decision-grade long-term facts/preferences, and only for explicitly durable long-term commitments or goals. Use "short" for ordinary open loops and recent working context. If unsure, use "short" or skip.',
       synopsisHint,
       'Return STRICT JSON of shape: {"items":[{"kind":"fact|preference|open_loop","summary":"...","layer":"long|short","confidence":0.0}]}.',
       'If nothing durable belongs in memory, return {"items":[]}.',
@@ -270,9 +278,12 @@ export class AutoExtractToMemoryService {
       if (row === null) continue;
       const kind = this.asKind(row.kind);
       const summary = this.normalizeSummary(row.summary);
-      const layer = this.asLayer(row.layer);
+      const layer = this.normalizeLayerForCandidate(kind, summary, this.asLayer(row.layer));
       const confidence = this.asOptionalConfidence(row.confidence);
       if (kind === null || summary === null || layer === null || confidence === undefined) {
+        continue;
+      }
+      if (this.shouldSkipCandidate(kind, summary, layer, confidence)) {
         continue;
       }
       const dedupeKey = `${kind}:${summary.toLowerCase()}`;
@@ -300,6 +311,43 @@ export class AutoExtractToMemoryService {
 
   private asLayer(value: unknown): PersaiRuntimeMemoryWriteLayer | null {
     return value === "long" || value === "short" ? (value as PersaiRuntimeMemoryWriteLayer) : null;
+  }
+
+  private normalizeLayerForCandidate(
+    kind: PersaiRuntimeMemoryWriteKind | null,
+    summary: string | null,
+    layer: PersaiRuntimeMemoryWriteLayer | null
+  ): PersaiRuntimeMemoryWriteLayer | null {
+    if (kind !== "open_loop" || summary === null || layer === null) {
+      return layer;
+    }
+    if (layer === "short") {
+      return "short";
+    }
+    return AUTO_EXTRACT_DURABLE_OPEN_LOOP_PATTERN.test(summary) ? "long" : "short";
+  }
+
+  private shouldSkipCandidate(
+    kind: PersaiRuntimeMemoryWriteKind,
+    summary: string,
+    layer: PersaiRuntimeMemoryWriteLayer,
+    confidence: number | null
+  ): boolean {
+    if (AUTO_EXTRACT_EPHEMERAL_SUMMARY_PATTERN.test(summary)) {
+      return true;
+    }
+    if (kind === "open_loop" && AUTO_EXTRACT_VAGUE_OPEN_LOOP_PATTERN.test(summary)) {
+      return true;
+    }
+    if (
+      layer === "long" &&
+      (kind === "fact" || kind === "preference") &&
+      confidence !== null &&
+      confidence < AUTO_EXTRACT_LONG_MEMORY_MIN_CONFIDENCE
+    ) {
+      return true;
+    }
+    return false;
   }
 
   private asOptionalConfidence(value: unknown): number | null | undefined {

@@ -322,27 +322,27 @@ export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> 
 
   // ADR-077 — scheduled_action is now only for simple user-visible reminders.
   // Assistant-side checks moved to the dedicated background_task tool.
-  const assistantCheckViaScheduledAction = await service.executeToolCall({
+  const invalidKindViaScheduledAction = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({
       action: "create",
-      kind: "assistant_check",
+      kind: "not_supported",
       title: "Watch cosmos",
       actionType: "check_status",
       delayMs: 120000
     }),
     conversation: createConversation("thread-1")
   });
-  assert.equal(assistantCheckViaScheduledAction.payload.action, "skipped");
-  assert.equal(assistantCheckViaScheduledAction.payload.reason, "invalid_arguments");
-  assert.equal(assistantCheckViaScheduledAction.isError, true);
+  assert.equal(invalidKindViaScheduledAction.payload.action, "skipped");
+  assert.equal(invalidKindViaScheduledAction.payload.reason, "invalid_arguments");
+  assert.equal(invalidKindViaScheduledAction.isError, true);
   assert.equal(internalApi.controlCalls.length, 1);
 
-  const stringifiedPayloadCheckViaScheduledAction = await service.executeToolCall({
+  const stringifiedPayloadInvalidKind = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({
       action: "create",
-      kind: "assistant_check",
+      kind: "not_supported",
       title: "Check USD rate",
       actionType: "follow_up",
       actionPayload: '{"target":"USD","threshold":30,"action":"ping_above"}',
@@ -350,18 +350,18 @@ export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> 
     }),
     conversation: createConversation("thread-1")
   });
-  assert.equal(stringifiedPayloadCheckViaScheduledAction.payload.action, "skipped");
-  assert.equal(stringifiedPayloadCheckViaScheduledAction.payload.reason, "invalid_arguments");
-  assert.equal(stringifiedPayloadCheckViaScheduledAction.isError, true);
+  assert.equal(stringifiedPayloadInvalidKind.payload.action, "skipped");
+  assert.equal(stringifiedPayloadInvalidKind.payload.reason, "invalid_arguments");
+  assert.equal(stringifiedPayloadInvalidKind.isError, true);
   assert.equal(internalApi.controlCalls.length, 1);
 
-  // Assistant-side checks are rejected before hitting the API. ADR-077 moves
-  // those to background_task so scheduled_action stays user-reminder only.
-  const malformedPayloadCheck = await service.executeToolCall({
+  // Assistant-side follow-up payloads are rejected before hitting the API.
+  // scheduled_action stays user-reminder only.
+  const malformedPayloadInvalidKind = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({
       action: "create",
-      kind: "assistant_check",
+      kind: "not_supported",
       title: "Broken payload",
       actionType: "follow_up",
       actionPayload: "not-json",
@@ -369,9 +369,9 @@ export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> 
     }),
     conversation: createConversation("thread-1")
   });
-  assert.equal(malformedPayloadCheck.payload.action, "skipped");
-  assert.equal(malformedPayloadCheck.payload.reason, "invalid_arguments");
-  assert.match(malformedPayloadCheck.payload.warning ?? "", /kind="user_reminder"/);
+  assert.equal(malformedPayloadInvalidKind.payload.action, "skipped");
+  assert.equal(malformedPayloadInvalidKind.payload.reason, "invalid_arguments");
+  assert.match(malformedPayloadInvalidKind.payload.warning ?? "", /kind="user_reminder"/);
 
   const blockedSelfCancel = await service.executeToolCall({
     bundle,

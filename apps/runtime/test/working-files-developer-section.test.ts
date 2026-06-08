@@ -37,7 +37,7 @@ function formatUtcTimestamp(value: string): string {
   return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
-describe("TurnExecutionService file history developer section", () => {
+describe("TurnExecutionService working files developer section", () => {
   test("tool-loop rebuild preserves neighboring sections and avoids duplicates", () => {
     const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
     (
@@ -62,7 +62,7 @@ describe("TurnExecutionService file history developer section", () => {
       {
         key: "working_files",
         content:
-          "## File history (newest first)\nFormat: `AssistantFile.createdAt | author | alias | filename | microdescription`.\n- stale"
+          "## Working Files\nFormat: `AssistantFile.createdAt | author | sticky label | filename | markers | microdescription`.\n- stale"
       },
       {
         key: "presence",
@@ -102,7 +102,7 @@ describe("TurnExecutionService file history developer section", () => {
           mimeType: "image/jpeg",
           sizeBytes: 123,
           logicalSizeBytes: 123,
-          aliases: ["current image #1", "current attachment #1"],
+          aliases: ["image #1", "file #1"],
           createdAt: "2026-05-26T11:10:00.000Z",
           authorLabel: "user",
           semanticSummaryHint: "Portrait photo for editing."
@@ -118,12 +118,12 @@ describe("TurnExecutionService file history developer section", () => {
     );
 
     assert.ok(refreshed);
-    assert.equal((refreshed.match(/## File history \(newest first\)/g) ?? []).length, 1);
+    assert.equal((refreshed.match(/## Working Files/g) ?? []).length, 1);
     assert.match(refreshed ?? "", /# Sense of Time/);
     assert.match(refreshed ?? "", /## Open Media Jobs/);
   });
 
-  test("renders one newest-first history with date and strict author labels", () => {
+  test("renders working files with sticky labels and marker column", () => {
     const section = buildSection([
       {
         fileRef: "file-old",
@@ -135,7 +135,7 @@ describe("TurnExecutionService file history developer section", () => {
         mimeType: "text/plain",
         sizeBytes: 10,
         logicalSizeBytes: 10,
-        aliases: ["previous attachment #2"],
+        aliases: ["file #1"],
         createdAt: "2026-05-24T08:05:00.000Z",
         authorLabel: "user",
         semanticSummaryHint: "Older user draft."
@@ -150,7 +150,7 @@ describe("TurnExecutionService file history developer section", () => {
         mimeType: "image/png",
         sizeBytes: 20,
         logicalSizeBytes: 20,
-        aliases: ["last generated image", "previous image #1"],
+        aliases: ["image #1", "file #2"],
         createdAt: "2026-05-26T14:32:00.000Z",
         authorLabel: "model",
         semanticSummaryHint: "Makeup strengthened and colors balanced."
@@ -165,7 +165,7 @@ describe("TurnExecutionService file history developer section", () => {
         mimeType: "text/markdown",
         sizeBytes: 30,
         logicalSizeBytes: 30,
-        aliases: ["generated file #2"],
+        aliases: ["file #3"],
         createdAt: "2026-05-25T09:15:00.000Z",
         authorLabel: "sandbox",
         semanticSummaryHint: "Sandbox-generated report."
@@ -173,7 +173,7 @@ describe("TurnExecutionService file history developer section", () => {
     ]);
 
     assert.ok(section);
-    assert.match(section ?? "", /## File history \(newest first\)/);
+    assert.match(section ?? "", /## Working Files/);
     const historyLines = (section ?? "").split("\n").filter((line) => line.startsWith("- 2026-"));
     assert.deepEqual(
       historyLines.map((line) => line.slice(2, 18)),
@@ -185,19 +185,22 @@ describe("TurnExecutionService file history developer section", () => {
     );
     assert.equal(
       historyLines[0]?.startsWith(
-        `- ${formatUtcTimestamp("2026-05-26T14:32:00.000Z")} | model | last generated image | portrait.png | Makeup strengthened`
+        `- ${formatUtcTimestamp("2026-05-26T14:32:00.000Z")} | model | image #1 (file #2) | portrait.png | - | Makeup strengthened`
       ),
       true
     );
     assert.match(
       historyLines[1] ?? "",
-      /\| sandbox \| generated file #2 \| report\.md \| Sandbox-generated/
+      /\| sandbox \| file #3 \| report\.md \| - \| Sandbox-generated/
     );
     assert.match(
       historyLines[2] ?? "",
-      /\| user \| previous attachment #2 \| old\.txt \| Older user draft/
+      /\| user \| file #1 \| old\.txt \| current source \| Older user draft/
     );
-    assert.doesNotMatch(section ?? "", /### HISTORY|### OTHER_FILES|## Working Files/);
+    assert.doesNotMatch(
+      section ?? "",
+      /### HISTORY|### OTHER_FILES|current attachment #|last generated image/
+    );
   });
 
   test("keeps both same-name files visible and disambiguates them", () => {
@@ -212,7 +215,7 @@ describe("TurnExecutionService file history developer section", () => {
         mimeType: "image/png",
         sizeBytes: 10,
         logicalSizeBytes: 10,
-        aliases: ["previous image #1"],
+        aliases: ["image #1", "file #1"],
         createdAt: "2026-05-26T14:32:00.000Z",
         authorLabel: "model",
         semanticSummaryHint: "Makeup strengthened."
@@ -227,7 +230,7 @@ describe("TurnExecutionService file history developer section", () => {
         mimeType: "image/png",
         sizeBytes: 10,
         logicalSizeBytes: 10,
-        aliases: ["previous image #2"],
+        aliases: ["image #2", "file #2"],
         createdAt: "2026-05-26T13:32:00.000Z",
         authorLabel: "model",
         semanticSummaryHint: "Hair color corrected."
@@ -235,8 +238,8 @@ describe("TurnExecutionService file history developer section", () => {
     ]);
 
     assert.ok(section);
-    assert.match(section ?? "", /foo\.png \[1111abcd\] \| Makeup strengthened\./);
-    assert.match(section ?? "", /foo\.png \[2222dcba\] \| Hair color corrected\./);
+    assert.match(section ?? "", /foo\.png \[1111abcd\] \| - \| Makeup strengthened\./);
+    assert.match(section ?? "", /foo\.png \[2222dcba\] \| - \| Hair color corrected\./);
   });
 
   test("document priority note remains without rendering legacy role sections", () => {
@@ -251,7 +254,7 @@ describe("TurnExecutionService file history developer section", () => {
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
         logicalSizeBytes: 512,
-        aliases: ["current attachment #1"],
+        aliases: ["file #1"],
         createdAt: "2026-05-26T14:40:00.000Z",
         authorLabel: "user",
         semanticSummaryHint: "Current source document for the new PDF."
@@ -266,7 +269,7 @@ describe("TurnExecutionService file history developer section", () => {
         mimeType: "application/pdf",
         sizeBytes: 1024,
         logicalSizeBytes: 1024,
-        aliases: ["last generated file", "previous attachment #1"],
+        aliases: ["file #2"],
         createdAt: "2026-05-26T14:20:00.000Z",
         authorLabel: "model",
         semanticSummaryHint: "Latest delivered PDF result."
@@ -275,8 +278,8 @@ describe("TurnExecutionService file history developer section", () => {
 
     assert.ok(section);
     assert.match(section ?? "", /Document-tool priority \(PDF only\):/);
-    assert.match(section ?? "", /CURRENT_SOURCE = current attachment #1 \| proposal\.docx/);
-    assert.match(section ?? "", /LAST_DELIVERED_RESULT = last generated file \| proposal\.pdf/);
+    assert.match(section ?? "", /CURRENT_SOURCE = file #1 \| proposal\.docx/);
+    assert.match(section ?? "", /LAST_DELIVERED_RESULT = file #2 \| proposal\.pdf/);
     assert.match(
       section ?? "",
       /Use CURRENT_SOURCE for new document creation; use LAST_DELIVERED_RESULT only for an explicit revise\/redeliver request\./
@@ -298,7 +301,7 @@ describe("TurnExecutionService file history developer section", () => {
       mimeType: "image/png",
       sizeBytes: 10,
       logicalSizeBytes: 10,
-      aliases: [`previous image #${String(index + 1)}`],
+      aliases: [`image #${String(index + 1)}`, `file #${String(index + 1 + 2)}`],
       createdAt: `2026-05-${String(25 - Math.floor(index / 2)).padStart(2, "0")}T${String(
         23 - (index % 2)
       ).padStart(2, "0")}:00:00.000Z`,
@@ -316,7 +319,7 @@ describe("TurnExecutionService file history developer section", () => {
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
         logicalSizeBytes: 512,
-        aliases: ["current attachment #1"],
+        aliases: ["file #1"],
         createdAt: "2026-05-26T14:40:00.000Z",
         authorLabel: "user",
         semanticSummaryHint: "Current source document for the new PDF."
@@ -332,7 +335,7 @@ describe("TurnExecutionService file history developer section", () => {
         mimeType: "application/pdf",
         sizeBytes: 1024,
         logicalSizeBytes: 1024,
-        aliases: ["last generated file", "previous attachment #1"],
+        aliases: ["file #2"],
         createdAt: "2026-04-01T10:00:00.000Z",
         authorLabel: "model",
         semanticSummaryHint: "Latest delivered PDF result."
@@ -342,11 +345,11 @@ describe("TurnExecutionService file history developer section", () => {
     assert.ok(section);
     const historyLines = (section ?? "").split("\n").filter((line) => line.startsWith("- 2026-"));
     assert.equal(historyLines.length, 20);
-    assert.match(section ?? "", /CURRENT_SOURCE = current attachment #1 \| proposal\.docx/);
-    assert.match(section ?? "", /LAST_DELIVERED_RESULT = last generated file \| proposal\.pdf/);
+    assert.match(section ?? "", /CURRENT_SOURCE = file #1 \| proposal\.docx/);
+    assert.match(section ?? "", /LAST_DELIVERED_RESULT = file #2 \| proposal\.pdf/);
     assert.match(
       section ?? "",
-      /- 2026-04-01 10:00 \| model \| last generated file \| proposal\.pdf \| Latest delivered PDF result\./
+      /- 2026-04-01 10:00 \| model \| file #2 \| proposal\.pdf \| last delivered result \| Latest delivered PDF result\./
     );
   });
 
@@ -362,7 +365,7 @@ describe("TurnExecutionService file history developer section", () => {
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
         logicalSizeBytes: 512,
-        aliases: ["current attachment #1"],
+        aliases: ["file #1"],
         createdAt: "2026-05-26T14:50:00.000Z",
         authorLabel: "user",
         semanticSummaryHint: "Current source document for the new branded PDF."
@@ -372,10 +375,10 @@ describe("TurnExecutionService file history developer section", () => {
     assert.ok(section);
     assert.match(
       section ?? "",
-      /\| final-client-brief\.docx \| Current source document for the new branded PDF\./
+      /\| final-client-brief\.docx \| current source \| Current source document for the new branded PDF\./
     );
-    assert.match(section ?? "", /Always call `files\.list` first/);
-    assert.match(section ?? "", /MUST call `files\.send`/i);
+    assert.match(section ?? "", /Use `files\.list` and\/or `files\.search`/);
+    assert.match(section ?? "", /Call `files\.send` only when the user explicitly asks/i);
     assert.doesNotMatch(section ?? "", /fileRef|objectKey|attachmentId|contentPreview/);
   });
 
@@ -392,5 +395,93 @@ describe("TurnExecutionService file history developer section", () => {
 
     assert.equal(merged.trimEnd(), "Here you go.");
     assert.doesNotMatch(merged, /Assistant sent an attachment|fileRef/i);
+  });
+
+  test("adding a newer file does not renumber existing sticky labels", () => {
+    const originalSection = buildSection([
+      {
+        fileRef: "older-image",
+        origin: "runtime_output",
+        sourceToolCode: "image_edit",
+        objectKey: "generated/older.png",
+        relativePath: "generated/older.png",
+        displayName: "older.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+        logicalSizeBytes: 10,
+        aliases: ["image #1", "file #1"],
+        createdAt: "2026-05-20T10:00:00.000Z",
+        authorLabel: "model",
+        semanticSummaryHint: "Older image."
+      },
+      {
+        fileRef: "older-doc",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "uploads/brief.docx",
+        relativePath: "uploads/brief.docx",
+        displayName: "brief.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sizeBytes: 10,
+        logicalSizeBytes: 10,
+        aliases: ["file #2"],
+        createdAt: "2026-05-21T10:00:00.000Z",
+        authorLabel: "user",
+        semanticSummaryHint: "Older document."
+      }
+    ]);
+    const expandedSection = buildSection([
+      {
+        fileRef: "older-image",
+        origin: "runtime_output",
+        sourceToolCode: "image_edit",
+        objectKey: "generated/older.png",
+        relativePath: "generated/older.png",
+        displayName: "older.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+        logicalSizeBytes: 10,
+        aliases: ["image #1", "file #1"],
+        createdAt: "2026-05-20T10:00:00.000Z",
+        authorLabel: "model",
+        semanticSummaryHint: "Older image."
+      },
+      {
+        fileRef: "older-doc",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "uploads/brief.docx",
+        relativePath: "uploads/brief.docx",
+        displayName: "brief.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sizeBytes: 10,
+        logicalSizeBytes: 10,
+        aliases: ["file #2"],
+        createdAt: "2026-05-21T10:00:00.000Z",
+        authorLabel: "user",
+        semanticSummaryHint: "Older document."
+      },
+      {
+        fileRef: "newer-image",
+        origin: "runtime_output",
+        sourceToolCode: "image_edit",
+        objectKey: "generated/newer.png",
+        relativePath: "generated/newer.png",
+        displayName: "newer.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+        logicalSizeBytes: 10,
+        aliases: ["image #2", "file #3"],
+        createdAt: "2026-05-22T10:00:00.000Z",
+        authorLabel: "model",
+        semanticSummaryHint: "Newer image."
+      }
+    ]);
+
+    assert.match(originalSection ?? "", /\| image #1 \(file #1\) \| older\.png \|/);
+    assert.match(originalSection ?? "", /\| file #2 \| brief\.docx \|/);
+    assert.match(expandedSection ?? "", /\| image #1 \(file #1\) \| older\.png \|/);
+    assert.match(expandedSection ?? "", /\| file #2 \| brief\.docx \|/);
+    assert.match(expandedSection ?? "", /\| image #2 \(file #3\) \| newer\.png \|/);
   });
 });

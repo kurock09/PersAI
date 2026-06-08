@@ -5205,10 +5205,6 @@ export function AssistantSettings({
                       </button>
                     </div>
 
-                    <div className="mt-4 rounded-xl border border-border/60 bg-surface-raised/20 p-3 text-xs leading-5 text-text-muted">
-                      {t("voicesCreateGuidance")}
-                    </div>
-
                     <div className="mt-4">
                       <label className="mb-1 block text-[11px] font-medium text-text-subtle">
                         {t("voicesFormName")}
@@ -5219,19 +5215,6 @@ export function AssistantSettings({
                         value={createClonedVoiceName}
                         onChange={(event) => setCreateClonedVoiceName(event.target.value)}
                         placeholder={t("voicesFormNamePlaceholder")}
-                        className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
-                      />
-                    </div>
-
-                    <div className="mt-3">
-                      <label className="mb-1 block text-[11px] font-medium text-text-subtle">
-                        {t("voicesFormLanguage")}
-                      </label>
-                      <input
-                        type="text"
-                        value={createClonedVoiceLanguageHint}
-                        onChange={(event) => setCreateClonedVoiceLanguageHint(event.target.value)}
-                        placeholder={t("voicesFormLanguagePlaceholder")}
                         className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
                       />
                     </div>
@@ -5300,12 +5283,12 @@ export function AssistantSettings({
                         <p className="text-xs font-medium text-text">
                           {t("voicesRecordPromptTitle")}
                         </p>
-                        <p className="mt-1 text-xs leading-5 text-text-muted">
-                          {t("voicesRecordPromptBody")}
-                        </p>
-                        <div className="mt-3 rounded-lg border border-border/50 bg-surface px-3 py-2 text-sm leading-6 text-text">
-                          {t("voicesRecordSampleText")}
-                        </div>
+                        <ul className="mt-2 space-y-1.5 text-xs leading-5 text-text-muted">
+                          <li>{t("voicesRecordInstructionOne")}</li>
+                          <li>{t("voicesRecordInstructionTwo")}</li>
+                          <li>{t("voicesRecordInstructionThree")}</li>
+                          <li>{t("voicesRecordInstructionFour")}</li>
+                        </ul>
                         <div className="mt-3 flex flex-wrap items-center gap-2">
                           {createClonedVoiceRecordingState === "recording" ? (
                             <button

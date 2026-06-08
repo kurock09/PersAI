@@ -3,6 +3,84 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-08 - ADR-112 Slices 5-6 + 9 tool-surface cleanup
+
+### Baseline
+
+- Starting SHA: `b771c981` (operator-approved stacked dirty flow after Slice 10 extractor tightening; no intermediate commit by request).
+- Scope: ADR-112 Slice 5 plus the narrowed Slice 6 residual, followed by Slice 9 descriptor/instruction hygiene in the same operator-approved stacked dirty flow. Collapse file/media references into one stable sticky alias namespace for the model (`file #N` / `image #N`), keep `fileRef` hidden as execution identity, update runtime/tool consumers together, remove the remaining dead current-turn image ordinal plumbing, and clean model-facing tool descriptor vocabulary without changing execution architecture. Out of scope: background job visibility (Slice 7), background model-call prompt hygiene (Slice 8), and additional memory changes beyond the already-completed Slice 10 tightening.
+
+### What changed
+
+- `TurnContextHydrationService` now assigns stable sticky aliases from first appearance and preserves them through current attachments, historical images/documents, discovered file refs, and same-file merges instead of recomputing current/previous/recent/found/read ordinals.
+- `TurnExecutionService` now renders `## Working Files` with `AssistantFile.createdAt | author | sticky label | filename | markers | microdescription`, separates recency/role into markers (`current source`, `last delivered result`, etc.), keeps same-name files visible with short-hash disambiguation, preserves document anchors past the display cap, and merges files-tool discovery refs without creating a parallel alias scheme.
+- Runtime file/document/image tool guidance and native tool projection examples now teach sticky `file #N` / `image #N` handles. Document tool tests now use explicit `currentAttachments` / `availableAttachments` job inputs.
+- Cleanliness follow-up: stale source comments and Slice 5-focused tests were updated away from legacy discovery aliases; the only remaining `previous attachment` source occurrence is a user-text intent detector in the document tool, not model-facing guidance.
+- Slice 6 residual cleanup removed unused `showCurrentTurnImageOrdinals` plus the unused direct-attachment id/image/pdf counters from runtime hydration. Source audit shows no active runtime turn assembly still uses `## File history` or that dead current-turn image ordinal path.
+- Independent audit follow-up closed the major media-path residual: image/video tool attachments now reuse aliases from Working Files/current turn state rather than running a second ephemeral `image #N` / `file #N` numbering path; media tool result/log aliases prefer sticky labels; files-tool model-visible alias arrays put sticky labels first and drop legacy ordinal aliases; non-UUID `docId` inputs are nulled/logged before enqueue; and stale runtime-contract / ADR-081 alias docs now point to sticky Working Files truth.
+- Slice 9 cleaned runtime model-facing descriptors/instructions: `document` now consistently uses `docId` and states UUID-only; `memory_write` field descriptions no longer expose ADR-id cruft; `scheduled_action` projection is user-reminder-only and sanitizes stale hidden-follow-up / `assistant_check` policy copy; `background_task` projection no longer advertises ghost `update`; image/video/document pending-delivery honesty copy is centralized; video persona guidance consistently uses `Settings -> Characters`; and `tts` has a short tool-use rule for spoken replies/voice notes without claiming audio before `action='generated'`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/working-files-developer-section.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution-discovered-file-refs.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-image-edit-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-image-generate-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-scheduled-action-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-tts-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `git diff --check`
+
+### Risks / residuals
+
+- Some historical docs/tests still mention legacy aliases as historical examples or explicit negative/compatibility fixtures, but active runtime model guidance and model-visible tool results now use sticky aliases.
+- Internal compatibility names such as old memory alias tool codes remain in non-model-facing fixtures/config tests where they are exercising migration/compile behavior, not live projected tool descriptors.
+- Provider-specific placement remains on the established ADR-110 path: OpenAI developer instructions and Anthropic user-wrapped runtime developer context. No provider projection code changed in this residual cleanup.
+
+### Next recommended step
+
+Run the full AGENTS.md verification gate on the stacked Slice 10c + 5/6 + 9 tree, then prepare the single combined commit when the operator is ready. After that, continue ADR-112 with Slice 7 (background jobs visibility) and Slice 8 (background model-call prompt hygiene).
+
+## 2026-06-08 - ADR-112 post-Slice 10 auto-extract tightening
+
+### Baseline
+
+- Starting SHA: `b771c981` (clean tree).
+- Scope: bounded ADR-112 follow-up on the runtime auto-extractor only. Tighten prompt/parser quality so idle/compaction extraction writes fewer higher-confidence memories, keeps `open_loop` concrete and usually `short`, and stops obvious vague/test/ephemeral items. Out of scope: scheduler/watermark logic, hydration, API write routing, provider changes, Slice 5/6/9 work.
+
+### What changed
+
+- `AutoExtractToMemoryService` now hard-caps extraction to `3` items instead of `8`, and the model prompt was rewritten to prefer zero over weak items, require explicit evidence, avoid broad portraits/personality takes, treat `open_loop` as a concrete unresolved action/decision rather than a vague direction, and reserve `long` for explicit/repeated/decision-grade evidence only.
+- The prompt no longer tells the model to write in a warm first-person friend voice. It now asks for concise neutral memory notes while still forbidding user-voice / verbatim quotes.
+- Added a small parser-side guardrail in the same runtime service: obvious test-voice/demo/ephemeral summaries are skipped, vague interest/product-direction `open_loop` summaries are skipped, `open_loop` items requested as `long` are deterministically downgraded to `short` unless the summary explicitly signals a durable long-term goal/commitment, and numeric-confidence `long` fact/preference candidates below `0.85` are skipped.
+- Focused runtime tests now lock both the tightened prompt rules and the parser filtering/normalization behavior.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/auto-extract-to-memory.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `git diff --check`
+
+### Risks / residuals
+
+- Extraction quality is still primarily model-judged; this slice only tightens the control surface and adds a narrow negative guardrail, so some borderline outputs may still depend on provider behavior.
+- The parser guard is intentionally conservative and string-based; if live extraction still overcaptures new vague patterns, a later bounded follow-up may need one more narrow filter or prompt example.
+
+### Next recommended step
+
+Keep ADR-112 Slice 10 behavior under live review, then continue the agreed backlog order outside this follow-up: Slice 5, Slice 6, then Slice 9.
+
 ## 2026-06-08 - ADR-112 Slice 10 two-tier memory path + idle extraction completion
 
 ### Baseline

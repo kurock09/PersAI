@@ -31,10 +31,14 @@ export class RuntimeDocumentToolService {
     deferToAsyncDocumentJob: {
       sourceUserMessageId: string;
       sourceUserMessageText: string;
-      // Attachments captured from the user turn that triggered the tool call.
+      // Sticky-labeled current-turn attachments captured from the user turn
+      // that triggered the tool call.
+      currentAttachments: RuntimeAttachmentRef[];
+      // Sticky-labeled reusable document-source attachments visible to the
+      // current turn (current turn + prior reusable sources).
       // Forwarded into the document job so the worker can inline
       // text-extractable source-file content into the generation prompt.
-      attachments: RuntimeAttachmentRef[];
+      availableAttachments: RuntimeAttachmentRef[];
     };
   }): Promise<RuntimeDocumentToolExecutionResult> {
     const parsed = this.readDocumentArguments(params.toolCall.arguments);
@@ -62,8 +66,11 @@ export class RuntimeDocumentToolService {
       };
     }
 
+    const currentAttachments = params.deferToAsyncDocumentJob.currentAttachments ?? [];
+    const availableAttachments = params.deferToAsyncDocumentJob.availableAttachments ?? [];
     const sourceAttachments = this.selectSourceAttachmentsForRequest({
-      attachments: params.deferToAsyncDocumentJob.attachments,
+      attachments: availableAttachments,
+      currentAttachments,
       descriptorMode: parsed.descriptorMode,
       prompt: parsed.request.prompt,
       sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText
@@ -75,9 +82,10 @@ export class RuntimeDocumentToolService {
       fileRef: parsed.request.fileRef ?? null,
       sourceAttachmentCount: sourceAttachments.length
     });
+    const normalizedDocId = this.normalizeDocId(parsed.request.docId ?? null);
     const effectiveRequest =
       effectiveDescriptorMode === parsed.descriptorMode
-        ? parsed.request
+        ? { ...parsed.request, docId: normalizedDocId }
         : { ...parsed.request, docId: null };
     const normalizedRequest = this.normalizePresentationRequest({
       descriptorMode: effectiveDescriptorMode,
@@ -312,8 +320,26 @@ export class RuntimeDocumentToolService {
     return Math.min(rounded, 30);
   }
 
+  private normalizeDocId(docId: string | null): string | null {
+    if (docId === null) {
+      return null;
+    }
+    const trimmed = docId.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+    if (UUID_REGEX.test(trimmed)) {
+      return trimmed;
+    }
+    this.logger.warn(
+      `[document-tool] docId-not-uuid — model passed a non-UUID docId value: "${docId}"`
+    );
+    return null;
+  }
+
   private selectSourceAttachmentsForRequest(input: {
     attachments: RuntimeAttachmentRef[];
+    currentAttachments: RuntimeAttachmentRef[];
     descriptorMode:
       | "create_pdf_document"
       | "create_presentation"
@@ -322,13 +348,8 @@ export class RuntimeDocumentToolService {
     prompt: string;
     sourceUserMessageText: string;
   }): RuntimeAttachmentRef[] {
-    if (input.attachments.length === 0) {
-      return [];
-    }
-    const currentAttachments = input.attachments.filter((attachment) =>
-      (attachment.aliases ?? []).some((alias) =>
-        alias.toLowerCase().startsWith("current attachment #")
-      )
+    const currentAttachments = input.currentAttachments.filter((attachment) =>
+      this.isDocumentSourceAttachmentMime(attachment.mimeType)
     );
     if (currentAttachments.length > 0) {
       return currentAttachments;
@@ -338,13 +359,24 @@ export class RuntimeDocumentToolService {
         input.descriptorMode === "create_presentation") &&
       this.referencesPriorSourceAttachment(input.prompt, input.sourceUserMessageText)
     ) {
-      return input.attachments.filter((attachment) =>
-        (attachment.aliases ?? []).some((alias) =>
-          alias.toLowerCase().startsWith("previous attachment #")
-        )
-      );
+      return input.attachments;
     }
     return [];
+  }
+
+  private isDocumentSourceAttachmentMime(mimeType: string): boolean {
+    const normalized = mimeType.trim().toLowerCase();
+    return (
+      normalized.startsWith("text/") ||
+      normalized === "application/pdf" ||
+      normalized === "application/x-pdf" ||
+      normalized === "application/json" ||
+      normalized === "application/x-ndjson" ||
+      normalized === "application/xml" ||
+      normalized === "application/x-yaml" ||
+      normalized === "application/yaml" ||
+      normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
   }
 
   private resolveEffectiveDescriptorMode(input: {
@@ -387,9 +419,9 @@ export class RuntimeDocumentToolService {
     if (input.outputFormat !== "pptx") {
       return input.descriptorMode;
     }
-    // Presentation revise without a docId: keep the existing Gamma behaviour
+    // Presentation revise without a valid docId: keep the existing Gamma behaviour
     // (untouched in Slice 2) — fall through to create_presentation when there
-    // are source attachments but no valid doc_id.
+    // are source attachments but no valid document UUID.
     if (input.sourceAttachmentCount > 0) {
       return "create_presentation";
     }

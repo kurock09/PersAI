@@ -2776,7 +2776,16 @@ export class RuntimeVideoGenerateToolService {
   }
 
   private resolvePrimaryAttachmentAlias(attachment: RuntimeAttachmentRef): string {
-    return attachment.aliases?.[0] ?? attachment.filename ?? "reference image";
+    const aliases = attachment.aliases ?? [];
+    const stickyImageAlias = aliases.find((alias) => /^image #\d+$/i.test(alias));
+    if (stickyImageAlias !== undefined) {
+      return stickyImageAlias;
+    }
+    const stickyFileAlias = aliases.find((alias) => /^file #\d+$/i.test(alias));
+    if (stickyFileAlias !== undefined) {
+      return stickyFileAlias;
+    }
+    return aliases[0] ?? attachment.filename ?? "reference image";
   }
 
   private normalizeAlias(value: string): string {

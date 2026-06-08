@@ -244,10 +244,9 @@ type ToolExecutionOutcome = {
    * Files-tool registry-resolved refs that the model just discovered through
    * `files.search` / `files.list` / `files.get` / `files.read`. The runtime
    * caller merges these into `turnState.fileRefs` so the next provider
-   * iteration's Working Files developer block carries fresh discovery
-   * aliases (`found file #N`, `listed image #N`, `fetched file`,
-   * `read image`, ...) instead of the model trying to re-select via stale
-   * `previous attachment #1` aliases that point to unrelated past uploads.
+   * iteration's Working Files developer block carries the same sticky
+   * `file #N` / `image #N` labels as the rest of the turn instead of
+   * recomputing recency-based ordinals.
    */
   discoveredFileRefs?: RuntimeFileRef[];
   sharedCompaction?: {
@@ -1990,8 +1989,8 @@ export class TurnExecutionService {
     }
 
     const lines = [
-      "## File history (newest first)",
-      "Format: `AssistantFile.createdAt | author | alias | filename | microdescription`."
+      "## Working Files",
+      "Format: `AssistantFile.createdAt | author | sticky label | filename | markers | microdescription`."
     ];
     const documentPriorityNote =
       this.buildWorkingFileDocumentPriorityNote(availableWorkingFileRefs);
@@ -2010,7 +2009,7 @@ export class TurnExecutionService {
       "For `files`, prefer alias first, then `path` or `query` when a reusable alias is unavailable."
     );
     lines.push(
-      'For `image_edit` and `video_generate`, use image aliases such as "current image #1" or "last generated image".'
+      'For `image_edit` and `video_generate`, prefer sticky image aliases such as "image #1".'
     );
     lines.push(
       "Mentioning a filename in chat does NOT deliver a file. Call `files.send` only when the user explicitly asks to send, resend, attach, share, or deliver an existing file. Never call it as a side effect of search, read, or file discovery."
@@ -2024,24 +2023,14 @@ export class TurnExecutionService {
     return lines.join("\n");
   }
 
-  /**
-   * ADR-100 Piece 3 — a file is a "recent discovered file" when its aliases
-   * list contains at least one entry matching `recent file #N`.
-   */
-  private isRecentDiscoveredFile(file: RuntimeFileRef): boolean {
-    return (file.aliases ?? []).some((alias) => /^recent file #\d+$/i.test(alias.trim()));
-  }
-
   private isCurrentSourceWorkingFile(file: RuntimeFileRef): boolean {
     return (
-      this.hasWorkingFileAlias(file, /^current attachment #\d+$/i) &&
-      this.isDocumentSourceWorkingFileMime(file.mimeType)
+      file.origin === "uploaded_attachment" && this.isDocumentSourceWorkingFileMime(file.mimeType)
     );
   }
 
   private isLastDeliveredDocumentResultWorkingFile(file: RuntimeFileRef): boolean {
     return (
-      this.hasWorkingFileAlias(file, /^last generated file$/i) &&
       this.isAssistantGeneratedWorkingFile(file) &&
       (this.isPdfWorkingFileMime(file.mimeType) || file.sourceToolCode === DOCUMENT_TOOL_CODE)
     );
@@ -2077,10 +2066,6 @@ export class TurnExecutionService {
 
   private isAssistantGeneratedWorkingFile(file: RuntimeFileRef): boolean {
     return file.origin !== "uploaded_attachment";
-  }
-
-  private hasWorkingFileAlias(file: RuntimeFileRef, pattern: RegExp): boolean {
-    return (file.aliases ?? []).some((alias) => pattern.test(alias.trim()));
   }
 
   private buildOpenMediaJobsDeveloperSection(
@@ -3074,7 +3059,8 @@ export class TurnExecutionService {
           deferToAsyncDocumentJob: {
             sourceUserMessageId: input.idempotencyKey,
             sourceUserMessageText: input.message.text,
-            attachments: availableDocumentSourceAttachments
+            currentAttachments: execution.currentMessageAttachments,
+            availableAttachments: availableDocumentSourceAttachments
           }
         });
         return this.createToolExecutionOutcome(
@@ -3089,7 +3075,8 @@ export class TurnExecutionService {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
           acceptedTurn,
           execution,
-          currentArtifacts
+          currentArtifacts,
+          currentFileRefs
         );
         const result = await this.runtimeImageEditToolService.executeToolCall({
           bundle: execution.bundle,
@@ -3118,7 +3105,8 @@ export class TurnExecutionService {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
           acceptedTurn,
           execution,
-          currentArtifacts
+          currentArtifacts,
+          currentFileRefs
         );
         const result = await this.runtimeImageGenerateToolService.executeToolCall({
           bundle: execution.bundle,
@@ -3147,7 +3135,8 @@ export class TurnExecutionService {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
           acceptedTurn,
           execution,
-          currentArtifacts
+          currentArtifacts,
+          currentFileRefs
         );
         const result = await this.runtimeVideoGenerateToolService.executeToolCall({
           bundle: execution.bundle,
@@ -3233,7 +3222,8 @@ export class TurnExecutionService {
   private resolveAvailableImageToolAttachments(
     acceptedTurn: AcceptedRuntimeTurn,
     execution: PreparedTurnExecution,
-    currentArtifacts: RuntimeOutputArtifact[]
+    currentArtifacts: RuntimeOutputArtifact[],
+    currentFileRefs: RuntimeFileRef[]
   ): Promise<RuntimeAttachmentRef[]> {
     return this.turnContextHydrationService
       .listAvailableImageToolAttachments({
@@ -3241,27 +3231,44 @@ export class TurnExecutionService {
         currentAttachments: execution.currentMessageAttachments
       })
       .then((attachments) => {
-        const generatedImageAttachments: RuntimeAttachmentRef[] = [];
-        let generatedImageOrdinal = 0;
-        const imageArtifacts = currentArtifacts.filter((artifact) => artifact.kind === "image");
-        for (let index = imageArtifacts.length - 1; index >= 0; index -= 1) {
-          const artifact = imageArtifacts[index]!;
-          const aliases = [`generated image #${String(++generatedImageOrdinal)}`];
-          if (index === imageArtifacts.length - 1) {
-            aliases.unshift("last generated image", "last generated file");
+        const aliasByFileRef = new Map<string, string[]>();
+        const aliasByObjectKey = new Map<string, string[]>();
+        for (const fileRef of [...execution.availableWorkingFileRefs, ...currentFileRefs]) {
+          if ((fileRef.aliases ?? []).length === 0) {
+            continue;
           }
-          generatedImageAttachments.push({
+          aliasByFileRef.set(fileRef.fileRef, fileRef.aliases ?? []);
+          aliasByObjectKey.set(fileRef.objectKey, fileRef.aliases ?? []);
+        }
+        const withWorkingFileAliases = (attachment: RuntimeAttachmentRef): RuntimeAttachmentRef => {
+          const workingFileAliases =
+            (typeof attachment.fileRef === "string"
+              ? aliasByFileRef.get(attachment.fileRef)
+              : undefined) ??
+            aliasByObjectKey.get(attachment.objectKey) ??
+            null;
+          if (workingFileAliases === null) {
+            return attachment;
+          }
+          return {
+            ...attachment,
+            aliases: this.mergeFileRefAliases(workingFileAliases, attachment.aliases ?? [])
+          };
+        };
+        const generatedImageAttachments = currentArtifacts
+          .filter((artifact) => artifact.kind === "image")
+          .map((artifact) => ({
             attachmentId: artifact.artifactId,
-            kind: "image",
+            kind: "image" as const,
             objectKey: artifact.objectKey,
             mimeType: artifact.mimeType,
             filename: artifact.filename,
             sizeBytes: artifact.sizeBytes ?? 0,
             fileRef: artifact.fileRef,
-            aliases
-          });
-        }
-        return [...attachments, ...generatedImageAttachments];
+            aliases: null
+          }))
+          .map(withWorkingFileAliases);
+        return [...attachments, ...generatedImageAttachments].map(withWorkingFileAliases);
       });
   }
 
@@ -3815,10 +3822,11 @@ export class TurnExecutionService {
   ): string {
     const createdAt = this.formatWorkingFileCreatedAt(file.createdAt);
     const author = file.authorLabel ?? this.resolveWorkingFileAuthorLabel(file.origin);
-    const alias = this.resolvePrimaryWorkingFileAlias(file);
+    const alias = this.describeWorkingFileStickyLabel(file);
     const filename = this.formatWorkingFileDisplayName(file, duplicateDisplayNames);
+    const markers = this.formatWorkingFileMarkers(file);
     const microDescription = this.formatWorkingFileMicroDescription(file.semanticSummaryHint);
-    return `- ${createdAt} | ${author} | ${alias} | ${filename} | ${microDescription}`;
+    return `- ${createdAt} | ${author} | ${alias} | ${filename} | ${markers} | ${microDescription}`;
   }
 
   private buildWorkingFileDocumentPriorityNote(files: RuntimeFileRef[]): string[] | null {
@@ -3867,33 +3875,54 @@ export class TurnExecutionService {
     if (aliases.length === 0) {
       return "unaliased file";
     }
-    const priorityPatterns: RegExp[] = [
-      /^current image #\d+$/i,
-      /^current attachment #\d+$/i,
-      /^current file #\d+$/i,
-      /^last generated image$/i,
-      /^last generated file$/i,
-      /^generated image #\d+$/i,
-      /^generated file #\d+$/i,
-      /^previous image #\d+$/i,
-      /^previous attachment #\d+$/i,
-      /^recent file #\d+$/i,
-      /^found image #\d+$/i,
-      /^found file #\d+$/i,
-      /^listed image #\d+$/i,
-      /^listed file #\d+$/i,
-      /^fetched image$/i,
-      /^fetched file$/i,
-      /^read image$/i,
-      /^read file$/i
-    ];
-    for (const pattern of priorityPatterns) {
-      const match = aliases.find((alias) => pattern.test(alias));
-      if (match !== undefined) {
-        return match;
-      }
+    const imageAlias = aliases.find((alias) => /^image #\d+$/i.test(alias));
+    if (imageAlias !== undefined) {
+      return imageAlias;
+    }
+    const fileAlias = aliases.find((alias) => /^file #\d+$/i.test(alias));
+    if (fileAlias !== undefined) {
+      return fileAlias;
     }
     return aliases[0] ?? "unaliased file";
+  }
+
+  private resolveStickyFileAlias(file: RuntimeFileRef): string | null {
+    return (file.aliases ?? []).find((alias) => /^file #\d+$/i.test(alias.trim()))?.trim() ?? null;
+  }
+
+  private resolveStickyImageAlias(file: RuntimeFileRef): string | null {
+    return (file.aliases ?? []).find((alias) => /^image #\d+$/i.test(alias.trim()))?.trim() ?? null;
+  }
+
+  private describeWorkingFileStickyLabel(file: RuntimeFileRef): string {
+    const imageAlias = this.resolveStickyImageAlias(file);
+    const fileAlias = this.resolveStickyFileAlias(file);
+    if (imageAlias !== null && fileAlias !== null) {
+      return `${imageAlias} (${fileAlias})`;
+    }
+    return imageAlias ?? fileAlias ?? this.resolvePrimaryWorkingFileAlias(file);
+  }
+
+  private formatWorkingFileMarkers(file: RuntimeFileRef): string {
+    const markers: string[] = [];
+    if (this.isCurrentSourceWorkingFile(file)) {
+      markers.push("current source");
+    }
+    if (this.isLastDeliveredDocumentResultWorkingFile(file)) {
+      markers.push("last delivered result");
+    }
+    if (this.isRecentWorkingFile(file)) {
+      markers.push("recent");
+    }
+    return markers.length === 0 ? "-" : markers.join(", ");
+  }
+
+  private isRecentWorkingFile(file: RuntimeFileRef): boolean {
+    const createdAtMs = this.parseWorkingFileCreatedAtMs(file.createdAt);
+    if (createdAtMs === 0) {
+      return false;
+    }
+    return Date.now() - createdAtMs <= 1000 * 60 * 60 * 24 * 7;
   }
 
   private resolveWorkingFileDisplayName(file: RuntimeFileRef): string {
@@ -4656,12 +4685,10 @@ export class TurnExecutionService {
     }
     // ADR-100 follow-up — files-tool discovery refs (search/list/get/read)
     // surface as a parallel signal: they don't replace any existing entry
-    // for `fileRef.fileRef`, but they merge their working-files aliases
-    // (e.g. `found image #1`, `fetched file`, `read file`) onto whichever
-    // entry already exists so the next provider iteration's Working Files
-    // developer block can show the just-discovered alias and the model
-    // can address it through `files.send` / `image_edit` instead of stale
-    // `previous attachment #N` ordinals that point to unrelated history.
+    // for `fileRef.fileRef`, but they merge the sticky Working Files aliases
+    // onto whichever entry already exists so the next provider iteration can
+    // address it through `files.send` / `image_edit` without recomputing
+    // recency-based ordinals.
     if (outcome.discoveredFileRefs !== undefined && outcome.discoveredFileRefs.length > 0) {
       for (const discoveredRef of outcome.discoveredFileRefs) {
         const existingIndex = turnState.fileRefs.findIndex(
@@ -4677,8 +4704,8 @@ export class TurnExecutionService {
           turnState.fileRefs.push(discoveredRef);
         }
         // ADR-100 Piece 1 — also track the canonical id for durable persistence
-        // so the API can write them to the assistant message metadata and future
-        // hydration can surface them as "recent file #N" aliases.
+        // so the API can write it to assistant message metadata and future
+        // hydration can preserve the same sticky Working Files handle.
         if (
           turnState.discoveredFileRefIdSet.length < 20 &&
           !turnState.discoveredFileRefIdSet.includes(discoveredRef.fileRef)
@@ -4920,10 +4947,9 @@ export class TurnExecutionService {
    * Case-insensitive alias merge that mirrors
    * `TurnContextHydrationService.mergeAliases` (which is private to that
    * service). Used when merging files-tool discovery refs into
-   * `turnState.fileRefs` so a discovered file's `found file #1` /
-   * `fetched image` / `read file` markers are appended to whatever aliases
-   * the existing turnState ref already carried, instead of duplicating or
-   * silently shadowing them.
+   * `turnState.fileRefs` so the discovered file's sticky Working Files labels
+   * are appended to whatever aliases the existing turnState ref already
+   * carried, instead of duplicating or silently shadowing them.
    */
   private mergeFileRefAliases(
     existing: string[] | null | undefined,

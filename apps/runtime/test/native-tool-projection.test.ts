@@ -176,6 +176,16 @@ export async function runNativeToolProjectionTest(): Promise<void> {
               providerId: "gamma"
             }
           ]
+        },
+        tts: {
+          refKey: "persai:persai-runtime:tool/tts/openai-api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/tts/openai-api-key"
+          },
+          configured: true,
+          providerId: "openai"
         }
       },
       toolPolicies: [
@@ -250,6 +260,20 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           dailyCallLimit: 10
         },
         {
+          toolCode: "tts",
+          displayName: "TTS",
+          description: "Generate spoken audio for the current assistant persona.",
+          usageGuidance:
+            "Use this when the user wants a spoken reply or voice note. Do not claim the audio or voice note already exists unless this same turn returns action='generated'.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: 20
+        },
+        {
           toolCode: "files",
           displayName: "Files",
           description:
@@ -299,7 +323,21 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           description:
             "Schedule actions for both user-visible reminders and hidden assistant follow-ups.",
           usageGuidance:
-            'For create, choose EXACTLY ONE explicit kind. Use "assistant_check" for hidden background checks.',
+            "For create, choose exactly one explicit kind. Hidden assistant follow-ups do not belong here.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "background_task",
+          displayName: "Background Task",
+          description: "Create, list, update, pause, resume, or cancel assistant background tasks.",
+          usageGuidance:
+            "Before creating a duplicate, list and update the existing task if possible.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -356,6 +394,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   const imageEdit = projected.tools.find((tool) => tool.name === "image_edit");
   const document = projected.tools.find((tool) => tool.name === "document");
   const scheduledAction = projected.tools.find((tool) => tool.name === "scheduled_action");
+  const backgroundTask = projected.tools.find((tool) => tool.name === "background_task");
+  const tts = projected.tools.find((tool) => tool.name === "tts");
   const routeControl = projected.tools.find((tool) => tool.name === "route_control");
 
   assert.ok(webSearch, "web_search should be projected when enabled and configured");
@@ -398,7 +438,15 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /call action="send" with the resolved target/
   );
   assert.match(filesProperties?.path?.description ?? "", /canonical save location/);
-  assert.match(filesProperties?.alias?.description ?? "", /Human-readable working-file alias/);
+  assert.match(
+    filesProperties?.alias?.description ?? "",
+    /Human-readable sticky working-file alias/
+  );
+  assert.match(filesProperties?.alias?.description ?? "", /file #1|image #1/);
+  assert.doesNotMatch(
+    filesProperties?.alias?.description ?? "",
+    /current attachment|previous attachment|found attachment|listed attachment|read attachment/i
+  );
   assert.match(
     filesProperties?.aliases?.description ?? "",
     /Human-readable working-file aliases to deliver/
@@ -428,7 +476,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.match(imageGenerate?.description ?? "", /use image_edit with sourceImageAlias/i);
   assert.match(
     imageGenerate?.description ?? "",
-    /do NOT claim they are already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
+    /do NOT claim anything is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
   );
   const imageEditBackground = (
     imageEdit?.inputSchema as {
@@ -453,7 +501,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.match(imageEdit?.description ?? "", /same source product\/object identity across slides/i);
   assert.match(
     imageEdit?.description ?? "",
-    /do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
+    /do NOT claim anything is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
   );
   assert.deepEqual(imageEditBackground?.enum, ["auto", "transparent", "opaque"]);
   assert.match(imageEditBackground?.description ?? "", /remove background/);
@@ -491,7 +539,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     );
     assert.match(
       videoGenerate.description ?? "",
-      /do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
+      /do NOT claim anything is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
     );
     const videoGenerateReferenceImageAlias = videoGenerateSchema.properties?.referenceImageAlias;
     assert.match(
@@ -604,6 +652,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     );
   }
   assert.ok(document, "document should be projected when enabled and configured");
+  assert.ok(backgroundTask, "background_task should be projected when enabled");
+  assert.ok(tts, "tts should be projected when configured");
   const documentProperties = (
     document?.inputSchema as {
       properties?: {
@@ -623,9 +673,16 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "export_or_redeliver"
   ]);
   assert.match(document?.description ?? "", /existing PersAI document ids/);
+  assert.match(documentProperties?.docId?.description ?? "", /UUID/);
+  assert.match(documentProperties?.docId?.description ?? "", /not a Working Files alias/);
   assert.match(
     documentProperties?.docId?.description ?? "",
     /revise_document \(current chat\) and export_or_redeliver/
+  );
+  assert.doesNotMatch(
+    documentProperties?.docId?.description ?? "",
+    /doc_id/,
+    "docId description must not mention snake_case doc_id"
   );
   // ADR-097 Slice 5 — descriptor sharpening assertions
   assert.match(
@@ -642,6 +699,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     document?.description ?? "",
     /file_ref/,
     "tool description must not use snake_case file_ref (should be camelCase fileRef)"
+  );
+  assert.match(
+    documentProperties?.docId?.description ?? "",
+    /MUST be the exact document UUID/,
+    "docId description must require an exact UUID"
   );
   assert.match(
     documentProperties?.docId?.description ?? "",
@@ -668,6 +730,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.match(documentProperties?.visualStyle?.description ?? "", /presentation-only/);
   assert.match(documentProperties?.imagePolicy?.description ?? "", /visual deck/);
   assert.match(documentProperties?.visualDensity?.description ?? "", /denser slide copy/);
+  assert.doesNotMatch(
+    documentProperties?.fileRef?.description ?? "",
+    /current attachment|previous attachment|found attachment|listed attachment|read attachment/i,
+    "fileRef description must not teach legacy attachment aliases"
+  );
   const scheduledActionKindDescription = (
     scheduledAction?.inputSchema as {
       properties?: {
@@ -675,8 +742,21 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       };
     }
   )?.properties?.kind?.description;
+  assert.match(scheduledAction?.description ?? "", /user-visible reminders/i);
+  assert.match(scheduledAction?.description ?? "", /background_task/);
+  assert.doesNotMatch(scheduledAction?.description ?? "", /hidden assistant follow-ups?/i);
   assert.match(scheduledActionKindDescription ?? "", /user_reminder/);
   assert.match(scheduledActionKindDescription ?? "", /background_task/);
+  const backgroundTaskActionEnum = (
+    backgroundTask?.inputSchema as {
+      properties?: { action?: { enum?: unknown[] } };
+    }
+  )?.properties?.action?.enum;
+  assert.deepEqual(backgroundTaskActionEnum, ["create", "list", "pause", "resume", "cancel"]);
+  assert.match(backgroundTask?.description ?? "", /quiet assistant-side background tasks/i);
+  assert.doesNotMatch(backgroundTask?.description ?? "", /\bupdate\b/i);
+  assert.match(tts?.description ?? "", /spoken reply or voice note/i);
+  assert.match(tts?.description ?? "", /returns action='generated'/i);
 
   const nonOpenAiImageBundle = {
     ...artifact.bundle,
@@ -1102,6 +1182,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     slice10EmptyTool?.description ?? "",
     /Settings → Characters/,
     "Slice 10: empty persona catalog must suggest Settings → Characters"
+  );
+  assert.doesNotMatch(
+    slice10TwoPersonasTool?.description ?? "",
+    /Assistant Settings → Characters/,
+    "Slice 9: video persona guidance should use the product-accurate Settings wording consistently"
   );
 
   // Case 3: talkingVideoEnabled=true + missing videoPersonaCatalog (undefined) → same as empty

@@ -438,10 +438,10 @@ async function run(): Promise<void> {
   );
   assert.deepEqual(
     searchResult.payload.items[0]?.aliases,
-    ["found file #1"],
-    "ADR-100 follow-up: search items get `found file #N` ordinal alias"
+    ["file #1"],
+    "ADR-112 Slice 5: search items get sticky file alias"
   );
-  assert.equal(searchResult.payload.item?.aliases?.[0], "found file #1");
+  assert.equal(searchResult.payload.item?.aliases?.[0], "file #1");
   assert.ok(
     Array.isArray(searchResult.discoveredFileRefs) && searchResult.discoveredFileRefs.length > 0,
     "ADR-100 follow-up: search returns non-empty discoveredFileRefs"
@@ -449,7 +449,7 @@ async function run(): Promise<void> {
   assert.equal(searchResult.discoveredFileRefs?.[0]?.fileRef, "file-ref-1");
   assert.deepEqual(
     searchResult.discoveredFileRefs?.[0]?.aliases,
-    ["found file #1"],
+    ["file #1"],
     "ADR-100 follow-up: discoveredFileRefs aliases match items aliases"
   );
 
@@ -492,13 +492,10 @@ async function run(): Promise<void> {
   assert.equal(imageSearchResult.payload.items[0]?.fileRef, "file-ref-generated-1");
   assert.deepEqual(
     imageSearchResult.payload.items[0]?.aliases,
-    ["found image #1", "found file #1"],
-    "ADR-100 follow-up: image search items get both image and file ordinal aliases"
+    ["image #1", "file #1"],
+    "ADR-112 Slice 5: image search items get both sticky image and file aliases"
   );
-  assert.deepEqual(imageSearchResult.discoveredFileRefs?.[0]?.aliases, [
-    "found image #1",
-    "found file #1"
-  ]);
+  assert.deepEqual(imageSearchResult.discoveredFileRefs?.[0]?.aliases, ["image #1", "file #1"]);
 
   const listRoot = await service.executeToolCall({
     bundle: createBundle(),
@@ -580,12 +577,12 @@ async function run(): Promise<void> {
   assert.match(readUploadedPdfByQuery.payload.warning ?? "", /Extracted text/);
   assert.deepEqual(
     readUploadedPdfByQuery.payload.item?.aliases,
-    ["read file"],
-    "ADR-100 follow-up: read on a non-image registry file gets `read file` alias"
+    ["file #1"],
+    "ADR-112 Slice 5: read on a non-image registry file gets a sticky file alias"
   );
   assert.equal(readUploadedPdfByQuery.discoveredFileRefs?.length, 1);
   assert.equal(readUploadedPdfByQuery.discoveredFileRefs?.[0]?.fileRef, "file-ref-uploaded-pdf");
-  assert.deepEqual(readUploadedPdfByQuery.discoveredFileRefs?.[0]?.aliases, ["read file"]);
+  assert.deepEqual(readUploadedPdfByQuery.discoveredFileRefs?.[0]?.aliases, ["file #1"]);
   assert.equal(sandboxClientService.calls.length, 0);
 
   const ambiguousGet = await service.executeToolCall({
@@ -618,16 +615,14 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "read",
-        alias: "current attachment #1"
+        alias: "file #1"
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
     requestId: "request-2",
     currentArtifacts: [],
     currentFileRefs: [],
-    availableWorkingFileRefs: [
-      toRuntimeFileRefWithAliases("file-ref-1", ["current attachment #1"])
-    ],
+    availableWorkingFileRefs: [toRuntimeFileRefWithAliases("file-ref-1", ["file #1"])],
     channel: "web"
   });
   assert.equal(readResult.isError, false);
@@ -678,20 +673,18 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "send",
-        aliases: ["last generated image"],
+        aliases: ["image #1"],
         caption: "Updated caption"
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
     requestId: "request-3",
     currentArtifacts: [currentArtifact],
-    currentFileRefs: [
-      toRuntimeFileRefWithAliases(generatedFileRefRow.id, ["last generated image"])
-    ],
+    currentFileRefs: [toRuntimeFileRefWithAliases(generatedFileRefRow.id, ["image #1"])],
     availableWorkingFileRefs: [
       {
-        ...toRuntimeFileRefWithAliases(generatedFileRefRow.id, ["last generated image"]),
-        aliases: ["last generated image", "last generated file"]
+        ...toRuntimeFileRefWithAliases(generatedFileRefRow.id, ["image #1"]),
+        aliases: ["image #1", "file #1"]
       }
     ],
     channel: "web"
@@ -710,7 +703,7 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "send",
-        aliases: ["previous attachment #1"],
+        aliases: ["file #1"],
         caption: "Sandbox output",
         filename: "custom-report.txt"
       }
@@ -719,9 +712,7 @@ async function run(): Promise<void> {
     requestId: "request-4",
     currentArtifacts: [],
     currentFileRefs: [],
-    availableWorkingFileRefs: [
-      toRuntimeFileRefWithAliases("file-ref-1", ["previous attachment #1"])
-    ],
+    availableWorkingFileRefs: [toRuntimeFileRefWithAliases("file-ref-1", ["file #1"])],
     channel: "web"
   });
   assert.equal(sendAliasedFile.isError, false);
@@ -735,6 +726,28 @@ async function run(): Promise<void> {
   assert.equal(sendAliasedFile.artifacts[0]?.filename, "custom-report.txt");
   assert.equal(sendAliasedFile.artifacts[0]?.caption, "Sandbox output");
 
+  const getPrefersStickyAliases = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-get-sticky-aliases",
+      name: "files",
+      arguments: {
+        action: "get",
+        alias: "file #1"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-4-sticky",
+    currentArtifacts: [],
+    currentFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-1", ["current file #1", "file #1", "recent file #1"])
+    ],
+    availableWorkingFileRefs: [toRuntimeFileRefWithAliases("file-ref-1", ["file #1"])],
+    channel: "web"
+  });
+  assert.equal(getPrefersStickyAliases.isError, false);
+  assert.deepEqual(getPrefersStickyAliases.payload.item?.aliases, ["file #1"]);
+
   const sendWithMissingPluralAlias = await service.executeToolCall({
     bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),
     toolCall: {
@@ -742,16 +755,14 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "send",
-        aliases: ["previous attachment #1", "missing attachment #9"]
+        aliases: ["file #1", "file #9"]
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
     requestId: "request-4aa0",
     currentArtifacts: [],
     currentFileRefs: [],
-    availableWorkingFileRefs: [
-      toRuntimeFileRefWithAliases("file-ref-1", ["previous attachment #1"])
-    ],
+    availableWorkingFileRefs: [toRuntimeFileRefWithAliases("file-ref-1", ["file #1"])],
     channel: "web"
   });
   assert.equal(sendWithMissingPluralAlias.isError, true);
@@ -888,16 +899,14 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "send",
-        aliases: ["current attachment #1"]
+        aliases: ["file #1"]
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
     requestId: "request-4b",
     currentArtifacts: [],
     currentFileRefs: [],
-    availableWorkingFileRefs: [
-      toRuntimeFileRefWithAliases("file-ref-1", ["current attachment #1"])
-    ],
+    availableWorkingFileRefs: [toRuntimeFileRefWithAliases("file-ref-1", ["file #1"])],
     channel: "web"
   });
   assert.equal(sendAliasWithDefaultCap.isError, false);
@@ -933,16 +942,14 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "send",
-        aliases: ["last generated image"]
+        aliases: ["image #1"]
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
     requestId: "request-5",
     currentArtifacts: [currentArtifact],
     currentFileRefs: [],
-    availableWorkingFileRefs: [
-      toRuntimeFileRefWithAliases("file-ref-generated-1", ["last generated image"])
-    ],
+    availableWorkingFileRefs: [toRuntimeFileRefWithAliases("file-ref-generated-1", ["image #1"])],
     channel: "web"
   });
   assert.equal(blockedMime.isError, true);
@@ -960,16 +967,14 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "send",
-        aliases: ["last generated image"]
+        aliases: ["image #1"]
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
     requestId: "request-6",
     currentArtifacts: [currentArtifact],
     currentFileRefs: [],
-    availableWorkingFileRefs: [
-      toRuntimeFileRefWithAliases("file-ref-generated-1", ["last generated image"])
-    ],
+    availableWorkingFileRefs: [toRuntimeFileRefWithAliases("file-ref-generated-1", ["image #1"])],
     channel: "web"
   });
   assert.equal(blockedChannelBytes.isError, true);

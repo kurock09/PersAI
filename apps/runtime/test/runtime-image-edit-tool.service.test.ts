@@ -167,7 +167,7 @@ describe("RuntimeImageEditToolService", () => {
         mimeType: "image/png",
         filename: "source.png",
         sizeBytes: 9,
-        aliases: ["current image #1"]
+        aliases: ["current image #1", "image #1", "file #1"]
       }
     ] as unknown as RuntimeAttachmentRef[];
 
@@ -178,7 +178,7 @@ describe("RuntimeImageEditToolService", () => {
         name: "image_edit",
         arguments: {
           prompt: "Сделай меня суперменом",
-          sourceImageAlias: "current image #1"
+          sourceImageAlias: "image #1"
         }
       } as never,
       availableAttachments: attachments,
@@ -195,7 +195,7 @@ describe("RuntimeImageEditToolService", () => {
     assert.equal(editCalls[0]?.prompt, "Сделай меня суперменом");
     assert.match(editCalls[1]?.prompt ?? "", /generic heroic comic-book style/i);
     assert.equal(result.payload.revisedPrompt, editCalls[1]?.prompt);
-    assert.equal(result.payload.sourceImageAlias, "current image #1");
+    assert.equal(result.payload.sourceImageAlias, "image #1");
     assert.match(result.payload.warning ?? "", /retrying once with a safer phrasing/i);
     assert.equal(rewriteCalls[0]?.model, "gpt-5.4-mini");
     assert.equal(result.artifacts.length, 1);
@@ -250,7 +250,7 @@ describe("RuntimeImageEditToolService", () => {
         name: "image_edit",
         arguments: {
           prompt: "Сделай меня суперменом",
-          sourceImageAlias: "current image #1"
+          sourceImageAlias: "image #1"
         }
       } as never,
       availableAttachments: [
@@ -261,7 +261,7 @@ describe("RuntimeImageEditToolService", () => {
           mimeType: "image/png",
           filename: "source.png",
           sizeBytes: 9,
-          aliases: ["current image #1"]
+          aliases: ["image #1"]
         }
       ] as unknown as RuntimeAttachmentRef[],
       sessionId: "session-1",
@@ -342,7 +342,7 @@ describe("RuntimeImageEditToolService", () => {
         mimeType: "image/png",
         filename: "source.png",
         sizeBytes: 9,
-        aliases: ["current image #1"]
+        aliases: ["image #1"]
       },
       {
         attachmentId: "attachment-2",
@@ -351,7 +351,7 @@ describe("RuntimeImageEditToolService", () => {
         mimeType: "image/png",
         filename: "reference.png",
         sizeBytes: 9,
-        aliases: ["current image #2"]
+        aliases: ["current image #2", "image #2", "file #2"]
       }
     ] as unknown as RuntimeAttachmentRef[];
 
@@ -362,8 +362,8 @@ describe("RuntimeImageEditToolService", () => {
         name: "image_edit",
         arguments: {
           prompt: "Apply the style of the reference image",
-          sourceImageAlias: "current image #1",
-          referenceImageAlias: "current image #2"
+          sourceImageAlias: "image #1",
+          referenceImageAlias: "image #2"
         }
       } as never,
       availableAttachments: attachments,
@@ -373,8 +373,8 @@ describe("RuntimeImageEditToolService", () => {
 
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "generated");
-    assert.equal(result.payload.sourceImageAlias, "current image #1");
-    assert.equal(result.payload.referenceImageAlias, "current image #2");
+    assert.equal(result.payload.sourceImageAlias, "image #1");
+    assert.equal(result.payload.referenceImageAlias, "image #2");
     assert.ok(
       capturedRequest?.referenceImage !== null,
       "reference image must be passed to provider"
@@ -401,7 +401,7 @@ describe("RuntimeImageEditToolService", () => {
         mimeType: "image/png",
         filename: "a.png",
         sizeBytes: 9,
-        aliases: ["current image #1"]
+        aliases: ["image #1"]
       },
       {
         attachmentId: "attachment-2",
@@ -410,7 +410,7 @@ describe("RuntimeImageEditToolService", () => {
         mimeType: "image/png",
         filename: "b.png",
         sizeBytes: 9,
-        aliases: ["current image #2"]
+        aliases: ["image #2"]
       }
     ] as unknown as RuntimeAttachmentRef[];
 
@@ -461,7 +461,7 @@ describe("RuntimeImageEditToolService", () => {
         mimeType: "image/png",
         filename: "source.png",
         sizeBytes: 9,
-        aliases: ["current image #1"]
+        aliases: ["image #1"]
       }
     ] as unknown as RuntimeAttachmentRef[];
 
@@ -472,7 +472,7 @@ describe("RuntimeImageEditToolService", () => {
         name: "image_edit",
         arguments: {
           prompt: "Make the background a sunset",
-          sourceImageAlias: "current image #1",
+          sourceImageAlias: "image #1",
           count: 2
         }
       } as never,
@@ -573,7 +573,7 @@ describe("RuntimeImageEditToolService", () => {
         mimeType: "image/png",
         filename: "source.png",
         sizeBytes: 9,
-        aliases: ["current image #1"]
+        aliases: ["image #1"]
       }
     ] as unknown as RuntimeAttachmentRef[];
 
@@ -584,7 +584,7 @@ describe("RuntimeImageEditToolService", () => {
         name: "image_edit",
         arguments: {
           prompt: "Create a 3-frame edited story",
-          sourceImageAlias: "current image #1",
+          sourceImageAlias: "image #1",
           count: 3,
           outputMode: "series",
           seriesItems: ["frame 1 warmer hero shot", "frame 2 close detail", "frame 3 CTA overlay"]
@@ -606,7 +606,7 @@ describe("RuntimeImageEditToolService", () => {
     assert.match(editCalls[0]?.prompt ?? "", /This item only: frame 1 warmer hero shot/);
     assert.match(
       editCalls[0]?.prompt ?? "",
-      /Keep the same source product\/object identity from current image #1 across every series item/i
+      /Keep the same source product\/object identity from image #1 across every series item/i
     );
   });
 
@@ -702,7 +702,7 @@ describe("RuntimeImageEditToolService", () => {
         mimeType: "image/png",
         filename: "source.png",
         sizeBytes: 9,
-        aliases: ["current image #1"]
+        aliases: ["image #1"]
       }
     ] as unknown as RuntimeAttachmentRef[];
 
@@ -713,7 +713,7 @@ describe("RuntimeImageEditToolService", () => {
         name: "image_edit",
         arguments: {
           prompt: "Create 3 edited outputs",
-          sourceImageAlias: "current image #1",
+          sourceImageAlias: "image #1",
           count: 3,
           outputMode: "series",
           seriesItems: ["frame 1", "frame 2", "frame 3"]

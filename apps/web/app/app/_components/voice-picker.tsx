@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Pause, Play } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { VoicePreviewButton } from "../../_components/voice-preview-button";
 import {
   filterVoicePickerEntries,
   type VoiceLanguageBucket,
@@ -49,15 +50,6 @@ export function VoicePicker({
     selectedEntry?.languageBucket ?? "en"
   );
   const languageBucket = controlledLanguageBucket ?? uncontrolledLanguageBucket;
-  const [playingValue, setPlayingValue] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    return () => {
-      audioRef.current?.pause();
-      audioRef.current = null;
-    };
-  }, []);
 
   useEffect(() => {
     if (controlledLanguageBucket === undefined && selectedEntry !== undefined) {
@@ -77,26 +69,6 @@ export function VoicePicker({
         : entries,
     [entries, languageBucket, showLanguageFilter]
   );
-
-  const togglePreview = (entry: VoicePickerEntry) => {
-    if (entry.previewUrl === null) {
-      return;
-    }
-    if (playingValue === entry.value) {
-      audioRef.current?.pause();
-      setPlayingValue(null);
-      return;
-    }
-    audioRef.current?.pause();
-    const audio = new Audio(entry.previewUrl);
-    audio.onended = () => setPlayingValue(null);
-    audio.onpause = () => {
-      setPlayingValue((current) => (current === entry.value ? null : current));
-    };
-    audioRef.current = audio;
-    void audio.play().catch(() => setPlayingValue(null));
-    setPlayingValue(entry.value);
-  };
 
   return (
     <div className="space-y-3" aria-disabled={disabled}>
@@ -136,7 +108,6 @@ export function VoicePicker({
         <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
           {visibleEntries.map((entry) => {
             const selected = entry.value === selectedValue;
-            const isPlaying = playingValue === entry.value;
             return (
               <div
                 key={entry.value}
@@ -166,16 +137,15 @@ export function VoicePicker({
                   <span className="block truncate font-medium text-text">{entry.label}</span>
                 </button>
                 {entry.previewUrl !== null && (
-                  <button
-                    type="button"
-                    onClick={() => togglePreview(entry)}
+                  <VoicePreviewButton
+                    previewAudioUrl={entry.previewUrl}
+                    voiceLabel={entry.label}
+                    playLabel={labels.preview}
+                    pauseLabel={labels.stopPreview}
                     disabled={disabled}
-                    aria-label={isPlaying ? labels.stopPreview : labels.preview}
-                    title={isPlaying ? labels.stopPreview : labels.preview}
                     className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-accent transition-colors hover:border-accent/40 hover:bg-accent/10 disabled:opacity-50"
-                  >
-                    {isPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
-                  </button>
+                    iconClassName="size-3.5"
+                  />
                 )}
               </div>
             );

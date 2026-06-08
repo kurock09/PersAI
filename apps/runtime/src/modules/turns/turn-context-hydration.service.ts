@@ -50,8 +50,6 @@ const MAX_RECENT_IMAGE_TOOL_ATTACHMENTS = 6;
 const MAX_RECENT_DOCUMENT_SOURCE_ATTACHMENTS = 4;
 /** ADR-100 Piece 2 — how many most-recent assistant messages to scan for discovered file ids. */
 const RECENT_FILE_DISCOVERY_MESSAGE_WINDOW = 5;
-/** ADR-100 Piece 2 — hard cap on Working Files entries injected from discovery history. */
-const MAX_RECENT_DISCOVERED_FILES = 6;
 const MAX_OPEN_LOOP_REFS_DEVELOPER_ITEMS = 5;
 const MAX_OPEN_LOOP_REF_SUMMARY_CHARS = 72;
 const MAX_OPEN_LOOP_REF_SELECTION_TOKENS = 12;
@@ -272,9 +270,6 @@ type DirectInputAttachmentCandidate = {
 
 type DirectInputSelection = {
   blocks: DirectProviderContentBlock[];
-  directCanonicalAttachmentIds: Set<string>;
-  directImageCount: number;
-  directPdfCount: number;
 };
 
 type ReusableCompactionSummary = {
@@ -389,23 +384,15 @@ export class TurnContextHydrationService {
     conversation: RuntimeConversationAddress;
     currentAttachments: RuntimeAttachmentRef[];
   }): Promise<RuntimeAttachmentRef[]> {
-    let currentImageOrdinal = 0;
-    let currentAttachmentOrdinal = 0;
-    const currentImages = this.dedupeRuntimeAttachments(
-      input.currentAttachments
-        .filter((attachment) => attachment.kind === "image")
-        .map((attachment) => ({
-          ...attachment,
-          aliases: this.mergeAliases(
-            attachment.aliases,
-            `current attachment #${String(++currentAttachmentOrdinal)}`,
-            `current image #${String(++currentImageOrdinal)}`
-          )
-        }))
+    const currentImages = input.currentAttachments.filter(
+      (attachment) => attachment.kind === "image"
     );
     const canonicalSurface = toHydratedCanonicalSurface(input.conversation.channel);
     if (canonicalSurface === null) {
-      return currentImages;
+      return this.assignStickyAliasesToAttachments(currentImages, {
+        includeFileAlias: true,
+        includeImageAlias: true
+      });
     }
 
     const chat = await this.prisma.assistantChat.findFirst({
@@ -417,7 +404,10 @@ export class TurnContextHydrationService {
       select: { id: true }
     });
     if (chat === null) {
-      return currentImages;
+      return this.assignStickyAliasesToAttachments(currentImages, {
+        includeFileAlias: true,
+        includeImageAlias: true
+      });
     }
 
     const recentMessages = await this.prisma.assistantChatMessage.findMany({
@@ -452,20 +442,13 @@ export class TurnContextHydrationService {
         }
       }
     });
-    let previousAttachmentOrdinal = 0;
-    let previousImageOrdinal = 0;
-    let lastGeneratedImageAssigned = false;
     const recentImages: RuntimeAttachmentRef[] = [];
-    for (const message of recentMessages) {
-      for (const attachment of message.attachments) {
+    for (const message of [...recentMessages].reverse()) {
+      for (const attachment of [...message.attachments].reverse()) {
         if (!attachment.mimeType.startsWith("image/")) {
           continue;
         }
-        const aliases = [
-          `previous attachment #${String(++previousAttachmentOrdinal)}`,
-          `previous image #${String(++previousImageOrdinal)}`
-        ];
-        const record = await this.resolveAttachmentFileRecord(
+        await this.resolveAttachmentFileRecord(
           input.conversation.assistantId,
           input.conversation.workspaceId,
           {
@@ -478,14 +461,6 @@ export class TurnContextHydrationService {
           },
           message.author === "assistant" ? "runtime_output" : "uploaded_attachment"
         );
-        if (
-          !lastGeneratedImageAssigned &&
-          record !== null &&
-          this.isAssistantGeneratedFile(record)
-        ) {
-          aliases.unshift("last generated image");
-          lastGeneratedImageAssigned = true;
-        }
         recentImages.push(
           this.toImageToolAttachmentRef(
             {
@@ -495,44 +470,45 @@ export class TurnContextHydrationService {
               objectKey: attachment.storagePath,
               sizeBytes: Number(attachment.sizeBytes)
             },
-            aliases
+            null
           )
         );
         if (recentImages.length >= MAX_RECENT_IMAGE_TOOL_ATTACHMENTS) {
-          return this.dedupeRuntimeAttachments([...currentImages, ...recentImages]);
+          return this.assignStickyAliasesToAttachments([...recentImages, ...currentImages], {
+            includeFileAlias: true,
+            includeImageAlias: true
+          });
         }
       }
     }
-    return this.dedupeRuntimeAttachments([...currentImages, ...recentImages]);
+    return this.assignStickyAliasesToAttachments([...recentImages, ...currentImages], {
+      includeFileAlias: true,
+      includeImageAlias: true
+    });
   }
 
   async listAvailableDocumentSourceAttachments(input: {
     conversation: RuntimeConversationAddress;
     currentAttachments: RuntimeAttachmentRef[];
   }): Promise<RuntimeAttachmentRef[]> {
-    let currentAttachmentOrdinal = 0;
     const currentSources = input.currentAttachments
       .filter((attachment) => this.isDocumentSourceAttachmentMime(attachment.mimeType))
-      .map((attachment) => ({
-        ...attachment,
-        aliases: this.mergeAliases(
-          attachment.aliases,
-          `current attachment #${String(++currentAttachmentOrdinal)}`
-        )
-      }));
+      .map((attachment) => ({ ...attachment, aliases: attachment.aliases ?? null }));
 
     const storedMessages = await this.loadCanonicalChatMessages(input.conversation);
     if (storedMessages === null) {
-      return this.dedupeRuntimeAttachments(currentSources);
+      return this.assignStickyAliasesToAttachments(currentSources, {
+        includeFileAlias: true,
+        includeImageAlias: false
+      });
     }
 
-    let previousAttachmentOrdinal = 0;
     const previousSources: RuntimeAttachmentRef[] = [];
-    for (const message of [...storedMessages].reverse()) {
+    for (const message of storedMessages) {
       if (message.author !== "user") {
         continue;
       }
-      for (const attachment of [...message.attachments].reverse()) {
+      for (const attachment of message.attachments) {
         if (!this.isDocumentSourceAttachmentMime(attachment.mimeType)) {
           continue;
         }
@@ -544,15 +520,21 @@ export class TurnContextHydrationService {
           filename: attachment.originalFilename,
           sizeBytes: attachment.sizeBytes,
           fileRef: attachment.assistantFileId,
-          aliases: [`previous attachment #${String(++previousAttachmentOrdinal)}`]
+          aliases: null
         });
         if (previousSources.length >= MAX_RECENT_DOCUMENT_SOURCE_ATTACHMENTS) {
-          return this.dedupeRuntimeAttachments([...currentSources, ...previousSources]);
+          return this.assignStickyAliasesToAttachments([...previousSources, ...currentSources], {
+            includeFileAlias: true,
+            includeImageAlias: false
+          });
         }
       }
     }
 
-    return this.dedupeRuntimeAttachments([...currentSources, ...previousSources]);
+    return this.assignStickyAliasesToAttachments([...previousSources, ...currentSources], {
+      includeFileAlias: true,
+      includeImageAlias: false
+    });
   }
 
   async listAvailableWorkingFileRefs(input: {
@@ -562,33 +544,34 @@ export class TurnContextHydrationService {
     currentArtifacts?: RuntimeOutputArtifact[];
   }): Promise<RuntimeFileRef[]> {
     const refs = new Map<string, RuntimeFileRef>();
+    const appearanceOrder: string[] = [];
+    const pushAppearance = (fileRef: string): void => {
+      if (!appearanceOrder.includes(fileRef)) {
+        appearanceOrder.push(fileRef);
+      }
+    };
 
-    let currentAttachmentOrdinal = 0;
-    let currentImageOrdinal = 0;
-    for (const attachment of input.currentAttachments) {
-      const runtimeFileRef = await this.resolveRuntimeFileRefForAttachment(
-        input.conversation.assistantId,
-        input.conversation.workspaceId,
-        attachment
-      );
-      if (runtimeFileRef === null) {
-        continue;
+    const existingStickyAliases = this.collectExistingStickyAliases(input.currentFileRefs ?? []);
+    const upsertRawWorkingFileRef = (fileRef: RuntimeFileRef): void => {
+      const existing = refs.get(fileRef.fileRef);
+      if (existing === undefined) {
+        refs.set(fileRef.fileRef, {
+          ...fileRef,
+          aliases: fileRef.aliases ?? []
+        });
+        return;
       }
-      const aliases = [`current attachment #${String(++currentAttachmentOrdinal)}`];
-      if (attachment.kind === "image") {
-        aliases.unshift(`current image #${String(++currentImageOrdinal)}`);
-      }
-      this.upsertWorkingFileRef(refs, runtimeFileRef, aliases);
-    }
+      refs.set(fileRef.fileRef, {
+        ...existing,
+        ...fileRef,
+        aliases: existing.aliases ?? []
+      });
+    };
 
     const storedMessages = await this.loadCanonicalChatMessages(input.conversation);
     if (storedMessages !== null) {
-      let previousAttachmentOrdinal = 0;
-      let previousImageOrdinal = 0;
-      let lastGeneratedFileAssigned = false;
-      let lastGeneratedImageAssigned = false;
-      for (const message of [...storedMessages].reverse()) {
-        for (const attachment of [...message.attachments].reverse()) {
+      for (const message of storedMessages) {
+        for (const attachment of message.attachments) {
           const record = await this.resolveAttachmentFileRecord(
             input.conversation.assistantId,
             input.conversation.workspaceId,
@@ -605,60 +588,43 @@ export class TurnContextHydrationService {
           if (record === null) {
             continue;
           }
-          const aliases = [`previous attachment #${String(++previousAttachmentOrdinal)}`];
-          if (attachment.mimeType.startsWith("image/")) {
-            aliases.unshift(`previous image #${String(++previousImageOrdinal)}`);
-          }
-          if (!lastGeneratedFileAssigned && this.isAssistantGeneratedFile(record)) {
-            aliases.unshift("last generated file");
-            lastGeneratedFileAssigned = true;
-          }
-          if (
-            this.isAssistantGeneratedFile(record) &&
-            attachment.mimeType.startsWith("image/") &&
-            !lastGeneratedImageAssigned
-          ) {
-            aliases.unshift("last generated image");
-            lastGeneratedImageAssigned = true;
-          }
-          this.upsertWorkingFileRef(
-            refs,
-            this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record),
-            aliases
-          );
+          const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record);
+          upsertRawWorkingFileRef(runtimeFileRef);
+          pushAppearance(runtimeFileRef.fileRef);
         }
       }
     }
 
-    const currentGeneratedArtifacts = input.currentArtifacts ?? [];
-    let generatedFileOrdinal = 0;
-    let generatedImageOrdinal = 0;
-    for (let index = currentGeneratedArtifacts.length - 1; index >= 0; index -= 1) {
-      const artifact = currentGeneratedArtifacts[index]!;
-      const aliases = [`generated file #${String(++generatedFileOrdinal)}`];
-      if (artifact.kind === "image") {
-        aliases.unshift(`generated image #${String(++generatedImageOrdinal)}`);
+    for (const attachment of input.currentAttachments) {
+      const runtimeFileRef = await this.resolveRuntimeFileRefForAttachment(
+        input.conversation.assistantId,
+        input.conversation.workspaceId,
+        attachment
+      );
+      if (runtimeFileRef === null) {
+        continue;
       }
-      if (index === currentGeneratedArtifacts.length - 1) {
-        aliases.unshift("last generated file");
-        if (artifact.kind === "image") {
-          aliases.unshift("last generated image");
-        }
-      }
-      this.upsertWorkingFileRef(refs, artifact.file, aliases);
+      upsertRawWorkingFileRef(runtimeFileRef);
+      pushAppearance(runtimeFileRef.fileRef);
     }
 
-    let currentFileOrdinal = 0;
+    for (const artifact of input.currentArtifacts ?? []) {
+      upsertRawWorkingFileRef(artifact.file);
+      pushAppearance(artifact.file.fileRef);
+    }
+
     for (const fileRef of input.currentFileRefs ?? []) {
-      this.upsertWorkingFileRef(refs, fileRef, [`current file #${String(++currentFileOrdinal)}`]);
+      upsertRawWorkingFileRef(fileRef);
+      pushAppearance(fileRef.fileRef);
     }
 
-    // ADR-100 Piece 2 — inject recent discovered files from the last K assistant
-    // messages into Working Files so the model can reference them without
-    // re-calling the files tool.
-    await this.injectRecentDiscoveredFileRefs(input.conversation, refs);
+    await this.injectRecentDiscoveredFileRefs(input.conversation, refs, pushAppearance);
 
-    return [...refs.values()];
+    return this.assignStickyAliasesToWorkingFileRefs(
+      [...refs.values()],
+      appearanceOrder,
+      existingStickyAliases
+    );
   }
 
   /**
@@ -666,13 +632,14 @@ export class TurnContextHydrationService {
    * assistant messages for `metadata.discoveredFileRefIds`, fetches the
    * corresponding AssistantFile rows (single bounded query), drops missing
    * rows silently, dedupes against already-present Working Files entries,
-   * and upserts survivors as `recent file #N` (most-recent-first, 1-based,
-   * cap MAX_RECENT_DISCOVERED_FILES). The `semanticSummaryHint` is populated
-   * from `AssistantFile.metadata.semanticSummary` via the registry mapper.
+   * and upserts survivors with stable `file #N` / `image #N` aliases. The
+   * `semanticSummaryHint` is populated from `AssistantFile.metadata.semanticSummary`
+   * via the registry mapper.
    */
   private async injectRecentDiscoveredFileRefs(
     conversation: RuntimeConversationAddress,
-    refs: Map<string, RuntimeFileRef>
+    refs: Map<string, RuntimeFileRef>,
+    pushAppearance: (fileRef: string) => void
   ): Promise<void> {
     const canonicalSurface = toHydratedCanonicalSurface(conversation.channel);
     if (canonicalSurface === null) {
@@ -712,8 +679,6 @@ export class TurnContextHydrationService {
       return;
     }
 
-    // Drop ids that are already present in Working Files — the existing alias
-    // wins; we do not add a duplicate `recent file #N` entry.
     const newIds = candidateIds.filter((id) => !refs.has(id));
     if (newIds.length === 0) {
       return;
@@ -727,16 +692,14 @@ export class TurnContextHydrationService {
       fileRefs: newIds
     });
 
-    // Upsert surviving records, most-recent-first, capped at
-    // MAX_RECENT_DISCOVERED_FILES. Semantic hints come directly from the registry.
-    let recentFileOrdinal = 0;
     for (const record of records) {
-      if (recentFileOrdinal >= MAX_RECENT_DISCOVERED_FILES) {
-        break;
-      }
-      recentFileOrdinal += 1;
       const baseFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record);
-      this.upsertWorkingFileRef(refs, baseFileRef, [`recent file #${String(recentFileOrdinal)}`]);
+      refs.set(baseFileRef.fileRef, {
+        ...(refs.get(baseFileRef.fileRef) ?? baseFileRef),
+        ...baseFileRef,
+        aliases: refs.get(baseFileRef.fileRef)?.aliases ?? []
+      });
+      pushAppearance(baseFileRef.fileRef);
     }
   }
 
@@ -1692,13 +1655,7 @@ export class TurnContextHydrationService {
     const directInputSelection = input.allowDirectAttachmentInput
       ? await this.buildDirectInputSelection(input.attachments, input.fallbackAttachments)
       : this.createEmptyDirectInputSelection();
-    const textContent = await this.buildHydratedMessageTextContent({
-      ...input,
-      directCanonicalAttachmentIds: directInputSelection.directCanonicalAttachmentIds,
-      directImageCount: directInputSelection.directImageCount,
-      directPdfCount: directInputSelection.directPdfCount,
-      showCurrentTurnImageOrdinals: input.allowDirectAttachmentInput && input.author === "user"
-    });
+    const textContent = await this.buildHydratedMessageTextContent(input);
 
     if (directInputSelection.blocks.length === 0) {
       return textContent;
@@ -1720,10 +1677,6 @@ export class TurnContextHydrationService {
     baseContent: string;
     attachments: CanonicalChatAttachmentRow[];
     fallbackAttachments: RuntimeAttachmentRef[];
-    directCanonicalAttachmentIds: Set<string>;
-    directImageCount: number;
-    directPdfCount: number;
-    showCurrentTurnImageOrdinals: boolean;
   }): Promise<string> {
     if (input.baseContent.trim().length > 0) {
       return input.baseContent;
@@ -1772,14 +1725,6 @@ export class TurnContextHydrationService {
 
       selection.blocks.push(this.toDirectProviderContentBlock(candidate, buffer));
       totalBytes += buffer.length;
-      if (candidate.source === "canonical") {
-        selection.directCanonicalAttachmentIds.add(candidate.referenceKey);
-      }
-      if (candidate.kind === "image") {
-        selection.directImageCount += 1;
-      } else {
-        selection.directPdfCount += 1;
-      }
     }
 
     return selection;
@@ -1864,10 +1809,7 @@ export class TurnContextHydrationService {
 
   private createEmptyDirectInputSelection(): DirectInputSelection {
     return {
-      blocks: [],
-      directCanonicalAttachmentIds: new Set<string>(),
-      directImageCount: 0,
-      directPdfCount: 0
+      blocks: []
     };
   }
 
@@ -2049,5 +1991,177 @@ export class TurnContextHydrationService {
       merged.push(alias);
     }
     return merged;
+  }
+
+  private assignStickyAliasesToAttachments(
+    attachments: RuntimeAttachmentRef[],
+    options: {
+      includeFileAlias: boolean;
+      includeImageAlias: boolean;
+    }
+  ): RuntimeAttachmentRef[] {
+    const deduped = this.dedupeRuntimeAttachments(attachments);
+    let fileOrdinal = 0;
+    let imageOrdinal = 0;
+    return deduped.map((attachment) => {
+      const aliases: string[] = [];
+      if (options.includeImageAlias && attachment.kind === "image") {
+        aliases.push(`image #${String(++imageOrdinal)}`);
+      }
+      if (options.includeFileAlias) {
+        aliases.push(`file #${String(++fileOrdinal)}`);
+      }
+      return {
+        ...attachment,
+        aliases
+      };
+    });
+  }
+
+  private assignStickyAliasesToWorkingFileRefs(
+    files: RuntimeFileRef[],
+    appearanceOrder: string[],
+    existingStickyAliases: Map<
+      string,
+      {
+        fileAlias: string | null;
+        imageAlias: string | null;
+        fileOrdinal: number | null;
+        imageOrdinal: number | null;
+      }
+    >
+  ): RuntimeFileRef[] {
+    const fileById = new Map(files.map((file) => [file.fileRef, file] as const));
+    const orderedIds: string[] = [];
+    const seen = new Set<string>();
+    const pushOrderedId = (fileRef: string): void => {
+      if (seen.has(fileRef) || !fileById.has(fileRef)) {
+        return;
+      }
+      seen.add(fileRef);
+      orderedIds.push(fileRef);
+    };
+
+    const stickyIds = [...existingStickyAliases.entries()]
+      .filter(([fileRef]) => fileById.has(fileRef))
+      .sort((left, right) => {
+        const leftOrdinal = left[1].fileOrdinal ?? Number.MAX_SAFE_INTEGER;
+        const rightOrdinal = right[1].fileOrdinal ?? Number.MAX_SAFE_INTEGER;
+        return leftOrdinal - rightOrdinal;
+      })
+      .map(([fileRef]) => fileRef);
+    for (const fileRef of stickyIds) {
+      pushOrderedId(fileRef);
+    }
+    for (const fileRef of appearanceOrder) {
+      pushOrderedId(fileRef);
+    }
+    const remaining = files
+      .filter((file) => !seen.has(file.fileRef))
+      .sort((left, right) => {
+        const createdAtDiff =
+          this.parseRuntimeFileRefCreatedAtMs(left.createdAt) -
+          this.parseRuntimeFileRefCreatedAtMs(right.createdAt);
+        if (createdAtDiff !== 0) {
+          return createdAtDiff;
+        }
+        return left.fileRef.localeCompare(right.fileRef);
+      });
+    for (const file of remaining) {
+      pushOrderedId(file.fileRef);
+    }
+
+    let nextFileOrdinal = Math.max(
+      0,
+      ...[...existingStickyAliases.values()].map((entry) => entry.fileOrdinal ?? 0)
+    );
+    let nextImageOrdinal = Math.max(
+      0,
+      ...[...existingStickyAliases.values()].map((entry) => entry.imageOrdinal ?? 0)
+    );
+
+    return orderedIds
+      .map((fileRef) => fileById.get(fileRef))
+      .filter((file): file is RuntimeFileRef => file !== undefined)
+      .map((file) => {
+        const sticky = existingStickyAliases.get(file.fileRef);
+        const aliases: string[] = [];
+        if (file.mimeType.trim().toLowerCase().startsWith("image/")) {
+          aliases.push(sticky?.imageAlias ?? `image #${String(++nextImageOrdinal)}`);
+        }
+        aliases.push(sticky?.fileAlias ?? `file #${String(++nextFileOrdinal)}`);
+        return {
+          ...file,
+          aliases
+        };
+      });
+  }
+
+  private collectExistingStickyAliases(files: RuntimeFileRef[]): Map<
+    string,
+    {
+      fileAlias: string | null;
+      imageAlias: string | null;
+      fileOrdinal: number | null;
+      imageOrdinal: number | null;
+    }
+  > {
+    const entries = new Map<
+      string,
+      {
+        fileAlias: string | null;
+        imageAlias: string | null;
+        fileOrdinal: number | null;
+        imageOrdinal: number | null;
+      }
+    >();
+    for (const file of files) {
+      let fileAlias: string | null = null;
+      let imageAlias: string | null = null;
+      let fileOrdinal: number | null = null;
+      let imageOrdinal: number | null = null;
+      for (const alias of file.aliases ?? []) {
+        const parsedFileOrdinal = this.parseStickyAliasOrdinal(alias, "file");
+        if (parsedFileOrdinal !== null && fileAlias === null) {
+          fileAlias = alias;
+          fileOrdinal = parsedFileOrdinal;
+          continue;
+        }
+        const parsedImageOrdinal = this.parseStickyAliasOrdinal(alias, "image");
+        if (parsedImageOrdinal !== null && imageAlias === null) {
+          imageAlias = alias;
+          imageOrdinal = parsedImageOrdinal;
+        }
+      }
+      if (fileAlias !== null || imageAlias !== null) {
+        entries.set(file.fileRef, {
+          fileAlias,
+          imageAlias,
+          fileOrdinal,
+          imageOrdinal
+        });
+      }
+    }
+    return entries;
+  }
+
+  private parseStickyAliasOrdinal(alias: string, kind: "file" | "image"): number | null {
+    const match = alias
+      .trim()
+      .toLowerCase()
+      .match(new RegExp(`^${kind} #(\\d+)$`, "i"));
+    if (match === null) {
+      return null;
+    }
+    const parsed = Number.parseInt(match[1] ?? "", 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private parseRuntimeFileRefCreatedAtMs(createdAt: string | undefined): number {
+    if (typeof createdAt !== "string" || createdAt.trim().length === 0) {
+      return 0;
+    }
+    const parsed = Date.parse(createdAt);
+    return Number.isNaN(parsed) ? 0 : parsed;
   }
 }

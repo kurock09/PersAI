@@ -680,16 +680,11 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     [
       {
         attachmentId: "attachment-4",
-        aliases: [
-          "current attachment #1",
-          "current image #1",
-          "previous attachment #2",
-          "previous image #2"
-        ]
+        aliases: ["image #1", "file #1"]
       },
       {
         attachmentId: "attachment-2",
-        aliases: ["last generated image", "previous attachment #1", "previous image #1"]
+        aliases: ["image #2", "file #2"]
       }
     ]
   );
@@ -1752,7 +1747,7 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
   }
 
   // Scenario 1 — last 5 assistant messages contain 3 distinct discovered ids.
-  // All 3 appear in Working Files as `recent file #1..#3` with semanticSummaryHint.
+  // All 3 appear in Working Files with sticky `file #N` labels and semanticSummaryHint.
   {
     const { service, prisma } = buildHarness();
     prisma.chat = { id: "chat-recent-1" };
@@ -1790,17 +1785,12 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
       conversation: buildConversation(),
       currentAttachments: []
     });
-    const recentRefs = refs.filter((r) =>
-      (r.aliases ?? []).some((a) => /^recent file #\d+$/.test(a))
-    );
-    assert.equal(recentRefs.length, 3, "scenario 1: 3 recent files expected");
-    const recentAliases = recentRefs.flatMap((r) =>
-      (r.aliases ?? []).filter((a) => /^recent file #\d+$/.test(a))
-    );
-    assert.ok(recentAliases.includes("recent file #1"), "scenario 1: recent file #1 missing");
-    assert.ok(recentAliases.includes("recent file #2"), "scenario 1: recent file #2 missing");
-    assert.ok(recentAliases.includes("recent file #3"), "scenario 1: recent file #3 missing");
-    for (const ref of recentRefs) {
+    assert.equal(refs.length, 3, "scenario 1: 3 discovered files expected");
+    const fileAliases = refs.flatMap((r) => (r.aliases ?? []).filter((a) => /^file #\d+$/.test(a)));
+    assert.ok(fileAliases.includes("file #1"), "scenario 1: file #1 missing");
+    assert.ok(fileAliases.includes("file #2"), "scenario 1: file #2 missing");
+    assert.ok(fileAliases.includes("file #3"), "scenario 1: file #3 missing");
+    for (const ref of refs) {
       assert.ok(
         typeof ref.semanticSummaryHint === "string" && ref.semanticSummaryHint.length > 0,
         `scenario 1: semanticSummaryHint missing for ${String(ref.aliases?.[0])}`
@@ -1841,12 +1831,9 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
       conversation: buildConversation(),
       currentAttachments: []
     });
-    const recentRefs = refs.filter((r) =>
-      (r.aliases ?? []).some((a) => /^recent file #\d+$/.test(a))
-    );
-    assert.equal(recentRefs.length, 6, "scenario 2: exactly 6 recent files expected");
+    assert.equal(refs.length, 6, "scenario 2: exactly 6 discovered files expected");
     assert.ok(
-      !recentRefs.some((r) => r.fileRef === "file-7"),
+      !refs.some((r) => r.fileRef === "file-7"),
       "scenario 2: file-7 must be dropped (7th distinct id over cap)"
     );
   }
@@ -1879,15 +1866,13 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
     } catch (error) {
       assert.fail(`scenario 3: must not throw; got: ${String(error)}`);
     }
-    const recentRefs = refs.filter((r) =>
-      (r.aliases ?? []).some((a) => /^recent file #\d+$/.test(a))
-    );
-    assert.equal(recentRefs.length, 1, "scenario 3: only the alive file must appear");
-    assert.equal(recentRefs[0]?.fileRef, "file-alive", "scenario 3: alive file must be file-alive");
+    assert.equal(refs.length, 1, "scenario 3: only the alive file must appear");
+    assert.equal(refs[0]?.fileRef, "file-alive", "scenario 3: alive file must be file-alive");
+    assert.ok((refs[0]?.aliases ?? []).includes("file #1"));
   }
 
   // Scenario 4 — one discovered id is also in current attachments.
-  // The standard alias wins; no duplicate `recent file #N` entry for that file.
+  // The standard sticky alias wins; no legacy discovery alias is added.
   {
     const { service, prisma } = buildHarness();
     prisma.chat = { id: "chat-recent-4" };
@@ -1922,26 +1907,26 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
     const attachedRef = refs.find((r) => r.fileRef === "file-ref-att-1");
     assert.ok(attachedRef !== undefined, "scenario 4: file-ref-att-1 must be present");
     const attachedAliases = attachedRef?.aliases ?? [];
-    const hasCurrentAttachment = attachedAliases.some((a) => a.startsWith("current attachment #"));
-    const hasRecentAlias = attachedAliases.some((a) => /^recent file #/.test(a));
+    const hasStickyImageAlias = attachedAliases.some((a) => /^image #/.test(a));
+    const hasStickyFileAlias = attachedAliases.some((a) => /^file #/.test(a));
     assert.ok(
-      hasCurrentAttachment,
-      "scenario 4: file-ref-att-1 must have current attachment alias"
+      hasStickyImageAlias && hasStickyFileAlias,
+      "scenario 4: file-ref-att-1 must have sticky image and file aliases"
     );
     assert.ok(
-      !hasRecentAlias,
-      "scenario 4: file-ref-att-1 must NOT have a recent file alias (dedup wins)"
+      !attachedAliases.some((a) => /^recent file #/i.test(a)),
+      "scenario 4: file-ref-att-1 must NOT carry a legacy recent alias"
     );
-    // The other file not in current attachments still gets the recent file alias.
+    // The other file not in current attachments still gets a sticky file alias.
     const otherRef = refs.find((r) => r.fileRef === "file-other");
     assert.ok(otherRef !== undefined, "scenario 4: file-other must be present");
     assert.ok(
-      (otherRef?.aliases ?? []).some((a) => /^recent file #/.test(a)),
-      "scenario 4: file-other must have recent file alias"
+      (otherRef?.aliases ?? []).some((a) => /^file #/i.test(a)),
+      "scenario 4: file-other must have a sticky file alias"
     );
   }
 
-  // Scenario 5 — empty discovery history → no recent file entries; Working Files unchanged.
+  // Scenario 5 — empty discovery history → no sticky-discovered entries; Working Files unchanged.
   {
     const { service, prisma } = buildHarness();
     prisma.chat = { id: "chat-recent-5" };
@@ -1959,13 +1944,10 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
       conversation: buildConversation(),
       currentAttachments: []
     });
-    const recentRefs = refs.filter((r) =>
-      (r.aliases ?? []).some((a) => /^recent file #\d+$/.test(a))
-    );
     assert.equal(
-      recentRefs.length,
+      refs.length,
       0,
-      "scenario 5: no recent files expected when discovery history is empty"
+      "scenario 5: no working files expected when discovery history is empty"
     );
   }
 }
