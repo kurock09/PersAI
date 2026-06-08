@@ -279,12 +279,40 @@ export class HandleInternalTelegramTurnService {
         userId: chat.userId,
         chatId: chat.id
       });
+      const mediaJobDeliveryUpdates =
+        (await this.assistantMediaJobService.listJobDeliveryUpdatesForChatContext?.({
+          assistantId: resolved.assistantId,
+          userId: chat.userId,
+          chatId: chat.id
+        })) ?? [];
       const openDocumentJobs =
         await this.assistantDocumentJobReadService.listOpenJobsForRuntimeContext({
           assistantId: resolved.assistantId,
           userId: chat.userId,
           chatId: chat.id
         });
+      const documentJobDeliveryUpdates =
+        (await this.assistantDocumentJobReadService.listJobDeliveryUpdatesForRuntimeContext?.({
+          assistantId: resolved.assistantId,
+          userId: chat.userId,
+          chatId: chat.id
+        })) ?? [];
+      const jobDeliveryUpdates = [...mediaJobDeliveryUpdates, ...documentJobDeliveryUpdates].sort(
+        (left, right) => {
+          const leftAt =
+            left.deliveryStatus === "delivered_recently"
+              ? Date.parse(left.deliveredAt ?? left.updatedAt)
+              : Date.parse(left.completedAt ?? left.updatedAt);
+          const rightAt =
+            right.deliveryStatus === "delivered_recently"
+              ? Date.parse(right.deliveredAt ?? right.updatedAt)
+              : Date.parse(right.completedAt ?? right.updatedAt);
+          if (left.deliveryStatus !== right.deliveryStatus) {
+            return left.deliveryStatus === "finalizing_delivery" ? -1 : 1;
+          }
+          return rightAt - leftAt;
+        }
+      );
       const nativeTurnInput: SendNativeTelegramTurnInput = {
         assistantId: resolved.assistantId,
         publishedVersionId: resolved.publishedVersionId,
@@ -305,6 +333,7 @@ export class HandleInternalTelegramTurnService {
         attachments: runtimeAttachments,
         ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
         ...(openDocumentJobs.length === 0 ? {} : { openDocumentJobs }),
+        ...(jobDeliveryUpdates.length === 0 ? {} : { jobDeliveryUpdates }),
         userTimezone: workspace.timezone,
         currentTimeIso,
         deepMode: defaultDeepModeEnabled

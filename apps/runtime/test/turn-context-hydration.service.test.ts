@@ -733,7 +733,14 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   });
   assert.deepEqual(
     availableWorkingFileRefs.map((file) => file.displayName).sort(),
-    ["diagram.png", "manual.pdf"],
+    ["diagram.png", "manual.pdf", "notes.txt", "reply.png"],
+    "historical audio/voice attachments should not stay in the Working Files prompt"
+  );
+  assert.equal(
+    availableWorkingFileRefs.some((file) =>
+      ["voice-note-yandex.ogg", "voice.mp3"].includes(file.displayName ?? "")
+    ),
+    false,
     "historical audio/voice attachments should not stay in the Working Files prompt"
   );
   const availableImageToolAttachments = await service.listAvailableImageToolAttachments({

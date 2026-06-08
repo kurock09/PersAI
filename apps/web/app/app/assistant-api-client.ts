@@ -5856,6 +5856,21 @@ export async function getWorkspaceVoiceCatalog(
   return res.json() as Promise<VoiceCatalogResponse>;
 }
 
+export function getWorkspaceVideoPersonaPreviewUrl(workspaceId: string, personaId: string): string {
+  return `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/video-personas/${encodeURIComponent(personaId)}/preview`;
+}
+
+export function getWorkspaceVoiceCatalogPreviewUrl(workspaceId: string, voiceId: string): string {
+  return `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/video-personas/voice-catalog/${encodeURIComponent(voiceId)}/preview`;
+}
+
+export function getWorkspaceVideoClonedVoicePreviewUrl(
+  workspaceId: string,
+  clonedVoiceId: string
+): string {
+  return `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/video-cloned-voices/${encodeURIComponent(clonedVoiceId)}/preview`;
+}
+
 export async function createWorkspaceVideoPersona(
   token: string,
   workspaceId: string,

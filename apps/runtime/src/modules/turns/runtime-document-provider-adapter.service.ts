@@ -752,9 +752,9 @@ export class RuntimeDocumentProviderAdapterService {
     // as context. Generating it here as well would (a) produce a duplicate
     // LLM call for every document job (visible in provider logs as two
     // independent framing requests with different outputs for the same
-    // job) and (b) misuse `bundle.promptConstructor.ordinary.sections.heartbeat`,
-    // which ADR-077 explicitly reserves for Background Task Evaluation
-    // and must never be appended to a normal user-visible chat turn.
+    // job) and (b) misuse the background-task-evaluation prompt, which
+    // ADR-112 reserves for Background Task Evaluation and must never be
+    // appended to a normal user-visible chat turn.
     return {
       assistantText: null,
       artifacts: [artifact],

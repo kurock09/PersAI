@@ -3,6 +3,78 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-09 - ADR-112 Slice 8 background prompt hygiene
+
+### Baseline
+
+- Starting SHA: `34e46163`, continuing the operator-approved stacked dirty flow after Slice 7 and unrelated voice/persona preview edits. Scope: ADR-112 Slice 8 only. Out of scope: committing, pushing, broad final gate, and unrelated voice/persona preview work.
+
+### What changed
+
+- `packages/runtime-bundle` now exposes `promptDocuments.backgroundTaskEvaluation` as the canonical background-task evaluator prompt name. Existing `heartbeat` storage/materialized bundle fields remain as compatibility aliases; API materialization writes both from the same compiled prompt text.
+- Skill-state classifier prompts now include `Check reason: ...` from `RuntimeSkillStateContext.checkReason`, and classifier provider calls carry a dedicated `skill_state_classifier` classification.
+- Runtime background-task evaluation now uses `backgroundTaskEvaluation ?? heartbeat` guidance and splits classifications: real background/idle task evaluation stays `background_task_evaluation`; quota advisory follow-up generation uses `quota_advisory_evaluation`.
+- Compaction-exhausted follow-ups no longer call `InternalRuntimeBackgroundTaskClientService.evaluate` or run the two-phase background-task evaluator. API keeps the existing compaction eligibility/suppression checks, then creates a static grounded notification intent from durable compaction facts.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-background-task-evaluation.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/skill-state-routing.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/quota-advisory-follow-up.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/compaction-advisory-follow-up.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/api run lint`
+
+### Risks / residuals
+
+- Full repo `format:check` and final AGENTS gate are intentionally deferred until the stacked Slice 7+8+voice/persona working tree is ready to commit, per operator instruction.
+- `heartbeat` remains in schemas/tests as a compatibility field until prompt-template storage is migrated or intentionally left stable.
+
+### Next recommended step
+
+- Finish/format the unrelated voice/persona preview changes already present in the working tree, then run the full AGENTS gate once and commit/push the complete stack if accepted.
+
+## 2026-06-09 - ADR-112 Slice 7 background jobs visibility
+
+### Baseline
+
+- Starting SHA: `34e46163` (clean tree).
+- Scope: ADR-112 Slice 7 only. Keep web continuity semantics intact, stop showing runtime `completion_pending` / document delivery-finalizing states as "open/in progress", add a compact recently-completed/finalizing runtime surface, and make the audio-lane decision explicit. Out of scope: Slice 8 background prompt hygiene, async audio generation, schema migrations, or broader prompt refactors.
+
+### What changed
+
+- `packages/runtime-contract` now additively carries `RuntimeTurnRequest.jobDeliveryUpdates[]`. Runtime-facing `openMediaJobs` / `openDocumentJobs` are narrowed to true in-progress states only (`queued|running`), while media `completion_pending`, document `fetching_output|ready_for_delivery`, and very recent delivered rows move into the new delivery-update seam.
+- `AssistantMediaJobService` and `AssistantDocumentJobReadService` now expose separate runtime delivery-update reads. Web continuity projections are intentionally unchanged: web still sees `completion_pending` / `ready_for_delivery` as waiting-for-delivery chips, and media concurrency counting remains unchanged.
+- `TurnExecutionService` now renders one runtime-owned `## Job Delivery Updates` section. Its wording explicitly says generation/rendering is already finished, distinguishes `finalizing_delivery` from `delivered_recently`, and tells the model not to say "still generating" / "still rendering". The old `## Open Media Jobs` wording was also tightened so only image/image-edit/video are described as active async lanes. The section explicitly states that async audio generation is not active and current voice replies use synchronous `tts`.
+- Web sync, web stream, and internal Telegram turn builders now pass the new `jobDeliveryUpdates[]` field when present, keeping the fix internal to the API<->runtime contract.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-open-context.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job-read.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck` (regenerated Prisma client as part of `pretypecheck`)
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm exec prettier --check "<Slice 7 touched files>"` (all matched Slice 7 files passed)
+- `git diff --check`
+- `corepack pnpm run format:check` was run after formatting owned Slice 7 files, but the repo-wide check is still blocked by unrelated dirty files outside this slice: `apps/api/src/modules/workspace-management/application/heygen/read-workspace-video-preview.service.ts`, `apps/api/src/modules/workspace-management/interface/http/stream-remote-audio-preview.ts`, and `apps/web/app/app/_components/assistant-settings.tsx`.
+
+### Risks / residuals
+
+- The "recently delivered" signal is intentionally bounded to a short prompt-time window so the model gets prompt completion visibility without turning delivery history into another long-lived prompt block.
+- The async audio lane remains explicitly closed only at the runtime/model surface in this slice. Historical compatibility traces (`audio` kind rows or internal enums) may still exist in storage/code, but the active user/model path remains synchronous `tts`.
+- The working tree also contains unrelated voice/persona preview edits that were not part of Slice 7 and were not modified by this handoff update.
+
+### Next recommended step
+
+- Continue ADR-112 with Slice 8 (background model-call prompt hygiene). Do not reopen Slice 7 unless live evidence shows the recent-delivery window is too short or too noisy.
+
 ## 2026-06-09 - ADR-112 memory-source + Telegram channel context follow-up
 
 ### Baseline

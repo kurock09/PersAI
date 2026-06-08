@@ -4,9 +4,14 @@ import type {
   AssistantDocumentRenderJobStatus,
   AssistantDocumentType
 } from "@prisma/client";
-import type { RuntimeOpenDocumentJobContext } from "@persai/runtime-contract";
+import type {
+  RuntimeJobDeliveryUpdate,
+  RuntimeOpenDocumentJobContext
+} from "@persai/runtime-contract";
 import type { AssistantWebChatActiveDocumentJobState } from "./web-chat.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+
+const RECENT_RUNTIME_JOB_DELIVERY_WINDOW_MS = 10 * 60 * 1000;
 
 function toWebOpenDocumentJobStatus(
   status: AssistantDocumentRenderJobStatus
@@ -32,9 +37,6 @@ function toRuntimeOpenDocumentJobStatus(
     case "running":
     case "provider_processing":
       return "running";
-    case "fetching_output":
-    case "ready_for_delivery":
-      return "completion_pending";
     default:
       throw new Error(`Unexpected closed document job status in runtime context query: ${status}`);
   }
@@ -128,7 +130,7 @@ export class AssistantDocumentJobReadService {
         userId: input.userId,
         chatId: input.chatId,
         status: {
-          in: ["queued", "running", "provider_processing", "fetching_output", "ready_for_delivery"]
+          in: ["queued", "running", "provider_processing"]
         }
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -165,5 +167,118 @@ export class AssistantDocumentJobReadService {
       startedAt: row.startedAt?.toISOString() ?? null,
       updatedAt: row.updatedAt.toISOString()
     }));
+  }
+
+  async listJobDeliveryUpdatesForRuntimeContext(input: {
+    assistantId: string;
+    userId: string;
+    chatId: string;
+  }): Promise<RuntimeJobDeliveryUpdate[]> {
+    const recentDeliveredCutoff = new Date(Date.now() - RECENT_RUNTIME_JOB_DELIVERY_WINDOW_MS);
+    const [finalizingRows, recentDeliveredRows] = await Promise.all([
+      this.prisma.assistantDocumentRenderJob.findMany({
+        where: {
+          assistantId: input.assistantId,
+          userId: input.userId,
+          chatId: input.chatId,
+          status: {
+            in: ["fetching_output", "ready_for_delivery"]
+          }
+        },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        select: {
+          id: true,
+          createdAt: true,
+          startedAt: true,
+          completedAt: true,
+          updatedAt: true,
+          deliveredAt: true,
+          version: {
+            select: {
+              descriptorMode: true,
+              sourceSummaryText: true
+            }
+          },
+          document: {
+            select: {
+              documentType: true
+            }
+          }
+        }
+      }),
+      this.prisma.assistantDocumentRenderJob.findMany({
+        where: {
+          assistantId: input.assistantId,
+          userId: input.userId,
+          chatId: input.chatId,
+          status: "delivered",
+          deliveredAt: {
+            gte: recentDeliveredCutoff
+          }
+        },
+        orderBy: [{ deliveredAt: "desc" }, { id: "desc" }],
+        select: {
+          id: true,
+          createdAt: true,
+          startedAt: true,
+          completedAt: true,
+          updatedAt: true,
+          deliveredAt: true,
+          version: {
+            select: {
+              descriptorMode: true,
+              sourceSummaryText: true
+            }
+          },
+          document: {
+            select: {
+              documentType: true
+            }
+          }
+        }
+      })
+    ]);
+    return [
+      ...finalizingRows.map((row) => this.toRuntimeJobDeliveryUpdate(row, "finalizing_delivery")),
+      ...recentDeliveredRows.map((row) =>
+        this.toRuntimeJobDeliveryUpdate(row, "delivered_recently")
+      )
+    ];
+  }
+
+  private toRuntimeJobDeliveryUpdate(
+    row: {
+      id: string;
+      createdAt: Date;
+      startedAt: Date | null;
+      completedAt: Date | null;
+      updatedAt: Date;
+      deliveredAt: Date | null;
+      version: {
+        descriptorMode: AssistantDocumentDescriptorMode | null;
+        sourceSummaryText: string | null;
+      } | null;
+      document: {
+        documentType: AssistantDocumentType;
+      };
+    },
+    deliveryStatus: RuntimeJobDeliveryUpdate["deliveryStatus"]
+  ): RuntimeJobDeliveryUpdate {
+    return {
+      kind: "document",
+      jobId: row.id,
+      descriptorMode: normalizeDescriptorMode(
+        row.version?.descriptorMode,
+        row.document.documentType
+      ),
+      documentType: row.document.documentType,
+      deliveryStatus,
+      sourceSummary: normalizeSourceSummary(row.version?.sourceSummaryText),
+      createdAt: row.createdAt.toISOString(),
+      startedAt: row.startedAt?.toISOString() ?? null,
+      completedAt: row.completedAt?.toISOString() ?? null,
+      updatedAt: row.updatedAt.toISOString(),
+      deliveredAt: row.deliveredAt?.toISOString() ?? null
+    };
   }
 }

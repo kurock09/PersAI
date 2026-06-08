@@ -263,8 +263,38 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     { path: "api/v1/support/tickets/:ticketId/read", method: RequestMethod.POST },
     { path: "api/v1/support/attachments/:attachmentId", method: RequestMethod.GET },
     { path: "api/v1/admin/support/attachments/:attachmentId", method: RequestMethod.GET },
+    { path: "api/v1/workspaces/:workspaceId/video-personas", method: RequestMethod.POST },
+    { path: "api/v1/workspaces/:workspaceId/video-personas", method: RequestMethod.GET },
+    {
+      path: "api/v1/workspaces/:workspaceId/video-personas/voice-catalog",
+      method: RequestMethod.GET
+    },
+    {
+      path: "api/v1/workspaces/:workspaceId/video-personas/voice-catalog/:voiceId/preview",
+      method: RequestMethod.GET
+    },
+    {
+      path: "api/v1/workspaces/:workspaceId/video-personas/:personaId",
+      method: RequestMethod.PATCH
+    },
+    {
+      path: "api/v1/workspaces/:workspaceId/video-personas/:personaId",
+      method: RequestMethod.DELETE
+    },
+    {
+      path: "api/v1/workspaces/:workspaceId/video-personas/:personaId/portrait",
+      method: RequestMethod.GET
+    },
+    {
+      path: "api/v1/workspaces/:workspaceId/video-personas/:personaId/preview",
+      method: RequestMethod.GET
+    },
     { path: "api/v1/workspaces/:workspaceId/video-cloned-voices", method: RequestMethod.POST },
     { path: "api/v1/workspaces/:workspaceId/video-cloned-voices", method: RequestMethod.GET },
+    {
+      path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId/preview",
+      method: RequestMethod.GET
+    },
     {
       path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId",
       method: RequestMethod.DELETE

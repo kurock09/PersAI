@@ -2,8 +2,6 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./read-internal-runtime-quota-status.service";
-import { InternalRuntimeBackgroundTaskClientService } from "./internal-runtime-background-task.client.service";
-import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { NotificationIntentService } from "./notifications/notification-intent.service";
 import {
@@ -15,7 +13,6 @@ import {
   resolveCompactionAdvisorySuppressionMinutes
 } from "./compaction-advisory-state";
 
-const COMPACTION_ADVISORY_TIMEOUT_MS = 8_000;
 const RECENT_MESSAGE_LIMIT = 8;
 
 const DEFAULT_COMPACTION_ADVISORY_LLM_INSTRUCTION = [
@@ -51,7 +48,6 @@ export class CompactionAdvisoryFollowUpService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly readInternalRuntimeQuotaStatusService: ReadInternalRuntimeQuotaStatusService,
-    private readonly internalRuntimeBackgroundTaskClientService: InternalRuntimeBackgroundTaskClientService,
     private readonly notificationIntentService: NotificationIntentService
   ) {}
 
@@ -145,9 +141,6 @@ export class CompactionAdvisoryFollowUpService {
       channel: input.surface,
       externalThreadKey: input.surfaceThreadKey
     });
-    const runtimeTier =
-      readRuntimeAssignmentStateFromMaterializedLayers(spec.layers)?.effectiveTier ??
-      "free_shared_restricted";
     const contextPacket = await this.buildContextPacket({
       assistantId: input.assistantId,
       chatId: input.chatId,
@@ -158,62 +151,7 @@ export class CompactionAdvisoryFollowUpService {
       compaction,
       adminInstruction: llmInstruction
     });
-    const outcome = await this.internalRuntimeBackgroundTaskClientService.evaluate(
-      {
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        runtimeTier,
-        runtimeBundleDocument: spec.runtimeBundleDocument,
-        task: {
-          id: dedupeKey,
-          title: "Compaction advisory follow-up",
-          brief: [
-            "Decide whether PersAI should send one short follow-up now because automatic context compaction has stopped giving enough relief at the current plan limit.",
-            "This message is a second assistant message after the main reply in the same active thread.",
-            "Use only the compaction and plan facts provided in the context packet. Do not invent prices, plan names, package availability, links, or reset times.",
-            "If you mention upgrade or package options, they must already exist in the provided facts.",
-            "Recommend starting a new chat when that helps preserve answer quality.",
-            "Return no_push if the message would be repetitive or not grounded enough.",
-            "Admin instruction:",
-            llmInstruction,
-            "Context packet:",
-            JSON.stringify(contextPacket, null, 2)
-          ].join("\n"),
-          scheduleJson: null,
-          pushPolicyJson: {
-            source: "quota_advisory",
-            requiredOutput: {
-              decision: "push | no_push | complete",
-              pushText: "one short user-facing compaction follow-up only when decision=push"
-            }
-          },
-          scheduledRunAt: new Date().toISOString(),
-          runCount: 0,
-          lastRunStatus: null,
-          lastRunAt: null
-        }
-      },
-      { timeoutMs: COMPACTION_ADVISORY_TIMEOUT_MS }
-    );
-
-    if (!outcome.ok) {
-      this.logger.warn(
-        `Compaction advisory follow-up generation skipped for assistant ${input.assistantId}: ${outcome.message}`
-      );
-      return null;
-    }
-
-    const followUpText = outcome.result.pushText?.trim();
-    if (outcome.result.decision !== "push" || !followUpText) {
-      this.logger.log({
-        event: "compaction.advisory.no_push",
-        assistantId: input.assistantId,
-        surface: input.surface,
-        surfaceThreadKey: input.surfaceThreadKey,
-        decision: outcome.result.decision
-      });
-      return null;
-    }
+    const followUpText = this.buildStaticFollowUpText(contextPacket);
 
     const intent = await this.notificationIntentService.createIntent({
       workspaceId: input.workspaceId,
@@ -222,13 +160,14 @@ export class CompactionAdvisoryFollowUpService {
       source: "quota_advisory",
       class: "conversational",
       priority: "immediate",
-      renderStrategy: "grounded_llm",
+      renderStrategy: "static_fallback",
       factPayload: {
         pushText: followUpText,
         advisoryKind: "compaction_exhausted",
         reserveTokens: compaction.reserveTokens,
         currentTokens: compaction.currentTokens,
-        recentAutoCompactionStreak: compaction.recentAutoCompactionStreak
+        recentAutoCompactionStreak: compaction.recentAutoCompactionStreak,
+        adminInstruction: llmInstruction
       },
       dedupeKey,
       surface: input.surface,
@@ -443,6 +382,22 @@ export class CompactionAdvisoryFollowUpService {
         pushText: "required only for push"
       }
     };
+  }
+
+  private buildStaticFollowUpText(contextPacket: Record<string, unknown>): string {
+    const user = this.asObject(contextPacket["user"]);
+    const locale = typeof user?.["locale"] === "string" ? user["locale"].toLowerCase() : "";
+    const targetThread = this.asObject(contextPacket["targetThread"]);
+    const newChatAction =
+      typeof targetThread?.["newChatAction"] === "string"
+        ? targetThread["newChatAction"]
+        : "new chat";
+    const startNewChatRu = newChatAction === "/new" ? "отправьте /new" : `начните ${newChatAction}`;
+    const startNewChatEn = newChatAction === "/new" ? "send /new" : `start a ${newChatAction}`;
+    if (locale.startsWith("ru")) {
+      return `Этот чат уже упёрся в лимит контекста текущего плана: я могу продолжать, но часть старых деталей будет хуже удерживаться. Для лучшего качества ${startNewChatRu}.`;
+    }
+    return `This chat has reached the context limit for the current plan. I can continue, but older details may be harder to preserve; for best quality, ${startNewChatEn}.`;
   }
 
   private readCompactionConfig(

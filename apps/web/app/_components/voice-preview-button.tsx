@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { Pause, Play } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 
@@ -19,6 +19,7 @@ import { cn } from "@/app/lib/utils";
 let currentlyPlayingAudio: HTMLAudioElement | null = null;
 let currentlyPlayingSetPlaying: ((v: boolean) => void) | null = null;
 let currentPlaybackSessionId = 0;
+const PREVIEW_START_TIMEOUT_MS = 4_000;
 
 export function VoicePreviewButton({
   previewAudioUrl,
@@ -43,6 +44,7 @@ export function VoicePreviewButton({
   const [isStarting, setIsStarting] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playbackSessionRef = useRef(0);
+  const startupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isActive = previewAudioUrl !== null && previewAudioUrl.length > 0;
   const resolvedPlayLabel = playLabel ?? `Play preview: ${voiceLabel}`;
@@ -55,9 +57,33 @@ export function VoicePreviewButton({
     }
   };
 
+  const clearStartupTimeout = () => {
+    if (startupTimeoutRef.current !== null) {
+      clearTimeout(startupTimeoutRef.current);
+      startupTimeoutRef.current = null;
+    }
+  };
+
+  const scheduleStartupTimeout = (audio: HTMLAudioElement, sessionId: number) => {
+    clearStartupTimeout();
+    startupTimeoutRef.current = setTimeout(() => {
+      if (
+        playbackSessionRef.current !== sessionId ||
+        currentPlaybackSessionId !== sessionId ||
+        audioRef.current !== audio
+      ) {
+        return;
+      }
+      clearCurrentPlayback(audio);
+      setIsStarting(false);
+      setIsPlaying(false);
+    }, PREVIEW_START_TIMEOUT_MS);
+  };
+
   const stopLocalPlayback = (audio: HTMLAudioElement | null) => {
     currentPlaybackSessionId += 1;
     playbackSessionRef.current = currentPlaybackSessionId;
+    clearStartupTimeout();
     setIsStarting(false);
     if (audio !== null) {
       audio.pause();
@@ -78,19 +104,30 @@ export function VoicePreviewButton({
     const audio = new Audio(src);
     audioRef.current = audio;
     audio.addEventListener("ended", () => {
+      clearStartupTimeout();
       clearCurrentPlayback(audio);
       setIsStarting(false);
       setIsPlaying(false);
     });
     audio.addEventListener("pause", () => {
+      clearStartupTimeout();
       clearCurrentPlayback(audio);
       setIsStarting(false);
       setIsPlaying(false);
     });
     audio.addEventListener("error", () => {
+      clearStartupTimeout();
       clearCurrentPlayback(audio);
       setIsStarting(false);
       setIsPlaying(false);
+    });
+    audio.addEventListener("playing", () => {
+      if (audioRef.current !== audio) {
+        return;
+      }
+      clearStartupTimeout();
+      setIsStarting(false);
+      setIsPlaying(true);
     });
     return audio;
   };
@@ -114,7 +151,9 @@ export function VoicePreviewButton({
     }
   }, [previewAudioUrl]);
 
-  function handleClick(): void {
+  function handleClick(event: MouseEvent<HTMLButtonElement>): void {
+    event.preventDefault();
+    event.stopPropagation();
     if (!isActive || !previewAudioUrl || disabled) {
       return;
     }
@@ -139,12 +178,14 @@ export function VoicePreviewButton({
     currentlyPlayingAudio = audio;
     currentlyPlayingSetPlaying = setIsPlaying;
     setIsStarting(true);
+    scheduleStartupTimeout(audio, sessionId);
     void audio
       .play()
       .then(() => {
         if (playbackSessionRef.current !== sessionId || currentPlaybackSessionId !== sessionId) {
           return;
         }
+        clearStartupTimeout();
         setIsStarting(false);
         setIsPlaying(true);
       })
@@ -152,6 +193,7 @@ export function VoicePreviewButton({
         if (playbackSessionRef.current !== sessionId || currentPlaybackSessionId !== sessionId) {
           return;
         }
+        clearStartupTimeout();
         clearCurrentPlayback(audio);
         setIsStarting(false);
         setIsPlaying(false);
@@ -186,6 +228,7 @@ export function VoicePreviewButton({
       title={isPlaying ? resolvedPauseLabel : resolvedPlayLabel}
       aria-label={isPlaying ? resolvedPauseLabel : resolvedPlayLabel}
       onClick={handleClick}
+      onMouseDown={(event) => event.stopPropagation()}
       className={cn(
         "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
         "border border-border bg-surface hover:bg-surface-raised text-accent",

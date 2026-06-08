@@ -832,7 +832,9 @@ export class MaterializeAssistantPublishedVersionService {
       enabledSkillsDocument: compiledPromptConstructor.promptDocuments.enabledSkills ?? "",
       toolsDocument: compiledPromptConstructor.promptDocuments.tools,
       agentsDocument: compiledPromptConstructor.promptDocuments.agents,
-      heartbeatDocument: compiledPromptConstructor.promptDocuments.heartbeat,
+      backgroundTaskEvaluationDocument:
+        compiledPromptConstructor.promptDocuments.backgroundTaskEvaluation ??
+        compiledPromptConstructor.promptDocuments.heartbeat,
       presenceDocument: compiledPromptConstructor.promptDocuments.presence,
       previewDocument: compiledPromptConstructor.promptDocuments.preview,
       welcomeDocument: compiledPromptConstructor.promptDocuments.welcome,
@@ -959,7 +961,8 @@ export class MaterializeAssistantPublishedVersionService {
         enabledSkills: onboardingDocuments.enabledSkillsDocument,
         tools: onboardingDocuments.toolsDocument,
         agents: onboardingDocuments.agentsDocument,
-        heartbeat: onboardingDocuments.heartbeatDocument,
+        backgroundTaskEvaluation: onboardingDocuments.backgroundTaskEvaluationDocument,
+        heartbeat: onboardingDocuments.backgroundTaskEvaluationDocument,
         presence: onboardingDocuments.presenceDocument ?? "",
         routerClassifier: promptTemplates.router_classifier ?? "",
         skillStateClassifier: promptTemplates.skill_state_classifier ?? "",

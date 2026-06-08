@@ -128,10 +128,15 @@ export class RuntimeBackgroundTaskEvaluationService {
     providerSelection: ProviderSelection,
     toolRun: RuntimeTurnResult
   ): ProviderGatewayTextGenerateRequest {
+    const configuredEvaluatorGuidance = this.resolveBackgroundTaskEvaluationPrompt(bundle);
+    const classification = this.resolveEvaluationClassification(input);
     const systemPrompt = [
       "You are the PersAI background-task evaluator. You run outside a user chat turn.",
       "Return only the requested structured JSON. Do not call tools, do not create reminders, and do not write conversational prose.",
       "You already received the complete output of a separate tool-enabled background run. Base your decision on that evidence.",
+      configuredEvaluatorGuidance === null
+        ? null
+        : `Configured evaluator guidance:\n${configuredEvaluatorGuidance}`,
       "Decision rules:",
       "The platform calls you only after task.scheduledRunAt is due. Never return no_push because scheduledRunAt has not been reached.",
       '- decision="push" only when the brief condition is met and the user should receive pushText now.',
@@ -176,7 +181,7 @@ export class RuntimeBackgroundTaskEvaluationService {
       ],
       maxOutputTokens: EVALUATION_MAX_OUTPUT_TOKENS,
       outputSchema: {
-        name: "background_task_evaluation",
+        name: classification,
         strict: true,
         schema: {
           type: "object",
@@ -195,7 +200,7 @@ export class RuntimeBackgroundTaskEvaluationService {
         runtimeRequestId: this.buildBackgroundTaskRunKey(input),
         toolLoopIteration: null,
         compactionToolCode: null,
-        classification: "background_task_evaluation"
+        classification
       }
     };
   }
@@ -292,6 +297,48 @@ export class RuntimeBackgroundTaskEvaluationService {
     }
     throw new BadRequestException(
       "Runtime bundle does not declare a provider/model for evaluation."
+    );
+  }
+
+  private resolveEvaluationClassification(
+    input: RuntimeBackgroundTaskEvaluationRequest
+  ): "background_task_evaluation" | "quota_advisory_evaluation" {
+    return input.evaluationKind === "quota_advisory"
+      ? "quota_advisory_evaluation"
+      : "background_task_evaluation";
+  }
+
+  private normalizeOptionalText(value: string | null | undefined): string | null {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private resolveBackgroundTaskEvaluationPrompt(bundle: AssistantRuntimeBundle): string | null {
+    const documents = this.asObject((bundle as unknown as Record<string, unknown>).promptDocuments);
+    const promptDocument = this.normalizeOptionalText(
+      documents?.["backgroundTaskEvaluation"] as string | null | undefined
+    );
+    if (promptDocument !== null) {
+      return promptDocument;
+    }
+    const legacyPromptDocument = this.normalizeOptionalText(
+      documents?.["heartbeat"] as string | null | undefined
+    );
+    if (legacyPromptDocument !== null) {
+      return legacyPromptDocument;
+    }
+    const promptConstructor = this.asObject(
+      (bundle as unknown as Record<string, unknown>).promptConstructor
+    );
+    const ordinary = this.asObject(promptConstructor?.["ordinary"]);
+    const sections = this.asObject(ordinary?.["sections"]);
+    return (
+      this.normalizeOptionalText(
+        sections?.["backgroundTaskEvaluation"] as string | null | undefined
+      ) ?? this.normalizeOptionalText(sections?.["heartbeat"] as string | null | undefined)
     );
   }
 

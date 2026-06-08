@@ -111,6 +111,7 @@ function createRuntimeBundleDocument(): string {
       ordinary: {
         systemPrompt: "Answer as PersAI.",
         sections: {
+          backgroundTaskEvaluation: "Use the background evaluator prompt.",
           heartbeat: "Stay concise."
         }
       }
@@ -187,7 +188,33 @@ export async function runRuntimeBackgroundTaskEvaluationServiceTest(): Promise<v
   assert.equal(toolRunRequest.modelRoleOverride, "system_tool");
   assert.equal(providerRequest.model, "system-tool-slot-model");
   assert.doesNotMatch(String(providerRequest.systemPrompt ?? ""), /Answer as PersAI\./);
+  assert.match(String(providerRequest.systemPrompt ?? ""), /Use the background evaluator prompt\./);
+  assert.equal(providerRequest.requestMetadata.classification, "background_task_evaluation");
   assert.equal(providerRequest.developerInstructions ?? null, null);
+}
+
+export async function runQuotaAdvisoryClassificationTest(): Promise<void> {
+  const turnExecution = new FakeTurnExecutionService();
+  const providerGateway = new FakeProviderGatewayClientService();
+  const runtimeExecutionAdmissionService = new RuntimeExecutionAdmissionService(
+    new RuntimeObservabilityService()
+  );
+  const service = new RuntimeBackgroundTaskEvaluationService(
+    providerGateway as unknown as ProviderGatewayClientService,
+    turnExecution as unknown as TurnExecutionService,
+    runtimeExecutionAdmissionService
+  );
+
+  await service.evaluate({
+    ...createEvaluationRequest(),
+    evaluationKind: "quota_advisory"
+  });
+
+  assert.equal(
+    providerGateway.requests[0]?.requestMetadata?.classification,
+    "quota_advisory_evaluation"
+  );
+  assert.equal(providerGateway.requests[0]?.outputSchema?.name, "quota_advisory_evaluation");
 }
 
 // ADR-090: unique externalThreadKey when evaluationAttemptId is provided

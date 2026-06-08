@@ -2491,6 +2491,7 @@ export interface RuntimeBackgroundTaskEvaluationRequest {
   workspaceId: string;
   runtimeTier: PersaiRuntimeTier;
   runtimeBundleDocument: string;
+  evaluationKind?: "background_task" | "quota_advisory";
   task: {
     id: string;
     title: string;
@@ -2796,6 +2797,7 @@ export interface RuntimeTurnRequest {
   message: RuntimeInboundMessage;
   openMediaJobs?: RuntimeOpenMediaJobContext[];
   openDocumentJobs?: RuntimeOpenDocumentJobContext[];
+  jobDeliveryUpdates?: RuntimeJobDeliveryUpdate[];
   chatMode?: "normal" | "smart" | "project";
   deepMode?: boolean;
   modelRoleOverride?: PersaiRuntimeModelRole;
@@ -2808,7 +2810,7 @@ export interface RuntimeOpenMediaJobContext {
   jobId: string;
   kind: "image" | "audio" | "video";
   toolCode: "image_generate" | "image_edit" | "video_generate" | "audio_generate";
-  status: "queued" | "running" | "completion_pending";
+  status: "queued" | "running";
   sourceSummary: string | null;
   requestedCount: number | null;
   expectedResultCount: number | null;
@@ -2825,11 +2827,49 @@ export interface RuntimeOpenDocumentJobContext {
     | "revise_document"
     | "export_or_redeliver";
   documentType: "pdf_document" | "presentation";
-  status: "queued" | "running" | "completion_pending";
+  status: "queued" | "running";
   sourceSummary: string | null;
   createdAt: IsoTimestamp;
   startedAt: IsoTimestamp | null;
   updatedAt: IsoTimestamp;
+}
+
+export type RuntimeJobDeliveryUpdate =
+  | RuntimeMediaJobDeliveryUpdate
+  | RuntimeDocumentJobDeliveryUpdate;
+
+export interface RuntimeMediaJobDeliveryUpdate {
+  kind: "media";
+  jobId: string;
+  mediaKind: "image" | "audio" | "video";
+  toolCode: "image_generate" | "image_edit" | "video_generate" | "audio_generate";
+  deliveryStatus: "finalizing_delivery" | "delivered_recently";
+  sourceSummary: string | null;
+  requestedCount: number | null;
+  expectedResultCount: number | null;
+  createdAt: IsoTimestamp;
+  startedAt: IsoTimestamp | null;
+  completedAt: IsoTimestamp | null;
+  updatedAt: IsoTimestamp;
+  deliveredAt: IsoTimestamp | null;
+}
+
+export interface RuntimeDocumentJobDeliveryUpdate {
+  kind: "document";
+  jobId: string;
+  descriptorMode:
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver";
+  documentType: "pdf_document" | "presentation";
+  deliveryStatus: "finalizing_delivery" | "delivered_recently";
+  sourceSummary: string | null;
+  createdAt: IsoTimestamp;
+  startedAt: IsoTimestamp | null;
+  completedAt: IsoTimestamp | null;
+  updatedAt: IsoTimestamp;
+  deliveredAt: IsoTimestamp | null;
 }
 
 export interface RuntimeTurnRoutingSnapshot {
@@ -2991,6 +3031,8 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   // compacted slice and writes them through the M1 memory_write path.
   "auto_extract_to_memory",
   "background_task_evaluation",
+  "quota_advisory_evaluation",
+  "skill_state_classifier",
   "document_html_generation",
   "document_pdf_outline",
   "document_pdf_section_generation",
@@ -3048,7 +3090,7 @@ export interface ProviderGatewayTextGenerateRequest {
   /**
    * ADR-074 P1: per-turn developer instructions appended OUTSIDE the cached system prefix.
    * This is the canonical place for content that must NOT invalidate provider prompt caching:
-   * routing/execution-mode hints, the per-turn heartbeat block, and (in later slices) time
+   * routing/execution-mode hints, per-turn developer-tail blocks, and time
    * awareness fields. Providers project this field provider-natively:
    *   - OpenAI Responses API: a `role: "developer"` input item appended after history.
    *   - Anthropic: normally a second text block appended to the `system` array (no

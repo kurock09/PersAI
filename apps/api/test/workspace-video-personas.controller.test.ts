@@ -52,6 +52,17 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async resolveCatalogVoicePreviewUrl(input: { voiceId: string }) {
+        assert.equal(input.voiceId, "voice-1");
+        return "https://persai.dev/preview/voice-1.mp3";
+      },
+      async resolvePersonaPreviewUrl(input: { workspaceId: string; personaId: string }) {
+        assert.equal(input.workspaceId, "workspace-1");
+        assert.equal(input.personaId, "persona-1");
+        return "https://persai.dev/preview/persona-1.mp3";
+      }
+    } as never,
+    {
       async resolveMembership(userId: string) {
         assert.equal(userId, "user-1");
         return {
@@ -65,6 +76,7 @@ async function run(): Promise<void> {
 
   const reqWithNullWorkspace = {
     requestId: "req-1",
+    headers: {},
     workspaceId: null,
     resolvedAppUser: { id: "user-1" }
   } as never;
@@ -73,6 +85,42 @@ async function run(): Promise<void> {
   assert.equal(voiceCatalog.provider, "heygen");
   assert.equal(voiceCatalog.voices.length, 1);
   assert.equal(voiceCatalog.voices[0]?.voiceId, "voice-1");
+
+  const previewResponse = {
+    statusCode: 0,
+    headers: new Map<string, string>(),
+    setHeader(name: string, value: string) {
+      this.headers.set(name, value);
+    },
+    getHeader(name: string) {
+      return this.headers.get(name);
+    },
+    end(_body?: Buffer | string) {}
+  } as never;
+
+  const originalFetch = global.fetch;
+  global.fetch = (async () =>
+    new Response(Buffer.from([0x49, 0x44, 0x33]), {
+      status: 200,
+      headers: { "Content-Type": "audio/mpeg", "Accept-Ranges": "bytes" }
+    })) as typeof fetch;
+  await controller.getVoiceCatalogPreview(
+    reqWithNullWorkspace,
+    previewResponse,
+    "workspace-1",
+    "voice-1"
+  );
+  assert.equal(previewResponse.statusCode, 200);
+  assert.equal(previewResponse.getHeader("Content-Type"), "audio/mpeg");
+
+  await controller.getPersonaPreview(
+    reqWithNullWorkspace,
+    previewResponse,
+    "workspace-1",
+    "persona-1"
+  );
+  assert.equal(previewResponse.statusCode, 200);
+  global.fetch = originalFetch;
 
   await assert.rejects(
     () => controller.getVoiceCatalog(reqWithNullWorkspace, "workspace-2"),

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VoicePreviewButton } from "./voice-preview-button";
 
@@ -46,6 +46,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -106,6 +107,26 @@ describe("VoicePreviewButton", () => {
     await waitFor(() => {
       expect(mockAudioInstances[0]!.play).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("does not bubble preview clicks into parent containers", async () => {
+    const parentClick = vi.fn();
+    render(
+      <div onClick={parentClick}>
+        <VoicePreviewButton
+          previewAudioUrl="https://cdn.heygen.com/voice.mp3"
+          voiceLabel="Amy"
+          previewUnavailableLabel="Preview unavailable"
+        />
+      </div>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play preview: Amy" }));
+
+    await waitFor(() => {
+      expect(mockAudioInstances[0]!.play).toHaveBeenCalledTimes(1);
+    });
+    expect(parentClick).not.toHaveBeenCalled();
   });
 
   it("second click pauses audio (shows pause icon after play)", async () => {
@@ -170,6 +191,41 @@ describe("VoicePreviewButton", () => {
       expect(mockAudioInstances[0]!.pause).toHaveBeenCalledTimes(1);
       expect(screen.getByRole("button", { name: "Play preview: Amy" })).toBeInTheDocument();
     });
+  });
+
+  it("lets the user retry after a preview start stalls", async () => {
+    vi.useFakeTimers();
+    mockAudioInstances = [];
+    vi.stubGlobal(
+      "Audio",
+      vi.fn().mockImplementation((_src: string) => {
+        const audio = createMockAudio();
+        audio.src = _src;
+        audio.play = vi.fn().mockImplementation(() => new Promise<void>(() => undefined));
+        mockAudioInstances.push(audio);
+        return audio;
+      })
+    );
+
+    render(
+      <VoicePreviewButton
+        previewAudioUrl="https://cdn.heygen.com/voice.mp3"
+        voiceLabel="Amy"
+        previewUnavailableLabel="Preview unavailable"
+      />
+    );
+
+    const btn = screen.getByRole("button", { name: "Play preview: Amy" });
+    fireEvent.click(btn);
+    expect(mockAudioInstances[0]!.play).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(4500);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Play preview: Amy" }));
+
+    expect(mockAudioInstances[0]!.play).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 
   it("recreates the audio element when previewAudioUrl changes", async () => {

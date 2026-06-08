@@ -117,6 +117,7 @@ export class QuotaAdvisoryFollowUpService {
         workspaceId: input.workspaceId,
         runtimeTier,
         runtimeBundleDocument: spec.runtimeBundleDocument,
+        evaluationKind: "quota_advisory",
         task: {
           id: dedupeKey,
           title: "Quota advisory follow-up",

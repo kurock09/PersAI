@@ -236,6 +236,7 @@ import { HeyGenProviderGatewayClient } from "./application/heygen/heygen-provide
 import { ManageWorkspaceVideoPersonasService } from "./application/heygen/manage-workspace-video-personas.service";
 import { ManageWorkspaceVideoClonedVoicesService } from "./application/heygen/manage-workspace-video-cloned-voices.service";
 import { ReadWorkspaceVideoPersonaService } from "./application/heygen/read-workspace-video-persona.service";
+import { ReadWorkspaceVideoPreviewService } from "./application/heygen/read-workspace-video-preview.service";
 import { ReadHeygenVoiceCatalogForWorkspaceService } from "./application/heygen/read-heygen-voice-catalog-for-workspace.service";
 import { WorkspaceVideoPersonasController } from "./interface/http/workspace-video-personas.controller";
 import { WorkspaceVideoClonedVoicesController } from "./interface/http/workspace-video-cloned-voices.controller";
@@ -786,6 +787,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageWorkspaceVideoPersonasService,
     ManageWorkspaceVideoClonedVoicesService,
     ReadWorkspaceVideoPersonaService,
+    ReadWorkspaceVideoPreviewService,
     ReadHeygenVoiceCatalogForWorkspaceService,
     {
       provide: WORKSPACE_VIDEO_CLONED_VOICE_REPOSITORY,

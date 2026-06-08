@@ -11,6 +11,7 @@ import { QuotaAdvisoryFollowUpService } from "../src/modules/workspace-managemen
 
 type CapturedIntentInput = Record<string, unknown>;
 const capturedIntents: CapturedIntentInput[] = [];
+const capturedEvaluations: CapturedIntentInput[] = [];
 
 function makeNotificationIntentService() {
   return {
@@ -51,7 +52,10 @@ function makeEvaluateOutcome(pushText: string | null) {
 
 function makeRuntimeTaskClient(pushText: string | null) {
   return {
-    evaluate: async () => makeEvaluateOutcome(pushText)
+    evaluate: async (input: CapturedIntentInput) => {
+      capturedEvaluations.push(input);
+      return makeEvaluateOutcome(pushText);
+    }
   };
 }
 
@@ -93,6 +97,7 @@ function buildService(
   decision: "push" | "no_push" = pushText !== null ? "push" : "no_push"
 ) {
   capturedIntents.length = 0;
+  capturedEvaluations.length = 0;
   const svc = new QuotaAdvisoryFollowUpService(
     makeAssistantRepository() as never,
     makePrisma() as never,
@@ -138,6 +143,7 @@ async function run(): Promise<void> {
       (captured["factPayload"] as { candidateDedupeKeys?: string[] }).candidateDedupeKeys,
       ["quota:token_budget:user-1"]
     );
+    assert.equal(capturedEvaluations[0]?.["evaluationKind"], "quota_advisory");
     console.log(
       "✓ web turn: surface/chatId forwarded for current_thread expansion, traceId forwarded"
     );

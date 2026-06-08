@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { AssistantChatSurface, AssistantMediaJobStatus } from "@prisma/client";
 import type {
+  RuntimeJobDeliveryUpdate,
   RuntimeOpenMediaJobContext,
   RuntimeAttachmentRef,
   RuntimeImageEditRequest,
@@ -32,13 +33,14 @@ export type AssistantMediaJobRequestPayload = {
       };
 };
 
+const RECENT_RUNTIME_JOB_DELIVERY_WINDOW_MS = 10 * 60 * 1000;
+
 function toRuntimeOpenMediaJobStatus(
   status: AssistantMediaJobStatus
 ): RuntimeOpenMediaJobContext["status"] {
   switch (status) {
     case "queued":
     case "running":
-    case "completion_pending":
       return status;
     default:
       throw new Error(`Unexpected closed media job status in open-job query: ${status}`);
@@ -178,7 +180,7 @@ export class AssistantMediaJobService {
         userId: input.userId,
         chatId: input.chatId,
         status: {
-          in: ["queued", "running", "completion_pending"]
+          in: ["queued", "running"]
         }
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -210,6 +212,63 @@ export class AssistantMediaJobService {
         updatedAt: row.updatedAt.toISOString()
       };
     });
+  }
+
+  async listJobDeliveryUpdatesForChatContext(input: {
+    assistantId: string;
+    userId: string;
+    chatId: string;
+  }): Promise<RuntimeJobDeliveryUpdate[]> {
+    const recentDeliveredCutoff = new Date(Date.now() - RECENT_RUNTIME_JOB_DELIVERY_WINDOW_MS);
+    const [finalizingRows, recentDeliveredRows] = await Promise.all([
+      this.prisma.assistantMediaJob.findMany({
+        where: {
+          assistantId: input.assistantId,
+          userId: input.userId,
+          chatId: input.chatId,
+          status: "completion_pending"
+        },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        select: {
+          id: true,
+          kind: true,
+          requestJson: true,
+          createdAt: true,
+          startedAt: true,
+          completedAt: true,
+          updatedAt: true,
+          deliveredAt: true
+        }
+      }),
+      this.prisma.assistantMediaJob.findMany({
+        where: {
+          assistantId: input.assistantId,
+          userId: input.userId,
+          chatId: input.chatId,
+          status: "delivered",
+          deliveredAt: {
+            gte: recentDeliveredCutoff
+          }
+        },
+        orderBy: [{ deliveredAt: "desc" }, { id: "desc" }],
+        select: {
+          id: true,
+          kind: true,
+          requestJson: true,
+          createdAt: true,
+          startedAt: true,
+          completedAt: true,
+          updatedAt: true,
+          deliveredAt: true
+        }
+      })
+    ]);
+    return [
+      ...finalizingRows.map((row) => this.toRuntimeJobDeliveryUpdate(row, "finalizing_delivery")),
+      ...recentDeliveredRows.map((row) =>
+        this.toRuntimeJobDeliveryUpdate(row, "delivered_recently")
+      )
+    ];
   }
 
   async listOpenJobsForWebChat(input: {
@@ -250,6 +309,40 @@ export class AssistantMediaJobService {
       startedAt: row.startedAt?.toISOString() ?? null,
       updatedAt: row.updatedAt.toISOString()
     }));
+  }
+
+  private toRuntimeJobDeliveryUpdate(
+    row: {
+      id: string;
+      kind: RuntimeOpenMediaJobContext["kind"];
+      requestJson: unknown;
+      createdAt: Date;
+      startedAt: Date | null;
+      completedAt: Date | null;
+      updatedAt: Date;
+      deliveredAt: Date | null;
+    },
+    deliveryStatus: RuntimeJobDeliveryUpdate["deliveryStatus"]
+  ): RuntimeJobDeliveryUpdate {
+    const requestedCount = extractRequestedCountFromRequestJson(row.requestJson);
+    return {
+      kind: "media",
+      jobId: row.id,
+      mediaKind: row.kind,
+      toolCode: toRuntimeOpenMediaJobToolCode({
+        kind: row.kind,
+        requestJson: row.requestJson
+      }),
+      deliveryStatus,
+      sourceSummary: extractSourceSummaryFromRequestJson(row.requestJson),
+      requestedCount,
+      expectedResultCount: requestedCount,
+      createdAt: row.createdAt.toISOString(),
+      startedAt: row.startedAt?.toISOString() ?? null,
+      completedAt: row.completedAt?.toISOString() ?? null,
+      updatedAt: row.updatedAt.toISOString(),
+      deliveredAt: row.deliveredAt?.toISOString() ?? null
+    };
   }
 
   async enqueue(input: {

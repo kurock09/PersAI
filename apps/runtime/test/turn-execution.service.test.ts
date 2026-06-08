@@ -2772,6 +2772,73 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[openDocumentJobsOffset]?.developerInstructions ?? "",
     /1\. create_pdf_document \(pdf_document\) job is running; source: "сделай pdf по брифу"; created 2026-04-11T12:00:00\.000Z, started 2026-04-11T12:01:00\.000Z\./
   );
+  const deliveryUpdatesRequest = createRuntimeTurnRequest();
+  deliveryUpdatesRequest.message.text = "оно еще делается?";
+  deliveryUpdatesRequest.jobDeliveryUpdates = [
+    {
+      kind: "media",
+      jobId: "job-delivery-1",
+      mediaKind: "image",
+      toolCode: "image_generate",
+      deliveryStatus: "finalizing_delivery",
+      sourceSummary: "сделай афишу фестиваля",
+      requestedCount: 2,
+      expectedResultCount: 2,
+      createdAt: "2026-04-11T12:05:00.000Z",
+      startedAt: "2026-04-11T12:05:05.000Z",
+      completedAt: "2026-04-11T12:06:10.000Z",
+      updatedAt: "2026-04-11T12:06:10.000Z",
+      deliveredAt: null
+    },
+    {
+      kind: "document",
+      jobId: "doc-delivery-1",
+      descriptorMode: "create_pdf_document",
+      documentType: "pdf_document",
+      deliveryStatus: "delivered_recently",
+      sourceSummary: "сделай pdf по брифу",
+      createdAt: "2026-04-11T12:00:00.000Z",
+      startedAt: "2026-04-11T12:01:00.000Z",
+      completedAt: "2026-04-11T12:02:30.000Z",
+      updatedAt: "2026-04-11T12:02:45.000Z",
+      deliveredAt: "2026-04-11T12:02:45.000Z"
+    }
+  ];
+  const deliveryUpdatesOffset = providerGatewayClient.calls.length;
+  const deliveryUpdatesCompleted = await service.createTurn(deliveryUpdatesRequest);
+  assert.equal(deliveryUpdatesCompleted.assistantText, "runtime reply");
+  assert.match(
+    providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
+    /## Job Delivery Updates/
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
+    /## Open Media Jobs/
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
+    /## Open Document Jobs/
+  );
+  assert.match(
+    providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
+    /Server truth: these jobs already finished generation\/rendering\./
+  );
+  assert.match(
+    providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
+    /Do not say they are still generating or still rendering\./
+  );
+  assert.match(
+    providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
+    /1\. image_generate image job is finalizing_delivery; source: "сделай афишу фестиваля"; completed 2026-04-11T12:06:10\.000Z; delivery not finished yet; requested 2 result unit\(s\)\./
+  );
+  assert.match(
+    providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
+    /2\. create_pdf_document \(pdf_document\) job is delivered_recently; source: "сделай pdf по брифу"; completed 2026-04-11T12:02:30\.000Z; delivered 2026-04-11T12:02:45\.000Z\./
+  );
+  assert.match(
+    providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
+    /Async audio generation is not an active lane; voice replies use `tts` in-turn\./
+  );
   const telegramGroupRequest = createRuntimeTurnRequest();
   telegramGroupRequest.conversation = {
     assistantId: "assistant-1",
@@ -3374,6 +3441,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const nextDeveloperSectionStartCandidates = [
     "\n## Open Media Jobs",
     "\n## Open Document Jobs",
+    "\n## Job Delivery Updates",
     "\n## Working Files",
     "\n## Sense of Time",
     "\nDo not write markdown links"

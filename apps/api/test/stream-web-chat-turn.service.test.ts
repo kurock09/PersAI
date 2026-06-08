@@ -88,7 +88,8 @@ function createSkillStatePersistenceServiceMock() {
 function createAssistantDocumentJobReadServiceMock() {
   return {
     listOpenJobsForWebChat: async () => [],
-    listOpenJobsForRuntimeContext: async () => []
+    listOpenJobsForRuntimeContext: async () => [],
+    listJobDeliveryUpdatesForRuntimeContext: async () => []
   };
 }
 
@@ -1118,6 +1119,7 @@ describe("StreamWebChatTurnService", () => {
     let webRuntimeCalls = 0;
     let capturedWebRuntimeUserMessage = "";
     let capturedOpenMediaJobs: unknown[] | undefined;
+    let capturedJobDeliveryUpdates: unknown[] | undefined;
 
     const service = new StreamWebChatTurnService(
       {
@@ -1152,10 +1154,15 @@ describe("StreamWebChatTurnService", () => {
         completeWebTurnProcessing: async () => undefined
       } as never,
       {
-        execute: async function* (input: { userMessage: string; openMediaJobs?: unknown[] }) {
+        execute: async function* (input: {
+          userMessage: string;
+          openMediaJobs?: unknown[];
+          jobDeliveryUpdates?: unknown[];
+        }) {
           webRuntimeCalls += 1;
           capturedWebRuntimeUserMessage = input.userMessage;
           capturedOpenMediaJobs = input.openMediaJobs;
+          capturedJobDeliveryUpdates = input.jobDeliveryUpdates;
           yield { type: "delta", delta: "native", accumulated: "native" };
           yield {
             type: "tool",
@@ -1220,6 +1227,23 @@ describe("StreamWebChatTurnService", () => {
             createdAt: "2026-04-05T11:59:00.000Z",
             startedAt: "2026-04-05T11:59:10.000Z",
             updatedAt: "2026-04-05T11:59:30.000Z"
+          }
+        ],
+        listJobDeliveryUpdatesForChatContext: async () => [
+          {
+            kind: "media",
+            jobId: "job-2",
+            mediaKind: "image",
+            toolCode: "image_generate",
+            deliveryStatus: "finalizing_delivery",
+            sourceSummary: "festival banner",
+            requestedCount: 1,
+            expectedResultCount: 1,
+            createdAt: "2026-04-05T11:58:00.000Z",
+            startedAt: "2026-04-05T11:58:10.000Z",
+            completedAt: "2026-04-05T11:58:40.000Z",
+            updatedAt: "2026-04-05T11:58:40.000Z",
+            deliveredAt: null
           }
         ],
         listOpenJobsForWebChat: async () => []
@@ -1291,6 +1315,23 @@ describe("StreamWebChatTurnService", () => {
         createdAt: "2026-04-05T11:59:00.000Z",
         startedAt: "2026-04-05T11:59:10.000Z",
         updatedAt: "2026-04-05T11:59:30.000Z"
+      }
+    ]);
+    assert.deepEqual(capturedJobDeliveryUpdates, [
+      {
+        kind: "media",
+        jobId: "job-2",
+        mediaKind: "image",
+        toolCode: "image_generate",
+        deliveryStatus: "finalizing_delivery",
+        sourceSummary: "festival banner",
+        requestedCount: 1,
+        expectedResultCount: 1,
+        createdAt: "2026-04-05T11:58:00.000Z",
+        startedAt: "2026-04-05T11:58:10.000Z",
+        completedAt: "2026-04-05T11:58:40.000Z",
+        updatedAt: "2026-04-05T11:58:40.000Z",
+        deliveredAt: null
       }
     ]);
     assert.equal(createdMessages.length, 1);

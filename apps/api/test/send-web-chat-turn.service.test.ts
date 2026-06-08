@@ -70,7 +70,8 @@ function createQuotaAdvisoryFollowUpServiceMock() {
 function createAssistantDocumentJobReadServiceMock() {
   return {
     listOpenJobsForWebChat: async () => [],
-    listOpenJobsForRuntimeContext: async () => []
+    listOpenJobsForRuntimeContext: async () => [],
+    listJobDeliveryUpdatesForRuntimeContext: async () => []
   };
 }
 
@@ -236,6 +237,7 @@ describe("SendWebChatTurnService", () => {
     let webRuntimeCalls = 0;
     let capturedWebRuntimeUserMessage = "";
     let capturedOpenMediaJobs: unknown[] | undefined;
+    let capturedJobDeliveryUpdates: unknown[] | undefined;
 
     const service = new SendWebChatTurnService(
       {
@@ -256,10 +258,15 @@ describe("SendWebChatTurnService", () => {
         releaseWebTurnProcessing: async () => undefined
       } as never,
       {
-        execute: async (input: { userMessage: string; openMediaJobs?: unknown[] }) => {
+        execute: async (input: {
+          userMessage: string;
+          openMediaJobs?: unknown[];
+          jobDeliveryUpdates?: unknown[];
+        }) => {
           webRuntimeCalls += 1;
           capturedWebRuntimeUserMessage = input.userMessage;
           capturedOpenMediaJobs = input.openMediaJobs;
+          capturedJobDeliveryUpdates = input.jobDeliveryUpdates;
           return {
             assistantMessage: "native",
             respondedAt: "2026-04-05T12:00:01.000Z",
@@ -336,6 +343,23 @@ describe("SendWebChatTurnService", () => {
             updatedAt: "2026-04-05T11:59:30.000Z"
           }
         ],
+        listJobDeliveryUpdatesForChatContext: async () => [
+          {
+            kind: "media",
+            jobId: "job-2",
+            mediaKind: "image",
+            toolCode: "image_generate",
+            deliveryStatus: "finalizing_delivery",
+            sourceSummary: "festival banner",
+            requestedCount: 1,
+            expectedResultCount: 1,
+            createdAt: "2026-04-05T11:58:00.000Z",
+            startedAt: "2026-04-05T11:58:10.000Z",
+            completedAt: "2026-04-05T11:58:40.000Z",
+            updatedAt: "2026-04-05T11:58:40.000Z",
+            deliveredAt: null
+          }
+        ],
         listOpenJobsForWebChat: async () => []
       } as never,
       createAssistantDocumentJobReadServiceMock() as never,
@@ -367,6 +391,23 @@ describe("SendWebChatTurnService", () => {
         updatedAt: "2026-04-05T11:59:30.000Z"
       }
     ]);
+    assert.deepEqual(capturedJobDeliveryUpdates, [
+      {
+        kind: "media",
+        jobId: "job-2",
+        mediaKind: "image",
+        toolCode: "image_generate",
+        deliveryStatus: "finalizing_delivery",
+        sourceSummary: "festival banner",
+        requestedCount: 1,
+        expectedResultCount: 1,
+        createdAt: "2026-04-05T11:58:00.000Z",
+        startedAt: "2026-04-05T11:58:10.000Z",
+        completedAt: "2026-04-05T11:58:40.000Z",
+        updatedAt: "2026-04-05T11:58:40.000Z",
+        deliveredAt: null
+      }
+    ]);
     assert.equal(result.assistantMessage.content, "native");
     assert.deepEqual(result.runtime.turnRouting, {
       mode: "shadow",
@@ -377,6 +418,7 @@ describe("SendWebChatTurnService", () => {
 
   test("forwards open document jobs from document read service to runtime client", async () => {
     let capturedOpenDocumentJobs: unknown[] | undefined;
+    let capturedJobDeliveryUpdates: unknown[] | undefined;
 
     const service = new SendWebChatTurnService(
       {
@@ -397,8 +439,13 @@ describe("SendWebChatTurnService", () => {
         releaseWebTurnProcessing: async () => undefined
       } as never,
       {
-        execute: async (input: { userMessage: string; openDocumentJobs?: unknown[] }) => {
+        execute: async (input: {
+          userMessage: string;
+          openDocumentJobs?: unknown[];
+          jobDeliveryUpdates?: unknown[];
+        }) => {
           capturedOpenDocumentJobs = input.openDocumentJobs;
+          capturedJobDeliveryUpdates = input.jobDeliveryUpdates;
           return {
             assistantMessage: "native",
             respondedAt: "2026-04-05T12:00:01.000Z",
@@ -467,6 +514,21 @@ describe("SendWebChatTurnService", () => {
             startedAt: "2026-04-05T11:59:10.000Z",
             updatedAt: "2026-04-05T11:59:30.000Z"
           }
+        ],
+        listJobDeliveryUpdatesForRuntimeContext: async () => [
+          {
+            kind: "document",
+            jobId: "doc-job-2",
+            descriptorMode: "create_pdf_document",
+            documentType: "pdf_document",
+            deliveryStatus: "delivered_recently",
+            sourceSummary: "документ по брифу",
+            createdAt: "2026-04-05T11:50:00.000Z",
+            startedAt: "2026-04-05T11:50:10.000Z",
+            completedAt: "2026-04-05T11:51:00.000Z",
+            updatedAt: "2026-04-05T11:51:10.000Z",
+            deliveredAt: "2026-04-05T11:51:10.000Z"
+          }
         ]
       } as never,
       { deliver: async () => ({ attachments: [] }) } as never,
@@ -489,6 +551,21 @@ describe("SendWebChatTurnService", () => {
         createdAt: "2026-04-05T11:59:00.000Z",
         startedAt: "2026-04-05T11:59:10.000Z",
         updatedAt: "2026-04-05T11:59:30.000Z"
+      }
+    ]);
+    assert.deepEqual(capturedJobDeliveryUpdates, [
+      {
+        kind: "document",
+        jobId: "doc-job-2",
+        descriptorMode: "create_pdf_document",
+        documentType: "pdf_document",
+        deliveryStatus: "delivered_recently",
+        sourceSummary: "документ по брифу",
+        createdAt: "2026-04-05T11:50:00.000Z",
+        startedAt: "2026-04-05T11:50:10.000Z",
+        completedAt: "2026-04-05T11:51:00.000Z",
+        updatedAt: "2026-04-05T11:51:10.000Z",
+        deliveredAt: "2026-04-05T11:51:10.000Z"
       }
     ]);
   });

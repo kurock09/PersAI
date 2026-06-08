@@ -43,6 +43,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   },
   {
     modulePath: "./runtime-background-task-evaluation.service.test.ts",
+    exportName: "runQuotaAdvisoryClassificationTest"
+  },
+  {
+    modulePath: "./runtime-background-task-evaluation.service.test.ts",
     exportName: "runUniqueExternalThreadKeyTest"
   },
   {

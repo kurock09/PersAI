@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import type {
+  RuntimeJobDeliveryUpdate,
   RuntimeOpenMediaJobContext,
   RuntimeOpenDocumentJobContext,
   RuntimeAttachmentRef,
@@ -46,6 +47,7 @@ export interface WebRuntimeStreamClientInput {
   attachments: RuntimeAttachmentRef[];
   openMediaJobs?: RuntimeOpenMediaJobContext[];
   openDocumentJobs?: RuntimeOpenDocumentJobContext[];
+  jobDeliveryUpdates?: RuntimeJobDeliveryUpdate[];
   userTimezone?: string;
   currentTimeIso?: string;
   chatMode?: RuntimeTurnRequest["chatMode"];
@@ -133,6 +135,9 @@ export class WebRuntimeStreamClientService {
       },
       ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
       ...(input.openDocumentJobs === undefined ? {} : { openDocumentJobs: input.openDocumentJobs }),
+      ...(input.jobDeliveryUpdates === undefined
+        ? {}
+        : { jobDeliveryUpdates: input.jobDeliveryUpdates }),
       ...(input.chatMode === undefined ? {} : { chatMode: input.chatMode }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined

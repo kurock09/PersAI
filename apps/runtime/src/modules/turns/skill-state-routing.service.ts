@@ -212,6 +212,13 @@ export class SkillStateRoutingService {
       systemPrompt: input.prompt,
       maxOutputTokens: SKILL_STATE_MAX_OUTPUT_TOKENS,
       outputSchema: SKILL_STATE_OUTPUT_SCHEMA,
+      requestMetadata: {
+        classification: "skill_state_classifier",
+        runtimeRequestId: input.request.requestId,
+        runtimeSessionId: null,
+        toolLoopIteration: null,
+        compactionToolCode: null
+      },
       messages: [
         {
           role: "user",
@@ -262,8 +269,10 @@ export class SkillStateRoutingService {
         : currentState.status === "active"
           ? `active:${currentState.activeSkillId ?? "none"}:${currentState.activeSkillName ?? "unknown"}`
           : "inactive";
+    const checkReason = input.request.skillStateContext?.checkReason ?? null;
     return [
       `Mode: ${input.mode}`,
+      `Check reason: ${checkReason ?? "unspecified"}`,
       `Current user message index: ${String(input.request.skillStateContext?.currentUserMessageIndex ?? 0)}`,
       `Current Skill state: ${currentStateLine}`,
       "Enabled Skills summary:",

@@ -8,24 +8,31 @@ import {
   Param,
   Post,
   Req,
+  Res,
   UnauthorizedException,
   UploadedFile,
   UseInterceptors
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
-import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
+import type {
+  RequestWithPlatformContext,
+  ResponseWithPlatformContext
+} from "../../../platform-core/interface/http/request-http.types";
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
 import {
   ManageWorkspaceVideoClonedVoicesService,
   type CreateClonedVoiceResult,
   type WorkspaceVideoClonedVoiceDto
 } from "../../application/heygen/manage-workspace-video-cloned-voices.service";
+import { ReadWorkspaceVideoPreviewService } from "../../application/heygen/read-workspace-video-preview.service";
 import { ResolveActiveAssistantService } from "../../application/resolve-active-assistant.service";
+import { streamRemoteAudioPreview } from "./stream-remote-audio-preview";
 
 @Controller("api/v1/workspaces/:workspaceId/video-cloned-voices")
 export class WorkspaceVideoClonedVoicesController {
   constructor(
     private readonly manageWorkspaceVideoClonedVoicesService: ManageWorkspaceVideoClonedVoicesService,
+    private readonly readWorkspaceVideoPreviewService: ReadWorkspaceVideoPreviewService,
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
@@ -72,6 +79,28 @@ export class WorkspaceVideoClonedVoicesController {
     const userId = this.resolveUserId(req);
     await this.assertWorkspaceAccess(userId, workspaceId);
     return this.manageWorkspaceVideoClonedVoicesService.listClonedVoices({ workspaceId });
+  }
+
+  @Get(":clonedVoiceId/preview")
+  async getClonedVoicePreview(
+    @Req() req: RequestWithPlatformContext,
+    @Param("workspaceId") workspaceId: string,
+    @Param("clonedVoiceId") clonedVoiceId: string,
+    @Res() res: ResponseWithPlatformContext
+  ): Promise<void> {
+    const userId = this.resolveUserId(req);
+    await this.assertWorkspaceAccess(userId, workspaceId);
+    const previewUrl = await this.readWorkspaceVideoPreviewService.resolveClonedVoicePreviewUrl({
+      workspaceId,
+      clonedVoiceId
+    });
+    if (previewUrl === null) {
+      res.statusCode = 404;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ message: "Preview audio not found.", code: "preview_not_found" }));
+      return;
+    }
+    await streamRemoteAudioPreview({ request: req, response: res, sourceUrl: previewUrl });
   }
 
   @Delete(":clonedVoiceId")

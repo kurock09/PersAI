@@ -361,6 +361,10 @@ export class IdentityAccessModule implements NestModule {
         method: RequestMethod.GET
       },
       {
+        path: "api/v1/workspaces/:workspaceId/video-personas/voice-catalog/:voiceId/preview",
+        method: RequestMethod.GET
+      },
+      {
         path: "api/v1/workspaces/:workspaceId/video-personas/:personaId",
         method: RequestMethod.PATCH
       },
@@ -370,6 +374,10 @@ export class IdentityAccessModule implements NestModule {
       },
       {
         path: "api/v1/workspaces/:workspaceId/video-personas/:personaId/portrait",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/workspaces/:workspaceId/video-personas/:personaId/preview",
         method: RequestMethod.GET
       },
       // ADR-111: workspace-scoped cloned voice endpoints share the same
@@ -382,6 +390,10 @@ export class IdentityAccessModule implements NestModule {
       },
       {
         path: "api/v1/workspaces/:workspaceId/video-cloned-voices",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId/preview",
         method: RequestMethod.GET
       },
       {

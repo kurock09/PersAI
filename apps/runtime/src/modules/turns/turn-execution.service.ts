@@ -142,6 +142,7 @@ const ANTHROPIC_HISTORY_BREAKPOINT_MIN_TOKENS = 3_000;
 const APPROX_CHARS_PER_TOKEN = 4;
 const MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS = 4;
 const MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS = 4;
+const MAX_JOB_DELIVERY_UPDATE_ITEMS = 6;
 const MAX_MODEL_VISIBLE_WORKING_FILES = 20;
 const MAX_WORKING_FILE_MICRO_DESCRIPTION_CHARS = 120;
 const WORKING_FILE_REF_SUFFIX_HEX_LENGTH = 8;
@@ -339,6 +340,7 @@ type DeveloperInstructionSectionKey =
   | "retrieved_knowledge"
   | "open_media_jobs"
   | "open_document_jobs"
+  | "job_delivery_updates"
   | "presence"
   | "delivery_contract"
   | "tool_follow_up"
@@ -682,7 +684,8 @@ export class TurnExecutionService {
       openLoopRefsBlock,
       presenceBlock,
       openMediaJobs: input.openMediaJobs,
-      openDocumentJobs: input.openDocumentJobs
+      openDocumentJobs: input.openDocumentJobs,
+      jobDeliveryUpdates: input.jobDeliveryUpdates
     });
     const promptMode = options?.promptMode ?? "chat";
     const providerRequest = this.buildProviderRequest(
@@ -1900,6 +1903,7 @@ export class TurnExecutionService {
     presenceBlock: string | null;
     openMediaJobs: RuntimeTurnRequest["openMediaJobs"];
     openDocumentJobs: RuntimeTurnRequest["openDocumentJobs"];
+    jobDeliveryUpdates: RuntimeTurnRequest["jobDeliveryUpdates"];
   }): DeveloperInstructionSection[] {
     const routingGuidance = this.buildTurnRoutingPrompt(
       input.projectedTools,
@@ -1917,11 +1921,13 @@ export class TurnExecutionService {
     const openDocumentJobsSection = this.buildOpenDocumentJobsDeveloperSection(
       input.openDocumentJobs
     );
-    // ADR-077 follow-up: `promptDocuments.heartbeat` is now the dedicated
-    // Background Task Evaluation prompt. It must never be appended to a normal
-    // user-visible chat turn; otherwise the main assistant may return service
-    // decisions like `no_push` as chat text. Background evaluation consumes
-    // the same document explicitly in RuntimeBackgroundTaskEvaluationService.
+    const jobDeliveryUpdatesSection = this.buildJobDeliveryUpdatesDeveloperSection(
+      input.jobDeliveryUpdates
+    );
+    // ADR-112 Slice 8: `promptDocuments.backgroundTaskEvaluation`
+    // (legacy alias: `heartbeat`) is reserved for background-task evaluation.
+    // It must never be appended to a normal user-visible chat turn; otherwise
+    // the main assistant may return service decisions like `no_push` as chat text.
     const presenceSection = this.normalizeOptionalText(input.presenceBlock);
     const projectExecutionSection =
       input.request !== undefined && isProjectChatMode(input.request)
@@ -1937,6 +1943,7 @@ export class TurnExecutionService {
       { key: "retrieved_knowledge", content: retrievedKnowledgeSection },
       { key: "open_media_jobs", content: openMediaJobsSection },
       { key: "open_document_jobs", content: openDocumentJobsSection },
+      { key: "job_delivery_updates", content: jobDeliveryUpdatesSection },
       { key: "presence", content: presenceSection },
       { key: "delivery_contract", content: DELIVERY_HONESTY_CONTRACT }
     ]);
@@ -2082,7 +2089,7 @@ export class TurnExecutionService {
       "## Open Media Jobs",
       "Server truth: background media generation is already in progress in this chat.",
       "Use this status block for any progress reply in the current turn.",
-      "Do not let older open jobs block a genuine new media request in the current user turn. If the current turn is asking for another image, edit, video, or audio task, you may start the matching new media tool call.",
+      "Do not let older open jobs block a genuine new media request in the current user turn. If the current turn is asking for another image, image edit, or video task, you may start the matching new media tool call.",
       "These are older or already-open jobs. They are NOT proof that the current user turn started a new media job.",
       "Only say a new media request was accepted, queued, or in progress when this same turn actually returned a structural pending_delivery result with a real jobId.",
       ...openMediaJobs.slice(0, MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS).map((job, index) => {
@@ -2099,6 +2106,50 @@ export class TurnExecutionService {
         return `${index + 1}. ${job.toolCode} job is ${job.status}; ${sourceLine}; ${ageLine}${countLine === null ? "." : `; ${countLine}.`}`;
       })
     ];
+    return lines.join("\n");
+  }
+
+  private buildJobDeliveryUpdatesDeveloperSection(
+    jobDeliveryUpdates: RuntimeTurnRequest["jobDeliveryUpdates"]
+  ): string | null {
+    if (jobDeliveryUpdates === undefined || jobDeliveryUpdates.length === 0) {
+      return null;
+    }
+    const lines = [
+      "## Job Delivery Updates",
+      "Server truth: these jobs already finished generation/rendering.",
+      "Do not say they are still generating or still rendering.",
+      "A finalizing_delivery item means worker/provider work is done and chat delivery is catching up.",
+      "A delivered_recently item means delivery already finished recently and may already be visible in chat history.",
+      "Async audio generation is not an active lane; voice replies use `tts` in-turn."
+    ];
+    for (const [index, job] of jobDeliveryUpdates
+      .slice(0, MAX_JOB_DELIVERY_UPDATE_ITEMS)
+      .entries()) {
+      const sourceLine =
+        job.sourceSummary === null ? "source unavailable" : `source: "${job.sourceSummary}"`;
+      const completionLine =
+        job.completedAt === null
+          ? `latest update ${job.updatedAt}`
+          : `completed ${job.completedAt}`;
+      const deliveryLine =
+        job.deliveryStatus === "delivered_recently"
+          ? `delivered ${job.deliveredAt ?? job.updatedAt}`
+          : "delivery not finished yet";
+      const countLine =
+        job.kind !== "media" || job.requestedCount === null
+          ? null
+          : `requested ${String(job.requestedCount)} result unit(s)`;
+      const label =
+        job.kind === "media"
+          ? `${job.toolCode} ${job.mediaKind} job`
+          : `${job.descriptorMode} (${job.documentType}) job`;
+      lines.push(
+        `${index + 1}. ${label} is ${job.deliveryStatus}; ${sourceLine}; ${completionLine}; ${deliveryLine}${
+          countLine === null ? "." : `; ${countLine}.`
+        }`
+      );
+    }
     return lines.join("\n");
   }
 
@@ -5059,7 +5110,8 @@ export class TurnExecutionService {
       openLoopRefsBlock,
       presenceBlock,
       openMediaJobs: input.openMediaJobs,
-      openDocumentJobs: input.openDocumentJobs
+      openDocumentJobs: input.openDocumentJobs,
+      jobDeliveryUpdates: input.jobDeliveryUpdates
     });
     execution.developerInstructionSections = developerInstructionSections;
     return this.buildProviderRequest(

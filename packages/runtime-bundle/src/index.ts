@@ -142,13 +142,19 @@ export interface AssistantRuntimePromptDocuments {
   enabledSkills?: string;
   tools: string;
   agents: string;
+  /**
+   * ADR-112 Slice 8: canonical name for the background-task evaluator prompt.
+   * `heartbeat` remains as a compatibility alias for existing materialized
+   * bundles and prompt-template storage.
+   */
+  backgroundTaskEvaluation?: string;
   heartbeat: string;
   /**
    * ADR-074 Slice T1: presence is a NEW per-turn developer-tail block (sibling
-   * of `heartbeat`). The compiled text is the raw template string with the
+   * of backgroundTaskEvaluation/legacy `heartbeat`). The compiled text is the raw template string with the
    * four `{{...}}` placeholders unresolved; the runtime presence renderer
    * interpolates them at turn-construction time and inserts the result into
-   * `developerInstructions` between `routingGuidance` and `heartbeat`.
+   * `developerInstructions` between routing guidance and other developer-tail blocks.
    *
    * Optional on the wire so legacy bundle JSON without `presence` (compiled
    * before T1 landed, or by a fallback synthesizer) keeps deserializing; the
@@ -174,6 +180,7 @@ export interface AssistantRuntimeCompiledOrdinaryPromptSections {
   enabledSkills: string;
   tools: string;
   agents: string;
+  backgroundTaskEvaluation?: string;
   heartbeat: string;
 }
 
@@ -287,7 +294,9 @@ export function createAssistantRuntimeBundle(
         enabledSkills: input.promptDocuments.enabledSkills ?? "",
         tools: input.promptDocuments.tools,
         agents: input.promptDocuments.agents,
-        heartbeat: input.promptDocuments.heartbeat
+        backgroundTaskEvaluation:
+          input.promptDocuments.backgroundTaskEvaluation ?? input.promptDocuments.heartbeat,
+        heartbeat: input.promptDocuments.backgroundTaskEvaluation ?? input.promptDocuments.heartbeat
       },
       // ADR-074 P1: the fallback synthesizer mirrors the production compile path and intentionally
       // omits `heartbeat` from both `systemPrompt` and `stablePrefix`. Heartbeat is surfaced via

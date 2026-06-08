@@ -88,6 +88,9 @@ import {
   getWorkspaceVideoPersonas,
   getWorkspaceVideoClonedVoices,
   getWorkspaceVoiceCatalog,
+  getWorkspaceVideoPersonaPreviewUrl,
+  getWorkspaceVideoClonedVoicePreviewUrl,
+  getWorkspaceVoiceCatalogPreviewUrl,
   createWorkspaceVideoClonedVoice,
   createWorkspaceVideoPersona,
   updateWorkspaceVideoPersona,
@@ -377,6 +380,7 @@ function CharacterCreateCard({
 function VoiceCloneCard({
   voice,
   voiceLabel,
+  previewAudioUrl,
   statusLabel,
   statusTone,
   previewUnavailableLabel,
@@ -389,6 +393,7 @@ function VoiceCloneCard({
 }: {
   voice: WorkspaceVideoClonedVoiceDto;
   voiceLabel: string;
+  previewAudioUrl: string | null;
   statusLabel: string;
   statusTone: "default" | "warn" | "success" | "error";
   previewUnavailableLabel: string;
@@ -421,7 +426,7 @@ function VoiceCloneCard({
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <div className="flex items-center gap-1">
             <VoicePreviewButton
-              previewAudioUrl={voice.previewAudioUrl}
+              previewAudioUrl={previewAudioUrl}
               voiceLabel={voice.displayName}
               previewUnavailableLabel={previewUnavailableLabel}
             />
@@ -1114,6 +1119,30 @@ function matchesOtherVoiceLanguageSearch(
   }
   const normalizedLanguage = language?.trim().toLowerCase() ?? "";
   return normalizedLanguage.includes(normalizedSearch);
+}
+
+function resolveCatalogPreviewUrl(
+  workspaceId: string | null | undefined,
+  voice: Pick<VoiceCatalogEntry, "voiceId" | "previewAudioUrl">
+): string | null {
+  if (!voice.previewAudioUrl) {
+    return null;
+  }
+  return workspaceId
+    ? getWorkspaceVoiceCatalogPreviewUrl(workspaceId, voice.voiceId)
+    : voice.previewAudioUrl;
+}
+
+function resolveClonedVoicePreviewUrl(
+  workspaceId: string | null | undefined,
+  voice: Pick<WorkspaceVideoClonedVoiceDto, "id" | "previewAudioUrl">
+): string | null {
+  if (!voice.previewAudioUrl) {
+    return null;
+  }
+  return workspaceId
+    ? getWorkspaceVideoClonedVoicePreviewUrl(workspaceId, voice.id)
+    : voice.previewAudioUrl;
 }
 
 function formatVoiceLanguageLabel(voice: VoiceCatalogEntry): string {
@@ -4391,7 +4420,9 @@ export function AssistantSettings({
                     portraitImageUrl={persona.portraitImageUrl || null}
                     fallbackInitial={persona.displayName.charAt(0)}
                     previewAudioUrl={
-                      clonedVoice?.previewAudioUrl ?? catalogEntry?.previewAudioUrl ?? null
+                      assistant?.workspaceId
+                        ? getWorkspaceVideoPersonaPreviewUrl(assistant.workspaceId, persona.id)
+                        : (clonedVoice?.previewAudioUrl ?? catalogEntry?.previewAudioUrl ?? null)
                     }
                     previewVoiceLabel={activeVoiceLabel}
                     previewUnavailableLabel={t("charactersPreviewUnavailable")}
@@ -4435,7 +4466,11 @@ export function AssistantSettings({
                   })}
                   portraitImageUrl={DEMO_PERSONA_PORTRAIT_URL}
                   fallbackInitial={t("charactersDemoName").charAt(0)}
-                  previewAudioUrl={demoPersonaVoice?.previewAudioUrl ?? null}
+                  previewAudioUrl={
+                    demoPersonaVoice
+                      ? resolveCatalogPreviewUrl(assistant?.workspaceId, demoPersonaVoice)
+                      : null
+                  }
                   previewVoiceLabel={demoPersonaVoice?.name ?? t("charactersDemoVoiceFallback")}
                   previewUnavailableLabel={t("charactersPreviewUnavailable")}
                   badgeLabel={t("charactersDemoBadge")}
@@ -4541,6 +4576,10 @@ export function AssistantSettings({
                               voiceLabel={t("voicesCardMeta", {
                                 language: voice.languageHint || t("voicesLanguageAuto")
                               })}
+                              previewAudioUrl={resolveClonedVoicePreviewUrl(
+                                assistant?.workspaceId,
+                                voice
+                              )}
                               statusLabel={statusLabel}
                               statusTone={statusTone}
                               previewUnavailableLabel={t("charactersPreviewUnavailable")}
@@ -4939,7 +4978,10 @@ export function AssistantSettings({
                                     {voice.isDefault ? ` · ${t("voicesDefault")}` : ""}
                                   </span>
                                   <VoicePreviewButton
-                                    previewAudioUrl={voice.previewAudioUrl}
+                                    previewAudioUrl={resolveClonedVoicePreviewUrl(
+                                      assistant?.workspaceId,
+                                      voice
+                                    )}
                                     voiceLabel={voice.displayName}
                                     previewUnavailableLabel={t("charactersPreviewUnavailable")}
                                   />
@@ -5009,7 +5051,10 @@ export function AssistantSettings({
                                 {formatVoiceLanguageLabel(voice)} · {voice.gender}
                               </span>
                               <VoicePreviewButton
-                                previewAudioUrl={voice.previewAudioUrl}
+                                previewAudioUrl={resolveCatalogPreviewUrl(
+                                  assistant?.workspaceId,
+                                  voice
+                                )}
                                 voiceLabel={voice.name}
                                 previewUnavailableLabel={t("charactersPreviewUnavailable")}
                               />

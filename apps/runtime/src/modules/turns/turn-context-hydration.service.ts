@@ -1003,8 +1003,8 @@ export class TurnContextHydrationService {
 
   // ADR-074 Slice T1 — compute the per-turn "presence" developer-tail block.
   //
-  // Returns the rendered text to be inserted between `routingGuidance` and
-  // `heartbeat` in `developerInstructions`, or `null` when the bundle has no
+  // Returns the rendered text to be inserted into the per-turn developer tail,
+  // or `null` when the bundle has no
   // presence template (e.g. legacy bundle compiled before T1) or the channel
   // does not have a canonical chat row (no in-thread baseline available).
   //

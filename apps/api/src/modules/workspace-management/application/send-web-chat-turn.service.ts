@@ -318,12 +318,40 @@ export class SendWebChatTurnService {
         userId: prepared.userId,
         chatId: prepared.chat.id
       });
+      const mediaJobDeliveryUpdates =
+        (await this.assistantMediaJobService.listJobDeliveryUpdatesForChatContext?.({
+          assistantId: prepared.assistantId,
+          userId: prepared.userId,
+          chatId: prepared.chat.id
+        })) ?? [];
       const openDocumentJobs =
         await this.assistantDocumentJobReadService.listOpenJobsForRuntimeContext({
           assistantId: prepared.assistantId,
           userId: prepared.userId,
           chatId: prepared.chat.id
         });
+      const documentJobDeliveryUpdates =
+        (await this.assistantDocumentJobReadService.listJobDeliveryUpdatesForRuntimeContext?.({
+          assistantId: prepared.assistantId,
+          userId: prepared.userId,
+          chatId: prepared.chat.id
+        })) ?? [];
+      const jobDeliveryUpdates = [...mediaJobDeliveryUpdates, ...documentJobDeliveryUpdates].sort(
+        (left, right) => {
+          const leftAt =
+            left.deliveryStatus === "delivered_recently"
+              ? Date.parse(left.deliveredAt ?? left.updatedAt)
+              : Date.parse(left.completedAt ?? left.updatedAt);
+          const rightAt =
+            right.deliveryStatus === "delivered_recently"
+              ? Date.parse(right.deliveredAt ?? right.updatedAt)
+              : Date.parse(right.completedAt ?? right.updatedAt);
+          if (left.deliveryStatus !== right.deliveryStatus) {
+            return left.deliveryStatus === "finalizing_delivery" ? -1 : 1;
+          }
+          return rightAt - leftAt;
+        }
+      );
       const webRuntimeTurnInput = this.buildWebRuntimeTurnInput({
         assistantId: prepared.assistantId,
         publishedVersionId: prepared.publishedVersionId,
@@ -336,6 +364,7 @@ export class SendWebChatTurnService {
         attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
         ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
         ...(openDocumentJobs.length === 0 ? {} : { openDocumentJobs }),
+        ...(jobDeliveryUpdates.length === 0 ? {} : { jobDeliveryUpdates }),
         userTimezone: prepared.workspaceTimezone,
         currentTimeIso,
         skillStateContext,
@@ -756,6 +785,7 @@ export class SendWebChatTurnService {
     attachments: WebRuntimeTurnClientInput["attachments"];
     openMediaJobs?: WebRuntimeTurnClientInput["openMediaJobs"];
     openDocumentJobs?: WebRuntimeTurnClientInput["openDocumentJobs"];
+    jobDeliveryUpdates?: WebRuntimeTurnClientInput["jobDeliveryUpdates"];
     userTimezone: string;
     currentTimeIso: string;
     skillStateContext?: WebRuntimeTurnClientInput["skillStateContext"];
@@ -777,6 +807,9 @@ export class SendWebChatTurnService {
       attachments: input.attachments,
       ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
       ...(input.openDocumentJobs === undefined ? {} : { openDocumentJobs: input.openDocumentJobs }),
+      ...(input.jobDeliveryUpdates === undefined
+        ? {}
+        : { jobDeliveryUpdates: input.jobDeliveryUpdates }),
       userTimezone: input.userTimezone,
       currentTimeIso: input.currentTimeIso,
       ...(input.skillStateContext === undefined

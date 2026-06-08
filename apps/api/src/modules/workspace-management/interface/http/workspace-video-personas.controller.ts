@@ -29,7 +29,9 @@ import {
   ReadHeygenVoiceCatalogForWorkspaceService,
   type WorkspaceVoiceCatalogResult
 } from "../../application/heygen/read-heygen-voice-catalog-for-workspace.service";
+import { ReadWorkspaceVideoPreviewService } from "../../application/heygen/read-workspace-video-preview.service";
 import { ResolveActiveAssistantService } from "../../application/resolve-active-assistant.service";
+import { streamRemoteAudioPreview } from "./stream-remote-audio-preview";
 
 /**
  * ADR-109 Slice 5 — workspace-scoped video persona REST controller.
@@ -51,6 +53,7 @@ export class WorkspaceVideoPersonasController {
   constructor(
     private readonly manageWorkspaceVideoPersonasService: ManageWorkspaceVideoPersonasService,
     private readonly readHeygenVoiceCatalogForWorkspaceService: ReadHeygenVoiceCatalogForWorkspaceService,
+    private readonly readWorkspaceVideoPreviewService: ReadWorkspaceVideoPreviewService,
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
@@ -116,6 +119,25 @@ export class WorkspaceVideoPersonasController {
     };
   }
 
+  @Get("voice-catalog/:voiceId/preview")
+  async getVoiceCatalogPreview(
+    @Req() req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext,
+    @Param("workspaceId") workspaceId: string,
+    @Param("voiceId") voiceId: string
+  ): Promise<void> {
+    const userId = this.resolveUserId(req);
+    await this.assertWorkspaceAccess(userId, workspaceId);
+    const previewUrl = await this.readWorkspaceVideoPreviewService.resolveCatalogVoicePreviewUrl({
+      voiceId
+    });
+    if (previewUrl === null) {
+      this.writePreviewNotFound(res);
+      return;
+    }
+    await streamRemoteAudioPreview({ request: req, response: res, sourceUrl: previewUrl });
+  }
+
   @Delete(":personaId")
   @HttpCode(200)
   async archivePersona(
@@ -149,6 +171,26 @@ export class WorkspaceVideoPersonasController {
       ...(heygenVoiceId === undefined ? {} : { heygenVoiceId }),
       ...(clonedVoiceId === undefined ? {} : { clonedVoiceId })
     });
+  }
+
+  @Get(":personaId/preview")
+  async getPersonaPreview(
+    @Req() req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext,
+    @Param("workspaceId") workspaceId: string,
+    @Param("personaId") personaId: string
+  ): Promise<void> {
+    const userId = this.resolveUserId(req);
+    await this.assertWorkspaceAccess(userId, workspaceId);
+    const previewUrl = await this.readWorkspaceVideoPreviewService.resolvePersonaPreviewUrl({
+      workspaceId,
+      personaId
+    });
+    if (previewUrl === null) {
+      this.writePreviewNotFound(res);
+      return;
+    }
+    await streamRemoteAudioPreview({ request: req, response: res, sourceUrl: previewUrl });
   }
 
   @Get(":personaId/portrait")
@@ -191,6 +233,12 @@ export class WorkspaceVideoPersonasController {
       throw new UnauthorizedException("Authenticated user context is missing.");
     }
     return req.resolvedAppUser.id;
+  }
+
+  private writePreviewNotFound(res: ResponseWithPlatformContext): void {
+    res.statusCode = 404;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ message: "Preview audio not found.", code: "preview_not_found" }));
   }
 
   /**

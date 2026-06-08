@@ -413,6 +413,7 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
         readRuntimeAssignmentStateFromMaterializedLayers(spec.layers)?.effectiveTier ??
         "free_shared_restricted",
       runtimeBundleDocument: spec.runtimeBundleDocument,
+      evaluationKind: "background_task",
       task: {
         id: dedupeKey,
         title: "Idle reengagement",
