@@ -2809,7 +2809,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     providerGatewayClient.calls[telegramGroupOffset]?.developerInstructions ?? "",
-    /## Telegram group context/
+    /## Channel Context/
+  );
+  assert.match(
+    providerGatewayClient.calls[telegramGroupOffset]?.developerInstructions ?? "",
+    /Channel: Telegram messenger\./
   );
   assert.match(
     providerGatewayClient.calls[telegramGroupOffset]?.developerInstructions ?? "",
@@ -2817,6 +2821,59 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     providerGatewayClient.calls[telegramGroupOffset]?.developerInstructions ?? "",
+    /Do not reveal private owner context/
+  );
+  const telegramPrivateVoiceRequest = createRuntimeTurnRequest();
+  telegramPrivateVoiceRequest.conversation = {
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    channel: "telegram",
+    externalThreadKey: "telegram:888:private",
+    externalUserKey: "telegram-user:888",
+    mode: "direct"
+  };
+  telegramPrivateVoiceRequest.channelContext = {
+    telegram: {
+      schema: "persai.runtime.telegramContext.v1",
+      chat: {
+        id: "888",
+        type: "private",
+        title: null
+      },
+      sender: {
+        telegramUserId: "888",
+        username: "sam",
+        firstName: "Sam",
+        lastName: "Lee",
+        displayName: "Sam Lee"
+      },
+      accessMode: "owner_only"
+    }
+  };
+  telegramPrivateVoiceRequest.message.text = "voice transcript text";
+  telegramPrivateVoiceRequest.message.attachments = [
+    {
+      attachmentId: "voice-attachment-1",
+      kind: "audio",
+      objectKey: "assistant-media/telegram/voice.ogg",
+      mimeType: "audio/ogg",
+      filename: "voice.ogg",
+      sizeBytes: 1024
+    }
+  ];
+  const telegramPrivateVoiceOffset = providerGatewayClient.calls.length;
+  const telegramPrivateVoiceCompleted = await service.createTurn(telegramPrivateVoiceRequest);
+  assert.equal(telegramPrivateVoiceCompleted.assistantText, "runtime reply");
+  assert.match(
+    providerGatewayClient.calls[telegramPrivateVoiceOffset]?.developerInstructions ?? "",
+    /## Channel Context/
+  );
+  assert.match(
+    providerGatewayClient.calls[telegramPrivateVoiceOffset]?.developerInstructions ?? "",
+    /The user used voice\/audio here; when TTS is available/
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.calls[telegramPrivateVoiceOffset]?.developerInstructions ?? "",
     /Do not reveal private owner context/
   );
   turnContextHydrationService.openLoopRefsDeveloperBlock = [

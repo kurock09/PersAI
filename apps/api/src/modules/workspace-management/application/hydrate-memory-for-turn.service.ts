@@ -33,6 +33,7 @@ const MAX_CONTEXTUAL_LIMIT = 12;
 export type HydratedDurableMemoryItem = {
   id: string;
   summary: string;
+  chatId: string | null;
   sourceType: "web_chat" | "memory_write";
   sourceLabel: string | null;
   memoryClass: AssistantMemoryRegistryClass;
@@ -101,6 +102,7 @@ export class HydrateMemoryForTurnService {
     const coreItems: HydratedDurableMemoryItem[] = coreEntries.map((row) => ({
       id: row.id,
       summary: row.summary,
+      chatId: row.chatId,
       sourceType: row.sourceType,
       sourceLabel: row.sourceLabel,
       memoryClass: row.memoryClass,
@@ -128,6 +130,7 @@ export class HydrateMemoryForTurnService {
       .map((row) => ({
         id: row.id,
         summary: row.summary,
+        chatId: row.chatId,
         sourceType: row.sourceType,
         sourceLabel: row.sourceLabel,
         memoryClass: row.memoryClass,

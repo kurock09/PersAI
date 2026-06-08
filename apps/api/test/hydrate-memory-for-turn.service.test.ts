@@ -122,6 +122,7 @@ async function run(): Promise<void> {
   const contextualPreferenceRow = buildMemoryRow({
     id: "ctx-keep-2",
     summary: "Prefers walking routes over museum-heavy plans.",
+    chatId: "chat-past-1",
     memoryClass: "contextual",
     kind: "preference",
     sourceLabel: "Short memory write: preference",
@@ -132,6 +133,7 @@ async function run(): Promise<void> {
   const contextualFactRow = buildMemoryRow({
     id: "ctx-keep-1",
     summary: "Loves photography in Tbilisi.",
+    chatId: "chat-current-1",
     memoryClass: "contextual",
     kind: "fact",
     sourceLabel: "Short memory write: fact",
@@ -185,6 +187,10 @@ async function run(): Promise<void> {
   assert.deepEqual(
     result.contextual.map((item) => item.summary),
     ["Loves photography in Tbilisi.", "Prefers walking routes over museum-heavy plans."]
+  );
+  assert.deepEqual(
+    result.contextual.map((item) => item.chatId),
+    ["chat-current-1", "chat-past-1"]
   );
   assert.deepEqual(harness.contextualListCalls, [
     {

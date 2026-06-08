@@ -3,6 +3,42 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-09 - ADR-112 memory-source + Telegram channel context follow-up
+
+### Baseline
+
+- Starting SHA: `1d86efdf` (clean tree after stacked ADR-112 Slice 5/6/9 + TTS UI commit).
+- Scope: small operator-approved ADR-112 prompt-context follow-up. Keep it slim: use existing memory `chatId` truth for source markers, remove visible `open_loop` duplication between recent short memory and `Open Loop Refs`, slim `Working Files`, and make Telegram channel context cover both private and group Telegram turns with voice/audio guidance. Out of scope: new DB columns, broader memory retrieval/ranking changes, background job visibility (Slice 7), and background prompt hygiene (Slice 8).
+
+### What changed
+
+- `HydrateMemoryForTurnService` now includes each memory row's existing `chatId` in the internal runtime hydration payload. Runtime accepts the field and compares it to the current canonical chat id when available.
+- Durable memory rendering adds compact source markers only when known: labels become `this chat · ...` or `past chat · ...`; unknown/null source chat stays unmarked. If a selected memory came from a past chat, the block adds one short instruction to use chat/context search for details instead of assuming the fact happened in the current conversation. Unresolved `open_loop` short memories are no longer rendered in the recent short-memory block, leaving their model-facing operational surface in `Open Loop Refs`.
+- `TurnExecutionService` now renders one centralized `## Channel Context` section for Telegram private and group conversations. Telegram audio/voice-like inbound attachments add a concise voice-reply preference hint when TTS is available; group-only privacy cautions still appear only for group mode.
+- `Working Files` is slimmer: the column-format legend is gone, guidance is compressed to sticky aliases / discovery / delivery honesty, and historical audio/voice attachments are suppressed from the default prompt surface while current-turn audio and explicitly discoverable files remain available through the files tools.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/hydrate-memory-for-turn.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/working-files-developer-section.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `git diff --check`
+
+### Risks / residuals
+
+- Background/idle auto-extract writes that cannot be tied to a specific canonical user message may still have `chatId = null`; runtime intentionally leaves those unmarked rather than mislabeling them as current or past.
+- The Telegram voice hint is based on inbound audio attachments (`kind=audio` / `audio/*` MIME). If future Telegram STT carries a richer explicit voice-note signal, this section can consume it without changing the developer-section shape.
+
+### Next recommended step
+
+Commit this bounded follow-up if accepted. Then continue ADR-112 with Slice 7 (background jobs visibility) and Slice 8 (background model-call prompt hygiene).
+
 ## 2026-06-08 - ADR-112 Slices 5-6 + 9 tool-surface cleanup
 
 ### Baseline

@@ -324,7 +324,8 @@ export class TurnContextHydrationService {
     const durableMemory = await this.loadDurableMemoryHydration(
       input.conversation.assistantId,
       input.message.text,
-      contextHydration
+      contextHydration,
+      chatRowMeta?.id ?? null
     );
     // ADR-074 Slice M3 + M3.2 — the cross-session continuity carry-over block
     // fires when EITHER the current turn is the first turn of a brand-new
@@ -572,6 +573,9 @@ export class TurnContextHydrationService {
     if (storedMessages !== null) {
       for (const message of storedMessages) {
         for (const attachment of message.attachments) {
+          if (this.shouldSuppressHistoricalWorkingFileAttachment(attachment)) {
+            continue;
+          }
           const record = await this.resolveAttachmentFileRecord(
             input.conversation.assistantId,
             input.conversation.workspaceId,
@@ -625,6 +629,15 @@ export class TurnContextHydrationService {
       appearanceOrder,
       existingStickyAliases
     );
+  }
+
+  private shouldSuppressHistoricalWorkingFileAttachment(
+    attachment: CanonicalChatAttachmentRow
+  ): boolean {
+    if (attachment.attachmentType === "audio" || attachment.attachmentType === "voice") {
+      return true;
+    }
+    return attachment.mimeType.trim().toLowerCase().startsWith("audio/");
   }
 
   /**
@@ -1418,7 +1431,8 @@ export class TurnContextHydrationService {
   private async loadDurableMemoryHydration(
     assistantId: string,
     _userQuery: string,
-    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>,
+    currentChatId: string | null
   ): Promise<DurableMemoryHydration> {
     if (contextHydration.knowledgeHydrationBudget <= 0) {
       return { coreMessage: null, contextualMessage: null };
@@ -1461,7 +1475,8 @@ export class TurnContextHydrationService {
 
     const coreMessage = this.buildCoreMemoryMessage(coreItems, {
       itemBudget: maxHydratedMemoryItems,
-      charBudget: maxHydratedMemoryTotalChars
+      charBudget: maxHydratedMemoryTotalChars,
+      currentChatId
     });
     const remainingCharBudget = Math.max(
       0,
@@ -1469,7 +1484,8 @@ export class TurnContextHydrationService {
     );
     const contextualMessage = this.buildContextualMemoryMessage(contextualItems, {
       itemBudget: Math.max(0, maxHydratedMemoryItems - (coreMessage === null ? 0 : 1)),
-      charBudget: remainingCharBudget
+      charBudget: remainingCharBudget,
+      currentChatId
     });
 
     return { coreMessage, contextualMessage };
@@ -1496,7 +1512,7 @@ export class TurnContextHydrationService {
 
   private buildCoreMemoryMessage(
     items: InternalHydratedDurableMemoryItem[],
-    budget: { itemBudget: number; charBudget: number }
+    budget: { itemBudget: number; charBudget: number; currentChatId: string | null }
   ): ProviderGatewayTextMessage | null {
     const lines = this.takeMemoryLines(items, budget);
     if (lines.length === 0) {
@@ -1510,12 +1526,15 @@ export class TurnContextHydrationService {
 
   private buildContextualMemoryMessage(
     items: InternalHydratedDurableMemoryItem[],
-    budget: { itemBudget: number; charBudget: number }
+    budget: { itemBudget: number; charBudget: number; currentChatId: string | null }
   ): ProviderGatewayTextMessage | null {
     if (budget.itemBudget <= 0 || budget.charBudget <= 0) {
       return null;
     }
-    const lines = this.takeMemoryLines(items, budget);
+    const lines = this.takeMemoryLines(
+      items.filter((item) => item.kind !== "open_loop"),
+      budget
+    );
     if (lines.length === 0) {
       return null;
     }
@@ -1531,12 +1550,14 @@ export class TurnContextHydrationService {
 
   private takeMemoryLines(
     items: InternalHydratedDurableMemoryItem[],
-    budget: { itemBudget: number; charBudget: number }
+    budget: { itemBudget: number; charBudget: number; currentChatId: string | null }
   ): string[] {
     const lines: string[] = [];
     let totalChars = 0;
+    let sawPastChat = false;
     for (const item of items) {
-      const label = this.resolveMemoryLabel(item);
+      const sourceMarker = this.resolveMemorySourceMarker(item, budget.currentChatId);
+      const label = this.resolveMemoryLabel(item, sourceMarker);
       const line = `- [${label}] ${item.summary.trim()}`;
       if (line.length === 0) {
         continue;
@@ -1546,11 +1567,37 @@ export class TurnContextHydrationService {
       }
       lines.push(line);
       totalChars += line.length;
+      if (sourceMarker === "past chat") {
+        sawPastChat = true;
+      }
+    }
+    const sourceNote =
+      'Items marked "past chat" came from another conversation. If details are needed, use chat/context search instead of assuming they happened here.';
+    if (sawPastChat && totalChars + sourceNote.length <= budget.charBudget) {
+      lines.push(sourceNote);
     }
     return lines;
   }
 
-  private resolveMemoryLabel(item: InternalHydratedDurableMemoryItem): string {
+  private resolveMemorySourceMarker(
+    item: InternalHydratedDurableMemoryItem,
+    currentChatId: string | null
+  ): "this chat" | "past chat" | null {
+    if (currentChatId === null || item.chatId === null) {
+      return null;
+    }
+    return item.chatId === currentChatId ? "this chat" : "past chat";
+  }
+
+  private resolveMemoryLabel(
+    item: InternalHydratedDurableMemoryItem,
+    sourceMarker: "this chat" | "past chat" | null
+  ): string {
+    const baseLabel = this.resolveMemoryBaseLabel(item);
+    return sourceMarker === null ? baseLabel : `${sourceMarker} · ${baseLabel}`;
+  }
+
+  private resolveMemoryBaseLabel(item: InternalHydratedDurableMemoryItem): string {
     if (item.sourceLabel && item.sourceLabel.trim().length > 0) {
       return item.sourceLabel.trim();
     }

@@ -283,6 +283,7 @@ export type InternalMemoryWriteOutcome = {
 export type InternalHydratedDurableMemoryItem = {
   id: string;
   summary: string;
+  chatId: string | null;
   sourceType: "web_chat" | "memory_write";
   sourceLabel: string | null;
   memoryClass: "core" | "contextual";
@@ -1909,6 +1910,7 @@ export class PersaiInternalApiClientService {
       row !== null &&
       typeof row.id === "string" &&
       typeof row.summary === "string" &&
+      (row.chatId === null || typeof row.chatId === "string") &&
       (row.sourceType === "web_chat" || row.sourceType === "memory_write") &&
       (row.sourceLabel === null || typeof row.sourceLabel === "string") &&
       (row.memoryClass === "core" || row.memoryClass === "contextual") &&

@@ -50,6 +50,7 @@ class FakePersaiInternalApiClientService {
       {
         id: "memory-core-1",
         summary: "User prefers concise answers and short bullet lists.",
+        chatId: null,
         sourceType: "memory_write",
         sourceLabel: "Long memory write: preference",
         memoryClass: "core",
@@ -623,6 +624,74 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     assert.doesNotMatch(content, /Assistant sent an attachment/i);
     assert.doesNotMatch(content, /Working files from user attachments/i);
   }
+
+  persaiInternalApiClient.outcome = {
+    core: [],
+    contextual: [
+      {
+        id: "memory-current-chat",
+        summary: "User is testing Telegram voice behavior.",
+        chatId: "chat-1",
+        sourceType: "memory_write",
+        sourceLabel: "Short memory write: fact",
+        memoryClass: "contextual",
+        kind: "fact",
+        createdAt: "2026-04-14T12:00:00.000Z",
+        score: null
+      },
+      {
+        id: "memory-past-chat",
+        summary: "User previously compared memory source markers.",
+        chatId: "chat-past-1",
+        sourceType: "memory_write",
+        sourceLabel: "Short memory write: preference",
+        memoryClass: "contextual",
+        kind: "preference",
+        createdAt: "2026-04-14T11:59:00.000Z",
+        score: null
+      },
+      {
+        id: "memory-open-loop",
+        summary: "User wants to follow up on stale open-loop noise.",
+        chatId: "chat-1",
+        sourceType: "memory_write",
+        sourceLabel: "Short memory write: open loop",
+        memoryClass: "contextual",
+        kind: "open_loop",
+        createdAt: "2026-04-14T11:58:00.000Z",
+        score: null
+      }
+    ]
+  };
+  const memorySourceMarked = await service.buildMessages(request, runtimeBundle);
+  const memorySourceContent = String(memorySourceMarked[0]?.content ?? "");
+  assert.match(
+    memorySourceContent,
+    /\[this chat · Short memory write: fact\] User is testing Telegram voice behavior\./
+  );
+  assert.match(
+    memorySourceContent,
+    /\[past chat · Short memory write: preference\] User previously compared memory source markers\./
+  );
+  assert.doesNotMatch(memorySourceContent, /stale open-loop noise/);
+  assert.match(memorySourceContent, /Items marked "past chat" came from another conversation\./);
+  persaiInternalApiClient.outcome = {
+    core: [
+      {
+        id: "memory-core-1",
+        summary: "User prefers concise answers and short bullet lists.",
+        chatId: null,
+        sourceType: "memory_write",
+        sourceLabel: "Long memory write: preference",
+        memoryClass: "core",
+        kind: "preference",
+        createdAt: "2026-04-14T11:00:00.000Z",
+        score: null
+      }
+    ],
+    contextual: []
+  };
+
   const requestWithOpenMediaJobs = createRuntimeTurnRequest();
   requestWithOpenMediaJobs.openMediaJobs = [
     {
@@ -657,6 +726,15 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   assert.ok(
     [...prisma.assistantFiles.values()].every((file) => typeof file.sha256 === "string"),
     "attachment-backed assistant files should store a sha256 for durable workspace diffing"
+  );
+  const availableWorkingFileRefs = await service.listAvailableWorkingFileRefs({
+    conversation: request.conversation,
+    currentAttachments: []
+  });
+  assert.deepEqual(
+    availableWorkingFileRefs.map((file) => file.displayName).sort(),
+    ["diagram.png", "manual.pdf"],
+    "historical audio/voice attachments should not stay in the Working Files prompt"
   );
   const availableImageToolAttachments = await service.listAvailableImageToolAttachments({
     conversation: request.conversation,

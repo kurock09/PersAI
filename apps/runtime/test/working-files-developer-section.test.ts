@@ -61,8 +61,7 @@ describe("TurnExecutionService working files developer section", () => {
       },
       {
         key: "working_files",
-        content:
-          "## Working Files\nFormat: `AssistantFile.createdAt | author | sticky label | filename | markers | microdescription`.\n- stale"
+        content: "## Working Files\n- stale"
       },
       {
         key: "presence",
@@ -174,6 +173,7 @@ describe("TurnExecutionService working files developer section", () => {
 
     assert.ok(section);
     assert.match(section ?? "", /## Working Files/);
+    assert.doesNotMatch(section ?? "", /Format:/);
     const historyLines = (section ?? "").split("\n").filter((line) => line.startsWith("- 2026-"));
     assert.deepEqual(
       historyLines.map((line) => line.slice(2, 18)),
@@ -201,6 +201,8 @@ describe("TurnExecutionService working files developer section", () => {
       section ?? "",
       /### HISTORY|### OTHER_FILES|current attachment #|last generated image/
     );
+    assert.match(section ?? "", /Use sticky aliases first/);
+    assert.match(section ?? "", /do not answer from this block alone/);
   });
 
   test("keeps both same-name files visible and disambiguates them", () => {
@@ -377,8 +379,8 @@ describe("TurnExecutionService working files developer section", () => {
       section ?? "",
       /\| final-client-brief\.docx \| current source \| Current source document for the new branded PDF\./
     );
-    assert.match(section ?? "", /Use `files\.list` and\/or `files\.search`/);
-    assert.match(section ?? "", /Call `files\.send` only when the user explicitly asks/i);
+    assert.match(section ?? "", /use `files\.list`\/`files\.search`/i);
+    assert.match(section ?? "", /Do not send files or claim delivery\/preparation/i);
     assert.doesNotMatch(section ?? "", /fileRef|objectKey|attachmentId|contentPreview/);
   });
 

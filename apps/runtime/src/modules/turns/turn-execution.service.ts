@@ -1945,33 +1945,46 @@ export class TurnExecutionService {
   private buildChannelContextDeveloperSection(
     request: RuntimeTurnRequest | undefined
   ): string | null {
-    const telegram = request?.channelContext?.telegram;
-    if (telegram === undefined || request?.conversation.channel !== "telegram") {
+    if (request?.conversation.channel !== "telegram") {
       return null;
     }
-    if (request.conversation.mode !== "group") {
-      return null;
+    const telegram = request.channelContext?.telegram;
+
+    const lines = ["## Channel Context", "Channel: Telegram messenger."];
+    if (telegram !== undefined) {
+      const chatTitle =
+        this.normalizeOptionalText(telegram.chat.title) ?? `Telegram chat ${telegram.chat.id}`;
+      const senderName =
+        this.normalizeOptionalText(telegram.sender.displayName) ??
+        this.normalizeOptionalText(telegram.sender.username) ??
+        (telegram.sender.telegramUserId === null
+          ? "Unknown Telegram user"
+          : `Telegram user ${telegram.sender.telegramUserId}`);
+      const username = this.normalizeOptionalText(telegram.sender.username);
+      const sender = username === null ? senderName : `${senderName} (@${username})`;
+      lines.push(`Chat: ${chatTitle}`, `Sender: ${sender}`);
     }
 
-    const chatTitle =
-      this.normalizeOptionalText(telegram.chat.title) ?? `Telegram chat ${telegram.chat.id}`;
-    const senderName =
-      this.normalizeOptionalText(telegram.sender.displayName) ??
-      this.normalizeOptionalText(telegram.sender.username) ??
-      (telegram.sender.telegramUserId === null
-        ? "Unknown Telegram user"
-        : `Telegram user ${telegram.sender.telegramUserId}`);
-    const username = this.normalizeOptionalText(telegram.sender.username);
-    const sender = username === null ? senderName : `${senderName} (@${username})`;
+    if (this.isTelegramVoiceLikeTurn(request)) {
+      lines.push(
+        "The user used voice/audio here; when TTS is available and a voice reply fits, prefer a concise voice reply."
+      );
+    }
+    if (request.conversation.mode === "group") {
+      lines.push(
+        "This is a group conversation, not a private DM.",
+        "Reply with awareness that multiple people may read the answer.",
+        "Do not reveal private owner context to other group participants."
+      );
+    }
+    return lines.join("\n");
+  }
 
-    return [
-      "## Telegram group context",
-      `Chat: ${chatTitle}`,
-      `Sender: ${sender}`,
-      "This is a group conversation, not a private DM.",
-      "Reply with awareness that multiple people may read the answer.",
-      "Do not reveal private owner context to other group participants."
-    ].join("\n");
+  private isTelegramVoiceLikeTurn(request: RuntimeTurnRequest): boolean {
+    return request.message.attachments.some(
+      (attachment) =>
+        attachment.kind === "audio" || attachment.mimeType.toLowerCase().startsWith("audio/")
+    );
   }
 
   private buildRetrievedKnowledgeContextDeveloperSection(
@@ -1988,10 +2001,7 @@ export class TurnExecutionService {
       return null;
     }
 
-    const lines = [
-      "## Working Files",
-      "Format: `AssistantFile.createdAt | author | sticky label | filename | markers | microdescription`."
-    ];
+    const lines = ["## Working Files"];
     const documentPriorityNote =
       this.buildWorkingFileDocumentPriorityNote(availableWorkingFileRefs);
     if (documentPriorityNote !== null) {
@@ -2006,19 +2016,13 @@ export class TurnExecutionService {
 
     lines.push(
       "",
-      "For `files`, prefer alias first, then `path` or `query` when a reusable alias is unavailable."
+      'Use sticky aliases first (`file #N`, `image #N`). For image/video tools, prefer image aliases such as "image #1".'
     );
     lines.push(
-      'For `image_edit` and `video_generate`, prefer sticky image aliases such as "image #1".'
+      "If the needed file is absent or ambiguous, use `files.list`/`files.search`; do not answer from this block alone."
     );
     lines.push(
-      "Mentioning a filename in chat does NOT deliver a file. Call `files.send` only when the user explicitly asks to send, resend, attach, share, or deliver an existing file. Never call it as a side effect of search, read, or file discovery."
-    );
-    lines.push(
-      "If the user asks to find, list, search, inspect, or re-check files, or refers to a file not in this list, do NOT answer from this block alone. Use `files.list` and/or `files.search` to discover candidates first. Do not send a file unless the user explicitly requested delivery in the same turn."
-    );
-    lines.push(
-      "If a file, image, video, or document is described as delivered, attached, queued, accepted, started, or being prepared, that claim is valid only when the current turn returned the matching structural tool result. Otherwise do not claim delivery or preparation status."
+      "Do not send files or claim delivery/preparation unless the user explicitly asks and the current turn returns the matching tool result."
     );
     return lines.join("\n");
   }
