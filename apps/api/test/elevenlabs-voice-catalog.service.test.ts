@@ -244,6 +244,76 @@ async function run(): Promise<void> {
       console.log("PASS: expired cache + HTTP error → serves stale cache with warning");
     }
 
+    // ── Test 6: Admin curation controls the public catalog without hiding admin candidates ──
+    {
+      const rows = new Map<string, { voicesJson: unknown; fetchedAt: Date }>([
+        [
+          "elevenlabs-shared-voices-v3-admin-candidates",
+          {
+            voicesJson: [
+              {
+                voiceId: "voice-public",
+                name: "Public",
+                gender: "female",
+                category: "featured",
+                language: "en",
+                languageBucket: "en",
+                previewUrl: "https://cdn.example/public.mp3"
+              },
+              {
+                voiceId: "voice-draft",
+                name: "Draft",
+                gender: "female",
+                category: "popular",
+                language: "en",
+                languageBucket: "en",
+                previewUrl: null
+              }
+            ],
+            fetchedAt: new Date()
+          }
+        ]
+      ]);
+      const service = new ElevenLabsVoiceCatalogService(
+        {
+          platformElevenlabsVoiceCatalogCache: {
+            async findUnique(input: { where: { cacheKey: string } }) {
+              return rows.get(input.where.cacheKey) ?? null;
+            },
+            async upsert(input: {
+              where: { cacheKey: string };
+              create: { voicesJson: unknown; fetchedAt: Date };
+              update: { voicesJson: unknown; fetchedAt: Date };
+            }) {
+              rows.set(input.where.cacheKey, {
+                voicesJson: input.update.voicesJson ?? input.create.voicesJson,
+                fetchedAt: input.update.fetchedAt ?? input.create.fetchedAt
+              });
+              return rows.get(input.where.cacheKey);
+            }
+          }
+        } as never,
+        secretStore({})
+      );
+
+      await service.updateCuration([{ voiceId: "voice-public", approved: true }]);
+      const catalog = await service.getCatalog({ includeAdmin: true });
+      assert.deepEqual(
+        catalog.voices.map((entry) => entry.voiceId),
+        ["voice-public"]
+      );
+      assert.equal(catalog.admin?.voices.length, 2);
+      assert.equal(
+        catalog.admin?.voices.find((entry) => entry.voiceId === "voice-public")?.public,
+        true
+      );
+      assert.equal(
+        catalog.admin?.voices.find((entry) => entry.voiceId === "voice-draft")?.public,
+        false
+      );
+      console.log("PASS: admin curation controls public voices while preserving admin candidates");
+    }
+
     console.log("\nAll ElevenLabs voice catalog tests PASSED");
   } finally {
     globalThis.fetch = originalFetch;

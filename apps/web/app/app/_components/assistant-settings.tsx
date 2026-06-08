@@ -52,11 +52,13 @@ import {
   postAssistantPublish,
   postAssistantReset,
   getAssistantVoiceSettings,
+  patchAssistantElevenLabsVoiceCuration,
   getAssistantSkills,
   updateAssistantSkillAssignments,
   patchAssistantNotificationPreference,
   getAssistantMemoryItems,
   type AssistantVoiceSettingsState,
+  type AssistantAdminVoiceCatalogEntry,
   type AssistantPreferredNotificationChannel,
   getAssistantTaskItems,
   getAssistantBackgroundTaskItems,
@@ -106,7 +108,6 @@ import {
   resolveDefaultOpenAiVoiceOption,
   resolveDefaultYandexVoiceOption,
   YANDEX_VOICE_OPTIONS,
-  type VoiceOption,
   type VoicePickerEntry
 } from "./assistant-voice-options";
 import { VoicePicker, type VoicePickerLabels } from "./voice-picker";
@@ -1493,6 +1494,8 @@ export function AssistantSettings({
   const [voiceSettings, setVoiceSettings] = useState<AssistantVoiceSettingsState | null>(null);
   const [voiceSettingsLoading, setVoiceSettingsLoading] = useState(false);
   const [voiceSettingsError, setVoiceSettingsError] = useState<string | null>(null);
+  const [voiceCurationSavingId, setVoiceCurationSavingId] = useState<string | null>(null);
+  const [voiceCurationError, setVoiceCurationError] = useState<string | null>(null);
   const [supportUnreadCount, setSupportUnreadCount] = useState(0);
   const [openSection, setOpenSection] = useState<SettingsSectionId | null>(() =>
     normalizeInitialSection(initialSection)
@@ -2201,20 +2204,6 @@ export function AssistantSettings({
     () => filterVoiceOptions(OPENAI_VOICE_OPTIONS, draftAssistantGender),
     [draftAssistantGender]
   );
-  const elevenLabsVoiceOptions = useMemo<VoiceOption<string>[]>(
-    () =>
-      (voiceSettings?.elevenlabs?.voices ?? []).map((voice) => ({
-        value: voice.voiceId,
-        label: formatElevenLabsVoiceLabel(voice.name, locale),
-        gender: voice.gender
-      })),
-    [locale, voiceSettings]
-  );
-  const filteredElevenLabsVoiceOptions = useMemo(
-    () => filterVoiceOptions(elevenLabsVoiceOptions, draftAssistantGender),
-    [draftAssistantGender, elevenLabsVoiceOptions]
-  );
-
   const getTaskScheduleKind = useCallback(
     (sourceLabel: string | null): "one_time" | "recurring" | "scheduled" => {
       const normalized = sourceLabel?.trim().toLowerCase() ?? "";
@@ -2338,8 +2327,13 @@ export function AssistantSettings({
   );
   const mergedWorkspaceMemoryView = mergedMemoryViews.workspace;
   const mergedHistoryMemoryView = mergedMemoryViews.history;
+  const elevenLabsAdminVoices = voiceSettings?.elevenlabs?.admin?.voices ?? [];
+  const elevenLabsPublicVoices = voiceSettings?.elevenlabs?.admin?.publicVoices ?? [];
   const elevenLabsPickerEntries = useMemo<VoicePickerEntry[]>(() => {
-    const voices = voiceSettings?.elevenlabs?.voices ?? [];
+    const voices =
+      data.isAdmin && elevenLabsAdminVoices.length > 0
+        ? elevenLabsAdminVoices
+        : (voiceSettings?.elevenlabs?.voices ?? []);
     const selectedId = draftVoiceProfile.elevenlabs.voiceId;
     return voices
       .filter(
@@ -2357,7 +2351,14 @@ export function AssistantSettings({
         category: voice.category,
         previewUrl: voice.previewUrl
       }));
-  }, [voiceSettings, draftAssistantGender, draftVoiceProfile.elevenlabs.voiceId, locale]);
+  }, [
+    data.isAdmin,
+    elevenLabsAdminVoices,
+    voiceSettings,
+    draftAssistantGender,
+    draftVoiceProfile.elevenlabs.voiceId,
+    locale
+  ]);
   const yandexPickerEntries = useMemo<VoicePickerEntry[]>(
     () =>
       yandexVoiceOptions.map((option) => ({
@@ -2486,28 +2487,9 @@ export function AssistantSettings({
         };
       }
 
-      const allowed = new Set(filteredElevenLabsVoiceOptions.map((option) => option.value));
-      const nextVoiceId =
-        prev.elevenlabs.voiceId !== null && allowed.has(prev.elevenlabs.voiceId)
-          ? prev.elevenlabs.voiceId
-          : null;
-      if (nextVoiceId === prev.elevenlabs.voiceId) {
-        return prev;
-      }
-      return {
-        ...prev,
-        elevenlabs: {
-          voiceId: nextVoiceId
-        }
-      };
+      return prev;
     });
-  }, [
-    draftAssistantGender,
-    filteredElevenLabsVoiceOptions,
-    openAiVoiceOptions,
-    primaryVoiceProviderId,
-    yandexVoiceOptions
-  ]);
+  }, [draftAssistantGender, openAiVoiceOptions, primaryVoiceProviderId, yandexVoiceOptions]);
 
   useEffect(() => {
     setNotificationChannel(data.notificationPreference?.selectedChannel ?? "web");
@@ -2718,6 +2700,36 @@ export function AssistantSettings({
     draftVoiceProfile,
     data
   ]);
+
+  const handleElevenLabsCurationChange = useCallback(
+    async (
+      voice: Pick<AssistantAdminVoiceCatalogEntry, "voiceId" | "approved" | "hidden" | "previewOk">,
+      patch: { approved?: boolean; hidden?: boolean; previewOk?: boolean | null }
+    ) => {
+      const token = await getToken({ skipCache: true });
+      if (!token) return;
+      setVoiceCurationSavingId(voice.voiceId);
+      setVoiceCurationError(null);
+      try {
+        const nextSettings = await patchAssistantElevenLabsVoiceCuration(token, [
+          {
+            voiceId: voice.voiceId,
+            approved: patch.approved ?? voice.approved,
+            hidden: patch.hidden ?? voice.hidden,
+            previewOk: patch.previewOk === undefined ? voice.previewOk : patch.previewOk
+          }
+        ]);
+        setVoiceSettings(nextSettings);
+      } catch (error) {
+        setVoiceCurationError(
+          error instanceof Error ? error.message : "Failed to update voice curation."
+        );
+      } finally {
+        setVoiceCurationSavingId(null);
+      }
+    },
+    [getToken]
+  );
 
   const handleSkillsChange = useCallback(
     async (nextSkillIds: string[]) => {
@@ -3309,20 +3321,119 @@ export function AssistantSettings({
                       {voiceSettings.elevenlabs.warning ?? t("voiceElevenlabsUnavailable")}
                     </p>
                   ) : (
-                    <VoicePicker
-                      entries={elevenLabsPickerEntries}
-                      selectedValue={draftVoiceProfile.elevenlabs.voiceId}
-                      onSelect={(value) =>
-                        setDraftVoiceProfile((prev) => ({
-                          ...prev,
-                          elevenlabs: { voiceId: value }
-                        }))
-                      }
-                      showGenderFilter
-                      showLanguageFilter
-                      showCategoryFilter
-                      labels={voicePickerLabels}
-                    />
+                    <>
+                      <VoicePicker
+                        entries={elevenLabsPickerEntries}
+                        selectedValue={draftVoiceProfile.elevenlabs.voiceId}
+                        onSelect={(value) =>
+                          setDraftVoiceProfile((prev) => ({
+                            ...prev,
+                            elevenlabs: { voiceId: value }
+                          }))
+                        }
+                        showGenderFilter
+                        showLanguageFilter
+                        showCategoryFilter
+                        labels={voicePickerLabels}
+                      />
+                      {data.isAdmin && elevenLabsAdminVoices.length > 0 ? (
+                        <div className="mt-3 rounded-xl border border-border/60 bg-surface-raised/20 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
+                              Admin curation
+                            </p>
+                            <p className="text-[11px] text-text-muted">
+                              Public voices: {elevenLabsPublicVoices.length}
+                            </p>
+                          </div>
+                          <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-border/50">
+                            {elevenLabsAdminVoices.map((voice) => (
+                              <div
+                                key={voice.voiceId}
+                                className="flex items-center gap-2 border-b border-border/40 px-2.5 py-1.5 text-xs last:border-b-0"
+                              >
+                                <label className="flex min-w-0 flex-1 items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={voice.approved && !voice.hidden}
+                                    disabled={voiceCurationSavingId === voice.voiceId}
+                                    onChange={(event) =>
+                                      void handleElevenLabsCurationChange(voice, {
+                                        approved: event.currentTarget.checked,
+                                        hidden: false
+                                      })
+                                    }
+                                  />
+                                  <span className="truncate text-text">
+                                    {formatElevenLabsVoiceLabel(voice.name, locale)}
+                                  </span>
+                                </label>
+                                <button
+                                  type="button"
+                                  disabled={voiceCurationSavingId === voice.voiceId}
+                                  onClick={() =>
+                                    void handleElevenLabsCurationChange(voice, {
+                                      hidden: !voice.hidden,
+                                      approved: voice.approved
+                                    })
+                                  }
+                                  className={cn(
+                                    "rounded-full border px-2 py-0.5 text-[10px]",
+                                    voice.hidden
+                                      ? "border-destructive/30 text-destructive"
+                                      : "border-border text-text-muted"
+                                  )}
+                                >
+                                  {voice.hidden ? "Hidden" : "Hide"}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={voiceCurationSavingId === voice.voiceId}
+                                  onClick={() =>
+                                    void handleElevenLabsCurationChange(voice, {
+                                      previewOk: voice.previewOk === false ? true : false
+                                    })
+                                  }
+                                  className={cn(
+                                    "rounded-full border px-2 py-0.5 text-[10px]",
+                                    voice.previewOk === false
+                                      ? "border-warning/40 text-warning"
+                                      : "border-border text-text-muted"
+                                  )}
+                                >
+                                  {voice.previewUrl === null
+                                    ? "No demo"
+                                    : voice.previewOk === false
+                                      ? "Demo bad"
+                                      : "Demo ok"}
+                                </button>
+                                <span
+                                  className={cn(
+                                    "rounded-full px-2 py-0.5 text-[10px]",
+                                    voice.public
+                                      ? "bg-accent/10 text-accent"
+                                      : "bg-surface text-text-subtle"
+                                  )}
+                                >
+                                  {voice.public ? "Public" : "Draft"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          {elevenLabsPublicVoices.length > 0 ? (
+                            <p className="mt-2 truncate text-[11px] text-text-muted">
+                              Public:{" "}
+                              {elevenLabsPublicVoices
+                                .map((voice) => formatElevenLabsVoiceLabel(voice.name, locale))
+                                .join(", ")}
+                            </p>
+                          ) : null}
+                          {voiceCurationError ? (
+                            <p className="mt-2 text-xs text-destructive">{voiceCurationError}</p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </>
                   ))}
                 {primaryVoiceProviderId === "yandex" && (
                   <VoicePicker

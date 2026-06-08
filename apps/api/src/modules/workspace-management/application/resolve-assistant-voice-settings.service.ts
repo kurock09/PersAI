@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { PersaiRuntimeTtsProviderId } from "@persai/runtime-contract";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
@@ -8,9 +8,12 @@ import {
 } from "./tool-credential-settings";
 import {
   ElevenLabsVoiceCatalogService,
+  type ElevenLabsAdminVoiceCatalogEntry,
+  type ElevenLabsVoiceCurationPatch,
   type ElevenLabsVoiceGenderTag,
   type ElevenLabsVoiceLanguageBucket
 } from "./elevenlabs/elevenlabs-voice-catalog.service";
+import { AdminAuthorizationService } from "./admin-authorization.service";
 
 export type AssistantVoiceGenderTag = ElevenLabsVoiceGenderTag;
 
@@ -34,6 +37,10 @@ export interface AssistantVoiceSettingsState {
     loadState: "ready" | "not_configured" | "unavailable";
     voices: AssistantVoiceCatalogEntry[];
     warning: string | null;
+    admin: {
+      voices: ElevenLabsAdminVoiceCatalogEntry[];
+      publicVoices: AssistantVoiceCatalogEntry[];
+    } | null;
   } | null;
 }
 
@@ -42,7 +49,8 @@ export class ResolveAssistantVoiceSettingsService {
   constructor(
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
-    private readonly elevenLabsVoiceCatalogService: ElevenLabsVoiceCatalogService
+    private readonly elevenLabsVoiceCatalogService: ElevenLabsVoiceCatalogService,
+    private readonly adminAuthorizationService: AdminAuthorizationService
   ) {}
 
   async execute(userId: string): Promise<AssistantVoiceSettingsState> {
@@ -60,7 +68,8 @@ export class ResolveAssistantVoiceSettingsService {
       };
     }
 
-    const catalog = await this.elevenLabsVoiceCatalogService.getCatalog();
+    const includeAdmin = await this.canReadAdminSurface(userId);
+    const catalog = await this.elevenLabsVoiceCatalogService.getCatalog({ includeAdmin });
     return {
       schema: "persai.assistantVoiceSettings.v1",
       primaryProviderId,
@@ -68,9 +77,31 @@ export class ResolveAssistantVoiceSettingsService {
         configured: catalog.configured,
         loadState: catalog.loadState,
         voices: catalog.voices,
-        warning: catalog.warning
+        warning: catalog.warning,
+        admin: catalog.admin
       }
     };
+  }
+
+  async updateElevenLabsCuration(params: {
+    userId: string;
+    patches: ElevenLabsVoiceCurationPatch[];
+  }): Promise<AssistantVoiceSettingsState> {
+    await this.adminAuthorizationService.assertCanReadAdminSurface(params.userId);
+    await this.elevenLabsVoiceCatalogService.updateCuration(params.patches);
+    return this.execute(params.userId);
+  }
+
+  private async canReadAdminSurface(userId: string): Promise<boolean> {
+    try {
+      await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+      return true;
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   private async loadTtsPrimaryProviderId(): Promise<PersaiRuntimeTtsProviderId> {

@@ -152,9 +152,7 @@ export function VoicePicker({
                   aria-pressed={selected}
                   className="min-w-0 flex-1 text-left disabled:cursor-not-allowed"
                 >
-                  <span className="block truncate font-medium text-text">
-                    {entry.label}
-                  </span>
+                  <span className="block truncate font-medium text-text">{entry.label}</span>
                 </button>
                 {entry.previewUrl !== null && (
                   <button

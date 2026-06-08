@@ -34,6 +34,12 @@ import type { ProviderWarmableClient } from "../provider-client.types";
 const OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 const OPENAI_IMAGE_GENERATION_MODEL = "gpt-image-1";
 const OPENAI_SPEECH_GENERATION_MODEL = "gpt-4o-mini-tts";
+const OPENAI_SPEECH_GENERATION_MODELS = new Set([
+  OPENAI_SPEECH_GENERATION_MODEL,
+  "gpt-4o-tts",
+  "tts-1",
+  "tts-1-hd"
+]);
 const OPENAI_VIDEO_GENERATION_MODEL = "sora-2";
 const OPENAI_IMAGE_GENERATION_TIMEOUT_MS = 300_000;
 const MAX_OPENAI_IMAGE_GENERATION_TIMEOUT_MS = 300_000;
@@ -681,7 +687,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
     );
     const format = input.deliveryKind === "voice_note" ? "opus" : "mp3";
-    const model = input.credential.modelKey?.trim() || OPENAI_SPEECH_GENERATION_MODEL;
+    const model = this.resolveSpeechModel(input.credential.modelKey ?? null);
     try {
       const payload: OpenAISpeechCreateParams = {
         model,
@@ -713,6 +719,13 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     } finally {
       dispose();
     }
+  }
+
+  private resolveSpeechModel(modelKey: string | null): string {
+    const normalized = modelKey?.trim() ?? "";
+    return OPENAI_SPEECH_GENERATION_MODELS.has(normalized)
+      ? normalized
+      : OPENAI_SPEECH_GENERATION_MODEL;
   }
 
   getClient(): OpenAI | null {

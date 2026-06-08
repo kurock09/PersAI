@@ -2234,6 +2234,10 @@ export type AssistantVoiceSettingsState = {
     loadState: "ready" | "not_configured" | "unavailable";
     voices: AssistantVoiceCatalogEntry[];
     warning: string | null;
+    admin: {
+      voices: AssistantAdminVoiceCatalogEntry[];
+      publicVoices: AssistantVoiceCatalogEntry[];
+    } | null;
   } | null;
 };
 
@@ -2245,6 +2249,21 @@ export type AssistantVoiceCatalogEntry = {
   language: string | null;
   languageBucket: "ru" | "en" | "other";
   previewUrl: string | null;
+};
+
+export type AssistantAdminVoiceCatalogEntry = AssistantVoiceCatalogEntry & {
+  approved: boolean;
+  hidden: boolean;
+  rank: number | null;
+  previewOk: boolean | null;
+  public: boolean;
+};
+
+export type AssistantVoiceCurationPatch = {
+  voiceId: string;
+  approved?: boolean;
+  hidden?: boolean;
+  previewOk?: boolean | null;
 };
 
 export async function getWorkspaceMemoryItems(token: string): Promise<WorkspaceMemoryItem[]> {
@@ -2666,6 +2685,38 @@ export async function getAssistantVoiceSettings(
     throw new Error("Unexpected non-success response for GET /assistant/voice/settings.");
   }
 
+  return payload.settings;
+}
+
+export async function patchAssistantElevenLabsVoiceCuration(
+  token: string,
+  patches: AssistantVoiceCurationPatch[]
+): Promise<AssistantVoiceSettingsState> {
+  const response = await fetch(`${getApiBaseUrl()}/assistant/voice/elevenlabs/curation`, {
+    method: "PATCH",
+    headers: {
+      ...getAuthHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ patches })
+  });
+  if (!response.ok) {
+    throw new Error(await readJsonErrorMessage(response, "Failed to update voice curation."));
+  }
+  const payload = (await response.json()) as {
+    settings?: AssistantVoiceSettingsState;
+  };
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    payload.settings === undefined ||
+    typeof payload.settings !== "object" ||
+    payload.settings === null
+  ) {
+    throw new Error(
+      "Unexpected non-success response for PATCH /assistant/voice/elevenlabs/curation."
+    );
+  }
   return payload.settings;
 }
 

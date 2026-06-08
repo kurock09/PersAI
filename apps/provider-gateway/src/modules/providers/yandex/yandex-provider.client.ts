@@ -50,8 +50,8 @@ export class YandexProviderClient {
         );
       }
 
-      const payload = (await response.json()) as unknown;
-      const bytesBase64 = this.extractAudioBase64(payload);
+      const responseBody = await response.text();
+      const bytesBase64 = this.extractAudioBase64FromResponseBody(responseBody);
       if (bytesBase64 === null) {
         throw new Error("Yandex SpeechKit did not return a supported audio payload.");
       }
@@ -90,6 +90,35 @@ export class YandexProviderClient {
       hints.push({ role: input.voiceProfile.yandex.role });
     }
     return hints;
+  }
+
+  private extractAudioBase64FromResponseBody(rawBody: string): string | null {
+    const payloads = this.parseResponsePayloads(rawBody);
+    const chunks = payloads
+      .map((payload) => this.extractAudioBase64(payload))
+      .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+      .map((entry) => Buffer.from(entry, "base64"));
+    return chunks.length > 0 ? Buffer.concat(chunks).toString("base64") : null;
+  }
+
+  private parseResponsePayloads(rawBody: string): unknown[] {
+    const trimmed = rawBody.trim();
+    if (trimmed.length === 0) {
+      return [];
+    }
+    try {
+      return [JSON.parse(trimmed) as unknown];
+    } catch {
+      const payloads: unknown[] = [];
+      for (const line of trimmed.split(/\r?\n/)) {
+        const normalized = line.trim();
+        if (normalized.length === 0) {
+          continue;
+        }
+        payloads.push(JSON.parse(normalized) as unknown);
+      }
+      return payloads;
+    }
   }
 
   private resolveSpeed(input: ProviderGatewaySpeechGenerateRequest): number {

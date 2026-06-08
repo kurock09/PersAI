@@ -89,9 +89,13 @@ export async function runYandexProviderClientTest(): Promise<void> {
   }) as typeof fetch;
 
   try {
-    await client.generateSpeech(createRequest({ voice: "jane", role: "friendly" }), {
-      apiKey: "yandex-test-key"
-    });
+    const firstResult = await client.generateSpeech(
+      createRequest({ voice: "jane", role: "friendly" }),
+      {
+        apiKey: "yandex-test-key"
+      }
+    );
+    assert.equal(Buffer.from(firstResult.bytesBase64, "base64").toString("utf8"), "yandex-audio");
     const unsupportedPayload = JSON.parse(String(requests[0]?.init?.body ?? "{}")) as {
       hints?: Array<Record<string, string | number>>;
     };
@@ -111,6 +115,35 @@ export async function runYandexProviderClientTest(): Promise<void> {
       hints?: Array<Record<string, string | number>>;
     };
     assert.equal(Boolean(supportedPayload.hints?.some((hint) => hint.role === "friendly")), true);
+
+    globalThis.fetch = (async () =>
+      new Response(
+        [
+          JSON.stringify({
+            result: { audioChunk: { data: Buffer.from("chunk-1").toString("base64") } }
+          }),
+          JSON.stringify({
+            result: { audioChunk: { data: Buffer.from("chunk-2").toString("base64") } }
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      )) as typeof fetch;
+
+    const chunkedResult = await client.generateSpeech(
+      createRequest({ voice: "masha", role: null }),
+      {
+        apiKey: "yandex-test-key"
+      }
+    );
+    assert.equal(
+      Buffer.from(chunkedResult.bytesBase64, "base64").toString("utf8"),
+      "chunk-1chunk-2"
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

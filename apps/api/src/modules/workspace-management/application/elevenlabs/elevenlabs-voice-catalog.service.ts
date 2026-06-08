@@ -4,11 +4,13 @@ import { WorkspaceManagementPrismaService } from "../../infrastructure/persisten
 
 const ELEVENLABS_API_BASE_URL = "https://api.elevenlabs.io";
 const ELEVENLABS_PROVIDER_KEY = "tool_tts_elevenlabs";
-const ELEVENLABS_VOICE_CACHE_KEY = "elevenlabs-shared-voices-v2";
+const ELEVENLABS_VOICE_CACHE_KEY = "elevenlabs-shared-voices-v3-admin-candidates";
+const ELEVENLABS_VOICE_CURATION_CACHE_KEY = "elevenlabs-shared-voice-curation-v1";
 const ELEVENLABS_VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const ELEVENLABS_VOICE_LOAD_TIMEOUT_MS = 10_000;
-const ELEVENLABS_VOICE_BUCKET_LIMIT = 12;
-const ELEVENLABS_VOICE_BUCKET_HALF_LIMIT = ELEVENLABS_VOICE_BUCKET_LIMIT / 2;
+const ELEVENLABS_PUBLIC_VOICE_BUCKET_LIMIT = 12;
+const ELEVENLABS_ADMIN_VOICE_BUCKET_LIMIT = 50;
+const ELEVENLABS_ADMIN_VOICE_BUCKET_HALF_LIMIT = ELEVENLABS_ADMIN_VOICE_BUCKET_LIMIT / 2;
 const ELEVENLABS_SHARED_VOICE_PAGE_SIZE = 100;
 
 export type ElevenLabsVoiceGenderTag = "male" | "female" | "neutral" | "unknown";
@@ -25,11 +27,35 @@ export interface ElevenLabsVoiceCatalogEntry {
   previewUrl: string | null;
 }
 
+export interface ElevenLabsVoiceCurationEntry {
+  voiceId: string;
+  approved: boolean;
+  hidden: boolean;
+  rank: number | null;
+  previewOk: boolean | null;
+}
+
+export type ElevenLabsVoiceCurationPatch = {
+  voiceId: string;
+  approved?: boolean;
+  hidden?: boolean;
+  previewOk?: boolean | null;
+};
+
+export type ElevenLabsAdminVoiceCatalogEntry = ElevenLabsVoiceCatalogEntry &
+  ElevenLabsVoiceCurationEntry & {
+    public: boolean;
+  };
+
 export interface ElevenLabsVoiceCatalogResult {
   configured: boolean;
   loadState: "ready" | "not_configured" | "unavailable";
   voices: ElevenLabsVoiceCatalogEntry[];
   warning: string | null;
+  admin: {
+    voices: ElevenLabsAdminVoiceCatalogEntry[];
+    publicVoices: ElevenLabsVoiceCatalogEntry[];
+  } | null;
 }
 
 type CachedVoiceCatalogRow = {
@@ -68,7 +94,7 @@ export class ElevenLabsVoiceCatalogService {
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService
   ) {}
 
-  async getCatalog(): Promise<ElevenLabsVoiceCatalogResult> {
+  async getCatalog(input?: { includeAdmin?: boolean }): Promise<ElevenLabsVoiceCatalogResult> {
     const keyMetadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys([
       ELEVENLABS_PROVIDER_KEY
     ]);
@@ -85,19 +111,69 @@ export class ElevenLabsVoiceCatalogService {
 
     const cached = await this.readCacheRow();
     if (cached !== null && !this.isExpired(cached.fetchedAt)) {
-      return this.toResult(cached, null);
+      return await this.toResult(cached, null, input?.includeAdmin === true);
     }
 
     const refreshed = await this.refreshVoiceCatalog(apiKey.trim());
     if (refreshed !== null) {
-      return this.toResult(refreshed, null);
+      return await this.toResult(refreshed, null, input?.includeAdmin === true);
     }
 
     if (cached !== null) {
-      return this.toResult(cached, "Showing the last known ElevenLabs voices; a refresh failed.");
+      return await this.toResult(
+        cached,
+        "Showing the last known ElevenLabs voices; a refresh failed.",
+        input?.includeAdmin === true
+      );
     }
 
     return this.emptyResult(true, "unavailable", "Unable to load ElevenLabs voices right now.");
+  }
+
+  async updateCuration(
+    patches: ElevenLabsVoiceCurationPatch[]
+  ): Promise<ElevenLabsVoiceCurationEntry[]> {
+    const existing = await this.readCurationEntries();
+    const byId = new Map(existing.map((entry) => [entry.voiceId, entry]));
+    const nextRank = () => {
+      const maxRank = Math.max(0, ...[...byId.values()].map((entry) => entry.rank ?? 0));
+      return maxRank + 1;
+    };
+
+    for (const patch of patches) {
+      const voiceId = this.asNonEmptyString(patch.voiceId);
+      if (voiceId === null) {
+        continue;
+      }
+      const previous = byId.get(voiceId);
+      const approved = patch.approved ?? previous?.approved ?? false;
+      byId.set(voiceId, {
+        voiceId,
+        approved,
+        hidden: patch.hidden ?? previous?.hidden ?? false,
+        rank: approved ? (previous?.rank ?? nextRank()) : (previous?.rank ?? null),
+        previewOk: patch.previewOk === undefined ? (previous?.previewOk ?? null) : patch.previewOk
+      });
+    }
+
+    const voices = [...byId.values()].sort((left, right) => {
+      const leftRank = left.rank ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = right.rank ?? Number.MAX_SAFE_INTEGER;
+      return leftRank - rightRank || left.voiceId.localeCompare(right.voiceId);
+    });
+    await this.prisma.platformElevenlabsVoiceCatalogCache.upsert({
+      where: { cacheKey: ELEVENLABS_VOICE_CURATION_CACHE_KEY },
+      create: {
+        cacheKey: ELEVENLABS_VOICE_CURATION_CACHE_KEY,
+        voicesJson: voices as never,
+        fetchedAt: new Date()
+      },
+      update: {
+        voicesJson: voices as never,
+        fetchedAt: new Date()
+      }
+    });
+    return voices;
   }
 
   private async refreshVoiceCatalog(apiKey: string): Promise<CachedVoiceCatalogRow | null> {
@@ -154,14 +230,14 @@ export class ElevenLabsVoiceCatalogService {
     ]);
     const featured = featuredRows
       .filter((voice) => voice.featured)
-      .slice(0, ELEVENLABS_VOICE_BUCKET_HALF_LIMIT);
+      .slice(0, ELEVENLABS_ADMIN_VOICE_BUCKET_HALF_LIMIT);
     const popular = popularRows
       .filter((voice) => voice.popularityScore > 0)
       .sort((left, right) => right.popularityScore - left.popularityScore)
-      .slice(0, ELEVENLABS_VOICE_BUCKET_HALF_LIMIT);
+      .slice(0, ELEVENLABS_ADMIN_VOICE_BUCKET_HALF_LIMIT);
 
     const selected = this.dedupeSharedRows([...featured, ...popular]);
-    if (selected.length < ELEVENLABS_VOICE_BUCKET_LIMIT) {
+    if (selected.length < ELEVENLABS_ADMIN_VOICE_BUCKET_LIMIT) {
       selected.push(
         ...this.dedupeSharedRows([...featuredRows, ...popularRows]).filter(
           (candidate) => !selected.some((voice) => voice.voiceId === candidate.voiceId)
@@ -169,7 +245,7 @@ export class ElevenLabsVoiceCatalogService {
       );
     }
 
-    return selected.slice(0, ELEVENLABS_VOICE_BUCKET_LIMIT).map((voice) => ({
+    return selected.slice(0, ELEVENLABS_ADMIN_VOICE_BUCKET_LIMIT).map((voice) => ({
       voiceId: voice.voiceId,
       name: voice.name,
       gender: voice.gender,
@@ -279,15 +355,24 @@ export class ElevenLabsVoiceCatalogService {
     return [...deduped.values()].sort((left, right) => left.name.localeCompare(right.name));
   }
 
-  private toResult(
+  private async toResult(
     row: CachedVoiceCatalogRow,
-    warning: string | null
-  ): ElevenLabsVoiceCatalogResult {
+    warning: string | null,
+    includeAdmin: boolean
+  ): Promise<ElevenLabsVoiceCatalogResult> {
+    const curation = await this.readCurationEntries();
+    const publicVoices = this.resolvePublicVoices(row.voices, curation);
     return {
       configured: true,
       loadState: "ready",
-      voices: row.voices,
-      warning
+      voices: publicVoices,
+      warning,
+      admin: includeAdmin
+        ? {
+            voices: this.toAdminVoices(row.voices, curation, publicVoices),
+            publicVoices
+          }
+        : null
     };
   }
 
@@ -300,7 +385,8 @@ export class ElevenLabsVoiceCatalogService {
       configured,
       loadState,
       voices: [],
-      warning
+      warning,
+      admin: null
     };
   }
 
@@ -345,6 +431,95 @@ export class ElevenLabsVoiceCatalogService {
       });
     }
     return this.normalizeEntries(entries);
+  }
+
+  private async readCurationEntries(): Promise<ElevenLabsVoiceCurationEntry[]> {
+    const row = await this.prisma.platformElevenlabsVoiceCatalogCache.findUnique({
+      where: { cacheKey: ELEVENLABS_VOICE_CURATION_CACHE_KEY },
+      select: { voicesJson: true }
+    });
+    return row === null ? [] : this.parseCurationEntries(row.voicesJson);
+  }
+
+  private parseCurationEntries(value: unknown): ElevenLabsVoiceCurationEntry[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const entries: ElevenLabsVoiceCurationEntry[] = [];
+    for (const candidate of value) {
+      const row = this.asObject(candidate);
+      const voiceId = this.asNonEmptyString(row?.voiceId);
+      if (voiceId === null) {
+        continue;
+      }
+      entries.push({
+        voiceId,
+        approved: row?.approved === true,
+        hidden: row?.hidden === true,
+        rank: this.asNullableInteger(row?.rank),
+        previewOk: typeof row?.previewOk === "boolean" ? row.previewOk : null
+      });
+    }
+    return entries;
+  }
+
+  private resolvePublicVoices(
+    voices: ElevenLabsVoiceCatalogEntry[],
+    curation: ElevenLabsVoiceCurationEntry[]
+  ): ElevenLabsVoiceCatalogEntry[] {
+    const curationById = new Map(curation.map((entry) => [entry.voiceId, entry]));
+    const hasApproved = curation.some((entry) => entry.approved && !entry.hidden);
+    const candidates = hasApproved
+      ? voices.filter((voice) => {
+          const entry = curationById.get(voice.voiceId);
+          return entry?.approved === true && entry.hidden !== true;
+        })
+      : voices;
+    const ranked = candidates.sort((left, right) => {
+      const leftRank = curationById.get(left.voiceId)?.rank ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = curationById.get(right.voiceId)?.rank ?? Number.MAX_SAFE_INTEGER;
+      return leftRank - rightRank || left.name.localeCompare(right.name);
+    });
+    return this.limitByBucketAndGender(ranked, ELEVENLABS_PUBLIC_VOICE_BUCKET_LIMIT);
+  }
+
+  private toAdminVoices(
+    voices: ElevenLabsVoiceCatalogEntry[],
+    curation: ElevenLabsVoiceCurationEntry[],
+    publicVoices: ElevenLabsVoiceCatalogEntry[]
+  ): ElevenLabsAdminVoiceCatalogEntry[] {
+    const curationById = new Map(curation.map((entry) => [entry.voiceId, entry]));
+    const publicIds = new Set(publicVoices.map((voice) => voice.voiceId));
+    return voices.map((voice) => {
+      const entry = curationById.get(voice.voiceId);
+      return {
+        ...voice,
+        voiceId: voice.voiceId,
+        approved: entry?.approved ?? false,
+        hidden: entry?.hidden ?? false,
+        rank: entry?.rank ?? null,
+        previewOk: entry?.previewOk ?? null,
+        public: publicIds.has(voice.voiceId)
+      };
+    });
+  }
+
+  private limitByBucketAndGender(
+    voices: ElevenLabsVoiceCatalogEntry[],
+    limit: number
+  ): ElevenLabsVoiceCatalogEntry[] {
+    const counts = new Map<string, number>();
+    const selected: ElevenLabsVoiceCatalogEntry[] = [];
+    for (const voice of voices) {
+      const key = `${voice.languageBucket}:${voice.gender}`;
+      const count = counts.get(key) ?? 0;
+      if (count >= limit) {
+        continue;
+      }
+      counts.set(key, count + 1);
+      selected.push(voice);
+    }
+    return this.normalizeEntries(selected);
   }
 
   private toLanguageBucket(language: string | null): ElevenLabsVoiceLanguageBucket {
@@ -411,6 +586,10 @@ export class ElevenLabsVoiceCatalogService {
 
   private asNumber(value: unknown): number {
     return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  }
+
+  private asNullableInteger(value: unknown): number | null {
+    return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
   }
 
   private createTimedSignal(timeoutMs: number): { signal: AbortSignal; dispose: () => void } {

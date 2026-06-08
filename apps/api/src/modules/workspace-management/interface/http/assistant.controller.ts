@@ -214,6 +214,25 @@ export class AssistantController {
     };
   }
 
+  @Patch("assistant/voice/elevenlabs/curation")
+  async patchElevenLabsVoiceCuration(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    settings: AssistantVoiceSettingsState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const settings = await this.resolveAssistantVoiceSettingsService.updateElevenLabsCuration({
+      userId,
+      patches: this.parseElevenLabsVoiceCurationInput(body)
+    });
+    return {
+      requestId: req.requestId ?? null,
+      settings
+    };
+  }
+
   @Get("assistant/persona-archetypes")
   async listPersonaArchetypes(@Req() req: RequestWithPlatformContext): Promise<{
     requestId: string | null;
@@ -1461,6 +1480,39 @@ export class AssistantController {
       throw new BadRequestException("assistantId must be a non-empty string.");
     }
     return { assistantId };
+  }
+
+  private parseElevenLabsVoiceCurationInput(payload: unknown): Array<{
+    voiceId: string;
+    approved?: boolean;
+    hidden?: boolean;
+    previewOk?: boolean | null;
+  }> {
+    if (typeof payload !== "object" || payload === null || !("patches" in payload)) {
+      throw new BadRequestException("patches must be provided.");
+    }
+    const patches = (payload as { patches?: unknown }).patches;
+    if (!Array.isArray(patches)) {
+      throw new BadRequestException("patches must be an array.");
+    }
+    return patches.map((patch) => {
+      if (typeof patch !== "object" || patch === null) {
+        throw new BadRequestException("Each curation patch must be an object.");
+      }
+      const row = patch as Record<string, unknown>;
+      const voiceId = typeof row.voiceId === "string" ? row.voiceId.trim() : "";
+      if (voiceId.length === 0) {
+        throw new BadRequestException("voiceId must be a non-empty string.");
+      }
+      return {
+        voiceId,
+        ...(typeof row.approved === "boolean" ? { approved: row.approved } : {}),
+        ...(typeof row.hidden === "boolean" ? { hidden: row.hidden } : {}),
+        ...(typeof row.previewOk === "boolean" || row.previewOk === null
+          ? { previewOk: row.previewOk }
+          : {})
+      };
+    });
   }
 
   private async buildAssistantResponse(

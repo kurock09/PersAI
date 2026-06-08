@@ -2834,6 +2834,49 @@ describe("test harness sanity", () => {
   });
 });
 
+describe("AssistantSettings voice picker", () => {
+  it("saves the selected ElevenLabs voice id", async () => {
+    assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
+      schema: "persai.assistantVoiceSettings.v1",
+      primaryProviderId: "elevenlabs",
+      elevenlabs: {
+        configured: true,
+        loadState: "ready",
+        warning: null,
+        voices: [
+          {
+            voiceId: "eleven-voice-selected",
+            name: "Ava",
+            gender: "female",
+            category: "featured",
+            language: "en",
+            languageBucket: "en",
+            previewUrl: null
+          }
+        ]
+      }
+    });
+
+    renderSettings(makeAppData(), "character");
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ava" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledWith(
+        "token-1",
+        expect.objectContaining({
+          voiceProfile: expect.objectContaining({
+            elevenlabs: { voiceId: "eleven-voice-selected" }
+          })
+        })
+      );
+    });
+    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-1");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Characters section — ADR-109 Slice 9
 // ---------------------------------------------------------------------------

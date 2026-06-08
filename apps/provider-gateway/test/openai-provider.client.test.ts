@@ -1112,6 +1112,22 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       "Speak naturally in ru-RU. Keep the delivery warm, close, and human. Use a feminine vocal character. Sound caring, kind, and emotionally present. Avoid sounding playful or joking."
   });
 
+  capturedSpeechPayload = null;
+  const foreignModelSpeechResult = await client.generateSpeech(
+    {
+      ...createSpeechGenerateRequest(),
+      credential: {
+        ...createSpeechGenerateRequest().credential,
+        modelKey: "eleven_multilingual_v2"
+      }
+    },
+    {
+      apiKey: "tool-openai-key"
+    }
+  );
+  assert.equal(foreignModelSpeechResult.model, "gpt-4o-mini-tts");
+  assert.equal((capturedSpeechPayload as { model?: string } | null)?.model, "gpt-4o-mini-tts");
+
   const originalFetch = globalThis.fetch;
   const videoRequests: Array<{ url: string; init?: RequestInit }> = [];
   const squareReferenceBuffer = await sharp({
