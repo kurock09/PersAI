@@ -24,30 +24,40 @@ async function run(): Promise<void> {
   const originalFetch = globalThis.fetch;
 
   try {
-    // ── Test 1: No cache → live fetch → normalized voices + shortlist + upsert ──
+    // ── Test 1: No cache → shared voices fetch → curated normalized voices + upsert ──
     {
       const upserts: Array<Record<string, unknown>> = [];
-      globalThis.fetch = (async () =>
-        new Response(
+      const requestedUrls: string[] = [];
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        const url = String(input);
+        requestedUrls.push(url);
+        return new Response(
           JSON.stringify({
             voices: [
               {
                 voice_id: "ru-anna",
                 name: "Anna",
-                category: "premade",
+                category: "professional",
                 preview_url: "https://cdn.elevenlabs.io/anna.mp3",
-                labels: { gender: "female", language: "ru" }
+                labels: { gender: "female", language: "ru" },
+                featured: true,
+                liked_by_count: 10,
+                cloned_by_count: 3
               },
               {
                 voice_id: "en-brian",
                 name: "Brian",
-                category: "premade",
-                labels: { gender: "male", language: "en" }
+                category: "professional",
+                labels: { gender: "male", language: "en" },
+                featured: false,
+                liked_by_count: 8,
+                cloned_by_count: 20
               }
             ]
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
-        )) as typeof fetch;
+        );
+      }) as typeof fetch;
 
       const service = new ElevenLabsVoiceCatalogService(
         {
@@ -70,6 +80,18 @@ async function run(): Promise<void> {
       assert.equal(catalog.voices.length, 2);
       assert.equal(catalog.warning, null);
       assert.equal(upserts.length, 1, "should upsert once after a live fetch");
+      assert.ok(
+        requestedUrls.every((url) => url.startsWith("https://api.elevenlabs.io/v1/shared-voices?")),
+        "should use ElevenLabs shared voices API"
+      );
+      assert.ok(
+        requestedUrls.some((url) => url.includes("featured=true")),
+        "should request featured voices separately"
+      );
+      assert.ok(
+        requestedUrls.some((url) => !url.includes("featured=true")),
+        "should request a popularity candidate pool"
+      );
 
       const anna = catalog.voices.find((entry) => entry.voiceId === "ru-anna");
       assert.ok(anna);
@@ -80,7 +102,7 @@ async function run(): Promise<void> {
         "en-brian",
         "ru-anna"
       ]);
-      console.log("PASS: no cache → live fetch → normalized voices");
+      console.log("PASS: no cache → shared voices fetch → curated normalized voices");
     }
 
     // ── Test 2: Fresh cache row → no network call ──

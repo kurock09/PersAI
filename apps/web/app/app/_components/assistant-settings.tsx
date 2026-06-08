@@ -398,10 +398,10 @@ function VoiceCloneCard({
   return (
     <div
       data-testid={`voice-clone-card-${voice.status}`}
-      className="flex min-h-[116px] flex-col rounded-2xl border border-border/60 bg-surface p-3"
+      className="flex min-h-[100px] flex-col gap-2 rounded-2xl border border-border/60 bg-surface p-3"
     >
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1 pr-1">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <p className="min-w-0 truncate text-sm font-medium text-text" title={voice.displayName}>
               {voice.displayName}
@@ -413,11 +413,30 @@ function VoiceCloneCard({
             ) : null}
           </div>
           <p className="mt-1 truncate text-[11px] text-text-muted">{voiceLabel}</p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <div className="flex items-center gap-1">
+            <VoicePreviewButton
+              previewAudioUrl={voice.previewAudioUrl}
+              voiceLabel={voice.displayName}
+              previewUnavailableLabel={previewUnavailableLabel}
+            />
+            {onArchive ? (
+              <button
+                type="button"
+                onClick={onArchive}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
+                aria-label={archiveLabel}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
           <p
             className={cn(
-              "mt-1 text-[11px]",
+              "text-right text-[11px] font-medium",
               statusTone === "success"
-                ? "text-green-600"
+                ? "text-accent"
                 : statusTone === "warn"
                   ? "text-yellow-600"
                   : statusTone === "error"
@@ -428,26 +447,9 @@ function VoiceCloneCard({
             {statusLabel}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <VoicePreviewButton
-            previewAudioUrl={voice.previewAudioUrl}
-            voiceLabel={voice.displayName}
-            previewUnavailableLabel={previewUnavailableLabel}
-          />
-          {onArchive ? (
-            <button
-              type="button"
-              onClick={onArchive}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
-              aria-label={archiveLabel}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
-        </div>
       </div>
       {linkedSummary || onMakeDefault ? (
-        <div className="mt-auto flex min-w-0 items-end justify-between gap-3 pt-2">
+        <div className="mt-auto flex min-w-0 items-end justify-between gap-3 pt-0.5">
           {linkedSummary ? (
             <p className="min-w-0 truncate text-[11px] text-text-subtle" title={linkedSummary}>
               {linkedSummary}
@@ -2384,18 +2386,6 @@ export function AssistantSettings({
   );
   const voicePickerLabels = useMemo<VoicePickerLabels>(
     () => ({
-      searchPlaceholder: t("voicePickerSearch"),
-      all: t("all"),
-      filterGender: t("voicePickerFilterGender"),
-      filterLanguage: t("voicePickerFilterLanguage"),
-      filterCategory: t("voicePickerFilterCategory"),
-      genderMale: t("voicePickerGenderMale"),
-      genderFemale: t("voicePickerGenderFemale"),
-      genderNeutral: t("voicePickerGenderNeutral"),
-      genderUnknown: t("voicePickerGenderUnknown"),
-      langRu: t("voicePickerLangRu"),
-      langEn: t("voicePickerLangEn"),
-      langOther: t("voicePickerLangOther"),
       empty: t("voicePickerEmpty"),
       preview: t("voicePickerPreview"),
       stopPreview: t("voicePickerStopPreview")

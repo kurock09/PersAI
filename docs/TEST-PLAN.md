@@ -993,8 +993,8 @@ corepack pnpm --filter @persai/web run typecheck
 Interpretation rules:
 
 1. `filterVoicePickerEntries` must AND together the active filters (gender + languageBucket + category + query) and match the query against label/language/category; inactive filters (`"all"`) must not exclude anything.
-2. The picker is shared across all three providers but filter chips are surface-aware: language/category chips are ElevenLabs-only and each chip group renders only when it actually discriminates (>1 value present); the assistant-gender constraint on the selectable set is preserved.
-3. ElevenLabs non-ready states (`loading`/`not_configured`/`unavailable`) must render the honest inline message instead of the card grid, and preview playback applies only to entries that carry a `previewUrl`.
+2. The picker is shared across all three providers but keeps the ElevenLabs surface intentionally narrow: `RU | EN | OTHER` bucket switch, compact name + play rows, and no secondary gender/category/meta chips. The assistant-gender constraint on the selectable set is preserved from assistant settings.
+3. ElevenLabs non-ready states (`loading`/`not_configured`/`unavailable`) must render the honest inline message instead of the voice list, and preview playback applies only to entries that carry a `previewUrl`.
 
 ## ADR-111 talking-video cloned voice focused checks
 

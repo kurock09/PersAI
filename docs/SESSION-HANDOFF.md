@@ -3,6 +3,15 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-08 - ADR-113 ElevenLabs picker correction
+
+Follow-up after rollout/UI review:
+
+- `ElevenLabsVoiceCatalogService` now refreshes from ElevenLabs shared voice library (`/v1/shared-voices`) instead of the old generic `/v1/voices` list. The cache key was versioned to `elevenlabs-shared-voices-v2` so rollout does not keep serving the old 24h cache.
+- The cached picker set is bounded per `RU|EN|OTHER` bucket and gender, using a 50/50 mix of `featured` rows and locally popularity-ranked candidates (`cloned_by_count + liked_by_count`). The API response shape stays unchanged (`voices[]` with `languageBucket`, `gender`, `previewUrl`, etc.).
+- `VoicePicker` was simplified to the intended premium surface: ElevenLabs shows only `RU | EN | OTHER` and compact `name + play` rows; Yandex/OpenAI use the same strict list without language buckets. No gender/category/meta chips or locale banners.
+- Verification this pass: API/web eslint, API/web typecheck, ElevenLabs catalog unit test, and focused web voice picker/settings tests passed.
+
 ## 2026-06-08 - ADR-113 post-audit code-cleanliness cleanup
 
 Ran an independent read-only auditor over the TTS 2.0 code (Slices 1/2/3a). No blockers; the `as never` Prisma cast, derived legacy tone tag, migration/schema, and custom-harness `console.log("PASS")` markers are all established conventions. Acted on the real findings:

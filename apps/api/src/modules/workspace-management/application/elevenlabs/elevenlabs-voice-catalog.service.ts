@@ -4,9 +4,12 @@ import { WorkspaceManagementPrismaService } from "../../infrastructure/persisten
 
 const ELEVENLABS_API_BASE_URL = "https://api.elevenlabs.io";
 const ELEVENLABS_PROVIDER_KEY = "tool_tts_elevenlabs";
-const ELEVENLABS_VOICE_CACHE_KEY = "elevenlabs-voices";
+const ELEVENLABS_VOICE_CACHE_KEY = "elevenlabs-shared-voices-v2";
 const ELEVENLABS_VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const ELEVENLABS_VOICE_LOAD_TIMEOUT_MS = 10_000;
+const ELEVENLABS_VOICE_BUCKET_LIMIT = 12;
+const ELEVENLABS_VOICE_BUCKET_HALF_LIMIT = ELEVENLABS_VOICE_BUCKET_LIMIT / 2;
+const ELEVENLABS_SHARED_VOICE_PAGE_SIZE = 100;
 
 export type ElevenLabsVoiceGenderTag = "male" | "female" | "neutral" | "unknown";
 
@@ -32,6 +35,15 @@ export interface ElevenLabsVoiceCatalogResult {
 type CachedVoiceCatalogRow = {
   voices: ElevenLabsVoiceCatalogEntry[];
   fetchedAt: Date;
+};
+
+type SharedVoiceSearchBucket = "ru" | "en" | "other";
+
+type SharedVoiceSearchGender = "female" | "male" | "neutral";
+
+type ParsedSharedVoiceRow = ElevenLabsVoiceCatalogEntry & {
+  featured: boolean;
+  popularityScore: number;
 };
 
 /**
@@ -120,31 +132,104 @@ export class ElevenLabsVoiceCatalogService {
   }
 
   private async fetchVoiceCatalog(apiKey: string): Promise<ElevenLabsVoiceCatalogEntry[]> {
+    const buckets: SharedVoiceSearchBucket[] = ["ru", "en", "other"];
+    const genders: SharedVoiceSearchGender[] = ["female", "male", "neutral"];
+    const entries = await Promise.all(
+      buckets.flatMap((bucket) =>
+        genders.map((gender) => this.fetchCuratedSharedVoicesForBucket(apiKey, bucket, gender))
+      )
+    );
+
+    return this.normalizeEntries(entries.flat());
+  }
+
+  private async fetchCuratedSharedVoicesForBucket(
+    apiKey: string,
+    bucket: SharedVoiceSearchBucket,
+    gender: SharedVoiceSearchGender
+  ): Promise<ElevenLabsVoiceCatalogEntry[]> {
+    const [featuredRows, popularRows] = await Promise.all([
+      this.fetchSharedVoiceRows(apiKey, { bucket, gender, featured: true }),
+      this.fetchSharedVoiceRows(apiKey, { bucket, gender, featured: false })
+    ]);
+    const featured = featuredRows
+      .filter((voice) => voice.featured)
+      .slice(0, ELEVENLABS_VOICE_BUCKET_HALF_LIMIT);
+    const popular = popularRows
+      .filter((voice) => voice.popularityScore > 0)
+      .sort((left, right) => right.popularityScore - left.popularityScore)
+      .slice(0, ELEVENLABS_VOICE_BUCKET_HALF_LIMIT);
+
+    const selected = this.dedupeSharedRows([...featured, ...popular]);
+    if (selected.length < ELEVENLABS_VOICE_BUCKET_LIMIT) {
+      selected.push(
+        ...this.dedupeSharedRows([...featuredRows, ...popularRows]).filter(
+          (candidate) => !selected.some((voice) => voice.voiceId === candidate.voiceId)
+        )
+      );
+    }
+
+    return selected.slice(0, ELEVENLABS_VOICE_BUCKET_LIMIT).map((voice) => ({
+      voiceId: voice.voiceId,
+      name: voice.name,
+      gender: voice.gender,
+      category: voice.category,
+      language: voice.language,
+      languageBucket: voice.languageBucket,
+      previewUrl: voice.previewUrl
+    }));
+  }
+
+  private async fetchSharedVoiceRows(
+    apiKey: string,
+    input: {
+      bucket: SharedVoiceSearchBucket;
+      gender: SharedVoiceSearchGender;
+      featured: boolean;
+    }
+  ): Promise<ParsedSharedVoiceRow[]> {
     const { signal, dispose } = this.createTimedSignal(ELEVENLABS_VOICE_LOAD_TIMEOUT_MS);
     try {
-      const response = await fetch(`${ELEVENLABS_API_BASE_URL}/v1/voices`, {
-        headers: { "xi-api-key": apiKey },
-        signal
+      const params = new URLSearchParams({
+        page_size: String(ELEVENLABS_SHARED_VOICE_PAGE_SIZE)
       });
+      if (input.featured) {
+        params.set("featured", "true");
+      }
+      if (input.gender !== "neutral") {
+        params.set("gender", input.gender);
+      }
+      if (input.bucket !== "other") {
+        params.set("language", input.bucket);
+      }
+      const response = await fetch(
+        `${ELEVENLABS_API_BASE_URL}/v1/shared-voices?${params.toString()}`,
+        {
+          headers: { "xi-api-key": apiKey, Accept: "application/json" },
+          signal
+        }
+      );
       if (!response.ok) {
-        throw new Error(`ElevenLabs voices request failed with status ${String(response.status)}.`);
+        throw new Error(
+          `ElevenLabs shared voices request failed with status ${String(response.status)}.`
+        );
       }
       const payload = (await response.json()) as unknown;
       const voices = this.asObject(payload)?.voices;
       if (!Array.isArray(voices)) {
         return [];
       }
-      return this.normalizeEntries(
-        voices
-          .map((voice) => this.parseVoiceRow(voice))
-          .filter((voice): voice is ElevenLabsVoiceCatalogEntry => voice !== null)
-      );
+      return voices
+        .map((voice) => this.parseSharedVoiceRow(voice))
+        .filter((voice): voice is ParsedSharedVoiceRow => voice !== null)
+        .filter((voice) => input.gender === "neutral" || voice.gender === input.gender)
+        .filter((voice) => voice.languageBucket === input.bucket);
     } finally {
       dispose();
     }
   }
 
-  private parseVoiceRow(value: unknown): ElevenLabsVoiceCatalogEntry | null {
+  private parseSharedVoiceRow(value: unknown): ParsedSharedVoiceRow | null {
     const row = this.asObject(value);
     if (row === null) {
       return null;
@@ -155,11 +240,7 @@ export class ElevenLabsVoiceCatalogService {
       return null;
     }
     const labels = this.asObject(row.labels);
-    const fineTuning = this.asObject(row.fine_tuning);
-    const language =
-      this.asNonEmptyString(labels?.language) ??
-      this.asNonEmptyString(fineTuning?.language) ??
-      this.asNonEmptyString(labels?.accent);
+    const language = this.resolveVoiceLanguage(row, labels);
     return {
       voiceId,
       name,
@@ -167,8 +248,21 @@ export class ElevenLabsVoiceCatalogService {
       category: this.asNonEmptyString(row.category),
       language,
       languageBucket: this.toLanguageBucket(language),
-      previewUrl: this.asNonEmptyString(row.preview_url)
+      previewUrl: this.asNonEmptyString(row.preview_url),
+      featured: row.featured === true,
+      popularityScore: this.asNumber(row.cloned_by_count) + this.asNumber(row.liked_by_count)
     };
+  }
+
+  private dedupeSharedRows(entries: ParsedSharedVoiceRow[]): ParsedSharedVoiceRow[] {
+    const deduped = new Map<string, ParsedSharedVoiceRow>();
+    for (const entry of entries) {
+      const key = entry.voiceId.trim().toLowerCase();
+      if (!deduped.has(key)) {
+        deduped.set(key, entry);
+      }
+    }
+    return [...deduped.values()];
   }
 
   private normalizeEntries(entries: ElevenLabsVoiceCatalogEntry[]): ElevenLabsVoiceCatalogEntry[] {
@@ -271,6 +365,22 @@ export class ElevenLabsVoiceCatalogService {
     return "other";
   }
 
+  private resolveVoiceLanguage(
+    row: Record<string, unknown>,
+    labels: Record<string, unknown> | null
+  ): string | null {
+    const fineTuning = this.asObject(row.fine_tuning);
+    const verifiedLanguages = Array.isArray(row.verified_languages) ? row.verified_languages : [];
+    const firstVerifiedLanguage = this.asObject(verifiedLanguages[0]);
+    return (
+      this.asNonEmptyString(labels?.language) ??
+      this.asNonEmptyString(firstVerifiedLanguage?.language) ??
+      this.asNonEmptyString(firstVerifiedLanguage?.locale) ??
+      this.asNonEmptyString(fineTuning?.language) ??
+      this.asNonEmptyString(labels?.accent)
+    );
+  }
+
   private normalizeGender(value: unknown): ElevenLabsVoiceGenderTag {
     const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
     if (normalized === "male" || normalized === "female" || normalized === "neutral") {
@@ -291,6 +401,10 @@ export class ElevenLabsVoiceCatalogService {
 
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private asNumber(value: unknown): number {
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
   }
 
   private createTimedSignal(timeoutMs: number): { signal: AbortSignal; dispose: () => void } {
