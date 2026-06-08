@@ -65,24 +65,45 @@ class FakeIdleSessionPrisma {
     status: "pending" | "in_progress" | "completed" | "failed";
     createdAt: Date;
   } | null = null;
+  latestIdleJobsByThread = new Map<
+    string,
+    {
+      status: "pending" | "in_progress" | "completed" | "failed";
+      createdAt: Date;
+    } | null
+  >();
+  runtimeSessions = [
+    {
+      id: "session-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web" as const,
+      externalThreadKey: "thread-1",
+      externalUserKey: "user-1",
+      runtimeTier: "paid_isolated" as const,
+      lastTurnAt: new Date(Date.now() - 25 * 60 * 1000),
+      memoryExtractionWatermark: 0
+    }
+  ];
 
   runtimeSession = {
-    findMany: async () => [
-      {
-        assistantId: "assistant-1",
-        workspaceId: "workspace-1",
-        channel: "web" as const,
-        externalThreadKey: "thread-1",
-        externalUserKey: "user-1",
-        runtimeTier: "paid_isolated" as const,
-        lastTurnAt: new Date(Date.now() - 25 * 60 * 1000),
-        memoryExtractionWatermark: 0
-      }
-    ]
+    findMany: async (args?: { take?: number; cursor?: { id: string }; skip?: number }) => {
+      const take = args?.take ?? this.runtimeSessions.length;
+      const cursorIndex =
+        args?.cursor === undefined
+          ? -1
+          : this.runtimeSessions.findIndex((session) => session.id === args.cursor?.id);
+      const start = Math.max(0, cursorIndex + (args?.skip ?? 0));
+      return this.runtimeSessions.slice(start, start + take);
+    }
   };
 
   assistantBackgroundCompactionJob = {
-    findFirst: async () => this.latestIdleJob
+    findFirst: async (args?: { where?: { externalThreadKey?: string } }) =>
+      args?.where?.externalThreadKey !== undefined &&
+      this.latestIdleJobsByThread.has(args.where.externalThreadKey)
+        ? (this.latestIdleJobsByThread.get(args.where.externalThreadKey) ?? null)
+        : this.latestIdleJob
   };
 
   assistantChat = {
@@ -161,10 +182,84 @@ async function runBelowThresholdSkips(): Promise<void> {
   assert.equal(enqueue.calls.length, 0);
 }
 
+async function runScansPastSkippedFirstPage(): Promise<void> {
+  const prisma = new FakeIdleSessionPrisma();
+  const completedAfterTurn = { status: "completed" as const, createdAt: new Date() };
+  prisma.runtimeSessions = [
+    {
+      id: "skipped-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "skipped-1",
+      externalUserKey: "user-1",
+      runtimeTier: "paid_isolated",
+      lastTurnAt: new Date(Date.now() - 60 * 60 * 1000),
+      memoryExtractionWatermark: 0
+    },
+    {
+      id: "skipped-2",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "skipped-2",
+      externalUserKey: "user-1",
+      runtimeTier: "paid_isolated",
+      lastTurnAt: new Date(Date.now() - 55 * 60 * 1000),
+      memoryExtractionWatermark: 0
+    },
+    {
+      id: "skipped-3",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "skipped-3",
+      externalUserKey: "user-1",
+      runtimeTier: "paid_isolated",
+      lastTurnAt: new Date(Date.now() - 50 * 60 * 1000),
+      memoryExtractionWatermark: 0
+    },
+    {
+      id: "skipped-4",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "skipped-4",
+      externalUserKey: "user-1",
+      runtimeTier: "paid_isolated",
+      lastTurnAt: new Date(Date.now() - 45 * 60 * 1000),
+      memoryExtractionWatermark: 0
+    },
+    {
+      id: "eligible-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "eligible-1",
+      externalUserKey: "user-1",
+      runtimeTier: "paid_isolated",
+      lastTurnAt: new Date(Date.now() - 40 * 60 * 1000),
+      memoryExtractionWatermark: 0
+    }
+  ];
+  for (const session of prisma.runtimeSessions.slice(0, 4)) {
+    prisma.latestIdleJobsByThread.set(session.externalThreadKey, completedAfterTurn);
+  }
+  prisma.latestIdleJobsByThread.set("eligible-1", null);
+  const { scheduler, enqueue } = createScheduler(prisma);
+
+  const processed = await scheduler.processDueIdleExtractionBatch(1);
+
+  assert.equal(processed, 1);
+  assert.equal(enqueue.calls.length, 1);
+  assert.equal(enqueue.calls[0]?.externalThreadKey, "eligible-1");
+}
+
 async function run(): Promise<void> {
   await runEligibleIdleSessionEnqueuesJob();
   await runCompletedIdleJobBlocksRepeatWithoutNewTurn();
   await runBelowThresholdSkips();
+  await runScansPastSkippedFirstPage();
 }
 
 void run();

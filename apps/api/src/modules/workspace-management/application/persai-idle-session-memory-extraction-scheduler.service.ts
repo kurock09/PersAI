@@ -21,6 +21,13 @@ type IdleCandidate = {
   runtimeTier: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
 };
 
+type IdleSessionRow = Omit<IdleCandidate, "channel"> & {
+  id: string;
+  channel: string;
+  lastTurnAt: Date | null;
+  memoryExtractionWatermark: number;
+};
+
 @Injectable()
 export class PersaiIdleSessionMemoryExtractionSchedulerService
   implements OnModuleInit, OnModuleDestroy
@@ -182,82 +189,97 @@ export class PersaiIdleSessionMemoryExtractionSchedulerService
   private async findDueCandidates(limit: number): Promise<IdleCandidate[]> {
     const candidates: IdleCandidate[] = [];
     const idleCutoff = new Date(Date.now() - IDLE_MEMORY_EXTRACTION_IDLE_MS);
-    const sessions = await this.prisma.runtimeSession.findMany({
-      where: {
-        closedAt: null,
-        lastTurnAt: { lte: idleCutoff },
-        channel: { in: ["web", "telegram"] }
-      },
-      orderBy: [{ lastTurnAt: "asc" }, { updatedAt: "asc" }, { id: "asc" }],
-      take: Math.max(1, Math.floor(limit * 4)),
-      select: {
-        assistantId: true,
-        workspaceId: true,
-        channel: true,
-        externalThreadKey: true,
-        externalUserKey: true,
-        runtimeTier: true,
-        lastTurnAt: true,
-        memoryExtractionWatermark: true
-      }
-    });
+    const pageSize = Math.max(1, Math.floor(limit * 4));
+    let cursorId: string | null = null;
 
-    for (const session of sessions) {
-      if (candidates.length >= limit) {
-        break;
-      }
-      if (session.lastTurnAt === null) {
-        continue;
-      }
-      const channel =
-        session.channel === "web" || session.channel === "telegram" ? session.channel : null;
-      if (channel === null) {
-        continue;
-      }
-      const latestIdleJob = await this.prisma.assistantBackgroundCompactionJob.findFirst({
+    while (candidates.length < limit) {
+      const sessions: IdleSessionRow[] = await this.prisma.runtimeSession.findMany({
         where: {
-          assistantId: session.assistantId,
-          channel,
-          externalThreadKey: session.externalThreadKey,
-          trigger: "idle_extract"
+          closedAt: null,
+          lastTurnAt: { lte: idleCutoff },
+          channel: { in: ["web", "telegram"] },
+          NOT: [
+            { externalThreadKey: { startsWith: "system:" } },
+            { externalThreadKey: { startsWith: "setup-preview:" } }
+          ]
         },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        orderBy: [{ lastTurnAt: "asc" }, { updatedAt: "asc" }, { id: "asc" }],
+        take: pageSize,
+        ...(cursorId === null ? {} : { cursor: { id: cursorId }, skip: 1 }),
         select: {
-          status: true,
-          createdAt: true
+          id: true,
+          assistantId: true,
+          workspaceId: true,
+          channel: true,
+          externalThreadKey: true,
+          externalUserKey: true,
+          runtimeTier: true,
+          lastTurnAt: true,
+          memoryExtractionWatermark: true
         }
       });
-      if (latestIdleJob?.status === "pending" || latestIdleJob?.status === "in_progress") {
-        continue;
+      if (sessions.length === 0) {
+        break;
       }
-      if (
-        latestIdleJob !== null &&
-        (latestIdleJob.status === "completed" || latestIdleJob.status === "failed") &&
-        latestIdleJob.createdAt.getTime() >= session.lastTurnAt.getTime()
-      ) {
-        continue;
-      }
+      cursorId = sessions[sessions.length - 1]!.id;
 
-      const hydratableMessageCount = await this.countHydratableMessages({
-        assistantId: session.assistantId,
-        channel,
-        externalThreadKey: session.externalThreadKey
-      });
-      if (
-        hydratableMessageCount - Math.max(0, session.memoryExtractionWatermark) <
-        IDLE_MEMORY_EXTRACTION_MIN_NEW_MESSAGES
-      ) {
-        continue;
-      }
+      for (const session of sessions) {
+        if (candidates.length >= limit) {
+          break;
+        }
+        if (session.lastTurnAt === null) {
+          continue;
+        }
+        const channel =
+          session.channel === "web" || session.channel === "telegram" ? session.channel : null;
+        if (channel === null) {
+          continue;
+        }
+        const latestIdleJob = await this.prisma.assistantBackgroundCompactionJob.findFirst({
+          where: {
+            assistantId: session.assistantId,
+            channel,
+            externalThreadKey: session.externalThreadKey,
+            trigger: "idle_extract"
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: {
+            status: true,
+            createdAt: true
+          }
+        });
+        if (latestIdleJob?.status === "pending" || latestIdleJob?.status === "in_progress") {
+          continue;
+        }
+        if (
+          latestIdleJob !== null &&
+          (latestIdleJob.status === "completed" || latestIdleJob.status === "failed") &&
+          latestIdleJob.createdAt.getTime() >= session.lastTurnAt.getTime()
+        ) {
+          continue;
+        }
 
-      candidates.push({
-        assistantId: session.assistantId,
-        workspaceId: session.workspaceId,
-        channel,
-        externalThreadKey: session.externalThreadKey,
-        externalUserKey: session.externalUserKey,
-        runtimeTier: session.runtimeTier
-      });
+        const hydratableMessageCount = await this.countHydratableMessages({
+          assistantId: session.assistantId,
+          channel,
+          externalThreadKey: session.externalThreadKey
+        });
+        if (
+          hydratableMessageCount - Math.max(0, session.memoryExtractionWatermark) <
+          IDLE_MEMORY_EXTRACTION_MIN_NEW_MESSAGES
+        ) {
+          continue;
+        }
+
+        candidates.push({
+          assistantId: session.assistantId,
+          workspaceId: session.workspaceId,
+          channel,
+          externalThreadKey: session.externalThreadKey,
+          externalUserKey: session.externalUserKey,
+          runtimeTier: session.runtimeTier
+        });
+      }
     }
 
     return candidates;
