@@ -122,7 +122,7 @@ export function VoicePicker({
           {labels.empty}
         </p>
       ) : (
-        <div className="max-h-[360px] overflow-y-auto rounded-2xl border border-border/70 bg-surface">
+        <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
           {visibleEntries.map((entry) => {
             const selected = entry.value === selectedValue;
             const isPlaying = playingValue === entry.value;
@@ -130,10 +130,8 @@ export function VoicePicker({
               <div
                 key={entry.value}
                 className={cn(
-                  "flex items-center gap-3 border-b border-border/60 px-4 py-4 transition-colors last:border-b-0",
-                  selected
-                    ? "bg-surface-raised/70 ring-1 ring-inset ring-accent/25"
-                    : "hover:bg-surface-raised/60"
+                  "flex w-full items-center gap-2 border-b border-border/40 px-3 py-2 text-left text-xs transition-colors last:border-b-0 hover:bg-surface-raised",
+                  selected && "bg-accent/10"
                 )}
               >
                 <button
@@ -143,7 +141,7 @@ export function VoicePicker({
                   aria-pressed={selected}
                   className="min-w-0 flex-1 text-left disabled:cursor-not-allowed"
                 >
-                  <span className="block truncate text-base font-medium text-text">
+                  <span className="block truncate font-medium text-text">
                     {entry.label}
                   </span>
                 </button>
@@ -154,9 +152,9 @@ export function VoicePicker({
                     disabled={disabled}
                     aria-label={isPlaying ? labels.stopPreview : labels.preview}
                     title={isPlaying ? labels.stopPreview : labels.preview}
-                    className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border text-accent transition-colors hover:border-accent/40 hover:bg-accent/10 disabled:opacity-50"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-accent transition-colors hover:border-accent/40 hover:bg-accent/10 disabled:opacity-50"
                   >
-                    {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
+                    {isPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
                   </button>
                 )}
               </div>
