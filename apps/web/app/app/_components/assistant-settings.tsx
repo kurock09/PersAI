@@ -53,6 +53,7 @@ import {
   postAssistantReset,
   getAssistantVoiceSettings,
   patchAssistantElevenLabsVoiceCuration,
+  postAssistantElevenLabsVoiceCatalogRefresh,
   getAssistantSkills,
   updateAssistantSkillAssignments,
   patchAssistantNotificationPreference,
@@ -103,11 +104,13 @@ import { VoicePreviewButton } from "../../_components/voice-preview-button";
 import { AssistantSupportSection } from "./assistant-support-section";
 import { resolveBillingSummaryCopy } from "./billing-summary";
 import {
+  filterVoicePickerEntries,
   filterVoiceOptions,
   OPENAI_VOICE_OPTIONS,
   resolveDefaultOpenAiVoiceOption,
   resolveDefaultYandexVoiceOption,
   YANDEX_VOICE_OPTIONS,
+  type VoiceLanguageBucket,
   type VoicePickerEntry
 } from "./assistant-voice-options";
 import { VoicePicker, type VoicePickerLabels } from "./voice-picker";
@@ -1496,6 +1499,10 @@ export function AssistantSettings({
   const [voiceSettingsError, setVoiceSettingsError] = useState<string | null>(null);
   const [voiceCurationSavingId, setVoiceCurationSavingId] = useState<string | null>(null);
   const [voiceCurationError, setVoiceCurationError] = useState<string | null>(null);
+  const [voiceCatalogRefreshing, setVoiceCatalogRefreshing] = useState(false);
+  const [elevenLabsLanguageBucket, setElevenLabsLanguageBucket] = useState<VoiceLanguageBucket>(
+    locale.toLowerCase().startsWith("ru") ? "ru" : "en"
+  );
   const [supportUnreadCount, setSupportUnreadCount] = useState(0);
   const [openSection, setOpenSection] = useState<SettingsSectionId | null>(() =>
     normalizeInitialSection(initialSection)
@@ -2328,14 +2335,11 @@ export function AssistantSettings({
   const mergedWorkspaceMemoryView = mergedMemoryViews.workspace;
   const mergedHistoryMemoryView = mergedMemoryViews.history;
   const elevenLabsAdminVoices = voiceSettings?.elevenlabs?.admin?.voices ?? [];
-  const elevenLabsPublicVoices = voiceSettings?.elevenlabs?.admin?.publicVoices ?? [];
+  const elevenLabsPublicVoices =
+    voiceSettings?.elevenlabs?.admin?.publicVoices ?? voiceSettings?.elevenlabs?.voices ?? [];
   const elevenLabsPickerEntries = useMemo<VoicePickerEntry[]>(() => {
-    const voices =
-      data.isAdmin && elevenLabsAdminVoices.length > 0
-        ? elevenLabsAdminVoices
-        : (voiceSettings?.elevenlabs?.voices ?? []);
     const selectedId = draftVoiceProfile.elevenlabs.voiceId;
-    return voices
+    return elevenLabsPublicVoices
       .filter(
         (voice) =>
           draftAssistantGender === "neutral" ||
@@ -2351,14 +2355,57 @@ export function AssistantSettings({
         category: voice.category,
         previewUrl: voice.previewUrl
       }));
-  }, [
-    data.isAdmin,
-    elevenLabsAdminVoices,
-    voiceSettings,
-    draftAssistantGender,
-    draftVoiceProfile.elevenlabs.voiceId,
-    locale
-  ]);
+  }, [elevenLabsPublicVoices, draftAssistantGender, draftVoiceProfile.elevenlabs.voiceId, locale]);
+  const elevenLabsFilteredAdminVoices = useMemo<AssistantAdminVoiceCatalogEntry[]>(() => {
+    const byId = new Map(elevenLabsAdminVoices.map((voice) => [voice.voiceId, voice]));
+    return filterVoicePickerEntries(
+      elevenLabsAdminVoices.map((voice) => ({
+        value: voice.voiceId,
+        label: formatElevenLabsVoiceLabel(voice.name, locale),
+        gender: voice.gender,
+        language: voice.language,
+        languageBucket: voice.languageBucket,
+        category: voice.category,
+        previewUrl: voice.previewUrl
+      })),
+      {
+        query: "",
+        gender:
+          draftAssistantGender === "male" || draftAssistantGender === "female"
+            ? draftAssistantGender
+            : "all",
+        languageBucket: elevenLabsLanguageBucket,
+        category: "all"
+      }
+    )
+      .map((entry) => byId.get(entry.value) ?? null)
+      .filter((voice): voice is AssistantAdminVoiceCatalogEntry => voice !== null);
+  }, [draftAssistantGender, elevenLabsAdminVoices, elevenLabsLanguageBucket, locale]);
+  const elevenLabsVisiblePublicVoices = useMemo(() => {
+    const byId = new Map(elevenLabsPublicVoices.map((voice) => [voice.voiceId, voice]));
+    return filterVoicePickerEntries(
+      elevenLabsPublicVoices.map((voice) => ({
+        value: voice.voiceId,
+        label: formatElevenLabsVoiceLabel(voice.name, locale),
+        gender: voice.gender,
+        language: voice.language,
+        languageBucket: voice.languageBucket,
+        category: voice.category,
+        previewUrl: voice.previewUrl
+      })),
+      {
+        query: "",
+        gender:
+          draftAssistantGender === "male" || draftAssistantGender === "female"
+            ? draftAssistantGender
+            : "all",
+        languageBucket: elevenLabsLanguageBucket,
+        category: "all"
+      }
+    )
+      .map((entry) => byId.get(entry.value) ?? null)
+      .filter((voice): voice is (typeof elevenLabsPublicVoices)[number] => voice !== null);
+  }, [draftAssistantGender, elevenLabsLanguageBucket, elevenLabsPublicVoices, locale]);
   const yandexPickerEntries = useMemo<VoicePickerEntry[]>(
     () =>
       yandexVoiceOptions.map((option) => ({
@@ -2730,6 +2777,23 @@ export function AssistantSettings({
     },
     [getToken]
   );
+
+  const handleElevenLabsCatalogRefresh = useCallback(async () => {
+    const token = await getToken({ skipCache: true });
+    if (!token) return;
+    setVoiceCatalogRefreshing(true);
+    setVoiceCurationError(null);
+    try {
+      const nextSettings = await postAssistantElevenLabsVoiceCatalogRefresh(token);
+      setVoiceSettings(nextSettings);
+    } catch (error) {
+      setVoiceCurationError(
+        error instanceof Error ? error.message : "Failed to refresh voice catalog."
+      );
+    } finally {
+      setVoiceCatalogRefreshing(false);
+    }
+  }, [getToken]);
 
   const handleSkillsChange = useCallback(
     async (nextSkillIds: string[]) => {
@@ -3335,95 +3399,117 @@ export function AssistantSettings({
                         showLanguageFilter
                         showCategoryFilter
                         labels={voicePickerLabels}
+                        languageBucket={elevenLabsLanguageBucket}
+                        onLanguageBucketChange={setElevenLabsLanguageBucket}
                       />
                       {data.isAdmin && elevenLabsAdminVoices.length > 0 ? (
                         <div className="mt-3 rounded-xl border border-border/60 bg-surface-raised/20 p-3">
                           <div className="flex items-center justify-between gap-3">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
-                              Admin curation
-                            </p>
-                            <p className="text-[11px] text-text-muted">
-                              Public voices: {elevenLabsPublicVoices.length}
-                            </p>
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
+                                Admin curation
+                              </p>
+                              <p className="text-[11px] text-text-muted">
+                                Public voices: {elevenLabsVisiblePublicVoices.length}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void handleElevenLabsCatalogRefresh()}
+                              disabled={voiceCatalogRefreshing}
+                              className="rounded-full border border-border px-2.5 py-1 text-[11px] text-text-muted transition-colors hover:border-border-strong hover:text-text disabled:opacity-60"
+                            >
+                              {voiceCatalogRefreshing ? "Refreshing..." : "Refresh cache"}
+                            </button>
                           </div>
                           <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-border/50">
-                            {elevenLabsAdminVoices.map((voice) => (
-                              <div
-                                key={voice.voiceId}
-                                className="flex items-center gap-2 border-b border-border/40 px-2.5 py-1.5 text-xs last:border-b-0"
-                              >
-                                <label className="flex min-w-0 flex-1 items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={voice.approved && !voice.hidden}
+                            {elevenLabsFilteredAdminVoices.length > 0 ? (
+                              elevenLabsFilteredAdminVoices.map((voice) => (
+                                <div
+                                  key={voice.voiceId}
+                                  className="flex items-center gap-2 border-b border-border/40 px-2.5 py-1.5 text-xs last:border-b-0"
+                                >
+                                  <label className="flex min-w-0 flex-1 items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={voice.approved && !voice.hidden}
+                                      disabled={voiceCurationSavingId === voice.voiceId}
+                                      onChange={(event) =>
+                                        void handleElevenLabsCurationChange(voice, {
+                                          approved: event.currentTarget.checked,
+                                          hidden: false
+                                        })
+                                      }
+                                    />
+                                    <span className="truncate text-text">
+                                      {formatElevenLabsVoiceLabel(voice.name, locale)}
+                                    </span>
+                                  </label>
+                                  <VoicePreviewButton
+                                    previewAudioUrl={voice.previewUrl}
+                                    voiceLabel={formatElevenLabsVoiceLabel(voice.name, locale)}
+                                  />
+                                  <button
+                                    type="button"
                                     disabled={voiceCurationSavingId === voice.voiceId}
-                                    onChange={(event) =>
+                                    onClick={() =>
                                       void handleElevenLabsCurationChange(voice, {
-                                        approved: event.currentTarget.checked,
-                                        hidden: false
+                                        hidden: !voice.hidden,
+                                        approved: voice.approved
                                       })
                                     }
-                                  />
-                                  <span className="truncate text-text">
-                                    {formatElevenLabsVoiceLabel(voice.name, locale)}
+                                    className={cn(
+                                      "rounded-full border px-2 py-0.5 text-[10px]",
+                                      voice.hidden
+                                        ? "border-destructive/30 text-destructive"
+                                        : "border-border text-text-muted"
+                                    )}
+                                  >
+                                    {voice.hidden ? "Hidden" : "Hide"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={voiceCurationSavingId === voice.voiceId}
+                                    onClick={() =>
+                                      void handleElevenLabsCurationChange(voice, {
+                                        previewOk: voice.previewOk === false ? true : false
+                                      })
+                                    }
+                                    className={cn(
+                                      "rounded-full border px-2 py-0.5 text-[10px]",
+                                      voice.previewOk === false
+                                        ? "border-warning/40 text-warning"
+                                        : "border-border text-text-muted"
+                                    )}
+                                  >
+                                    {voice.previewUrl === null
+                                      ? "No demo"
+                                      : voice.previewOk === false
+                                        ? "Demo bad"
+                                        : "Demo ok"}
+                                  </button>
+                                  <span
+                                    className={cn(
+                                      "rounded-full px-2 py-0.5 text-[10px]",
+                                      voice.public
+                                        ? "bg-accent/10 text-accent"
+                                        : "bg-surface text-text-subtle"
+                                    )}
+                                  >
+                                    {voice.public ? "Public" : "Draft"}
                                   </span>
-                                </label>
-                                <button
-                                  type="button"
-                                  disabled={voiceCurationSavingId === voice.voiceId}
-                                  onClick={() =>
-                                    void handleElevenLabsCurationChange(voice, {
-                                      hidden: !voice.hidden,
-                                      approved: voice.approved
-                                    })
-                                  }
-                                  className={cn(
-                                    "rounded-full border px-2 py-0.5 text-[10px]",
-                                    voice.hidden
-                                      ? "border-destructive/30 text-destructive"
-                                      : "border-border text-text-muted"
-                                  )}
-                                >
-                                  {voice.hidden ? "Hidden" : "Hide"}
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={voiceCurationSavingId === voice.voiceId}
-                                  onClick={() =>
-                                    void handleElevenLabsCurationChange(voice, {
-                                      previewOk: voice.previewOk === false ? true : false
-                                    })
-                                  }
-                                  className={cn(
-                                    "rounded-full border px-2 py-0.5 text-[10px]",
-                                    voice.previewOk === false
-                                      ? "border-warning/40 text-warning"
-                                      : "border-border text-text-muted"
-                                  )}
-                                >
-                                  {voice.previewUrl === null
-                                    ? "No demo"
-                                    : voice.previewOk === false
-                                      ? "Demo bad"
-                                      : "Demo ok"}
-                                </button>
-                                <span
-                                  className={cn(
-                                    "rounded-full px-2 py-0.5 text-[10px]",
-                                    voice.public
-                                      ? "bg-accent/10 text-accent"
-                                      : "bg-surface text-text-subtle"
-                                  )}
-                                >
-                                  {voice.public ? "Public" : "Draft"}
-                                </span>
-                              </div>
-                            ))}
+                                </div>
+                              ))
+                            ) : (
+                              <p className="px-3 py-4 text-xs text-text-muted">
+                                No voices for the current gender/language filter.
+                              </p>
+                            )}
                           </div>
-                          {elevenLabsPublicVoices.length > 0 ? (
+                          {elevenLabsVisiblePublicVoices.length > 0 ? (
                             <p className="mt-2 truncate text-[11px] text-text-muted">
                               Public:{" "}
-                              {elevenLabsPublicVoices
+                              {elevenLabsVisiblePublicVoices
                                 .map((voice) => formatElevenLabsVoiceLabel(voice.name, locale))
                                 .join(", ")}
                             </p>

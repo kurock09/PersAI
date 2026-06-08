@@ -18,7 +18,6 @@ import {
   type AssistantRuntimeWebChatTurnStreamChunk,
   type RuntimeMediaArtifact
 } from "./assistant-runtime.facade";
-import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { Assistant } from "../domain/assistant.entity";
 import type {
@@ -207,7 +206,6 @@ export class StreamWebChatTurnService {
     private readonly webRuntimeTurnClientService: WebRuntimeTurnClientService,
     private readonly prepareAssistantInboundTurnService: PrepareAssistantInboundTurnService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
-    private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly recordToolPathLedgerFromToolInvocationsService: RecordToolPathLedgerFromToolInvocationsService,
@@ -645,7 +643,6 @@ export class StreamWebChatTurnService {
         assistantMediaJobService: this.assistantMediaJobService,
         assistantDocumentJobReadService: this.assistantDocumentJobReadService,
         mediaDeliveryService: this.mediaDeliveryService,
-        recordWebChatMemoryTurnService: this.recordWebChatMemoryTurnService,
         trackWorkspaceQuotaUsageService: this.trackWorkspaceQuotaUsageService,
         notificationDeliveryWorkerService: this.notificationDeliveryWorkerService,
         quotaAdvisoryFollowUpService: this.quotaAdvisoryFollowUpService,

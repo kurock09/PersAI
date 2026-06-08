@@ -1,11 +1,9 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
-  PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES,
   PERSAI_RUNTIME_MEMORY_WRITE_KINDS,
-  PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES,
-  type PersaiRuntimeMemoryWriteDurability,
   type PersaiRuntimeMemoryWriteKind,
-  type PersaiRuntimeMemoryWriteStability,
+  PERSAI_RUNTIME_MEMORY_WRITE_LAYERS,
+  type PersaiRuntimeMemoryWriteLayer,
   type RuntimeMemoryWriteItem
 } from "@persai/runtime-contract";
 import {
@@ -35,8 +33,7 @@ export interface WriteAssistantMemoryInput {
   assistantId: string;
   kind: PersaiRuntimeMemoryWriteKind;
   summary: string;
-  durability: PersaiRuntimeMemoryWriteDurability;
-  stability: PersaiRuntimeMemoryWriteStability;
+  layer: PersaiRuntimeMemoryWriteLayer;
   confidence: number | null;
   transportSurface: MemoryTransportSurface;
   sourceTrust: MemorySourceTrustClass;
@@ -75,8 +72,7 @@ export class WriteAssistantMemoryService {
     const assistantId = this.asNonEmptyString(row.assistantId);
     const kind = this.asMemoryWriteKind(row.kind);
     const summary = this.normalizeSummary(row.summary);
-    const durability = this.asDurability(row.durability);
-    const stability = this.asStability(row.stability);
+    const layer = this.asLayer(row.layer);
     const confidence = this.asOptionalConfidence(row.confidence);
     const transportSurface = this.asTransportSurface(row.transportSurface);
     const sourceTrust = this.asSourceTrust(row.sourceTrust);
@@ -88,8 +84,7 @@ export class WriteAssistantMemoryService {
         key !== "assistantId" &&
         key !== "kind" &&
         key !== "summary" &&
-        key !== "durability" &&
-        key !== "stability" &&
+        key !== "layer" &&
         key !== "confidence" &&
         key !== "transportSurface" &&
         key !== "sourceTrust" &&
@@ -102,8 +97,7 @@ export class WriteAssistantMemoryService {
       assistantId === null ||
       kind === null ||
       summary === null ||
-      durability === null ||
-      stability === null ||
+      layer === null ||
       confidence === undefined ||
       transportSurface === null ||
       sourceTrust === null
@@ -115,8 +109,7 @@ export class WriteAssistantMemoryService {
       assistantId,
       kind,
       summary,
-      durability,
-      stability,
+      layer,
       confidence,
       transportSurface,
       sourceTrust,
@@ -224,8 +217,7 @@ export class WriteAssistantMemoryService {
           id: existingDuplicate.id,
           summary: existingDuplicate.summary,
           kind: this.resolveItemKind(existingDuplicate.kind, input.kind),
-          durability: this.resolveItemDurability(existingDuplicate.durability, input.durability),
-          stability: this.resolveItemStability(existingDuplicate.stability, input.stability),
+          layer: this.resolveItemLayer(existingDuplicate.memoryClass, input.layer),
           confidence: this.resolveItemConfidence(existingDuplicate.confidence, input.confidence),
           sourceLabel: existingDuplicate.sourceLabel,
           createdAt: existingDuplicate.createdAt.toISOString(),
@@ -252,8 +244,7 @@ export class WriteAssistantMemoryService {
     }
 
     const route = routeDurableMemoryWrite({
-      durability: input.durability,
-      stability: input.stability,
+      layer: input.layer,
       guardrailRejected: isObviouslyNonDurableMemorySummary(input.summary)
     });
     if (route.action === "skip") {
@@ -286,11 +277,11 @@ export class WriteAssistantMemoryService {
       relatedAssistantMessageId: null,
       summary: input.summary,
       sourceType: "memory_write",
-      sourceLabel: this.buildSourceLabel(input.kind),
+      sourceLabel: this.buildSourceLabel(input.kind, input.layer),
       memoryClass: route.memoryClass,
       kind: input.kind,
-      durability: input.durability,
-      stability: input.stability,
+      durability: route.durability,
+      stability: route.stability,
       confidence: input.confidence
     });
 
@@ -304,8 +295,8 @@ export class WriteAssistantMemoryService {
       details: {
         itemId: created.id,
         kind: input.kind,
-        durability: input.durability,
-        stability: input.stability,
+        layer: input.layer,
+        memoryClass: route.memoryClass,
         confidence: input.confidence,
         transportSurface: input.transportSurface,
         sourceTrust: input.sourceTrust,
@@ -322,8 +313,7 @@ export class WriteAssistantMemoryService {
         id: created.id,
         summary: created.summary,
         kind: input.kind,
-        durability: created.durability,
-        stability: created.stability,
+        layer: input.layer,
         confidence: created.confidence,
         sourceLabel: created.sourceLabel,
         createdAt: created.createdAt.toISOString(),
@@ -350,17 +340,10 @@ export class WriteAssistantMemoryService {
       : null;
   }
 
-  private asDurability(value: unknown): PersaiRuntimeMemoryWriteDurability | null {
+  private asLayer(value: unknown): PersaiRuntimeMemoryWriteLayer | null {
     return typeof value === "string" &&
-      PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES.includes(value as PersaiRuntimeMemoryWriteDurability)
-      ? (value as PersaiRuntimeMemoryWriteDurability)
-      : null;
-  }
-
-  private asStability(value: unknown): PersaiRuntimeMemoryWriteStability | null {
-    return typeof value === "string" &&
-      PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES.includes(value as PersaiRuntimeMemoryWriteStability)
-      ? (value as PersaiRuntimeMemoryWriteStability)
+      PERSAI_RUNTIME_MEMORY_WRITE_LAYERS.includes(value as PersaiRuntimeMemoryWriteLayer)
+      ? (value as PersaiRuntimeMemoryWriteLayer)
       : null;
   }
 
@@ -399,18 +382,17 @@ export class WriteAssistantMemoryService {
     return storedKind ?? fallback;
   }
 
-  private resolveItemDurability(
-    storedDurability: PersaiRuntimeMemoryWriteDurability | null,
-    fallback: PersaiRuntimeMemoryWriteDurability
-  ): PersaiRuntimeMemoryWriteDurability {
-    return storedDurability ?? fallback;
-  }
-
-  private resolveItemStability(
-    storedStability: PersaiRuntimeMemoryWriteStability | null,
-    fallback: PersaiRuntimeMemoryWriteStability
-  ): PersaiRuntimeMemoryWriteStability {
-    return storedStability ?? fallback;
+  private resolveItemLayer(
+    memoryClass: "core" | "contextual",
+    fallback: PersaiRuntimeMemoryWriteLayer
+  ): PersaiRuntimeMemoryWriteLayer {
+    if (memoryClass === "core") {
+      return "long";
+    }
+    if (memoryClass === "contextual") {
+      return "short";
+    }
+    return fallback;
   }
 
   private resolveItemConfidence(
@@ -420,14 +402,18 @@ export class WriteAssistantMemoryService {
     return storedConfidence ?? fallback;
   }
 
-  private buildSourceLabel(kind: PersaiRuntimeMemoryWriteKind): string {
+  private buildSourceLabel(
+    kind: PersaiRuntimeMemoryWriteKind,
+    layer: PersaiRuntimeMemoryWriteLayer
+  ): string {
+    const prefix = layer === "long" ? "Long memory write" : "Short memory write";
     switch (kind) {
       case "fact":
-        return "Memory write: fact";
+        return `${prefix}: fact`;
       case "preference":
-        return "Memory write: preference";
+        return `${prefix}: preference`;
       case "open_loop":
-        return "Memory write: open loop";
+        return `${prefix}: open loop`;
     }
   }
 }

@@ -1728,6 +1728,7 @@ model RuntimeSession {
   totalTokensFresh          Boolean                    @default(true) @map("total_tokens_fresh")
   compactionCount           Int                        @default(0) @map("compaction_count")
   compactionHintTokens      Int?                       @map("compaction_hint_tokens")
+  memoryExtractionWatermark Int                        @default(0) @map("memory_extraction_watermark")
   providerKey               String?                    @map("provider_key") @db.VarChar(64)
   modelKey                  String?                    @map("model_key") @db.VarChar(256)
   lastTurnAt                DateTime?                  @map("last_turn_at") @db.Timestamptz(6)
@@ -3090,6 +3091,7 @@ model AssistantIdleEvaluationMarker {
 enum AssistantBackgroundCompactionJobTrigger {
   post_turn
   manual
+  idle_extract
 }
 
 model PersonaArchetype {

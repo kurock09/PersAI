@@ -70,6 +70,39 @@ export class ResolveAssistantVoiceSettingsService {
 
     const includeAdmin = await this.canReadAdminSurface(userId);
     const catalog = await this.elevenLabsVoiceCatalogService.getCatalog({ includeAdmin });
+    return this.toState(primaryProviderId, catalog);
+  }
+
+  async updateElevenLabsCuration(params: {
+    userId: string;
+    patches: ElevenLabsVoiceCurationPatch[];
+  }): Promise<AssistantVoiceSettingsState> {
+    await this.adminAuthorizationService.assertCanReadAdminSurface(params.userId);
+    await this.elevenLabsVoiceCatalogService.updateCuration(params.patches);
+    return this.execute(params.userId);
+  }
+
+  async refreshElevenLabsCatalog(userId: string): Promise<AssistantVoiceSettingsState> {
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const primaryProviderId = await this.loadTtsPrimaryProviderId();
+    if (primaryProviderId !== "elevenlabs") {
+      return {
+        schema: "persai.assistantVoiceSettings.v1",
+        primaryProviderId,
+        elevenlabs: null
+      };
+    }
+    const catalog = await this.elevenLabsVoiceCatalogService.getCatalog({
+      includeAdmin: true,
+      forceRefresh: true
+    });
+    return this.toState(primaryProviderId, catalog);
+  }
+
+  private toState(
+    primaryProviderId: PersaiRuntimeTtsProviderId,
+    catalog: Awaited<ReturnType<ElevenLabsVoiceCatalogService["getCatalog"]>>
+  ): AssistantVoiceSettingsState {
     return {
       schema: "persai.assistantVoiceSettings.v1",
       primaryProviderId,
@@ -81,15 +114,6 @@ export class ResolveAssistantVoiceSettingsService {
         admin: catalog.admin
       }
     };
-  }
-
-  async updateElevenLabsCuration(params: {
-    userId: string;
-    patches: ElevenLabsVoiceCurationPatch[];
-  }): Promise<AssistantVoiceSettingsState> {
-    await this.adminAuthorizationService.assertCanReadAdminSurface(params.userId);
-    await this.elevenLabsVoiceCatalogService.updateCuration(params.patches);
-    return this.execute(params.userId);
   }
 
   private async canReadAdminSurface(userId: string): Promise<boolean> {

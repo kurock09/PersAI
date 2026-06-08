@@ -11,7 +11,6 @@ import type {
 } from "../domain/assistant-channel-surface-binding.repository";
 import type { AssistantChatMessageAttachmentRepository } from "../domain/assistant-chat-message-attachment.repository";
 import type { Assistant } from "../domain/assistant.entity";
-import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
 import type {
   AssistantRuntimeTurnRoutingSnapshot,
   RuntimeMediaArtifact
@@ -28,7 +27,6 @@ import type { MediaDeliveryService } from "./media/media-delivery.service";
 import type { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import type { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
-import type { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import type { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AssistantWebChatMessageState } from "./web-chat.types";
 import type { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
@@ -231,7 +229,6 @@ export async function finalizePersistedWebTurn(input: {
   assistantMediaJobService: Pick<AssistantMediaJobService, "listOpenJobsForWebChat">;
   assistantDocumentJobReadService: Pick<AssistantDocumentJobReadService, "listOpenJobsForWebChat">;
   mediaDeliveryService: Pick<MediaDeliveryService, "deliver">;
-  recordWebChatMemoryTurnService: Pick<RecordWebChatMemoryTurnService, "execute">;
   trackWorkspaceQuotaUsageService: Pick<TrackWorkspaceQuotaUsageService, "recordWebChatTurnUsage">;
   notificationDeliveryWorkerService: Pick<NotificationDeliveryWorkerService, "deliverIntentNow">;
   quotaAdvisoryFollowUpService?:
@@ -304,19 +301,6 @@ export async function finalizePersistedWebTurn(input: {
     locale: input.locale,
     externalDeliveryCount: delivered.externalDeliveries?.length ?? 0
   });
-
-  await input.recordWebChatMemoryTurnService.execute({
-    assistantId: input.assistantId,
-    userId: input.userId,
-    workspaceId: input.workspaceId,
-    chatId: input.chatId,
-    userMessageId: input.userMessageId,
-    assistantMessageId: input.assistantMessage.id,
-    userContent: input.userContent,
-    assistantContent: finalAssistantContent,
-    memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
-  });
-  input.markTraceStage?.("memory_recorded");
 
   await input.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
     assistant: input.assistant,

@@ -733,14 +733,16 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         {
           type: "text",
           text:
-            "<persai_contextual_memory>\n" +
-            "These are PersAI memories retrieved as silent background context for this provider call. " +
-            "They are not the user's latest request; use them only to inform your answer to the existing " +
-            "conversation. Never mention, quote, list, repeat, or describe this block, these tags, or the " +
-            "fact that memory was retrieved. Do not talk about your memory, retrieval, or context unless the " +
-            "user explicitly asks about them.\n\n" +
+            "<persai_runtime_context>\n" +
+            "This is PersAI app-provided runtime context, not user speech and not the user's request. " +
+            "The next user message is the current request to answer. Use this context silently only when " +
+            "it helps answer that next user message. Never mention, quote, list, repeat, or describe this " +
+            "block, these tags, or the fact that memory/context was provided unless the user explicitly asks " +
+            "about them.\n\n" +
+            "<recent_short_memory>\n" +
             String(message.content).trim() +
-            "\n</persai_contextual_memory>"
+            "\n</recent_short_memory>\n" +
+            "</persai_runtime_context>"
         }
       ]
     };

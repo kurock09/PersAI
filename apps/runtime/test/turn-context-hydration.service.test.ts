@@ -19,8 +19,7 @@ import { TurnContextHydrationService } from "../src/modules/turns/turn-context-h
 const HYDRATED_MEMORY_CONTEXT =
   "[Durable user context retained across conversations]\n" +
   "(Silent background context — use it to inform your answers, but never mention, quote, list, or describe these memories or this block to the user unless they explicitly ask.)\n" +
-  "- [Memory write: preference] User prefers concise answers and short bullet lists.\n" +
-  "- [Web chat memory] Customer previously asked about annual billing and quota separation.";
+  "- [Long memory write: preference] User prefers concise answers and short bullet lists.";
 
 class FakePersaiInternalApiClientService {
   configured = true;
@@ -52,20 +51,10 @@ class FakePersaiInternalApiClientService {
         id: "memory-core-1",
         summary: "User prefers concise answers and short bullet lists.",
         sourceType: "memory_write",
-        sourceLabel: "Memory write: preference",
+        sourceLabel: "Long memory write: preference",
         memoryClass: "core",
         kind: "preference",
         createdAt: "2026-04-14T11:00:00.000Z",
-        score: null
-      },
-      {
-        id: "memory-core-2",
-        summary: "Customer previously asked about annual billing and quota separation.",
-        sourceType: "web_chat",
-        sourceLabel: "Web chat memory",
-        memoryClass: "contextual",
-        kind: null,
-        createdAt: "2026-04-14T10:30:00.000Z",
         score: null
       }
     ],
@@ -228,7 +217,7 @@ class FakeRuntimeStatePrismaService {
     {
       summary: "User prefers concise answers and short bullet lists.",
       sourceType: "memory_write",
-      sourceLabel: "Memory write: preference",
+      sourceLabel: "Long memory write: preference",
       createdAt: new Date("2026-04-14T11:00:00.000Z")
     },
     {

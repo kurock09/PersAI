@@ -41,6 +41,8 @@ const assistantApiMocks = vi.hoisted(() => ({
   getAssistantTaskItems: vi.fn(),
   getAssistantBackgroundTaskItems: vi.fn(),
   getAssistantVoiceSettings: vi.fn(),
+  patchAssistantElevenLabsVoiceCuration: vi.fn(),
+  postAssistantElevenLabsVoiceCatalogRefresh: vi.fn(),
   getWorkspaceMemoryItems: vi.fn(),
   searchWorkspaceMemory: vi.fn(),
   addWorkspaceMemoryItem: vi.fn(),
@@ -95,6 +97,9 @@ vi.mock("../assistant-api-client", async () => {
     getAssistantTaskItems: assistantApiMocks.getAssistantTaskItems,
     getAssistantBackgroundTaskItems: assistantApiMocks.getAssistantBackgroundTaskItems,
     getAssistantVoiceSettings: assistantApiMocks.getAssistantVoiceSettings,
+    patchAssistantElevenLabsVoiceCuration: assistantApiMocks.patchAssistantElevenLabsVoiceCuration,
+    postAssistantElevenLabsVoiceCatalogRefresh:
+      assistantApiMocks.postAssistantElevenLabsVoiceCatalogRefresh,
     getWorkspaceMemoryItems: assistantApiMocks.getWorkspaceMemoryItems,
     searchWorkspaceMemory: assistantApiMocks.searchWorkspaceMemory,
     addWorkspaceMemoryItem: assistantApiMocks.addWorkspaceMemoryItem,
@@ -303,6 +308,16 @@ beforeEach(() => {
   assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
   assistantApiMocks.getAssistantBackgroundTaskItems.mockResolvedValue([]);
   assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
+    schema: "persai.assistantVoiceSettings.v1",
+    primaryProviderId: "openai",
+    elevenlabs: null
+  });
+  assistantApiMocks.patchAssistantElevenLabsVoiceCuration.mockResolvedValue({
+    schema: "persai.assistantVoiceSettings.v1",
+    primaryProviderId: "openai",
+    elevenlabs: null
+  });
+  assistantApiMocks.postAssistantElevenLabsVoiceCatalogRefresh.mockResolvedValue({
     schema: "persai.assistantVoiceSettings.v1",
     primaryProviderId: "openai",
     elevenlabs: null
@@ -2874,6 +2889,269 @@ describe("AssistantSettings voice picker", () => {
       );
     });
     expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-1");
+  });
+
+  it("keeps the admin top picker on public voices and updates it after approval", async () => {
+    assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
+      schema: "persai.assistantVoiceSettings.v1",
+      primaryProviderId: "elevenlabs",
+      elevenlabs: {
+        configured: true,
+        loadState: "ready",
+        warning: null,
+        voices: [
+          {
+            voiceId: "public-voice",
+            name: "Public Ava",
+            gender: "female",
+            category: "featured",
+            language: "en",
+            languageBucket: "en",
+            previewUrl: "https://cdn.example.com/public-ava.mp3"
+          }
+        ],
+        admin: {
+          publicVoices: [
+            {
+              voiceId: "public-voice",
+              name: "Public Ava",
+              gender: "female",
+              category: "featured",
+              language: "en",
+              languageBucket: "en",
+              previewUrl: "https://cdn.example.com/public-ava.mp3"
+            }
+          ],
+          voices: [
+            {
+              voiceId: "public-voice",
+              name: "Public Ava",
+              gender: "female",
+              category: "featured",
+              language: "en",
+              languageBucket: "en",
+              previewUrl: "https://cdn.example.com/public-ava.mp3",
+              approved: true,
+              hidden: false,
+              rank: 1,
+              previewOk: true,
+              public: true
+            },
+            {
+              voiceId: "candidate-voice",
+              name: "Candidate Luna",
+              gender: "female",
+              category: "featured",
+              language: "en",
+              languageBucket: "en",
+              previewUrl: "https://cdn.example.com/candidate-luna.mp3",
+              approved: false,
+              hidden: false,
+              rank: null,
+              previewOk: true,
+              public: false
+            }
+          ]
+        }
+      }
+    });
+    assistantApiMocks.patchAssistantElevenLabsVoiceCuration.mockResolvedValue({
+      schema: "persai.assistantVoiceSettings.v1",
+      primaryProviderId: "elevenlabs",
+      elevenlabs: {
+        configured: true,
+        loadState: "ready",
+        warning: null,
+        voices: [
+          {
+            voiceId: "public-voice",
+            name: "Public Ava",
+            gender: "female",
+            category: "featured",
+            language: "en",
+            languageBucket: "en",
+            previewUrl: "https://cdn.example.com/public-ava.mp3"
+          },
+          {
+            voiceId: "candidate-voice",
+            name: "Candidate Luna",
+            gender: "female",
+            category: "featured",
+            language: "en",
+            languageBucket: "en",
+            previewUrl: "https://cdn.example.com/candidate-luna.mp3"
+          }
+        ],
+        admin: {
+          publicVoices: [
+            {
+              voiceId: "public-voice",
+              name: "Public Ava",
+              gender: "female",
+              category: "featured",
+              language: "en",
+              languageBucket: "en",
+              previewUrl: "https://cdn.example.com/public-ava.mp3"
+            },
+            {
+              voiceId: "candidate-voice",
+              name: "Candidate Luna",
+              gender: "female",
+              category: "featured",
+              language: "en",
+              languageBucket: "en",
+              previewUrl: "https://cdn.example.com/candidate-luna.mp3"
+            }
+          ],
+          voices: [
+            {
+              voiceId: "public-voice",
+              name: "Public Ava",
+              gender: "female",
+              category: "featured",
+              language: "en",
+              languageBucket: "en",
+              previewUrl: "https://cdn.example.com/public-ava.mp3",
+              approved: true,
+              hidden: false,
+              rank: 1,
+              previewOk: true,
+              public: true
+            },
+            {
+              voiceId: "candidate-voice",
+              name: "Candidate Luna",
+              gender: "female",
+              category: "featured",
+              language: "en",
+              languageBucket: "en",
+              previewUrl: "https://cdn.example.com/candidate-luna.mp3",
+              approved: true,
+              hidden: false,
+              rank: 2,
+              previewOk: true,
+              public: true
+            }
+          ]
+        }
+      }
+    });
+
+    renderSettings(makeAppData({ isAdmin: true }), "character");
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    expect(await screen.findByRole("button", { name: "Public Ava" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Candidate Luna" })).not.toBeInTheDocument();
+
+    const candidateLabel = screen.getByText("Candidate Luna");
+    fireEvent.click(within(candidateLabel.closest("label") as HTMLElement).getByRole("checkbox"));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.patchAssistantElevenLabsVoiceCuration).toHaveBeenCalledWith(
+        "token-1",
+        [
+          expect.objectContaining({
+            voiceId: "candidate-voice",
+            approved: true,
+            hidden: false
+          })
+        ]
+      );
+    });
+    expect(await screen.findByRole("button", { name: "Candidate Luna" })).toBeInTheDocument();
+  });
+
+  it("refreshes the admin voice catalog on demand", async () => {
+    assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
+      schema: "persai.assistantVoiceSettings.v1",
+      primaryProviderId: "elevenlabs",
+      elevenlabs: {
+        configured: true,
+        loadState: "ready",
+        warning: null,
+        voices: [],
+        admin: {
+          publicVoices: [],
+          voices: [
+            {
+              voiceId: "stale-candidate",
+              name: "Stale Candidate",
+              gender: "female",
+              category: "featured",
+              language: "en",
+              languageBucket: "en",
+              previewUrl: "https://cdn.example.com/stale-candidate.mp3",
+              approved: false,
+              hidden: false,
+              rank: null,
+              previewOk: true,
+              public: false
+            }
+          ]
+        }
+      }
+    });
+    assistantApiMocks.postAssistantElevenLabsVoiceCatalogRefresh.mockResolvedValue({
+      schema: "persai.assistantVoiceSettings.v1",
+      primaryProviderId: "elevenlabs",
+      elevenlabs: {
+        configured: true,
+        loadState: "ready",
+        warning: null,
+        voices: [
+          {
+            voiceId: "refreshed-voice",
+            name: "Refreshed Iris",
+            gender: "female",
+            category: "featured",
+            language: "en",
+            languageBucket: "en",
+            previewUrl: "https://cdn.example.com/refreshed-iris.mp3"
+          }
+        ],
+        admin: {
+          publicVoices: [
+            {
+              voiceId: "refreshed-voice",
+              name: "Refreshed Iris",
+              gender: "female",
+              category: "featured",
+              language: "en",
+              languageBucket: "en",
+              previewUrl: "https://cdn.example.com/refreshed-iris.mp3"
+            }
+          ],
+          voices: [
+            {
+              voiceId: "refreshed-voice",
+              name: "Refreshed Iris",
+              gender: "female",
+              category: "featured",
+              language: "en",
+              languageBucket: "en",
+              previewUrl: "https://cdn.example.com/refreshed-iris.mp3",
+              approved: true,
+              hidden: false,
+              rank: 1,
+              previewOk: true,
+              public: true
+            }
+          ]
+        }
+      }
+    });
+
+    renderSettings(makeAppData({ isAdmin: true }), "character");
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh cache" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantElevenLabsVoiceCatalogRefresh).toHaveBeenCalledWith(
+        "token-1"
+      );
+    });
+    expect(await screen.findByRole("button", { name: "Refreshed Iris" })).toBeInTheDocument();
   });
 });
 

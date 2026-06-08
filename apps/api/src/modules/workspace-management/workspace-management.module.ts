@@ -197,7 +197,6 @@ import { ManageAdminPlansService } from "./application/manage-admin-plans.servic
 import { ManageSitePagesService } from "./application/manage-site-pages.service";
 import { ManageWebChatListService } from "./application/manage-web-chat-list.service";
 import { PublishAssistantDraftService } from "./application/publish-assistant-draft.service";
-import { RecordWebChatMemoryTurnService } from "./application/record-web-chat-memory-turn.service";
 import { RecordModelCostLedgerService } from "./application/record-model-cost-ledger.service";
 import { RecordToolPathLedgerFromToolInvocationsService } from "./application/record-tool-path-ledger-from-tool-invocations.service";
 import { ReapplyAssistantService } from "./application/reapply-assistant.service";
@@ -265,6 +264,7 @@ import { InternalRuntimeBackgroundTaskClientService } from "./application/intern
 import { BackgroundSchedulerMetricsService } from "./application/background-scheduler-metrics.service";
 import { PersaiBackgroundTaskSchedulerService } from "./application/persai-background-task-scheduler.service";
 import { PersaiIdleReengagementSchedulerService } from "./application/persai-idle-reengagement-scheduler.service";
+import { PersaiIdleSessionMemoryExtractionSchedulerService } from "./application/persai-idle-session-memory-extraction-scheduler.service";
 import { SchedulerLeaseService } from "./application/scheduler-lease.service";
 import { BackgroundCompactionQueueService } from "./application/background-compaction-queue.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
@@ -547,6 +547,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeCompactionClientService,
     InternalRuntimeBackgroundTaskClientService,
     PersaiIdleReengagementSchedulerService,
+    PersaiIdleSessionMemoryExtractionSchedulerService,
     SchedulerLeaseService,
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,
@@ -614,7 +615,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     RollbackAssistantService,
     ResetAssistantService,
     PreviewAssistantSetupService,
-    RecordWebChatMemoryTurnService,
     SendNativeTelegramTurnService,
     WebRuntimeTurnClientService,
     WebRuntimeStreamClientService,

@@ -48,6 +48,22 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
   );
   assert.equal(
     hasRoute(consumer.routes, {
+      path: "api/v1/assistant/voice/elevenlabs/curation",
+      method: RequestMethod.PATCH
+    }),
+    true,
+    "PATCH /api/v1/assistant/voice/elevenlabs/curation must be guarded by ClerkAuthMiddleware"
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/assistant/voice/elevenlabs/refresh",
+      method: RequestMethod.POST
+    }),
+    true,
+    "POST /api/v1/assistant/voice/elevenlabs/refresh must be guarded by ClerkAuthMiddleware"
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
       path: "api/v1/assistant/list",
       method: RequestMethod.GET
     }),

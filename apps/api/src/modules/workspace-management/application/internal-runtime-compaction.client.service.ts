@@ -31,6 +31,32 @@ export type InternalRuntimeCompactAndExtractOutcome =
       message: string;
     };
 
+export type RuntimeIdleSessionMemoryExtractionResult = {
+  ok: boolean;
+  retryable: boolean;
+  reason: string;
+  sessionId: string | null;
+  snapshotHydratableCount: number | null;
+  watermarkBefore: number | null;
+  watermarkAfter: number | null;
+  deltaMessageCount: number | null;
+  autoExtract: unknown;
+};
+
+export type InternalRuntimeIdleExtractOutcome =
+  | {
+      ok: true;
+      result: RuntimeIdleSessionMemoryExtractionResult;
+    }
+  | {
+      ok: false;
+      retryable: boolean;
+      status: number | null;
+      code: string | null;
+      message: string;
+      result: RuntimeIdleSessionMemoryExtractionResult | null;
+    };
+
 @Injectable()
 export class InternalRuntimeCompactionClientService {
   private readonly logger = new Logger(InternalRuntimeCompactionClientService.name);
@@ -137,6 +163,124 @@ export class InternalRuntimeCompactionClientService {
     }
   }
 
+  async executeIdleExtract(
+    input: InternalRuntimeCompactAndExtractInput
+  ): Promise<InternalRuntimeIdleExtractOutcome> {
+    const config = loadApiConfig(process.env);
+    const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
+    if (!baseUrl) {
+      return {
+        ok: false,
+        retryable: false,
+        status: null,
+        code: "runtime_base_url_missing",
+        message: "PERSAI_RUNTIME_BASE_URL is not configured for idle memory extraction.",
+        result: null
+      };
+    }
+    const token = config.PERSAI_INTERNAL_API_TOKEN?.trim();
+    if (!token) {
+      return {
+        ok: false,
+        retryable: false,
+        status: null,
+        code: "internal_token_missing",
+        message: "PERSAI_INTERNAL_API_TOKEN is not configured for idle memory extraction.",
+        result: null
+      };
+    }
+
+    const url = new URL("/api/v1/internal/runtime/sessions/idle-extract", baseUrl).toString();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), COMPACT_AND_EXTRACT_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          runtimeTier: input.runtimeTier,
+          conversation: {
+            assistantId: input.assistantId,
+            workspaceId: input.workspaceId,
+            channel: input.channel,
+            externalThreadKey: input.externalThreadKey,
+            externalUserKey: input.externalUserKey,
+            mode: "direct"
+          },
+          enqueuedRequestId: input.enqueuedRequestId
+        }),
+        signal: controller.signal
+      });
+
+      const body = await this.readBody(response);
+      if (!response.ok) {
+        const error = this.extractError(body);
+        const retryable =
+          response.status >= 500 || response.status === 408 || response.status === 429;
+        return {
+          ok: false,
+          retryable,
+          status: response.status,
+          code: error.code ?? `http_${response.status}`,
+          message:
+            error.message ?? `Idle memory extraction runtime returned HTTP ${response.status}.`,
+          result: null
+        };
+      }
+
+      if (!this.isRuntimeIdleExtractionResult(body)) {
+        return {
+          ok: false,
+          retryable: false,
+          status: response.status,
+          code: "invalid_response",
+          message: "Idle memory extraction runtime returned an unexpected response shape.",
+          result: null
+        };
+      }
+
+      if (body.ok) {
+        return { ok: true, result: body };
+      }
+
+      return {
+        ok: false,
+        retryable: body.retryable,
+        status: response.status,
+        code: body.reason,
+        message: body.reason,
+        result: body
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return {
+          ok: false,
+          retryable: true,
+          status: null,
+          code: "timeout",
+          message: `Idle memory extraction runtime call timed out after ${COMPACT_AND_EXTRACT_TIMEOUT_MS}ms.`,
+          result: null
+        };
+      }
+      return {
+        ok: false,
+        retryable: true,
+        status: null,
+        code: "network_error",
+        message:
+          error instanceof Error
+            ? `Idle memory extraction runtime call failed: ${error.message}`
+            : "Idle memory extraction runtime call failed.",
+        result: null
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   private async readBody(response: Response): Promise<unknown> {
     const contentType = response.headers.get("content-type") ?? "";
     if (contentType.includes("application/json")) {
@@ -159,6 +303,20 @@ export class InternalRuntimeCompactionClientService {
       typeof row.compacted === "boolean" &&
       (typeof row.reason === "string" || row.reason === null) &&
       this.asObject(row.toolResult) !== null
+    );
+  }
+
+  private isRuntimeIdleExtractionResult(
+    value: unknown
+  ): value is RuntimeIdleSessionMemoryExtractionResult {
+    const row = this.asObject(value);
+    if (row === null) {
+      return false;
+    }
+    return (
+      typeof row.ok === "boolean" &&
+      typeof row.retryable === "boolean" &&
+      typeof row.reason === "string"
     );
   }
 

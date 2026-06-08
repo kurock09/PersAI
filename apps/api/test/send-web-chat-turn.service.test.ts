@@ -197,7 +197,6 @@ describe("SendWebChatTurnService", () => {
         })
       } as never,
       {} as never,
-      {} as never,
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
@@ -316,9 +315,6 @@ describe("SendWebChatTurnService", () => {
             workspaceId: "workspace-1"
           }
         })
-      } as never,
-      {
-        execute: async () => undefined
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
@@ -450,7 +446,6 @@ describe("SendWebChatTurnService", () => {
           assistant: { workspaceId: "workspace-1" }
         })
       } as never,
-      { execute: async () => undefined } as never,
       { recordWebChatTurnUsage: async () => undefined } as never,
       { recordChatMainReplyEvents: async () => 0 } as never,
       noopRecordToolPathLedgerFromToolInvocationsService,
@@ -588,9 +583,6 @@ describe("SendWebChatTurnService", () => {
         })
       } as never,
       {
-        execute: async () => undefined
-      } as never,
-      {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
@@ -648,7 +640,6 @@ describe("SendWebChatTurnService", () => {
 
   test("uses the admin-managed onboarding prompt for welcome sync turns", async () => {
     let capturedWebRuntimeUserMessage = "";
-    const memoryWrites: Array<Record<string, unknown>> = [];
     const quotaWrites: Array<Record<string, unknown>> = [];
 
     const service = new SendWebChatTurnService(
@@ -722,11 +713,6 @@ describe("SendWebChatTurnService", () => {
         })
       } as never,
       {
-        execute: async (input: Record<string, unknown>) => {
-          memoryWrites.push(input);
-        }
-      } as never,
-      {
         recordWebChatTurnUsage: async (input: Record<string, unknown>) => {
           quotaWrites.push(input);
         }
@@ -760,10 +746,6 @@ describe("SendWebChatTurnService", () => {
 
     assert.equal(
       capturedWebRuntimeUserMessage,
-      "You just came online. Introduce yourself warmly to Alex."
-    );
-    assert.equal(
-      memoryWrites[0]?.userContent,
       "You just came online. Introduce yourself warmly to Alex."
     );
     assert.equal(
@@ -866,9 +848,6 @@ describe("SendWebChatTurnService", () => {
         })
       } as never,
       {
-        execute: async () => undefined
-      } as never,
-      {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
@@ -922,7 +901,6 @@ describe("SendWebChatTurnService", () => {
 
   test("corrects assistant text when runtime queued a file but final web delivery produced no attachments", async () => {
     const updatedContents: string[] = [];
-    const memoryWrites: Array<Record<string, unknown>> = [];
     const quotaWrites: Array<Record<string, unknown>> = [];
     const ledgerWrites: Array<Record<string, unknown>> = [];
 
@@ -1031,11 +1009,6 @@ describe("SendWebChatTurnService", () => {
         })
       } as never,
       {
-        execute: async (input: Record<string, unknown>) => {
-          memoryWrites.push(input);
-        }
-      } as never,
-      {
         recordWebChatTurnUsage: async (input: Record<string, unknown>) => {
           quotaWrites.push(input);
         }
@@ -1074,10 +1047,6 @@ describe("SendWebChatTurnService", () => {
     assert.equal(result.assistantMessage.attachments.length, 0);
     assert.match(
       result.assistantMessage.content,
-      /Поправка: файл не был реально доставлен в этот чат/
-    );
-    assert.match(
-      String(memoryWrites[0]?.assistantContent ?? ""),
       /Поправка: файл не был реально доставлен в этот чат/
     );
     assert.match(
@@ -1172,9 +1141,6 @@ describe("SendWebChatTurnService", () => {
         resolveByUserId: async () => ({
           assistantId: "assistant-1"
         })
-      } as never,
-      {
-        execute: async () => undefined
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
@@ -1310,9 +1276,6 @@ describe("SendWebChatTurnService", () => {
         })
       } as never,
       {
-        execute: async () => undefined
-      } as never,
-      {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
@@ -1426,9 +1389,6 @@ describe("SendWebChatTurnService", () => {
         resolveByUserId: async () => ({
           assistantId: "assistant-1"
         })
-      } as never,
-      {
-        execute: async () => undefined
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
@@ -1550,9 +1510,6 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         resolveByUserId: async () => ({ assistantId: "assistant-1" })
-      } as never,
-      {
-        execute: async () => undefined
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined

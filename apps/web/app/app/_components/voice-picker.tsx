@@ -24,6 +24,8 @@ export type VoicePickerProps = {
   showCategoryFilter?: boolean;
   disabled?: boolean;
   labels: VoicePickerLabels;
+  languageBucket?: VoiceLanguageBucket;
+  onLanguageBucketChange?: (value: VoiceLanguageBucket) => void;
 };
 
 const LANGUAGE_TABS: ReadonlyArray<{ value: VoiceLanguageBucket; label: string }> = [
@@ -38,12 +40,15 @@ export function VoicePicker({
   onSelect,
   showLanguageFilter = false,
   disabled = false,
-  labels
+  labels,
+  languageBucket: controlledLanguageBucket,
+  onLanguageBucketChange
 }: VoicePickerProps) {
   const selectedEntry = entries.find((entry) => entry.value === selectedValue);
-  const [languageBucket, setLanguageBucket] = useState<VoiceLanguageBucket>(
+  const [uncontrolledLanguageBucket, setUncontrolledLanguageBucket] = useState<VoiceLanguageBucket>(
     selectedEntry?.languageBucket ?? "en"
   );
+  const languageBucket = controlledLanguageBucket ?? uncontrolledLanguageBucket;
   const [playingValue, setPlayingValue] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -55,10 +60,10 @@ export function VoicePicker({
   }, []);
 
   useEffect(() => {
-    if (selectedEntry !== undefined) {
-      setLanguageBucket(selectedEntry.languageBucket);
+    if (controlledLanguageBucket === undefined && selectedEntry !== undefined) {
+      setUncontrolledLanguageBucket(selectedEntry.languageBucket);
     }
-  }, [selectedEntry]);
+  }, [controlledLanguageBucket, selectedEntry]);
 
   const visibleEntries = useMemo(
     () =>
@@ -101,7 +106,13 @@ export function VoicePicker({
             <button
               key={tab.value}
               type="button"
-              onClick={() => setLanguageBucket(tab.value)}
+              onClick={() => {
+                if (onLanguageBucketChange) {
+                  onLanguageBucketChange(tab.value);
+                  return;
+                }
+                setUncontrolledLanguageBucket(tab.value);
+              }}
               disabled={disabled}
               aria-pressed={languageBucket === tab.value}
               className={cn(

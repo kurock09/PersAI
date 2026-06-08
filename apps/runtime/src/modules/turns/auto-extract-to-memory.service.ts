@@ -1,9 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
-  PersaiRuntimeMemoryWriteDurability,
   PersaiRuntimeMemoryWriteKind,
-  PersaiRuntimeMemoryWriteStability,
+  PersaiRuntimeMemoryWriteLayer,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextMessage,
   RuntimeCompactionAutoExtractResult,
@@ -36,8 +35,7 @@ export interface AutoExtractToMemoryInput {
 interface AutoExtractCandidate {
   kind: PersaiRuntimeMemoryWriteKind;
   summary: string;
-  durability: PersaiRuntimeMemoryWriteDurability;
-  stability: PersaiRuntimeMemoryWriteStability;
+  layer: PersaiRuntimeMemoryWriteLayer;
   confidence: number | null;
 }
 
@@ -59,11 +57,10 @@ const AUTO_EXTRACT_OUTPUT_SCHEMA = {
           properties: {
             kind: { type: "string", enum: ["fact", "preference", "open_loop"] },
             summary: { type: "string", minLength: 1, maxLength: AUTO_EXTRACT_SUMMARY_MAX_CHARS },
-            durability: { type: "string", enum: ["identity", "episodic"] },
-            stability: { type: "string", enum: ["stable", "time_bound"] },
+            layer: { type: "string", enum: ["long", "short"] },
             confidence: { type: ["number", "null"], minimum: 0, maximum: 1 }
           },
-          required: ["kind", "summary", "durability", "stability", "confidence"]
+          required: ["kind", "summary", "layer", "confidence"]
         }
       }
     },
@@ -140,8 +137,7 @@ export class AutoExtractToMemoryService {
     const acceptedEntries: Array<{
       kind: PersaiRuntimeMemoryWriteKind;
       summary: string;
-      durability: PersaiRuntimeMemoryWriteDurability;
-      stability: PersaiRuntimeMemoryWriteStability;
+      layer: PersaiRuntimeMemoryWriteLayer;
       confidence: number | null;
     }> = [];
 
@@ -154,8 +150,7 @@ export class AutoExtractToMemoryService {
           assistantId: input.bundle.metadata.assistantId,
           kind: candidate.kind,
           summary: candidate.summary,
-          durability: candidate.durability,
-          stability: candidate.stability,
+          layer: candidate.layer,
           confidence: candidate.confidence,
           transportSurface,
           sourceTrust,
@@ -176,8 +171,7 @@ export class AutoExtractToMemoryService {
         acceptedEntries.push({
           kind: candidate.kind,
           summary: candidate.summary,
-          durability: candidate.durability,
-          stability: candidate.stability,
+          layer: candidate.layer,
           confidence: candidate.confidence
         });
         continue;
@@ -233,10 +227,9 @@ export class AutoExtractToMemoryService {
       '- "fact": stable factual statements about the user or their world that are unlikely to change soon.',
       '- "preference": durable likes/dislikes/operating preferences for how you should help.',
       '- "open_loop": something the user explicitly wants to come back to later that is not yet resolved.',
-      'Durability: use "identity" for who the user is or a lasting preference about how to help; use "episodic" for a one-off task, wish, or event.',
-      'Stability: use "stable" for timeless or unlikely-to-change memories; use "time_bound" for memories tied to a moment or likely to expire.',
+      'Layer choice: use "long" for stable long-term facts, lasting preferences, or durable decisions. Use "short" for recent working context that matters for now but should decay naturally once it stops being useful.',
       synopsisHint,
-      'Return STRICT JSON of shape: {"items":[{"kind":"fact|preference|open_loop","summary":"...","durability":"identity|episodic","stability":"stable|time_bound","confidence":0.0}]}.',
+      'Return STRICT JSON of shape: {"items":[{"kind":"fact|preference|open_loop","summary":"...","layer":"long|short","confidence":0.0}]}.',
       'If nothing durable belongs in memory, return {"items":[]}.',
       "Do not wrap the JSON in code fences. Do not include any other text."
     ];
@@ -277,22 +270,15 @@ export class AutoExtractToMemoryService {
       if (row === null) continue;
       const kind = this.asKind(row.kind);
       const summary = this.normalizeSummary(row.summary);
-      const durability = this.asDurability(row.durability);
-      const stability = this.asStability(row.stability);
+      const layer = this.asLayer(row.layer);
       const confidence = this.asOptionalConfidence(row.confidence);
-      if (
-        kind === null ||
-        summary === null ||
-        durability === null ||
-        stability === null ||
-        confidence === undefined
-      ) {
+      if (kind === null || summary === null || layer === null || confidence === undefined) {
         continue;
       }
       const dedupeKey = `${kind}:${summary.toLowerCase()}`;
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
-      out.push({ kind, summary, durability, stability, confidence });
+      out.push({ kind, summary, layer, confidence });
     }
     return out;
   }
@@ -312,16 +298,8 @@ export class AutoExtractToMemoryService {
     return normalized;
   }
 
-  private asDurability(value: unknown): PersaiRuntimeMemoryWriteDurability | null {
-    return value === "identity" || value === "episodic"
-      ? (value as PersaiRuntimeMemoryWriteDurability)
-      : null;
-  }
-
-  private asStability(value: unknown): PersaiRuntimeMemoryWriteStability | null {
-    return value === "stable" || value === "time_bound"
-      ? (value as PersaiRuntimeMemoryWriteStability)
-      : null;
+  private asLayer(value: unknown): PersaiRuntimeMemoryWriteLayer | null {
+    return value === "long" || value === "short" ? (value as PersaiRuntimeMemoryWriteLayer) : null;
   }
 
   private asOptionalConfidence(value: unknown): number | null | undefined {

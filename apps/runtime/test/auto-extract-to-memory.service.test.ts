@@ -210,8 +210,7 @@ function makeWrittenItem(id: string): RuntimeMemoryWriteItem {
     id,
     summary: "stub",
     kind: "fact",
-    durability: "identity",
-    stability: "stable",
+    layer: "long",
     confidence: null,
     sourceLabel: null,
     createdAt: "2026-04-12T00:00:00.000Z",
@@ -248,22 +247,19 @@ async function runWritesAcceptedCandidates(): Promise<void> {
         {
           kind: "preference",
           summary: "She prefers Saturday mornings for planning calls.",
-          durability: "identity",
-          stability: "stable",
+          layer: "long",
           confidence: 0.93
         },
         {
           kind: "fact",
           summary: "User works on PersAI runtime.",
-          durability: "identity",
-          stability: "stable",
+          layer: "long",
           confidence: 0.81
         },
         {
           kind: "open_loop",
           summary: "Need to circle back on Step 12 transcription.",
-          durability: "episodic",
-          stability: "time_bound",
+          layer: "short",
           confidence: 0.88
         }
       ]
@@ -301,12 +297,10 @@ async function runWritesAcceptedCandidates(): Promise<void> {
   assert.equal(api.writeCalls[0]?.sourceTrust, "trusted_1to1");
   assert.equal(api.writeCalls[0]?.requestId, "req-1");
   assert.equal(api.writeCalls[0]?.relatedUserMessageId, null);
-  assert.equal(api.writeCalls[0]?.durability, "identity");
-  assert.equal(api.writeCalls[0]?.stability, "stable");
-  assert.equal(api.writeCalls[2]?.durability, "episodic");
-  assert.equal(api.writeCalls[2]?.stability, "time_bound");
-  assert.equal(result.entries[0]?.durability, "identity");
-  assert.equal(result.entries[2]?.stability, "time_bound");
+  assert.equal(api.writeCalls[0]?.layer, "long");
+  assert.equal(api.writeCalls[2]?.layer, "short");
+  assert.equal(result.entries[0]?.layer, "long");
+  assert.equal(result.entries[2]?.layer, "short");
 
   // Provider request must use auto_extract_to_memory classification and
   // respect human-voice instructions.
@@ -315,8 +309,7 @@ async function runWritesAcceptedCandidates(): Promise<void> {
   const systemPrompt = gateway.requests[0]?.systemPrompt ?? "";
   assert.match(systemPrompt, /warm, attentive friend/i);
   assert.match(systemPrompt, /Never write in the user's voice/);
-  assert.match(systemPrompt, /Durability: use "identity"/);
-  assert.match(systemPrompt, /Stability: use "stable"/);
+  assert.match(systemPrompt, /Layer choice: use "long"/);
   assert.match(systemPrompt, /STRICT JSON/);
 }
 
@@ -329,20 +322,17 @@ async function runDeduplicateCandidatesBeforeWrite(): Promise<void> {
         {
           kind: "fact",
           summary: "User likes espresso.",
-          durability: "identity",
-          stability: "stable"
+          layer: "long"
         },
         {
           kind: "fact",
           summary: "  user likes ESPRESSO. ",
-          durability: "identity",
-          stability: "stable"
+          layer: "long"
         },
         {
           kind: "preference",
           summary: "User likes espresso.",
-          durability: "identity",
-          stability: "stable"
+          layer: "long"
         }
       ]
     })
@@ -376,14 +366,12 @@ async function runHonoursServerSideDuplicateOutcome(): Promise<void> {
         {
           kind: "fact",
           summary: "User likes espresso.",
-          durability: "identity",
-          stability: "stable"
+          layer: "long"
         },
         {
           kind: "preference",
           summary: "User prefers vinyl.",
-          durability: "identity",
-          stability: "stable"
+          layer: "long"
         }
       ]
     })
@@ -419,8 +407,7 @@ async function runHonoursServerSidePolicyDenial(): Promise<void> {
         {
           kind: "fact",
           summary: "Some fact about a group user.",
-          durability: "identity",
-          stability: "stable"
+          layer: "long"
         }
       ]
     })
@@ -458,8 +445,7 @@ async function runEnforcesSoftCap(): Promise<void> {
   const items = Array.from({ length: 12 }, (_, i) => ({
     kind: "fact" as const,
     summary: `Stable fact number ${String(i + 1)} about the user.`,
-    durability: "identity" as const,
-    stability: "stable" as const
+    layer: "long" as const
   }));
   gateway.nextResult = { ...gateway.nextResult, text: JSON.stringify({ items }) };
   api.outcomes = Array.from({ length: 12 }, (_, i) => ({

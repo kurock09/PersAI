@@ -67,6 +67,7 @@ function createSession(params: {
     totalTokensFresh: true,
     compactionCount: 0,
     compactionHintTokens: null,
+    memoryExtractionWatermark: 0,
     providerKey: params.providerKey ?? null,
     modelKey: params.modelKey ?? null,
     lastTurnAt: null,
@@ -114,6 +115,8 @@ class FakeRuntimeStatePostgresService {
       totalTokensFresh: input.totalTokensFresh ?? existing?.totalTokensFresh ?? true,
       compactionCount: input.compactionCount ?? existing?.compactionCount ?? 0,
       compactionHintTokens: input.compactionHintTokens ?? existing?.compactionHintTokens ?? null,
+      memoryExtractionWatermark:
+        input.memoryExtractionWatermark ?? existing?.memoryExtractionWatermark ?? 0,
       providerKey: input.providerKey ?? existing?.providerKey ?? null,
       modelKey: input.modelKey ?? existing?.modelKey ?? null,
       lastTurnAt: input.lastTurnAt ?? existing?.lastTurnAt ?? null,
@@ -144,6 +147,8 @@ class FakeRuntimeStatePostgresService {
       totalTokensFresh: input.totalTokensFresh ?? existing.totalTokensFresh,
       compactionCount: input.compactionCount ?? existing.compactionCount,
       compactionHintTokens: input.compactionHintTokens ?? existing.compactionHintTokens,
+      memoryExtractionWatermark:
+        input.memoryExtractionWatermark ?? existing.memoryExtractionWatermark,
       providerKey: input.providerKey ?? existing.providerKey,
       modelKey: input.modelKey ?? existing.modelKey,
       lastTurnAt: input.lastTurnAt ?? existing.lastTurnAt,

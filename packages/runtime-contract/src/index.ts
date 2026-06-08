@@ -1021,22 +1021,15 @@ export const PERSAI_RUNTIME_MEMORY_WRITE_KINDS = ["fact", "preference", "open_lo
 
 export type PersaiRuntimeMemoryWriteKind = (typeof PERSAI_RUNTIME_MEMORY_WRITE_KINDS)[number];
 
-export const PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES = ["identity", "episodic"] as const;
+export const PERSAI_RUNTIME_MEMORY_WRITE_LAYERS = ["long", "short"] as const;
 
-export type PersaiRuntimeMemoryWriteDurability =
-  (typeof PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES)[number];
-
-export const PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES = ["stable", "time_bound"] as const;
-
-export type PersaiRuntimeMemoryWriteStability =
-  (typeof PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES)[number];
+export type PersaiRuntimeMemoryWriteLayer = (typeof PERSAI_RUNTIME_MEMORY_WRITE_LAYERS)[number];
 
 export interface RuntimeMemoryWriteItem {
   id: string;
   summary: string;
   kind: PersaiRuntimeMemoryWriteKind;
-  durability: PersaiRuntimeMemoryWriteDurability | null;
-  stability: PersaiRuntimeMemoryWriteStability | null;
+  layer: PersaiRuntimeMemoryWriteLayer | null;
   confidence: number | null;
   sourceLabel: string | null;
   createdAt: IsoTimestamp;
@@ -3669,8 +3662,7 @@ export interface RuntimeCompactionAutoExtractResult {
   entries: Array<{
     kind: PersaiRuntimeMemoryWriteKind;
     summary: string;
-    durability: PersaiRuntimeMemoryWriteDurability;
-    stability: PersaiRuntimeMemoryWriteStability;
+    layer: PersaiRuntimeMemoryWriteLayer;
     confidence: number | null;
   }>;
   durationMs: number | null;

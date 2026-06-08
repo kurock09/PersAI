@@ -112,6 +112,7 @@ import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
 import {
   buildPromptCacheStableBlockToken,
+  isDurableMemoryContextualMessage,
   resolveLeadingHydratedPromptCacheStableBlockTokens
 } from "./prompt-cache-stable-blocks";
 import { resolveRuntimeContextHydrationConfig } from "./runtime-context-hydration-policy";
@@ -658,7 +659,8 @@ export class TurnExecutionService {
     options?.trace?.stage("prepare.retrieval_context_ready");
     const plannedRetrievedKnowledgeContext = this.planRetrievedKnowledgeContext(
       bundleEntry.parsedBundle,
-      retrievedKnowledgeContext
+      retrievedKnowledgeContext,
+      hydratedMessages
     );
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, {
       modelRoleOverride: executionPlan.modelRole,
@@ -838,10 +840,21 @@ export class TurnExecutionService {
 
   private planRetrievedKnowledgeContext(
     bundle: AssistantRuntimeBundle,
-    context: RuntimeRetrievedKnowledgeContext | null
+    context: RuntimeRetrievedKnowledgeContext | null,
+    hydratedMessages: ProviderGatewayTextGenerateRequest["messages"]
   ): RuntimeRetrievedKnowledgeContext | null {
     if (context === null || context.items.length === 0) {
       return context;
+    }
+    const coherentContext = this.removeShortMemoryDuplicatesFromRetrievedKnowledge(
+      context,
+      hydratedMessages
+    );
+    if (coherentContext.items.length === 0) {
+      return {
+        items: [],
+        renderedBlock: null
+      };
     }
     const config = resolveRuntimeContextHydrationConfig(bundle);
     const charBudget = Math.max(
@@ -850,7 +863,7 @@ export class TurnExecutionService {
     );
     const selectedItems: RuntimeRetrievedKnowledgeContextItem[] = [];
     let renderedBlock = this.renderRetrievedKnowledgeContextBlock(selectedItems);
-    for (const item of this.rankRetrievedKnowledgeContextItems(context.items)) {
+    for (const item of this.rankRetrievedKnowledgeContextItems(coherentContext.items)) {
       const candidateItem = this.fitRetrievedKnowledgeContextItem(item, charBudget);
       const candidateItems = [...selectedItems, candidateItem];
       const candidateBlock = this.renderRetrievedKnowledgeContextBlock(candidateItems);
@@ -881,6 +894,58 @@ export class TurnExecutionService {
       items: selectedItems,
       renderedBlock: selectedItems.length === 0 ? null : renderedBlock
     };
+  }
+
+  private removeShortMemoryDuplicatesFromRetrievedKnowledge(
+    context: RuntimeRetrievedKnowledgeContext,
+    hydratedMessages: ProviderGatewayTextGenerateRequest["messages"]
+  ): RuntimeRetrievedKnowledgeContext {
+    const contextualSummaries = this.extractRenderedShortMemorySummaries(hydratedMessages);
+    if (contextualSummaries.size === 0) {
+      return context;
+    }
+    const items = context.items.filter((item) => {
+      const source = this.asNonEmptyString(item.metadata?.source);
+      if (source !== "memory") {
+        return true;
+      }
+      const candidateSummary = this.asNonEmptyString(item.metadata?.summary) ?? item.content;
+      return !contextualSummaries.has(this.normalizeRetrievedKnowledgeSummary(candidateSummary));
+    });
+    return items.length === context.items.length
+      ? context
+      : {
+          items,
+          renderedBlock:
+            items.length === 0 ? null : this.renderRetrievedKnowledgeContextBlock(items)
+        };
+  }
+
+  private extractRenderedShortMemorySummaries(
+    messages: ProviderGatewayTextGenerateRequest["messages"]
+  ): Set<string> {
+    const summaries = new Set<string>();
+    for (const message of messages) {
+      if (!isDurableMemoryContextualMessage(message) || typeof message.content !== "string") {
+        continue;
+      }
+      for (const line of message.content.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("- ")) {
+          continue;
+        }
+        const summary = trimmed.replace(/^- \[[^\]]+\]\s*/, "").trim();
+        const normalized = this.normalizeRetrievedKnowledgeSummary(summary);
+        if (normalized.length > 0) {
+          summaries.add(normalized);
+        }
+      }
+    }
+    return summaries;
+  }
+
+  private normalizeRetrievedKnowledgeSummary(value: string): string {
+    return value.trim().replace(/\s+/g, " ").toLowerCase();
   }
 
   private rankRetrievedKnowledgeContextItems(

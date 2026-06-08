@@ -177,7 +177,6 @@ describe("StreamWebChatTurnService", () => {
 
   test("completes media-only runtime turns without leaking placeholder text", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
-    const memoryWrites: Array<Record<string, unknown>> = [];
     const quotaWrites: Array<Record<string, unknown>> = [];
 
     const service = new StreamWebChatTurnService(
@@ -253,11 +252,6 @@ describe("StreamWebChatTurnService", () => {
       {
         resolveByUserId: async () => {
           throw new Error("resolve should not be called in this test");
-        }
-      } as never,
-      {
-        execute: async (input: Record<string, unknown>) => {
-          memoryWrites.push(input);
         }
       } as never,
       {
@@ -344,8 +338,6 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(outcome.status, "completed");
     assert.equal(createdMessages.length, 1);
     assert.equal(createdMessages[0]?.content, "");
-    assert.equal(memoryWrites.length, 1);
-    assert.equal(memoryWrites[0]?.assistantContent, "Media sent.");
     assert.equal(quotaWrites.length, 1);
     assert.equal(quotaWrites[0]?.assistantContent, "Media sent.");
     const transport = (
@@ -459,9 +451,6 @@ describe("StreamWebChatTurnService", () => {
         resolveByUserId: async () => {
           throw new Error("resolve should not be called in this test");
         }
-      } as never,
-      {
-        execute: async () => undefined
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
@@ -645,9 +634,6 @@ describe("StreamWebChatTurnService", () => {
         }
       } as never,
       {
-        execute: async () => undefined
-      } as never,
-      {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
@@ -734,7 +720,6 @@ describe("StreamWebChatTurnService", () => {
   test("corrects streamed assistant text when runtime queued media but final web delivery produced no attachments", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
     const updatedContents: string[] = [];
-    const memoryWrites: Array<Record<string, unknown>> = [];
     const quotaWrites: Array<Record<string, unknown>> = [];
     const ledgerWrites: Array<Record<string, unknown>> = [];
 
@@ -837,11 +822,6 @@ describe("StreamWebChatTurnService", () => {
         }
       } as never,
       {
-        execute: async (input: Record<string, unknown>) => {
-          memoryWrites.push(input);
-        }
-      } as never,
-      {
         recordWebChatTurnUsage: async (input: Record<string, unknown>) => {
           quotaWrites.push(input);
         }
@@ -925,10 +905,6 @@ describe("StreamWebChatTurnService", () => {
     ).transport.assistantMessage;
     assert.equal(transport.attachments.length, 0);
     assert.match(transport.content, /Поправка: файл не был реально доставлен в этот чат/);
-    assert.match(
-      String(memoryWrites[0]?.assistantContent ?? ""),
-      /Поправка: файл не был реально доставлен в этот чат/
-    );
     assert.match(
       String(quotaWrites[0]?.assistantContent ?? ""),
       /Поправка: файл не был реально доставлен в этот чат/
@@ -1026,9 +1002,6 @@ describe("StreamWebChatTurnService", () => {
         resolveByUserId: async () => {
           throw new Error("resolve should not be called in this test");
         }
-      } as never,
-      {
-        execute: async () => undefined
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
@@ -1218,9 +1191,6 @@ describe("StreamWebChatTurnService", () => {
         resolveByUserId: async () => {
           throw new Error("resolve should not be called in this test");
         }
-      } as never,
-      {
-        execute: async () => undefined
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
@@ -1418,9 +1388,6 @@ describe("StreamWebChatTurnService", () => {
         }
       } as never,
       {
-        execute: async () => undefined
-      } as never,
-      {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
@@ -1514,7 +1481,6 @@ describe("StreamWebChatTurnService", () => {
 
   test("uses the admin-managed onboarding prompt for welcome stream turns", async () => {
     let capturedWebRuntimeUserMessage = "";
-    const memoryWrites: Array<Record<string, unknown>> = [];
 
     const service = new StreamWebChatTurnService(
       {
@@ -1561,11 +1527,6 @@ describe("StreamWebChatTurnService", () => {
       {
         resolveByUserId: async () => {
           throw new Error("resolve should not be called in this test");
-        }
-      } as never,
-      {
-        execute: async (input: Record<string, unknown>) => {
-          memoryWrites.push(input);
         }
       } as never,
       {
@@ -1643,10 +1604,6 @@ describe("StreamWebChatTurnService", () => {
       capturedWebRuntimeUserMessage,
       "You just came online. Introduce yourself warmly to Alex."
     );
-    assert.equal(
-      memoryWrites[0]?.userContent,
-      "You just came online. Introduce yourself warmly to Alex."
-    );
   });
 
   test("replays duplicate clientTurnId without starting a second runtime stream", async () => {
@@ -1706,7 +1663,6 @@ describe("StreamWebChatTurnService", () => {
           assistantId: "assistant-1"
         })
       } as never,
-      {} as never,
       {} as never,
       {
         recordChatMainReplyEvents: async () => 0
@@ -1876,9 +1832,6 @@ function buildToolStreamingServiceForTraceTest(options: {
       resolveByUserId: async () => {
         throw new Error("resolve should not be called in this test");
       }
-    } as never,
-    {
-      execute: async () => undefined
     } as never,
     {
       recordWebChatTurnUsage: async () => undefined

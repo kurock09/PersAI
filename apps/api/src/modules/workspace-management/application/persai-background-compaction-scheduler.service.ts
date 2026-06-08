@@ -5,7 +5,8 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import {
   InternalRuntimeCompactionClientService,
-  type InternalRuntimeCompactAndExtractOutcome
+  type InternalRuntimeCompactAndExtractOutcome,
+  type InternalRuntimeIdleExtractOutcome
 } from "./internal-runtime-compaction.client.service";
 import { BackgroundSchedulerMetricsService } from "./background-scheduler-metrics.service";
 import { ConsolidateAssistantMemoryService } from "./consolidate-assistant-memory.service";
@@ -37,6 +38,7 @@ type ClaimedJob = {
   externalThreadKey: string;
   externalUserKey: string | null;
   runtimeTier: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
+  trigger: "post_turn" | "manual" | "idle_extract";
   enqueuedRequestId: string | null;
   attemptCount: number;
   claimToken: string;
@@ -207,6 +209,7 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
           externalThreadKey: string;
           externalUserKey: string | null;
           runtimeTier: ClaimedJob["runtimeTier"];
+          trigger: ClaimedJob["trigger"];
           enqueuedRequestId: string | null;
           attemptCount: number;
         }>
@@ -219,6 +222,7 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
           "external_thread_key" AS "externalThreadKey",
           "external_user_key"   AS "externalUserKey",
           "runtime_tier"::text  AS "runtimeTier",
+          "trigger"::text       AS "trigger",
           "enqueued_request_id" AS "enqueuedRequestId",
           "attempt_count"       AS "attemptCount"
         FROM "assistant_background_compaction_jobs"
@@ -268,15 +272,31 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
           externalThreadKey: row.externalThreadKey,
           externalUserKey: row.externalUserKey,
           runtimeTier: row.runtimeTier,
+          trigger: row.trigger,
           enqueuedRequestId: row.enqueuedRequestId,
           attemptCount: row.attemptCount + 1,
           claimToken,
           claimEpoch: currentEpoch,
-          pendingDedupeKey: `${row.assistantId}:${row.channel}:${row.externalThreadKey}`
+          pendingDedupeKey: this.buildPendingDedupeKey({
+            assistantId: row.assistantId,
+            channel: row.channel,
+            externalThreadKey: row.externalThreadKey,
+            trigger: row.trigger
+          })
         });
       }
       return claimed;
     });
+  }
+
+  private buildPendingDedupeKey(input: {
+    assistantId: string;
+    channel: ClaimedJob["channel"];
+    externalThreadKey: string;
+    trigger: ClaimedJob["trigger"];
+  }): string {
+    const lane = input.trigger === "idle_extract" ? "idle_extract" : "compaction";
+    return `${input.assistantId}:${input.channel}:${input.externalThreadKey}:${lane}`;
   }
 
   private async processClaimedJob(job: ClaimedJob): Promise<void> {
@@ -288,17 +308,28 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
       return;
     }
 
-    let outcome: InternalRuntimeCompactAndExtractOutcome;
+    let outcome: InternalRuntimeCompactAndExtractOutcome | InternalRuntimeIdleExtractOutcome;
     try {
-      outcome = await this.internalRuntimeCompactionClientService.execute({
-        assistantId: job.assistantId,
-        workspaceId: job.workspaceId,
-        channel: job.channel,
-        externalThreadKey: job.externalThreadKey,
-        externalUserKey: job.externalUserKey,
-        runtimeTier: job.runtimeTier,
-        enqueuedRequestId: job.enqueuedRequestId
-      });
+      outcome =
+        job.trigger === "idle_extract"
+          ? await this.internalRuntimeCompactionClientService.executeIdleExtract({
+              assistantId: job.assistantId,
+              workspaceId: job.workspaceId,
+              channel: job.channel,
+              externalThreadKey: job.externalThreadKey,
+              externalUserKey: job.externalUserKey,
+              runtimeTier: job.runtimeTier,
+              enqueuedRequestId: job.enqueuedRequestId
+            })
+          : await this.internalRuntimeCompactionClientService.execute({
+              assistantId: job.assistantId,
+              workspaceId: job.workspaceId,
+              channel: job.channel,
+              externalThreadKey: job.externalThreadKey,
+              externalUserKey: job.externalUserKey,
+              runtimeTier: job.runtimeTier,
+              enqueuedRequestId: job.enqueuedRequestId
+            });
     } catch (error) {
       await this.handleFailure(
         job,
@@ -311,18 +342,20 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
 
     if (outcome.ok) {
       await this.completeJob(job, outcome.result);
-      try {
-        await this.consolidateAssistantMemoryService.execute({
-          assistantId: job.assistantId,
-          workspaceId: job.workspaceId,
-          requestId: job.enqueuedRequestId
-        });
-      } catch (error) {
-        this.logger.warn(
-          `Background compaction consolidation hook failed for assistant ${job.assistantId}: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
+      if (job.trigger !== "idle_extract") {
+        try {
+          await this.consolidateAssistantMemoryService.execute({
+            assistantId: job.assistantId,
+            workspaceId: job.workspaceId,
+            requestId: job.enqueuedRequestId
+          });
+        } catch (error) {
+          this.logger.warn(
+            `Background compaction consolidation hook failed for assistant ${job.assistantId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
       }
       return;
     }
@@ -336,7 +369,8 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
       job,
       outcome.retryable,
       outcome.code ?? "background_compaction_failed",
-      outcome.message
+      outcome.message,
+      "result" in outcome ? (outcome.result ?? undefined) : undefined
     );
   }
 
@@ -375,8 +409,10 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
     job: ClaimedJob,
     retryable: boolean,
     code: string,
-    message: string
+    message: string,
+    lastResultPayload?: unknown
   ): Promise<void> {
+    const serializedLastResultPayload = this.serializeResult(lastResultPayload);
     if (!retryable || job.attemptCount >= MAX_ATTEMPTS) {
       await this.prisma.assistantBackgroundCompactionJob.updateMany({
         where: {
@@ -394,7 +430,10 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
           retryAfterAt: null,
           // ADR-091 audit: keep operator-visible truncation policy named and shared.
           lastErrorCode: code.slice(0, LAST_ERROR_CODE_MAX_CHARS),
-          lastErrorMessage: message
+          lastErrorMessage: message,
+          ...(serializedLastResultPayload === undefined
+            ? {}
+            : { lastResultPayload: serializedLastResultPayload })
         }
       });
       this.logger.error(
@@ -422,7 +461,10 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
         schedulerClaimedAt: null,
         schedulerClaimExpiresAt: null,
         lastErrorCode: code.slice(0, LAST_ERROR_CODE_MAX_CHARS),
-        lastErrorMessage: message
+        lastErrorMessage: message,
+        ...(serializedLastResultPayload === undefined
+          ? {}
+          : { lastResultPayload: serializedLastResultPayload })
       }
     });
     this.logger.warn(

@@ -233,6 +233,20 @@ export class AssistantController {
     };
   }
 
+  @Post("assistant/voice/elevenlabs/refresh")
+  async refreshElevenLabsVoiceCatalog(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    settings: AssistantVoiceSettingsState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const settings =
+      await this.resolveAssistantVoiceSettingsService.refreshElevenLabsCatalog(userId);
+    return {
+      requestId: req.requestId ?? null,
+      settings
+    };
+  }
+
   @Get("assistant/persona-archetypes")
   async listPersonaArchetypes(@Req() req: RequestWithPlatformContext): Promise<{
     requestId: string | null;

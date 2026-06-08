@@ -26,7 +26,6 @@ import {
   resolveSharedCompactionSummaryCharBudget
 } from "./runtime-context-hydration-policy";
 import {
-  type DurableMemoryContextualGroup,
   formatCrossSessionCarryOverStableBlock,
   formatDurableMemoryContextualBlock,
   formatDurableMemoryCoreStableBlock,
@@ -57,8 +56,6 @@ const MAX_OPEN_LOOP_REFS_DEVELOPER_ITEMS = 5;
 const MAX_OPEN_LOOP_REF_SUMMARY_CHARS = 72;
 const MAX_OPEN_LOOP_REF_SELECTION_TOKENS = 12;
 const OPEN_LOOP_REF_TOKEN_MIN_LENGTH = 2;
-const CONTEXTUAL_MEMORY_KIND_ORDER = ["preference", "fact", "open_loop", "other"] as const;
-type ContextualMemoryKindGroup = (typeof CONTEXTUAL_MEMORY_KIND_ORDER)[number];
 const OPEN_LOOP_REF_STOPWORDS = new Set([
   "the",
   "and",
@@ -1457,7 +1454,7 @@ export class TurnContextHydrationService {
 
   private async loadDurableMemoryHydration(
     assistantId: string,
-    userQuery: string,
+    _userQuery: string,
     contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
   ): Promise<DurableMemoryHydration> {
     if (contextHydration.knowledgeHydrationBudget <= 0) {
@@ -1476,16 +1473,15 @@ export class TurnContextHydrationService {
     const maxHydratedMemoryTotalChars = this.resolveHydratedMemoryCharBudget(
       contextHydration.knowledgeHydrationBudget
     );
-    // Reserve roughly half of the per-turn memory item budget for contextual
-    // (relevance-retrieved) entries; the remainder is implicitly available for
-    // the always-on core block that is hashed into the stable cache prefix.
+    // Reserve roughly half of the per-turn memory item budget for recent
+    // short-memory entries; the remainder is implicitly available for the
+    // always-on core block that is hashed into the stable cache prefix.
     const contextualLimit = Math.max(0, Math.floor(maxHydratedMemoryItems / 2));
 
     let outcome;
     try {
       outcome = await this.persaiInternalApiClient.hydrateMemoryForTurn({
         assistantId,
-        userQuery,
         contextualLimit
       });
     } catch (error) {
@@ -1556,14 +1552,14 @@ export class TurnContextHydrationService {
     if (budget.itemBudget <= 0 || budget.charBudget <= 0) {
       return null;
     }
-    const groups = this.takeContextualMemoryGroups(items, budget);
-    if (groups.length === 0) {
+    const lines = this.takeMemoryLines(items, budget);
+    if (lines.length === 0) {
       return null;
     }
     return {
       role: "assistant",
-      content: formatDurableMemoryContextualBlock(groups),
-      // ADR-110: per-turn relevance-retrieved memory is volatile and must never sit inside the
+      content: formatDurableMemoryContextualBlock(lines),
+      // ADR-110: per-turn recent short memory is volatile and must never sit inside the
       // cached prompt prefix. The typed flag lets each provider client reposition it next to the
       // latest user message without relying on fragile string matching of the block header.
       cacheRole: "volatile_context"
@@ -1591,55 +1587,6 @@ export class TurnContextHydrationService {
     return lines;
   }
 
-  private takeContextualMemoryGroups(
-    items: InternalHydratedDurableMemoryItem[],
-    budget: { itemBudget: number; charBudget: number }
-  ): DurableMemoryContextualGroup[] {
-    const groupedItems = new Map<ContextualMemoryKindGroup, string[]>(
-      CONTEXTUAL_MEMORY_KIND_ORDER.map((kind) => [kind, []])
-    );
-    for (const item of items) {
-      const line = `- ${item.summary.trim()}`;
-      if (line.length <= 2) {
-        continue;
-      }
-      groupedItems.get(this.resolveContextualMemoryKindGroup(item))?.push(line);
-    }
-
-    const groups: DurableMemoryContextualGroup[] = [];
-    let consumedChars = 0;
-    let consumedItems = 0;
-    for (const kind of CONTEXTUAL_MEMORY_KIND_ORDER) {
-      const candidateLines = groupedItems.get(kind) ?? [];
-      if (candidateLines.length === 0) {
-        continue;
-      }
-      const heading = this.resolveContextualMemoryHeading(kind);
-      const lines: string[] = [];
-      let groupChars = heading.length;
-      for (const line of candidateLines) {
-        if (consumedItems >= budget.itemBudget) {
-          break;
-        }
-        if (consumedChars + groupChars + line.length > budget.charBudget) {
-          break;
-        }
-        lines.push(line);
-        groupChars += line.length;
-        consumedItems += 1;
-      }
-      if (lines.length === 0) {
-        continue;
-      }
-      groups.push({ heading, lines });
-      consumedChars += groupChars;
-      if (consumedItems >= budget.itemBudget || consumedChars >= budget.charBudget) {
-        break;
-      }
-    }
-    return groups;
-  }
-
   private resolveMemoryLabel(item: InternalHydratedDurableMemoryItem): string {
     if (item.sourceLabel && item.sourceLabel.trim().length > 0) {
       return item.sourceLabel.trim();
@@ -1648,32 +1595,6 @@ export class TurnContextHydrationService {
       return item.kind === null ? "Durable memory" : `Durable memory: ${item.kind}`;
     }
     return "Conversation memory";
-  }
-
-  private resolveContextualMemoryKindGroup(
-    item: InternalHydratedDurableMemoryItem
-  ): ContextualMemoryKindGroup {
-    switch (item.kind) {
-      case "preference":
-      case "fact":
-      case "open_loop":
-        return item.kind;
-      default:
-        return "other";
-    }
-  }
-
-  private resolveContextualMemoryHeading(kind: ContextualMemoryKindGroup): string {
-    switch (kind) {
-      case "preference":
-        return "Preferences";
-      case "fact":
-        return "Facts";
-      case "open_loop":
-        return "Open loops";
-      case "other":
-        return "Other";
-    }
   }
 
   private estimateBlockCharCost(message: ProviderGatewayTextMessage | null): number {

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { PersaiBackgroundCompactionSchedulerService } from "../src/modules/workspace-management/application/persai-background-compaction-scheduler.service";
-import type { InternalRuntimeCompactAndExtractOutcome } from "../src/modules/workspace-management/application/internal-runtime-compaction.client.service";
+import type {
+  InternalRuntimeCompactAndExtractOutcome,
+  InternalRuntimeIdleExtractOutcome
+} from "../src/modules/workspace-management/application/internal-runtime-compaction.client.service";
 
 type Row = {
   id: string;
@@ -10,6 +13,7 @@ type Row = {
   externalThreadKey: string;
   externalUserKey: string | null;
   runtimeTier: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
+  trigger: "post_turn" | "manual" | "idle_extract";
   enqueuedRequestId: string | null;
   status: "pending" | "in_progress" | "completed" | "failed";
   attemptCount: number;
@@ -135,6 +139,7 @@ class FakeWorkspaceManagementPrismaService {
             externalThreadKey: row.externalThreadKey,
             externalUserKey: row.externalUserKey,
             runtimeTier: row.runtimeTier,
+            trigger: row.trigger,
             enqueuedRequestId: row.enqueuedRequestId,
             attemptCount: row.attemptCount
           }));
@@ -161,7 +166,9 @@ class FakeWorkspaceManagementPrismaService {
 
 class FakeInternalRuntimeCompactionClientService {
   public calls: unknown[] = [];
-  public outcomes: InternalRuntimeCompactAndExtractOutcome[] = [];
+  public outcomes: Array<
+    InternalRuntimeCompactAndExtractOutcome | InternalRuntimeIdleExtractOutcome
+  > = [];
   public throwNext = false;
 
   async execute(input: unknown): Promise<InternalRuntimeCompactAndExtractOutcome> {
@@ -175,6 +182,19 @@ class FakeInternalRuntimeCompactionClientService {
       throw new Error("no outcome queued");
     }
     return next;
+  }
+
+  async executeIdleExtract(input: unknown): Promise<InternalRuntimeIdleExtractOutcome> {
+    this.calls.push(input);
+    if (this.throwNext) {
+      this.throwNext = false;
+      throw new Error("scheduler boom");
+    }
+    const next = this.outcomes.shift();
+    if (next === undefined) {
+      throw new Error("no outcome queued");
+    }
+    return next as InternalRuntimeIdleExtractOutcome;
   }
 }
 
@@ -287,6 +307,7 @@ function makeRow(overrides: Partial<Row> = {}): Row {
     externalThreadKey: overrides.externalThreadKey ?? "thread-1",
     externalUserKey: overrides.externalUserKey ?? null,
     runtimeTier: overrides.runtimeTier ?? "paid_isolated",
+    trigger: overrides.trigger ?? "post_turn",
     enqueuedRequestId: overrides.enqueuedRequestId ?? null,
     status: overrides.status ?? "pending",
     attemptCount: overrides.attemptCount ?? 0,
@@ -295,7 +316,9 @@ function makeRow(overrides: Partial<Row> = {}): Row {
     schedulerClaimEpoch: overrides.schedulerClaimEpoch ?? null,
     schedulerClaimedAt: overrides.schedulerClaimedAt ?? null,
     schedulerClaimExpiresAt: overrides.schedulerClaimExpiresAt ?? null,
-    pendingDedupeKey: overrides.pendingDedupeKey ?? "assistant-1:web:thread-1",
+    pendingDedupeKey:
+      overrides.pendingDedupeKey ??
+      `assistant-1:web:thread-1:${overrides.trigger === "idle_extract" ? "idle_extract" : "compaction"}`,
     completedAt: overrides.completedAt ?? null,
     lastErrorCode: overrides.lastErrorCode ?? null,
     lastErrorMessage: overrides.lastErrorMessage ?? null,
@@ -371,7 +394,7 @@ async function runRetryableFailureSchedulesRetry(): Promise<void> {
   assert.ok(row.retryAfterAt instanceof Date);
   assert.ok((row.retryAfterAt?.getTime() ?? 0) > Date.now());
   assert.equal(row.attemptCount, 1);
-  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1");
+  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1:compaction");
   assert.equal(consolidation.calls.length, 0);
 }
 
@@ -460,7 +483,7 @@ async function runEpochChangedReleasesClaim(): Promise<void> {
   assert.equal(row.schedulerClaimEpoch, null);
   assert.equal(row.lastErrorCode, "epoch_changed");
   assert.equal(row.attemptCount, 0);
-  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1");
+  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1:compaction");
 }
 
 async function runStaleClaimReclaimedAfterTtl(): Promise<void> {
@@ -544,7 +567,7 @@ async function runUnexpectedThrowMarksRetryable(): Promise<void> {
   assert.equal(row.status, "pending");
   assert.equal(row.lastErrorCode, "scheduler_internal_error");
   assert.ok(row.retryAfterAt instanceof Date);
-  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1");
+  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1:compaction");
 }
 
 async function runRuntimeBusyDefersAndRestoresDedupe(): Promise<void> {
@@ -569,7 +592,7 @@ async function runRuntimeBusyDefersAndRestoresDedupe(): Promise<void> {
   assert.equal(row.lastErrorMessage, "Deferred: runtime session busy.");
   assert.ok(row.retryAfterAt instanceof Date);
   assert.equal(row.attemptCount, 0);
-  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1");
+  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1:compaction");
 }
 
 async function runTickSkipsWhenAnotherLeaderOwnsLease(): Promise<void> {
@@ -688,6 +711,92 @@ async function runRuntimeTimeoutDefersJobAndDrainContinuesWithoutLeaseLoss(): Pr
   ]);
 }
 
+async function runIdleExtractFailureStoresResultAndSkipsConsolidation(): Promise<void> {
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [makeRow({ trigger: "idle_extract" })],
+    () => epochs.currentEpoch
+  );
+  const client = new FakeInternalRuntimeCompactionClientService();
+  const consolidation = new FakeConsolidateAssistantMemoryService();
+  client.outcomes.push({
+    ok: false,
+    retryable: true,
+    status: 200,
+    code: "provider_error",
+    message: "provider_error",
+    result: {
+      ok: false,
+      retryable: true,
+      reason: "provider_error",
+      sessionId: "session-1",
+      snapshotHydratableCount: 12,
+      watermarkBefore: 2,
+      watermarkAfter: 2,
+      deltaMessageCount: 10,
+      autoExtract: { reason: "provider_error" }
+    }
+  });
+  const service = createScheduler(prisma, epochs, client, {
+    consolidateAssistantMemoryService: consolidation
+  });
+
+  const processed = await service.processDueJobsBatch();
+
+  assert.equal(processed, 1);
+  assert.equal(client.calls.length, 1);
+  assert.equal(consolidation.calls.length, 0);
+  const row = prisma.rows[0]!;
+  assert.equal(row.status, "pending");
+  assert.equal(row.lastErrorCode, "provider_error");
+  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1:idle_extract");
+  assert.deepEqual(row.lastResultPayload, {
+    ok: false,
+    retryable: true,
+    reason: "provider_error",
+    sessionId: "session-1",
+    snapshotHydratableCount: 12,
+    watermarkBefore: 2,
+    watermarkAfter: 2,
+    deltaMessageCount: 10,
+    autoExtract: { reason: "provider_error" }
+  });
+}
+
+async function runIdleExtractSuccessSkipsConsolidation(): Promise<void> {
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [makeRow({ trigger: "idle_extract" })],
+    () => epochs.currentEpoch
+  );
+  const client = new FakeInternalRuntimeCompactionClientService();
+  const consolidation = new FakeConsolidateAssistantMemoryService();
+  client.outcomes.push({
+    ok: true,
+    result: {
+      ok: true,
+      retryable: false,
+      reason: "ok",
+      sessionId: "session-1",
+      snapshotHydratableCount: 12,
+      watermarkBefore: 2,
+      watermarkAfter: 12,
+      deltaMessageCount: 10,
+      autoExtract: { reason: "ok" }
+    }
+  });
+  const service = createScheduler(prisma, epochs, client, {
+    consolidateAssistantMemoryService: consolidation
+  });
+
+  const processed = await service.processDueJobsBatch();
+
+  assert.equal(processed, 1);
+  assert.equal(client.calls.length, 1);
+  assert.equal(consolidation.calls.length, 0);
+  assert.equal(prisma.rows[0]?.status, "completed");
+}
+
 async function run(): Promise<void> {
   await runSuccessClaimsAndCompletes();
   await runRetryableFailureSchedulesRetry();
@@ -701,6 +810,8 @@ async function run(): Promise<void> {
   await runTickSkipsWhenAnotherLeaderOwnsLease();
   await runTickAbortsDrainWhenLeaseLost();
   await runRuntimeTimeoutDefersJobAndDrainContinuesWithoutLeaseLoss();
+  await runIdleExtractFailureStoresResultAndSkipsConsolidation();
+  await runIdleExtractSuccessSkipsConsolidation();
 }
 
 void run();

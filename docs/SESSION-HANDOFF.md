@@ -3,6 +3,56 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-08 - ADR-112 Slice 10 two-tier memory path + idle extraction completion
+
+### Baseline
+
+- Starting SHA: `5719b25c` (operator-approved dirty tree because `docs/ADR/112-context-memory-and-tool-surface-quality-program.md` already had an in-progress docs-only Slice 10 update; that pre-existing docs edit was preserved).
+- Scope: ADR-112 Slice 10 completion — finish the already-landed two-tier memory path by adding the idle-session extraction watermark/scheduler follow-up, wiring it to the same compaction auto-extract seam, and updating docs to close the slice. Out of scope: broader Slice 9 tool-surface cleanup and unrelated ADR-113 work.
+
+### What changed
+
+- `memory_write` now exposes `layer: "long" | "short"` at the runtime/model boundary (`packages/runtime-contract`, runtime tool projection/parser, compaction auto-extract prompt/parser, internal API client, focused runtime tests). API write-side routing now maps `long -> core + identity/stable` and `short -> contextual + episodic/time_bound`, while persisted DB fields stay unchanged.
+- The raw web-turn memory path was removed from production: `RecordWebChatMemoryTurnService` and its focused test were deleted, its callers were removed from `send-web-chat-turn.service.ts` / `stream-web-chat-turn.service.ts` / `complete-web-post-runtime-turn.ts`, and the old web-chat summary/skip helpers were deleted from `memory-summary.util.ts`. New raw `user · assistant` transcript rows are no longer created on successful web turns.
+- `HydrateMemoryForTurnService` now reads a bounded newest-first recency window from active contextual `memory_write` rows instead of lexical `searchMemory(...)`, and the runtime contextual block now renders as a single recent short-memory list (still volatile via `cacheRole: "volatile_context"`). `TurnExecutionService` now removes retrieved-knowledge memory items whose summary is already present in that short-memory block before final prompt planning.
+- Anthropic volatile memory projection now wraps recent short memory as app-provided `<persai_runtime_context><recent_short_memory>...` and explicitly states that the next user message is the real request, reducing the chance that Claude treats memory as a user turn. OpenAI keeps the provider-native `developer` item for the same volatile memory.
+- `runtime_sessions` now carries explicit `memoryExtractionWatermark` truth (additive migration `20260608173000_adr112_slice10_idle_memory_extraction_watermark`). Compaction auto-extract no longer reprocesses the full summarized prefix: it slices only the compacted messages after the watermark and advances the watermark on any successful/no-item evaluation, so compaction and idle extraction share one durable prefix boundary.
+- Added an API-side idle-session enqueue scheduler (`PersaiIdleSessionMemoryExtractionSchedulerService`) that reuses the existing background-compaction job table/scheduler. After `20` minutes idle it qualifies `web`/`telegram` sessions with at least `10` new hydratable canonical messages after the watermark, enqueues one `idle_extract` job for that thread, and suppresses repeat jobs until a newer turn opens a fresh idle window.
+- Added a runtime idle extraction path (`POST /api/v1/internal/runtime/sessions/idle-extract`) that reuses the same compact-model `AutoExtractToMemoryService` over only the unprocessed delta. Successful/no-item runs advance the watermark to the current hydratable count; provider/incomplete failures leave the watermark unchanged and return bounded retry metadata. The background scheduler now stores failed idle snapshot payloads and skips memory consolidation for `idle_extract` jobs.
+- Cleanup audit fix: background-compaction queue dedupe keys now include an explicit lane (`compaction` vs `idle_extract`) so a pending idle extraction can never suppress a real post-turn/manual compaction job, and retry/release paths restore the same lane-aware dedupe key.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-memory-write-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/auto-extract-to-memory.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/prompt-cache-stable-blocks.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/session-store.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma`
+- `corepack pnpm --filter @persai/api exec tsx test/enqueue-background-compaction-job.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/persai-background-compaction-scheduler.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/persai-idle-session-memory-extraction-scheduler.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/write-assistant-memory.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/hydrate-memory-for-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check`
+- `git diff --check`
+
+### Risks / residuals
+
+- Historical `web_chat` rows remain in storage until old data is cleaned by existing backfill/admin paths; Slice 10 stops creating new ones but does not rewrite legacy rows.
+- The new migration is additive (`runtime_sessions.memory_extraction_watermark` + enum widening). It must be applied before promoting the API/runtime pair that uses the watermark-aware idle extraction path.
+
+### Next recommended step
+
+ADR-112 Slice 10 is complete. Continue the agreed batch order: Slice 5 sticky file aliases, then Slice 6 developer-block clarity, then Slice 9 tool descriptor + instruction hygiene, while preserving the now-closed long/short memory and idle extraction truth.
+
 ## 2026-06-08 - ADR-113 ElevenLabs picker correction + admin curation
 
 Follow-up after rollout/UI review:

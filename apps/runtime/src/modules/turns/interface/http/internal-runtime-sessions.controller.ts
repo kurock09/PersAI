@@ -11,7 +11,10 @@ import {
   type RuntimeCompactionResult
 } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../../../runtime-config";
-import { SessionCompactionService } from "../../session-compaction.service";
+import {
+  type RuntimeIdleSessionMemoryExtractionResult,
+  SessionCompactionService
+} from "../../session-compaction.service";
 import {
   assertRuntimeInternalApiAuthorized,
   type RuntimeInternalRequestLike
@@ -58,6 +61,22 @@ export class InternalRuntimeSessionsController {
       autoExtract: true
     };
     return this.sessionCompactionService.compactSession(request);
+  }
+
+  @HttpCode(200)
+  @Post("idle-extract")
+  async idleExtract(
+    @Req() req: RuntimeInternalRequestLike,
+    @Body() body: unknown
+  ): Promise<RuntimeIdleSessionMemoryExtractionResult> {
+    this.assertAuthorized(req);
+    const input = this.parseInput(body);
+    return this.sessionCompactionService.extractIdleSessionMemory({
+      runtimeTier: input.runtimeTier,
+      conversation: input.conversation,
+      instructions: null,
+      runtimeRequestId: input.enqueuedRequestId
+    });
   }
 
   private assertAuthorized(req: RuntimeInternalRequestLike): void {

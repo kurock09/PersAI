@@ -223,10 +223,9 @@ class FakePersaiInternalApiClientService {
       id: "memory-1",
       summary: "User prefers concise answers.",
       kind: "preference",
-      durability: "identity",
-      stability: "stable",
+      layer: "long",
       confidence: 0.91,
-      sourceLabel: "Memory write: preference",
+      sourceLabel: "Long memory write: preference",
       createdAt: "2026-04-14T19:00:00.000Z",
       chatId: null
     }
@@ -290,8 +289,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
   const memoryWriteSchema = memoryWriteDefinition?.inputSchema as {
     properties?: Record<string, { description?: string }>;
   };
-  assert.ok(memoryWriteSchema.properties?.durability);
-  assert.ok(memoryWriteSchema.properties?.stability);
+  assert.ok(memoryWriteSchema.properties?.layer);
   assert.match(memoryWriteSchema.properties?.memory?.description ?? "", /genuinely durable/i);
   assert.equal(
     hiddenProjection.tools.some((tool) => tool.name === "memory_write"),
@@ -316,8 +314,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     toolCall: createToolCall({
       kind: "preference",
       memory: "User prefers concise answers.",
-      durability: "identity",
-      stability: "stable",
+      layer: "long",
       confidence: 0.91
     }),
     conversation: directWebConversation,
@@ -330,8 +327,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     assistantId: "assistant-1",
     kind: "preference",
     summary: "User prefers concise answers.",
-    durability: "identity",
-    stability: "stable",
+    layer: "long",
     confidence: 0.91,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
@@ -344,8 +340,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     toolCall: createToolCall({
       kind: "preference",
       memory: 42 as unknown as string,
-      durability: "identity",
-      stability: "stable"
+      layer: "long"
     }),
     conversation: directWebConversation,
     currentUserMessageId: null,
@@ -360,8 +355,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     toolCall: createToolCall({
       kind: "fact",
       memory: "User works in finance.",
-      durability: "identity",
-      stability: "stable"
+      layer: "long"
     }),
     conversation: {
       ...directWebConversation,
@@ -384,8 +378,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     toolCall: createToolCall({
       kind: "open_loop",
       memory: "Follow up on the analytics dashboard migration.",
-      durability: "episodic",
-      stability: "time_bound",
+      layer: "short",
       confidence: 0.77
     }),
     conversation: {
@@ -408,10 +401,9 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       id: "memory-2",
       summary: "User prefers concise answers.",
       kind: "preference",
-      durability: "identity",
-      stability: "stable",
+      layer: "long",
       confidence: 0.91,
-      sourceLabel: "Memory write: preference",
+      sourceLabel: "Long memory write: preference",
       createdAt: "2026-04-14T19:00:00.000Z",
       chatId: null
     }
@@ -422,8 +414,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     toolCall: createToolCall({
       kind: "fact",
       memory: "User works in finance.",
-      durability: "identity",
-      stability: "stable"
+      layer: "long"
     }),
     conversation: directWebConversation,
     currentUserMessageId: null,
@@ -446,8 +437,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "User lives in Berlin.",
-        durability: "identity",
-        stability: "stable"
+        layer: "long"
       }),
       conversation: directWebConversation,
       currentUserMessageId: null,
@@ -473,8 +463,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "User lives in Berlin.",
-        durability: "identity",
-        stability: "stable",
+        layer: "long",
         closeOpenLoop: false
       }),
       conversation: directWebConversation,
@@ -499,8 +488,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "Booked the Barcelona retreat venue.",
-        durability: "episodic",
-        stability: "time_bound",
+        layer: "short",
         closeOpenLoop: true
       }),
       conversation: directWebConversation,
@@ -535,8 +523,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "Confirmed the venue.",
-        durability: "episodic",
-        stability: "time_bound",
+        layer: "short",
         closeOpenLoop: true
       }),
       conversation: directWebConversation,
@@ -566,8 +553,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "open_loop",
         memory: "Confirmed the venue.",
-        durability: "episodic",
-        stability: "time_bound",
+        layer: "short",
         closeOpenLoop: true
       }),
       conversation: directWebConversation,
@@ -591,8 +577,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "Some fact.",
-        durability: "identity",
-        stability: "stable",
+        layer: "long",
         closeOpenLoop: "yes" as unknown as boolean
       }),
       conversation: directWebConversation,
@@ -837,8 +822,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
         action: "write",
         kind: "fact",
         memory: "User uses metric units.",
-        durability: "identity",
-        stability: "stable"
+        layer: "long"
       }),
       conversation: directWebConversation,
       currentUserMessageId: null,
@@ -860,8 +844,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
         action: "write",
         kind: "fact",
         memory: "User uses metric units.",
-        durability: "identity",
-        stability: "stable",
+        layer: "long",
         ref: SAMPLE_REF_UUID
       }),
       conversation: directWebConversation,
@@ -901,11 +884,11 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "User likes tea.",
-        stability: "stable"
+        confidence: null
       }),
       conversation: directWebConversation,
       currentUserMessageId: null,
-      requestId: "request-missing-durability"
+      requestId: "request-missing-layer"
     });
     assert.equal(result.payload.action, "skipped");
     assert.equal(result.payload.reason, "invalid_arguments");
@@ -920,12 +903,11 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "User likes tea.",
-        durability: "identity",
-        stability: "sometimes"
+        layer: "sometimes"
       }),
       conversation: directWebConversation,
       currentUserMessageId: null,
-      requestId: "request-invalid-stability"
+      requestId: "request-invalid-layer"
     });
     assert.equal(result.payload.action, "skipped");
     assert.equal(result.payload.reason, "invalid_arguments");
@@ -946,8 +928,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
       toolCall: createToolCall({
         kind: "fact",
         memory: "ok",
-        durability: "identity",
-        stability: "stable"
+        layer: "long"
       }),
       conversation: directWebConversation,
       currentUserMessageId: null,

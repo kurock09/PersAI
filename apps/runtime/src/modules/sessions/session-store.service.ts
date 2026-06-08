@@ -22,6 +22,7 @@ export interface EnsureRuntimeSessionInput extends RuntimeSessionResolveInput {
   totalTokensFresh?: boolean;
   compactionCount?: number;
   compactionHintTokens?: number | null;
+  memoryExtractionWatermark?: number;
   providerKey?: string | null;
   modelKey?: string | null;
   lastTurnAt?: Date | null;
@@ -42,6 +43,7 @@ export interface UpdateRuntimeSessionSummaryInput {
   totalTokensFresh?: boolean;
   compactionCount?: number;
   compactionHintTokens?: number | null;
+  memoryExtractionWatermark?: number;
   providerKey?: string | null;
   modelKey?: string | null;
   lastTurnAt?: Date | null;
@@ -118,6 +120,9 @@ export class SessionStoreService {
       ...(input.compactionHintTokens !== undefined
         ? { compactionHintTokens: input.compactionHintTokens }
         : {}),
+      ...(input.memoryExtractionWatermark !== undefined
+        ? { memoryExtractionWatermark: input.memoryExtractionWatermark }
+        : {}),
       ...(input.providerKey !== undefined ? { providerKey: input.providerKey } : {}),
       ...(input.modelKey !== undefined ? { modelKey: input.modelKey } : {}),
       ...(input.lastTurnAt !== undefined ? { lastTurnAt: input.lastTurnAt } : {}),
@@ -149,6 +154,9 @@ export class SessionStoreService {
       ...(input.compactionCount !== undefined ? { compactionCount: input.compactionCount } : {}),
       ...(input.compactionHintTokens !== undefined
         ? { compactionHintTokens: input.compactionHintTokens }
+        : {}),
+      ...(input.memoryExtractionWatermark !== undefined
+        ? { memoryExtractionWatermark: input.memoryExtractionWatermark }
         : {}),
       ...(input.providerKey !== undefined ? { providerKey: input.providerKey } : {}),
       ...(input.modelKey !== undefined ? { modelKey: input.modelKey } : {}),
@@ -202,6 +210,7 @@ export class SessionStoreService {
       input.totalTokensFresh !== undefined ||
       input.compactionCount !== undefined ||
       input.compactionHintTokens !== undefined ||
+      input.memoryExtractionWatermark !== undefined ||
       input.providerKey !== undefined ||
       input.modelKey !== undefined ||
       input.lastTurnAt !== undefined ||

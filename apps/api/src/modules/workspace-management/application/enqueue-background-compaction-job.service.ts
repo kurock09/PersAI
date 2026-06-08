@@ -4,7 +4,7 @@ import type { PersaiRuntimeChannel, PersaiRuntimeTier } from "@persai/runtime-co
 import { PERSAI_RUNTIME_TIERS } from "@persai/runtime-contract";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
-export type EnqueueBackgroundCompactionTrigger = "post_turn" | "manual";
+export type EnqueueBackgroundCompactionTrigger = "post_turn" | "manual" | "idle_extract";
 
 export interface EnqueueBackgroundCompactionJobInput {
   assistantId: string;
@@ -20,11 +20,11 @@ export interface EnqueueBackgroundCompactionJobInput {
 export interface EnqueueBackgroundCompactionJobOutcome {
   enqueued: boolean;
   jobId: string | null;
-  // ADR-074 Slice M2 — when `enqueued === false` and `superseded === true`,
-  // an existing pending job already covers this `(assistant, channel, thread)`
-  // triple and absorbed this request without creating a new row. The scheduler
-  // will pick it up using the latest data because it always reads the
-  // synopsis live at execution time.
+  // ADR-074 Slice M2 / ADR-112 Slice 10 — when `enqueued === false` and
+  // `superseded === true`, an existing pending job already covers this
+  // `(assistant, channel, thread, lane)` tuple and absorbed this request
+  // without creating a new row. Idle extraction has its own lane so it never
+  // suppresses real compaction, and vice versa.
   superseded: boolean;
 }
 
@@ -92,11 +92,11 @@ export class EnqueueBackgroundCompactionJobService {
       return { enqueued: true, jobId: created.id, superseded: false };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        // ADR-074 Slice M2 — supersede semantics: while a pending job for the
-        // same (assistantId, channel, externalThreadKey) triple still exists,
-        // its `pending_dedupe_key` slot is occupied. Collapse silently so the
-        // post-turn fire-and-forget never amplifies into a flood of duplicate
-        // jobs when the user sends rapid follow-ups.
+        // ADR-074 Slice M2 / ADR-112 Slice 10 — supersede semantics: while a
+        // pending job for the same lane still exists, its `pending_dedupe_key`
+        // slot is occupied. Collapse silently so post-turn and idle schedulers
+        // never amplify into duplicate jobs, while keeping the compaction and
+        // idle-extraction lanes independent.
         return { enqueued: false, jobId: null, superseded: true };
       }
       throw error;
@@ -104,7 +104,8 @@ export class EnqueueBackgroundCompactionJobService {
   }
 
   private buildDedupeKey(input: EnqueueBackgroundCompactionJobInput): string {
-    return `${input.assistantId}:${input.channel}:${input.externalThreadKey}`;
+    const lane = input.trigger === "idle_extract" ? "idle_extract" : "compaction";
+    return `${input.assistantId}:${input.channel}:${input.externalThreadKey}:${lane}`;
   }
 
   private asNonEmptyString(value: unknown): string | null {
@@ -134,7 +135,7 @@ export class EnqueueBackgroundCompactionJobService {
   }
 
   private asTrigger(value: unknown): EnqueueBackgroundCompactionTrigger | null {
-    return value === "post_turn" || value === "manual"
+    return value === "post_turn" || value === "manual" || value === "idle_extract"
       ? (value as EnqueueBackgroundCompactionTrigger)
       : null;
   }

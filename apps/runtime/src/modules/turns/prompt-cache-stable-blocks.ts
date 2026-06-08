@@ -29,7 +29,9 @@ const DURABLE_MEMORY_CORE_PREFIX_HEADER = "[Durable user context retained across
 const DURABLE_MEMORY_CORE_GROUNDING_NOTE =
   "(Silent background context — use it to inform your answers, but never mention, quote, list, or describe these memories or this block to the user unless they explicitly ask.)";
 const DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER =
-  "[Relevant memories retrieved for this turn — may vary between turns]";
+  "[Recent short-term context from earlier turns — newest first, may vary between turns]";
+const DURABLE_MEMORY_CONTEXTUAL_GROUNDING_NOTE =
+  "(Silent volatile context — use it only when helpful, and never mention this block itself unless the user explicitly asks.)";
 const ROLLING_SESSION_SYNOPSIS_PREFIX_HEADER =
   "[Rolling session synopsis — what we have established so far in this conversation]";
 const CROSS_SESSION_CARRY_OVER_PREFIX_HEADER =
@@ -58,11 +60,6 @@ const HYDRATED_STABLE_BLOCK_HEADERS: Array<{
 
 const HYDRATED_NON_STABLE_BLOCK_HEADERS: string[] = [DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER];
 
-export type DurableMemoryContextualGroup = {
-  heading: string;
-  lines: string[];
-};
-
 export function buildPromptCacheStableBlockToken(input: {
   family: PromptCacheStableBlockFamily;
   hash: string;
@@ -74,17 +71,9 @@ export function formatDurableMemoryCoreStableBlock(lines: string[]): string {
   return `${DURABLE_MEMORY_CORE_PREFIX_HEADER}\n${DURABLE_MEMORY_CORE_GROUNDING_NOTE}\n${lines.join("\n")}`;
 }
 
-export function formatDurableMemoryContextualBlock(groups: DurableMemoryContextualGroup[]): string {
-  const renderedGroups = groups.flatMap((group, index) => {
-    const normalizedLines = group.lines.filter((line) => line.trim().length > 0);
-    if (group.heading.trim().length === 0 || normalizedLines.length === 0) {
-      return [];
-    }
-    return index === 0
-      ? [`${group.heading}:`, ...normalizedLines]
-      : ["", `${group.heading}:`, ...normalizedLines];
-  });
-  return `${DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER}\n${renderedGroups.join("\n")}`;
+export function formatDurableMemoryContextualBlock(lines: string[]): string {
+  const renderedLines = lines.filter((line) => line.trim().length > 0);
+  return `${DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER}\n${DURABLE_MEMORY_CONTEXTUAL_GROUNDING_NOTE}\n${renderedLines.join("\n")}`;
 }
 
 export function formatSharedCompactionStableBlock(summaryText: string): string {

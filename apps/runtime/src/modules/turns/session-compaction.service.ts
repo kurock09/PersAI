@@ -12,6 +12,7 @@ import type {
   ProviderGatewayRequestMetadata,
   ProviderGatewayTextGenerateRequest,
   RuntimeCompactionRequest,
+  RuntimeCompactionAutoExtractResult,
   RuntimeCompactionResult,
   RuntimeSharedCompactionToolResult,
   RuntimeSessionSummary,
@@ -73,6 +74,18 @@ function mergeUsageSnapshots(
 
 type SharedCompactionTrigger = "manual_compaction" | "auto_compaction";
 
+export interface RuntimeIdleSessionMemoryExtractionResult {
+  ok: boolean;
+  retryable: boolean;
+  reason: string;
+  sessionId: string | null;
+  snapshotHydratableCount: number | null;
+  watermarkBefore: number | null;
+  watermarkAfter: number | null;
+  deltaMessageCount: number | null;
+  autoExtract: RuntimeCompactionAutoExtractResult | null;
+}
+
 type SharedCompactionRequest = RuntimeCompactionRequest & {
   heldLease?: RuntimeSessionLease;
   trigger?: SharedCompactionTrigger;
@@ -91,6 +104,7 @@ const SHARED_COMPACTION_MAX_OUTPUT_TOKENS = 1_200;
 const SHARED_COMPACTION_PROMPT_CACHE_BUCKETS = 8;
 const SHARED_COMPACTION_PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
 const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
+const IDLE_MEMORY_EXTRACTION_MIN_NEW_MESSAGES = 10;
 
 @Injectable()
 export class SessionCompactionService {
@@ -125,6 +139,192 @@ export class SessionCompactionService {
       trigger: "manual_compaction",
       autoExtract: false
     });
+  }
+
+  async extractIdleSessionMemory(
+    input: RuntimeCompactionRequest & {
+      heldLease?: RuntimeSessionLease;
+      runtimeRequestId?: string | null;
+    }
+  ): Promise<RuntimeIdleSessionMemoryExtractionResult> {
+    const resolvedSession = await this.sessionStoreService.resolveSession({
+      runtimeTier: input.runtimeTier,
+      conversation: input.conversation
+    });
+    if (resolvedSession.session === null) {
+      return this.buildIdleExtractionResult({
+        ok: true,
+        retryable: false,
+        reason: "session_not_found",
+        sessionId: null,
+        snapshotHydratableCount: null,
+        watermarkBefore: null,
+        watermarkAfter: null,
+        deltaMessageCount: null,
+        autoExtract: null
+      });
+    }
+
+    const persistedSession = await this.runtimeStatePostgresService.findSessionById(
+      resolvedSession.session.sessionId
+    );
+    if (persistedSession === null) {
+      return this.buildIdleExtractionResult({
+        ok: true,
+        retryable: false,
+        reason: "session_not_found",
+        sessionId: resolvedSession.session.sessionId,
+        snapshotHydratableCount: null,
+        watermarkBefore: null,
+        watermarkAfter: null,
+        deltaMessageCount: null,
+        autoExtract: null
+      });
+    }
+
+    if (input.heldLease !== undefined && input.heldLease.sessionId !== persistedSession.id) {
+      throw new ServiceUnavailableException(
+        "Held session lease does not match the resolved idle extraction session."
+      );
+    }
+
+    const lease =
+      input.heldLease ?? (await this.sessionLeaseService.acquireLease(persistedSession.id));
+    if (lease === null) {
+      return this.buildIdleExtractionResult({
+        ok: false,
+        retryable: true,
+        reason: "session_busy",
+        sessionId: resolvedSession.session.sessionId,
+        snapshotHydratableCount: null,
+        watermarkBefore: null,
+        watermarkAfter: null,
+        deltaMessageCount: null,
+        autoExtract: null
+      });
+    }
+
+    try {
+      let bundleEntry = this.runtimeBundleRegistryService.findBundleByAssistantVersion({
+        assistantId: persistedSession.assistantId,
+        publishedVersionId: persistedSession.currentPublishedVersionId,
+        bundleHash: persistedSession.currentBundleHash
+      });
+      if (bundleEntry === null && persistedSession.currentPublishedVersionId !== null) {
+        const warmed = await this.runtimeBundleAutoRefreshService.ensureAssistantVersionBundle({
+          assistantId: persistedSession.assistantId,
+          workspaceId: persistedSession.workspaceId,
+          publishedVersionId: persistedSession.currentPublishedVersionId,
+          runtimeTier: input.runtimeTier
+        });
+        if (warmed) {
+          bundleEntry =
+            this.runtimeBundleRegistryService.findBundleByAssistantVersion({
+              assistantId: persistedSession.assistantId,
+              publishedVersionId: persistedSession.currentPublishedVersionId,
+              bundleHash: persistedSession.currentBundleHash
+            }) ??
+            this.runtimeBundleRegistryService.findBundleByAssistantVersion({
+              assistantId: persistedSession.assistantId,
+              publishedVersionId: persistedSession.currentPublishedVersionId
+            });
+        }
+      }
+      if (bundleEntry === null) {
+        return this.buildIdleExtractionResult({
+          ok: false,
+          retryable: false,
+          reason: "runtime_bundle_missing",
+          sessionId: resolvedSession.session.sessionId,
+          snapshotHydratableCount: null,
+          watermarkBefore: null,
+          watermarkAfter: null,
+          deltaMessageCount: null,
+          autoExtract: null
+        });
+      }
+
+      const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle);
+      const contextHydration = resolveRuntimeContextHydrationConfig(bundleEntry.parsedBundle);
+      const summaryCharBudget = resolveSharedCompactionSummaryCharBudget(contextHydration);
+      const rollingSynopsisText = await this.loadPreviousSynopsisText(
+        persistedSession.id,
+        summaryCharBudget
+      );
+      const source = await this.turnContextHydrationService.buildCompactionMessages({
+        conversation: input.conversation,
+        keepRecentMessageCount: 0
+      });
+      const snapshotHydratableCount = source.summarizedMessageCount;
+      const watermarkBefore = Math.max(0, persistedSession.memoryExtractionWatermark ?? 0);
+      const watermarkAfterNoop = Math.max(watermarkBefore, snapshotHydratableCount);
+
+      if (snapshotHydratableCount <= watermarkBefore) {
+        return this.buildIdleExtractionResult({
+          ok: true,
+          retryable: false,
+          reason: "already_covered",
+          sessionId: resolvedSession.session.sessionId,
+          snapshotHydratableCount,
+          watermarkBefore,
+          watermarkAfter: watermarkAfterNoop,
+          deltaMessageCount: 0,
+          autoExtract: null
+        });
+      }
+
+      const deltaMessageCount = snapshotHydratableCount - watermarkBefore;
+      if (deltaMessageCount < IDLE_MEMORY_EXTRACTION_MIN_NEW_MESSAGES) {
+        return this.buildIdleExtractionResult({
+          ok: true,
+          retryable: false,
+          reason: "idle_threshold_not_reached",
+          sessionId: resolvedSession.session.sessionId,
+          snapshotHydratableCount,
+          watermarkBefore,
+          watermarkAfter: watermarkBefore,
+          deltaMessageCount,
+          autoExtract: null
+        });
+      }
+
+      const deltaMessages = source.messages.slice(watermarkBefore);
+      const autoExtract = await this.autoExtractToMemoryService.execute({
+        bundle: bundleEntry.parsedBundle,
+        channel: input.conversation.channel,
+        conversationMode: input.conversation.mode,
+        compactedMessages: deltaMessages,
+        rollingSynopsisText,
+        runtimeRequestId: input.runtimeRequestId ?? null,
+        runtimeSessionId: resolvedSession.session.sessionId,
+        providerSelection
+      });
+      const success = this.isSuccessfulMemoryExtraction(autoExtract);
+      const watermarkAfter = success
+        ? await this.advanceMemoryExtractionWatermark({
+            sessionId: persistedSession.id,
+            currentWatermark: watermarkBefore,
+            coveredHydratableCount: snapshotHydratableCount
+          })
+        : watermarkBefore;
+
+      return this.buildIdleExtractionResult({
+        ok: success,
+        retryable:
+          autoExtract.reason === "provider_error" || autoExtract.reason === "provider_incomplete",
+        reason: autoExtract.reason ?? "unknown",
+        sessionId: resolvedSession.session.sessionId,
+        snapshotHydratableCount,
+        watermarkBefore,
+        watermarkAfter,
+        deltaMessageCount,
+        autoExtract
+      });
+    } finally {
+      if (input.heldLease === undefined) {
+        await this.releaseLeaseQuietly(lease);
+      }
+    }
   }
 
   private async executeSharedCompaction(input: {
@@ -393,6 +593,10 @@ export class SessionCompactionService {
 
       let compactionRecordId: string | null = null;
       let updatedSession = resolvedSession.session;
+      const memoryExtractionWatermark = Math.max(
+        0,
+        persistedSession.memoryExtractionWatermark ?? 0
+      );
       if (input.persistSummary) {
         const persistedCompaction = await this.runtimeStatePostgresService.appendSessionCompaction({
           runtimeSessionId: persistedSession.id,
@@ -449,17 +653,26 @@ export class SessionCompactionService {
       // succeeds for the user.
       if (input.persistSummary && input.autoExtract) {
         try {
-          const autoExtract = await this.autoExtractToMemoryService.execute({
-            bundle: bundleEntry.parsedBundle,
-            channel: input.input.conversation.channel,
-            conversationMode: input.input.conversation.mode,
-            compactedMessages: compactionSource.messages,
-            rollingSynopsisText: normalizedSummary.summaryText,
-            runtimeRequestId: input.input.runtimeRequestId ?? null,
-            runtimeSessionId: resolvedSession.session.sessionId,
-            providerSelection
-          });
-          compactionResult.autoExtract = autoExtract;
+          if (compactionSource.summarizedMessageCount > memoryExtractionWatermark) {
+            const autoExtract = await this.autoExtractToMemoryService.execute({
+              bundle: bundleEntry.parsedBundle,
+              channel: input.input.conversation.channel,
+              conversationMode: input.input.conversation.mode,
+              compactedMessages: compactionSource.messages.slice(memoryExtractionWatermark),
+              rollingSynopsisText: normalizedSummary.summaryText,
+              runtimeRequestId: input.input.runtimeRequestId ?? null,
+              runtimeSessionId: resolvedSession.session.sessionId,
+              providerSelection
+            });
+            if (this.isSuccessfulMemoryExtraction(autoExtract)) {
+              await this.advanceMemoryExtractionWatermark({
+                sessionId: persistedSession.id,
+                currentWatermark: memoryExtractionWatermark,
+                coveredHydratableCount: compactionSource.summarizedMessageCount
+              });
+            }
+            compactionResult.autoExtract = autoExtract;
+          }
         } catch (error) {
           this.logger.warn(
             `[auto-extract] Soft-skipped after compaction for session ${resolvedSession.session.sessionId}: ${error instanceof Error ? error.message : String(error)}`
@@ -783,6 +996,12 @@ export class SessionCompactionService {
     }
   }
 
+  private buildIdleExtractionResult(
+    input: RuntimeIdleSessionMemoryExtractionResult
+  ): RuntimeIdleSessionMemoryExtractionResult {
+    return input;
+  }
+
   private createToolResultState(input: {
     session: RuntimeSessionSummary;
     summarizedMessageCount: number | null;
@@ -814,6 +1033,33 @@ export class SessionCompactionService {
       toolLoopIteration: null,
       compactionToolCode: input.compactionToolCode
     };
+  }
+
+  private isSuccessfulMemoryExtraction(result: RuntimeCompactionAutoExtractResult): boolean {
+    return (
+      result.reason !== "provider_error" &&
+      result.reason !== "provider_incomplete" &&
+      result.reason !== "transport_surface_unavailable"
+    );
+  }
+
+  private async advanceMemoryExtractionWatermark(input: {
+    sessionId: string;
+    currentWatermark: number;
+    coveredHydratableCount: number;
+  }): Promise<number> {
+    const nextWatermark = Math.max(
+      0,
+      Math.max(input.currentWatermark, Math.floor(input.coveredHydratableCount))
+    );
+    if (nextWatermark <= input.currentWatermark) {
+      return input.currentWatermark;
+    }
+    await this.runtimeStatePostgresService.updateSession({
+      sessionId: input.sessionId,
+      memoryExtractionWatermark: nextWatermark
+    });
+    return nextWatermark;
   }
 
   private asObject(value: unknown): Record<string, unknown> | null {

@@ -244,6 +244,18 @@ function createResolvedSession(currentTokens: number | null): RuntimeSessionSumm
   };
 }
 
+function createCompactionMessages(
+  count: number
+): Array<{ role: "user" | "assistant"; content: string }> {
+  return Array.from({ length: count }, (_, index) => ({
+    role: index % 2 === 0 ? "user" : "assistant",
+    content:
+      index % 2 === 0
+        ? `User message ${String(index + 1)}.`
+        : `Assistant message ${String(index + 1)}.`
+  }));
+}
+
 function createBundleEntry(input?: { sharedCompactionSummaryBudgetTokens?: number }) {
   const artifact = compileAssistantRuntimeBundle({
     metadata: {
@@ -526,6 +538,8 @@ class FakeSessionLeaseService {
 class FakeRuntimeStatePostgresService {
   appendCalls: unknown[] = [];
   latestCompaction: { summaryPayload: unknown } | null = null;
+  sessionMemoryExtractionWatermark = 0;
+  updateCalls: unknown[] = [];
 
   async findSessionById() {
     return {
@@ -534,7 +548,8 @@ class FakeRuntimeStatePostgresService {
       workspaceId: "workspace-1",
       currentPublishedVersionId: "version-1",
       currentBundleHash: createBundleEntry().bundle.bundleHash,
-      compactionCount: 2
+      compactionCount: 2,
+      memoryExtractionWatermark: this.sessionMemoryExtractionWatermark
     };
   }
 
@@ -555,6 +570,50 @@ class FakeRuntimeStatePostgresService {
     };
     return record;
   }
+
+  async updateSession(input: { memoryExtractionWatermark?: number }) {
+    this.updateCalls.push(input);
+    if (typeof input.memoryExtractionWatermark === "number") {
+      this.sessionMemoryExtractionWatermark = input.memoryExtractionWatermark;
+    }
+    return {
+      id: "session-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      currentPublishedVersionId: "version-1",
+      currentBundleHash: createBundleEntry().bundle.bundleHash,
+      compactionCount: 2,
+      memoryExtractionWatermark: this.sessionMemoryExtractionWatermark
+    };
+  }
+}
+
+class FakeAutoExtractToMemoryService {
+  calls: unknown[] = [];
+  nextResult = {
+    attempted: true,
+    written: 1,
+    dedupSkipped: 0,
+    policySkipped: 0,
+    invalidSkipped: 0,
+    kindCounts: { fact: 1, preference: 0, open_loop: 0 },
+    entries: [
+      {
+        kind: "fact" as const,
+        summary: "User is working on the PersAI runtime.",
+        layer: "long" as const,
+        confidence: null
+      }
+    ],
+    durationMs: 10,
+    reason: "ok",
+    usage: null
+  };
+
+  async execute(input: unknown) {
+    this.calls.push(input);
+    return this.nextResult;
+  }
 }
 
 export async function runSessionCompactionServiceTest(): Promise<void> {
@@ -564,6 +623,7 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   const sessionStore = new FakeSessionStoreService();
   const leaseService = new FakeSessionLeaseService();
   const postgres = new FakeRuntimeStatePostgresService();
+  const autoExtract = new FakeAutoExtractToMemoryService();
   const service = new SessionCompactionService(
     bundleRegistry as unknown as RuntimeBundleRegistryService,
     providerGateway as unknown as ProviderGatewayClientService,
@@ -579,25 +639,7 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     sessionStore as unknown as SessionStoreService,
     leaseService as unknown as SessionLeaseService,
     postgres as unknown as RuntimeStatePostgresService,
-    {
-      // ADR-074 M2 — auto-extract is exercised in dedicated tests; here we
-      // only need the no-op stub so SessionCompactionService construction
-      // type-checks under the new constructor signature.
-      async execute() {
-        return {
-          attempted: false,
-          written: 0,
-          dedupSkipped: 0,
-          policySkipped: 0,
-          invalidSkipped: 0,
-          kindCounts: { fact: 0, preference: 0, open_loop: 0 },
-          entries: [],
-          durationMs: 0,
-          reason: "test_stub",
-          usage: null
-        };
-      }
-    } as unknown as import("../src/modules/turns/auto-extract-to-memory.service").AutoExtractToMemoryService
+    autoExtract as unknown as import("../src/modules/turns/auto-extract-to-memory.service").AutoExtractToMemoryService
   );
 
   sessionStore.resolvedSession = createResolvedSession(7000);
@@ -923,4 +965,141 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.match(replaceSystemPrompt, /Previous rolling synopsis/);
   assert.match(replaceSystemPrompt, /REPLACE this whole synopsis/);
   assert.match(replaceSystemPrompt, /User is working on the PersAI runtime/);
+
+  // Slice 10 idle/watermark follow-up — compaction auto-extract must use only
+  // the unprocessed compacted delta and advance the shared watermark.
+  hydration.source = {
+    messages: createCompactionMessages(4),
+    summarizedMessageCount: 4,
+    preservedRecentMessageCount: 6
+  };
+  postgres.sessionMemoryExtractionWatermark = 2;
+  postgres.updateCalls = [];
+  autoExtract.calls = [];
+  autoExtract.nextResult = {
+    attempted: true,
+    written: 1,
+    dedupSkipped: 0,
+    policySkipped: 0,
+    invalidSkipped: 0,
+    kindCounts: { fact: 1, preference: 0, open_loop: 0 },
+    entries: [
+      {
+        kind: "fact",
+        summary: "User is working on the PersAI runtime.",
+        layer: "long",
+        confidence: null
+      }
+    ],
+    durationMs: 10,
+    reason: "ok",
+    usage: null
+  };
+  sessionStore.resolvedSession = createResolvedSession(30_000);
+  const autoCompactionWithWatermark = await service.compactSession({
+    ...createCompactionRequest({ channel: "telegram" }),
+    trigger: "auto_compaction",
+    runtimeRequestId: "req-auto-watermark",
+    autoExtract: true
+  });
+  assert.equal(autoCompactionWithWatermark.compacted, true);
+  assert.equal(autoExtract.calls.length, 1);
+  assert.deepEqual((autoExtract.calls[0] as { compactedMessages: unknown[] }).compactedMessages, [
+    { role: "user", content: "User message 3." },
+    { role: "assistant", content: "Assistant message 4." }
+  ]);
+  assert.deepEqual(postgres.updateCalls.at(-1), {
+    sessionId: "session-1",
+    memoryExtractionWatermark: 4
+  });
+
+  // First idle pass advances the watermark when the delta is successfully evaluated.
+  hydration.source = {
+    messages: createCompactionMessages(12),
+    summarizedMessageCount: 12,
+    preservedRecentMessageCount: 0
+  };
+  postgres.sessionMemoryExtractionWatermark = 0;
+  postgres.updateCalls = [];
+  autoExtract.calls = [];
+  const firstIdlePass = await service.extractIdleSessionMemory({
+    ...createCompactionRequest(),
+    runtimeRequestId: "idle-1"
+  });
+  assert.equal(firstIdlePass.ok, true);
+  assert.equal(firstIdlePass.watermarkAfter, 12);
+  assert.equal(autoExtract.calls.length, 1);
+  assert.deepEqual(postgres.updateCalls.at(-1), {
+    sessionId: "session-1",
+    memoryExtractionWatermark: 12
+  });
+
+  // A second idle pass over the same session with no new messages must noop.
+  postgres.sessionMemoryExtractionWatermark = 12;
+  postgres.updateCalls = [];
+  autoExtract.calls = [];
+  const secondIdlePass = await service.extractIdleSessionMemory({
+    ...createCompactionRequest(),
+    runtimeRequestId: "idle-2"
+  });
+  assert.equal(secondIdlePass.reason, "already_covered");
+  assert.equal(autoExtract.calls.length, 0);
+  assert.equal(postgres.updateCalls.length, 0);
+
+  // Fewer than 10 new messages after the watermark must not trigger extraction.
+  postgres.sessionMemoryExtractionWatermark = 5;
+  postgres.updateCalls = [];
+  autoExtract.calls = [];
+  const belowIdleThreshold = await service.extractIdleSessionMemory({
+    ...createCompactionRequest(),
+    runtimeRequestId: "idle-3"
+  });
+  assert.equal(belowIdleThreshold.reason, "idle_threshold_not_reached");
+  assert.equal(autoExtract.calls.length, 0);
+  assert.equal(postgres.updateCalls.length, 0);
+
+  // Once >=10 new messages accumulate, idle extraction must run only that delta.
+  postgres.sessionMemoryExtractionWatermark = 2;
+  postgres.updateCalls = [];
+  autoExtract.calls = [];
+  const deltaIdlePass = await service.extractIdleSessionMemory({
+    ...createCompactionRequest(),
+    runtimeRequestId: "idle-4"
+  });
+  assert.equal(deltaIdlePass.ok, true);
+  assert.equal(
+    (autoExtract.calls[0] as { compactedMessages: unknown[] }).compactedMessages.length,
+    10
+  );
+  assert.deepEqual(
+    (autoExtract.calls[0] as { compactedMessages: Array<{ role: string; content: string }> })
+      .compactedMessages[0],
+    { role: "user", content: "User message 3." }
+  );
+
+  // Provider failure leaves the watermark unchanged so the same delta is never
+  // silently marked as processed.
+  postgres.sessionMemoryExtractionWatermark = 2;
+  postgres.updateCalls = [];
+  autoExtract.calls = [];
+  autoExtract.nextResult = {
+    attempted: true,
+    written: 0,
+    dedupSkipped: 0,
+    policySkipped: 0,
+    invalidSkipped: 0,
+    kindCounts: { fact: 0, preference: 0, open_loop: 0 },
+    entries: [],
+    durationMs: 10,
+    reason: "provider_error",
+    usage: null
+  };
+  const failedIdlePass = await service.extractIdleSessionMemory({
+    ...createCompactionRequest(),
+    runtimeRequestId: "idle-5"
+  });
+  assert.equal(failedIdlePass.ok, false);
+  assert.equal(failedIdlePass.retryable, true);
+  assert.equal(failedIdlePass.watermarkAfter, 2);
+  assert.equal(postgres.updateCalls.length, 0);
 }

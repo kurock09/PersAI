@@ -8,7 +8,6 @@ import type {
   AssistantMemoryRegistryClass,
   AssistantMemoryRegistryKind
 } from "../domain/assistant-memory-registry-item.entity";
-import { ReadAssistantKnowledgeService } from "./read-assistant-knowledge.service";
 import { isObviouslyNonDurableMemorySummary, normalizeMemoryText } from "./memory-summary.util";
 
 /**
@@ -20,9 +19,9 @@ import { isObviouslyNonDurableMemorySummary, normalizeMemoryText } from "./memor
  *   * `core` — the always-on identity/preference memories. Capped at
  *     {@link MEMORY_CORE_HARD_CAP}, ordered most-recent-first. Goes into the
  *     cache-stable `durable_memory_core` block.
- *   * `contextual` — turn-relevance hits ranked by the existing knowledge
- *     retrieval scorer, restricted to `memory_class = contextual` so we never
- *     double-render a core entry. Goes into the non-stable
+ *   * `contextual` — the most recent active short memories, ordered newest
+ *     first with deterministic tie-breaks and restricted to
+ *     `source_type = memory_write`. Goes into the non-stable
  *     `durable_memory_contextual` block.
  *
  * After selection we bump `last_used_at` for every returned entry so future
@@ -30,7 +29,6 @@ import { isObviouslyNonDurableMemorySummary, normalizeMemoryText } from "./memor
  */
 const DEFAULT_CONTEXTUAL_LIMIT = 6;
 const MAX_CONTEXTUAL_LIMIT = 12;
-const MAX_USER_QUERY_CHARS = 2_000;
 
 export type HydratedDurableMemoryItem = {
   id: string;
@@ -45,7 +43,6 @@ export type HydratedDurableMemoryItem = {
 
 export type HydrateMemoryForTurnInput = {
   assistantId: string;
-  userQuery: string;
   contextualLimit: number | null;
 };
 
@@ -58,8 +55,7 @@ export type HydrateMemoryForTurnResult = {
 export class HydrateMemoryForTurnService {
   constructor(
     @Inject(ASSISTANT_MEMORY_REGISTRY_REPOSITORY)
-    private readonly memoryRegistryRepository: AssistantMemoryRegistryRepository,
-    private readonly readAssistantKnowledgeService: ReadAssistantKnowledgeService
+    private readonly memoryRegistryRepository: AssistantMemoryRegistryRepository
   ) {}
 
   parseInput(payload: unknown): HydrateMemoryForTurnInput {
@@ -72,7 +68,6 @@ export class HydrateMemoryForTurnService {
       typeof row.assistantId === "string" && row.assistantId.trim().length > 0
         ? row.assistantId.trim()
         : null;
-    const userQueryRaw = typeof row.userQuery === "string" ? row.userQuery : "";
     const contextualLimitRaw = row.contextualLimit;
 
     let contextualLimit: number | null;
@@ -94,7 +89,6 @@ export class HydrateMemoryForTurnService {
 
     return {
       assistantId,
-      userQuery: userQueryRaw.slice(0, MAX_USER_QUERY_CHARS),
       contextualLimit
     };
   }
@@ -115,32 +109,38 @@ export class HydrateMemoryForTurnService {
       score: null
     }));
 
-    const trimmedQuery = input.userQuery.trim();
     const contextualLimit = this.resolveContextualLimit(input.contextualLimit);
-    let contextualItems: HydratedDurableMemoryItem[] = [];
-    if (trimmedQuery.length > 0 && contextualLimit > 0) {
-      const hits = await this.readAssistantKnowledgeService.searchMemory({
-        assistantId: input.assistantId,
-        query: trimmedQuery,
-        maxResults: contextualLimit,
-        memoryClass: "contextual"
+    const coreIds = new Set(coreItems.map((item) => item.id));
+    const coreNormalizedSummaries = new Set(
+      coreItems
+        .map((item) => normalizeMemoryText(item.summary))
+        .filter((summary) => summary.length > 0)
+    );
+    const contextualEntries =
+      contextualLimit > 0
+        ? await this.memoryRegistryRepository.listRecentActiveContextualByAssistantId(
+            input.assistantId,
+            contextualLimit,
+            { sourceType: "memory_write" }
+          )
+        : [];
+    const contextualItems = contextualEntries
+      .map((row) => ({
+        id: row.id,
+        summary: row.summary,
+        sourceType: row.sourceType,
+        sourceLabel: row.sourceLabel,
+        memoryClass: row.memoryClass,
+        kind: row.kind,
+        createdAt: row.createdAt.toISOString(),
+        score: null
+      }))
+      .filter((item) => !coreIds.has(item.id))
+      .filter((item) => !isObviouslyNonDurableMemorySummary(item.summary))
+      .filter((item) => {
+        const normalizedSummary = normalizeMemoryText(item.summary);
+        return normalizedSummary.length > 0 && !coreNormalizedSummaries.has(normalizedSummary);
       });
-      const coreIds = new Set(coreItems.map((item) => item.id));
-      const coreNormalizedSummaries = new Set(
-        coreItems
-          .map((item) => normalizeMemoryText(item.summary))
-          .filter((summary) => summary.length > 0)
-      );
-      contextualItems = hits
-        .map((hit) => this.toHydratedItem(hit))
-        .filter((item): item is HydratedDurableMemoryItem => item !== null)
-        .filter((item) => !coreIds.has(item.id))
-        .filter((item) => !isObviouslyNonDurableMemorySummary(item.summary))
-        .filter((item) => {
-          const normalizedSummary = normalizeMemoryText(item.summary);
-          return normalizedSummary.length > 0 && !coreNormalizedSummaries.has(normalizedSummary);
-        });
-    }
 
     const touchedIds = [...coreItems, ...contextualItems].map((item) => item.id);
     if (touchedIds.length > 0) {
@@ -161,50 +161,5 @@ export class HydrateMemoryForTurnService {
       return 0;
     }
     return Math.min(requested, MAX_CONTEXTUAL_LIMIT);
-  }
-
-  private toHydratedItem(hit: {
-    referenceId: string;
-    score: number | null;
-    snippet: string | null;
-    metadata: unknown;
-  }): HydratedDurableMemoryItem | null {
-    const metadata = this.asObject(hit.metadata);
-    if (metadata === null) {
-      return null;
-    }
-    const memoryItemId = metadata.memoryItemId;
-    const sourceType = metadata.sourceType;
-    const memoryClass = metadata.memoryClass;
-    const kind = metadata.kind;
-    const summary = metadata.summary;
-    const createdAt = metadata.createdAt;
-    if (
-      typeof memoryItemId !== "string" ||
-      memoryItemId.length === 0 ||
-      (sourceType !== "web_chat" && sourceType !== "memory_write") ||
-      (memoryClass !== "core" && memoryClass !== "contextual") ||
-      (kind !== null && kind !== "fact" && kind !== "preference" && kind !== "open_loop") ||
-      typeof summary !== "string" ||
-      typeof createdAt !== "string"
-    ) {
-      return null;
-    }
-    return {
-      id: memoryItemId,
-      summary,
-      sourceType,
-      sourceLabel: typeof metadata.sourceLabel === "string" ? metadata.sourceLabel : null,
-      memoryClass,
-      kind,
-      createdAt,
-      score: hit.score
-    };
-  }
-
-  private asObject(value: unknown): Record<string, unknown> | null {
-    return value !== null && typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : null;
   }
 }

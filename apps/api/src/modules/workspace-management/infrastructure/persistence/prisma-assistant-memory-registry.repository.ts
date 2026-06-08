@@ -264,6 +264,26 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     return rows.map((row) => this.mapToDomain(row));
   }
 
+  async listRecentActiveContextualByAssistantId(
+    assistantId: string,
+    limit: number,
+    filter?: { sourceType?: AssistantMemoryRegistryItem["sourceType"] }
+  ): Promise<AssistantMemoryRegistryItem[]> {
+    const rows = await this.prisma.assistantMemoryRegistryItem.findMany({
+      where: {
+        assistantId,
+        forgottenAt: null,
+        supersededAt: null,
+        memoryClass: "contextual",
+        ...(filter?.sourceType ? { sourceType: filter.sourceType } : {})
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit
+    });
+
+    return rows.map((row) => this.mapToDomain(row));
+  }
+
   async countActiveCoreByAssistantId(assistantId: string): Promise<number> {
     return this.prisma.assistantMemoryRegistryItem.count({
       where: {

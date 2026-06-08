@@ -1,11 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
-  PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES,
-  PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES,
-  type PersaiRuntimeMemoryWriteDurability,
   type PersaiRuntimeMemoryWriteKind,
-  type PersaiRuntimeMemoryWriteStability,
+  PERSAI_RUNTIME_MEMORY_WRITE_LAYERS,
+  type PersaiRuntimeMemoryWriteLayer,
   ProviderGatewayToolCall,
   RuntimeMemoryWriteToolResult,
   RuntimeTurnRequest
@@ -23,8 +21,7 @@ type WriteRequest = {
   action: "write";
   kind: PersaiRuntimeMemoryWriteKind;
   memory: string;
-  durability: PersaiRuntimeMemoryWriteDurability;
-  stability: PersaiRuntimeMemoryWriteStability;
+  layer: PersaiRuntimeMemoryWriteLayer;
   confidence: number | null;
   closeOpenLoop: boolean;
 };
@@ -217,8 +214,7 @@ export class RuntimeMemoryWriteToolService {
         assistantId: params.bundle.metadata.assistantId,
         kind: request.kind,
         summary: request.memory,
-        durability: request.durability,
-        stability: request.stability,
+        layer: request.layer,
         confidence: request.confidence,
         transportSurface,
         sourceTrust: params.conversation.mode === "direct" ? "trusted_1to1" : "group",
@@ -289,8 +285,7 @@ export class RuntimeMemoryWriteToolService {
       "action",
       "kind",
       "memory",
-      "durability",
-      "stability",
+      "layer",
       "confidence",
       "closeOpenLoop",
       "ref"
@@ -313,8 +308,7 @@ export class RuntimeMemoryWriteToolService {
         ref === null ||
         args.kind !== undefined ||
         args.memory !== undefined ||
-        args.durability !== undefined ||
-        args.stability !== undefined ||
+        args.layer !== undefined ||
         args.confidence !== undefined ||
         args.closeOpenLoop !== undefined
       ) {
@@ -329,21 +323,19 @@ export class RuntimeMemoryWriteToolService {
     }
     const kind = this.asKind(args.kind);
     const memory = this.normalizeMemory(args.memory);
-    const durability = this.asDurability(args.durability);
-    const stability = this.asStability(args.stability);
+    const layer = this.asLayer(args.layer);
     const confidence = this.asOptionalConfidence(args.confidence);
     const closeOpenLoop = this.asCloseOpenLoop(args.closeOpenLoop);
     if (
       kind === null ||
       memory === null ||
-      durability === null ||
-      stability === null ||
+      layer === null ||
       confidence === undefined ||
       closeOpenLoop === null
     ) {
       return new Error("Memory write arguments are invalid.");
     }
-    return { action: "write", kind, memory, durability, stability, confidence, closeOpenLoop };
+    return { action: "write", kind, memory, layer, confidence, closeOpenLoop };
   }
 
   private asAction(value: unknown): "write" | "close" | null {
@@ -377,17 +369,10 @@ export class RuntimeMemoryWriteToolService {
     return null;
   }
 
-  private asDurability(value: unknown): PersaiRuntimeMemoryWriteDurability | null {
+  private asLayer(value: unknown): PersaiRuntimeMemoryWriteLayer | null {
     return typeof value === "string" &&
-      PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES.includes(value as PersaiRuntimeMemoryWriteDurability)
-      ? (value as PersaiRuntimeMemoryWriteDurability)
-      : null;
-  }
-
-  private asStability(value: unknown): PersaiRuntimeMemoryWriteStability | null {
-    return typeof value === "string" &&
-      PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES.includes(value as PersaiRuntimeMemoryWriteStability)
-      ? (value as PersaiRuntimeMemoryWriteStability)
+      PERSAI_RUNTIME_MEMORY_WRITE_LAYERS.includes(value as PersaiRuntimeMemoryWriteLayer)
+      ? (value as PersaiRuntimeMemoryWriteLayer)
       : null;
   }
 

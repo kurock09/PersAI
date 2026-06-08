@@ -82,6 +82,11 @@ export interface AssistantMemoryRegistryRepository {
     assistantId: string,
     limit: number
   ): Promise<AssistantMemoryRegistryItem[]>;
+  listRecentActiveContextualByAssistantId(
+    assistantId: string,
+    limit: number,
+    filter?: { sourceType?: AssistantMemoryRegistryItem["sourceType"] }
+  ): Promise<AssistantMemoryRegistryItem[]>;
   /**
    * ADR-074 M1 — number of currently-active core entries. Used by the
    * write-side overflow guard so we can demote the oldest core entry when the

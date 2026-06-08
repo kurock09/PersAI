@@ -2720,6 +2720,33 @@ export async function patchAssistantElevenLabsVoiceCuration(
   return payload.settings;
 }
 
+export async function postAssistantElevenLabsVoiceCatalogRefresh(
+  token: string
+): Promise<AssistantVoiceSettingsState> {
+  const response = await fetch(`${getApiBaseUrl()}/assistant/voice/elevenlabs/refresh`, {
+    method: "POST",
+    headers: getAuthHeaders(token)
+  });
+  if (!response.ok) {
+    throw new Error(await readJsonErrorMessage(response, "Failed to refresh voice catalog."));
+  }
+  const payload = (await response.json()) as {
+    settings?: AssistantVoiceSettingsState;
+  };
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    payload.settings === undefined ||
+    typeof payload.settings !== "object" ||
+    payload.settings === null
+  ) {
+    throw new Error(
+      "Unexpected non-success response for POST /assistant/voice/elevenlabs/refresh."
+    );
+  }
+  return payload.settings;
+}
+
 export async function patchAssistantNotificationPreference(
   token: string,
   channel: AssistantPreferredNotificationChannel

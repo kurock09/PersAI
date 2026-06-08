@@ -3,6 +3,7 @@ import type {
   AssistantMemoryRegistryDurability,
   AssistantMemoryRegistryStability
 } from "./assistant-memory-registry-item.entity";
+import type { PersaiRuntimeMemoryWriteLayer } from "@persai/runtime-contract";
 
 /**
  * ADR-074 M1 — hard cap on the number of always-on "core" durable memory
@@ -18,7 +19,10 @@ export const MEMORY_WRITE_NOT_DURABLE_CODE = "not_durable";
 export type DurableMemoryWriteRouteDecision =
   | {
       action: "write";
+      layer: PersaiRuntimeMemoryWriteLayer;
       memoryClass: AssistantMemoryRegistryClass;
+      durability: AssistantMemoryRegistryDurability;
+      stability: AssistantMemoryRegistryStability;
       reason: null;
     }
   | {
@@ -28,8 +32,7 @@ export type DurableMemoryWriteRouteDecision =
     };
 
 export function routeDurableMemoryWrite(params: {
-  durability: AssistantMemoryRegistryDurability | null;
-  stability: AssistantMemoryRegistryStability | null;
+  layer: PersaiRuntimeMemoryWriteLayer | null;
   guardrailRejected?: boolean;
 }): DurableMemoryWriteRouteDecision {
   if (params.guardrailRejected) {
@@ -40,20 +43,31 @@ export function routeDurableMemoryWrite(params: {
     };
   }
 
-  if (params.durability === "identity" && params.stability === "stable") {
+  if (params.layer === "long") {
     return {
       action: "write",
+      layer: params.layer,
       memoryClass: "core",
+      durability: "identity",
+      stability: "stable",
       reason: null
     };
   }
 
-  // Legacy rows / in-flight callers may have null semantic fields. Treat them
-  // conservatively as contextual so only explicit identity+stable writes land
-  // in the always-on core block.
+  if (params.layer === "short") {
+    return {
+      action: "write",
+      layer: params.layer,
+      memoryClass: "contextual",
+      durability: "episodic",
+      stability: "time_bound",
+      reason: null
+    };
+  }
+
   return {
-    action: "write",
-    memoryClass: "contextual",
-    reason: null
+    action: "skip",
+    memoryClass: null,
+    reason: MEMORY_WRITE_NOT_DURABLE_CODE
   };
 }

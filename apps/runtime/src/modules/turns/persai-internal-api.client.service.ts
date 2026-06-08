@@ -265,8 +265,7 @@ export type InternalMemoryWriteInput = {
   assistantId: string;
   kind: PersaiRuntimeMemoryWriteKind;
   summary: string;
-  durability: "identity" | "episodic";
-  stability: "stable" | "time_bound";
+  layer: "long" | "short";
   confidence: number | null;
   transportSurface: "web" | "telegram";
   sourceTrust: "trusted_1to1" | "group";
@@ -294,7 +293,6 @@ export type InternalHydratedDurableMemoryItem = {
 
 export type InternalHydrateMemoryForTurnInput = {
   assistantId: string;
-  userQuery: string;
   contextualLimit: number | null;
 };
 
@@ -1244,7 +1242,6 @@ export class PersaiInternalApiClientService {
       },
       body: JSON.stringify({
         assistantId: input.assistantId,
-        userQuery: input.userQuery,
         contextualLimit: input.contextualLimit
       })
     });
@@ -1951,8 +1948,7 @@ export class PersaiInternalApiClientService {
       typeof row.id === "string" &&
       typeof row.summary === "string" &&
       (row.kind === "fact" || row.kind === "preference" || row.kind === "open_loop") &&
-      (row.durability === null || row.durability === "identity" || row.durability === "episodic") &&
-      (row.stability === null || row.stability === "stable" || row.stability === "time_bound") &&
+      (row.layer === null || row.layer === "long" || row.layer === "short") &&
       (row.confidence === null ||
         (typeof row.confidence === "number" &&
           Number.isFinite(row.confidence) &&

@@ -11,9 +11,8 @@ import {
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
   PERSAI_RUNTIME_FILES_TOOL_ACTIONS,
-  PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES,
   PERSAI_RUNTIME_MEMORY_WRITE_KINDS,
-  PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES,
+  PERSAI_RUNTIME_MEMORY_WRITE_LAYERS,
   PERSAI_RUNTIME_IMAGE_BACKGROUNDS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
@@ -452,7 +451,7 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
     name: "memory_write",
     description: resolveToolDefinitionDescription(
       policy,
-      "Write only genuinely durable memories for this assistant-user pair, using honest durability/stability fields, or close a previously recorded open loop by its ref."
+      "Write only genuinely useful memories for this assistant-user pair: use `long` for stable lasting facts or preferences, `short` for recent working context worth keeping briefly, or close a previously recorded open loop by its ref."
     ),
     inputSchema: {
       type: "object",
@@ -476,17 +475,11 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
           description:
             'Required when action is "write" (or omitted). One concise genuinely durable memory statement to store. Do not write greetings, acknowledgements, or one-off chatter.'
         },
-        durability: {
+        layer: {
           type: "string",
-          enum: [...PERSAI_RUNTIME_MEMORY_WRITE_DURABILITIES],
+          enum: [...PERSAI_RUNTIME_MEMORY_WRITE_LAYERS],
           description:
-            'Required when action is "write" (or omitted). Use "identity" for who the user is or a lasting preference about how to help; use "episodic" for a one-off task, wish, or event.'
-        },
-        stability: {
-          type: "string",
-          enum: [...PERSAI_RUNTIME_MEMORY_WRITE_STABILITIES],
-          description:
-            'Required when action is "write" (or omitted). Use "stable" for timeless or unlikely-to-change memory; use "time_bound" for something tied to a moment or likely to expire.'
+            'Required when action is "write" (or omitted). Use "long" for stable long-term facts, lasting preferences, or durable decisions. Use "short" for recent working context that should decay naturally after it stops mattering.'
         },
         confidence: {
           type: "number",

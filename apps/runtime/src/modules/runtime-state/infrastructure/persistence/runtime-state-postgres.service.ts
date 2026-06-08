@@ -24,6 +24,7 @@ export interface UpsertRuntimeSessionInput {
   totalTokensFresh?: boolean;
   compactionCount?: number;
   compactionHintTokens?: number | null;
+  memoryExtractionWatermark?: number;
   providerKey?: string | null;
   modelKey?: string | null;
   lastTurnAt?: Date | null;
@@ -62,6 +63,7 @@ export interface UpdateRuntimeSessionInput {
   totalTokensFresh?: boolean;
   compactionCount?: number;
   compactionHintTokens?: number | null;
+  memoryExtractionWatermark?: number;
   providerKey?: string | null;
   modelKey?: string | null;
   lastTurnAt?: Date | null;
@@ -154,6 +156,11 @@ export class RuntimeStatePostgresService {
       ...(input.compactionHintTokens !== undefined
         ? { compactionHintTokens: input.compactionHintTokens }
         : {}),
+      ...(input.memoryExtractionWatermark !== undefined
+        ? {
+            memoryExtractionWatermark: Math.max(0, Math.floor(input.memoryExtractionWatermark))
+          }
+        : {}),
       ...(input.providerKey !== undefined ? { providerKey: input.providerKey } : {}),
       ...(input.modelKey !== undefined ? { modelKey: input.modelKey } : {}),
       ...(input.lastTurnAt !== undefined ? { lastTurnAt: input.lastTurnAt } : {}),
@@ -179,6 +186,7 @@ export class RuntimeStatePostgresService {
         totalTokensFresh: input.totalTokensFresh ?? true,
         compactionCount: input.compactionCount ?? 0,
         compactionHintTokens: input.compactionHintTokens ?? null,
+        memoryExtractionWatermark: Math.max(0, Math.floor(input.memoryExtractionWatermark ?? 0)),
         providerKey: input.providerKey ?? null,
         modelKey: input.modelKey ?? null,
         lastTurnAt: input.lastTurnAt ?? null,
@@ -227,6 +235,11 @@ export class RuntimeStatePostgresService {
       ...(input.compactionCount !== undefined ? { compactionCount: input.compactionCount } : {}),
       ...(input.compactionHintTokens !== undefined
         ? { compactionHintTokens: input.compactionHintTokens }
+        : {}),
+      ...(input.memoryExtractionWatermark !== undefined
+        ? {
+            memoryExtractionWatermark: Math.max(0, Math.floor(input.memoryExtractionWatermark))
+          }
         : {}),
       ...(input.providerKey !== undefined ? { providerKey: input.providerKey } : {}),
       ...(input.modelKey !== undefined ? { modelKey: input.modelKey } : {}),

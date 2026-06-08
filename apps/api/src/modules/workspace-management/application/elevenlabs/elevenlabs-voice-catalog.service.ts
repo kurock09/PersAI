@@ -94,7 +94,10 @@ export class ElevenLabsVoiceCatalogService {
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService
   ) {}
 
-  async getCatalog(input?: { includeAdmin?: boolean }): Promise<ElevenLabsVoiceCatalogResult> {
+  async getCatalog(input?: {
+    includeAdmin?: boolean;
+    forceRefresh?: boolean;
+  }): Promise<ElevenLabsVoiceCatalogResult> {
     const keyMetadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys([
       ELEVENLABS_PROVIDER_KEY
     ]);
@@ -110,7 +113,7 @@ export class ElevenLabsVoiceCatalogService {
     }
 
     const cached = await this.readCacheRow();
-    if (cached !== null && !this.isExpired(cached.fetchedAt)) {
+    if (input?.forceRefresh !== true && cached !== null && !this.isExpired(cached.fetchedAt)) {
       return await this.toResult(cached, null, input?.includeAdmin === true);
     }
 

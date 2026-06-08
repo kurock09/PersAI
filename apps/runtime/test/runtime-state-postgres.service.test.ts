@@ -149,6 +149,7 @@ export async function runRuntimeStatePostgresServiceTest(): Promise<void> {
       compactionHintTokens: 400,
       providerKey: "openai",
       modelKey: "gpt-5.4",
+      memoryExtractionWatermark: 0,
       lastTurnAt: null,
       closedAt: null
     },

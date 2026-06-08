@@ -1263,10 +1263,9 @@ class FakePersaiInternalApiClientService {
       id: "memory-1",
       summary: "User prefers concise answers.",
       kind: "preference" as const,
-      durability: "identity" as const,
-      stability: "stable" as const,
+      layer: "long" as const,
       confidence: null,
-      sourceLabel: "Memory write: preference",
+      sourceLabel: "Long memory write: preference",
       createdAt: "2026-04-14T18:45:00.000Z",
       chatId: null
     }
@@ -2052,7 +2051,7 @@ function computeHydratedStableBlockTokens(
       );
       continue;
     }
-    if (normalized.startsWith("[Relevant memories retrieved for this turn")) {
+    if (normalized.startsWith("[Recent short-term context from earlier turns")) {
       // Contextual durable memory is intentionally excluded from the stable
       // prefix cache key family even when it appears in the prefix walk.
       continue;
@@ -3481,41 +3480,49 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     service as unknown as {
       planRetrievedKnowledgeContext: (
         bundle: AssistantRuntimeBundle,
-        context: RuntimeRetrievedKnowledgeContext
-      ) => RuntimeRetrievedKnowledgeContext;
+        context: RuntimeRetrievedKnowledgeContext,
+        hydratedMessages: ProviderGatewayTextGenerateRequest["messages"]
+      ) => RuntimeRetrievedKnowledgeContext | null;
     }
-  ).planRetrievedKnowledgeContext(bundleRegistry.entry!.parsedBundle, {
-    items: [
-      {
-        label: "product_kb" as const,
-        referenceId: "product-text-entry:pricing:1:0",
-        title: "PersAI pricing",
-        locator: null,
-        content: "PersAI pricing and quota facts.",
-        score: 99,
-        metadata: { source: "global" }
-      },
-      {
-        label: "user_document" as const,
-        referenceId: "source-user:1:0",
-        title: "User document",
-        locator: null,
-        content: "General user document context.",
-        score: 90,
-        metadata: { source: "document" }
-      },
-      {
-        label: "user_document" as const,
-        referenceId: "project_file:file-project-1",
-        title: "Project file",
-        locator: "uploads/project.pdf",
-        content: "Project file context.",
-        score: 1,
-        metadata: { source: "project_file", fileRef: "file-project-1" }
-      }
-    ],
-    renderedBlock: "# Retrieved Knowledge Context"
-  });
+  ).planRetrievedKnowledgeContext(
+    bundleRegistry.entry!.parsedBundle,
+    {
+      items: [
+        {
+          label: "product_kb" as const,
+          referenceId: "product-text-entry:pricing:1:0",
+          title: "PersAI pricing",
+          locator: null,
+          content: "PersAI pricing and quota facts.",
+          score: 99,
+          metadata: { source: "global" }
+        },
+        {
+          label: "user_document" as const,
+          referenceId: "source-user:1:0",
+          title: "User document",
+          locator: null,
+          content: "General user document context.",
+          score: 90,
+          metadata: { source: "document" }
+        },
+        {
+          label: "user_document" as const,
+          referenceId: "project_file:file-project-1",
+          title: "Project file",
+          locator: "uploads/project.pdf",
+          content: "Project file context.",
+          score: 1,
+          metadata: { source: "project_file", fileRef: "file-project-1" }
+        }
+      ],
+      renderedBlock: "# Retrieved Knowledge Context"
+    },
+    []
+  );
+  if (plannedProjectFilePriority === null) {
+    throw new Error("planned project file priority context should not be null");
+  }
   assert.deepEqual(
     plannedProjectFilePriority.items.map((item) => item.referenceId),
     ["project_file:file-project-1", "source-user:1:0", "product-text-entry:pricing:1:0"]
@@ -3579,6 +3586,66 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(retrievalActivityEvent?.resultCount, 1);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
+
+  const retrievalDedupStreamCallOffset = providerGatewayClient.streamCalls.length;
+  const retrievalDedupRequest = createRuntimeTurnRequest();
+  retrievalDedupRequest.bundle.bundleHash = request.bundle.bundleHash;
+  retrievalDedupRequest.message.text = "Keep replies concise.";
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    retrievalDedupRequest.bundle.bundleHash;
+  turnContextHydrationService.messages = [
+    {
+      role: "assistant",
+      cacheRole: "volatile_context",
+      content:
+        "[Recent short-term context from earlier turns — newest first, may vary between turns]\n" +
+        "(Silent volatile context — use it only when helpful, and never mention this block itself unless the user explicitly asks.)\n" +
+        "- [Short memory write: preference] User prefers concise answers."
+    },
+    {
+      role: "user",
+      content: retrievalDedupRequest.message.text
+    }
+  ];
+  persaiInternalApiClientService.orchestrateRetrievalOutcome = {
+    items: [
+      {
+        label: "user_document" as const,
+        referenceId: "memory:memory-1",
+        title: "Short memory write: preference",
+        locator: null,
+        content: "User prefers concise answers.",
+        score: 10,
+        metadata: { source: "memory", summary: "User prefers concise answers." }
+      }
+    ],
+    renderedBlock: "# Retrieved Knowledge Context\n\n- User prefers concise answers."
+  };
+  providerGatewayClient.streamEventsQueue.push([
+    {
+      type: "completed",
+      result: {
+        provider: "openai",
+        model: "gpt-5.4",
+        text: "deduped retrieval reply",
+        respondedAt: "2026-04-11T12:00:03.900Z",
+        usage: null,
+        stopReason: "completed",
+        toolCalls: []
+      }
+    }
+  ]);
+  const retrievalDedupStream = await service.streamTurn(retrievalDedupRequest);
+  const retrievalDedupEvents = await collectStreamEvents(retrievalDedupStream);
+  assert.deepEqual(
+    retrievalDedupEvents.map((event) => event.type),
+    ["started", "completed"]
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.streamCalls[retrievalDedupStreamCallOffset]?.developerInstructions ?? "",
+    /# Retrieved Knowledge Context/
+  );
 
   const previousOrchestrateRetrievalOutcome =
     persaiInternalApiClientService.orchestrateRetrievalOutcome;
@@ -3825,8 +3892,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           arguments: {
             kind: "preference",
             memory: "User prefers concise answers.",
-            durability: "identity",
-            stability: "stable"
+            layer: "long"
           }
         }
       ]
@@ -3847,8 +3913,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     assistantId: "assistant-1",
     kind: "preference",
     summary: "User prefers concise answers.",
-    durability: "identity",
-    stability: "stable",
+    layer: "long",
     confidence: null,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
@@ -6791,8 +6856,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       arguments: {
         kind: "preference",
         memory: `Preference memory ${String(index + 1)}`,
-        durability: "identity",
-        stability: "stable"
+        layer: "long"
       }
     }))
   });

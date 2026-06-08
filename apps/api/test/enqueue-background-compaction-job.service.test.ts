@@ -96,8 +96,24 @@ async function runExecuteEnqueuesNewJob(): Promise<void> {
   assert.equal(created.runtimeTier, "paid_isolated");
   assert.equal(created.trigger, "post_turn");
   assert.equal(created.status, "pending");
-  assert.equal(created.pendingDedupeKey, "assistant-1:web:thread-1");
+  assert.equal(created.pendingDedupeKey, "assistant-1:web:thread-1:compaction");
   assert.equal(created.enqueuedRequestId, "req-1");
+}
+
+async function runExecuteSeparatesIdleAndCompactionLanes(): Promise<void> {
+  const prisma = new FakePrisma();
+  const service = new EnqueueBackgroundCompactionJobService(prisma as never);
+  await service.execute(service.parseInput(VALID_PAYLOAD));
+  await service.execute(
+    service.parseInput({
+      ...VALID_PAYLOAD,
+      trigger: "idle_extract",
+      enqueuedRequestId: null
+    })
+  );
+  assert.equal(prisma.created.length, 2);
+  assert.equal(prisma.created[0]!.data.pendingDedupeKey, "assistant-1:web:thread-1:compaction");
+  assert.equal(prisma.created[1]!.data.pendingDedupeKey, "assistant-1:web:thread-1:idle_extract");
 }
 
 async function runExecuteSupersedesOnUniqueViolation(): Promise<void> {
@@ -131,6 +147,7 @@ async function run(): Promise<void> {
   await runParseInputRejectsInvalidTier();
   await runParseInputRejectsInvalidChannel();
   await runExecuteEnqueuesNewJob();
+  await runExecuteSeparatesIdleAndCompactionLanes();
   await runExecuteSupersedesOnUniqueViolation();
   await runExecuteRethrowsUnknownErrors();
 }

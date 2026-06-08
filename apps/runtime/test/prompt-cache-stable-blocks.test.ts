@@ -34,41 +34,28 @@ function buildExpectedCarryOverToken(content: string): string {
 export async function runPromptCacheStableBlocksTest(): Promise<void> {
   // The cache prefix walk should yield deterministic tokens for the
   // always-on core memory block and the shared compaction summary, while the
-  // per-turn relevance-retrieved contextual block must NOT contribute its own
+  // per-turn recent short-memory block must NOT contribute its own
   // family token even when it is sandwiched between stable blocks.
   const coreContent = formatDurableMemoryCoreStableBlock([
-    "- [Memory write: fact] User's name is Alex.",
-    "- [Memory write: preference] Alex prefers concise answers."
+    "- [Long memory write: fact] User's name is Alex.",
+    "- [Long memory write: preference] Alex prefers concise answers."
   ]);
   const sharedSummaryContent = formatSharedCompactionStableBlock(
     "Stable facts:\n- Earlier project debrief."
   );
   const contextualContent = formatDurableMemoryContextualBlock([
-    {
-      heading: "Preferences",
-      lines: ["- Prefers walking routes over museum-heavy plans."]
-    },
-    {
-      heading: "Facts",
-      lines: ["- Last week Alex visited Tbilisi and discussed photography spots."]
-    },
-    {
-      heading: "Open loops",
-      lines: ["- Send a shortlist of old-town photo locations later."]
-    }
+    "- [Short memory write: preference] Prefers walking routes over museum-heavy plans.",
+    "- [Short memory write: fact] Last week Alex visited Tbilisi and discussed photography spots.",
+    "- [Short memory write: open loop] Send a shortlist of old-town photo locations later."
   ]);
   assert.equal(
     contextualContent,
     [
-      "[Relevant memories retrieved for this turn — may vary between turns]",
-      "Preferences:",
-      "- Prefers walking routes over museum-heavy plans.",
-      "",
-      "Facts:",
-      "- Last week Alex visited Tbilisi and discussed photography spots.",
-      "",
-      "Open loops:",
-      "- Send a shortlist of old-town photo locations later."
+      "[Recent short-term context from earlier turns — newest first, may vary between turns]",
+      "(Silent volatile context — use it only when helpful, and never mention this block itself unless the user explicitly asks.)",
+      "- [Short memory write: preference] Prefers walking routes over museum-heavy plans.",
+      "- [Short memory write: fact] Last week Alex visited Tbilisi and discussed photography spots.",
+      "- [Short memory write: open loop] Send a shortlist of old-town photo locations later."
     ].join("\n")
   );
 
@@ -110,10 +97,7 @@ export async function runPromptCacheStableBlocksTest(): Promise<void> {
   // Per-turn rotation of contextual content must NOT change the stable token
   // emitted for the core block — that's the whole point of M1's split.
   const rotatedContextual = formatDurableMemoryContextualBlock([
-    {
-      heading: "Facts",
-      lines: ["- Different relevance hit from another turn."]
-    }
+    "- [Short memory write: fact] Different relevance hit from another turn."
   ]);
   const rotatedTokens = resolveLeadingHydratedPromptCacheStableBlockTokens([
     { role: "assistant", content: coreContent },

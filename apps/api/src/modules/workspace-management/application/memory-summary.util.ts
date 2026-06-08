@@ -1,11 +1,3 @@
-function truncateMiddle(s: string, max: number): string {
-  const t = normalizeMemoryText(s);
-  if (t.length <= max) {
-    return t;
-  }
-  return `${t.slice(0, Math.max(1, max - 1))}…`;
-}
-
 const TRIVIAL_TURN_PHRASES = new Set([
   "hi",
   "hello",
@@ -107,24 +99,4 @@ export function isObviouslyNonDurableMemorySummary(value: string): boolean {
     return true;
   }
   return isTriviallyNonDurableUtterance(normalized);
-}
-
-export function shouldSkipWebChatMemoryTurn(
-  userContent: string,
-  assistantContent: string
-): boolean {
-  const normalizedUser = normalizeMemoryText(userContent);
-  const normalizedAssistant = normalizeMemoryText(assistantContent);
-  return (
-    (normalizedUser.length === 0 || isTriviallyNonDurableUtterance(normalizedUser)) &&
-    (normalizedAssistant.length === 0 || isTriviallyNonDurableUtterance(normalizedAssistant))
-  );
-}
-
-/** One-line user-facing summary for Memory Center (not raw chat dump). */
-export function buildWebChatMemorySummary(userContent: string, assistantContent: string): string {
-  const u = truncateMiddle(userContent, 120);
-  const a = truncateMiddle(assistantContent, 120);
-  const combined = `${u} · ${a}`;
-  return combined.length <= 500 ? combined : `${combined.slice(0, 499)}…`;
 }

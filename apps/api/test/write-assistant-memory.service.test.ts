@@ -188,8 +188,7 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "preference",
     summary: "  User prefers concise answers.  ",
-    durability: "identity",
-    stability: "stable",
+    layer: "long",
     confidence: 0.91,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
@@ -200,6 +199,7 @@ async function run(): Promise<void> {
   const written = await happy.service.execute(parsed);
   assert.equal(written.written, true);
   assert.equal(written.item?.kind, "preference");
+  assert.equal(written.item?.layer, "long");
   assert.equal(written.item?.chatId, "chat-1");
   assert.deepEqual(happy.createdInputs[0], {
     assistantId: "assistant-1",
@@ -210,7 +210,7 @@ async function run(): Promise<void> {
     relatedAssistantMessageId: null,
     summary: "User prefers concise answers.",
     sourceType: "memory_write",
-    sourceLabel: "Memory write: preference",
+    sourceLabel: "Long memory write: preference",
     memoryClass: "core",
     kind: "preference",
     durability: "identity",
@@ -228,8 +228,7 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "fact",
     summary: "User works in finance.",
-    durability: "identity",
-    stability: "stable",
+    layer: "long",
     confidence: null,
     transportSurface: "telegram",
     sourceTrust: "group",
@@ -247,8 +246,7 @@ async function run(): Promise<void> {
         assistantId: "assistant-1",
         kind: "fact",
         summary: "User works in finance.",
-        durability: "identity",
-        stability: "stable",
+        layer: "long",
         confidence: null,
         transportSurface: "web",
         sourceTrust: "trusted_1to1",
@@ -266,8 +264,7 @@ async function run(): Promise<void> {
         assistantId: "assistant-1",
         kind: "preference",
         summary: "User prefers concise answers.",
-        durability: "identity",
-        stability: "stable",
+        layer: "long",
         confidence: 2,
         transportSurface: "web",
         sourceTrust: "trusted_1to1"
@@ -290,7 +287,7 @@ async function run(): Promise<void> {
     relatedAssistantMessageId: null,
     summary: "User prefers concise answers.",
     sourceType: "memory_write",
-    sourceLabel: "Memory write: preference",
+    sourceLabel: "Long memory write: preference",
     memoryClass: "core",
     kind: "preference",
     durability: "identity",
@@ -319,8 +316,7 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "preference",
     summary: "User prefers concise answers.",
-    durability: "identity",
-    stability: "stable",
+    layer: "long",
     confidence: 0.91,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
@@ -350,7 +346,7 @@ async function run(): Promise<void> {
     id: "memory-loop",
     summary: "Need to pick a venue for the retreat.",
     kind: "open_loop",
-    sourceLabel: "Memory write: open loop"
+    sourceLabel: "Short memory write: open loop"
   };
   const implicitClose = createHarness({
     memoryControl: createDefaultMemoryControlEnvelope(),
@@ -365,8 +361,7 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "open_loop",
     summary: "Need to pick a venue for the retreat.",
-    durability: "episodic",
-    stability: "time_bound",
+    layer: "short",
     confidence: 0.78,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
@@ -406,8 +401,7 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "open_loop",
     summary: "Need to pick a venue for the retreat.",
-    durability: "episodic",
-    stability: "time_bound",
+    layer: "short",
     confidence: 0.78,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
@@ -429,8 +423,7 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "preference",
     summary: "Wants a talking-avatar video in Italian.",
-    durability: "episodic",
-    stability: "stable",
+    layer: "short",
     confidence: 0.72,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
@@ -439,6 +432,9 @@ async function run(): Promise<void> {
   });
   assert.equal(episodicWishResult.written, true);
   assert.equal(episodicWish.createdInputs[0]?.memoryClass, "contextual");
+  assert.equal(episodicWish.createdInputs[0]?.durability, "episodic");
+  assert.equal(episodicWish.createdInputs[0]?.stability, "time_bound");
+  assert.equal(episodicWishResult.item?.layer, "short");
 
   const timeBoundIdentity = createHarness({
     memoryControl: createDefaultMemoryControlEnvelope()
@@ -447,8 +443,7 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "fact",
     summary: "Is traveling this week and needs quick replies.",
-    durability: "identity",
-    stability: "time_bound",
+    layer: "short",
     confidence: 0.68,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
@@ -457,6 +452,8 @@ async function run(): Promise<void> {
   });
   assert.equal(timeBoundIdentityResult.written, true);
   assert.equal(timeBoundIdentity.createdInputs[0]?.memoryClass, "contextual");
+  assert.equal(timeBoundIdentity.createdInputs[0]?.durability, "episodic");
+  assert.equal(timeBoundIdentity.createdInputs[0]?.stability, "time_bound");
 
   const trivial = createHarness({
     memoryControl: createDefaultMemoryControlEnvelope()
@@ -465,8 +462,7 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "fact",
     summary: "ok",
-    durability: "identity",
-    stability: "stable",
+    layer: "long",
     confidence: 0.99,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
@@ -485,8 +481,7 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     kind: "preference",
     summary: "Prefers terse 3-bullet answers.",
-    durability: "identity",
-    stability: "stable",
+    layer: "long",
     confidence: 0.95,
     transportSurface: "web",
     sourceTrust: "trusted_1to1",

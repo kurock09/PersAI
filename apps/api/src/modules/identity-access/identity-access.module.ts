@@ -39,6 +39,8 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/assistant/persona-archetypes", method: RequestMethod.GET },
       { path: "api/v1/assistant/plan-visibility", method: RequestMethod.GET },
       { path: "api/v1/assistant/voice/settings", method: RequestMethod.GET },
+      { path: "api/v1/assistant/voice/elevenlabs/curation", method: RequestMethod.PATCH },
+      { path: "api/v1/assistant/voice/elevenlabs/refresh", method: RequestMethod.POST },
       { path: "api/v1/assistant/notification-preference", method: RequestMethod.GET },
       { path: "api/v1/assistant", method: RequestMethod.POST },
       { path: "api/v1/assistant/switch", method: RequestMethod.POST },
