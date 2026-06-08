@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pause, Play } from "lucide-react";
+import { Check, Pause, Play } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import {
   filterVoicePickerEntries,
@@ -134,6 +134,17 @@ export function VoicePicker({
                   selected && "bg-accent/10"
                 )}
               >
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors",
+                    selected
+                      ? "border-accent bg-accent/15 text-accent"
+                      : "border-border/70 text-transparent"
+                  )}
+                >
+                  <Check className="size-2.5" />
+                </span>
                 <button
                   type="button"
                   onClick={() => onSelect(entry.value)}
