@@ -981,7 +981,7 @@ Interpretation rules:
 1. The catalog is a platform-wide read-through cache, not per-workspace truth: a fresh cache row (within the 24h TTL) must be served without any network call, and a successful live fetch must upsert the single cache row.
 2. Load state must stay honest: `not_configured` when no ElevenLabs key (no network), `unavailable` only when the cache is empty and a live refresh fails, and `ready` otherwise — including serving the last known (stale) row with a warning when a refresh fails.
 3. The `GET assistant/voice/settings` response is additive: existing fields stay, and per-entry `language`/`languageBucket` are added without breaking existing web consumers. (The catalog result intentionally exposes no `shortlist`/`fetchedAt` — there is no consumer.)
-4. Admin curation must preserve two surfaces: regular users see only approved public ElevenLabs voices (capped to 12 per language bucket + gender), while admins can still browse/select from the expanded candidate list for their own assistant and curate the public set.
+4. Admin curation must preserve two surfaces: regular users see only approved public ElevenLabs voices (capped to 24 per language bucket + gender), while admins can still browse/select from the expanded candidate list for their own assistant and curate the public set.
 
 When a change touches the premium voice picker (`apps/web/app/app/_components/voice-picker.tsx`, `filterVoicePickerEntries`, or the assistant-settings voice section), add this focused pack:
 
