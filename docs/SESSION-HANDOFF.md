@@ -31,7 +31,7 @@
 
 ### Next recommended step
 
-- Run runtime lint/typecheck + format, then decide whether to include the separate HeyGen VC catalog settle fix in a new bounded API slice or ship this runtime-routing fix first.
+- ADR-112 is closed at code/test/docs level after the live video-tool follow-up. The remaining HeyGen VC catalog/settle issue is separate API/accounting work; handle it as a new bounded slice only if product priority requires it.
 
 ## 2026-06-09 - ADR-112 Slice 8 background prompt hygiene
 

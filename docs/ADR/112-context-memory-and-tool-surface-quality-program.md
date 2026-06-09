@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-06-07). Program open; Slices 1-6, 9, and 10 complete; Slices 7-8 pending.
+Completed (2026-06-09). Program closed; Slices 1-10 complete, with the live video-tool follow-up landed in the same ADR-112 cleanup path.
 
 This is an orchestration program ADR in the same operating model as ADR-110. The parent agent acts as orchestrator and reviewer; production-code implementation is delegated to GPT 5.4 subagents. Baseline SHA at program open: `b4fbe24c` (working tree was concurrently dirty with separate ADR-111 UI/video work and the ADR-110 contextual-memory cache fix; each slice records its own clean baseline SHA at start).
 
@@ -164,7 +164,7 @@ Each slice is one bounded session, implemented by a GPT 5.4 subagent and reviewe
   - Post-live tightening: the compact-model extractor now asks for at most `3` high-confidence items or zero, uses concise neutral memory notes instead of friend-style narration, rejects broad portraits/personality takes from weak evidence, treats `open_loop` as a concrete unresolved follow-up/decision rather than vague product direction, defaults ordinary open loops to `short`, skips obvious ephemeral/test-voice outputs, and skips numeric-confidence `long` fact/preference candidates below `0.85`. This is a narrow negative guardrail around the model-judged path, not a replacement heuristic classifier.
   - Prompt-context follow-up (2026-06-09): memory hydration now carries each row's existing nullable `chatId` to runtime. Runtime renders compact source markers only when it can compare that `chatId` to the current canonical chat (`this chat` / `past chat`) and adds one instruction for past-chat memories to use chat/context search for details rather than assuming they happened in the current conversation. Unresolved `open_loop` short-memory rows are not repeated in the recent short-memory block because `Open Loop Refs` is the operational prompt surface for unresolved refs. No database migration or alternate memory path was introduced.
 
-Slices 1-4 were sequential within memory and are complete. Slice 10 was completed after Slices 1-4 as the memory follow-up before broad tool-surface cleanup. Slice 6's dependency on Slice 5 is satisfied. Slice 9's dependency on Slice 5 is satisfied and its memory-search instructions must align with the completed Slice 10 path. Slices 7 and 8 remain independent.
+Slices 1-4 were sequential within memory and are complete. Slice 10 was completed after Slices 1-4 as the memory follow-up before broad tool-surface cleanup. Slice 6's dependency on Slice 5 is satisfied. Slice 9's dependency on Slice 5 is satisfied and its memory-search instructions align with the completed Slice 10 path. Slices 7 and 8 are complete, so ADR-112 is closed.
 
 ## Risks
 

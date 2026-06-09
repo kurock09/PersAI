@@ -6173,7 +6173,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         ],
         referenceImageSupported: true,
         audioCapabilities: ["silent"],
-        inputCapabilities: ["text", "single_reference_image"]
+        inputCapabilities: ["text", "single_reference_image"],
+        providerParameters: null
       },
       secretRef: {
         source: "persai",
@@ -6266,10 +6267,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     true
   );
   assert.equal(providerGatewayClient.videoGenerateCalls.length, 0);
-  const videoEnqueueCall = persaiInternalApiClientService.deferredMediaEnqueueCalls.findLast(
-    (call) =>
-      (call.directToolExecution as { toolCode?: string } | undefined)?.toolCode === "video_generate"
-  );
+  const videoEnqueueCall = [...persaiInternalApiClientService.deferredMediaEnqueueCalls]
+    .reverse()
+    .find(
+      (call: Record<string, unknown>) =>
+        (call.directToolExecution as { toolCode?: string } | undefined)?.toolCode ===
+        "video_generate"
+    );
   assert.ok(videoEnqueueCall);
   const videoEnqueueAttachments = videoEnqueueCall?.attachments as
     | RuntimeAttachmentRef[]
