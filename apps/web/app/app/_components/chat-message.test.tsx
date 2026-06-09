@@ -577,7 +577,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
 describe("ChatMessageBubble — video attachment preview", () => {
   it("renders a deterministic premium play placeholder before metadata or frames load", () => {
-    render(
+    const { container } = render(
       <ChatMessageBubble
         message={makeUserMessage("committed", {
           content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
@@ -588,6 +588,9 @@ describe("ChatMessageBubble — video attachment preview", () => {
 
     expect(screen.getByRole("button", { name: "openVideo" })).toBeInTheDocument();
     expect(screen.getByTestId("chat-video-preview-placeholder")).toBeInTheDocument();
+    const video = container.querySelector("video");
+    expect(video).not.toBeNull();
+    expect(video).toHaveAttribute("data-preview-frame-ready", "false");
     expect(screen.getAllByText("clip.mp4").length).toBeGreaterThan(0);
   });
 
@@ -653,8 +656,73 @@ describe("ChatMessageBubble — video attachment preview", () => {
     expect(screen.getByText("1:05")).toBeInTheDocument();
     expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveAttribute(
       "data-aspect-ratio",
-      "0.5625"
+      "0.7200"
     );
+    expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveAttribute(
+      "data-preset",
+      "portrait"
+    );
+  });
+
+  it("uses a stable square preset for near-square videos", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
+          attachments: [makeVideoAttachment("video-att-square")]
+        })}
+      />
+    );
+
+    const video = container.querySelector("video");
+    expect(video).not.toBeNull();
+    if (video === null) {
+      throw new Error("Expected inline video metadata element to render.");
+    }
+    Object.defineProperty(video, "duration", {
+      configurable: true,
+      value: 10
+    });
+    Object.defineProperty(video, "videoWidth", {
+      configurable: true,
+      value: 1024
+    });
+    Object.defineProperty(video, "videoHeight", {
+      configurable: true,
+      value: 1024
+    });
+
+    fireEvent.loadedMetadata(video);
+
+    expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveAttribute(
+      "data-preset",
+      "square"
+    );
+    expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveStyle({
+      width: "216px",
+      height: "216px"
+    });
+  });
+
+  it("reveals the real inline video frame once frame data is available", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
+          attachments: [makeVideoAttachment("video-att-4")]
+        })}
+      />
+    );
+
+    const video = container.querySelector("video");
+    expect(video).not.toBeNull();
+    if (video === null) {
+      throw new Error("Expected inline video metadata element to render.");
+    }
+
+    expect(video).toHaveAttribute("data-preview-frame-ready", "false");
+    fireEvent.loadedData(video);
+    expect(video).toHaveAttribute("data-preview-frame-ready", "true");
   });
 });
 

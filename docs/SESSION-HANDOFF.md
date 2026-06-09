@@ -16,6 +16,7 @@
 - Async media-job execution now treats model-correctable video request failures (`invalid_arguments`, bad reference/portrait aliases, missing voice/persona/config, unsupported requested mode) as non-retryable `BadRequestException`s so the API scheduler fails immediately instead of retrying the same bad request through the ~10+ minute window.
 - Deferred media/document attachment payloads now use Working Files sticky aliases as the single model/tool namespace when an attachment maps to a Working Files `fileRef`/`objectKey`. The old separate recent-image / recent-document-source payload resolvers (`last 6` / `last 4`) were removed from the runtime execution path instead of being kept as hidden fallback namespaces.
 - Working Files document anchors were clarified separately: `DOC_CURRENT_SOURCE` / `DOC_LAST_DELIVERED_PDF` replace the ambiguous `CURRENT_SOURCE` / `LAST_DELIVERED_RESULT` model-facing names.
+- Follow-up after ADR-112 closure: Working Files now adds a separate general chat-file section with `LAST_DELIVERED_FILE`, so PDF-only document anchors do not visually own the image/media/file list. Web chat video cards now use stable portrait/square/landscape preview presets and reveal the real inline video frame after `loadeddata`, while keeping the existing same-origin file route for desktop and Capacitor playback.
 
 ### Verification
 
@@ -23,6 +24,8 @@
 - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
 - `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
 - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/working-files-developer-section.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run --config vitest.config.ts app/app/_components/chat-message.test.tsx`
 
 ### Risks / residuals
 

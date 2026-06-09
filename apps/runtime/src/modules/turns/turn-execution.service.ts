@@ -2023,7 +2023,7 @@ export class TurnExecutionService {
     }
 
     const duplicateDisplayNames = this.collectDuplicateWorkingFileNames(modelVisibleWorkingFiles);
-    lines.push("");
+    lines.push("", ...this.buildWorkingFileGeneralFileNote(availableWorkingFileRefs), "");
     for (const file of modelVisibleWorkingFiles) {
       lines.push(this.formatWorkingFileHistoryLine(file, duplicateDisplayNames));
     }
@@ -3989,6 +3989,18 @@ export class TurnExecutionService {
       "- Use DOC_CURRENT_SOURCE for new document creation; use DOC_LAST_DELIVERED_PDF only for an explicit PDF revise/redeliver request.",
       "- Older history or discovery entries do not outrank those anchors unless the user explicitly points to them."
     ];
+  }
+
+  private buildWorkingFileGeneralFileNote(files: RuntimeFileRef[]): string[] {
+    const lastDeliveredFile = this.selectLastDeliveredWorkingFile(files);
+    return [
+      "Chat files visible to tools (documents, media, and attachments):",
+      `- LAST_DELIVERED_FILE = ${this.describeWorkingFilePriorityAnchor(lastDeliveredFile)}`
+    ];
+  }
+
+  private selectLastDeliveredWorkingFile(files: RuntimeFileRef[]): RuntimeFileRef | null {
+    return this.sortWorkingFilesByCreatedAt(files)[0] ?? null;
   }
 
   private describeWorkingFilePriorityAnchor(file: RuntimeFileRef | null): string {

@@ -7636,6 +7636,16 @@ export async function runRecentPdfsHintTests(): Promise<void> {
       /DOC_LAST_DELIVERED_PDF/,
       "working files must expose the last delivered result role"
     );
+    assert.match(
+      workingFiles!,
+      /Chat files visible to tools \(documents, media, and attachments\):/,
+      "working files must separate the general file list from PDF-only anchors"
+    );
+    assert.match(
+      workingFiles!,
+      /LAST_DELIVERED_FILE/,
+      "working files must expose a general last delivered file anchor"
+    );
     assert.doesNotMatch(
       workingFiles!,
       /RECENT PDFS YOU CAN REVISE/,

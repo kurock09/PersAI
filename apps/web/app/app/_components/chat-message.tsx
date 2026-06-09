@@ -915,28 +915,39 @@ function formatVideoDuration(totalSeconds: number): string | null {
   return `${String(minutes)}:${String(seconds).padStart(2, "0")}`;
 }
 
+type VideoPreviewFramePreset = "portrait" | "square" | "landscape";
+
 function resolveVideoPreviewFrame(aspectRatio: number | null): {
+  preset: VideoPreviewFramePreset;
   width: number;
   height: number;
   aspectRatio: number;
 } {
-  const fallbackAspectRatio = 4 / 5;
   const resolvedAspectRatio =
     typeof aspectRatio === "number" && Number.isFinite(aspectRatio) && aspectRatio > 0
       ? aspectRatio
-      : fallbackAspectRatio;
-  const maxWidth = 240;
-  const maxHeight = 288;
-  let width = maxWidth;
-  let height = Math.round(width / resolvedAspectRatio);
-  if (height > maxHeight) {
-    height = maxHeight;
-    width = Math.round(height * resolvedAspectRatio);
+      : 4 / 5;
+  if (resolvedAspectRatio < 0.85) {
+    return {
+      preset: "portrait",
+      width: 216,
+      height: 300,
+      aspectRatio: 216 / 300
+    };
+  }
+  if (resolvedAspectRatio <= 1.2) {
+    return {
+      preset: "square",
+      width: 216,
+      height: 216,
+      aspectRatio: 1
+    };
   }
   return {
-    width,
-    height,
-    aspectRatio: resolvedAspectRatio
+    preset: "landscape",
+    width: 240,
+    height: 135,
+    aspectRatio: 16 / 9
   };
 }
 
@@ -976,11 +987,18 @@ function VideoAttachmentPreview({
   const t = useTranslations("chat");
   const [durationSec, setDurationSec] = useState<number | null>(null);
   const [videoAspectRatio, setVideoAspectRatio] = useState<number | null>(null);
+  const [previewFrameReady, setPreviewFrameReady] = useState(false);
   const durationLabel = durationSec !== null ? formatVideoDuration(durationSec) : null;
   const previewFrame = useMemo(
     () => resolveVideoPreviewFrame(videoAspectRatio),
     [videoAspectRatio]
   );
+
+  useEffect(() => {
+    setDurationSec(null);
+    setVideoAspectRatio(null);
+    setPreviewFrameReady(false);
+  }, [fullUrl]);
 
   if (!fullUrl || isPending) {
     return (
@@ -1007,6 +1025,7 @@ function VideoAttachmentPreview({
       >
         <div
           data-testid="chat-video-preview-placeholder"
+          data-preset={previewFrame.preset}
           data-aspect-ratio={previewFrame.aspectRatio.toFixed(4)}
           className="relative flex items-center justify-center overflow-hidden border border-white/8 bg-[radial-gradient(circle_at_24%_18%,rgba(202,162,95,0.32),transparent_32%),linear-gradient(145deg,rgba(42,33,24,0.96),rgba(14,12,10,0.98))] shadow-[0_24px_60px_-30px_rgba(0,0,0,0.72)]"
           style={{
@@ -1015,13 +1034,17 @@ function VideoAttachmentPreview({
           }}
         >
           <video
-            preload="metadata"
+            preload="auto"
             muted
             playsInline
             // `disableRemotePlayback` keeps Android WebView from showing
             // an AirPlay/Cast button in the inline preview.
             disableRemotePlayback
-            className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
+            data-preview-frame-ready={previewFrameReady ? "true" : "false"}
+            className={cn(
+              "pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity duration-200",
+              previewFrameReady ? "opacity-100" : "opacity-0"
+            )}
             src={fullUrl}
             onLoadedMetadata={(e) => {
               setDurationSec(e.currentTarget.duration);
@@ -1033,6 +1056,8 @@ function VideoAttachmentPreview({
                 setVideoAspectRatio(intrinsicWidth / intrinsicHeight);
               }
             }}
+            onLoadedData={() => setPreviewFrameReady(true)}
+            onError={() => setPreviewFrameReady(false)}
           >
             <track kind="captions" />
           </video>

@@ -284,6 +284,11 @@ describe("TurnExecutionService working files developer section", () => {
     assert.match(section ?? "", /DOC_LAST_DELIVERED_PDF = file #2 \| proposal\.pdf/);
     assert.match(
       section ?? "",
+      /Chat files visible to tools \(documents, media, and attachments\):/
+    );
+    assert.match(section ?? "", /LAST_DELIVERED_FILE = file #1 \| proposal\.docx/);
+    assert.match(
+      section ?? "",
       /Use DOC_CURRENT_SOURCE for new document creation; use DOC_LAST_DELIVERED_PDF only for an explicit PDF revise\/redeliver request\./
     );
     assert.doesNotMatch(
@@ -349,6 +354,7 @@ describe("TurnExecutionService working files developer section", () => {
     assert.equal(historyLines.length, 20);
     assert.match(section ?? "", /DOC_CURRENT_SOURCE = file #1 \| proposal\.docx/);
     assert.match(section ?? "", /DOC_LAST_DELIVERED_PDF = file #2 \| proposal\.pdf/);
+    assert.match(section ?? "", /LAST_DELIVERED_FILE = file #1 \| proposal\.docx/);
     assert.match(
       section ?? "",
       /- 2026-04-01 10:00 \| model \| file #2 \| proposal\.pdf \| last delivered result \| Latest delivered PDF result\./
