@@ -14,6 +14,12 @@ const assistantApiMocks = vi.hoisted(() => ({
   ])
 }));
 
+const meApiMocks = vi.hoisted(() => ({
+  getMe: vi.fn(async () => ({
+    me: { appUser: { resolvedLocale: "en" } }
+  }))
+}));
+
 vi.mock("next/dynamic", () => ({
   default: () => () => null
 }));
@@ -79,9 +85,7 @@ vi.mock("./streaming-threads", () => ({
 }));
 
 vi.mock("../me-api-client", () => ({
-  getMe: vi.fn(async () => ({
-    me: { appUser: { resolvedLocale: "en" } }
-  }))
+  getMe: meApiMocks.getMe
 }));
 
 vi.mock("../assistant-api-client", () => ({
@@ -96,13 +100,14 @@ vi.mock("@/app/lib/locale-sync", () => ({
 
 afterEach(() => {
   assistantApiMocks.getAssistantSupportTickets.mockClear();
+  meApiMocks.getMe.mockClear();
   routerMocks.replace.mockClear();
   routerMocks.push.mockClear();
 });
 
 describe("AppShell", () => {
   it("renders an opaque support unread badge slightly above and right of the mobile menu button", async () => {
-    render(
+    const { unmount } = render(
       <AppShell initialData={null}>
         <div>content</div>
       </AppShell>
@@ -118,5 +123,11 @@ describe("AppShell", () => {
     expect(badge.className).toContain("bg-accent");
     expect(badge.className).toContain("text-white");
     expect(badge.className).not.toContain("bg-accent/12");
+
+    await waitFor(() => {
+      expect(meApiMocks.getMe).toHaveBeenCalledTimes(1);
+    });
+
+    unmount();
   });
 });
