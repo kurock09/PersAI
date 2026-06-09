@@ -917,6 +917,53 @@ function formatVideoDuration(totalSeconds: number): string | null {
 
 type VideoPreviewFramePreset = "portrait" | "square" | "landscape";
 
+function captureVideoPreviewFrame(video: HTMLVideoElement): string | null {
+  const intrinsicWidth = video.videoWidth;
+  const intrinsicHeight = video.videoHeight;
+  if (
+    !Number.isFinite(intrinsicWidth) ||
+    !Number.isFinite(intrinsicHeight) ||
+    intrinsicWidth <= 0 ||
+    intrinsicHeight <= 0
+  ) {
+    return null;
+  }
+
+  const maxCanvasWidth = 480;
+  const scale = Math.min(1, maxCanvasWidth / intrinsicWidth);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(intrinsicWidth * scale));
+  canvas.height = Math.max(1, Math.round(intrinsicHeight * scale));
+  const context = canvas.getContext("2d");
+  if (context === null) {
+    return null;
+  }
+  try {
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.78);
+  } catch {
+    return null;
+  }
+}
+
+function canShowInlineVideoFrameSurface(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const maybeNative = window as unknown as {
+    PersaiNative?: unknown;
+    Capacitor?: { isNativePlatform?: () => boolean };
+  };
+  if (
+    maybeNative.PersaiNative ||
+    (typeof maybeNative.Capacitor?.isNativePlatform === "function" &&
+      maybeNative.Capacitor.isNativePlatform())
+  ) {
+    return false;
+  }
+  return !/Android/i.test(window.navigator.userAgent);
+}
+
 function resolveVideoPreviewFrame(aspectRatio: number | null): {
   preset: VideoPreviewFramePreset;
   width: number;
@@ -930,38 +977,37 @@ function resolveVideoPreviewFrame(aspectRatio: number | null): {
   if (resolvedAspectRatio < 0.85) {
     return {
       preset: "portrait",
-      width: 216,
-      height: 300,
-      aspectRatio: 216 / 300
+      width: 151,
+      height: 210,
+      aspectRatio: 151 / 210
     };
   }
   if (resolvedAspectRatio <= 1.2) {
     return {
       preset: "square",
-      width: 216,
-      height: 216,
+      width: 151,
+      height: 151,
       aspectRatio: 1
     };
   }
   return {
     preset: "landscape",
-    width: 240,
-    height: 135,
+    width: 168,
+    height: 95,
     aspectRatio: 16 / 9
   };
 }
 
 /**
- * Video attachment preview rendered inline in a chat bubble. Mirrors the
- * still-image card shape (max-h-48, ~240px wide, rounded-[14px], plain
- * border) instead of expanding to a full-width player. The Telegram-style
- * play+duration chip in the bottom-left signals that it is playable; tapping
- * the card opens the same {@link ImageLightbox} that images use.
+ * Video attachment preview rendered inline in a chat bubble. Uses compact,
+ * fixed portrait/square/landscape presets instead of expanding to a full-width
+ * player. The Telegram-style play+duration chip signals that it is playable;
+ * tapping the card opens the same {@link ImageLightbox} that images use.
  *
- * A real `<video preload="metadata">` stays mounted only for duration metadata.
- * The visible surface is deterministic because Android WebView may render a
- * grey rectangle when the first decoded frame is unavailable even with correct
- * same-origin Range/MIME behavior.
+ * A real `<video>` stays mounted for metadata. We only reveal that decoded
+ * surface on non-Android browser surfaces. For Android/Capacitor we draw a
+ * real decoded frame into a canvas and show that image instead, avoiding the
+ * WebView's native grey play fallback while still showing a true thumbnail.
  */
 function VideoAttachmentPreview({
   variant,
@@ -988,17 +1034,36 @@ function VideoAttachmentPreview({
   const [durationSec, setDurationSec] = useState<number | null>(null);
   const [videoAspectRatio, setVideoAspectRatio] = useState<number | null>(null);
   const [previewFrameReady, setPreviewFrameReady] = useState(false);
+  const [previewThumbnailUrl, setPreviewThumbnailUrl] = useState<string | null>(null);
+  const [showInlineVideoFrameSurface, setShowInlineVideoFrameSurface] = useState(false);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const durationLabel = durationSec !== null ? formatVideoDuration(durationSec) : null;
   const previewFrame = useMemo(
     () => resolveVideoPreviewFrame(videoAspectRatio),
     [videoAspectRatio]
   );
 
+  const capturePreviewThumbnail = useCallback(() => {
+    const video = previewVideoRef.current;
+    if (video === null) {
+      return;
+    }
+    const frameUrl = captureVideoPreviewFrame(video);
+    if (frameUrl !== null) {
+      setPreviewThumbnailUrl(frameUrl);
+    }
+  }, []);
+
   useEffect(() => {
     setDurationSec(null);
     setVideoAspectRatio(null);
     setPreviewFrameReady(false);
+    setPreviewThumbnailUrl(null);
   }, [fullUrl]);
+
+  useEffect(() => {
+    setShowInlineVideoFrameSurface(canShowInlineVideoFrameSurface());
+  }, []);
 
   if (!fullUrl || isPending) {
     return (
@@ -1027,6 +1092,7 @@ function VideoAttachmentPreview({
           data-testid="chat-video-preview-placeholder"
           data-preset={previewFrame.preset}
           data-aspect-ratio={previewFrame.aspectRatio.toFixed(4)}
+          data-thumbnail-ready={previewThumbnailUrl === null ? "false" : "true"}
           className="relative flex items-center justify-center overflow-hidden border border-white/8 bg-[radial-gradient(circle_at_24%_18%,rgba(202,162,95,0.32),transparent_32%),linear-gradient(145deg,rgba(42,33,24,0.96),rgba(14,12,10,0.98))] shadow-[0_24px_60px_-30px_rgba(0,0,0,0.72)]"
           style={{
             width: `${previewFrame.width}px`,
@@ -1034,6 +1100,7 @@ function VideoAttachmentPreview({
           }}
         >
           <video
+            ref={previewVideoRef}
             preload="auto"
             muted
             playsInline
@@ -1041,9 +1108,10 @@ function VideoAttachmentPreview({
             // an AirPlay/Cast button in the inline preview.
             disableRemotePlayback
             data-preview-frame-ready={previewFrameReady ? "true" : "false"}
+            data-inline-frame-surface={showInlineVideoFrameSurface ? "enabled" : "disabled"}
             className={cn(
               "pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity duration-200",
-              previewFrameReady ? "opacity-100" : "opacity-0"
+              previewFrameReady && showInlineVideoFrameSurface ? "opacity-100" : "opacity-0"
             )}
             src={fullUrl}
             onLoadedMetadata={(e) => {
@@ -1055,12 +1123,35 @@ function VideoAttachmentPreview({
               if (intrinsicWidth > 0 && intrinsicHeight > 0) {
                 setVideoAspectRatio(intrinsicWidth / intrinsicHeight);
               }
+              const duration =
+                typeof e.currentTarget.duration === "number" ? e.currentTarget.duration : 0;
+              const seekTarget =
+                Number.isFinite(duration) && duration > 0 ? Math.min(0.2, duration / 2) : 0;
+              if (seekTarget > 0) {
+                try {
+                  e.currentTarget.currentTime = seekTarget;
+                } catch {
+                  capturePreviewThumbnail();
+                }
+              }
             }}
-            onLoadedData={() => setPreviewFrameReady(true)}
+            onLoadedData={() => {
+              setPreviewFrameReady(true);
+              capturePreviewThumbnail();
+            }}
+            onSeeked={capturePreviewThumbnail}
             onError={() => setPreviewFrameReady(false)}
           >
             <track kind="captions" />
           </video>
+          {previewThumbnailUrl !== null ? (
+            <img
+              data-testid="chat-video-preview-thumbnail"
+              src={previewThumbnailUrl}
+              alt={`${filename ?? "Video"} preview`}
+              className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+            />
+          ) : null}
           <span className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),transparent_34%,rgba(0,0,0,0.38))]" />
           <span className="absolute inset-x-0 top-0 h-16 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),transparent)]" />
           <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2">

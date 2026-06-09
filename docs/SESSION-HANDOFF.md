@@ -3,6 +3,32 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-09 - ADR-114 realtime live voice program opened
+
+### Baseline
+
+- Starting SHA: `643effa6` on `main`. Working tree was already dirty before this ADR with web chat media/docs edits; this handoff records only the new ADR-114 planning work.
+
+### What changed
+
+- Added `docs/ADR/114-realtime-live-voice-conversation-layer.md` as the orchestrator-run PROD program for live voice conversation.
+- ADR-114 decides that ElevenLabs Conversational AI is an additive realtime voice layer, not a replacement assistant. PersAI runtime/API remain the source of truth for context, tools, billing, persistence, approvals, artifacts, and chat history.
+- The product model is one user-visible live voice session containing multiple internal PersAI runtime turns. Mobile uses short-tap mode switching (`mic` / `live`) and long-press execution for the armed mode; desktop gets an explicit minimal `Mic | Live`/morphing control.
+- The execution plan is intentionally coarse: final design audit, provider/API/billing substrate, PersAI runtime bridge and multi-turn persistence, web/mobile realtime UX, then PROD hardening/live smoke. Implementation is assigned to GPT-5.4 subagents; the parent agent orchestrates and audits.
+
+### Verification
+
+- Documentation-only change; no tests run.
+
+### Risks / residuals
+
+- Slice 0 must confirm ElevenLabs Speech Engine / Custom LLM details, signed URL requirements, per-session selected voice handling, and exact Conversational AI billing model before implementation.
+- Implementation must not duplicate PersAI tools in ElevenLabs or create a second assistant source of truth.
+
+### Next recommended step
+
+- Start ADR-114 Slice 0 as a read-only final design audit, then amend ADR-114 if ElevenLabs docs/account constraints differ from the planned Speech Engine / custom-agent bridge.
+
 ## 2026-06-09 - ADR-112 live video-tool follow-up
 
 ### Baseline
@@ -17,6 +43,7 @@
 - Deferred media/document attachment payloads now use Working Files sticky aliases as the single model/tool namespace when an attachment maps to a Working Files `fileRef`/`objectKey`. The old separate recent-image / recent-document-source payload resolvers (`last 6` / `last 4`) were removed from the runtime execution path instead of being kept as hidden fallback namespaces.
 - Working Files document anchors were clarified separately: `DOC_CURRENT_SOURCE` / `DOC_LAST_DELIVERED_PDF` replace the ambiguous `CURRENT_SOURCE` / `LAST_DELIVERED_RESULT` model-facing names.
 - Follow-up after ADR-112 closure: Working Files now adds a separate general chat-file section with `LAST_DELIVERED_FILE`, so PDF-only document anchors do not visually own the image/media/file list. Web chat video cards now use stable portrait/square/landscape preview presets and reveal the real inline video frame after `loadeddata`, while keeping the existing same-origin file route for desktop and Capacitor playback.
+- Android/Capacitor real-device follow-up: `com.persai.app` on a connected Samsung device reproduced the user's screenshot. Inline chat cards showed Android WebView's grey native play fallback, while tapping the card opened the video viewer and decoded a real frame correctly. Web chat cards were reduced by roughly 30% and now extract a real decoded video frame into a canvas-backed thumbnail image; Android/native shells keep the inline `<video>` surface hidden while showing that true thumbnail.
 
 ### Verification
 
@@ -26,6 +53,7 @@
 - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
 - `corepack pnpm --filter @persai/runtime exec tsx test/working-files-developer-section.test.ts`
 - `corepack pnpm --filter @persai/web exec vitest run --config vitest.config.ts app/app/_components/chat-message.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
 
 ### Risks / residuals
 

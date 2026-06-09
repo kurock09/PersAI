@@ -168,9 +168,38 @@ const FAILED_SHORT_LABEL = "failedShort";
 
 afterEach(() => {
   cleanup();
+  delete (window as unknown as { PersaiNative?: unknown }).PersaiNative;
   imageLightboxMock.mockClear();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
+
+function mockCanvasVideoThumbnail(): void {
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    drawImage: vi.fn()
+  } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+    "data:image/jpeg;base64,thumbnail"
+  );
+}
+
+function defineVideoIntrinsicFrame(
+  video: HTMLVideoElement,
+  input: { width: number; height: number; duration?: number }
+): void {
+  Object.defineProperty(video, "duration", {
+    configurable: true,
+    value: input.duration ?? 10
+  });
+  Object.defineProperty(video, "videoWidth", {
+    configurable: true,
+    value: input.width
+  });
+  Object.defineProperty(video, "videoHeight", {
+    configurable: true,
+    value: input.height
+  });
+}
 
 describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
   beforeEach(() => {
@@ -638,25 +667,14 @@ describe("ChatMessageBubble — video attachment preview", () => {
     if (video === null) {
       throw new Error("Expected inline video metadata element to render.");
     }
-    Object.defineProperty(video, "duration", {
-      configurable: true,
-      value: 65
-    });
-    Object.defineProperty(video, "videoWidth", {
-      configurable: true,
-      value: 720
-    });
-    Object.defineProperty(video, "videoHeight", {
-      configurable: true,
-      value: 1280
-    });
+    defineVideoIntrinsicFrame(video, { width: 720, height: 1280, duration: 65 });
 
     fireEvent.loadedMetadata(video);
 
     expect(screen.getByText("1:05")).toBeInTheDocument();
     expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveAttribute(
       "data-aspect-ratio",
-      "0.7200"
+      "0.7190"
     );
     expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveAttribute(
       "data-preset",
@@ -679,18 +697,7 @@ describe("ChatMessageBubble — video attachment preview", () => {
     if (video === null) {
       throw new Error("Expected inline video metadata element to render.");
     }
-    Object.defineProperty(video, "duration", {
-      configurable: true,
-      value: 10
-    });
-    Object.defineProperty(video, "videoWidth", {
-      configurable: true,
-      value: 1024
-    });
-    Object.defineProperty(video, "videoHeight", {
-      configurable: true,
-      value: 1024
-    });
+    defineVideoIntrinsicFrame(video, { width: 1024, height: 1024 });
 
     fireEvent.loadedMetadata(video);
 
@@ -699,12 +706,13 @@ describe("ChatMessageBubble — video attachment preview", () => {
       "square"
     );
     expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveStyle({
-      width: "216px",
-      height: "216px"
+      width: "151px",
+      height: "151px"
     });
   });
 
-  it("reveals the real inline video frame once frame data is available", () => {
+  it("reveals the real inline video frame only on safe browser surfaces", () => {
+    mockCanvasVideoThumbnail();
     const { container } = render(
       <ChatMessageBubble
         message={makeUserMessage("committed", {
@@ -719,10 +727,58 @@ describe("ChatMessageBubble — video attachment preview", () => {
     if (video === null) {
       throw new Error("Expected inline video metadata element to render.");
     }
+    defineVideoIntrinsicFrame(video, { width: 720, height: 1280 });
 
     expect(video).toHaveAttribute("data-preview-frame-ready", "false");
+    expect(video).toHaveAttribute("data-inline-frame-surface", "enabled");
+    expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveAttribute(
+      "data-thumbnail-ready",
+      "false"
+    );
     fireEvent.loadedData(video);
     expect(video).toHaveAttribute("data-preview-frame-ready", "true");
+    expect(video).toHaveClass("opacity-100");
+    expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveAttribute(
+      "data-thumbnail-ready",
+      "true"
+    );
+    expect(screen.getByTestId("chat-video-preview-thumbnail")).toHaveAttribute(
+      "src",
+      "data:image/jpeg;base64,thumbnail"
+    );
+  });
+
+  it("shows a real canvas thumbnail while keeping the native video surface hidden", () => {
+    mockCanvasVideoThumbnail();
+    (window as unknown as { PersaiNative?: unknown }).PersaiNative = {};
+    const { container } = render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
+          attachments: [makeVideoAttachment("video-att-5")]
+        })}
+      />
+    );
+
+    const video = container.querySelector("video");
+    expect(video).not.toBeNull();
+    if (video === null) {
+      throw new Error("Expected inline video metadata element to render.");
+    }
+    defineVideoIntrinsicFrame(video, { width: 720, height: 1280 });
+
+    fireEvent.loadedData(video);
+    expect(video).toHaveAttribute("data-preview-frame-ready", "true");
+    expect(video).toHaveAttribute("data-inline-frame-surface", "disabled");
+    expect(video).toHaveClass("opacity-0");
+    expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveAttribute(
+      "data-thumbnail-ready",
+      "true"
+    );
+    expect(screen.getByTestId("chat-video-preview-thumbnail")).toHaveAttribute(
+      "src",
+      "data:image/jpeg;base64,thumbnail"
+    );
   });
 });
 
