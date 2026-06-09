@@ -31,7 +31,10 @@ const MEDIA_JOB_RUN_KEY_PREFIX = "media-job-run";
 // giving up. Genuinely transient reasons (e.g. provider outage) keep falling
 // through to the 503 branch below and stay retryable.
 const NON_RETRYABLE_VIDEO_REASONS = new Set<string>([
+  "invalid_arguments",
   "requested_mode_unsupported",
+  "reference_image_alias_invalid",
+  "portrait_alias_unavailable",
   "persona_not_found",
   "talking_avatar_persona_unavailable",
   "talking_avatar_provider_unavailable",

@@ -1085,8 +1085,18 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   // Section 1: when to use talking_avatar
   assert.match(
     slice10TwoPersonasTool?.description ?? "",
-    /talking-avatar video/,
+    /Mode choice is strict/,
     "Slice 10: description must contain section 1 trigger conditions"
+  );
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /no-speech requests/,
+    "talking-avatar guidance must route no-speech video requests to cinematic mode"
+  );
+  assert.match(
+    slice10TwoPersonasTool?.description ?? "",
+    /empty speechText/,
+    "talking-avatar guidance must forbid empty speechText"
   );
   // Section 2: persona resolution
   assert.match(
@@ -1236,7 +1246,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   ).tools.find((t) => t.name === "video_generate");
   assert.doesNotMatch(
     slice10TalkingDisabledTool?.description ?? "",
-    /talking-avatar video/,
+    /Mode choice is strict/,
     "Slice 10: talking-avatar section 1 must NOT appear when talkingVideoEnabled=false"
   );
   assert.doesNotMatch(

@@ -305,6 +305,11 @@ const WEB_FETCH_TOOL_CODE = "web_fetch";
 const WEB_FETCH_DEFAULT_EXTRACT_MODE: PersaiRuntimeWebFetchExtractMode = "markdown";
 const WEB_FETCH_MIN_MAX_CHARS = 100;
 const WEB_FETCH_MAX_MAX_CHARS = 50_000;
+const REFUNDABLE_TOOL_REQUEST_REJECTION_REASONS = new Set<string>([
+  "invalid_arguments",
+  "reference_image_alias_invalid",
+  "portrait_alias_unavailable"
+]);
 const MEMORY_WRITE_TOOL_CODE = "memory_write";
 const QUOTA_STATUS_TOOL_CODE = "quota_status";
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
@@ -1228,13 +1233,14 @@ export class TurnExecutionService {
                     acceptedTurn,
                     input,
                     turnState,
+                    availableWorkingFileRefs: execution.availableWorkingFileRefs,
                     trace,
                     iteration
                   });
                   let firstError: unknown = null;
                   for (const result of batchResults) {
                     if (result.outcome !== undefined) {
-                      this.maybeRefundInvalidToolReservation(
+                      this.maybeRefundToolRequestRejectionReservation(
                         toolBudgetPolicy,
                         batch.find((entry) => entry.toolCall.id === result.toolCall.id) ?? null,
                         result.outcome
@@ -1286,6 +1292,7 @@ export class TurnExecutionService {
                         input.idempotencyKey,
                         turnState.artifacts,
                         turnState.fileRefs,
+                        execution.availableWorkingFileRefs,
                         turnState.deferredDocumentJobs
                       );
                     } catch (error) {
@@ -1293,7 +1300,7 @@ export class TurnExecutionService {
                       throw error;
                     }
                   }
-                  this.maybeRefundInvalidToolReservation(toolBudgetPolicy, entry, outcome);
+                  this.maybeRefundToolRequestRejectionReservation(toolBudgetPolicy, entry, outcome);
                   toolHistory.push(outcome.exchange);
                   this.applyToolExecutionOutcome(turnState, outcome, iteration);
                   durableCompactionExecuted =
@@ -2607,8 +2614,9 @@ export class TurnExecutionService {
       toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
     for (let iteration = 0; iteration < maxToolLoopIterations; iteration += 1) {
       let providerResult: ProviderGatewayTextGenerateResult;
+      let availableWorkingFileRefs = execution.availableWorkingFileRefs;
       try {
-        const availableWorkingFileRefs =
+        availableWorkingFileRefs =
           await this.turnContextHydrationService.listAvailableWorkingFileRefs({
             conversation: acceptedTurn.session.conversation,
             currentAttachments: execution.currentMessageAttachments,
@@ -2717,13 +2725,14 @@ export class TurnExecutionService {
             acceptedTurn,
             input,
             turnState,
+            availableWorkingFileRefs,
             trace: undefined,
             iteration
           });
           let firstError: unknown = null;
           for (const result of batchResults) {
             if (result.outcome !== undefined) {
-              this.maybeRefundInvalidToolReservation(
+              this.maybeRefundToolRequestRejectionReservation(
                 toolBudgetPolicy,
                 batch.find((entry) => entry.toolCall.id === result.toolCall.id) ?? null,
                 result.outcome
@@ -2759,9 +2768,10 @@ export class TurnExecutionService {
                 input.idempotencyKey,
                 turnState.artifacts,
                 turnState.fileRefs,
+                availableWorkingFileRefs,
                 turnState.deferredDocumentJobs
               );
-          this.maybeRefundInvalidToolReservation(toolBudgetPolicy, entry, outcome);
+          this.maybeRefundToolRequestRejectionReservation(toolBudgetPolicy, entry, outcome);
           toolHistory.push(outcome.exchange);
           this.applyToolExecutionOutcome(turnState, outcome, iteration);
           durableCompactionExecuted =
@@ -2885,6 +2895,7 @@ export class TurnExecutionService {
     acceptedTurn: AcceptedRuntimeTurn;
     input: RuntimeTurnRequest;
     turnState: TurnExecutionState;
+    availableWorkingFileRefs: RuntimeFileRef[];
     trace: RuntimeStreamTraceCollector | undefined;
     iteration: number;
   }): Promise<ExecutedToolCallResult[]> {
@@ -2915,6 +2926,7 @@ export class TurnExecutionService {
               params.input.idempotencyKey,
               currentArtifacts,
               currentFileRefs,
+              params.availableWorkingFileRefs,
               params.turnState.deferredDocumentJobs
             )
           } satisfies ExecutedToolCallResult;
@@ -2936,6 +2948,7 @@ export class TurnExecutionService {
     currentUserMessageId: string | null,
     currentArtifacts: RuntimeOutputArtifact[],
     currentFileRefs: RuntimeFileRef[],
+    availableWorkingFileRefs: RuntimeFileRef[],
     currentDeferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"] = []
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
@@ -3103,11 +3116,12 @@ export class TurnExecutionService {
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
       case DOCUMENT_TOOL_CODE: {
-        const availableDocumentSourceAttachments =
-          await this.turnContextHydrationService.listAvailableDocumentSourceAttachments({
-            conversation: acceptedTurn.session.conversation,
-            currentAttachments: input.message.attachments
-          });
+        const documentSourceAttachments = this.mergeWorkingFileDocumentSourceAttachments(
+          execution.currentMessageAttachments
+            .filter((attachment) => this.isDocumentSourceWorkingFileMime(attachment.mimeType))
+            .map((attachment) => ({ ...attachment, aliases: attachment.aliases ?? null })),
+          availableWorkingFileRefs
+        );
         const result = await this.runtimeDocumentToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
@@ -3115,7 +3129,7 @@ export class TurnExecutionService {
             sourceUserMessageId: input.idempotencyKey,
             sourceUserMessageText: input.message.text,
             currentAttachments: execution.currentMessageAttachments,
-            availableAttachments: availableDocumentSourceAttachments
+            availableAttachments: documentSourceAttachments
           }
         });
         return this.createToolExecutionOutcome(
@@ -3128,8 +3142,8 @@ export class TurnExecutionService {
       }
       case IMAGE_EDIT_TOOL_CODE: {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
-          acceptedTurn,
-          execution,
+          execution.currentMessageAttachments,
+          availableWorkingFileRefs,
           currentArtifacts,
           currentFileRefs
         );
@@ -3158,8 +3172,8 @@ export class TurnExecutionService {
       }
       case IMAGE_GENERATE_TOOL_CODE: {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
-          acceptedTurn,
-          execution,
+          execution.currentMessageAttachments,
+          availableWorkingFileRefs,
           currentArtifacts,
           currentFileRefs
         );
@@ -3188,8 +3202,8 @@ export class TurnExecutionService {
       }
       case VIDEO_GENERATE_TOOL_CODE: {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
-          acceptedTurn,
-          execution,
+          execution.currentMessageAttachments,
+          availableWorkingFileRefs,
           currentArtifacts,
           currentFileRefs
         );
@@ -3275,56 +3289,131 @@ export class TurnExecutionService {
   }
 
   private resolveAvailableImageToolAttachments(
-    acceptedTurn: AcceptedRuntimeTurn,
-    execution: PreparedTurnExecution,
+    currentMessageAttachments: RuntimeAttachmentRef[],
+    availableWorkingFileRefs: RuntimeFileRef[],
     currentArtifacts: RuntimeOutputArtifact[],
     currentFileRefs: RuntimeFileRef[]
   ): Promise<RuntimeAttachmentRef[]> {
-    return this.turnContextHydrationService
-      .listAvailableImageToolAttachments({
-        conversation: acceptedTurn.session.conversation,
-        currentAttachments: execution.currentMessageAttachments
-      })
-      .then((attachments) => {
-        const aliasByFileRef = new Map<string, string[]>();
-        const aliasByObjectKey = new Map<string, string[]>();
-        for (const fileRef of [...execution.availableWorkingFileRefs, ...currentFileRefs]) {
-          if ((fileRef.aliases ?? []).length === 0) {
-            continue;
-          }
-          aliasByFileRef.set(fileRef.fileRef, fileRef.aliases ?? []);
-          aliasByObjectKey.set(fileRef.objectKey, fileRef.aliases ?? []);
-        }
-        const withWorkingFileAliases = (attachment: RuntimeAttachmentRef): RuntimeAttachmentRef => {
-          const workingFileAliases =
-            (typeof attachment.fileRef === "string"
-              ? aliasByFileRef.get(attachment.fileRef)
-              : undefined) ??
-            aliasByObjectKey.get(attachment.objectKey) ??
-            null;
-          if (workingFileAliases === null) {
-            return attachment;
-          }
-          return {
-            ...attachment,
-            aliases: this.mergeFileRefAliases(workingFileAliases, attachment.aliases ?? [])
-          };
-        };
-        const generatedImageAttachments = currentArtifacts
-          .filter((artifact) => artifact.kind === "image")
-          .map((artifact) => ({
-            attachmentId: artifact.artifactId,
-            kind: "image" as const,
-            objectKey: artifact.objectKey,
-            mimeType: artifact.mimeType,
-            filename: artifact.filename,
-            sizeBytes: artifact.sizeBytes ?? 0,
-            fileRef: artifact.fileRef,
-            aliases: null
-          }))
-          .map(withWorkingFileAliases);
-        return [...attachments, ...generatedImageAttachments].map(withWorkingFileAliases);
+    const aliasByFileRef = new Map<string, string[]>();
+    const aliasByObjectKey = new Map<string, string[]>();
+    for (const fileRef of [...availableWorkingFileRefs, ...currentFileRefs]) {
+      if ((fileRef.aliases ?? []).length === 0) {
+        continue;
+      }
+      aliasByFileRef.set(fileRef.fileRef, fileRef.aliases ?? []);
+      aliasByObjectKey.set(fileRef.objectKey, fileRef.aliases ?? []);
+    }
+    const withWorkingFileAliases = (
+      attachment: RuntimeAttachmentRef
+    ): RuntimeAttachmentRef | null => {
+      const workingFileAliases =
+        (typeof attachment.fileRef === "string"
+          ? aliasByFileRef.get(attachment.fileRef)
+          : undefined) ??
+        aliasByObjectKey.get(attachment.objectKey) ??
+        null;
+      if (workingFileAliases === null) {
+        return null;
+      }
+      return {
+        ...attachment,
+        aliases: workingFileAliases
+      };
+    };
+    const currentImageAttachments = currentMessageAttachments
+      .filter((attachment) => attachment.kind === "image")
+      .map(withWorkingFileAliases)
+      .filter((attachment): attachment is RuntimeAttachmentRef => attachment !== null);
+    const generatedImageAttachments = currentArtifacts
+      .filter((artifact) => artifact.kind === "image")
+      .map((artifact) => ({
+        attachmentId: artifact.artifactId,
+        kind: "image" as const,
+        objectKey: artifact.objectKey,
+        mimeType: artifact.mimeType,
+        filename: artifact.filename,
+        sizeBytes: artifact.sizeBytes ?? 0,
+        fileRef: artifact.fileRef,
+        aliases: null
+      }))
+      .map(withWorkingFileAliases)
+      .filter((attachment): attachment is RuntimeAttachmentRef => attachment !== null);
+    const workingFileImageAttachments = [...availableWorkingFileRefs, ...currentFileRefs]
+      .filter((fileRef) => fileRef.mimeType.startsWith("image/"))
+      .map((fileRef) => ({
+        attachmentId: `file:${fileRef.fileRef}`,
+        kind: "image" as const,
+        objectKey: fileRef.objectKey,
+        mimeType: fileRef.mimeType,
+        filename: fileRef.displayName ?? null,
+        sizeBytes: fileRef.logicalSizeBytes ?? fileRef.sizeBytes ?? 0,
+        fileRef: fileRef.fileRef,
+        aliases: fileRef.aliases ?? null
+      }));
+    return Promise.resolve(
+      this.dedupeRuntimeAttachmentsByStorage([
+        ...currentImageAttachments,
+        ...generatedImageAttachments,
+        ...workingFileImageAttachments
+      ])
+    );
+  }
+
+  private mergeWorkingFileDocumentSourceAttachments(
+    attachments: RuntimeAttachmentRef[],
+    availableWorkingFileRefs: RuntimeFileRef[]
+  ): RuntimeAttachmentRef[] {
+    const merged = new Map<string, RuntimeAttachmentRef>();
+    const upsert = (attachment: RuntimeAttachmentRef): void => {
+      const key = this.buildRuntimeAttachmentDedupeKey(attachment);
+      const existing = merged.get(key);
+      if (existing === undefined) {
+        merged.set(key, attachment);
+        return;
+      }
+      merged.set(key, {
+        ...existing,
+        aliases: this.mergeFileRefAliases(existing.aliases ?? [], attachment.aliases ?? [])
       });
+    };
+    for (const attachment of attachments) {
+      upsert(attachment);
+    }
+    for (const fileRef of availableWorkingFileRefs) {
+      if (!this.isDocumentSourceWorkingFileMime(fileRef.mimeType)) {
+        continue;
+      }
+      upsert({
+        attachmentId: `file:${fileRef.fileRef}`,
+        kind: "file",
+        objectKey: fileRef.objectKey,
+        mimeType: fileRef.mimeType,
+        filename: fileRef.displayName ?? null,
+        sizeBytes: fileRef.logicalSizeBytes ?? fileRef.sizeBytes ?? 0,
+        fileRef: fileRef.fileRef,
+        aliases: fileRef.aliases ?? null
+      });
+    }
+    return [...merged.values()];
+  }
+
+  private buildRuntimeAttachmentDedupeKey(attachment: RuntimeAttachmentRef): string {
+    return typeof attachment.fileRef === "string" && attachment.fileRef.trim().length > 0
+      ? `file:${attachment.fileRef}`
+      : `object:${attachment.objectKey}`;
+  }
+
+  private dedupeRuntimeAttachmentsByStorage(
+    attachments: RuntimeAttachmentRef[]
+  ): RuntimeAttachmentRef[] {
+    const merged = new Map<string, RuntimeAttachmentRef>();
+    for (const attachment of attachments) {
+      const key = this.buildRuntimeAttachmentDedupeKey(attachment);
+      if (!merged.has(key)) {
+        merged.set(key, attachment);
+      }
+    }
+    return [...merged.values()];
   }
 
   private executeKnowledgeFetchTool(
@@ -3894,10 +3983,10 @@ export class TurnExecutionService {
       return null;
     }
     return [
-      "Document-tool priority (PDF only):",
-      `- CURRENT_SOURCE = ${this.describeWorkingFilePriorityAnchor(currentSource)}`,
-      `- LAST_DELIVERED_RESULT = ${this.describeWorkingFilePriorityAnchor(lastDelivered)}`,
-      "- Use CURRENT_SOURCE for new document creation; use LAST_DELIVERED_RESULT only for an explicit revise/redeliver request.",
+      "Document-tool PDF anchors (not general file recency):",
+      `- DOC_CURRENT_SOURCE = ${this.describeWorkingFilePriorityAnchor(currentSource)}`,
+      `- DOC_LAST_DELIVERED_PDF = ${this.describeWorkingFilePriorityAnchor(lastDelivered)}`,
+      "- Use DOC_CURRENT_SOURCE for new document creation; use DOC_LAST_DELIVERED_PDF only for an explicit PDF revise/redeliver request.",
       "- Older history or discovery entries do not outrank those anchors unless the user explicitly points to them."
     ];
   }
@@ -4805,7 +4894,7 @@ export class TurnExecutionService {
       outcome.sharedCompaction.durableStatePersisted;
   }
 
-  private maybeRefundInvalidToolReservation(
+  private maybeRefundToolRequestRejectionReservation(
     toolBudgetPolicy: ToolBudgetPolicy,
     entry: PlannedToolExecution | null,
     outcome: ToolExecutionOutcome
@@ -4820,18 +4909,22 @@ export class TurnExecutionService {
     ) {
       return;
     }
-    if (!this.isStructuredInvalidArgumentsOutcome(outcome.payload)) {
+    if (!this.isRefundableToolRequestRejectionOutcome(outcome.payload)) {
       return;
     }
     toolBudgetPolicy.refund(entry.toolCall.name, entry.reservedUnits);
   }
 
-  private isStructuredInvalidArgumentsOutcome(payload: unknown): boolean {
+  private isRefundableToolRequestRejectionOutcome(payload: unknown): boolean {
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
       return false;
     }
     const candidate = payload as { action?: unknown; reason?: unknown };
-    return candidate.action === "skipped" && candidate.reason === "invalid_arguments";
+    return (
+      candidate.action === "skipped" &&
+      typeof candidate.reason === "string" &&
+      REFUNDABLE_TOOL_REQUEST_REJECTION_REASONS.has(candidate.reason)
+    );
   }
 
   private resolveToolInvocationExecutionMode(

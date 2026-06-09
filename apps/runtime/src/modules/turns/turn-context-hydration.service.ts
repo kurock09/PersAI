@@ -45,9 +45,6 @@ const MIN_HYDRATED_MEMORY_ITEMS = 3;
 const MAX_HYDRATED_MEMORY_ITEMS = 10;
 const MIN_HYDRATED_MEMORY_TOTAL_CHARS = 400;
 const MAX_HYDRATED_MEMORY_TOTAL_CHARS = 1800;
-const MAX_RECENT_IMAGE_TOOL_MESSAGES = 8;
-const MAX_RECENT_IMAGE_TOOL_ATTACHMENTS = 6;
-const MAX_RECENT_DOCUMENT_SOURCE_ATTACHMENTS = 4;
 /** ADR-100 Piece 2 — how many most-recent assistant messages to scan for discovered file ids. */
 const RECENT_FILE_DISCOVERY_MESSAGE_WINDOW = 5;
 const MAX_OPEN_LOOP_REFS_DEVELOPER_ITEMS = 5;
@@ -379,163 +376,6 @@ export class TurnContextHydrationService {
       [currentUserMessage],
       contextHydration
     );
-  }
-
-  async listAvailableImageToolAttachments(input: {
-    conversation: RuntimeConversationAddress;
-    currentAttachments: RuntimeAttachmentRef[];
-  }): Promise<RuntimeAttachmentRef[]> {
-    const currentImages = input.currentAttachments.filter(
-      (attachment) => attachment.kind === "image"
-    );
-    const canonicalSurface = toHydratedCanonicalSurface(input.conversation.channel);
-    if (canonicalSurface === null) {
-      return this.assignStickyAliasesToAttachments(currentImages, {
-        includeFileAlias: true,
-        includeImageAlias: true
-      });
-    }
-
-    const chat = await this.prisma.assistantChat.findFirst({
-      where: {
-        assistantId: input.conversation.assistantId,
-        surface: canonicalSurface,
-        surfaceThreadKey: input.conversation.externalThreadKey
-      },
-      select: { id: true }
-    });
-    if (chat === null) {
-      return this.assignStickyAliasesToAttachments(currentImages, {
-        includeFileAlias: true,
-        includeImageAlias: true
-      });
-    }
-
-    const recentMessages = await this.prisma.assistantChatMessage.findMany({
-      where: {
-        chatId: chat.id,
-        assistantId: input.conversation.assistantId,
-        attachments: {
-          some: {
-            processingStatus: "ready",
-            attachmentType: "image"
-          }
-        }
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: MAX_RECENT_IMAGE_TOOL_MESSAGES,
-      select: {
-        author: true,
-        attachments: {
-          where: {
-            processingStatus: "ready",
-            attachmentType: "image"
-          },
-          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          select: {
-            id: true,
-            assistantFileId: true,
-            originalFilename: true,
-            mimeType: true,
-            storagePath: true,
-            sizeBytes: true
-          }
-        }
-      }
-    });
-    const recentImages: RuntimeAttachmentRef[] = [];
-    for (const message of [...recentMessages].reverse()) {
-      for (const attachment of [...message.attachments].reverse()) {
-        if (!attachment.mimeType.startsWith("image/")) {
-          continue;
-        }
-        await this.resolveAttachmentFileRecord(
-          input.conversation.assistantId,
-          input.conversation.workspaceId,
-          {
-            attachmentId: attachment.id,
-            fileRef: attachment.assistantFileId,
-            objectKey: attachment.storagePath,
-            filename: attachment.originalFilename,
-            mimeType: attachment.mimeType,
-            sizeBytes: Number(attachment.sizeBytes)
-          },
-          message.author === "assistant" ? "runtime_output" : "uploaded_attachment"
-        );
-        recentImages.push(
-          this.toImageToolAttachmentRef(
-            {
-              attachmentId: attachment.id,
-              filename: attachment.originalFilename,
-              mimeType: attachment.mimeType,
-              objectKey: attachment.storagePath,
-              sizeBytes: Number(attachment.sizeBytes)
-            },
-            null
-          )
-        );
-        if (recentImages.length >= MAX_RECENT_IMAGE_TOOL_ATTACHMENTS) {
-          return this.assignStickyAliasesToAttachments([...recentImages, ...currentImages], {
-            includeFileAlias: true,
-            includeImageAlias: true
-          });
-        }
-      }
-    }
-    return this.assignStickyAliasesToAttachments([...recentImages, ...currentImages], {
-      includeFileAlias: true,
-      includeImageAlias: true
-    });
-  }
-
-  async listAvailableDocumentSourceAttachments(input: {
-    conversation: RuntimeConversationAddress;
-    currentAttachments: RuntimeAttachmentRef[];
-  }): Promise<RuntimeAttachmentRef[]> {
-    const currentSources = input.currentAttachments
-      .filter((attachment) => this.isDocumentSourceAttachmentMime(attachment.mimeType))
-      .map((attachment) => ({ ...attachment, aliases: attachment.aliases ?? null }));
-
-    const storedMessages = await this.loadCanonicalChatMessages(input.conversation);
-    if (storedMessages === null) {
-      return this.assignStickyAliasesToAttachments(currentSources, {
-        includeFileAlias: true,
-        includeImageAlias: false
-      });
-    }
-
-    const previousSources: RuntimeAttachmentRef[] = [];
-    for (const message of storedMessages) {
-      if (message.author !== "user") {
-        continue;
-      }
-      for (const attachment of message.attachments) {
-        if (!this.isDocumentSourceAttachmentMime(attachment.mimeType)) {
-          continue;
-        }
-        previousSources.push({
-          attachmentId: attachment.id,
-          kind: "file",
-          objectKey: attachment.storagePath,
-          mimeType: attachment.mimeType,
-          filename: attachment.originalFilename,
-          sizeBytes: attachment.sizeBytes,
-          fileRef: attachment.assistantFileId,
-          aliases: null
-        });
-        if (previousSources.length >= MAX_RECENT_DOCUMENT_SOURCE_ATTACHMENTS) {
-          return this.assignStickyAliasesToAttachments([...previousSources, ...currentSources], {
-            includeFileAlias: true,
-            includeImageAlias: false
-          });
-        }
-      }
-    }
-
-    return this.assignStickyAliasesToAttachments([...previousSources, ...currentSources], {
-      includeFileAlias: true,
-      includeImageAlias: false
-    });
   }
 
   async listAvailableWorkingFileRefs(input: {
@@ -1887,44 +1727,6 @@ export class TurnContextHydrationService {
       : null;
   }
 
-  private toImageToolAttachmentRef(
-    input: {
-      attachmentId: string;
-      objectKey: string;
-      mimeType: string;
-      filename: string | null;
-      sizeBytes: number;
-    },
-    aliases: string[] | null = null
-  ): RuntimeAttachmentRef {
-    return {
-      attachmentId: input.attachmentId,
-      kind: "image",
-      objectKey: input.objectKey,
-      mimeType: input.mimeType,
-      filename: input.filename,
-      sizeBytes: input.sizeBytes,
-      ...(aliases === null ? {} : { aliases })
-    };
-  }
-
-  private dedupeRuntimeAttachments(attachments: RuntimeAttachmentRef[]): RuntimeAttachmentRef[] {
-    const deduped = new Map<string, RuntimeAttachmentRef>();
-    for (const attachment of attachments) {
-      const dedupeKey = `${attachment.attachmentId}:${attachment.objectKey}`;
-      const existing = deduped.get(dedupeKey);
-      if (existing !== undefined) {
-        deduped.set(dedupeKey, {
-          ...existing,
-          aliases: this.mergeAliases(existing.aliases, ...(attachment.aliases ?? []))
-        });
-        continue;
-      }
-      deduped.set(dedupeKey, attachment);
-    }
-    return [...deduped.values()];
-  }
-
   private async resolveRuntimeFileRefForAttachment(
     assistantId: string,
     workspaceId: string,
@@ -1989,40 +1791,6 @@ export class TurnContextHydrationService {
     return file.origin !== "uploaded_attachment";
   }
 
-  private isDocumentSourceAttachmentMime(mimeType: string): boolean {
-    const normalized = mimeType.trim().toLowerCase();
-    return (
-      normalized.startsWith("text/") ||
-      normalized === "application/pdf" ||
-      normalized === "application/x-pdf" ||
-      normalized === "application/json" ||
-      normalized === "application/x-ndjson" ||
-      normalized === "application/xml" ||
-      normalized === "application/x-yaml" ||
-      normalized === "application/yaml" ||
-      normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    );
-  }
-
-  private upsertWorkingFileRef(
-    target: Map<string, RuntimeFileRef>,
-    fileRef: RuntimeFileRef,
-    aliases: string[]
-  ): void {
-    const existing = target.get(fileRef.fileRef);
-    if (existing === undefined) {
-      target.set(fileRef.fileRef, {
-        ...fileRef,
-        aliases: this.mergeAliases(fileRef.aliases, ...aliases)
-      });
-      return;
-    }
-    target.set(fileRef.fileRef, {
-      ...existing,
-      aliases: this.mergeAliases(existing.aliases, fileRef.aliases ?? [], ...aliases)
-    });
-  }
-
   private mergeAliases(
     existing: string[] | null | undefined,
     ...next: Array<string | string[] | null | undefined>
@@ -2038,31 +1806,6 @@ export class TurnContextHydrationService {
       merged.push(alias);
     }
     return merged;
-  }
-
-  private assignStickyAliasesToAttachments(
-    attachments: RuntimeAttachmentRef[],
-    options: {
-      includeFileAlias: boolean;
-      includeImageAlias: boolean;
-    }
-  ): RuntimeAttachmentRef[] {
-    const deduped = this.dedupeRuntimeAttachments(attachments);
-    let fileOrdinal = 0;
-    let imageOrdinal = 0;
-    return deduped.map((attachment) => {
-      const aliases: string[] = [];
-      if (options.includeImageAlias && attachment.kind === "image") {
-        aliases.push(`image #${String(++imageOrdinal)}`);
-      }
-      if (options.includeFileAlias) {
-        aliases.push(`file #${String(++fileOrdinal)}`);
-      }
-      return {
-        ...attachment,
-        aliases
-      };
-    });
   }
 
   private assignStickyAliasesToWorkingFileRefs(

@@ -3,6 +3,36 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-09 - ADR-112 live video-tool follow-up
+
+### Baseline
+
+- Starting SHA: `660d369e` on `main`, with a small uncommitted Working Files PDF-anchor wording follow-up already present. Operator asked to investigate live `persai-dev` failures for `alex@agse.ru`: 2 of 3 talking-avatar jobs failed after appearing to hang, and the model was routing ordinary/silent video requests into `talking_avatar`.
+
+### What changed
+
+- Runtime `video_generate` projection now draws a hard mode boundary: `talking_avatar` is only for explicit spoken-avatar / talking-head narration with non-empty `speechText`; ordinary video, image animation, product/fashion/cinematic clips, silent/no-speech/no-dialogue requests, gestures, smiles, winks, air kisses, camera motion, and music-only mood stay on `cinematic`.
+- Runtime argument validation for empty/missing talking-avatar `speechText` now tells the model to use cinematic for no-speech/ordinary video or ask/provide a real script for a speaking avatar.
+- Async media-job execution now treats model-correctable video request failures (`invalid_arguments`, bad reference/portrait aliases, missing voice/persona/config, unsupported requested mode) as non-retryable `BadRequestException`s so the API scheduler fails immediately instead of retrying the same bad request through the ~10+ minute window.
+- Deferred media/document attachment payloads now use Working Files sticky aliases as the single model/tool namespace when an attachment maps to a Working Files `fileRef`/`objectKey`. The old separate recent-image / recent-document-source payload resolvers (`last 6` / `last 4`) were removed from the runtime execution path instead of being kept as hidden fallback namespaces.
+- Working Files document anchors were clarified separately: `DOC_CURRENT_SOURCE` / `DOC_LAST_DELIVERED_PDF` replace the ambiguous `CURRENT_SOURCE` / `LAST_DELIVERED_RESULT` model-facing names.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-run.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+
+### Risks / residuals
+
+- Live investigation also found an API/accounting residual unrelated to model routing: delivered HeyGen video artifacts log `video_generate settle: no provider catalog for "heygen"`, so HeyGen VC settle/catalog support needs a separate API/accounting fix.
+- The production `image #11` failure was explained by alias divergence: the persisted job payload for `7a758802-...` contained only `image #3..#8` plus legacy duplicates, while the model attempted `portraitImageAlias: "image #12"`. The code now removes that duplicate legacy namespace from media/document worker payloads, but live validation after deploy should confirm the model stops hallucinating unavailable aliases.
+
+### Next recommended step
+
+- Run runtime lint/typecheck + format, then decide whether to include the separate HeyGen VC catalog settle fix in a new bounded API slice or ship this runtime-routing fix first.
+
 ## 2026-06-09 - ADR-112 Slice 8 background prompt hygiene
 
 ### Baseline

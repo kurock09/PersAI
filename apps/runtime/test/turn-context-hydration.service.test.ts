@@ -743,37 +743,6 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     false,
     "historical audio/voice attachments should not stay in the Working Files prompt"
   );
-  const availableImageToolAttachments = await service.listAvailableImageToolAttachments({
-    conversation: request.conversation,
-    currentAttachments: [
-      {
-        attachmentId: "attachment-4",
-        kind: "image",
-        objectKey: "assistant-media/chat-1/diagram.png",
-        mimeType: "image/png",
-        filename: "diagram.png",
-        sizeBytes: 128,
-        fileRef: "file-ref-attachment-4"
-      }
-    ]
-  });
-  assert.deepEqual(
-    availableImageToolAttachments.map((attachment) => ({
-      attachmentId: attachment.attachmentId,
-      aliases: attachment.aliases ?? []
-    })),
-    [
-      {
-        attachmentId: "attachment-4",
-        aliases: ["image #1", "file #1"]
-      },
-      {
-        attachmentId: "attachment-2",
-        aliases: ["image #2", "file #2"]
-      }
-    ]
-  );
-
   prisma.chat = null;
   downloadedObjectKeys.length = 0;
   const fallback = await service.buildMessages(request, runtimeBundle);

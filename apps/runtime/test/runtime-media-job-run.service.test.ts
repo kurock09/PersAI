@@ -388,6 +388,95 @@ describe("RuntimeMediaJobRunService", () => {
       }
     );
   });
+
+  test("treats model-correctable video request errors as non-retryable bad requests", async () => {
+    for (const reason of ["invalid_arguments", "portrait_alias_unavailable"] as const) {
+      const service = new RuntimeMediaJobRunService(
+        {} as never,
+        {} as never,
+        {
+          executeToolCall: async () => ({
+            payload: {
+              toolCode: "video_generate",
+              executionMode: "worker",
+              provider: "heygen",
+              model: "avatar_v",
+              prompt: "make an ordinary video",
+              requestedSeconds: null,
+              requestedAudioMode: null,
+              requestedInputMode: null,
+              requestedMode: "talking_avatar",
+              requestedSpeechText: reason === "invalid_arguments" ? "" : "Hello.",
+              requestedSpeechLanguage: "en-US",
+              requestedPersonaId: null,
+              requestedPortraitImageAlias: "image #99",
+              requestedVoiceKey: "voice-1",
+              requestedTalkingAvatarAspectRatio: "9:16",
+              size: null,
+              referenceImageAlias: null,
+              referenceFilename: null,
+              artifact: null,
+              usage: null,
+              action: "skipped",
+              reason,
+              warning:
+                reason === "invalid_arguments"
+                  ? "speechText must be a non-empty string when provided."
+                  : 'Portrait alias "image #99" does not match any available image attachment.'
+            },
+            artifacts: [],
+            isError: true
+          })
+        } as never,
+        new RuntimeExecutionAdmissionService(new RuntimeObservabilityService()),
+        {
+          acceptTurn: async (input: RuntimeTurnRequest) => createAcceptedTurn(input)
+        } as never,
+        {
+          completeAcceptedTurn: async () => {
+            throw new Error("should not complete");
+          },
+          failAcceptedTurn: async () => ({
+            receiptStatus: "failed",
+            session: {} as never,
+            leaseReleased: true
+          })
+        } as never
+      );
+
+      const request = createRunRequest("make an ordinary video");
+      request.job.kind = "video";
+      request.directToolExecution = {
+        toolCode: "video_generate",
+        request: {
+          toolCode: "video_generate",
+          prompt: "make an ordinary video",
+          filename: null,
+          size: null,
+          seconds: null,
+          referenceImageAlias: null,
+          mode: "talking_avatar",
+          speechText: reason === "invalid_arguments" ? "" : "Hello.",
+          speechLanguage: "en-US",
+          portraitImageAlias: "image #99",
+          voiceKey: "voice-1"
+        }
+      };
+
+      await assert.rejects(
+        () => service.run(request),
+        (error) => {
+          assert.ok(error instanceof BadRequestException);
+          const response = (error as BadRequestException).getResponse() as {
+            error?: { code?: string; message?: string };
+          };
+          assert.equal(response.error?.code, reason);
+          assert.match(response.error?.message ?? "", /speechText|Portrait alias/);
+          return true;
+        }
+      );
+    }
+  });
 });
 
 function createRunRequest(prompt: string): RuntimeMediaJobRunRequest {

@@ -2385,6 +2385,48 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   // the LLM turn for the full render time (~2 min) and never creating the
   // assistant_media_jobs row the chat-input chip needs.
   persaiInternalApiClientService.enqueueCalls.length = 0;
+  const talkingAvatarDeferBadPortraitAlias = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Defer bad portrait alias",
+      mode: "talking_avatar",
+      speechText: "Hello deferred.",
+      speechLanguage: "en-US",
+      portraitImageAlias: "image #404",
+      voiceKey: "anya-warm",
+      seconds: 15,
+      size: "1280x720"
+    }),
+    availableAttachments: [
+      {
+        attachmentId: "attachment-portrait-1",
+        kind: "image",
+        objectKey: "assistant-media/portrait.png",
+        mimeType: "image/png",
+        filename: "portrait.png",
+        sizeBytes: Buffer.byteLength("portrait-image-binary"),
+        aliases: ["image #1", "file #1"]
+      }
+    ],
+    sessionId: "session-1",
+    requestId: "request-ta-defer-bad-portrait-alias",
+    deferToAsyncMediaJob: {
+      sourceUserMessageId: "user-msg-defer-bad-alias",
+      sourceUserMessageText: "Hello deferred."
+    }
+  });
+  assert.equal(talkingAvatarDeferBadPortraitAlias.payload.action, "skipped");
+  assert.equal(
+    talkingAvatarDeferBadPortraitAlias.payload.reason,
+    "portrait_alias_unavailable",
+    "talking_avatar defer must validate portraitImageAlias before enqueueing a media job"
+  );
+  assert.equal(
+    persaiInternalApiClientService.enqueueCalls.length,
+    0,
+    "talking_avatar bad portrait alias must not create a deferred media job"
+  );
+
   persaiInternalApiClientService.nextJobId = "media-job-talking-avatar-defer-1";
   persaiInternalApiClientService.personaMap.set("workspace-1:persona-defer-test", {
     id: "persona-defer-test",

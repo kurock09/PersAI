@@ -289,6 +289,39 @@ export class RuntimeVideoGenerateToolService {
       // blocked the LLM turn for the full HeyGen render time (~2 minutes) and
       // never created a media job: no chip, no async delivery.
       if (params.deferToAsyncMediaJob !== undefined) {
+        const portraitImageAlias = request.portraitImageAlias ?? null;
+        if (portraitImageAlias !== null) {
+          const portraitAttachment = this.findAttachmentByAlias(
+            params.availableAttachments.filter((attachment) => attachment.kind === "image"),
+            portraitImageAlias
+          );
+          if (portraitAttachment === null) {
+            return {
+              payload: {
+                toolCode: VIDEO_GENERATE_TOOL_CODE,
+                executionMode: "worker",
+                provider: talkingAvatarProviderId,
+                model: talkingAvatarModel,
+                prompt: request.prompt,
+                requestedSeconds: talkingAvatarNormalized.request.seconds,
+                requestedAudioMode: talkingAvatarNormalized.request.audioMode,
+                requestedInputMode: talkingAvatarNormalized.request.inputMode,
+                ...this.buildRequestedTalkingAvatarEchoes(request),
+                size: talkingAvatarNormalized.request.size,
+                referenceImageAlias: portraitImageAlias,
+                referenceFilename: null,
+                artifact: null,
+                usage: null,
+                action: "skipped",
+                reason: "portrait_alias_unavailable",
+                warning: `Portrait alias "${portraitImageAlias}" does not match any available image attachment.`,
+                jobId: null
+              },
+              artifacts: [],
+              isError: true
+            };
+          }
+        }
         try {
           const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredMediaJob({
             assistantId: params.bundle.metadata.assistantId,
@@ -1238,7 +1271,9 @@ export class RuntimeVideoGenerateToolService {
         ? null
         : this.asNonEmptyString(args.speechText);
     if ("speechText" in args && args.speechText !== null && speechText === null) {
-      return new Error("speechText must be a non-empty string when provided");
+      return new Error(
+        "speechText must be a non-empty string when provided. If the user requested no speech/no dialogue, use mode='cinematic' with audioMode='silent' instead. If the user wants a speaking avatar, ask for or provide the actual spoken script."
+      );
     }
 
     const speechLanguage =
@@ -1302,7 +1337,9 @@ export class RuntimeVideoGenerateToolService {
     // LLM-facing tool description — Slice 10 work.)
     if (mode === "talking_avatar") {
       if (speechText === null) {
-        return new Error("speechText is required when mode is talking_avatar");
+        return new Error(
+          "speechText is required when mode is talking_avatar. Use talking_avatar only for a speaking avatar with an actual script. For silent/no-speech/ordinary video requests, use mode='cinematic' instead."
+        );
       }
       if (speechLanguage === null) {
         return new Error("speechLanguage is required when mode is talking_avatar");

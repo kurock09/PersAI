@@ -279,12 +279,12 @@ describe("TurnExecutionService working files developer section", () => {
     ]);
 
     assert.ok(section);
-    assert.match(section ?? "", /Document-tool priority \(PDF only\):/);
-    assert.match(section ?? "", /CURRENT_SOURCE = file #1 \| proposal\.docx/);
-    assert.match(section ?? "", /LAST_DELIVERED_RESULT = file #2 \| proposal\.pdf/);
+    assert.match(section ?? "", /Document-tool PDF anchors \(not general file recency\):/);
+    assert.match(section ?? "", /DOC_CURRENT_SOURCE = file #1 \| proposal\.docx/);
+    assert.match(section ?? "", /DOC_LAST_DELIVERED_PDF = file #2 \| proposal\.pdf/);
     assert.match(
       section ?? "",
-      /Use CURRENT_SOURCE for new document creation; use LAST_DELIVERED_RESULT only for an explicit revise\/redeliver request\./
+      /Use DOC_CURRENT_SOURCE for new document creation; use DOC_LAST_DELIVERED_PDF only for an explicit PDF revise\/redeliver request\./
     );
     assert.doesNotMatch(
       section ?? "",
@@ -347,8 +347,8 @@ describe("TurnExecutionService working files developer section", () => {
     assert.ok(section);
     const historyLines = (section ?? "").split("\n").filter((line) => line.startsWith("- 2026-"));
     assert.equal(historyLines.length, 20);
-    assert.match(section ?? "", /CURRENT_SOURCE = file #1 \| proposal\.docx/);
-    assert.match(section ?? "", /LAST_DELIVERED_RESULT = file #2 \| proposal\.pdf/);
+    assert.match(section ?? "", /DOC_CURRENT_SOURCE = file #1 \| proposal\.docx/);
+    assert.match(section ?? "", /DOC_LAST_DELIVERED_PDF = file #2 \| proposal\.pdf/);
     assert.match(
       section ?? "",
       /- 2026-04-01 10:00 \| model \| file #2 \| proposal\.pdf \| last delivered result \| Latest delivered PDF result\./

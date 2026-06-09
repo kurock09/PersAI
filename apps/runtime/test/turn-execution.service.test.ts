@@ -67,6 +67,7 @@ import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.ser
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
 import type { RuntimeBundleAutoRefreshService } from "../src/modules/turns/runtime-bundle-auto-refresh.service";
 import { SkillStateRoutingService } from "../src/modules/turns/skill-state-routing.service";
+import { ToolBudgetPolicy } from "../src/modules/turns/tool-budget-policy";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
   FinalizedRuntimeTurn,
@@ -1093,12 +1094,7 @@ class FakeTurnContextHydrationService {
   // mirrors a bundle without a presence template (the legacy path).
   presenceBlock: string | null = null;
   openLoopRefsDeveloperBlock: string | null = null;
-  availableImageToolAttachmentsOverride: RuntimeAttachmentRef[] | null = null;
   availableWorkingFileRefsOverride: RuntimeFileRef[] = [];
-  availableImageToolAttachmentInputs: Array<{
-    conversation: RuntimeTurnRequest["conversation"];
-    currentAttachments: RuntimeAttachmentRef[];
-  }> = [];
 
   async buildMessages(
     ..._args: unknown[]
@@ -1142,19 +1138,6 @@ class FakeTurnContextHydrationService {
       (line) => line.trim().startsWith("- ") && line.includes(" | ")
     );
     return hasRefRows ? nextLines.join("\n") : null;
-  }
-
-  async listAvailableImageToolAttachments(input: {
-    conversation: RuntimeTurnRequest["conversation"];
-    currentAttachments: RuntimeAttachmentRef[];
-  }): Promise<RuntimeAttachmentRef[]> {
-    this.availableImageToolAttachmentInputs.push({
-      conversation: input.conversation,
-      currentAttachments: [...input.currentAttachments]
-    });
-    return input.currentAttachments.length > 0
-      ? input.currentAttachments.filter((attachment) => attachment.kind === "image")
-      : [...(this.availableImageToolAttachmentsOverride ?? [])];
   }
 
   async listAvailableWorkingFileRefs(): Promise<RuntimeFileRef[]> {
@@ -6179,6 +6162,19 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       configured: true,
       providerId: "openai",
       modelKey: "sora-2-pro",
+      videoModelParameters: {
+        duration: {
+          kind: "allowed_list",
+          values: [4, 8, 12]
+        },
+        aspectRatios: [
+          { aspectRatio: "16:9", size: "1280x720", providerValue: "1280x720" },
+          { aspectRatio: "9:16", size: "720x1280", providerValue: "720x1280" }
+        ],
+        referenceImageSupported: true,
+        audioCapabilities: ["silent"],
+        inputCapabilities: ["text", "single_reference_image"]
+      },
       secretRef: {
         source: "persai",
         provider: "persai-runtime",
@@ -6193,29 +6189,26 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     }
   }
   const videoReferenceBuffer = Buffer.from("video-reference-image");
-  request.message.attachments = [
-    {
-      attachmentId: "attachment-video-reference-1",
-      kind: "image",
-      objectKey: "assistant-media/uploads/video-reference.png",
-      mimeType: "image/png",
-      filename: "video-reference.png",
-      sizeBytes: videoReferenceBuffer.length
-    }
-  ];
   mediaObjectStorage.sourceObjects.set(
     "assistant-media/uploads/video-reference.png",
     videoReferenceBuffer
   );
   request.message.attachments = [];
-  turnContextHydrationService.availableImageToolAttachmentsOverride = [
+  turnContextHydrationService.availableWorkingFileRefsOverride = [
     {
-      attachmentId: "attachment-video-history-1",
-      kind: "image",
+      fileRef: "file-ref-video-history-1",
+      origin: "runtime_output",
+      sourceToolCode: "image_generate",
       objectKey: "assistant-media/uploads/video-reference.png",
+      relativePath: "generated/video-reference.png",
+      displayName: "video-reference.png",
       mimeType: "image/png",
-      filename: "video-reference.png",
-      sizeBytes: videoReferenceBuffer.length
+      sizeBytes: videoReferenceBuffer.length,
+      logicalSizeBytes: videoReferenceBuffer.length,
+      aliases: ["image #11", "file #12"],
+      createdAt: "2026-04-14T11:58:00.000Z",
+      authorLabel: "model",
+      semanticSummaryHint: "Historical image reference for a video."
     }
   ];
   const providerCallsBeforeVideoGenerate = providerGatewayClient.calls.length;
@@ -6239,28 +6232,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           name: "video_generate",
           arguments: {
             prompt: "Animate the attached image into a calm sunrise clip",
-            referenceImageAlias: "image #1",
+            referenceImageAlias: "image #11",
             filename: "sunrise-clip.mp4",
             size: "1280x720",
             seconds: 4
           }
         }
       ]
-    },
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "reply after video",
-      respondedAt: "2026-04-14T12:00:01.000Z",
-      usage: {
-        providerKey: "openai",
-        modelKey: "gpt-5.4",
-        inputTokens: 36,
-        outputTokens: 12,
-        totalTokens: 48
-      },
-      stopReason: "completed",
-      toolCalls: []
     }
   ];
   persaiInternalApiClientService.consumeOutcome = {
@@ -6275,7 +6253,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const videoGenerateCompleted = await service.createTurn(request);
-  assert.equal(videoGenerateCompleted.assistantText, "reply after video");
+  assert.equal(
+    videoGenerateCompleted.assistantText,
+    "Request accepted. I am preparing the video and will send it separately when it is ready."
+  );
   assert.equal(videoGenerateCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeVideoGenerate + 2);
   assert.equal(
@@ -6285,10 +6266,109 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     true
   );
   assert.equal(providerGatewayClient.videoGenerateCalls.length, 0);
-  assert.deepEqual(
-    turnContextHydrationService.availableImageToolAttachmentInputs.at(-1)?.currentAttachments,
-    []
+  const videoEnqueueCall = persaiInternalApiClientService.deferredMediaEnqueueCalls.findLast(
+    (call) =>
+      (call.directToolExecution as { toolCode?: string } | undefined)?.toolCode === "video_generate"
   );
+  assert.ok(videoEnqueueCall);
+  const videoEnqueueAttachments = videoEnqueueCall?.attachments as
+    | RuntimeAttachmentRef[]
+    | undefined;
+  const videoReferenceAttachment = videoEnqueueAttachments?.find(
+    (attachment) => attachment.fileRef === "file-ref-video-history-1"
+  );
+  assert.deepEqual(videoReferenceAttachment?.aliases, ["image #11", "file #12"]);
+  {
+    const budgetPolicy = new ToolBudgetPolicy("normal");
+    const firstReservation = budgetPolicy.reserve("video_generate", 0);
+    assert.equal(firstReservation.exhausted, false);
+    (
+      service as unknown as {
+        maybeRefundToolRequestRejectionReservation(
+          policy: ToolBudgetPolicy,
+          entry: {
+            toolCall: ProviderGatewayToolCall;
+            reservedUnits: number;
+            reservation: unknown;
+            parallelSafe: boolean;
+          },
+          outcome: {
+            payload: unknown;
+            exchange: unknown;
+          }
+        ): void;
+      }
+    ).maybeRefundToolRequestRejectionReservation(
+      budgetPolicy,
+      {
+        toolCall: {
+          id: "tool-call-video-bad-alias",
+          name: "video_generate",
+          arguments: {
+            prompt: "Animate the visible image",
+            referenceImageAlias: "image #11"
+          }
+        },
+        reservedUnits: 1,
+        reservation: firstReservation,
+        parallelSafe: false
+      },
+      {
+        payload: {
+          toolCode: "video_generate",
+          action: "skipped",
+          reason: "reference_image_alias_invalid"
+        },
+        exchange: {}
+      }
+    );
+    const repairedReservation = budgetPolicy.reserve("video_generate", 0);
+    assert.equal(
+      repairedReservation.exhausted,
+      false,
+      "model-correctable video alias rejections must refund the per-turn video cap so the same turn can self-repair once."
+    );
+    const duplicateRealJobReservation = budgetPolicy.reserve("video_generate", 0);
+    assert.equal(
+      duplicateRealJobReservation.exhausted,
+      true,
+      "after the repaired video request reserves successfully, a second real video job in the same turn must still be capped."
+    );
+  }
+  {
+    const documentAttachments = (
+      service as unknown as {
+        mergeWorkingFileDocumentSourceAttachments(
+          attachments: RuntimeAttachmentRef[],
+          availableWorkingFileRefs: RuntimeFileRef[]
+        ): RuntimeAttachmentRef[];
+      }
+    ).mergeWorkingFileDocumentSourceAttachments(
+      [],
+      [
+        {
+          fileRef: "file-ref-doc-history-1",
+          origin: "uploaded_attachment",
+          sourceToolCode: null,
+          objectKey: "assistant-media/uploads/source-brief.docx",
+          relativePath: "uploads/source-brief.docx",
+          displayName: "source-brief.docx",
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          sizeBytes: 2048,
+          logicalSizeBytes: 2048,
+          aliases: ["file #12"],
+          createdAt: "2026-04-14T11:57:00.000Z",
+          authorLabel: "user",
+          semanticSummaryHint: "Historical source document visible in Working Files."
+        }
+      ]
+    );
+    assert.deepEqual(
+      documentAttachments.map((attachment) => attachment.aliases),
+      [["file #12"]]
+    );
+    assert.equal(documentAttachments[0]?.fileRef, "file-ref-doc-history-1");
+  }
   const videoGenerateToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
@@ -6306,6 +6386,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     } | null;
   };
   assert.equal(videoGenerateToolHistory.provider, "openai");
+  turnContextHydrationService.availableWorkingFileRefsOverride = [];
 
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.image_edit = {
@@ -6327,14 +6408,21 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   }
   const referenceImageBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x02]);
   request.message.attachments = [];
-  turnContextHydrationService.availableImageToolAttachmentsOverride = [
+  turnContextHydrationService.availableWorkingFileRefsOverride = [
     {
-      attachmentId: "attachment-image-history-1",
-      kind: "image",
+      fileRef: "file-ref-image-edit-history-1",
+      origin: "uploaded_attachment",
+      sourceToolCode: null,
       objectKey: "assistant-media/uploads/reference-image.png",
+      relativePath: "uploads/reference-image.png",
+      displayName: "living-room.png",
       mimeType: "image/png",
-      filename: "living-room.png",
-      sizeBytes: referenceImageBuffer.length
+      sizeBytes: referenceImageBuffer.length,
+      logicalSizeBytes: referenceImageBuffer.length,
+      aliases: ["image #1", "file #1"],
+      createdAt: "2026-04-13T11:58:00.000Z",
+      authorLabel: "user",
+      semanticSummaryHint: "Historical living room source image."
     }
   ];
   mediaObjectStorage.sourceObjects.set(
@@ -6401,10 +6489,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     true
   );
   assert.equal(providerGatewayClient.imageEditCalls.length, 0);
-  assert.deepEqual(
-    turnContextHydrationService.availableImageToolAttachmentInputs.at(-1)?.currentAttachments,
-    []
-  );
   const imageEditToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
@@ -6427,7 +6511,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(imageEditToolHistory.action, "pending_delivery");
   assert.equal(imageEditToolHistory.provider, "openai");
   assert.equal(imageEditToolHistory.prompt, "Replace the couch with a red chair");
-  assert.equal(imageEditToolHistory.sourceImageAlias, "living-room.png");
+  assert.equal(imageEditToolHistory.sourceImageAlias, "image #1");
   assert.equal(imageEditToolHistory.referenceImageAlias, null);
   // `sourceFilename` and `referenceFilename` are user-supplied input
   // filenames — the model already saw them in the user's message context,
@@ -6582,7 +6666,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const inferredReferenceImageEditCompleted = await service.createTurn(request);
   assert.equal(
     inferredReferenceImageEditCompleted.assistantText,
-    "reply after inferred reference image edit"
+    "Request accepted. I am editing the image and will send it separately when it is ready."
   );
   assert.equal(
     providerGatewayClient.calls.length,
@@ -6599,7 +6683,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     sourceImageAlias?: string | null;
     referenceImageAlias?: string | null;
   };
-  assert.equal(inferredReferenceImageEditToolHistory.action, "skipped");
+  assert.equal(inferredReferenceImageEditToolHistory.action, "pending_delivery");
+  assert.equal(inferredReferenceImageEditToolHistory.sourceImageAlias, "image #1");
+  assert.equal(inferredReferenceImageEditToolHistory.referenceImageAlias, null);
 
   const providerCallsBeforeAmbiguousImageEdit = providerGatewayClient.calls.length;
   const providerImageEditsBeforeAmbiguous = providerGatewayClient.imageEditCalls.length;
@@ -6649,7 +6735,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const ambiguousImageEditCompleted = await service.createTurn(request);
   assert.equal(
     ambiguousImageEditCompleted.assistantText,
-    "Which image should I edit, image #1 or image #2?"
+    "Request accepted. I am editing the image and will send it separately when it is ready."
   );
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeAmbiguousImageEdit + 2);
   assert.equal(providerGatewayClient.imageEditCalls.length, providerImageEditsBeforeAmbiguous);
@@ -6657,13 +6743,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
     action?: string;
-    reason?: string | null;
     sourceImageAlias?: string | null;
     referenceImageAlias?: string | null;
   };
-  assert.equal(ambiguousImageEditToolHistory.action, "skipped");
-  assert.equal(ambiguousImageEditToolHistory.reason, "source_image_alias_required");
-  assert.equal(ambiguousImageEditToolHistory.sourceImageAlias, null);
+  assert.equal(ambiguousImageEditToolHistory.action, "pending_delivery");
+  assert.equal(ambiguousImageEditToolHistory.sourceImageAlias, "image #1");
   assert.equal(ambiguousImageEditToolHistory.referenceImageAlias, null);
   request.message.attachments = [];
 
@@ -7535,17 +7619,17 @@ export async function runRecentPdfsHintTests(): Promise<void> {
     assert.ok(workingFiles, "working files section must still be present");
     assert.match(
       workingFiles!,
-      /Document-tool priority \(PDF only\):/,
+      /Document-tool PDF anchors \(not general file recency\):/,
       "working files must carry the document priority note"
     );
     assert.match(
       workingFiles!,
-      /CURRENT_SOURCE/,
+      /DOC_CURRENT_SOURCE/,
       "working files must expose the current source role"
     );
     assert.match(
       workingFiles!,
-      /LAST_DELIVERED_RESULT/,
+      /DOC_LAST_DELIVERED_PDF/,
       "working files must expose the last delivered result role"
     );
     assert.doesNotMatch(
