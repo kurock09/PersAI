@@ -72,14 +72,26 @@ function createEditRequest(options?: {
 }
 
 class FakeOpenAIProviderClient {
-  calls: Array<{ input: ProviderGatewayImageGenerateRequest; apiKey: string | undefined }> = [];
-  editCalls: Array<{ input: ProviderGatewayImageEditRequest; apiKey: string | undefined }> = [];
+  calls: Array<{
+    input: ProviderGatewayImageGenerateRequest;
+    apiKey: string | undefined;
+    reserveApiKey: string | null | undefined;
+  }> = [];
+  editCalls: Array<{
+    input: ProviderGatewayImageEditRequest;
+    apiKey: string | undefined;
+    reserveApiKey: string | null | undefined;
+  }> = [];
 
   async generateImage(
     input: ProviderGatewayImageGenerateRequest,
-    options?: { apiKey?: string }
+    options?: { apiKey?: string; reserveApiKey?: string | null }
   ): Promise<ProviderGatewayImageGenerateResult> {
-    this.calls.push({ input, apiKey: options?.apiKey });
+    this.calls.push({
+      input,
+      apiKey: options?.apiKey,
+      reserveApiKey: options?.reserveApiKey
+    });
     return {
       provider: "openai",
       model: "gpt-image-1",
@@ -100,9 +112,13 @@ class FakeOpenAIProviderClient {
 
   async editImage(
     input: ProviderGatewayImageEditRequest,
-    options?: { apiKey?: string }
+    options?: { apiKey?: string; reserveApiKey?: string | null }
   ): Promise<ProviderGatewayImageEditResult> {
-    this.editCalls.push({ input, apiKey: options?.apiKey });
+    this.editCalls.push({
+      input,
+      apiKey: options?.apiKey,
+      reserveApiKey: options?.reserveApiKey
+    });
     return {
       provider: "openai",
       model: "gpt-image-1",
@@ -127,7 +143,7 @@ class FakePersaiInternalApiClientService {
 
   async resolveSecretValue(secretId: string): Promise<string> {
     this.secretIds.push(secretId);
-    return "resolved-tool-secret";
+    return secretId.includes("/reserve/") ? "resolved-reserve-secret" : "resolved-tool-secret";
   }
 }
 
@@ -240,8 +256,16 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
   assert.equal(result.provider, "openai");
   assert.equal(result.images.length, 1);
   assert.deepEqual(openaiProviderClient.calls[0], {
-    input: createRequest(),
-    apiKey: "resolved-tool-secret"
+    input: {
+      ...createRequest(),
+      credential: {
+        ...createRequest().credential,
+        requestContext: null,
+        reserveTransport: null
+      }
+    },
+    apiKey: "resolved-tool-secret",
+    reserveApiKey: null
   });
   assert.deepEqual(persaiInternalApiClientService.secretIds, ["tool/image_generate/api-key"]);
 
@@ -249,12 +273,52 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
   assert.equal(editResult.provider, "openai");
   assert.equal(editResult.images.length, 1);
   assert.deepEqual(openaiProviderClient.editCalls[0], {
-    input: createEditRequest({ includeReference: true }),
-    apiKey: "resolved-tool-secret"
+    input: {
+      ...createEditRequest({ includeReference: true }),
+      credential: {
+        ...createEditRequest({ includeReference: true }).credential,
+        requestContext: null,
+        reserveTransport: null
+      }
+    },
+    apiKey: "resolved-tool-secret",
+    reserveApiKey: null
   });
   assert.deepEqual(persaiInternalApiClientService.secretIds, [
     "tool/image_generate/api-key",
     "tool/image_generate/api-key"
+  ]);
+
+  const reserveGenerateRequest: ProviderGatewayImageGenerateRequest = {
+    ...createRequest(),
+    credential: {
+      ...createRequest().credential,
+      requestContext: {
+        workspaceId: "ws-1",
+        runtimeRequestId: "req-1",
+        runtimeSessionId: "session-1"
+      },
+      reserveTransport: {
+        enabled: true,
+        secretId: "tool/image_generate/reserve/api-key",
+        baseUrl: "https://api.proxyapi.ru/openai/v1"
+      }
+    }
+  };
+  await service.generateImage(reserveGenerateRequest);
+  const reserveGenerateCall = openaiProviderClient.calls.at(-1);
+  assert.equal(
+    reserveGenerateCall?.reserveApiKey,
+    "resolved-reserve-secret",
+    "reserve api key should be resolved when reserve transport is enabled"
+  );
+  assert.equal(
+    reserveGenerateCall?.input.credential.reserveTransport?.baseUrl,
+    "https://api.proxyapi.ru/openai/v1"
+  );
+  assert.deepEqual(persaiInternalApiClientService.secretIds.slice(-2), [
+    "tool/image_generate/api-key",
+    "tool/image_generate/reserve/api-key"
   ]);
 
   // DEFECT 1: normalizeEditInput must preserve count and forward it to the client
@@ -344,6 +408,8 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
   assert.deepEqual(persaiInternalApiClientService.secretIds, [
     "tool/image_generate/api-key",
     "tool/image_generate/api-key",
+    "tool/image_generate/api-key",
+    "tool/image_generate/reserve/api-key",
     "tool/image_generate/api-key",
     "tool/document/pdfmonkey/api-key",
     "tool/document/pdfmonkey/api-key"

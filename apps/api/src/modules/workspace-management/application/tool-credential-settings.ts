@@ -25,6 +25,14 @@ export const DOCUMENT_PROVIDER_CONFIG_KEYS = {
   pdfmonkeyTemplateId: "tool/document/pdfmonkey/template-id"
 } as const;
 
+export const MEDIA_RESERVE_CONFIG_KEYS = {
+  enabled: "tool/image_generate/reserve/enabled",
+  apiKey: "tool/image_generate/reserve/api-key",
+  baseUrl: "tool/image_generate/reserve/base-url"
+} as const;
+
+export const DEFAULT_MEDIA_RESERVE_BASE_URL = "https://api.proxyapi.ru/openai/v1";
+
 /** Notification-platform specific credentials — canonical path aliases used by adapters. */
 export const NOTIFICATION_CREDENTIAL_IDS = {
   email_postmark: "notification/email/postmark/api-key",
@@ -137,10 +145,22 @@ export type DocumentProviderConfigStatus = {
   templateIdUpdatedAt: string | null;
 };
 
+export type MediaReserveConfigStatus = {
+  enabled: boolean;
+  apiKeyConfigured: boolean;
+  apiKeyLastFour: string | null;
+  apiKeyUpdatedAt: string | null;
+  baseUrlConfigured: boolean;
+  baseUrlLastFour: string | null;
+  baseUrlUpdatedAt: string | null;
+  baseUrlValue: string;
+};
+
 export type AdminToolCredentialsState = {
   schema: "persai.adminToolCredentials.v2";
   credentials: ToolCredentialStatus[];
   documentProviderConfigs: DocumentProviderConfigStatus[];
+  mediaReserve: MediaReserveConfigStatus;
   ttsPrimaryProviderId: PersaiRuntimeTtsProviderId;
   ttsPrimaryProviderOptions: ToolProviderOption[];
   heygenVoiceCatalog: {
@@ -154,6 +174,11 @@ export type UpdateToolCredentialsInput = {
   keys: Partial<Record<ToolCredentialKey, string>>;
   providers: Partial<Record<ToolCredentialKey, string>>;
   documentProviderTemplateIds: Partial<Record<"pdfmonkey", string>>;
+  mediaReserve?: {
+    enabled?: boolean;
+    apiKey?: string;
+    baseUrl?: string;
+  };
   ttsPrimaryProviderId?: PersaiRuntimeTtsProviderId;
 };
 
@@ -255,6 +280,64 @@ export function parseUpdateToolCredentialsInput(body: unknown): UpdateToolCreden
     }
   }
 
+  let mediaReserve: UpdateToolCredentialsInput["mediaReserve"] | undefined;
+  const mediaReserveRaw = body.mediaReserve;
+  if (isObject(mediaReserveRaw)) {
+    const next: NonNullable<UpdateToolCredentialsInput["mediaReserve"]> = {};
+    if (mediaReserveRaw.enabled !== undefined) {
+      if (typeof mediaReserveRaw.enabled !== "boolean") {
+        throw new Error("mediaReserve.enabled must be a boolean.");
+      }
+      next.enabled = mediaReserveRaw.enabled;
+    }
+    if (mediaReserveRaw.apiKey !== undefined && mediaReserveRaw.apiKey !== null) {
+      if (typeof mediaReserveRaw.apiKey !== "string") {
+        throw new Error("mediaReserve.apiKey must be a string.");
+      }
+      const trimmed = mediaReserveRaw.apiKey.trim();
+      if (trimmed.length > 0) {
+        if (trimmed.length > MAX_KEY_LENGTH) {
+          throw new Error(
+            `mediaReserve.apiKey must be at most ${String(MAX_KEY_LENGTH)} characters.`
+          );
+        }
+        if (containsControlCharacters(trimmed)) {
+          throw new Error("mediaReserve.apiKey contains invalid control characters.");
+        }
+        next.apiKey = trimmed;
+      }
+    }
+    if (mediaReserveRaw.baseUrl !== undefined && mediaReserveRaw.baseUrl !== null) {
+      if (typeof mediaReserveRaw.baseUrl !== "string") {
+        throw new Error("mediaReserve.baseUrl must be a string.");
+      }
+      const trimmed = mediaReserveRaw.baseUrl.trim();
+      if (trimmed.length > 0) {
+        if (trimmed.length > MAX_KEY_LENGTH) {
+          throw new Error(
+            `mediaReserve.baseUrl must be at most ${String(MAX_KEY_LENGTH)} characters.`
+          );
+        }
+        if (containsControlCharacters(trimmed)) {
+          throw new Error("mediaReserve.baseUrl contains invalid control characters.");
+        }
+        let parsed: URL;
+        try {
+          parsed = new URL(trimmed);
+        } catch {
+          throw new Error("mediaReserve.baseUrl must be a valid absolute URL.");
+        }
+        if (parsed.protocol !== "https:") {
+          throw new Error("mediaReserve.baseUrl must use https.");
+        }
+        next.baseUrl = parsed.toString().replace(/\/$/u, "");
+      }
+    }
+    if (Object.keys(next).length > 0) {
+      mediaReserve = next;
+    }
+  }
+
   const ttsPrimaryProviderIdRaw = body.ttsPrimaryProviderId;
   const ttsPrimaryProviderId =
     typeof ttsPrimaryProviderIdRaw === "string" && ttsPrimaryProviderIdRaw.trim().length > 0
@@ -273,6 +356,7 @@ export function parseUpdateToolCredentialsInput(body: unknown): UpdateToolCreden
     keys,
     providers,
     documentProviderTemplateIds,
+    ...(mediaReserve === undefined ? {} : { mediaReserve }),
     ...(ttsPrimaryProviderId === undefined
       ? {}
       : { ttsPrimaryProviderId: ttsPrimaryProviderId as PersaiRuntimeTtsProviderId })
@@ -298,6 +382,12 @@ export function buildAdminToolCredentialsState(params: {
   keyMetadata: Record<ToolCredentialKey, PlatformRuntimeProviderKeyMetadata>;
   providerSelections: Partial<Record<ToolCredentialKey, string>>;
   documentProviderConfigMetadata: Record<"pdfmonkey", PlatformRuntimeProviderKeyMetadata>;
+  mediaReserve: {
+    enabled: boolean;
+    apiKeyMetadata: PlatformRuntimeProviderKeyMetadata;
+    baseUrlMetadata: PlatformRuntimeProviderKeyMetadata;
+    baseUrlValue: string;
+  };
   ttsPrimaryProviderId?: PersaiRuntimeTtsProviderId | null;
   heygenVoiceCatalogRefreshedAt?: string | null;
   heygenVoiceCatalogVoicesCount?: number | null;
@@ -349,6 +439,16 @@ export function buildAdminToolCredentialsState(params: {
         templateIdUpdatedAt: params.documentProviderConfigMetadata.pdfmonkey.updatedAt
       }
     ],
+    mediaReserve: {
+      enabled: params.mediaReserve.enabled,
+      apiKeyConfigured: params.mediaReserve.apiKeyMetadata.configured,
+      apiKeyLastFour: params.mediaReserve.apiKeyMetadata.lastFour,
+      apiKeyUpdatedAt: params.mediaReserve.apiKeyMetadata.updatedAt,
+      baseUrlConfigured: params.mediaReserve.baseUrlMetadata.configured,
+      baseUrlLastFour: params.mediaReserve.baseUrlMetadata.lastFour,
+      baseUrlUpdatedAt: params.mediaReserve.baseUrlMetadata.updatedAt,
+      baseUrlValue: params.mediaReserve.baseUrlValue
+    },
     ttsPrimaryProviderId: params.ttsPrimaryProviderId ?? DEFAULT_TTS_PRIMARY_PROVIDER,
     ttsPrimaryProviderOptions: TTS_PRIMARY_PROVIDER_OPTIONS,
     heygenVoiceCatalog: {
@@ -358,6 +458,7 @@ export function buildAdminToolCredentialsState(params: {
     notes: [
       "Tool credentials are managed globally for all assistants.",
       "Image generation and image edit keep using the existing shared OpenAI media credential slot.",
+      "Reserve OpenAI-compatible media transport is an image-only fallback path inside the existing OpenAI image credential flow; it does not add a new runtime or plans provider selector.",
       "Runway, Kling, and HeyGen video provider credentials are stored separately for Admin-managed video catalog setup and later video execution slices.",
       "HeyGen voice catalog is cached in PersAI and should be refreshed manually only when operators need a fresh provider sync.",
       'Kling must be stored as JSON with both official values: {"accessKey":"...","secretKey":"..."}; a single API key is not valid for Kling.',

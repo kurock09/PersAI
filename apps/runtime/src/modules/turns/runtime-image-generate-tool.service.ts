@@ -327,7 +327,21 @@ export class RuntimeImageGenerateToolService {
         credential: {
           toolCode: IMAGE_GENERATE_TOOL_CODE,
           secretId: modelSelection.credential.secretRef.id,
-          providerId
+          providerId,
+          requestContext: {
+            workspaceId: params.bundle.metadata.workspaceId,
+            runtimeRequestId: params.requestId,
+            runtimeSessionId: params.sessionId
+          },
+          reserveTransport:
+            modelSelection.credential.reserveTransport &&
+            modelSelection.credential.reserveTransport.configured
+              ? {
+                  enabled: true,
+                  secretId: modelSelection.credential.reserveTransport.secretRef.id,
+                  baseUrl: modelSelection.credential.reserveTransport.baseUrl
+                }
+              : null
         }
       } as const;
       const runGenerateCall = async (prompt: string, count: number, requestIdSuffix = "") => {

@@ -10,6 +10,7 @@ const ADMIN_SYSTEM_EVENT_CODE_BY_AUDIT_EVENT: Partial<
   "assistant.runtime.apply_succeeded": "runtime_apply_succeeded",
   "assistant.runtime.apply_degraded": "runtime_apply_degraded",
   "assistant.runtime.apply_failed": "runtime_apply_failed",
+  "assistant.media.reserve_openai_transport_used": "reserve_openai_transport_used",
   "admin.plan_created": "admin_plan_created",
   "admin.plan_updated": "admin_plan_updated"
 };

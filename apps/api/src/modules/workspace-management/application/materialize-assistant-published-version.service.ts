@@ -51,7 +51,9 @@ import { buildRuntimeWorkerToolsConfig } from "./runtime-worker-tools";
 import { buildRuntimeSharedCompactionConfig } from "./runtime-shared-compaction";
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
+  DEFAULT_MEDIA_RESERVE_BASE_URL,
   DOCUMENT_PROVIDER_CONFIG_KEYS,
+  MEDIA_RESERVE_CONFIG_KEYS,
   DEFAULT_TTS_PRIMARY_PROVIDER,
   TTS_PRIMARY_PROVIDER_STORAGE_KEY,
   TTS_PROVIDER_TO_CREDENTIAL_KEY,
@@ -289,10 +291,24 @@ export function buildImageGenerateToolCredentialRef(params: {
   imageCredentialRef: AssistantRuntimeBundleToolCredentialRef;
   imageGenerateModelKey: string | null;
   imageGenerateFallbackModelKey: string | null;
+  mediaReserveTransport?: {
+    configured: boolean;
+    secretRef: AssistantRuntimeBundleToolCredentialRef["secretRef"];
+    baseUrl: string;
+  } | null;
 }): AssistantRuntimeBundleToolCredentialRef {
   return {
     ...params.imageCredentialRef,
     ...(params.imageGenerateModelKey !== null ? { modelKey: params.imageGenerateModelKey } : {}),
+    ...(params.mediaReserveTransport
+      ? {
+          reserveTransport: {
+            secretRef: { ...params.mediaReserveTransport.secretRef },
+            configured: params.mediaReserveTransport.configured,
+            baseUrl: params.mediaReserveTransport.baseUrl
+          }
+        }
+      : {}),
     ...buildMediaModelFallbackPatch(params.imageCredentialRef, params.imageGenerateFallbackModelKey)
   };
 }
@@ -301,10 +317,24 @@ export function buildImageEditToolCredentialRef(params: {
   imageCredentialRef: AssistantRuntimeBundleToolCredentialRef;
   imageEditModelKey: string | null;
   imageEditFallbackModelKey: string | null;
+  mediaReserveTransport?: {
+    configured: boolean;
+    secretRef: AssistantRuntimeBundleToolCredentialRef["secretRef"];
+    baseUrl: string;
+  } | null;
 }): AssistantRuntimeBundleToolCredentialRef {
   return {
     ...cloneToolCredentialRef(params.imageCredentialRef),
     ...(params.imageEditModelKey !== null ? { modelKey: params.imageEditModelKey } : {}),
+    ...(params.mediaReserveTransport
+      ? {
+          reserveTransport: {
+            secretRef: { ...params.mediaReserveTransport.secretRef },
+            configured: params.mediaReserveTransport.configured,
+            baseUrl: params.mediaReserveTransport.baseUrl
+          }
+        }
+      : {}),
     ...buildMediaModelFallbackPatch(params.imageCredentialRef, params.imageEditFallbackModelKey)
   };
 }
@@ -1061,15 +1091,18 @@ export class MaterializeAssistantPublishedVersionService {
     }
     const imageCredentialRef = refs.image_generate;
     if (imageCredentialRef) {
+      const mediaReserveTransport = await this.resolveMaterializedMediaReserveTransport();
       refs.image_generate = buildImageGenerateToolCredentialRef({
         imageCredentialRef,
         imageGenerateModelKey: input.imageGenerateModelKey,
-        imageGenerateFallbackModelKey: input.imageGenerateFallbackModelKey
+        imageGenerateFallbackModelKey: input.imageGenerateFallbackModelKey,
+        mediaReserveTransport
       });
       refs.image_edit = buildImageEditToolCredentialRef({
         imageCredentialRef,
         imageEditModelKey: input.imageEditModelKey,
-        imageEditFallbackModelKey: input.imageEditFallbackModelKey
+        imageEditFallbackModelKey: input.imageEditFallbackModelKey,
+        mediaReserveTransport
       });
       refs.video_generate = buildVideoGenerateToolCredentialRef({
         runtimeProviderProfile: input.runtimeProviderProfile,
@@ -1103,6 +1136,39 @@ export class MaterializeAssistantPublishedVersionService {
       input.voiceProfile
     );
     return refs;
+  }
+
+  private async resolveMaterializedMediaReserveTransport(): Promise<{
+    configured: boolean;
+    secretRef: AssistantRuntimeBundleToolCredentialRef["secretRef"];
+    baseUrl: string;
+  } | null> {
+    const [enabledRaw, baseUrlRaw, metadata] = await Promise.all([
+      this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
+        MEDIA_RESERVE_CONFIG_KEYS.enabled
+      ),
+      this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
+        MEDIA_RESERVE_CONFIG_KEYS.baseUrl
+      ),
+      this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys([
+        MEDIA_RESERVE_CONFIG_KEYS.apiKey
+      ])
+    ]);
+    if (enabledRaw !== "true") {
+      return null;
+    }
+    return {
+      configured: metadata[MEDIA_RESERVE_CONFIG_KEYS.apiKey]?.configured ?? false,
+      secretRef: {
+        source: "persai",
+        provider: "persai-runtime",
+        id: MEDIA_RESERVE_CONFIG_KEYS.apiKey
+      },
+      baseUrl:
+        typeof baseUrlRaw === "string" && baseUrlRaw.trim().length > 0
+          ? baseUrlRaw.trim()
+          : DEFAULT_MEDIA_RESERVE_BASE_URL
+    };
   }
 
   private async attachMaterializedVideoVoiceCatalog(

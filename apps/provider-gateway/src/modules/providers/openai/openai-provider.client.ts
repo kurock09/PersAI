@@ -30,6 +30,8 @@ import OpenAI from "openai";
 import { toFile } from "openai/uploads";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 import type { ProviderWarmableClient } from "../provider-client.types";
+import { PersaiInternalApiClientService } from "../persai-internal-api.client.service";
+import { URL } from "node:url";
 
 const OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 const OPENAI_IMAGE_GENERATION_MODEL = "gpt-image-1";
@@ -123,6 +125,15 @@ type OpenAIAcceptedVideoTask = {
   acceptedAt: string;
 };
 
+type OpenAIImageTransportFailure = {
+  class: "network" | "timeout" | "rate_limit" | "server_error" | "account_unavailable" | "unknown";
+  status: number | null;
+  code: string | null;
+  type: string | null;
+  message: string | null;
+  requestId: string | null;
+};
+
 @Injectable()
 export class OpenAIProviderClient implements ProviderWarmableClient {
   readonly provider = "openai" as const;
@@ -130,7 +141,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   private readonly logger = new Logger(OpenAIProviderClient.name);
   private client: OpenAI | null = null;
 
-  constructor(@Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig) {}
+  constructor(
+    @Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig,
+    private readonly persaiInternalApiClientService?: PersaiInternalApiClientService
+  ) {}
 
   isConfigured(): boolean {
     return typeof this.config.PROVIDER_GATEWAY_OPENAI_API_KEY === "string";
@@ -320,9 +334,8 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
   async generateImage(
     input: ProviderGatewayImageGenerateRequest,
-    options?: { apiKey?: string }
+    options?: { apiKey?: string; reserveApiKey?: string | null }
   ): Promise<ProviderGatewayImageGenerateResult> {
-    const client = this.getApiClient(options?.apiKey);
     const { signal, dispose } = this.createTimedSignal(
       this.resolveImageGenerationTimeoutMs(input.timeoutMs)
     );
@@ -344,14 +357,19 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         background: input.background,
         ...(input.size === null ? {} : { size: input.size })
       };
-      let response: OpenAIImageGenerateResponse;
-      try {
-        response = (await client.images.generate(payload, {
-          signal
-        })) as OpenAIImageGenerateResponse;
-      } catch (error) {
-        throw this.toOpenAIImageException(error, "generate");
-      }
+      const response = await this.executeImageRequestWithReserveFallback({
+        action: "generate",
+        input,
+        payload,
+        signal,
+        ...(options?.apiKey === undefined ? {} : { primaryApiKey: options.apiKey }),
+        reserveApiKey: options?.reserveApiKey ?? null,
+        run: (client, requestPayload, requestOptions) =>
+          client.images.generate(
+            requestPayload as OpenAIImageGenerateParams,
+            requestOptions
+          ) as Promise<OpenAIImageGenerateResponse>
+      });
       const mimeType = this.resolveGeneratedImageMimeType(
         this.asObject(response)?.output_format ?? "png"
       );
@@ -405,9 +423,8 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
   async editImage(
     input: ProviderGatewayImageEditRequest,
-    options?: { apiKey?: string }
+    options?: { apiKey?: string; reserveApiKey?: string | null }
   ): Promise<ProviderGatewayImageEditResult> {
-    const client = this.getApiClient(options?.apiKey);
     const { signal, dispose } = this.createTimedSignal(
       this.resolveImageEditTimeoutMs(input.timeoutMs)
     );
@@ -441,14 +458,19 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         background: input.background,
         ...(input.size === null ? {} : { size: input.size })
       };
-      let response: OpenAIImageGenerateResponse;
-      try {
-        response = (await client.images.edit(payload, {
-          signal
-        })) as OpenAIImageGenerateResponse;
-      } catch (error) {
-        throw this.toOpenAIImageException(error, "edit");
-      }
+      const response = await this.executeImageRequestWithReserveFallback({
+        action: "edit",
+        input,
+        payload,
+        signal,
+        ...(options?.apiKey === undefined ? {} : { primaryApiKey: options.apiKey }),
+        reserveApiKey: options?.reserveApiKey ?? null,
+        run: (client, requestPayload, requestOptions) =>
+          client.images.edit(
+            requestPayload as OpenAIImageEditParams,
+            requestOptions
+          ) as Promise<OpenAIImageGenerateResponse>
+      });
       const mimeType = this.resolveGeneratedImageMimeType(
         this.asObject(response)?.output_format ?? "png"
       );
@@ -520,6 +542,86 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       Math.max(configured, this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS),
       MAX_OPENAI_IMAGE_EDIT_TIMEOUT_MS
     );
+  }
+
+  private async executeImageRequestWithReserveFallback(params: {
+    action: "generate" | "edit";
+    input: ProviderGatewayImageGenerateRequest | ProviderGatewayImageEditRequest;
+    payload: OpenAIImageGenerateParams | OpenAIImageEditParams;
+    signal: AbortSignal;
+    primaryApiKey?: string;
+    reserveApiKey: string | null;
+    run: (
+      client: OpenAI,
+      payload: OpenAIImageGenerateParams | OpenAIImageEditParams,
+      options: { signal: AbortSignal }
+    ) => Promise<OpenAIImageGenerateResponse>;
+  }): Promise<OpenAIImageGenerateResponse> {
+    const primaryClient = this.getApiClient(params.primaryApiKey);
+    try {
+      return await params.run(primaryClient, params.payload, { signal: params.signal });
+    } catch (error) {
+      const primaryFailure = this.extractOpenAIImageFailure(error);
+      const reserveConfig = params.input.credential.reserveTransport;
+      if (
+        reserveConfig?.enabled !== true ||
+        typeof params.reserveApiKey !== "string" ||
+        params.reserveApiKey.trim().length === 0 ||
+        !this.shouldFallbackToReserveTransport(primaryFailure)
+      ) {
+        throw this.toOpenAIImageException(error, params.action);
+      }
+      const reserveClient = this.getApiClient(params.reserveApiKey, reserveConfig.baseUrl);
+      this.logger.warn({
+        event: "openai_image_primary_failed_reserve_retrying",
+        action: params.action,
+        model: params.payload.model,
+        primaryFailureClass: primaryFailure.class,
+        primaryStatus: primaryFailure.status,
+        reserveBaseUrlHost: this.readUrlHost(reserveConfig.baseUrl),
+        runtimeRequestId: params.input.credential.requestContext?.runtimeRequestId ?? null,
+        runtimeSessionId: params.input.credential.requestContext?.runtimeSessionId ?? null,
+        workspaceId: params.input.credential.requestContext?.workspaceId ?? null
+      });
+      try {
+        const reserveResult = await params.run(reserveClient, params.payload, {
+          signal: params.signal
+        });
+        this.logger.log({
+          event: "openai_image_primary_failed_reserve_used",
+          action: params.action,
+          model: params.payload.model,
+          primaryFailureClass: primaryFailure.class,
+          primaryStatus: primaryFailure.status,
+          reserveBaseUrlHost: this.readUrlHost(reserveConfig.baseUrl),
+          runtimeRequestId: params.input.credential.requestContext?.runtimeRequestId ?? null,
+          runtimeSessionId: params.input.credential.requestContext?.runtimeSessionId ?? null,
+          workspaceId: params.input.credential.requestContext?.workspaceId ?? null
+        });
+        await this.emitReserveFallbackAuditEvent({
+          action: params.action,
+          input: params.input,
+          modelKey: typeof params.payload.model === "string" ? params.payload.model : null,
+          primaryFailure,
+          reserveBaseUrl: reserveConfig.baseUrl
+        });
+        return reserveResult;
+      } catch (reserveError) {
+        this.logger.error({
+          event: "openai_image_primary_failed_reserve_failed",
+          action: params.action,
+          model: params.payload.model,
+          primaryFailureClass: primaryFailure.class,
+          primaryStatus: primaryFailure.status,
+          reserveBaseUrlHost: this.readUrlHost(reserveConfig.baseUrl),
+          reserveError: reserveError instanceof Error ? reserveError.message : String(reserveError),
+          runtimeRequestId: params.input.credential.requestContext?.runtimeRequestId ?? null,
+          runtimeSessionId: params.input.credential.requestContext?.runtimeSessionId ?? null,
+          workspaceId: params.input.credential.requestContext?.workspaceId ?? null
+        });
+        throw this.toOpenAIImageException(reserveError, params.action);
+      }
+    }
   }
 
   private toOpenAIImageException(error: unknown, action: "generate" | "edit"): Error {
@@ -628,6 +730,108 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     const upstreamMessage =
       input.message ?? "Your request was rejected by the OpenAI safety system.";
     return `OpenAI image ${action} request was rejected by the provider safety system${requestIdText}: ${upstreamMessage}`;
+  }
+
+  private extractOpenAIImageFailure(error: unknown): OpenAIImageTransportFailure {
+    const details = this.extractOpenAIImageErrorDetails(error);
+    const message = details.message?.toLowerCase() ?? "";
+    const code = details.code?.toLowerCase() ?? "";
+    const type = details.type?.toLowerCase() ?? "";
+    if (this.isAbortError(error) || message.includes("timed out") || message.includes("timeout")) {
+      return { class: "timeout", ...details };
+    }
+    if (details.status === null) {
+      return { class: "network", ...details };
+    }
+    if (details.status === 408) {
+      return { class: "timeout", ...details };
+    }
+    if (details.status === 429) {
+      return { class: "rate_limit", ...details };
+    }
+    if ([500, 502, 503, 504].includes(details.status)) {
+      return { class: "server_error", ...details };
+    }
+    if (
+      [401, 403].includes(details.status) &&
+      (message.includes("quota") ||
+        message.includes("billing") ||
+        message.includes("suspended") ||
+        message.includes("disabled") ||
+        message.includes("deactivated") ||
+        message.includes("insufficient_quota") ||
+        message.includes("region") ||
+        message.includes("unavailable") ||
+        message.includes("auth") ||
+        code.includes("insufficient_quota") ||
+        code.includes("billing") ||
+        code.includes("account") ||
+        type.includes("billing") ||
+        type.includes("authentication"))
+    ) {
+      return { class: "account_unavailable", ...details };
+    }
+    return { class: "unknown", ...details };
+  }
+
+  private shouldFallbackToReserveTransport(input: OpenAIImageTransportFailure): boolean {
+    return (
+      input.class === "network" ||
+      input.class === "timeout" ||
+      input.class === "rate_limit" ||
+      input.class === "server_error" ||
+      input.class === "account_unavailable"
+    );
+  }
+
+  private readUrlHost(value: string): string | null {
+    try {
+      return new URL(value).host;
+    } catch {
+      return null;
+    }
+  }
+
+  private async emitReserveFallbackAuditEvent(params: {
+    action: "generate" | "edit";
+    input: ProviderGatewayImageGenerateRequest | ProviderGatewayImageEditRequest;
+    modelKey: string | null;
+    primaryFailure: OpenAIImageTransportFailure;
+    reserveBaseUrl: string;
+  }): Promise<void> {
+    const workspaceId = params.input.credential.requestContext?.workspaceId ?? null;
+    if (workspaceId === null || this.persaiInternalApiClientService === undefined) {
+      return;
+    }
+    try {
+      const toolCode = params.action === "generate" ? "image_generate" : "image_edit";
+      const reserveBaseUrlHost = this.readUrlHost(params.reserveBaseUrl);
+      await this.persaiInternalApiClientService.appendAssistantAuditEvent({
+        workspaceId,
+        assistantId: null,
+        actorUserId: null,
+        eventCategory: "provider_transport",
+        eventCode: "assistant.media.reserve_openai_transport_used",
+        summary: `Reserve OpenAI-compatible transport succeeded for ${toolCode}.`,
+        outcome: "degraded",
+        details: {
+          tool: toolCode,
+          modelKey: params.modelKey,
+          primaryFailureClass: params.primaryFailure.class,
+          primaryFailureStatus: params.primaryFailure.status,
+          primaryFailureCode: params.primaryFailure.code,
+          reserveBaseUrlHost,
+          runtimeRequestId: params.input.credential.requestContext?.runtimeRequestId ?? null,
+          runtimeSessionId: params.input.credential.requestContext?.runtimeSessionId ?? null
+        }
+      });
+    } catch (error) {
+      this.logger.warn({
+        event: "openai_image_reserve_fallback_audit_failed",
+        action: params.action,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   async generateVideo(
@@ -1475,9 +1679,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     throw new Error("OpenAI provider client is not warmed.");
   }
 
-  private getApiClient(apiKey?: string): OpenAI {
+  private getApiClient(apiKey?: string, baseURL?: string): OpenAI {
     if (typeof apiKey === "string" && apiKey.trim().length > 0) {
-      return new OpenAI({ apiKey: apiKey.trim() });
+      return new OpenAI({
+        apiKey: apiKey.trim(),
+        ...(typeof baseURL === "string" && baseURL.trim().length > 0
+          ? { baseURL: baseURL.trim() }
+          : {})
+      });
     }
     if (this.client === null) {
       throw new Error("OpenAI provider client is not warmed.");

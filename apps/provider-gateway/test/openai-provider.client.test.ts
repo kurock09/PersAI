@@ -913,6 +913,113 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     }
   });
 
+  const getApiClientCalls: Array<{ apiKey?: string; baseURL?: string }> = [];
+  let fallbackGenerateAttempts = 0;
+  (
+    client as unknown as {
+      getApiClient(
+        apiKey?: string,
+        baseURL?: string
+      ): {
+        images: {
+          generate(payload: unknown): Promise<unknown>;
+          edit(payload: unknown): Promise<unknown>;
+        };
+        audio: {
+          speech: {
+            create(payload: unknown): Promise<unknown>;
+          };
+        };
+      };
+    }
+  ).getApiClient = (apiKey?: string, baseURL?: string) => {
+    getApiClientCalls.push({
+      ...(apiKey === undefined ? {} : { apiKey }),
+      ...(baseURL === undefined ? {} : { baseURL })
+    });
+    return {
+      images: {
+        generate: async (payload: unknown) => {
+          capturedImagePayload = payload;
+          fallbackGenerateAttempts += 1;
+          if (fallbackGenerateAttempts === 1) {
+            const error = new Error("Quota exceeded");
+            (
+              error as Error & {
+                status?: number;
+                error?: { code: string; message: string; type: string };
+              }
+            ).status = 429;
+            (error as Error & { error?: { code: string; message: string; type: string } }).error = {
+              code: "insufficient_quota",
+              message: "Quota exceeded",
+              type: "billing_error"
+            };
+            throw error;
+          }
+          return {
+            output_format: "png",
+            data: [{ b64_json: "cmVzZXJ2ZS1pbWFnZQ==", revised_prompt: null }],
+            usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 }
+          };
+        },
+        edit: editImage
+      },
+      audio: {
+        speech: {
+          create: generateSpeech
+        }
+      }
+    };
+  };
+  const auditEvents: Array<Record<string, unknown>> = [];
+  (
+    client as unknown as {
+      persaiInternalApiClientService: {
+        appendAssistantAuditEvent(input: Record<string, unknown>): Promise<void>;
+      };
+    }
+  ).persaiInternalApiClientService = {
+    async appendAssistantAuditEvent(input: Record<string, unknown>) {
+      auditEvents.push(input);
+    }
+  };
+  const reserveResult = await client.generateImage(
+    {
+      ...createImageGenerateRequest(),
+      credential: {
+        ...createImageGenerateRequest().credential,
+        requestContext: {
+          workspaceId: "ws-1",
+          runtimeRequestId: "req-1",
+          runtimeSessionId: "session-1"
+        },
+        reserveTransport: {
+          enabled: true,
+          secretId: "tool/image_generate/reserve/api-key",
+          baseUrl: "https://api.proxyapi.ru/openai/v1"
+        }
+      }
+    },
+    {
+      apiKey: "tool-openai-key",
+      reserveApiKey: "reserve-api-key"
+    }
+  );
+  assert.equal(reserveResult.images.length, 1);
+  assert.equal(getApiClientCalls.length, 2, "fallback should create primary and reserve clients");
+  assert.deepEqual(getApiClientCalls[0], { apiKey: "tool-openai-key" });
+  assert.deepEqual(getApiClientCalls[1], {
+    apiKey: "reserve-api-key",
+    baseURL: "https://api.proxyapi.ru/openai/v1"
+  });
+  assert.equal(auditEvents.length, 1, "reserve fallback success should append one audit event");
+  assert.equal(auditEvents[0]?.eventCode, "assistant.media.reserve_openai_transport_used");
+  assert.equal(
+    (auditEvents[0]?.details as Record<string, unknown>)?.reserveBaseUrlHost,
+    "api.proxyapi.ru"
+  );
+
   let capturedImageEditTimeoutMs: number | null = null;
   const originalCreateTimedSignal = (
     client as unknown as {

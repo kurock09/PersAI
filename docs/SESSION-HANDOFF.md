@@ -3,31 +3,47 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
-## 2026-06-09 - ADR-114 realtime live voice program opened
+## 2026-06-11 - ADR-114 Slice 1 reserve OpenAI-compatible image transport
 
 ### Baseline
 
-- Starting SHA: `643effa6` on `main`. Working tree was already dirty before this ADR with web chat media/docs edits; this handoff records only the new ADR-114 planning work.
+- Starting SHA: `22bad4919040b54b87539531ed92ea5ccf3206de` on `main`. Working tree was clean at ADR replacement start.
 
 ### What changed
 
-- Added `docs/ADR/114-realtime-live-voice-conversation-layer.md` as the orchestrator-run PROD program for live voice conversation.
-- ADR-114 decides that ElevenLabs Conversational AI is an additive realtime voice layer, not a replacement assistant. PersAI runtime/API remain the source of truth for context, tools, billing, persistence, approvals, artifacts, and chat history.
-- The product model is one user-visible live voice session containing multiple internal PersAI runtime turns. Mobile uses short-tap mode switching (`mic` / `live`) and long-press execution for the armed mode; desktop gets an explicit minimal `Mic | Live`/morphing control.
-- The execution plan is intentionally coarse: final design audit, provider/API/billing substrate, PersAI runtime bridge and multi-turn persistence, web/mobile realtime UX, then PROD hardening/live smoke. Implementation is assigned to GPT-5.4 subagents; the parent agent orchestrates and audits.
+- Removed the withdrawn realtime live voice ADR-114 planning file. The live voice program is cancelled and is no longer active backlog.
+- Removed the superseded fal-backed ADR-114 draft after ProxyAPI proved closer to the actual requirement.
+- Added `docs/ADR/114-reserve-openai-compatible-image-transport.md` as the active ADR-114 program.
+- ADR-114 now decides to keep the existing OpenAI media provider/model path and add only a reserve OpenAI-compatible transport in the existing `Admin > Tools` Media block: operator-enabled reserve API key + reserve base URL, defaulting to `https://api.proxyapi.ru/openai/v1`.
+- Image generation/edit fallback is required scope. OpenAI video fallback is deferred from Slice 1 because ProxyAPI docs do not prove compatibility with PersAI's current OpenAI video route.
+- The planned admin UX is a compact `Admin > Tools` Media reserve block with enable boolean, API key, and base URL. Admin Runtime and Admin Plans model/provider selection stay unchanged.
+- ADR-114 defines a strict fallback trigger policy: retry reserve only for transport/provider/account availability failures, not for invalid request, content safety, bad image/mask, unsupported parameters, or other user-correctable errors.
+- Reserve transport attribution stays in logs and one existing-platform admin notification on successful fallback use; no new billing-facts metadata is added solely for attribution.
+- ADR-114 remains orchestrator-run: the parent agent studies and audits, assigns one sequential GPT-5.4 subagent per large slice, does not code implementation slices directly, avoids parallel implementation, and stops honestly if repo/API truth contradicts the plan.
+- Slice 1 implementation landed for `image_generate` and `image_edit` only. Admin Tools can now store enable/key/base URL reserve config; materialization carries it to runtime/provider-gateway; provider-gateway retries once on strict allowlisted OpenAI primary transport/account failures; successful reserve use logs and appends an existing-platform admin notification event.
+- OpenAI video fallback was intentionally not implemented.
 
 ### Verification
 
-- Documentation-only change; no tests run.
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-image-generation.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/openai-provider.client.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/tool-credential-settings.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-credentials.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/system-event-notification-producer.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
 
 ### Risks / residuals
 
-- Slice 0 must confirm ElevenLabs Speech Engine / Custom LLM details, signed URL requirements, per-session selected voice handling, and exact Conversational AI billing model before implementation.
-- Implementation must not duplicate PersAI tools in ElevenLabs or create a second assistant source of truth.
+- Fallback classification is the main risk: false fallback can hide product bugs or burn reserve quota.
+- Live ProxyAPI smoke was not run in this session.
+- Full repository lint and `format:check` remain to be run before closing the slice as merge-ready.
 
 ### Next recommended step
 
-- Start ADR-114 Slice 0 as a read-only final design audit, then amend ADR-114 if ElevenLabs docs/account constraints differ from the planned Speech Engine / custom-agent bridge.
+- Run the full AGENTS verification gate, then perform live dev smoke for primary OpenAI image generate/edit and forced reserve fallback. Keep OpenAI video fallback deferred unless separately verified.
 
 ## 2026-06-09 - ADR-112 live video-tool follow-up
 

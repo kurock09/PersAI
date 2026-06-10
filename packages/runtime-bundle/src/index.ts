@@ -60,12 +60,19 @@ export interface AssistantRuntimeBundleSecretRef {
   id: string;
 }
 
+export interface AssistantRuntimeBundleReserveTransportRef {
+  secretRef: AssistantRuntimeBundleSecretRef;
+  configured: boolean;
+  baseUrl: string;
+}
+
 export interface AssistantRuntimeBundleToolCredentialRef {
   refKey: string;
   secretRef: AssistantRuntimeBundleSecretRef;
   configured: boolean;
   providerId?: string;
   modelKey?: string;
+  reserveTransport?: AssistantRuntimeBundleReserveTransportRef | null;
   videoModelParameters?: RuntimeVideoModelParameters | null;
   videoVoiceCatalog?: RuntimeVideoVoiceCatalog | null;
   videoPersonaCatalog?: RuntimeVideoPersonaCatalog | null;

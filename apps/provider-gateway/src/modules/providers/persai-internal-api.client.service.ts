@@ -15,6 +15,17 @@ type JsonResponse = {
   body: unknown;
 };
 
+type AppendAuditEventRequest = {
+  workspaceId: string | null;
+  assistantId: string | null;
+  actorUserId: string | null;
+  eventCategory: string;
+  eventCode: string;
+  summary: string;
+  outcome?: "succeeded" | "failed" | "degraded" | "denied";
+  details?: Record<string, unknown>;
+};
+
 export type InternalDefaultProviderSettings = {
   generation: number;
   mode: "unconfigured_default" | "global_settings";
@@ -138,6 +149,31 @@ export class PersaiInternalApiClientService {
     throw new BadGatewayException(
       "PersAI internal API returned an invalid default provider-settings response."
     );
+  }
+
+  async appendAssistantAuditEvent(input: AppendAuditEventRequest): Promise<void> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/audit-events", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    if (!response.ok) {
+      const message = this.extractErrorMessage(response.body);
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException(
+          message ?? "PersAI internal API audit event append failed."
+        );
+      }
+      throw new BadGatewayException(
+        message ?? "PersAI internal API rejected the audit event append request."
+      );
+    }
   }
 
   private buildUrl(pathname: string): string {

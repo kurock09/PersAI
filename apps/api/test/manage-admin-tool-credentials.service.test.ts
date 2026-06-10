@@ -57,6 +57,11 @@ async function run(): Promise<void> {
       documentProviderTemplateIds: {
         pdfmonkey: "template-123"
       },
+      mediaReserve: {
+        enabled: true,
+        apiKey: "reserve-secret",
+        baseUrl: "https://api.proxyapi.ru/openai/v1"
+      },
       ttsPrimaryProviderId: "openai"
     },
     "step-up"
@@ -87,6 +92,11 @@ async function run(): Promise<void> {
         }
       ],
       updatedDocumentProviderTemplateIds: ["pdfmonkey"],
+      updatedMediaReserve: {
+        enabled: true,
+        apiKeyUpdated: true,
+        baseUrlUpdated: true
+      },
       ttsPrimaryProviderId: "openai"
     },
     auditEventCode: "admin.materialization_rollout_created",

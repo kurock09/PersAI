@@ -3,6 +3,7 @@ import type { PlatformRuntimeProviderKeyMetadata } from "../src/modules/workspac
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
   CREDENTIAL_KEY_BY_SECRET_ID,
+  DEFAULT_MEDIA_RESERVE_BASE_URL,
   TOOL_CODE_BY_CREDENTIAL_KEY,
   TOOL_CREDENTIAL_IDS,
   buildAdminToolCredentialsState,
@@ -32,6 +33,11 @@ async function run(): Promise<void> {
     },
     documentProviderTemplateIds: {
       pdfmonkey: "  template-123  "
+    },
+    mediaReserve: {
+      enabled: true,
+      apiKey: "  reserve-key  ",
+      baseUrl: " https://api.proxyapi.ru/openai/v1/ "
     }
   });
 
@@ -44,6 +50,11 @@ async function run(): Promise<void> {
     },
     documentProviderTemplateIds: {
       pdfmonkey: "template-123"
+    },
+    mediaReserve: {
+      enabled: true,
+      apiKey: "reserve-key",
+      baseUrl: "https://api.proxyapi.ru/openai/v1"
     }
   });
 
@@ -79,6 +90,20 @@ async function run(): Promise<void> {
         lastFour: "e123",
         updatedAt: "2026-05-15T12:00:00.000Z"
       }
+    },
+    mediaReserve: {
+      enabled: true,
+      apiKeyMetadata: {
+        configured: true,
+        lastFour: "rv42",
+        updatedAt: "2026-06-11T00:00:00.000Z"
+      },
+      baseUrlMetadata: {
+        configured: false,
+        lastFour: null,
+        updatedAt: null
+      },
+      baseUrlValue: DEFAULT_MEDIA_RESERVE_BASE_URL
     }
   });
 
@@ -96,6 +121,16 @@ async function run(): Promise<void> {
       templateIdUpdatedAt: "2026-05-15T12:00:00.000Z"
     }
   ]);
+  assert.deepEqual(state.mediaReserve, {
+    enabled: true,
+    apiKeyConfigured: true,
+    apiKeyLastFour: "rv42",
+    apiKeyUpdatedAt: "2026-06-11T00:00:00.000Z",
+    baseUrlConfigured: false,
+    baseUrlLastFour: null,
+    baseUrlUpdatedAt: null,
+    baseUrlValue: DEFAULT_MEDIA_RESERVE_BASE_URL
+  });
   assert.deepEqual(
     state.credentials.find((credential) => credential.credentialKey === "tool_browser"),
     {

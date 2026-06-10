@@ -106,6 +106,19 @@ void (async function run() {
     assert.equal(calls[0]!["class"], "administrative", "admin.plan_updated → administrative");
   }
 
+  // 7b. reserve transport fallback success → class=operational
+  {
+    const { service, calls } = makeService();
+    await service.emitFromAuditEvent(
+      baseInput({ eventCode: "assistant.media.reserve_openai_transport_used" })
+    );
+    assert.equal(
+      calls[0]!["class"],
+      "operational",
+      "reserve transport event should route as operational"
+    );
+  }
+
   // 8. factPayload.message = summary
   {
     const { service, calls } = makeService();

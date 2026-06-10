@@ -74,6 +74,13 @@ export const ADMIN_SYSTEM_EVENT_DEFINITIONS = [
     notificationClass: NotificationClass.operational
   },
   {
+    code: "reserve_openai_transport_used",
+    label: "Reserve OpenAI transport used",
+    description:
+      "An OpenAI image request succeeded through the reserve OpenAI-compatible transport after a primary availability failure.",
+    notificationClass: NotificationClass.operational
+  },
+  {
     code: "admin_plan_created",
     label: "Admin plan created",
     description: "A new plan was created in Admin.",

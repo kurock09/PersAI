@@ -29,25 +29,41 @@ export class ProviderImageGenerationService {
     input: ProviderGatewayImageGenerateRequest
   ): Promise<ProviderGatewayImageGenerateResult> {
     const normalized = this.normalizeGenerateInput(input);
-    const apiKey = await this.persaiInternalApiClientService.resolveSecretValue(
-      normalized.credential.secretId
-    );
+    const [apiKey, reserveApiKey] = await Promise.all([
+      this.persaiInternalApiClientService.resolveSecretValue(normalized.credential.secretId),
+      normalized.credential.reserveTransport?.enabled === true
+        ? this.persaiInternalApiClientService.resolveSecretValue(
+            normalized.credential.reserveTransport.secretId
+          )
+        : Promise.resolve(null)
+    ]);
 
     switch (normalized.credential.providerId ?? "openai") {
       case "openai":
-        return this.openaiProviderClient.generateImage(normalized, { apiKey });
+        return this.openaiProviderClient.generateImage(normalized, {
+          apiKey,
+          reserveApiKey
+        });
     }
   }
 
   async editImage(input: ProviderGatewayImageEditRequest): Promise<ProviderGatewayImageEditResult> {
     const normalized = this.normalizeEditInput(input);
-    const apiKey = await this.persaiInternalApiClientService.resolveSecretValue(
-      normalized.credential.secretId
-    );
+    const [apiKey, reserveApiKey] = await Promise.all([
+      this.persaiInternalApiClientService.resolveSecretValue(normalized.credential.secretId),
+      normalized.credential.reserveTransport?.enabled === true
+        ? this.persaiInternalApiClientService.resolveSecretValue(
+            normalized.credential.reserveTransport.secretId
+          )
+        : Promise.resolve(null)
+    ]);
 
     switch (normalized.credential.providerId ?? "openai") {
       case "openai":
-        return this.openaiProviderClient.editImage(normalized, { apiKey });
+        return this.openaiProviderClient.editImage(normalized, {
+          apiKey,
+          reserveApiKey
+        });
     }
   }
 
@@ -94,6 +110,7 @@ export class ProviderImageGenerationService {
       );
     }
 
+    const requestContext = input.credential.requestContext;
     return {
       prompt: input.prompt.trim(),
       model: this.normalizeOptionalModel(input.model, "model"),
@@ -104,7 +121,28 @@ export class ProviderImageGenerationService {
       credential: {
         toolCode: "image_generate",
         secretId: input.credential.secretId.trim(),
-        providerId: input.credential.providerId ?? null
+        providerId: input.credential.providerId ?? null,
+        requestContext:
+          requestContext === undefined || requestContext === null
+            ? null
+            : {
+                workspaceId: this.normalizeOptionalString(
+                  requestContext.workspaceId,
+                  "credential.requestContext.workspaceId"
+                ),
+                runtimeRequestId: this.normalizeOptionalString(
+                  requestContext.runtimeRequestId,
+                  "credential.requestContext.runtimeRequestId"
+                ),
+                runtimeSessionId: this.normalizeOptionalString(
+                  requestContext.runtimeSessionId,
+                  "credential.requestContext.runtimeSessionId"
+                )
+              },
+        reserveTransport: this.normalizeReserveTransport(
+          input.credential.reserveTransport,
+          "credential.reserveTransport"
+        )
       }
     };
   }
@@ -167,6 +205,7 @@ export class ProviderImageGenerationService {
         ? null
         : this.normalizeEditImageInput(input.referenceImage, "referenceImage");
 
+    const requestContext = input.credential.requestContext;
     return {
       prompt: input.prompt.trim(),
       model: this.normalizeOptionalModel(input.model, "model"),
@@ -179,8 +218,68 @@ export class ProviderImageGenerationService {
       credential: {
         toolCode: "image_edit",
         secretId: input.credential.secretId.trim(),
-        providerId: input.credential.providerId ?? null
+        providerId: input.credential.providerId ?? null,
+        requestContext:
+          requestContext === undefined || requestContext === null
+            ? null
+            : {
+                workspaceId: this.normalizeOptionalString(
+                  requestContext.workspaceId,
+                  "credential.requestContext.workspaceId"
+                ),
+                runtimeRequestId: this.normalizeOptionalString(
+                  requestContext.runtimeRequestId,
+                  "credential.requestContext.runtimeRequestId"
+                ),
+                runtimeSessionId: this.normalizeOptionalString(
+                  requestContext.runtimeSessionId,
+                  "credential.requestContext.runtimeSessionId"
+                )
+              },
+        reserveTransport: this.normalizeReserveTransport(
+          input.credential.reserveTransport,
+          "credential.reserveTransport"
+        )
       }
+    };
+  }
+
+  private normalizeReserveTransport(
+    input:
+      | {
+          enabled: boolean;
+          secretId: string;
+          baseUrl: string;
+        }
+      | null
+      | undefined,
+    path: string
+  ) {
+    if (input === undefined || input === null) {
+      return null;
+    }
+    if (input.enabled !== true) {
+      return { enabled: false, secretId: input.secretId.trim(), baseUrl: input.baseUrl.trim() };
+    }
+    if (typeof input.secretId !== "string" || input.secretId.trim().length === 0) {
+      throw new BadRequestException(`${path}.secretId must be a non-empty string`);
+    }
+    if (typeof input.baseUrl !== "string" || input.baseUrl.trim().length === 0) {
+      throw new BadRequestException(`${path}.baseUrl must be a non-empty string`);
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(input.baseUrl.trim());
+    } catch {
+      throw new BadRequestException(`${path}.baseUrl must be a valid absolute URL`);
+    }
+    if (parsed.protocol !== "https:") {
+      throw new BadRequestException(`${path}.baseUrl must use https`);
+    }
+    return {
+      enabled: true,
+      secretId: input.secretId.trim(),
+      baseUrl: parsed.toString().replace(/\/$/u, "")
     };
   }
 
@@ -227,6 +326,17 @@ export class ProviderImageGenerationService {
       throw new BadRequestException(`${path} must be a non-empty string or null`);
     }
     return value.trim();
+  }
+
+  private normalizeOptionalString(value: unknown, path: string): string | null {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+    if (typeof value !== "string") {
+      throw new BadRequestException(`${path} must be a string or null`);
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   private normalizeOptionalPositiveInteger(value: unknown, path: string): number | null {

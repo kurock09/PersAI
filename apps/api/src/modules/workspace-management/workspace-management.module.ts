@@ -36,6 +36,7 @@ import { CloudpaymentsWebhookController } from "./interface/http/cloudpayments-w
 import { KnowledgeIndexingJobsController } from "./interface/http/knowledge-indexing-jobs.controller";
 import { InternalCronFireController } from "./interface/http/internal-cron-fire.controller";
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
+import { InternalRuntimeAuditEventsController } from "./interface/http/internal-runtime-audit-events.controller";
 import { InternalRuntimeConfigGenerationController } from "./interface/http/internal-runtime-config-generation.controller";
 import { InternalRuntimeKnowledgeController } from "./interface/http/internal-runtime-knowledge.controller";
 import { InternalRuntimeOrchestratedRetrievalController } from "./interface/http/internal-runtime-orchestrated-retrieval.controller";
@@ -401,6 +402,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     CloudpaymentsWebhookController,
     InternalCronFireController,
     InternalRuntimeProviderSecretsController,
+    InternalRuntimeAuditEventsController,
     InternalRuntimeConfigGenerationController,
     InternalRuntimeKnowledgeController,
     InternalRuntimeOrchestratedRetrievalController,

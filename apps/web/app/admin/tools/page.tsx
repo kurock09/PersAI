@@ -54,6 +54,16 @@ type AdminToolCredentialsState = {
     templateIdLastFour: string | null;
     templateIdUpdatedAt: string | null;
   }>;
+  mediaReserve: {
+    enabled: boolean;
+    apiKeyConfigured: boolean;
+    apiKeyLastFour: string | null;
+    apiKeyUpdatedAt: string | null;
+    baseUrlConfigured: boolean;
+    baseUrlLastFour: string | null;
+    baseUrlUpdatedAt: string | null;
+    baseUrlValue: string;
+  };
   ttsPrimaryProviderId: string;
   ttsPrimaryProviderOptions: ProviderOption[];
   heygenVoiceCatalog?: {
@@ -62,6 +72,37 @@ type AdminToolCredentialsState = {
   };
   notes: string[];
 };
+
+const DEFAULT_MEDIA_RESERVE_STATE: AdminToolCredentialsState["mediaReserve"] = {
+  enabled: false,
+  apiKeyConfigured: false,
+  apiKeyLastFour: null,
+  apiKeyUpdatedAt: null,
+  baseUrlConfigured: false,
+  baseUrlLastFour: null,
+  baseUrlUpdatedAt: null,
+  baseUrlValue: "https://api.proxyapi.ru/openai/v1"
+};
+
+function normalizeAdminToolCredentialsState(input: unknown): AdminToolCredentialsState {
+  const state = input as Partial<AdminToolCredentialsState>;
+  return {
+    ...state,
+    schema: state.schema ?? "persai.adminToolCredentials.v2",
+    credentials: state.credentials ?? [],
+    documentProviderConfigs: state.documentProviderConfigs ?? [],
+    mediaReserve: {
+      ...DEFAULT_MEDIA_RESERVE_STATE,
+      ...(state.mediaReserve ?? {})
+    },
+    ttsPrimaryProviderId: state.ttsPrimaryProviderId ?? "elevenlabs",
+    ttsPrimaryProviderOptions: state.ttsPrimaryProviderOptions ?? [],
+    ...(state.heygenVoiceCatalog === undefined
+      ? {}
+      : { heygenVoiceCatalog: state.heygenVoiceCatalog }),
+    notes: state.notes ?? []
+  };
+}
 
 type DocumentProcessingProviderKey = "local" | "mistral" | "llamaparse";
 
@@ -162,6 +203,9 @@ export default function AdminToolsPage() {
   const [documentProviderTemplateInputs, setDocumentProviderTemplateInputs] = useState<
     Record<string, string>
   >({});
+  const [mediaReserveEnabledInput, setMediaReserveEnabledInput] = useState<boolean | null>(null);
+  const [mediaReserveApiKeyInput, setMediaReserveApiKeyInput] = useState("");
+  const [mediaReserveBaseUrlInput, setMediaReserveBaseUrlInput] = useState("");
   const [ttsPrimaryProviderInput, setTtsPrimaryProviderInput] = useState<string | null>(null);
   const [documentProcessingPolicyInput, setDocumentProcessingPolicyInput] =
     useState<DocumentProcessingPolicyState | null>(null);
@@ -188,7 +232,7 @@ export default function AdminToolsPage() {
       });
       if (!res.ok) throw new Error(`Failed to load: ${res.status}`);
       const data = await res.json();
-      setState(data.credentials ?? data);
+      setState(normalizeAdminToolCredentialsState(data.credentials ?? data));
       const billingRes = await fetch("/api/v1/admin/tools/billing", {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -258,6 +302,18 @@ export default function AdminToolsPage() {
         ttsPrimaryProviderInput !== (state?.ttsPrimaryProviderId ?? null)
           ? ttsPrimaryProviderInput
           : undefined;
+      const currentMediaReserveEnabled = state?.mediaReserve.enabled ?? false;
+      const nextMediaReserveEnabled =
+        mediaReserveEnabledInput !== null && mediaReserveEnabledInput !== currentMediaReserveEnabled
+          ? mediaReserveEnabledInput
+          : undefined;
+      const mediaReserveApiKey = mediaReserveApiKeyInput.trim();
+      const currentMediaReserveBaseUrl = state?.mediaReserve.baseUrlValue ?? "";
+      const mediaReserveBaseUrl = mediaReserveBaseUrlInput.trim();
+      const nextMediaReserveBaseUrl =
+        mediaReserveBaseUrl.length > 0 && mediaReserveBaseUrl !== currentMediaReserveBaseUrl
+          ? mediaReserveBaseUrl
+          : undefined;
 
       if (
         Object.keys(keysToSend).length === 0 &&
@@ -265,7 +321,10 @@ export default function AdminToolsPage() {
         Object.keys(documentProviderTemplateInputs).every(
           (key) => (documentProviderTemplateInputs[key] ?? "").trim().length === 0
         ) &&
-        nextTtsPrimaryProviderId === undefined
+        nextTtsPrimaryProviderId === undefined &&
+        nextMediaReserveEnabled === undefined &&
+        mediaReserveApiKey.length === 0 &&
+        nextMediaReserveBaseUrl === undefined
       ) {
         setFeedback("No changes to save.");
         setSaving(false);
@@ -288,6 +347,11 @@ export default function AdminToolsPage() {
           keys: keysToSend,
           providers: providersToSend,
           documentProviderTemplateIds: documentProviderTemplateIdsToSend,
+          mediaReserve: {
+            ...(nextMediaReserveEnabled === undefined ? {} : { enabled: nextMediaReserveEnabled }),
+            ...(mediaReserveApiKey.length === 0 ? {} : { apiKey: mediaReserveApiKey }),
+            ...(nextMediaReserveBaseUrl === undefined ? {} : { baseUrl: nextMediaReserveBaseUrl })
+          },
           ...(nextTtsPrimaryProviderId === undefined
             ? {}
             : { ttsPrimaryProviderId: nextTtsPrimaryProviderId })
@@ -301,13 +365,27 @@ export default function AdminToolsPage() {
       setKeyInputs({});
       setProviderInputs({});
       setDocumentProviderTemplateInputs({});
+      setMediaReserveEnabledInput(null);
+      setMediaReserveApiKeyInput("");
+      setMediaReserveBaseUrlInput("");
       setTtsPrimaryProviderInput(null);
       await load();
     } catch (e) {
       setFeedback(e instanceof Error ? e.message : "Save failed.");
     }
     setSaving(false);
-  }, [getToken, keyInputs, providerInputs, ttsPrimaryProviderInput, state, load]);
+  }, [
+    documentProviderTemplateInputs,
+    getToken,
+    keyInputs,
+    load,
+    mediaReserveApiKeyInput,
+    mediaReserveBaseUrlInput,
+    mediaReserveEnabledInput,
+    providerInputs,
+    ttsPrimaryProviderInput,
+    state
+  ]);
 
   const handleRefreshHeygenVoices = useCallback(async () => {
     const token = await getToken();
@@ -342,7 +420,7 @@ export default function AdminToolsPage() {
         throw new Error(err.message ?? `Refresh failed: ${res.status}`);
       }
       const data = await res.json();
-      const nextState = (data.credentials ?? data) as AdminToolCredentialsState;
+      const nextState = normalizeAdminToolCredentialsState(data.credentials ?? data);
       setState(nextState);
       setHeygenVoiceCatalogFeedback(
         `Updated: ${String(nextState.heygenVoiceCatalog?.voicesCount ?? 0)} voices.`
@@ -1194,6 +1272,62 @@ export default function AdminToolsPage() {
                       onProviderChange={updateProviderInput}
                     />
                   ))}
+                </div>
+                <div className="mt-4 rounded-lg border border-border bg-surface p-3">
+                  <div className="mb-3">
+                    <p className="text-sm font-medium text-text">
+                      Reserve OpenAI-compatible transport
+                    </p>
+                    <p className="text-[11px] text-text-muted">
+                      Retries image generation/edit once on the reserve OpenAI-compatible base URL
+                      only for allowlisted primary transport/account availability failures.
+                    </p>
+                  </div>
+                  <label className="mb-3 flex items-center gap-2 rounded-lg border border-border bg-surface-raised p-3 text-xs text-text">
+                    <input
+                      type="checkbox"
+                      checked={mediaReserveEnabledInput ?? state.mediaReserve.enabled}
+                      onChange={(e) => setMediaReserveEnabledInput(e.target.checked)}
+                    />
+                    Enable reserve OpenAI-compatible media transport
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="mb-1 text-[11px] font-medium text-text">Reserve API key</p>
+                      <input
+                        type="password"
+                        value={mediaReserveApiKeyInput}
+                        onChange={(e) => setMediaReserveApiKeyInput(e.target.value)}
+                        placeholder={
+                          state.mediaReserve.apiKeyConfigured
+                            ? `••••${state.mediaReserve.apiKeyLastFour ?? ""}`
+                            : "Enter reserve API key..."
+                        }
+                        className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                      />
+                      {state.mediaReserve.apiKeyUpdatedAt && (
+                        <p className="mt-1 text-[10px] text-text-muted">
+                          Last updated:{" "}
+                          {new Date(state.mediaReserve.apiKeyUpdatedAt).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] font-medium text-text">Reserve base URL</p>
+                      <input
+                        type="text"
+                        value={mediaReserveBaseUrlInput || state.mediaReserve.baseUrlValue}
+                        onChange={(e) => setMediaReserveBaseUrlInput(e.target.value)}
+                        className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                      />
+                      {state.mediaReserve.baseUrlUpdatedAt && (
+                        <p className="mt-1 text-[10px] text-text-muted">
+                          Last updated:{" "}
+                          {new Date(state.mediaReserve.baseUrlUpdatedAt).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </section>
 

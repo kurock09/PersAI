@@ -3295,6 +3295,16 @@ export interface ProviderGatewayImageGenerateRequest {
     toolCode: "image_generate";
     secretId: string;
     providerId: PersaiRuntimeImageGenerateProviderId | null;
+    requestContext?: {
+      workspaceId?: string | null;
+      runtimeRequestId?: string | null;
+      runtimeSessionId?: string | null;
+    } | null;
+    reserveTransport?: {
+      enabled: boolean;
+      secretId: string;
+      baseUrl: string;
+    } | null;
   };
 }
 
@@ -3337,6 +3347,16 @@ export interface ProviderGatewayImageEditRequest {
     toolCode: "image_edit";
     secretId: string;
     providerId: PersaiRuntimeImageEditProviderId | null;
+    requestContext?: {
+      workspaceId?: string | null;
+      runtimeRequestId?: string | null;
+      runtimeSessionId?: string | null;
+    } | null;
+    reserveTransport?: {
+      enabled: boolean;
+      secretId: string;
+      baseUrl: string;
+    } | null;
   };
 }
 

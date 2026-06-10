@@ -13,6 +13,7 @@ const CLASS_BY_EVENT_CODE: Record<string, AuditEventNotificationClass | undefine
   "assistant.runtime.apply_failed": "operational",
   "assistant.runtime.apply_degraded": "operational",
   "assistant.runtime.apply_succeeded": "operational",
+  "assistant.media.reserve_openai_transport_used": "operational",
   "admin.plan_created": "administrative",
   "admin.plan_updated": "administrative"
 };

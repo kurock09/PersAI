@@ -398,7 +398,21 @@ export class RuntimeImageEditToolService {
         credential: {
           toolCode: IMAGE_EDIT_TOOL_CODE,
           secretId: modelSelection.credential.secretRef.id,
-          providerId
+          providerId,
+          requestContext: {
+            workspaceId: params.bundle.metadata.workspaceId,
+            runtimeRequestId: params.requestId,
+            runtimeSessionId: params.sessionId
+          },
+          reserveTransport:
+            modelSelection.credential.reserveTransport &&
+            modelSelection.credential.reserveTransport.configured
+              ? {
+                  enabled: true,
+                  secretId: modelSelection.credential.reserveTransport.secretRef.id,
+                  baseUrl: modelSelection.credential.reserveTransport.baseUrl
+                }
+              : null
         }
       } as const;
       const runEditCall = async (prompt: string, count: number, requestIdSuffix = "") => {

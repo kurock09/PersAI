@@ -10,6 +10,8 @@ import {
   ALL_TOOL_CREDENTIAL_KEYS,
   DOCUMENT_PROVIDER_CONFIG_KEYS,
   DEFAULT_TTS_PRIMARY_PROVIDER,
+  DEFAULT_MEDIA_RESERVE_BASE_URL,
+  MEDIA_RESERVE_CONFIG_KEYS,
   TTS_PRIMARY_PROVIDER_STORAGE_KEY,
   buildAdminToolCredentialsState,
   parseUpdateToolCredentialsInput,
@@ -48,12 +50,14 @@ export class ManageAdminToolCredentialsService {
     const keyMetadata = await this.loadToolKeyMetadata();
     const providerSelections = await this.loadProviderSelections();
     const documentProviderConfigMetadata = await this.loadDocumentProviderConfigMetadata();
+    const mediaReserve = await this.loadMediaReserveState();
     const ttsPrimaryProviderId = await this.loadTtsPrimaryProviderId();
     const heygenVoiceCatalogMeta = await this.loadHeygenVoiceCatalogMeta();
     return buildAdminToolCredentialsState({
       keyMetadata,
       providerSelections,
       documentProviderConfigMetadata,
+      mediaReserve,
       ttsPrimaryProviderId,
       heygenVoiceCatalogRefreshedAt: heygenVoiceCatalogMeta.refreshedAt,
       heygenVoiceCatalogVoicesCount: heygenVoiceCatalogMeta.voicesCount
@@ -106,16 +110,45 @@ export class ManageAdminToolCredentialsService {
         userId
       );
     }
+    if (input.mediaReserve?.enabled !== undefined) {
+      await this.platformRuntimeProviderSecretStoreService.upsertProviderKey(
+        MEDIA_RESERVE_CONFIG_KEYS.enabled,
+        input.mediaReserve.enabled ? "true" : "false",
+        userId
+      );
+    }
+    if (
+      typeof input.mediaReserve?.apiKey === "string" &&
+      input.mediaReserve.apiKey.trim().length > 0
+    ) {
+      await this.platformRuntimeProviderSecretStoreService.upsertProviderKey(
+        MEDIA_RESERVE_CONFIG_KEYS.apiKey,
+        input.mediaReserve.apiKey,
+        userId
+      );
+    }
+    if (
+      typeof input.mediaReserve?.baseUrl === "string" &&
+      input.mediaReserve.baseUrl.trim().length > 0
+    ) {
+      await this.platformRuntimeProviderSecretStoreService.upsertProviderKey(
+        MEDIA_RESERVE_CONFIG_KEYS.baseUrl,
+        input.mediaReserve.baseUrl,
+        userId
+      );
+    }
 
     const keyMetadata = await this.loadToolKeyMetadata();
     const providerSelections = await this.loadProviderSelections();
     const documentProviderConfigMetadata = await this.loadDocumentProviderConfigMetadata();
+    const mediaReserve = await this.loadMediaReserveState();
     const ttsPrimaryProviderId = await this.loadTtsPrimaryProviderId();
     const heygenVoiceCatalogMeta = await this.loadHeygenVoiceCatalogMeta();
     const state = buildAdminToolCredentialsState({
       keyMetadata,
       providerSelections,
       documentProviderConfigMetadata,
+      mediaReserve,
       ttsPrimaryProviderId,
       heygenVoiceCatalogRefreshedAt: heygenVoiceCatalogMeta.refreshedAt,
       heygenVoiceCatalogVoicesCount: heygenVoiceCatalogMeta.voicesCount
@@ -141,6 +174,14 @@ export class ManageAdminToolCredentialsService {
         updatedDocumentProviderTemplateIds: Object.entries(input.documentProviderTemplateIds)
           .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
           .map(([providerId]) => providerId),
+        updatedMediaReserve: {
+          enabled:
+            typeof input.mediaReserve?.enabled === "boolean" ? input.mediaReserve.enabled : null,
+          apiKeyUpdated:
+            typeof input.mediaReserve?.apiKey === "string" && input.mediaReserve.apiKey.length > 0,
+          baseUrlUpdated:
+            typeof input.mediaReserve?.baseUrl === "string" && input.mediaReserve.baseUrl.length > 0
+        },
         ttsPrimaryProviderId: input.ttsPrimaryProviderId ?? null
       },
       auditEventCode: "admin.materialization_rollout_created",
@@ -161,6 +202,14 @@ export class ManageAdminToolCredentialsService {
         updatedDocumentProviderTemplateIds: Object.entries(input.documentProviderTemplateIds)
           .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
           .map(([providerId]) => providerId),
+        updatedMediaReserve: {
+          enabled:
+            typeof input.mediaReserve?.enabled === "boolean" ? input.mediaReserve.enabled : null,
+          apiKeyUpdated:
+            typeof input.mediaReserve?.apiKey === "string" && input.mediaReserve.apiKey.length > 0,
+          baseUrlUpdated:
+            typeof input.mediaReserve?.baseUrl === "string" && input.mediaReserve.baseUrl.length > 0
+        },
         ttsPrimaryProviderId: input.ttsPrimaryProviderId ?? null,
         configGeneration
       }
@@ -242,6 +291,43 @@ export class ManageAdminToolCredentialsService {
     ]);
     return {
       pdfmonkey: metadata[key] ?? { configured: false, lastFour: null, updatedAt: null }
+    };
+  }
+
+  private async loadMediaReserveState(): Promise<{
+    enabled: boolean;
+    apiKeyMetadata: PlatformRuntimeProviderKeyMetadata;
+    baseUrlMetadata: PlatformRuntimeProviderKeyMetadata;
+    baseUrlValue: string;
+  }> {
+    const metadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys([
+      MEDIA_RESERVE_CONFIG_KEYS.apiKey,
+      MEDIA_RESERVE_CONFIG_KEYS.baseUrl
+    ]);
+    const [enabledRaw, baseUrlRaw] = await Promise.all([
+      this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
+        MEDIA_RESERVE_CONFIG_KEYS.enabled
+      ),
+      this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
+        MEDIA_RESERVE_CONFIG_KEYS.baseUrl
+      )
+    ]);
+    return {
+      enabled: enabledRaw === "true",
+      apiKeyMetadata: metadata[MEDIA_RESERVE_CONFIG_KEYS.apiKey] ?? {
+        configured: false,
+        lastFour: null,
+        updatedAt: null
+      },
+      baseUrlMetadata: metadata[MEDIA_RESERVE_CONFIG_KEYS.baseUrl] ?? {
+        configured: false,
+        lastFour: null,
+        updatedAt: null
+      },
+      baseUrlValue:
+        typeof baseUrlRaw === "string" && baseUrlRaw.trim().length > 0
+          ? baseUrlRaw.trim()
+          : DEFAULT_MEDIA_RESERVE_BASE_URL
     };
   }
 
