@@ -92,11 +92,6 @@ async function run(): Promise<void> {
     auditEventCode: "admin.materialization_rollout_created",
     auditSummary: "Admin queued a tool credential materialization rollout."
   });
-
-  console.log("manage-admin-tool-credentials.service: all assertions passed");
 }
 
-run().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+void run();

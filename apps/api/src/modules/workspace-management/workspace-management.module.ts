@@ -4,7 +4,6 @@ import { PlatformCoreModule } from "../platform-core/platform-core.module";
 import { PrismaService } from "../identity-access/infrastructure/persistence/prisma.service";
 import { AppBootstrapController } from "./interface/http/app-bootstrap.controller";
 import { AssistantController } from "./interface/http/assistant.controller";
-import { AssistantLiveVoiceCustomLlmController } from "./interface/http/assistant-live-voice-custom-llm.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
 import { AdminSitePagesController } from "./interface/http/admin-site-pages.controller";
 import { PublicPricingPlansController } from "./interface/http/public-pricing-plans.controller";
@@ -20,7 +19,6 @@ import { AdminOverviewDashboardController } from "./interface/http/admin-overvie
 import { AdminNotificationsController } from "./interface/http/admin-notifications.controller";
 import { AdminPlatformRolloutsController } from "./interface/http/admin-platform-rollouts.controller";
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
-import { AdminLiveVoiceSettingsController } from "./interface/http/admin-live-voice-settings.controller";
 import { AdminDocumentProcessingSettingsController } from "./interface/http/admin-document-processing-settings.controller";
 import { AdminToolPathPricingController } from "./interface/http/admin-tool-path-pricing.controller";
 import { AdminBillingProviderCredentialsController } from "./interface/http/admin-billing-provider-credentials.controller";
@@ -240,11 +238,6 @@ import { ManageWorkspaceVideoClonedVoicesService } from "./application/heygen/ma
 import { ReadWorkspaceVideoPersonaService } from "./application/heygen/read-workspace-video-persona.service";
 import { ReadWorkspaceVideoPreviewService } from "./application/heygen/read-workspace-video-preview.service";
 import { ReadHeygenVoiceCatalogForWorkspaceService } from "./application/heygen/read-heygen-voice-catalog-for-workspace.service";
-import { ElevenlabsLiveVoiceClient } from "./application/elevenlabs/elevenlabs-live-voice.client";
-import { AssistantLiveVoiceRelayTicketService } from "./application/assistant-live-voice-relay-ticket.service";
-import { AssistantLiveVoiceSessionService } from "./application/assistant-live-voice-session.service";
-import { AssistantLiveVoiceCustomLlmService } from "./application/assistant-live-voice-custom-llm.service";
-import { AssistantLiveVoiceRelayGateway } from "./interface/ws/assistant-live-voice-relay.gateway";
 import { WorkspaceVideoPersonasController } from "./interface/http/workspace-video-personas.controller";
 import { WorkspaceVideoClonedVoicesController } from "./interface/http/workspace-video-cloned-voices.controller";
 import { InternalRuntimeWorkspaceVideoPersonasController } from "./interface/http/internal-runtime-workspace-video-personas.controller";
@@ -373,7 +366,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
   controllers: [
     AppBootstrapController,
     AssistantController,
-    AssistantLiveVoiceCustomLlmController,
     UserSupportController,
     AssistantBillingController,
     AssistantKnowledgeSourcesController,
@@ -394,7 +386,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalNotificationsPostmarkWebhookController,
     AdminPlatformRolloutsController,
     AdminRuntimeProviderSettingsController,
-    AdminLiveVoiceSettingsController,
     AdminDocumentProcessingSettingsController,
     AdminToolPathPricingController,
     AdminBillingProviderCredentialsController,
@@ -793,11 +784,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageMediaPackageCatalogService,
     ManageMediaPackagePurchaseService,
     HeyGenProviderGatewayClient,
-    ElevenlabsLiveVoiceClient,
-    AssistantLiveVoiceRelayTicketService,
-    AssistantLiveVoiceSessionService,
-    AssistantLiveVoiceCustomLlmService,
-    AssistantLiveVoiceRelayGateway,
     ManageWorkspaceVideoPersonasService,
     ManageWorkspaceVideoClonedVoicesService,
     ReadWorkspaceVideoPersonaService,

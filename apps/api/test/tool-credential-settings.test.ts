@@ -82,7 +82,7 @@ async function run(): Promise<void> {
     }
   });
 
-  assert.equal(state.credentials.length, 16); // 14 visible tool credentials + 2 notification credentials
+  assert.equal(state.credentials.length, 14); // 12 visible tool credentials + 2 notification credentials
   assert.equal(
     state.credentials.find((credential) => credential.credentialKey === "tool_memory_search"),
     undefined
@@ -164,33 +164,7 @@ async function runHeygenCredentialRegistration(): Promise<void> {
       id: "tool/video_generate/heygen/api-key"
     }
   });
-  assert.equal(
-    TOOL_CREDENTIAL_IDS.tool_live_voice_relay_ticket,
-    "tool/live_voice/relay_ticket/secret"
-  );
-  assert.equal(TOOL_CODE_BY_CREDENTIAL_KEY.tool_live_voice_relay_ticket, "live_voice");
-  assert.ok(ALL_TOOL_CREDENTIAL_KEYS.includes("tool_live_voice_relay_ticket"));
-  assert.equal(
-    CREDENTIAL_KEY_BY_SECRET_ID["tool/live_voice/relay_ticket/secret"],
-    "tool_live_voice_relay_ticket"
-  );
-  assert.deepEqual(buildToolCredentialSecretRef("tool_live_voice_relay_ticket"), {
-    refKey: "persai:persai-runtime:tool/live_voice/relay_ticket/secret",
-    secretRef: {
-      source: "persai",
-      provider: "persai-runtime",
-      id: "tool/live_voice/relay_ticket/secret"
-    }
-  });
 }
 
-async function main(): Promise<void> {
-  await run();
-  await runHeygenCredentialRegistration();
-  console.log("tool-credential-settings: all assertions passed");
-}
-
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+void run();
+void runHeygenCredentialRegistration();

@@ -16,19 +16,6 @@ spec:
     - host: {{ .Values.ingress.hosts.web }}
       http:
         paths:
-          {{- if .Values.api.enabled }}
-          # ADR-114: live voice relay is a raw WebSocket upgrade. The Next.js web
-          # server proxies plain HTTP /api/v1 calls to the API but does NOT proxy
-          # WS upgrades, so this single path is routed straight to the API backend
-          # (GCLB supports WS natively; api backend timeout is already 3600s).
-          - path: /api/v1/assistant/live-voice/relay
-            pathType: Prefix
-            backend:
-              service:
-                name: api
-                port:
-                  number: {{ .Values.api.service.port }}
-          {{- end }}
           - path: /
             pathType: Prefix
             backend:

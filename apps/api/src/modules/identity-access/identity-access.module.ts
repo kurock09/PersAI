@@ -62,12 +62,6 @@ export class IdentityAccessModule implements NestModule {
         path: "api/v1/assistant/chat/web/turns/:clientTurnId/stream",
         method: RequestMethod.GET
       },
-      { path: "api/v1/assistant/live-voice/start", method: RequestMethod.POST },
-      { path: "api/v1/assistant/live-voice/:sessionId", method: RequestMethod.GET },
-      {
-        path: "api/v1/assistant/live-voice/:sessionId/stop",
-        method: RequestMethod.POST
-      },
       { path: "api/v1/assistant/chat/web/stage-attachment", method: RequestMethod.POST },
       { path: "api/v1/assistant/files", method: RequestMethod.GET },
       { path: "api/v1/assistant/files/cleanup-cache", method: RequestMethod.POST },
@@ -253,8 +247,6 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/notifications/preview", method: RequestMethod.POST },
       { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.GET },
       { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.PUT },
-      { path: "api/v1/admin/runtime/live-voice", method: RequestMethod.GET },
-      { path: "api/v1/admin/runtime/live-voice", method: RequestMethod.PUT },
       { path: "api/v1/admin/platform-rollouts", method: RequestMethod.GET },
       { path: "api/v1/admin/platform-rollouts/:rolloutId/failed-items", method: RequestMethod.GET },
       {

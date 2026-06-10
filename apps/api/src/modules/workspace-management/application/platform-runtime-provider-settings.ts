@@ -101,20 +101,6 @@ export const DEFAULT_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT = 5;
 export const DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN = 50;
 const MAX_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT = 10;
 const MAX_HEYGEN_VOICE_CLONE_CREATION_VCOIN = 1_000_000;
-export const DEFAULT_LIVE_VOICE_ENABLED = false;
-export const DEFAULT_LIVE_VOICE_TRANSPORT_PROTOCOL = "webrtc" as const;
-export const DEFAULT_LIVE_VOICE_TRANSPORT_ROUTE = "direct" as const;
-const MAX_LIVE_VOICE_AGENT_ID_LENGTH = 128;
-
-export type PlatformLiveVoiceTransportProtocol = "webrtc" | "websocket";
-export type PlatformLiveVoiceTransportRoute = "direct" | "relay";
-
-export type PlatformLiveVoiceReadinessSettings = {
-  enabled: boolean;
-  agentId: string | null;
-  transportProtocol: PlatformLiveVoiceTransportProtocol;
-  transportRoute: PlatformLiveVoiceTransportRoute;
-};
 
 export type PlatformRuntimeProviderSelection = {
   provider: ManagedRuntimeProvider;
@@ -212,7 +198,6 @@ export type PlatformRuntimeProviderSettingsState = {
    * `DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN` (50) when omitted.
    */
   heygenVoiceCloneCreationVcoin: number;
-  liveVoice: PlatformLiveVoiceReadinessSettings;
   notes: string[];
 };
 
@@ -251,7 +236,6 @@ export type PlatformRuntimeProviderSettingsRecord = {
    * Nullable so rows predating Slice 3 resolve to the platform default.
    */
   heygenVoiceCloneCreationVcoin: number | null;
-  liveVoice: unknown;
 };
 
 export type UpdatePlatformRuntimeProviderSettingsInput = {
@@ -292,7 +276,6 @@ export type UpdatePlatformRuntimeProviderSettingsInput = {
    * when omitted.
    */
   heygenVoiceCloneCreationVcoin: number;
-  liveVoice: PlatformLiveVoiceReadinessSettings;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -430,26 +413,6 @@ function normalizePositiveInteger(value: unknown, path: string): number {
     throw new Error(`${path} must be a positive integer.`);
   }
   return value;
-}
-
-function normalizeLiveVoiceTransportProtocol(
-  value: unknown,
-  path: string
-): PlatformLiveVoiceTransportProtocol {
-  if (value === "webrtc" || value === "websocket") {
-    return value;
-  }
-  throw new Error(`${path} must be one of: webrtc, websocket.`);
-}
-
-function normalizeLiveVoiceTransportRoute(
-  value: unknown,
-  path: string
-): PlatformLiveVoiceTransportRoute {
-  if (value === "direct" || value === "relay") {
-    return value;
-  }
-  throw new Error(`${path} must be one of: direct, relay.`);
 }
 
 function normalizeVideoAspectRatio(value: unknown, path: string): PersaiRuntimeVideoAspectRatio {
@@ -1798,7 +1761,6 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     row.heygenVoiceCloneCreationVcoin,
     "heygenVoiceCloneCreationVcoin"
   );
-  const liveVoice = normalizeLiveVoiceSettings(row.liveVoice);
   return {
     primary,
     fallback,
@@ -1812,8 +1774,7 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     heygenPersonaWorkspaceLimit,
     heygenPersonaCreationVcoin,
     heygenVoiceCloneWorkspaceLimit,
-    heygenVoiceCloneCreationVcoin,
-    liveVoice
+    heygenVoiceCloneCreationVcoin
   };
 }
 
@@ -1961,83 +1922,6 @@ function normalizeHeygenVoiceCloneCreationVcoin(value: unknown, path: string): n
   return value;
 }
 
-function normalizeLiveVoiceAgentId(value: unknown, path: string): string | null {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  const normalized = asNonEmptyString(value);
-  if (normalized === null) {
-    throw new Error(`${path} must be a non-empty string when provided.`);
-  }
-  if (normalized.length > MAX_LIVE_VOICE_AGENT_ID_LENGTH) {
-    throw new Error(
-      `${path} must be at most ${String(MAX_LIVE_VOICE_AGENT_ID_LENGTH)} characters.`
-    );
-  }
-  if (containsControlCharacters(normalized)) {
-    throw new Error(`${path} contains invalid control characters.`);
-  }
-  return normalized;
-}
-
-function normalizeLiveVoiceSettings(
-  value: unknown,
-  path = "liveVoice"
-): PlatformLiveVoiceReadinessSettings {
-  const row = asObject(value);
-  if (row === null) {
-    return {
-      enabled: DEFAULT_LIVE_VOICE_ENABLED,
-      agentId: null,
-      transportProtocol: DEFAULT_LIVE_VOICE_TRANSPORT_PROTOCOL,
-      transportRoute: DEFAULT_LIVE_VOICE_TRANSPORT_ROUTE
-    };
-  }
-  const enabled = normalizeBoolean(row.enabled ?? DEFAULT_LIVE_VOICE_ENABLED, `${path}.enabled`);
-  const agentId = normalizeLiveVoiceAgentId(row.agentId, `${path}.agentId`);
-  const transportProtocol = normalizeLiveVoiceTransportProtocol(
-    row.transportProtocol ?? DEFAULT_LIVE_VOICE_TRANSPORT_PROTOCOL,
-    `${path}.transportProtocol`
-  );
-  const transportRoute = normalizeLiveVoiceTransportRoute(
-    row.transportRoute ?? DEFAULT_LIVE_VOICE_TRANSPORT_ROUTE,
-    `${path}.transportRoute`
-  );
-  if (enabled && agentId === null) {
-    throw new Error(`${path}.agentId is required when ${path}.enabled is true.`);
-  }
-  return {
-    enabled,
-    agentId,
-    transportProtocol,
-    transportRoute
-  };
-}
-
-/**
- * ADR-114 — admin-editable live voice readiness input (enabled, agentId,
- * transportProtocol, transportRoute). Used by the dedicated focused admin
- * endpoint that only touches the `live_voice_settings` column.
- */
-export function parseUpdateLiveVoiceReadinessInput(
-  body: unknown
-): PlatformLiveVoiceReadinessSettings {
-  return normalizeLiveVoiceSettings(body, "liveVoice");
-}
-
-function resolveStoredLiveVoiceSettings(value: unknown): PlatformLiveVoiceReadinessSettings {
-  try {
-    return normalizeLiveVoiceSettings(value);
-  } catch {
-    return {
-      enabled: DEFAULT_LIVE_VOICE_ENABLED,
-      agentId: null,
-      transportProtocol: DEFAULT_LIVE_VOICE_TRANSPORT_PROTOCOL,
-      transportRoute: DEFAULT_LIVE_VOICE_TRANSPORT_ROUTE
-    };
-  }
-}
-
 /**
  * ADR-111 Slice 3 — read-side coercion for persisted cloned voice limit.
  */
@@ -2091,12 +1975,6 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
       heygenPersonaCreationVcoin: DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN,
       heygenVoiceCloneWorkspaceLimit: DEFAULT_HEYGEN_VOICE_CLONE_WORKSPACE_LIMIT,
       heygenVoiceCloneCreationVcoin: DEFAULT_HEYGEN_VOICE_CLONE_CREATION_VCOIN,
-      liveVoice: {
-        enabled: DEFAULT_LIVE_VOICE_ENABLED,
-        agentId: null,
-        transportProtocol: DEFAULT_LIVE_VOICE_TRANSPORT_PROTOCOL,
-        transportRoute: DEFAULT_LIVE_VOICE_TRANSPORT_ROUTE
-      },
       notes: [
         "Global runtime provider settings are not configured yet.",
         "The active runtime keeps its existing configured default model path until global settings are saved.",
@@ -2169,7 +2047,6 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
     heygenVoiceCloneCreationVcoin: resolveStoredHeygenVoiceCloneCreationVcoin(
       params.settings.heygenVoiceCloneCreationVcoin
     ),
-    liveVoice: resolveStoredLiveVoiceSettings(params.settings.liveVoice),
     notes: [
       "Provider keys are managed as one global platform setting for all assistants.",
       "Raw provider keys are write-only in the admin UI and stay in encrypted PersAI storage.",

@@ -5,7 +5,6 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { AppLoggerService } from "./modules/platform-core/infrastructure/logging/app-logger.service";
 import { ApiExceptionFilter } from "./modules/platform-core/interface/http/api-exception.filter";
-import { AssistantLiveVoiceRelayGateway } from "./modules/workspace-management/interface/ws/assistant-live-voice-relay.gateway";
 
 const INTERNAL_PATH_PREFIX = "/api/v1/internal";
 
@@ -78,10 +77,6 @@ async function bootstrap(): Promise<void> {
   app.flushLogs();
 
   const publicServer = createServer(expressApp);
-  // ADR-114: the live voice websocket relay must attach its `upgrade` handler
-  // to the real listening server (the public port), not Nest's internal http
-  // server which never listens.
-  app.get(AssistantLiveVoiceRelayGateway, { strict: false }).attachTo(publicServer);
   await listen(publicServer, config.PORT);
 
   if (config.API_INTERNAL_PORT !== config.PORT) {

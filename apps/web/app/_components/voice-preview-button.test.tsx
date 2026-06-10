@@ -2,16 +2,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VoicePreviewButton } from "./voice-preview-button";
 
-const audioFocusMocks = vi.hoisted(() => ({
-  requestAudioFocus: vi.fn(() => vi.fn()),
-  releaseAudioFocus: vi.fn()
-}));
-
-vi.mock("@/app/lib/audio-focus", () => ({
-  requestAudioFocus: audioFocusMocks.requestAudioFocus,
-  releaseAudioFocus: audioFocusMocks.releaseAudioFocus
-}));
-
 // Mock HTMLAudioElement for jsdom environment
 type MockAudio = {
   play: ReturnType<typeof vi.fn>;
@@ -43,9 +33,6 @@ let mockAudioInstances: MockAudio[] = [];
 
 beforeEach(() => {
   mockAudioInstances = [];
-  audioFocusMocks.requestAudioFocus.mockReset();
-  audioFocusMocks.requestAudioFocus.mockImplementation(() => vi.fn());
-  audioFocusMocks.releaseAudioFocus.mockReset();
   vi.stubGlobal(
     "Audio",
     vi.fn().mockImplementation((_src: string) => {
@@ -120,10 +107,6 @@ describe("VoicePreviewButton", () => {
     await waitFor(() => {
       expect(mockAudioInstances[0]!.play).toHaveBeenCalledTimes(1);
     });
-    expect(audioFocusMocks.requestAudioFocus).toHaveBeenCalledWith(
-      "voice-preview",
-      expect.any(Function)
-    );
   });
 
   it("does not bubble preview clicks into parent containers", async () => {

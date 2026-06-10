@@ -82,11 +82,6 @@ import { ManagePersonaArchetypesService } from "../../application/manage-persona
 import { ResolveActiveAssistantService } from "../../application/resolve-active-assistant.service";
 import { ResolveAssistantLifecycleViewService } from "../../application/resolve-assistant-lifecycle-view.service";
 import { SwitchActiveAssistantService } from "../../application/switch-active-assistant.service";
-import {
-  AssistantLiveVoiceSessionService,
-  type AssistantLiveVoiceSessionStartState,
-  type AssistantLiveVoiceSessionState
-} from "../../application/assistant-live-voice-session.service";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 import { createStreamWriterInstrumentation } from "./stream-writer-instrumentation";
 
@@ -149,7 +144,6 @@ export class AssistantController {
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     private readonly resolveAssistantLifecycleViewService: ResolveAssistantLifecycleViewService,
     private readonly switchActiveAssistantService: SwitchActiveAssistantService,
-    private readonly assistantLiveVoiceSessionService: AssistantLiveVoiceSessionService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -217,59 +211,6 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       settings
-    };
-  }
-
-  @Post("assistant/live-voice/start")
-  async startLiveVoiceSession(
-    @Req() req: RequestWithPlatformContext,
-    @Body() body: unknown
-  ): Promise<{ requestId: string | null; liveVoice: AssistantLiveVoiceSessionStartState }> {
-    const userId = this.resolveRequestUserId(req);
-    const input = this.parseStartLiveVoiceInput(body);
-    const liveVoice = await this.assistantLiveVoiceSessionService.startSession({
-      userId,
-      chatId: input.chatId
-    });
-    return {
-      requestId: req.requestId ?? null,
-      liveVoice
-    };
-  }
-
-  @Get("assistant/live-voice/:sessionId")
-  async getLiveVoiceSessionStatus(
-    @Req() req: RequestWithPlatformContext,
-    @Param("sessionId") sessionId: string
-  ): Promise<{ requestId: string | null; liveVoice: AssistantLiveVoiceSessionState }> {
-    const userId = this.resolveRequestUserId(req);
-    const liveVoice = await this.assistantLiveVoiceSessionService.getStatus({
-      userId,
-      sessionId
-    });
-    return {
-      requestId: req.requestId ?? null,
-      liveVoice
-    };
-  }
-
-  @Post("assistant/live-voice/:sessionId/stop")
-  async stopLiveVoiceSession(
-    @Req() req: RequestWithPlatformContext,
-    @Param("sessionId") sessionId: string,
-    @Body() body: unknown
-  ): Promise<{ requestId: string | null; liveVoice: AssistantLiveVoiceSessionState }> {
-    const userId = this.resolveRequestUserId(req);
-    const input = this.parseStopLiveVoiceInput(body);
-    const liveVoice = await this.assistantLiveVoiceSessionService.stopSession({
-      userId,
-      sessionId,
-      failureCode: input.failureCode,
-      failureMessage: input.failureMessage
-    });
-    return {
-      requestId: req.requestId ?? null,
-      liveVoice
     };
   }
 
@@ -1586,39 +1527,6 @@ export class AssistantController {
           : {})
       };
     });
-  }
-
-  private parseStartLiveVoiceInput(body: unknown): { chatId: string } {
-    if (typeof body !== "object" || body === null) {
-      throw new BadRequestException("Request body must be an object.");
-    }
-    const chatId = (body as Record<string, unknown>).chatId;
-    if (typeof chatId !== "string" || chatId.trim().length === 0) {
-      throw new BadRequestException("chatId must be a non-empty string.");
-    }
-    return { chatId: chatId.trim() };
-  }
-
-  private parseStopLiveVoiceInput(body: unknown): {
-    failureCode: string | null;
-    failureMessage: string | null;
-  } {
-    if (body === undefined || body === null) {
-      return {
-        failureCode: null,
-        failureMessage: null
-      };
-    }
-    if (typeof body !== "object") {
-      throw new BadRequestException("Request body must be an object.");
-    }
-    const row = body as Record<string, unknown>;
-    const normalize = (value: unknown): string | null =>
-      typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-    return {
-      failureCode: normalize(row.failureCode),
-      failureMessage: normalize(row.failureMessage)
-    };
   }
 
   private async buildAssistantResponse(

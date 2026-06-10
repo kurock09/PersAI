@@ -1163,8 +1163,6 @@ async function run(): Promise<void> {
   assert.equal(profile.primary.credentialRef.secretRef.provider, "persai-runtime");
   assert.equal(profile.primary.credentialRef.secretRef.id, "openai/api-key");
   assert.equal(profile.fallback?.credentialRef.secretRef.id, "anthropic/api-key");
-
-  console.log("platform-runtime-provider-settings: all assertions passed");
 }
 
 run().catch((error) => {

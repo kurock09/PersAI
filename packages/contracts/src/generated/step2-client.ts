@@ -14,7 +14,6 @@ import type {
   AdminDocumentProcessingTestConnectionRequest,
   AdminKnowledgeEmbeddingChangePreviewRequest,
   AdminKnowledgeRetrievalPolicyState,
-  AdminMemoryBackfillRequest,
   AdminPlanCreateRequest,
   AdminPlanUpdateRequest,
   AdminRuntimeProviderSettingsRequest,
@@ -23,8 +22,6 @@ import type {
   AdminToolPathPricingCatalogRequest,
   ArchiveWorkspaceVideoPersona200,
   AssistantDraftUpdateRequest,
-  AssistantLiveVoiceStartRequest,
-  AssistantLiveVoiceStopRequest,
   AssistantMemoryDoNotRememberRequest,
   AssistantRollbackRequest,
   AssistantSwitchRequest,
@@ -91,7 +88,6 @@ import type {
   GetAssistantKnowledgeSourceResponse,
   GetAssistantKnowledgeSourcesResponse,
   GetAssistantListResponse,
-  GetAssistantLiveVoiceSessionResponse,
   GetAssistantMemoryItemsResponse,
   GetAssistantPersonaArchetypesResponse,
   GetAssistantPlanVisibilityResponse,
@@ -141,8 +137,6 @@ import type {
   PostAdminKnowledgeEmbeddingChangePreviewResponse,
   PostAdminKnowledgeRetrievalPolicyResponse,
   PostAdminKnowledgeSourceUploadBody,
-  PostAdminMemoryBackfillApplyResponse,
-  PostAdminMemoryBackfillPreviewResponse,
   PostAdminOpsUserBillingSupportActionRequest,
   PostAdminOpsUserBillingSupportActionResponse,
   PostAdminOpsUserPlanOverrideParams,
@@ -165,8 +159,6 @@ import type {
   PostAssistantBillingPaymentIntentRequest,
   PostAssistantBillingPaymentIntentResponse,
   PostAssistantKnowledgeSourceUploadBody,
-  PostAssistantLiveVoiceStartResponse,
-  PostAssistantLiveVoiceStopResponse,
   PostAssistantMemoryDoNotRememberResponse,
   PostAssistantMemoryItemCloseOpenLoopResponse,
   PostAssistantMemoryItemForgetResponse,
@@ -2445,186 +2437,6 @@ export const postAssistantWebChatArchive = async (
     {
       ...options,
       method: "POST"
-    }
-  );
-};
-
-/**
- * @summary Start a live voice session for an existing assistant chat
- */
-export type postAssistantLiveVoiceStartResponse200 = {
-  data: PostAssistantLiveVoiceStartResponse;
-  status: 200;
-};
-
-export type postAssistantLiveVoiceStartResponse400 = {
-  data: ErrorEnvelope;
-  status: 400;
-};
-
-export type postAssistantLiveVoiceStartResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
-
-export type postAssistantLiveVoiceStartResponse404 = {
-  data: ErrorEnvelope;
-  status: 404;
-};
-
-export type postAssistantLiveVoiceStartResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type postAssistantLiveVoiceStartResponseSuccess = postAssistantLiveVoiceStartResponse200 & {
-  headers: Headers;
-};
-export type postAssistantLiveVoiceStartResponseError = (
-  | postAssistantLiveVoiceStartResponse400
-  | postAssistantLiveVoiceStartResponse401
-  | postAssistantLiveVoiceStartResponse404
-  | postAssistantLiveVoiceStartResponse500
-) & {
-  headers: Headers;
-};
-
-export type postAssistantLiveVoiceStartResponse =
-  | postAssistantLiveVoiceStartResponseSuccess
-  | postAssistantLiveVoiceStartResponseError;
-
-export const getPostAssistantLiveVoiceStartUrl = () => {
-  return `/assistant/live-voice/start`;
-};
-
-export const postAssistantLiveVoiceStart = async (
-  assistantLiveVoiceStartRequest: AssistantLiveVoiceStartRequest,
-  options?: RequestInit
-): Promise<postAssistantLiveVoiceStartResponse> => {
-  return customFetch<postAssistantLiveVoiceStartResponse>(getPostAssistantLiveVoiceStartUrl(), {
-    ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(assistantLiveVoiceStartRequest)
-  });
-};
-
-/**
- * @summary Read live voice session state
- */
-export type getAssistantLiveVoiceSessionResponse200 = {
-  data: GetAssistantLiveVoiceSessionResponse;
-  status: 200;
-};
-
-export type getAssistantLiveVoiceSessionResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
-
-export type getAssistantLiveVoiceSessionResponse404 = {
-  data: ErrorEnvelope;
-  status: 404;
-};
-
-export type getAssistantLiveVoiceSessionResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type getAssistantLiveVoiceSessionResponseSuccess =
-  getAssistantLiveVoiceSessionResponse200 & {
-    headers: Headers;
-  };
-export type getAssistantLiveVoiceSessionResponseError = (
-  | getAssistantLiveVoiceSessionResponse401
-  | getAssistantLiveVoiceSessionResponse404
-  | getAssistantLiveVoiceSessionResponse500
-) & {
-  headers: Headers;
-};
-
-export type getAssistantLiveVoiceSessionResponse =
-  | getAssistantLiveVoiceSessionResponseSuccess
-  | getAssistantLiveVoiceSessionResponseError;
-
-export const getGetAssistantLiveVoiceSessionUrl = (sessionId: string) => {
-  return `/assistant/live-voice/${sessionId}`;
-};
-
-export const getAssistantLiveVoiceSession = async (
-  sessionId: string,
-  options?: RequestInit
-): Promise<getAssistantLiveVoiceSessionResponse> => {
-  return customFetch<getAssistantLiveVoiceSessionResponse>(
-    getGetAssistantLiveVoiceSessionUrl(sessionId),
-    {
-      ...options,
-      method: "GET"
-    }
-  );
-};
-
-/**
- * @summary Stop an active live voice session
- */
-export type postAssistantLiveVoiceStopResponse200 = {
-  data: PostAssistantLiveVoiceStopResponse;
-  status: 200;
-};
-
-export type postAssistantLiveVoiceStopResponse400 = {
-  data: ErrorEnvelope;
-  status: 400;
-};
-
-export type postAssistantLiveVoiceStopResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
-
-export type postAssistantLiveVoiceStopResponse404 = {
-  data: ErrorEnvelope;
-  status: 404;
-};
-
-export type postAssistantLiveVoiceStopResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type postAssistantLiveVoiceStopResponseSuccess = postAssistantLiveVoiceStopResponse200 & {
-  headers: Headers;
-};
-export type postAssistantLiveVoiceStopResponseError = (
-  | postAssistantLiveVoiceStopResponse400
-  | postAssistantLiveVoiceStopResponse401
-  | postAssistantLiveVoiceStopResponse404
-  | postAssistantLiveVoiceStopResponse500
-) & {
-  headers: Headers;
-};
-
-export type postAssistantLiveVoiceStopResponse =
-  | postAssistantLiveVoiceStopResponseSuccess
-  | postAssistantLiveVoiceStopResponseError;
-
-export const getPostAssistantLiveVoiceStopUrl = (sessionId: string) => {
-  return `/assistant/live-voice/${sessionId}/stop`;
-};
-
-export const postAssistantLiveVoiceStop = async (
-  sessionId: string,
-  assistantLiveVoiceStopRequest?: AssistantLiveVoiceStopRequest,
-  options?: RequestInit
-): Promise<postAssistantLiveVoiceStopResponse> => {
-  return customFetch<postAssistantLiveVoiceStopResponse>(
-    getPostAssistantLiveVoiceStopUrl(sessionId),
-    {
-      ...options,
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...options?.headers },
-      body: JSON.stringify(assistantLiveVoiceStopRequest)
     }
   );
 };
@@ -5870,131 +5682,6 @@ export const postAdminKnowledgeRetrievalPolicyEmbeddingChangePreview = async (
       body: JSON.stringify(adminKnowledgeEmbeddingChangePreviewRequest)
     }
   );
-};
-
-/**
- * @summary Preview assistant-scoped legacy memory backfill impact
- */
-export type postAdminMemoryBackfillPreviewResponse200 = {
-  data: PostAdminMemoryBackfillPreviewResponse;
-  status: 200;
-};
-
-export type postAdminMemoryBackfillPreviewResponse400 = {
-  data: ErrorEnvelope;
-  status: 400;
-};
-
-export type postAdminMemoryBackfillPreviewResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
-
-export type postAdminMemoryBackfillPreviewResponse403 = {
-  data: ErrorEnvelope;
-  status: 403;
-};
-
-export type postAdminMemoryBackfillPreviewResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type postAdminMemoryBackfillPreviewResponseSuccess =
-  postAdminMemoryBackfillPreviewResponse200 & {
-    headers: Headers;
-  };
-export type postAdminMemoryBackfillPreviewResponseError = (
-  | postAdminMemoryBackfillPreviewResponse400
-  | postAdminMemoryBackfillPreviewResponse401
-  | postAdminMemoryBackfillPreviewResponse403
-  | postAdminMemoryBackfillPreviewResponse500
-) & {
-  headers: Headers;
-};
-
-export type postAdminMemoryBackfillPreviewResponse =
-  | postAdminMemoryBackfillPreviewResponseSuccess
-  | postAdminMemoryBackfillPreviewResponseError;
-
-export const getPostAdminMemoryBackfillPreviewUrl = () => {
-  return `/admin/memory-backfill/preview`;
-};
-
-export const postAdminMemoryBackfillPreview = async (
-  adminMemoryBackfillRequest: AdminMemoryBackfillRequest,
-  options?: RequestInit
-): Promise<postAdminMemoryBackfillPreviewResponse> => {
-  return customFetch<postAdminMemoryBackfillPreviewResponse>(
-    getPostAdminMemoryBackfillPreviewUrl(),
-    {
-      ...options,
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...options?.headers },
-      body: JSON.stringify(adminMemoryBackfillRequest)
-    }
-  );
-};
-
-/**
- * @summary Apply assistant-scoped legacy memory backfill
- */
-export type postAdminMemoryBackfillApplyResponse200 = {
-  data: PostAdminMemoryBackfillApplyResponse;
-  status: 200;
-};
-
-export type postAdminMemoryBackfillApplyResponse400 = {
-  data: ErrorEnvelope;
-  status: 400;
-};
-
-export type postAdminMemoryBackfillApplyResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
-
-export type postAdminMemoryBackfillApplyResponse403 = {
-  data: ErrorEnvelope;
-  status: 403;
-};
-
-export type postAdminMemoryBackfillApplyResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type postAdminMemoryBackfillApplyResponseSuccess =
-  postAdminMemoryBackfillApplyResponse200 & {
-    headers: Headers;
-  };
-export type postAdminMemoryBackfillApplyResponseError = (
-  | postAdminMemoryBackfillApplyResponse400
-  | postAdminMemoryBackfillApplyResponse401
-  | postAdminMemoryBackfillApplyResponse403
-  | postAdminMemoryBackfillApplyResponse500
-) & {
-  headers: Headers;
-};
-
-export type postAdminMemoryBackfillApplyResponse =
-  | postAdminMemoryBackfillApplyResponseSuccess
-  | postAdminMemoryBackfillApplyResponseError;
-
-export const getPostAdminMemoryBackfillApplyUrl = () => {
-  return `/admin/memory-backfill/apply`;
-};
-
-export const postAdminMemoryBackfillApply = async (
-  adminMemoryBackfillRequest: AdminMemoryBackfillRequest,
-  options?: RequestInit
-): Promise<postAdminMemoryBackfillApplyResponse> => {
-  return customFetch<postAdminMemoryBackfillApplyResponse>(getPostAdminMemoryBackfillApplyUrl(), {
-    ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(adminMemoryBackfillRequest)
-  });
 };
 
 /**

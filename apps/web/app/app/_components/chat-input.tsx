@@ -238,11 +238,6 @@ interface ChatInputProps {
     | null;
   activeMediaJobs?: WebChatActiveMediaJobState[];
   activeDocumentJobs?: WebChatActiveDocumentJobState[];
-  liveVoice?: {
-    enabled: boolean;
-    onStart: () => void;
-    disabled?: boolean;
-  };
 }
 
 export interface ChatInputHandle {
@@ -264,8 +259,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     disabled,
     pendingSendStatus = null,
     activeMediaJobs = [],
-    activeDocumentJobs = [],
-    liveVoice
+    activeDocumentJobs = []
   }: ChatInputProps,
   ref
 ) {
@@ -569,13 +563,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const showTranscribing = isTranscribing && !isStreaming;
   const showSend = !showStop && !showTranscribing && composerCanSend;
   const showMic = !showStop && !showTranscribing && showComposerMicSlot && !composerCanSend;
-  const showLiveVoice =
-    liveVoice?.enabled === true &&
-    !liveVoice.disabled &&
-    !showStop &&
-    !showTranscribing &&
-    !isRecording &&
-    !composerCanSend;
   const composerActionSwapClass = (visible: boolean) =>
     cn(
       visible ? "scale-100 opacity-100" : "pointer-events-none scale-90 opacity-0",
@@ -1358,136 +1345,95 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               )}
             />
 
-            <div className="group/composer-actions mb-0.5 flex shrink-0 items-end gap-1">
-              {showLiveVoice ? (
+            <div className="relative mb-0.5 h-10 w-10 shrink-0 self-end">
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  if (shouldKeepDesktopComposerFocusOnPointerDown()) {
+                    e.preventDefault();
+                  }
+                }}
+                onClick={onStop}
+                className={cn(composerStopButtonClass, composerActionSwapClass(showStop))}
+                title={t("stop")}
+                aria-hidden={!showStop}
+                tabIndex={showStop ? 0 : -1}
+              >
+                <Square className="h-4 w-4 fill-current" strokeWidth={0} />
+              </button>
+              <div
+                className={cn(
+                  composerActionSlotClass,
+                  "cursor-default",
+                  composerActionSwapClass(showTranscribing)
+                )}
+                aria-hidden={!showTranscribing}
+              >
+                <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
+              </div>
+              {showComposerMicSlot ? (
                 <button
                   type="button"
-                  onMouseDown={(e) => {
-                    if (shouldKeepDesktopComposerFocusOnPointerDown()) {
-                      e.preventDefault();
-                    }
-                  }}
-                  onClick={() => liveVoice.onStart()}
-                  disabled={
-                    liveVoice.disabled || disabled || isStreaming || isRecording || isTranscribing
-                  }
+                  disabled={disabled || isStreaming || sendBlockedByFailedSlot}
+                  {...(isTouchDevice
+                    ? {
+                        onPointerDown: handleMicPointerDown,
+                        onPointerMove: handleMicPointerMove,
+                        onPointerUp: handleMicPointerUp,
+                        onPointerCancel: handleMicPointerCancel,
+                        onContextMenu: (e: React.MouseEvent) => e.preventDefault()
+                      }
+                    : { onClick: () => void startRecording() })}
                   className={cn(
-                    "flex h-10 shrink-0 items-center justify-center self-end overflow-hidden rounded-full transition-[width,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                    liveVoice.disabled || disabled || isStreaming || isRecording || isTranscribing
+                    composerActionSlotClass,
+                    "rounded-full",
+                    composerActionSwapClass(showMic),
+                    disabled || isStreaming || sendBlockedByFailedSlot
                       ? "cursor-default text-text-subtle/40"
                       : cn(
                           "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted",
-                          "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted"
-                        ),
-                    // Apple-style reveal: collapsed next to the mic on fine
-                    // pointers, expands on hover/focus of the action group.
-                    // Touch has no hover, so it stays a small persistent entry.
-                    isTouchDevice
-                      ? "w-10 opacity-100"
-                      : cn(
-                          "w-0 opacity-0",
-                          "group-hover/composer-actions:w-10 group-hover/composer-actions:opacity-100",
-                          "group-focus-within/composer-actions:w-10 group-focus-within/composer-actions:opacity-100"
+                          "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted",
+                          isTouchDevice &&
+                            isRecording &&
+                            !cancelArmed &&
+                            "bg-accent/15 text-accent",
+                          isTouchDevice &&
+                            isRecording &&
+                            cancelArmed &&
+                            "bg-destructive/15 text-destructive"
                         )
                   )}
-                  title={t("liveVoice.start")}
-                  aria-label={t("liveVoice.start")}
+                  title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
+                  aria-label={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
+                  aria-hidden={!showMic}
+                  tabIndex={showMic ? 0 : -1}
                 >
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full border border-current/30">
-                    <span className="h-2 w-2 rounded-full bg-current" />
-                  </span>
+                  {isTouchDevice && isRecording && cancelArmed ? (
+                    <Trash2 className="h-5 w-5 md:h-4 md:w-4" aria-hidden="true" />
+                  ) : (
+                    <Mic className="h-5 w-5 md:h-4 md:w-4" />
+                  )}
                 </button>
               ) : null}
-              <div className="relative h-10 w-10 shrink-0 self-end">
-                <button
-                  type="button"
-                  onMouseDown={(e) => {
-                    if (shouldKeepDesktopComposerFocusOnPointerDown()) {
-                      e.preventDefault();
-                    }
-                  }}
-                  onClick={onStop}
-                  className={cn(composerStopButtonClass, composerActionSwapClass(showStop))}
-                  title={t("stop")}
-                  aria-hidden={!showStop}
-                  tabIndex={showStop ? 0 : -1}
-                >
-                  <Square className="h-4 w-4 fill-current" strokeWidth={0} />
-                </button>
-                <div
-                  className={cn(
-                    composerActionSlotClass,
-                    "cursor-default",
-                    composerActionSwapClass(showTranscribing)
-                  )}
-                  aria-hidden={!showTranscribing}
-                >
-                  <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
-                </div>
-                {showComposerMicSlot ? (
-                  <button
-                    type="button"
-                    disabled={disabled || isStreaming || sendBlockedByFailedSlot}
-                    {...(isTouchDevice
-                      ? {
-                          onPointerDown: handleMicPointerDown,
-                          onPointerMove: handleMicPointerMove,
-                          onPointerUp: handleMicPointerUp,
-                          onPointerCancel: handleMicPointerCancel,
-                          onContextMenu: (e: React.MouseEvent) => e.preventDefault()
-                        }
-                      : { onClick: () => void startRecording() })}
-                    className={cn(
-                      composerActionSlotClass,
-                      "rounded-full",
-                      composerActionSwapClass(showMic),
-                      disabled || isStreaming || sendBlockedByFailedSlot
-                        ? "cursor-default text-text-subtle/40"
-                        : cn(
-                            "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted",
-                            "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted",
-                            isTouchDevice &&
-                              isRecording &&
-                              !cancelArmed &&
-                              "bg-accent/15 text-accent",
-                            isTouchDevice &&
-                              isRecording &&
-                              cancelArmed &&
-                              "bg-destructive/15 text-destructive"
-                          )
-                    )}
-                    title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
-                    aria-label={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
-                    aria-hidden={!showMic}
-                    tabIndex={showMic ? 0 : -1}
-                  >
-                    {isTouchDevice && isRecording && cancelArmed ? (
-                      <Trash2 className="h-5 w-5 md:h-4 md:w-4" aria-hidden="true" />
-                    ) : (
-                      <Mic className="h-5 w-5 md:h-4 md:w-4" />
-                    )}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onMouseDown={(e) => {
-                    if (shouldKeepDesktopComposerFocusOnPointerDown()) {
-                      e.preventDefault();
-                    }
-                  }}
-                  onClick={handleSend}
-                  disabled={controlsDisabled}
-                  className={cn(
-                    composerSendButtonClass(controlsDisabled),
-                    composerActionSwapClass(showSend)
-                  )}
-                  title={t("send")}
-                  aria-hidden={!showSend}
-                  tabIndex={showSend ? 0 : -1}
-                >
-                  <Send className="h-[18px] w-[18px] md:h-4 md:w-4" strokeWidth={2.25} />
-                </button>
-              </div>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  if (shouldKeepDesktopComposerFocusOnPointerDown()) {
+                    e.preventDefault();
+                  }
+                }}
+                onClick={handleSend}
+                disabled={controlsDisabled}
+                className={cn(
+                  composerSendButtonClass(controlsDisabled),
+                  composerActionSwapClass(showSend)
+                )}
+                title={t("send")}
+                aria-hidden={!showSend}
+                tabIndex={showSend ? 0 : -1}
+              >
+                <Send className="h-[18px] w-[18px] md:h-4 md:w-4" strokeWidth={2.25} />
+              </button>
             </div>
           </div>
         </div>

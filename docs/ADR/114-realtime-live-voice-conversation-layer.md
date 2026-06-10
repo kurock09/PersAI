@@ -1,326 +1,276 @@
-# ADR-114: ElevenLabs realtime live voice conversation
+# ADR-114: Realtime live voice conversation layer
 
 ## Status
 
-Proposed orchestration program. Baseline SHA: `643effa6` on `main`; working tree was already dirty at ADR creation time with unrelated web chat media/docs edits and the landed Slice 1 substrate. This ADR is a planning artifact only; implementation must start from an explicitly accepted baseline for the chosen slice.
+Proposed orchestration program. Baseline SHA: `643effa6` on `main`; working tree was already dirty at ADR creation time with unrelated web chat media/docs edits. This ADR is a planning artifact only; implementation must start from an explicitly accepted baseline for the chosen slice.
 
-This ADR has been revised twice. It first replaced an early transcript-bridge direction with an ElevenLabs-owned-conversation design. It now adopts the final target:
+This ADR is intended to be executed by GPT-5.4 implementation subagents. The parent agent acts as orchestrator/auditor: it assigns bounded slice prompts, reviews diffs, verifies tests, reconciles docs, and does not directly write production code for implementation slices unless the operator explicitly changes that rule.
 
-```text
-ElevenLabs Agent      = realtime audio engine only (STT, VAD, turn-taking, interruption, TTS)
-PersAI (Custom LLM)   = the single brain: existing fast streaming chat answers each spoken turn
-```
+## Context
 
-The earlier "ElevenLabs built-in LLM + PersAI hidden action tool" design is **superseded**. It created two brains (ElevenLabs conversational LLM plus PersAI action backend), a lossy `intent` seam on every action, and post-session chat-context loss. The Custom LLM design removes all three: there is one brain (PersAI), every spoken turn is a real PersAI chat turn, and there is no separate action tool.
+PersAI already has a mature voice-adjacent stack:
 
-The parent agent acts as orchestrator/auditor. Implementation should be assigned to bounded GPT-5.4 subagents and audited before acceptance.
+- ordinary voice notes: web `MediaRecorder` records audio, API transcribes it, the text enters the normal chat turn, and the audio persists as a chat attachment;
+- chat TTS: runtime exposes a synchronous `tts` worker tool, provider-gateway calls the configured speech provider, and delivered audio is persisted through the existing media/file flow;
+- ElevenLabs chat voice: ADR-113 made ElevenLabs the primary expressive TTS quality path using `eleven_v3`, saved assistant `voiceProfile.elevenlabs.voiceId`, a curated voice catalog, and the premium voice picker;
+- assistant intelligence: `TurnExecutionService` owns the PersAI-native tool loop, context hydration, memory, knowledge, image/video/document/tools, budgets, fallback, usage accounting, and persistence hooks;
+- economics: provider/runtime calls already emit normalized `RuntimeBillingFacts`; API resolves provider catalog pricing and writes `model_cost_ledger_events` for supported purposes including `stt` and `tts`.
 
-## Product Requirement
+The missing product layer is not "better voice notes" and not another batch TTS path. The missing layer is a premium realtime voice conversation mode inside the current chat: one continuous live voice session where the user can speak naturally for several turns, interrupt the assistant, ask follow-ups, and command the same PersAI assistant to use tools, generate/edit media, update artifacts, and persist the result in chat history.
 
-The product needs real realtime voice conversation inside the current PersAI chat:
-
-- live audio conversation, not voice notes;
-- interruption and natural turn-taking;
-- short, fast answers in the user's language (the platform is bilingual ru/en);
-- the saved PersAI ElevenLabs voice;
-- access to the same PersAI capabilities: images, documents, files, memory, tasks, status, and visible chat persistence.
-
-This must not become:
-
-- `finalized transcript -> ordinary PersAI web turn -> final text -> TTS`;
-- text streaming plus standalone TTS outside the realtime agent (this loses turn-taking and interruption);
-- a second assistant whose business logic lives in the ElevenLabs dashboard.
+ElevenLabs documentation identifies the relevant product as **ElevenLabs Conversational AI / ElevenAgents**. The low-level custom integration uses `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=...` with signed URLs for private agents. The platform provides realtime ASR, turn-taking, interruptions, streaming audio, final user transcripts, agent response/correction events, VAD, contextual updates, dynamic variables, client/server tool events, and a **Speech Engine / Custom LLM** path where a custom agent exposes OpenAI-compatible streaming endpoints (`/v1/chat/completions` or `/v1/responses`).
 
 ## Decision
 
-ElevenLabs Agent owns only the realtime audio engine:
+Build realtime live voice as an additive layer over the existing PersAI assistant stack.
 
-- ASR/STT;
-- voice activity detection and endpointing;
-- turn-taking;
-- interruption / barge-in;
-- TTS voice output;
-- the persistent realtime session/loop transport.
-
-The Agent is configured with **Custom LLM** pointing at a PersAI endpoint. ElevenLabs does not run its own conversational brain.
-
-PersAI is the single brain and owns everything else:
-
-- an OpenAI-compatible streaming `chat/completions` Custom LLM endpoint that ElevenLabs calls for each spoken turn;
-- mapping the live session to the correct PersAI chat/user/assistant;
-- running PersAI's existing fast streaming chat turn (same persona, memory, tools) to answer;
-- streaming tokens back so ElevenLabs voices the reply in realtime;
-- native persistence: because each spoken turn is a real PersAI chat turn, history, memory, files, and artifacts are saved through the existing chat path;
-- native actions: image/document/file/memory/task work happens through PersAI's existing tools and background jobs inside the turn, not through a separate voice action tool;
-- per-session voice selection via the saved assistant `voiceProfile.elevenlabs.voiceId`.
-
-The live voice path is:
+The canonical architecture is:
 
 ```text
-User starts live voice
-  PersAI creates a live session (Slice 1 substrate) and mints an ElevenLabs credential
-  ElevenLabs Agent opens the realtime audio session
-    voice override: conversation_config_override.tts.voice_id = selected assistant voiceId
-    language override follows the resolved user/assistant locale (ru/en)
-  Loop (until stop):
-    ElevenLabs does STT + endpointing + turn-taking
-    On each completed user turn, ElevenLabs calls the PersAI Custom LLM endpoint (streaming)
-    PersAI maps session -> chat, runs its fast streaming chat turn, streams tokens back
-    ElevenLabs voices the streamed reply (TTS); user can interrupt (barge-in)
-    Heavy/slow work is dispatched to existing PersAI async jobs; the turn streams a short
-      spoken acknowledgement and the visible result lands in the chat asynchronously
-  User stops live voice
+ElevenLabs Conversational AI = realtime voice engine
+PersAI runtime/API = brain, context, tools, billing, history, persistence
 ```
 
-Every spoken turn is an ordinary PersAI chat turn, so the chat is continuous after the session with no separate transcript bridge.
+Do not create a second assistant and do not duplicate PersAI tools inside ElevenLabs as a parallel source of truth. ElevenLabs owns low-latency voice transport, ASR/TTS, turn-taking, interruption, and the selected assistant voice. PersAI continues to own reasoning, context construction, tool execution, quota/billing truth, approvals, artifacts, and chat history.
 
-## PersAI Custom LLM Endpoint
-
-The core integration is one PersAI endpoint, OpenAI-compatible streaming `chat/completions`, that ElevenLabs Custom LLM calls per turn. It is a **thin transport adapter only**: it forwards the spoken turn into the existing PersAI streaming chat and pipes the streamed answer back out. It must not modify, fork, or reimplement any PersAI chat logic.
-
-Requirements:
-
-- **Auth/binding:** authenticate the ElevenLabs request and bind it to a durable live session (Slice 1), resolving the owning chat/user/assistant server-side. Do not trust client-supplied identity.
-- **Source of truth:** the PersAI chat is the source of conversation truth. Use the latest user utterance from the request as the new user turn and let the existing chat path build context, not the messages array ElevenLabs sends.
-- **Reuse the brain as-is:** call the existing fast PersAI streaming chat path unchanged (same persona/prompt/memory/tool surface). Do not build a parallel prompt, history, or tool catalog, and do not edit the existing prompt, model selection, tools, memory, or persistence.
-- **Just stream:** subscribe to the existing chat token stream and re-emit it in the OpenAI-compatible streaming shape ElevenLabs expects, as fast as possible.
-- **Cancellation:** on barge-in/turn abort, cancel/unsubscribe promptly so the in-flight chat turn stops streaming.
-- **Bounded/provider-safe:** stream only voice-appropriate assistant content; never leak provider secrets or raw internal runtime dumps over the wire.
-
-Reused as-is (existing behavior, do not touch): the current PersAI chat path's prompt, model, tools, memory, persistence, and its existing offloading of heavy work (image/document rendering, web search, long reasoning, multi-page reading) to async jobs. The adapter neither adds nor changes them.
-
-Deferred polish (NOT part of this slice or the core ADR path): a live-mode short prompt, a dedicated fast model, and explicit TTFT tuning. These are intentionally postponed until the whole ADR works end-to-end on the existing chat path; the live conversation must first work using the current chat path unchanged, and optimization comes later.
-
-## Language
-
-The conversation language follows the resolved user/assistant locale (ru or en), not a hardcoded single language. Locale resolution reuses existing PersAI locale truth. The ElevenLabs `language` override is set per session from that locale, and PersAI replies in the user's language because it is the same brain as ordinary chat.
-
-## Persistence
-
-Live voice results are visible in normal PersAI chat history because each spoken turn is an ordinary PersAI chat turn.
-
-Persist (already native to the chat path):
-
-- visible user and assistant turn messages;
-- artifacts/files/images/documents produced by actions;
-- honest accepted/in-progress/completed/failed statuses where useful;
-- durable live session metadata needed for support/audit.
-
-Do not persist by default:
-
-- raw ElevenLabs realtime/control payloads;
-- raw audio;
-- VAD/interruption event firehose.
-
-A separate readable full audio transcript is out of scope and would require its own explicit design.
-
-## Transport And Relay
-
-Direct browser/mobile -> ElevenLabs must not be the only architecture.
-
-For private agents, current ElevenLabs docs support:
-
-- WebRTC voice sessions using backend-minted conversation tokens;
-- WebSocket sessions using backend-minted signed URLs;
-- `conversation_config_override` for per-session voice/language/first-message overrides (must be enabled in the agent security settings);
-- Custom LLM pointing at an external OpenAI-compatible endpoint.
-
-Because ElevenLabs can be blocked or unreliable in Russia, PersAI must support an architecture where realtime audio/control traffic goes through a PersAI-owned relay/proxy in a reachable region such as NL/GKE/dev cluster:
+A live voice session is one user-visible conversation session, but internally it contains multiple PersAI turns:
 
 ```text
-browser/mobile
-  -> PersAI realtime relay/proxy
-  -> ElevenLabs Agent (realtime audio engine)
-       -> PersAI Custom LLM endpoint (brain)
+Live voice session starts
+  user final transcript #1 -> PersAI runtime turn #1 -> voice response/tool result/history
+  user final transcript #2 -> PersAI runtime turn #2 -> voice response/tool result/history
+  user final transcript #3 -> PersAI runtime turn #3 -> voice response/tool result/history
+Live voice session stops
 ```
 
-The relay/proxy must:
-
-- keep ElevenLabs credentials server-side;
-- preserve realtime audio/control semantics;
-- expose reconnect/timeout/observability hooks;
-- not become another assistant brain.
-
-If the data model/config needs to distinguish direct vs relay route, use the explicit route field from Slice 1. Do not secretly overload `webrtc` or `websocket` to mean relay.
-
-## Cost And Quota
-
-This ADR does not define user billing changes.
-
-Provider-cost accounting may later record ElevenLabs realtime audio (STT/TTS) usage from provider-verified usage/duration. The PersAI Custom LLM turns are ordinary PersAI chat turns and are already covered by existing PersAI model/tool/runtime accounting; do not double-count them. Local wall-clock stop timing is support metadata, not settlement truth.
+This preserves the current runtime lease/idempotency/persistence model while giving the user one continuous realtime conversation.
 
 ## Product UX Contract
 
 ### Mobile
 
 - The composer keeps one voice action slot.
-- Short tap switches armed mode: `mic` vs `live`.
+- Short tap switches the armed voice mode, like Telegram-style mode switching:
+  - `mic` armed: ordinary voice note mode;
+  - `live` armed: realtime live voice mode.
 - Long press on `mic` records the existing ordinary voice note.
-- Long press on `live` starts realtime live voice. Release does not stop the session.
-- The chat remains visible; no full call screen is required.
-- A compact premium animation and clear `Stop` control show the active live session.
+- Long press on `live` starts realtime live voice.
+- Once live voice starts, no sheet or call screen opens. The current chat remains visible, subtly fades/softens, a custom premium realtime animation appears above the chat/composer, and a clear `Stop` control ends the session.
+- The user can keep talking across multiple turns until pressing `Stop` or reaching a timeout.
 
 ### Desktop
 
-- Desktop gets an explicit minimal `Mic | Live` or equivalent live affordance.
-- Starting live voice is deliberate.
-- `Stop` is always visible during a live session.
+- Desktop should not rely primarily on a hidden long-press gesture.
+- The composer should expose an equally explicit but minimal `Mic | Live` affordance or a premium morphing voice control.
+- Starting live voice should be a deliberate click/press on `Live`, not a modal wizard.
+- The active session uses the same minimal overlay language as mobile: chat remains in context, animation indicates realtime voice activity, and `Stop` is always visible.
 
-### States
+### Live States
 
-Visible states should stay sparse:
+The visible state language must stay calm and sparse:
 
-- `connecting`;
-- `listening`;
-- `speaking`;
-- `working` (an async PersAI action is in progress);
-- `recovering`;
-- `unavailable`.
+- `connecting`
+- `listening`
+- `speaking`
+- `working` for PersAI tools/actions
+- `needs_approval` for risky actions
+- `recovering` for reconnect/fallback
+- `unavailable` for honest fallback
 
-UI must remain disabled/hidden until the session substrate, Custom LLM endpoint, and transport paths are real.
+Do not expose noisy internal states. Do not confuse live voice with ordinary mic/voice note or existing TTS playback.
+
+## Architecture
+
+### Preferred Integration
+
+Use ElevenLabs Conversational AI as the realtime speech engine with PersAI as the custom agent/LLM bridge.
+
+The bridge should expose an OpenAI-compatible streaming endpoint backed by PersAI runtime, rather than moving PersAI tool definitions into ElevenLabs dashboard as independent business logic. If ElevenLabs requires limited client/server tools for conversation control, they must be thin bridge tools only, not duplicate implementations of PersAI `image_generate`, `files`, `document`, memory, billing, or other runtime tools.
+
+### Session Start
+
+API starts a live voice session for the current authenticated user/chat/assistant:
+
+- resolve active assistant and workspace;
+- verify plan/feature entitlement, concurrency, and quota preflight;
+- resolve saved assistant voice profile, especially `voiceProfile.elevenlabs.voiceId`;
+- build a compact session context packet: chat id, assistant id, workspace id, locale/timezone, current chat summary/last relevant turns, current files/artifacts references, plan/premium state, and voice/tool policy;
+- obtain a signed ElevenLabs Conversational AI URL from server-side credentials;
+- create durable session metadata for auditing, billing correlation, reconnect, and finalization.
+
+### Runtime Turns Inside Session
+
+Each finalized user utterance becomes a normal PersAI runtime turn with additional live voice metadata:
+
+- channel/surface: `web_live_voice`;
+- live session id and ElevenLabs conversation id;
+- source transcript from ElevenLabs ASR;
+- optional current VAD/interruption metadata;
+- no user audio attachment by default unless product later chooses to persist session recordings;
+- full model tool exposure remains governed by the existing runtime bundle/tool policy.
+
+The runtime response is streamed back through the live voice bridge. If the turn uses tools, PersAI tool events drive the `working` / `needs_approval` live UI states and the usual chat persistence/delivery logic.
+
+### Persistence
+
+Live voice is not ephemeral. Every committed utterance/result must persist into the existing chat history:
+
+- user transcript message;
+- assistant response text;
+- produced artifacts and files;
+- tool outputs where the existing chat/tool surfaces already persist them;
+- corrections for interrupted assistant speech when needed;
+- session metadata sufficient for support/audit.
+
+History should read like a normal chat after the session ends. It should not become a dump of raw audio chunks or low-level realtime events.
+
+### Billing and Quota
+
+Realtime voice economics must use the existing provider catalog and ledger architecture.
+
+Add only the missing billing facts/contracts needed for live voice:
+
+- ElevenLabs Conversational AI / Speech Engine session duration as time-metered provider usage;
+- optional ElevenLabs realtime STT/Scribe fallback as `speech_to_text` time-metered usage;
+- existing PersAI runtime chat/tool usage stays recorded through current `usageAccounting`, tool billing facts, and media/tool ledgers;
+- avoid double charging when a transcript came from the realtime session and no fallback STT call was made;
+- tie all events to workspace, assistant, user, chat, live session id, provider, model/capability, and source event id.
+
+The ADR does not change user-facing quota semantics by itself; implementation slices must explicitly state which existing quota dimensions gate live voice and whether a new plan entitlement is required.
+
+### Fallbacks
+
+Fallback must be honest and product-safe:
+
+- if live session cannot start, offer ordinary voice note fallback;
+- if realtime transcript fails for a single utterance, optionally retry with ElevenLabs STT/Scribe first, then existing OpenAI STT path if configured;
+- if voice output fails, keep the PersAI turn result as text and persist it;
+- if PersAI runtime/tool execution fails, speak and persist the same honest error class used by chat, not a fake successful voice response.
 
 ## Non-Goals
 
+- Replacing the existing `tts` worker tool.
 - Replacing ordinary voice notes.
-- Replacing chat TTS.
-- Rebuilding PersAI tools inside the ElevenLabs dashboard.
-- Running a heavy full PersAI retrieval/tool turn inline on every spoken utterance.
-- Standalone text-stream-to-TTS outside the realtime agent (loses turn-taking/interruption).
-- Storing raw session audio by default.
-- Treating direct browser/mobile -> ElevenLabs as the only supported transport.
-- A separate ElevenLabs-owned conversational brain.
+- Replacing PersAI runtime/tool execution with an ElevenLabs-hosted assistant.
+- Duplicating PersAI tools in ElevenLabs as independent implementations.
+- Rebuilding chat persistence, memory, knowledge, image/video/document tools, or billing from scratch.
+- Adding raw session recording retention by default.
+- Adding OpenAI Realtime API as the primary route for this feature; OpenAI Realtime may be evaluated separately, but this ADR chooses ElevenLabs Conversational AI because the product requires the saved premium assistant voice and ElevenLabs turn-taking speed.
 
 ## Execution Model
 
-This is an orchestrator-run program:
+This is an orchestrator-run program. The parent agent must:
 
-1. Re-read this ADR and current handoff before each implementation slice.
-2. Use GPT-5.4 implementation subagents for code.
-3. Parent agent audits diffs before acceptance.
-4. Update `SESSION-HANDOFF`, `CHANGELOG`, `API-BOUNDARY`, `DATA-MODEL`, and `TEST-PLAN` whenever contract/data/API truth changes.
-5. Do not commit or push unless explicitly requested.
+1. start each implementation session by re-reading this ADR and the current handoff/changelog;
+2. launch GPT-5.4 implementation subagents with specific slice prompts;
+3. require subagents to return changed files, tests, risks, and any deviations from this ADR;
+4. audit produced diffs before accepting them;
+5. run focused tests and the relevant AGENTS verification gate;
+6. update docs/handoff/changelog in the same slice when contracts, data model, billing, or UX truth changes.
+
+Do not create tiny PR-churn slices. Each slice below is intentionally broad enough to land a coherent vertical without duplicating logic.
 
 ## Slice Plan
 
-### Slice 1 — Live session substrate (landed)
+### Slice 0 — Final pre-implementation design audit
 
-**Type:** backend foundation. **Deploy:** required before UI.
+**Type:** read-only + ADR refinement if needed.  
+**Deploy:** no.
 
-Already in the working tree:
+Confirm the exact ElevenLabs product path before code:
 
-- durable `assistant_live_voice_sessions`;
-- authenticated start/status/stop;
-- server-side ElevenLabs credential issuance (conversation token / signed URL);
-- selected `voiceProfile.elevenlabs.voiceId` snapshot;
-- operator readiness settings (enabled, agentId, transportProtocol, explicit transportRoute);
-- non-billing local duration/failure metadata.
+- Speech Engine / Custom LLM bridge vs direct WebSocket + server-side bridge;
+- signed URL and private agent requirements;
+- event payloads needed for transcript/audio/interruption/tool visibility;
+- pricing model and provider catalog shape for Conversational AI;
+- whether the selected `voiceProfile.elevenlabs.voiceId` can be applied per conversation or requires agent/voice configuration management.
 
-No action execution, no UI, no transcript bridge.
+Exit with a short implementation brief. If findings contradict this ADR, amend the ADR before implementation.
 
-### Slice 2 — PersAI Custom LLM endpoint
+### Slice 1 — Provider/API session substrate, contracts, and billing foundation
 
-**Type:** backend vertical (core). **Deploy:** required before UI.
+**Type:** backend foundation.  
+**Deploy:** required before live UI can work.
 
-Add the OpenAI-compatible streaming `chat/completions` endpoint that ElevenLabs Custom LLM calls. Thin transport adapter only — no changes to PersAI chat logic, prompt, models, tools, memory, persistence, or async-job behavior:
+Add the shared contract and backend substrate for live voice:
 
-- authenticate/bind the request to a durable live session and resolve owning chat/user/assistant;
-- treat the PersAI chat as conversation source of truth; take the latest utterance as the new user turn;
-- call the existing fast PersAI streaming chat path unchanged (persona/prompt/memory/tools), no parallel brain;
-- re-emit the existing chat token stream in the OpenAI-compatible shape ElevenLabs expects, as fast as possible;
-- cancel/unsubscribe promptly on barge-in/turn abort so the in-flight chat turn stops;
-- never leak secrets or raw runtime dumps.
+- runtime-contract/API contract types for live voice session start/stop/events;
+- server-side ElevenLabs signed URL creation and session metadata;
+- provider-gateway or API-owned ElevenLabs Conversational AI client boundary, following existing provider isolation patterns;
+- admin credential/config support for Conversational AI agent id/API key if not covered by current ElevenLabs TTS credential truth;
+- provider catalog/billing facts additions for time-metered live voice and optional ElevenLabs STT fallback;
+- durable session/event rows only where needed for replay-safe billing/support;
+- no tool duplication and no UI feature yet.
 
-Reused as-is (existing behavior, untouched): the current chat prompt/model/tools/memory/persistence and its existing heavy-work-to-async-jobs offloading. Deferred polish (NOT this slice): live-mode short prompt, dedicated fast model, TTFT tuning — postponed until the ADR works end-to-end on the existing chat path.
+Focused tests must cover auth, entitlement/preflight, signed URL secrecy, billing facts normalization, ledger idempotency, and failure mapping.
 
-Focused tests must prove: the endpoint calls the existing chat path (no parallel prompt/tool builder, no edits to chat logic), ordinary chat behavior is unchanged, cancellation is honored, and responses stream in the expected OpenAI-compatible shape.
+### Slice 2 — PersAI runtime bridge and multi-turn persistence
 
-### Slice 3 — Session-bound client transport config + override readiness
+**Type:** backend vertical.  
+**Deploy:** required.
 
-**Type:** backend vertical. **Deploy:** required before UI.
+Connect finalized live utterances to the existing PersAI turn loop:
 
-ElevenLabs applies per-conversation `conversation_config_override`, `custom_llm_extra_body`, and `dynamic_variables` from the CLIENT at `Conversation.startSession`, not from the server-minted token (the token only authorizes). So the server's job is to compute and return the exact session-bound config the client must apply:
+- expose the OpenAI-compatible custom LLM/Speech Engine endpoint or equivalent bridge backed by PersAI runtime;
+- map each finalized user transcript to a normal PersAI runtime turn with live session metadata;
+- keep `TurnExecutionService` as the owner of context hydration, tool exposure, budgets, and tool execution;
+- persist user transcript, assistant text, tool/artifact results, and interruption corrections into existing chat history;
+- stream/return assistant text to the live voice layer for speech output;
+- surface tool progress and approval-required states as live events without making ElevenLabs the tool system.
 
-- extend the `start` response with a `clientConfig` block: `agentId`, `connectionType` (from transportProtocol), `overrides` (`tts.voiceId` = snapped assistant voiceId, `agent.language` = resolved user/assistant locale via existing locale resolution), and `customLlmExtraBody = { persaiLiveVoiceSessionId }` so the Custom LLM endpoint (Slice 2) binds to the right session;
-- keep server-side credential issuance (Slice 1) as-is (conversation token / signed URL);
-- direct ElevenLabs WebRTC/WebSocket only for now (`transportRoute=relay` still returns the honest unavailable until the relay slice lands);
-- document the operator precondition: the agent must have `platform_settings.overrides.conversation_config_override` enabled for `tts.voice_id` and `agent.language`;
-- close the auth gap: the live-voice user routes (`start`/`status`/`stop`) must be in the authenticated (Clerk) route allowlist; the machine Custom LLM ingress route must stay OUT of it (it self-authenticates via the ingress secret).
+Focused tests must cover multi-utterance session behavior, tool calls across turns, generated artifacts, interruption correction, idempotency/retry, and chat history after session stop.
 
-This slice is backend-only and additive to the typed contract. No relay, no UI.
+### Slice 3 — Web/mobile realtime voice UX and audio client
 
-### Slice 4 — WebSocket relay (blocked/unreliable regions)
+**Type:** product UI vertical.  
+**Deploy:** required.
 
-**Type:** backend vertical (relay embedded in `apps/api`). **Deploy:** required for RU reachability.
+Implement the premium live voice entry and session UI:
 
-Decision: the relay is a **transparent WebSocket reverse proxy embedded in `apps/api`**, not a new service and not a WebRTC media relay. WebRTC/LiveKit media relaying needs TURN/SFU infrastructure and is explicitly **deferred** to a future slice; the direct WebRTC path is unchanged for reachable clients. The relay is always available as a **fallback** so the eventual client autopick (Slice 5: try direct, fall back to relay) has a target.
+- mobile short-tap `mic/live` armed-mode switch;
+- mobile long-press on `mic` keeps ordinary voice note behavior;
+- mobile long-press on `live` starts live voice;
+- desktop minimal explicit `Mic | Live` or morphing live control;
+- live animation above the existing chat, no sheet/fullscreen call UI;
+- `Stop`, interruption handling, reconnect/fallback messaging, and muted/blocked states;
+- audio capture/playback queue with cleanup on interruption and session close;
+- no regression to existing voice note tests and no confusion with TTS playback.
 
-- WS upgrade endpoint in `apps/api` (e.g. `GET /api/v1/assistant/live-voice/relay` via the underlying HTTP server's `upgrade` event, `ws` library, `noServer` mode, path-filtered) that:
-  - authenticates with a short-lived, session-bound **relay ticket** (stateless HMAC over `sessionId|userId|exp`, signed with a managed `tool/live_voice/relay_ticket/secret`; no DB column/migration), and confirms the session is still `active`;
-  - mints the ElevenLabs **websocket signed URL server-side** at connect time (credentials never reach the browser) and opens the upstream WS;
-  - **transparently pumps** text + binary frames in both directions; on either-side close/error, idle timeout, or max-duration it tears down both sockets and de-registers (no leaks);
-- `start` additively returns `clientConfig.relay = { path, ticket, expiresAt }` whenever live voice is ready (fallback for everyone), and a `clientConfig.preferRelay` flag = true when the platform `transportRoute=relay` (primary). When `preferRelay` is true the direct ElevenLabs credential is not pre-minted (direct is presumed blocked); otherwise the direct path/credential from Slice 1-3 is byte-for-byte unchanged;
-- the client opens the relay by handing the ElevenLabs JS SDK the relay URL as its websocket `signedUrl`; `conversation_initiation_client_data` (overrides + `custom_llm_extra_body.persaiLiveVoiceSessionId`) flows through the proxy unchanged;
-- reconnect/timeout/observability and credential secrecy; relay must not become another assistant brain or alter chat logic.
+Focused tests must cover mobile gesture semantics, desktop control semantics, permission denied, unavailable fallback, session stop cleanup, and ordinary voice note preservation.
 
-Deferred to a later slice: WebRTC-over-relay (TURN/SFU), and the relay running as its own deploy unit if audio volume ever justifies it.
+### Slice 4 — PROD hardening, observability, and live smoke
 
-### Slice 4b — Live Voice credentials (consolidation + admin entry)
+**Type:** end-to-end hardening.  
+**Deploy:** required.
 
-**Type:** backend + admin UI hygiene. **Deploy:** required for operator setup.
+Make the feature production-ready:
 
-Three secrets back live voice; one is from ElevenLabs, two are PersAI-internal:
+- concurrency/session limits and stale-session cleanup;
+- quota/admission enforcement for live sessions and internal PersAI turns;
+- error taxonomy aligned with existing chat/voice failures;
+- billing reconciliation checks for realtime duration plus PersAI runtime/tool usage;
+- support-friendly session metadata without storing raw audio by default;
+- dashboard/admin visibility only where needed for operators;
+- docs updates: architecture, API boundary, data model, test plan, changelog, handoff;
+- live dev smoke for mobile and desktop using a real saved ElevenLabs assistant voice.
 
-- the ElevenLabs account API key is **consolidated** onto the existing shared TTS slot `tool/tts/elevenlabs/api-key`. The separate `tool/live_voice/elevenlabs/api-key` slot is **removed** (ElevenLabs uses one account-level `xi-api-key` for both TTS and Conversational AI; the duplicate forced double entry). The live-voice ElevenLabs client now reads the TTS slot;
-- `tool/live_voice/custom_llm_ingress/secret` — PersAI-generated shared secret. Configured **both** in PersAI (we verify the `Authorization: Bearer` on the Custom LLM ingress) **and** in the ElevenLabs Agent's Custom LLM "API Key" field (ElevenLabs sends it);
-- `tool/live_voice/relay_ticket/secret` — PersAI-generated server-only secret used to sign relay tickets; **never** leaves PersAI / never configured in ElevenLabs;
-- Admin → Tools gains a **Live Voice** section so an operator can enter the two internal secrets in the UI (they were previously catalog-registered but unsurfaced). Internal-secret fields offer client-side **generate** (CSPRNG) and **copy**, plus a short hint on where each value goes (ingress → ElevenLabs Custom LLM; relay → server-only).
+Exit requires focused tests, relevant typecheck/lint, and a documented manual smoke script.
 
-### Slice 5 — Web/mobile live UX
+## Open Questions for Slice 0
 
-**Type:** product UI. **Deploy:** required.
-
-Enable the UI only after Slices 2-3 are real (relay optional per region):
-
-- mobile `mic/live` mode switch;
-- desktop live affordance;
-- live overlay/animation;
-- stop/recover/unavailable/working states;
-- audio focus with existing voice previews/TTS;
-- no regression to ordinary voice notes, text chat, streaming, or TTS.
-
-### Slice 6 — Admin readiness + relay ingress + live UX rework (landed)
-
-**Type:** operability + product UI + infra. **Deploy:** required.
-
-- new admin-only readiness surface `GET/PUT /api/v1/admin/runtime/live-voice` editing only the `live_voice_settings` column (`enabled`, `agentId`, `transportProtocol`, `transportRoute`) with no provider-profile replace / config-generation bump / materialization rollout; `PUT` step-up gated under `admin.runtime_provider_settings.update`; it is an operator raw-fetch surface, intentionally not in the OpenAPI contract;
-- `Admin -> Tools -> Live Voice` edits enable + Agent ID + direct/relay route next to the two internal secrets, so enabling/switching transport no longer requires a direct DB edit;
-- production relay routing fix: the GCE ingress on host `persai.dev` routes `/api/v1/assistant/live-voice/relay` straight to the `api` backend (the Next.js web service proxies HTTP `/api/v1` but not WS upgrades), fixing the relay WS 1006 failure;
-- live UX rework: compact non-blocking floating indicator (pulse + status + transport badge + Stop, auto-dismissing error/unavailable) instead of a full-screen overlay; composer live entry reveals on hover/focus next to the mic on desktop and stays a small persistent entry on touch (the hold-to-record voice-note gesture is untouched).
-
-### Slice 7 — PROD hardening and smoke
-
-**Type:** hardening. **Deploy:** required.
-
-- concurrency/session limits;
-- stale session cleanup;
-- provider-cost reconciliation for ElevenLabs audio once provider truth exists (no double-count of PersAI turns);
-- support metadata;
-- live smoke with real ElevenLabs voice and conversation in both supported languages (ru/en);
-- docs/test plan updates.
-
-## Future Option — direct vs Custom LLM
-
-The Custom LLM design is the primary target. If latency on the PersAI conversational path ever proves unacceptable for live voice, a fast lightweight conversational model variant (still PersAI-owned) is the mitigation, not a return to a separate ElevenLabs-owned brain. The session substrate, transport, relay, and UI slices remain valid regardless.
+1. Can ElevenLabs Conversational AI apply the existing saved `voiceProfile.elevenlabs.voiceId` per session, or do we need an agent-per-voice/config update strategy?
+2. Is Speech Engine / Custom LLM low-latency enough when PersAI runtime performs multi-tool turns, and what response timing should the voice layer speak during long tool work?
+3. Which plan entitlement gates live voice: existing premium voice entitlement, a new live voice entitlement, or both?
+4. Should PersAI persist optional transcript-only session summaries at stop, or rely entirely on per-utterance chat messages?
+5. Which risky tool actions require visual confirmation in live voice, and can the existing approval/control surfaces be reused?
 
 ## Acceptance Criteria
 
-- User can start one realtime live voice session in an existing chat.
-- ElevenLabs uses the saved PersAI ElevenLabs voice via per-session override.
-- The conversation runs in the user's language (ru/en).
-- PersAI answers every spoken turn through its existing fast streaming chat (one brain, no second LLM).
-- Interruption/barge-in and natural turn-taking work.
-- Heavy actions run as native PersAI tools/jobs; visible results/artifacts land in normal chat.
-- The conversation persists as ordinary PersAI chat turns; chat context is continuous after the session.
-- Ordinary text chat, streaming, voice notes, TTS, voice previews, files, documents, images, and project behavior remain intact.
-- Direct and relay/proxy transport paths are represented honestly.
-- No separate ElevenLabs conversational brain and no separate voice action tool exist.
+- A user can start one live voice session inside an existing chat and speak through multiple turns without leaving the session.
+- The selected PersAI ElevenLabs assistant voice is used for live speech.
+- The assistant has the same tool capabilities as ordinary chat, subject to existing policy and approval rules.
+- Results are visible in normal chat history after the session.
+- Ordinary voice notes and TTS continue to work unchanged.
+- Realtime voice usage and PersAI runtime/tool usage are billed through existing ledger patterns without double charging.
+- Fallbacks are honest and do not pretend realtime succeeded when it did not.
+- The implementation remains PersAI-native and does not introduce a second assistant/tool source of truth.

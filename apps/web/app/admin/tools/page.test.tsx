@@ -7,7 +7,6 @@ const clerkMocks = vi.hoisted(() => ({
 }));
 
 const fetchMock = vi.hoisted(() => vi.fn());
-const clipboardWriteTextMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -41,56 +40,6 @@ const credentialsPayload = {
       updatedAt: null,
       providerId: "tavily",
       providerOptions: [{ id: "tavily", label: "Tavily", envVar: "TAVILY_API_KEY" }]
-    },
-    {
-      credentialKey: "tool_tts_elevenlabs",
-      toolCode: "tts",
-      displayName: "Text-to-Speech API Key (ElevenLabs)",
-      configured: true,
-      lastFour: "tts1",
-      updatedAt: "2026-06-01T11:00:00.000Z",
-      providerId: null,
-      providerOptions: null
-    },
-    {
-      credentialKey: "tool_tts_yandex",
-      toolCode: "tts",
-      displayName: "Text-to-Speech API Key (Yandex SpeechKit)",
-      configured: false,
-      lastFour: null,
-      updatedAt: null,
-      providerId: null,
-      providerOptions: null
-    },
-    {
-      credentialKey: "tool_tts_openai",
-      toolCode: "tts",
-      displayName: "Text-to-Speech API Key (OpenAI)",
-      configured: false,
-      lastFour: null,
-      updatedAt: null,
-      providerId: null,
-      providerOptions: null
-    },
-    {
-      credentialKey: "tool_live_voice_custom_llm_ingress",
-      toolCode: "live_voice",
-      displayName: "Live Voice Custom LLM Ingress Secret",
-      configured: false,
-      lastFour: null,
-      updatedAt: null,
-      providerId: null,
-      providerOptions: null
-    },
-    {
-      credentialKey: "tool_live_voice_relay_ticket",
-      toolCode: "live_voice",
-      displayName: "Live Voice Relay Ticket Secret",
-      configured: false,
-      lastFour: null,
-      updatedAt: null,
-      providerId: null,
-      providerOptions: null
     },
     {
       credentialKey: "tool_image_generate",
@@ -169,7 +118,6 @@ const economicsPayload = {
 
 describe("AdminToolsPage economics", () => {
   beforeEach(() => {
-    clipboardWriteTextMock.mockReset();
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/v1/admin/runtime/tool-credentials") && init?.method !== "PUT") {
@@ -224,12 +172,6 @@ describe("AdminToolsPage economics", () => {
       return jsonResponse({}, 404);
     });
     vi.stubGlobal("fetch", fetchMock);
-    Object.defineProperty(globalThis.navigator, "clipboard", {
-      configurable: true,
-      value: {
-        writeText: clipboardWriteTextMock
-      }
-    });
   });
 
   afterEach(() => {
@@ -318,71 +260,5 @@ describe("AdminToolsPage economics", () => {
         ) && init?.method === "POST"
     );
     expect(refreshCall).toBeTruthy();
-  });
-
-  it("renders live voice internal secrets and supports generate/copy", async () => {
-    const originalCrypto = globalThis.crypto;
-    const getRandomValues = vi.fn((array: Uint8Array) => {
-      for (let index = 0; index < array.length; index += 1) {
-        array[index] = index + 1;
-      }
-      return array;
-    });
-    vi.stubGlobal("crypto", {
-      ...originalCrypto,
-      getRandomValues
-    } as Crypto);
-
-    render(<AdminToolsPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Live Voice")).toBeTruthy();
-    });
-
-    expect(screen.getByText("Live Voice Custom LLM Ingress Secret")).toBeTruthy();
-    expect(screen.getByText("Live Voice Relay Ticket Secret")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "The ElevenLabs API key for live voice is the same one entered in the TTS section above; set the two internal secrets below."
-      )
-    ).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Paste this same value into your ElevenLabs Agent -> Custom LLM -> API Key. PersAI verifies it as a Bearer token."
-      )
-    ).toBeTruthy();
-    expect(
-      screen.getByText("Server-only. Signs relay tickets; never entered into ElevenLabs.")
-    ).toBeTruthy();
-
-    const generateButton = screen.getByRole("button", {
-      name: "Generate Live Voice Custom LLM Ingress Secret"
-    });
-    fireEvent.click(generateButton);
-
-    const generatedInput = screen.getByDisplayValue("AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA");
-    expect(generatedInput).toBeTruthy();
-    expect(getRandomValues).toHaveBeenCalled();
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Copy Live Voice Custom LLM Ingress Secret"
-      })
-    );
-
-    await waitFor(() => {
-      expect(clipboardWriteTextMock).toHaveBeenCalledWith(
-        "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA"
-      );
-    });
-
-    vi.unstubAllGlobals();
-    vi.stubGlobal("fetch", fetchMock);
-    Object.defineProperty(globalThis.navigator, "clipboard", {
-      configurable: true,
-      value: {
-        writeText: clipboardWriteTextMock
-      }
-    });
   });
 });

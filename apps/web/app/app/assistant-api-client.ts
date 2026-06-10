@@ -64,11 +64,6 @@ import {
   ContractsApiError,
   type AssistantLifecycleState,
   type UserPlanVisibilityState,
-  type AssistantLiveVoiceSessionStartState,
-  type AssistantLiveVoiceSessionState,
-  type GetAssistantLiveVoiceSessionResponse,
-  type PostAssistantLiveVoiceStartResponse,
-  type PostAssistantLiveVoiceStopResponse,
   deleteAssistantWebChat as deleteAssistantWebChatContract,
   getAssistant as getAssistantContract,
   getAssistantList as getAssistantListContract,
@@ -2407,83 +2402,6 @@ export async function getChatMessages(
     activeMediaJobs?: WebChatActiveMediaJobState[];
     activeDocumentJobs?: WebChatActiveDocumentJobState[];
   };
-}
-
-export function buildLiveVoiceRelayUrl(relayPath: string, ticket: string): string {
-  const apiBase =
-    typeof window !== "undefined"
-      ? new URL(getApiBaseUrl(), window.location.origin)
-      : new URL(getApiBaseUrl());
-  const wsProtocol = apiBase.protocol === "https:" ? "wss:" : "ws:";
-  return `${wsProtocol}//${apiBase.host}${relayPath}?ticket=${encodeURIComponent(ticket)}`;
-}
-
-export async function startLiveVoiceSession(
-  token: string,
-  chatId: string
-): Promise<AssistantLiveVoiceSessionStartState> {
-  const response = await fetch(`${getApiBaseUrl()}/assistant/live-voice/start`, {
-    method: "POST",
-    headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
-    body: JSON.stringify({ chatId })
-  });
-  if (!response.ok) {
-    const envelope = await readApiErrorEnvelope(response);
-    if (envelope) {
-      throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
-    }
-    throw new Error("Failed to start live voice session.");
-  }
-  const payload = (await response.json()) as PostAssistantLiveVoiceStartResponse;
-  return payload.liveVoice;
-}
-
-export async function getLiveVoiceSessionStatus(
-  token: string,
-  sessionId: string
-): Promise<AssistantLiveVoiceSessionState> {
-  const response = await fetch(
-    `${getApiBaseUrl()}/assistant/live-voice/${encodeURIComponent(sessionId)}`,
-    {
-      headers: getAuthHeaders(token)
-    }
-  );
-  if (!response.ok) {
-    const envelope = await readApiErrorEnvelope(response);
-    if (envelope) {
-      throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
-    }
-    throw new Error("Failed to read live voice session status.");
-  }
-  const payload = (await response.json()) as GetAssistantLiveVoiceSessionResponse;
-  return payload.liveVoice;
-}
-
-export async function stopLiveVoiceSession(
-  token: string,
-  sessionId: string,
-  failure?: {
-    failureCode?: string;
-    failureMessage?: string;
-  }
-): Promise<AssistantLiveVoiceSessionState> {
-  const response = await fetch(
-    `${getApiBaseUrl()}/assistant/live-voice/${encodeURIComponent(sessionId)}/stop`,
-    {
-      method: "POST",
-      headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
-      body: JSON.stringify(failure ?? {})
-    }
-  );
-  if (!response.ok) {
-    const envelope = await readApiErrorEnvelope(response);
-    if (envelope) {
-      throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
-    }
-    throw new Error("Failed to stop live voice session.");
-  }
-  const payload = (await response.json()) as PostAssistantLiveVoiceStopResponse;
-  return payload.liveVoice;
 }
 
 export async function getChatCompactionState(
