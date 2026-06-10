@@ -201,11 +201,7 @@ web:
       maxSurge: 1
   image:
     name: web
-<<<<<<< HEAD
-    tag: 1a0ca91b9abcba79152172cbc2e01f84a66710c9
-=======
     tag: ec3d8382bcd3cdede084694756676cf08b45763e
->>>>>>> c279facd (revert(live-voice): return to pre-ADR-114 runtime state)
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
@@ -586,7 +582,6 @@ ingress:
 
 
 
-<<<<<<< HEAD
 
 
 
@@ -595,5 +590,3 @@ ingress:
 
 
 
-=======
->>>>>>> c279facd (revert(live-voice): return to pre-ADR-114 runtime state)
