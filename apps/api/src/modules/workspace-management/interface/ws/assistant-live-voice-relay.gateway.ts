@@ -1,5 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from "@nestjs/common";
-import { HttpAdapterHost } from "@nestjs/core";
+import { Injectable, Logger, OnApplicationShutdown } from "@nestjs/common";
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Socket } from "node:net";
 import WebSocket, { WebSocketServer } from "ws";
@@ -15,30 +14,42 @@ const RELAY_MAX_DURATION_MS = 30 * 60_000;
 const RELAY_UPSTREAM_OPEN_TIMEOUT_MS = 15_000;
 
 @Injectable()
-export class AssistantLiveVoiceRelayGateway
-  implements OnApplicationBootstrap, OnApplicationShutdown
-{
+export class AssistantLiveVoiceRelayGateway implements OnApplicationShutdown {
   private readonly logger = new Logger(AssistantLiveVoiceRelayGateway.name);
   private readonly wss = new WebSocketServer({ noServer: true });
-  private httpServer: HttpServer | null = null;
+  private readonly attachedServers = new Set<HttpServer>();
   private readonly upgradeHandler = (req: IncomingMessage, socket: Socket, head: Buffer): void => {
     void this.handleUpgrade(req, socket, head);
   };
 
   constructor(
-    private readonly httpAdapterHost: HttpAdapterHost,
     private readonly assistantLiveVoiceRelayTicketService: AssistantLiveVoiceRelayTicketService,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly elevenlabsLiveVoiceClient: ElevenlabsLiveVoiceClient
   ) {}
 
-  onApplicationBootstrap(): void {
-    this.httpServer = this.httpAdapterHost.httpAdapter.getHttpServer() as HttpServer;
-    this.httpServer.on("upgrade", this.upgradeHandler);
+  /**
+   * Attach the relay websocket upgrade handler to the actual listening HTTP
+   * server. `apps/api` does not listen on Nest's internal http server: it
+   * creates its own `http.createServer(expressApp)` in `main.ts`, so the
+   * upgrade listener must be registered there (the Nest internal server never
+   * `listen()`s, which previously routed relay upgrades into the normal HTTP
+   * pipeline and returned an auth 401 instead of a websocket handshake).
+   */
+  attachTo(server: HttpServer): void {
+    if (this.attachedServers.has(server)) {
+      return;
+    }
+    server.on("upgrade", this.upgradeHandler);
+    this.attachedServers.add(server);
+    this.logger.log("Live voice relay upgrade handler attached to listening server.");
   }
 
   onApplicationShutdown(): void {
-    this.httpServer?.off("upgrade", this.upgradeHandler);
+    for (const server of this.attachedServers) {
+      server.off("upgrade", this.upgradeHandler);
+    }
+    this.attachedServers.clear();
     this.wss.close();
   }
 

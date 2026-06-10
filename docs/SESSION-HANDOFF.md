@@ -23,6 +23,10 @@
 - Web vitest (live-voice-overlay, chat-input, chat-area, use-live-voice): 58 passed. `tsx test/manage-admin-runtime-provider-settings.service.test.ts`: both base + new live-voice-readiness assertions passed.
 - `helm template persai infra/helm -f infra/helm/values-dev.yaml --show-only templates/ingress.yaml` → relay path renders to `api:3001` on `persai.dev`.
 
+### Relay upgrade attach fix (follow-up)
+
+- Root cause of the persistent relay WS 1006 was found by probing the relay both through the GCLB and from inside the api pod on `localhost:3001`: both returned the api auth-guard `401 auth_required`, proving the upgrade reached api but was handled as a normal HTTP request. `apps/api` listens on its own `http.createServer(expressApp)` in `main.ts`, but the relay gateway attached its `upgrade` listener to Nest's internal (never-listening) http server. Fixed by exposing `AssistantLiveVoiceRelayGateway.attachTo(server)` and registering it on the public listening server in `main.ts`; added arrival/reject logging. The ingress fix above was necessary but not sufficient on its own.
+
 ### Risks / residuals
 
 - Relay ingress only takes effect after the GitOps sync applies the Ingress change on GKE (GCLB programming can take a few minutes). Until then relay WS still 1006s.
