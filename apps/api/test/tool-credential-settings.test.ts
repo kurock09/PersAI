@@ -4,12 +4,14 @@ import {
   ALL_TOOL_CREDENTIAL_KEYS,
   CREDENTIAL_KEY_BY_SECRET_ID,
   DEFAULT_MEDIA_RESERVE_BASE_URL,
+  MEDIA_RESERVE_CONFIG_KEYS,
   TOOL_CODE_BY_CREDENTIAL_KEY,
   TOOL_CREDENTIAL_IDS,
   buildAdminToolCredentialsState,
   buildToolCredentialSecretRef,
   parseUpdateToolCredentialsInput
 } from "../src/modules/workspace-management/application/tool-credential-settings";
+import { resolveProviderKeyByRuntimeSecretId } from "../src/modules/workspace-management/application/platform-runtime-provider-secret-store.service";
 
 function createKeyMetadata(): Record<
   (typeof ALL_TOOL_CREDENTIAL_KEYS)[number],
@@ -177,6 +179,10 @@ async function run(): Promise<void> {
       providerId: null,
       providerOptions: null
     }
+  );
+  assert.equal(
+    resolveProviderKeyByRuntimeSecretId(MEDIA_RESERVE_CONFIG_KEYS.apiKey),
+    MEDIA_RESERVE_CONFIG_KEYS.apiKey
   );
 }
 

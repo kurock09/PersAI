@@ -6,7 +6,7 @@ import {
   PERSAI_RUNTIME_PROVIDER_SECRET_IDS,
   type PlatformRuntimeProviderKeyMetadata
 } from "./platform-runtime-provider-settings";
-import { TOOL_CREDENTIAL_IDS } from "./tool-credential-settings";
+import { MEDIA_RESERVE_CONFIG_KEYS, TOOL_CREDENTIAL_IDS } from "./tool-credential-settings";
 import {
   DOCUMENT_PROCESSING_PROVIDER_SECRET_IDS,
   DOCUMENT_PROCESSING_PROVIDER_SECRET_KEYS
@@ -23,11 +23,16 @@ for (const [provider, secretId] of Object.entries(PERSAI_RUNTIME_PROVIDER_SECRET
 for (const [credentialKey, secretId] of Object.entries(TOOL_CREDENTIAL_IDS)) {
   PROVIDER_KEY_BY_SECRET_ID[secretId] = credentialKey;
 }
+PROVIDER_KEY_BY_SECRET_ID[MEDIA_RESERVE_CONFIG_KEYS.apiKey] = MEDIA_RESERVE_CONFIG_KEYS.apiKey;
 for (const [providerKey, secretId] of Object.entries(DOCUMENT_PROCESSING_PROVIDER_SECRET_IDS)) {
   PROVIDER_KEY_BY_SECRET_ID[secretId] =
     DOCUMENT_PROCESSING_PROVIDER_SECRET_KEYS[
       providerKey as keyof typeof DOCUMENT_PROCESSING_PROVIDER_SECRET_KEYS
     ];
+}
+
+export function resolveProviderKeyByRuntimeSecretId(secretId: string): string | null {
+  return PROVIDER_KEY_BY_SECRET_ID[secretId] ?? null;
 }
 
 @Injectable()
@@ -153,8 +158,8 @@ export class PlatformRuntimeProviderSecretStoreService {
   }
 
   async resolveSecretValueById(secretId: string): Promise<string> {
-    const providerKey = PROVIDER_KEY_BY_SECRET_ID[secretId];
-    if (providerKey === undefined) {
+    const providerKey = resolveProviderKeyByRuntimeSecretId(secretId);
+    if (providerKey === null) {
       throw new Error(`Unsupported PersAI-managed runtime secret id "${secretId}".`);
     }
     const row = await this.prisma.platformRuntimeProviderSecret.findUnique({
