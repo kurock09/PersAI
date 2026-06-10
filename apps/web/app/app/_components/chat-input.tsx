@@ -1358,7 +1358,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               )}
             />
 
-            <div className="mb-0.5 flex shrink-0 items-end gap-1">
+            <div className="group/composer-actions mb-0.5 flex shrink-0 items-end gap-1">
               {showLiveVoice ? (
                 <button
                   type="button"
@@ -1371,15 +1371,25 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   disabled={
                     liveVoice.disabled || disabled || isStreaming || isRecording || isTranscribing
                   }
-                  className={composerIconButtonClass({
-                    disabled:
-                      liveVoice.disabled ||
-                      disabled ||
-                      isStreaming ||
-                      isRecording ||
-                      isTranscribing,
-                    active: false
-                  })}
+                  className={cn(
+                    "flex h-10 shrink-0 items-center justify-center self-end overflow-hidden rounded-full transition-[width,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                    liveVoice.disabled || disabled || isStreaming || isRecording || isTranscribing
+                      ? "cursor-default text-text-subtle/40"
+                      : cn(
+                          "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted",
+                          "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted"
+                        ),
+                    // Apple-style reveal: collapsed next to the mic on fine
+                    // pointers, expands on hover/focus of the action group.
+                    // Touch has no hover, so it stays a small persistent entry.
+                    isTouchDevice
+                      ? "w-10 opacity-100"
+                      : cn(
+                          "w-0 opacity-0",
+                          "group-hover/composer-actions:w-10 group-hover/composer-actions:opacity-100",
+                          "group-focus-within/composer-actions:w-10 group-focus-within/composer-actions:opacity-100"
+                        )
+                  )}
                   title={t("liveVoice.start")}
                   aria-label={t("liveVoice.start")}
                 >

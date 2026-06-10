@@ -288,7 +288,16 @@ Enable the UI only after Slices 2-3 are real (relay optional per region):
 - audio focus with existing voice previews/TTS;
 - no regression to ordinary voice notes, text chat, streaming, or TTS.
 
-### Slice 6 — PROD hardening and smoke
+### Slice 6 — Admin readiness + relay ingress + live UX rework (landed)
+
+**Type:** operability + product UI + infra. **Deploy:** required.
+
+- new admin-only readiness surface `GET/PUT /api/v1/admin/runtime/live-voice` editing only the `live_voice_settings` column (`enabled`, `agentId`, `transportProtocol`, `transportRoute`) with no provider-profile replace / config-generation bump / materialization rollout; `PUT` step-up gated under `admin.runtime_provider_settings.update`; it is an operator raw-fetch surface, intentionally not in the OpenAPI contract;
+- `Admin -> Tools -> Live Voice` edits enable + Agent ID + direct/relay route next to the two internal secrets, so enabling/switching transport no longer requires a direct DB edit;
+- production relay routing fix: the GCE ingress on host `persai.dev` routes `/api/v1/assistant/live-voice/relay` straight to the `api` backend (the Next.js web service proxies HTTP `/api/v1` but not WS upgrades), fixing the relay WS 1006 failure;
+- live UX rework: compact non-blocking floating indicator (pulse + status + transport badge + Stop, auto-dismissing error/unavailable) instead of a full-screen overlay; composer live entry reveals on hover/focus next to the mic on desktop and stays a small persistent entry on touch (the hold-to-record voice-note gesture is untouched).
+
+### Slice 7 — PROD hardening and smoke
 
 **Type:** hardening. **Deploy:** required.
 

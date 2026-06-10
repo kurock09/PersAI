@@ -20,6 +20,7 @@ import { AdminOverviewDashboardController } from "./interface/http/admin-overvie
 import { AdminNotificationsController } from "./interface/http/admin-notifications.controller";
 import { AdminPlatformRolloutsController } from "./interface/http/admin-platform-rollouts.controller";
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
+import { AdminLiveVoiceSettingsController } from "./interface/http/admin-live-voice-settings.controller";
 import { AdminDocumentProcessingSettingsController } from "./interface/http/admin-document-processing-settings.controller";
 import { AdminToolPathPricingController } from "./interface/http/admin-tool-path-pricing.controller";
 import { AdminBillingProviderCredentialsController } from "./interface/http/admin-billing-provider-credentials.controller";
@@ -393,6 +394,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalNotificationsPostmarkWebhookController,
     AdminPlatformRolloutsController,
     AdminRuntimeProviderSettingsController,
+    AdminLiveVoiceSettingsController,
     AdminDocumentProcessingSettingsController,
     AdminToolPathPricingController,
     AdminBillingProviderCredentialsController,

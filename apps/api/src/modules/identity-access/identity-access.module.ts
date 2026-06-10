@@ -253,6 +253,8 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/notifications/preview", method: RequestMethod.POST },
       { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.GET },
       { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.PUT },
+      { path: "api/v1/admin/runtime/live-voice", method: RequestMethod.GET },
+      { path: "api/v1/admin/runtime/live-voice", method: RequestMethod.PUT },
       { path: "api/v1/admin/platform-rollouts", method: RequestMethod.GET },
       { path: "api/v1/admin/platform-rollouts/:rolloutId/failed-items", method: RequestMethod.GET },
       {

@@ -111,6 +111,15 @@ type AdminBillingProviderCredentialsState = {
   notes: string[];
 };
 
+type LiveVoiceTransportRoute = "direct" | "relay";
+
+type LiveVoiceReadinessState = {
+  enabled: boolean;
+  agentId: string | null;
+  transportProtocol: "webrtc" | "websocket";
+  transportRoute: LiveVoiceTransportRoute;
+};
+
 const WEB_CREDENTIAL_KEYS = ["tool_web_search", "tool_web_fetch", "tool_browser"] as const;
 const TTS_CREDENTIAL_KEYS = ["tool_tts_elevenlabs", "tool_tts_yandex", "tool_tts_openai"] as const;
 const LIVE_VOICE_INTERNAL_SECRET_KEYS = [
@@ -195,6 +204,9 @@ export default function AdminToolsPage() {
   const [economicsRows, setEconomicsRows] = useState<ToolPathPricingRowState[]>([]);
   const [savingEconomics, setSavingEconomics] = useState(false);
   const [economicsFeedback, setEconomicsFeedback] = useState<string | null>(null);
+  const [liveVoiceInput, setLiveVoiceInput] = useState<LiveVoiceReadinessState | null>(null);
+  const [savingLiveVoice, setSavingLiveVoice] = useState(false);
+  const [liveVoiceFeedback, setLiveVoiceFeedback] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -235,6 +247,13 @@ export default function AdminToolsPage() {
       const catalog = (economicsData.catalog ?? economicsData) as AdminToolPathEconomicsState;
       setEconomicsState(catalog);
       setEconomicsRows(cloneEconomicsRows(catalog.rows));
+      const liveVoiceRes = await fetch("/api/v1/admin/runtime/live-voice", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!liveVoiceRes.ok)
+        throw new Error(`Failed to load live voice settings: ${liveVoiceRes.status}`);
+      const liveVoiceData = await liveVoiceRes.json();
+      setLiveVoiceInput((liveVoiceData.liveVoice ?? liveVoiceData) as LiveVoiceReadinessState);
     } catch (e) {
       setFeedback(e instanceof Error ? e.message : "Failed to load.");
     } finally {
@@ -329,6 +348,57 @@ export default function AdminToolsPage() {
     }
     setSaving(false);
   }, [getToken, keyInputs, providerInputs, ttsPrimaryProviderInput, state, load]);
+
+  const handleSaveLiveVoice = useCallback(async () => {
+    if (liveVoiceInput === null) return;
+    const agentId = liveVoiceInput.agentId?.trim() ?? "";
+    if (liveVoiceInput.enabled && agentId.length === 0) {
+      setLiveVoiceFeedback("Agent ID is required when live voice is enabled.");
+      return;
+    }
+    const token = await getToken();
+    if (!token) return;
+    setSavingLiveVoice(true);
+    setLiveVoiceFeedback(null);
+    try {
+      const challengeRes = await fetch("/api/v1/admin/step-up/challenge", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ action: "admin.runtime_provider_settings.update" })
+      });
+      if (!challengeRes.ok) throw new Error("Step-up challenge failed.");
+      const challengeData = await challengeRes.json();
+      const stepUpToken = challengeData.challenge?.token ?? challengeData.token;
+
+      const res = await fetch("/api/v1/admin/runtime/live-voice", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "x-persai-step-up-token": stepUpToken
+        },
+        body: JSON.stringify({
+          enabled: liveVoiceInput.enabled,
+          agentId: agentId.length === 0 ? null : agentId,
+          transportProtocol: liveVoiceInput.transportProtocol,
+          transportRoute: liveVoiceInput.transportRoute
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message ?? `Save failed: ${res.status}`);
+      }
+      const data = await res.json();
+      setLiveVoiceInput((data.liveVoice ?? data) as LiveVoiceReadinessState);
+      setLiveVoiceFeedback("Live voice settings saved.");
+    } catch (e) {
+      setLiveVoiceFeedback(e instanceof Error ? e.message : "Save failed.");
+    }
+    setSavingLiveVoice(false);
+  }, [getToken, liveVoiceInput]);
 
   const handleRefreshHeygenVoices = useCallback(async () => {
     const token = await getToken();
@@ -1035,6 +1105,80 @@ export default function AdminToolsPage() {
                     )
                   )}
                 </div>
+                {liveVoiceInput !== null && (
+                  <div className="mt-4 space-y-3 border-t border-border pt-4">
+                    <p className="text-xs font-semibold text-text">Readiness</p>
+                    <label className="flex items-center gap-2 text-xs text-text">
+                      <input
+                        type="checkbox"
+                        checked={liveVoiceInput.enabled}
+                        onChange={(e) =>
+                          setLiveVoiceInput((prev) =>
+                            prev === null ? prev : { ...prev, enabled: e.target.checked }
+                          )
+                        }
+                      />
+                      Enable live voice for users
+                    </label>
+                    <label className="block text-xs text-text-muted">
+                      ElevenLabs Agent ID
+                      <input
+                        type="text"
+                        value={liveVoiceInput.agentId ?? ""}
+                        placeholder="agent_..."
+                        spellCheck={false}
+                        onChange={(e) =>
+                          setLiveVoiceInput((prev) =>
+                            prev === null
+                              ? prev
+                              : { ...prev, agentId: e.target.value === "" ? null : e.target.value }
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text"
+                      />
+                    </label>
+                    <label className="block text-xs text-text-muted">
+                      Transport route
+                      <select
+                        value={liveVoiceInput.transportRoute}
+                        onChange={(e) =>
+                          setLiveVoiceInput((prev) =>
+                            prev === null
+                              ? prev
+                              : {
+                                  ...prev,
+                                  transportRoute: e.target.value as LiveVoiceTransportRoute
+                                }
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text"
+                      >
+                        <option value="direct">direct (browser -&gt; ElevenLabs)</option>
+                        <option value="relay">relay (via PersAI proxy, for blocked regions)</option>
+                      </select>
+                      <span className="mt-1 block text-[11px] text-text-muted">
+                        Use relay where ElevenLabs is blocked (e.g. Russia). Relay forces WebSocket
+                        through the PersAI proxy.
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      disabled={savingLiveVoice}
+                      onClick={() => void handleSaveLiveVoice()}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                    >
+                      {savingLiveVoice ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" />
+                      )}
+                      Save live voice
+                    </button>
+                    {liveVoiceFeedback && (
+                      <p className="text-xs text-text-muted">{liveVoiceFeedback}</p>
+                    )}
+                  </div>
+                )}
               </section>
 
               <div className="space-y-3 rounded-xl border border-border bg-surface-raised p-4">

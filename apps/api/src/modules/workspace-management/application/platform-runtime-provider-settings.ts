@@ -2014,6 +2014,17 @@ function normalizeLiveVoiceSettings(
   };
 }
 
+/**
+ * ADR-114 — admin-editable live voice readiness input (enabled, agentId,
+ * transportProtocol, transportRoute). Used by the dedicated focused admin
+ * endpoint that only touches the `live_voice_settings` column.
+ */
+export function parseUpdateLiveVoiceReadinessInput(
+  body: unknown
+): PlatformLiveVoiceReadinessSettings {
+  return normalizeLiveVoiceSettings(body, "liveVoice");
+}
+
 function resolveStoredLiveVoiceSettings(value: unknown): PlatformLiveVoiceReadinessSettings {
   try {
     return normalizeLiveVoiceSettings(value);

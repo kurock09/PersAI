@@ -7,7 +7,9 @@ import { MaterializationRolloutService } from "./materialization-rollout.service
 import {
   PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID,
   assertRequiredProviderKeysAvailable,
+  parseUpdateLiveVoiceReadinessInput,
   parseUpdatePlatformRuntimeProviderSettingsInput,
+  type PlatformLiveVoiceReadinessSettings,
   type PlatformRuntimeProviderSettingsState,
   type UpdatePlatformRuntimeProviderSettingsInput
 } from "./platform-runtime-provider-settings";
@@ -35,6 +37,75 @@ export class ManageAdminRuntimeProviderSettingsService {
         error instanceof Error ? error.message : "Invalid runtime provider settings request.";
       throw new BadRequestException(message);
     }
+  }
+
+  parseLiveVoiceInput(body: unknown): PlatformLiveVoiceReadinessSettings {
+    try {
+      return parseUpdateLiveVoiceReadinessInput(body);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Invalid live voice readiness request.";
+      throw new BadRequestException(message);
+    }
+  }
+
+  async getLiveVoiceReadiness(userId: string): Promise<PlatformLiveVoiceReadinessSettings> {
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    return settings.liveVoice;
+  }
+
+  /**
+   * ADR-114 — focused update of only the `live_voice_settings` column. Unlike
+   * {@link updateSettings} this does not replace the whole provider profile and
+   * does not trigger a materialization rollout: the live voice readiness flags
+   * are read fresh by the session service on every start, so no config
+   * generation bump is required.
+   */
+  async updateLiveVoiceReadiness(
+    userId: string,
+    liveVoice: PlatformLiveVoiceReadinessSettings,
+    stepUpToken: string | null
+  ): Promise<PlatformLiveVoiceReadinessSettings> {
+    await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      userId,
+      "admin.runtime_provider_settings.update",
+      stepUpToken
+    );
+
+    const existing = await this.prisma.platformRuntimeProviderSettings.findUnique({
+      where: { id: PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID },
+      select: { id: true }
+    });
+    if (existing === null) {
+      throw new BadRequestException(
+        "Runtime provider settings must be configured before live voice can be enabled."
+      );
+    }
+
+    await this.prisma.platformRuntimeProviderSettings.update({
+      where: { id: PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID },
+      data: {
+        liveVoice: liveVoice as Prisma.InputJsonValue,
+        updatedByUserId: userId
+      }
+    });
+
+    const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: null,
+      assistantId: null,
+      actorUserId: userId,
+      eventCategory: "admin_action",
+      eventCode: "admin.runtime_provider_settings_updated",
+      summary: "Live voice readiness settings updated.",
+      details: {
+        liveVoice: settings.liveVoice
+      }
+    });
+
+    return settings.liveVoice;
   }
 
   async getSettings(userId: string): Promise<PlatformRuntimeProviderSettingsState> {

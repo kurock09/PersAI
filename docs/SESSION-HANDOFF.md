@@ -3,6 +3,35 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-10 - ADR-114 Slice 6 admin readiness + relay ingress + UX rework
+
+### Baseline
+
+- Continued the accepted dirty ADR-114 working tree on `main`. Intentionally untouched: `apps/web/app/app/_components/chat-message.tsx` / `.test.tsx`. The composer's hold-to-record mic gesture path was left functionally intact.
+
+### What changed
+
+- Backend: new admin-only readiness surface `GET/PUT /api/v1/admin/runtime/live-voice` (`AdminLiveVoiceSettingsController` + `ManageAdminRuntimeProviderSettingsService.getLiveVoiceReadiness` / `updateLiveVoiceReadiness` + exported `parseUpdateLiveVoiceReadinessInput`). It writes only the `live_voice_settings` column (enabled / agentId / transportProtocol / transportRoute), with no provider-profile replace, no config-generation bump, and no materialization rollout. Added to the Clerk-auth allowlist; `PUT` requires the `admin.runtime_provider_settings.update` step-up token.
+- Admin Tools page (`apps/web/app/admin/tools/page.tsx`): the Live Voice section now loads/saves readiness (enable toggle, ElevenLabs Agent ID, direct/relay route) via raw fetch next to the two internal secrets, so the operator no longer needs direct DB edits to enable live voice or switch transport.
+- Infra: `infra/helm/templates/ingress.yaml` adds a single prefix `/api/v1/assistant/live-voice/relay` on host `persai.dev` routed straight to the `api` backend. This fixes the production WS 1006 failure where the relay upgrade was hitting the Next.js `web` service (which proxies HTTP `/api/v1` but not WS upgrades). Verified via `helm template ... --show-only templates/ingress.yaml`.
+- UX rework: `LiveVoiceOverlay` is now a compact, non-blocking floating indicator above the composer (pill with pulse + status + transport badge + Stop; auto-dismissing error/unavailable pill) instead of a full-screen modal — the transcript stays visible during a live call. The composer live entry is no longer a permanently visible separate button: on fine pointers it stays collapsed next to the mic and reveals on hover/focus (Apple-style), while touch devices keep a small persistent entry (no long-press overload of the existing voice-note gesture).
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck` → green; `corepack pnpm --filter @persai/web run typecheck` → green.
+- `corepack pnpm --filter @persai/web --filter @persai/api run lint` → green; `corepack pnpm run format:check` → green after formatting the two new/edited files.
+- Web vitest (live-voice-overlay, chat-input, chat-area, use-live-voice): 58 passed. `tsx test/manage-admin-runtime-provider-settings.service.test.ts`: both base + new live-voice-readiness assertions passed.
+- `helm template persai infra/helm -f infra/helm/values-dev.yaml --show-only templates/ingress.yaml` → relay path renders to `api:3001` on `persai.dev`.
+
+### Risks / residuals
+
+- Relay ingress only takes effect after the GitOps sync applies the Ingress change on GKE (GCLB programming can take a few minutes). Until then relay WS still 1006s.
+- Live voice still requires backend readiness (`enabled=true` + agent id), the consolidated ElevenLabs key with `convai_write`/`user_read`, and the two internal secrets configured.
+
+### Next recommended step
+
+- After deploy + GCLB programming, confirm relay WS opens from a blocked region (`transportRoute=relay`) end-to-end, then revisit direct/auto transport polish.
+
 ## 2026-06-10 - ADR-114 Slice 5a live voice client engine
 
 ## 2026-06-10 - ADR-114 Slice 5b live voice chat UX surface

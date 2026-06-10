@@ -109,10 +109,9 @@ describe("LiveVoiceOverlay", () => {
       transport: null
     });
 
-    expect(screen.getByText(enMessages.chat.liveVoice.error)).toBeInTheDocument();
     expect(screen.getByText("Socket closed.")).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: enMessages.chat.liveVoice.close })[1]!);
+    fireEvent.click(screen.getByRole("button", { name: enMessages.chat.liveVoice.close }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -123,7 +122,6 @@ describe("LiveVoiceOverlay", () => {
       transport: null
     });
 
-    expect(screen.getByText(enMessages.chat.liveVoice.unavailable)).toBeInTheDocument();
     expect(screen.getByText(enMessages.chat.liveVoice.unavailableHint)).toBeInTheDocument();
   });
 
