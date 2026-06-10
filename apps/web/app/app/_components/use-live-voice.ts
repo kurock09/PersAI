@@ -17,7 +17,13 @@ import {
 } from "./live-voice-types";
 
 const AUDIO_FOCUS_OWNER_ID = "live-voice";
-const CONNECT_TIMEOUT_MS = 8_000;
+// The ElevenLabs SDK only emits `onConnect`/`connected` after the WebSocket
+// handshake, conversation-initiation metadata exchange, and the audio worklet
+// are all ready. Through the relay this can take well over 8s; a too-short
+// timeout rejected a connection that was actually succeeding, orphaned the live
+// SDK conversation, and marked the backend session `failed` — which in turn
+// dropped Custom LLM turns to the ElevenLabs fallback model.
+const CONNECT_TIMEOUT_MS = 20_000;
 
 type ConversationStatus = "connected" | "connecting" | "disconnected";
 type ConversationMode = "speaking" | "listening";
@@ -203,6 +209,13 @@ export function useLiveVoice(params: UseLiveVoiceParams): UseLiveVoiceResult {
           }
           settled = true;
           clear();
+          // If the SDK conversation handle already resolved (e.g. the connect
+          // timeout fired while the handshake was still completing), tear it
+          // down so we never leave a zombie conversation that keeps talking to
+          // the ElevenLabs fallback model out of the user's control.
+          if (conversationHandle) {
+            void conversationHandle.endSession().catch(() => undefined);
+          }
           reject(reason);
         };
 
@@ -301,6 +314,11 @@ export function useLiveVoice(params: UseLiveVoiceParams): UseLiveVoiceResult {
           .startSession(wrappedOptions)
           .then((conversation) => {
             conversationHandle = conversation;
+            // The promise may have already settled (rejected) via the connect
+            // timeout before the handle resolved; in that case end it now.
+            if (settled) {
+              void conversation.endSession().catch(() => undefined);
+            }
           })
           .catch((error: unknown) => {
             rejectOnce(error);

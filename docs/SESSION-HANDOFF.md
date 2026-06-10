@@ -3,6 +3,34 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-10 - ADR-114 Custom LLM session-gate + client connect-timeout (follow-up)
+
+### Symptom
+
+- Live voice connected and the user could talk, but the agent answered with the ElevenLabs fallback model instead of PersAI's brain.
+
+### Root cause (confirmed from captured api logs + DB session dump, in-cluster)
+
+- The Custom LLM endpoint was reached but rejected with `400 live_voice_session_not_active`. Cross-referencing the relay logs against a DB dump of recent `assistant_live_voice_sessions` showed every session was marked `failed` (`live_voice_connection_failed`) ~8-9s after `start`, while the relay stayed connected ~39s and ElevenLabs kept calling `custom-llm/chat/completions` for 30s+ after. So: the browser client's 8s `CONNECT_TIMEOUT_MS` fired before the SDK `onConnect`, rejected the connect promise, marked the durable session `failed`, and **orphaned the still-live SDK conversation** (the catch path called `stop` but never `endSession`). ElevenLabs then drove the orphaned conversation server-to-server into our Custom LLM, which hard-gated on `status === "active"` → `400` → ElevenLabs cascaded to its own model. The user heard the zombie conversation on the fallback LLM.
+
+### What changed
+
+- `assistant-live-voice-custom-llm.controller.ts`: replaced the `status !== "active"` hard gate with `isSessionServable()` — serves `active`, plus any session started within a bounded live window (`SESSION_SERVABLE_GRACE_MS` = 30 min) that was not cleanly user-stopped (`stopped` with `failureCode === null`). `failed` / `superseded` transport artifacts are served; deliberate user stops are not. Non-active serves are logged. The endpoint is still ingress-Bearer authenticated, so this does not widen the trust boundary.
+- `use-live-voice.ts`: `CONNECT_TIMEOUT_MS` 8s → 20s (relay handshake + metadata + audio worklet can exceed 8s); `rejectOnce` and the `startSession().then()` now call `endSession()` on the SDK handle if the promise already settled, so a genuine connect timeout never leaves a zombie conversation talking to the fallback model.
+- Tests: two new controller cases (recent `failed` session served `200`; stale `failed` session rejected `400`); the existing clean-`stopped` → `400` case is preserved.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck` → 0; `--filter @persai/web run typecheck` → 0; api+web `lint` → 0; `format:check` → clean; Custom LLM controller test (`tsx test/assistant-live-voice-custom-llm.service.test.ts`) → all assertions passed; `use-live-voice` vitest → 6/6.
+
+### Operator note (voices)
+
+- Live-voice voice overrides only work for voices present in the ElevenLabs workspace library ("My Voices"). A one-off in-cluster script (`apps/api/tmp-add-voices.cjs`, untracked) resolves admin-approved shared voices to their `public_owner_id` and adds them via `POST /v1/voices/add/{owner}/{voiceId}`. It is currently blocked: the `tool_tts_elevenlabs` key is missing the `add_voice_from_voice_library` permission — once enabled on the ElevenLabs key, re-run with `ADD=1` (26 of 30 approved resolve and would be added; 4 already present; owner resolved for all 30).
+
+### Next recommended step
+
+- Deploy (one GitOps push: api + web). Then retry live voice: expect `custom-llm/chat/completions` to return `200` (api logs may show "serving non-active session" once if the client still times out) and the agent to answer in PersAI's voice/brain, not the ElevenLabs fallback. If it still falls back, capture the api log line for the exact rejection `code`.
+
 ## 2026-06-10 - ADR-114 relay early-frame + pump null-callback + idempotent start (follow-up)
 
 ### Symptom

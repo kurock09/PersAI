@@ -311,6 +311,105 @@ async function runControllerTests(): Promise<void> {
   }
 
   {
+    // A recently-started session that the client marked `failed` via its
+    // connect-timeout (while the ElevenLabs conversation is actually live) must
+    // still be served, so the agent never silently falls back to its own model.
+    let served = false;
+    const controller = new AssistantLiveVoiceCustomLlmController(
+      {
+        async streamChatCompletion(input: { writeFrame: (frame: string) => void }) {
+          served = true;
+          input.writeFrame("data: [DONE]\n\n");
+        }
+      } as never,
+      {
+        async resolveSecretValueById() {
+          return "expected-secret";
+        }
+      } as never,
+      {
+        assistantLiveVoiceSession: {
+          async findUnique() {
+            return {
+              id: "session-1",
+              assistantId: "assistant-1",
+              userId: "user-1",
+              chatId: "chat-1",
+              status: "failed",
+              failureCode: "live_voice_connection_failed",
+              startedAt: new Date()
+            };
+          }
+        }
+      } as never,
+      {
+        async findChatById() {
+          return {
+            id: "chat-1",
+            assistantId: "assistant-1",
+            userId: "user-1",
+            surfaceThreadKey: "thread-surface-key"
+          };
+        }
+      } as never
+    );
+    const req = new MockRequest({ authorization: "Bearer expected-secret" });
+    const res = new MockResponse();
+    await controller.streamChatCompletions(req as never, res as never, {
+      model: "gpt-test",
+      messages: [{ role: "user", content: "still talking" }],
+      elevenlabs_extra_body: { persaiLiveVoiceSessionId: "session-1" }
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(served, true);
+  }
+
+  {
+    // A `failed` session older than the live window is no longer served.
+    const controller = new AssistantLiveVoiceCustomLlmController(
+      {
+        async streamChatCompletion() {
+          throw new Error("should not be called");
+        }
+      } as never,
+      {
+        async resolveSecretValueById() {
+          return "expected-secret";
+        }
+      } as never,
+      {
+        assistantLiveVoiceSession: {
+          async findUnique() {
+            return {
+              id: "session-1",
+              assistantId: "assistant-1",
+              userId: "user-1",
+              chatId: "chat-1",
+              status: "failed",
+              failureCode: "live_voice_connection_failed",
+              startedAt: new Date(Date.now() - 2 * 60 * 60 * 1000)
+            };
+          }
+        }
+      } as never,
+      {
+        async findChatById() {
+          return { id: "chat-1", surfaceThreadKey: "thread-1" };
+        }
+      } as never
+    );
+    const req = new MockRequest({ authorization: "Bearer expected-secret" });
+    const res = new MockResponse();
+    await controller.streamChatCompletions(req as never, res as never, {
+      model: "gpt-test",
+      messages: [{ role: "user", content: "hi" }],
+      elevenlabs_extra_body: { persaiLiveVoiceSessionId: "session-1" }
+    });
+    assert.equal(res.statusCode, 400);
+    assert.match(res.writes.join(""), /live_voice_session_not_active/);
+  }
+
+  {
     let serviceInput: {
       userId: string;
       surfaceThreadKey: string;

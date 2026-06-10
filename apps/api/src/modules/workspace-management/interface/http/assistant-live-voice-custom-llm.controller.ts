@@ -39,6 +39,16 @@ type JsonError = {
 
 const DEFAULT_ECHO_MODEL = "persai-live-voice";
 
+// ElevenLabs drives the Custom LLM endpoint server-to-server for the full life of
+// a live conversation. The browser client, however, marks the DB session
+// `failed` the moment its (short) connect-timeout elapses — even though the
+// underlying conversation is actually live — and a re-start `supersede`s the
+// previous row. Hard-gating on `status === "active"` therefore drops the user to
+// the ElevenLabs fallback model mid-conversation. We keep serving PersAI's brain
+// for any transport-torn-down session within this bounded live window; only a
+// clean, user-initiated stop ends it for good.
+const SESSION_SERVABLE_GRACE_MS = 30 * 60 * 1000;
+
 @Controller("api/v1/assistant/live-voice/custom-llm")
 export class AssistantLiveVoiceCustomLlmController {
   private readonly logger = new Logger(AssistantLiveVoiceCustomLlmController.name);
@@ -81,12 +91,17 @@ export class AssistantLiveVoiceCustomLlmController {
         });
         return;
       }
-      if (session.status !== "active") {
+      if (!isSessionServable(session)) {
         this.sendJsonError(res, 400, {
           code: "live_voice_session_not_active",
           message: "Live voice session is not active."
         });
         return;
+      }
+      if (session.status !== "active") {
+        this.logger.warn(
+          `Live voice Custom LLM serving non-active session ${session.id} (status=${String(session.status)}, failureCode=${session.failureCode ?? "-"}).`
+        );
       }
 
       const chat = await this.assistantChatRepository.findChatById(session.chatId);
@@ -278,6 +293,35 @@ export class AssistantLiveVoiceCustomLlmController {
       error: { code: "invalid_request", message }
     };
   }
+}
+
+export function isSessionServable(session: {
+  status: string;
+  failureCode?: string | null;
+  startedAt?: Date | string | null;
+}): boolean {
+  if (session.status === "active") {
+    return true;
+  }
+  const failureCode = session.failureCode ?? null;
+  // A clean, user-initiated stop is recorded as `stopped` with no failure code.
+  // That deliberately ends the conversation — never serve it again.
+  if (session.status === "stopped" && failureCode === null) {
+    return false;
+  }
+  // Otherwise the row was torn down by a transport artifact (client connect
+  // timeout -> `failed`, or a re-start -> `superseded`) while the ElevenLabs
+  // conversation is still live. Serve PersAI's brain within a bounded window.
+  const startedAtMs =
+    session.startedAt instanceof Date
+      ? session.startedAt.getTime()
+      : typeof session.startedAt === "string"
+        ? Date.parse(session.startedAt)
+        : Number.NaN;
+  if (Number.isNaN(startedAtMs)) {
+    return false;
+  }
+  return Date.now() - startedAtMs <= SESSION_SERVABLE_GRACE_MS;
 }
 
 function constantTimeEquals(provided: string, expected: string): boolean {
