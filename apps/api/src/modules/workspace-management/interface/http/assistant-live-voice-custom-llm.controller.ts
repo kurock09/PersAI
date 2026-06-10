@@ -1,4 +1,13 @@
-import { BadRequestException, Body, Controller, Inject, Post, Req, Res } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Inject,
+  Logger,
+  Post,
+  Req,
+  Res
+} from "@nestjs/common";
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import { AssistantLiveVoiceCustomLlmService } from "../../application/assistant-live-voice-custom-llm.service";
@@ -28,8 +37,12 @@ type JsonError = {
   message: string;
 };
 
+const DEFAULT_ECHO_MODEL = "persai-live-voice";
+
 @Controller("api/v1/assistant/live-voice/custom-llm")
 export class AssistantLiveVoiceCustomLlmController {
+  private readonly logger = new Logger(AssistantLiveVoiceCustomLlmController.name);
+
   constructor(
     private readonly assistantLiveVoiceCustomLlmService: AssistantLiveVoiceCustomLlmService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
@@ -175,8 +188,14 @@ export class AssistantLiveVoiceCustomLlmController {
   }
 
   private parseModel(model: unknown): string {
+    // `model` is only echoed back in the OpenAI-compatible response frames; it
+    // never selects a model on our side (PersAI routes via the chat turn
+    // service). ElevenLabs sends an empty/absent `model` when the agent's
+    // Custom LLM "Model ID" field is left blank, so we default it instead of
+    // rejecting the whole turn (which would silently drop the user to the
+    // ElevenLabs fallback LLM).
     if (typeof model !== "string" || model.trim().length === 0) {
-      throw new BadRequestException("model must be a non-empty string.");
+      return DEFAULT_ECHO_MODEL;
     }
     return model.trim();
   }
@@ -222,6 +241,11 @@ export class AssistantLiveVoiceCustomLlmController {
     statusCode: number,
     error: JsonError
   ): void {
+    // Custom LLM rejections cause ElevenLabs to silently fall back to its own
+    // model, so log the precise reason to keep the failure observable.
+    this.logger.warn(
+      `Live voice Custom LLM request rejected: status=${String(statusCode)} code=${error.code} message=${error.message}`
+    );
     if (res.writableEnded) {
       return;
     }

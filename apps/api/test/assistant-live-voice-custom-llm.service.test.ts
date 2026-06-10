@@ -383,6 +383,22 @@ async function runControllerTests(): Promise<void> {
     assert.equal(serviceInput?.surfaceThreadKey, "thread-surface-key");
     assert.equal(serviceInput?.message, "last spoken utterance");
     assert.equal(res.writes.at(-1), "data: [DONE]\n\n");
+
+    // An absent `model` (ElevenLabs sends it empty when the agent's Custom LLM
+    // Model ID is blank) must NOT reject the turn; it defaults to an echo model
+    // so the user is not silently dropped to the ElevenLabs fallback LLM.
+    serviceInput = null;
+    const resNoModel = new MockResponse();
+    await controller.streamChatCompletions(
+      new MockRequest({ authorization: "Bearer expected-secret" }) as never,
+      resNoModel as never,
+      {
+        messages: [{ role: "user", content: "no model field" }],
+        elevenlabs_extra_body: { persaiLiveVoiceSessionId: "session-1" }
+      }
+    );
+    assert.equal(resNoModel.statusCode, 200);
+    assert.equal((serviceInput as { model: string } | null)?.model, "persai-live-voice");
   }
 
   {
