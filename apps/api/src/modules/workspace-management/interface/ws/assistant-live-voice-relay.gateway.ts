@@ -48,9 +48,18 @@ export class AssistantLiveVoiceRelayGateway
       return;
     }
 
+    // Operational observability: this single line confirms an upstream
+    // WebSocket upgrade actually reached the API pod (vs. being dropped by the
+    // ingress / web service). Reject reasons below are logged too so a 1006 on
+    // the client is never silent on the server.
     const ticket = requestUrl.searchParams.get("ticket") ?? "";
+    this.logger.log(
+      `Live voice relay upgrade received: ticketPresent=${String(ticket.length > 0)}`
+    );
+
     const verified = await this.assistantLiveVoiceRelayTicketService.verify(ticket);
     if (verified === null) {
+      this.logger.warn("Live voice relay rejected: invalid or expired ticket.");
       this.rejectUpgrade(socket, 401, "Unauthorized");
       return;
     }
@@ -59,10 +68,14 @@ export class AssistantLiveVoiceRelayGateway
       where: { id: verified.sessionId }
     });
     if (session === null) {
+      this.logger.warn(`Live voice relay rejected: session ${verified.sessionId} not found.`);
       this.rejectUpgrade(socket, 404, "Not Found");
       return;
     }
     if (session.userId !== verified.userId || session.status !== "active") {
+      this.logger.warn(
+        `Live voice relay rejected: session ${session.id} not admissible (status=${session.status}, userMatch=${String(session.userId === verified.userId)}).`
+      );
       this.rejectUpgrade(socket, 403, "Forbidden");
       return;
     }
