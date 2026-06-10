@@ -3700,6 +3700,16 @@ describe("characters section", () => {
     expect(ruMessages.settings.charactersLockedBanner.length).toBeGreaterThan(0);
   });
 
+  it("keeps live voice chat i18n keys aligned in en/ru", () => {
+    expect(enMessages.chat.liveVoice.start).toBe("Start live voice");
+    expect(ruMessages.chat.liveVoice.start).toBe("Начать live voice");
+    expect(enMessages.chat.liveVoice.micDenied.length).toBeGreaterThan(0);
+    expect(ruMessages.chat.liveVoice.micDenied.length).toBeGreaterThan(0);
+    expect(Object.keys(enMessages.chat.liveVoice).sort()).toEqual(
+      Object.keys(ruMessages.chat.liveVoice).sort()
+    );
+  });
+
   it("Delete flow: opens confirm modal on delete click", async () => {
     assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
       personas: [

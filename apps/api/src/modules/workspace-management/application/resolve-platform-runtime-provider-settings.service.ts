@@ -43,7 +43,8 @@ export class ResolvePlatformRuntimeProviderSettingsService {
         heygenPersonaWorkspaceLimit: true,
         heygenPersonaCreationVcoin: true,
         heygenVoiceCloneWorkspaceLimit: true,
-        heygenVoiceCloneCreationVcoin: true
+        heygenVoiceCloneCreationVcoin: true,
+        liveVoice: true
       }
     });
     if (row === null) {
@@ -63,7 +64,8 @@ export class ResolvePlatformRuntimeProviderSettingsService {
       heygenPersonaWorkspaceLimit: row.heygenPersonaWorkspaceLimit,
       heygenPersonaCreationVcoin: row.heygenPersonaCreationVcoin,
       heygenVoiceCloneWorkspaceLimit: row.heygenVoiceCloneWorkspaceLimit,
-      heygenVoiceCloneCreationVcoin: row.heygenVoiceCloneCreationVcoin
+      heygenVoiceCloneCreationVcoin: row.heygenVoiceCloneCreationVcoin,
+      liveVoice: row.liveVoice
     };
   }
 

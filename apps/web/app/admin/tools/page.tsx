@@ -18,7 +18,8 @@ import {
   CreditCard,
   FileOutput,
   Coins,
-  RefreshCcw
+  RefreshCcw,
+  Copy
 } from "lucide-react";
 import { ToolPathEconomicsPanel } from "./tool-path-economics-panel";
 import {
@@ -112,6 +113,10 @@ type AdminBillingProviderCredentialsState = {
 
 const WEB_CREDENTIAL_KEYS = ["tool_web_search", "tool_web_fetch", "tool_browser"] as const;
 const TTS_CREDENTIAL_KEYS = ["tool_tts_elevenlabs", "tool_tts_yandex", "tool_tts_openai"] as const;
+const LIVE_VOICE_INTERNAL_SECRET_KEYS = [
+  "tool_live_voice_custom_llm_ingress",
+  "tool_live_voice_relay_ticket"
+] as const;
 const MEDIA_CREDENTIAL_KEYS = ["tool_image_generate"] as const;
 const VIDEO_PROVIDER_CREDENTIAL_KEYS = [
   "tool_video_generate_runway",
@@ -131,6 +136,22 @@ function pickCredentials(
   return keys
     .map((key) => byKey.get(key))
     .filter((credential): credential is ToolCredentialStatus => credential !== undefined);
+}
+
+const LIVE_VOICE_HINTS: Record<(typeof LIVE_VOICE_INTERNAL_SECRET_KEYS)[number], string> = {
+  tool_live_voice_custom_llm_ingress:
+    "Paste this same value into your ElevenLabs Agent -> Custom LLM -> API Key. PersAI verifies it as a Bearer token.",
+  tool_live_voice_relay_ticket: "Server-only. Signs relay tickets; never entered into ElevenLabs."
+};
+
+function generateBase64UrlSecret(): string {
+  const bytes = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const value of bytes) {
+    binary += String.fromCharCode(value);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 export default function AdminToolsPage() {
@@ -983,6 +1004,39 @@ export default function AdminToolsPage() {
                 </div>
               </section>
 
+              <section className="rounded-xl border border-border bg-surface-raised p-4">
+                <div className="mb-4 flex items-start gap-2">
+                  <Mic className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                  <div>
+                    <p className="text-sm font-semibold text-text">Live Voice</p>
+                    <p className="text-[11px] text-text-muted">
+                      The ElevenLabs API key for live voice is the same one entered in the TTS
+                      section above; set the two internal secrets below.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {pickCredentials(state.credentials, LIVE_VOICE_INTERNAL_SECRET_KEYS).map(
+                    (cred) => (
+                      <ToolCredentialCard
+                        key={cred.credentialKey}
+                        cred={cred}
+                        keyInputs={keyInputs}
+                        providerInputs={providerInputs}
+                        onKeyChange={updateKeyInput}
+                        onProviderChange={updateProviderInput}
+                        allowGenerate
+                        hint={
+                          LIVE_VOICE_HINTS[
+                            cred.credentialKey as (typeof LIVE_VOICE_INTERNAL_SECRET_KEYS)[number]
+                          ]
+                        }
+                      />
+                    )
+                  )}
+                </div>
+              </section>
+
               <div className="space-y-3 rounded-xl border border-border bg-surface-raised p-4">
                 <button
                   type="button"
@@ -1262,14 +1316,38 @@ function ToolCredentialCard({
   keyInputs,
   providerInputs,
   onKeyChange,
-  onProviderChange
+  onProviderChange,
+  allowGenerate = false,
+  hint
 }: {
   cred: ToolCredentialStatus;
   keyInputs: Record<string, string>;
   providerInputs: Record<string, string>;
   onKeyChange: (credentialKey: string, value: string) => void;
   onProviderChange: (credentialKey: string, value: string) => void;
+  allowGenerate?: boolean;
+  hint?: string;
 }) {
+  const currentValue = keyInputs[cred.credentialKey] ?? "";
+  const canCopy =
+    currentValue.trim().length > 0 &&
+    typeof navigator !== "undefined" &&
+    typeof navigator.clipboard?.writeText === "function";
+  const canGenerate =
+    allowGenerate &&
+    typeof globalThis.crypto !== "undefined" &&
+    typeof globalThis.crypto.getRandomValues === "function";
+
+  const handleGenerate = () => {
+    if (!canGenerate) return;
+    onKeyChange(cred.credentialKey, generateBase64UrlSecret());
+  };
+
+  const handleCopy = async () => {
+    if (!canCopy) return;
+    await navigator.clipboard.writeText(currentValue);
+  };
+
   return (
     <div className="rounded-lg border border-border bg-surface p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -1302,19 +1380,45 @@ function ToolCredentialCard({
           </select>
         </label>
       )}
-      <input
-        type="password"
-        value={keyInputs[cred.credentialKey] ?? ""}
-        onChange={(e) => onKeyChange(cred.credentialKey, e.target.value)}
-        placeholder={
-          cred.configured
-            ? `••••${cred.lastFour ?? ""}`
-            : cred.credentialKey === "tool_video_generate_kling"
-              ? '{"accessKey":"...","secretKey":"..."}'
-              : "Enter API key..."
-        }
-        className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-      />
+      <div className="flex items-start gap-2">
+        <input
+          type="password"
+          value={currentValue}
+          onChange={(e) => onKeyChange(cred.credentialKey, e.target.value)}
+          placeholder={
+            cred.configured
+              ? `••••${cred.lastFour ?? ""}`
+              : cred.credentialKey === "tool_video_generate_kling"
+                ? '{"accessKey":"...","secretKey":"..."}'
+                : "Enter API key..."
+          }
+          className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+        />
+        {allowGenerate ? (
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={!canGenerate}
+              aria-label={`Generate ${cred.displayName}`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-[11px] font-medium text-text transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Generate
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleCopy()}
+              disabled={!canCopy}
+              aria-label={`Copy ${cred.displayName}`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-[11px] font-medium text-text transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Copy
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {hint ? <p className="mt-1 text-[10px] text-text-muted">{hint}</p> : null}
       {cred.updatedAt && (
         <p className="mt-1 text-[10px] text-text-muted">
           Last updated: {new Date(cred.updatedAt).toLocaleString()}

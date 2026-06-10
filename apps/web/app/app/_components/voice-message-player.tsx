@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
+import { releaseAudioFocus, requestAudioFocus } from "@/app/lib/audio-focus";
+
+const AUDIO_FOCUS_OWNER_ID = "voice-message";
 
 function formatVoiceTime(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "0:00";
@@ -21,6 +24,7 @@ type VoiceMessagePlayerProps = {
 export function VoiceMessagePlayer({ src, className }: VoiceMessagePlayerProps) {
   const t = useTranslations("chat");
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const releaseFocusRef = useRef<(() => void) | null>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
@@ -29,6 +33,9 @@ export function VoiceMessagePlayer({ src, className }: VoiceMessagePlayerProps) 
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
+    releaseFocusRef.current?.();
+    releaseFocusRef.current = null;
+    releaseAudioFocus(AUDIO_FOCUS_OWNER_ID);
     setReady(false);
     setPlaying(false);
     setCurrent(0);
@@ -57,6 +64,9 @@ export function VoiceMessagePlayer({ src, className }: VoiceMessagePlayerProps) 
   }, []);
 
   const onEnded = useCallback(() => {
+    releaseFocusRef.current?.();
+    releaseFocusRef.current = null;
+    releaseAudioFocus(AUDIO_FOCUS_OWNER_ID);
     setPlaying(false);
     setCurrent(0);
     const el = audioRef.current;
@@ -68,11 +78,26 @@ export function VoiceMessagePlayer({ src, className }: VoiceMessagePlayerProps) 
     if (!el) return;
     if (playing) {
       el.pause();
+      releaseFocusRef.current?.();
+      releaseFocusRef.current = null;
+      releaseAudioFocus(AUDIO_FOCUS_OWNER_ID);
       setPlaying(false);
     } else {
+      releaseFocusRef.current = requestAudioFocus(AUDIO_FOCUS_OWNER_ID, () => {
+        const active = audioRef.current;
+        if (!active) {
+          return;
+        }
+        active.pause();
+      });
       void el.play().then(
         () => setPlaying(true),
-        () => setPlaying(false)
+        () => {
+          releaseFocusRef.current?.();
+          releaseFocusRef.current = null;
+          releaseAudioFocus(AUDIO_FOCUS_OWNER_ID);
+          setPlaying(false);
+        }
       );
     }
   }, [playing]);
@@ -108,7 +133,12 @@ export function VoiceMessagePlayer({ src, className }: VoiceMessagePlayerProps) 
         onLoadedMetadata={onLoadedMetadata}
         onEnded={onEnded}
         onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
+        onPause={() => {
+          releaseFocusRef.current?.();
+          releaseFocusRef.current = null;
+          releaseAudioFocus(AUDIO_FOCUS_OWNER_ID);
+          setPlaying(false);
+        }}
       />
 
       <button

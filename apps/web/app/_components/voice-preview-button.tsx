@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { Pause, Play } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { requestAudioFocus, releaseAudioFocus } from "@/app/lib/audio-focus";
 
 /**
  * ADR-109 Slice 9 — voice preview play/pause button.
@@ -20,6 +21,7 @@ let currentlyPlayingAudio: HTMLAudioElement | null = null;
 let currentlyPlayingSetPlaying: ((v: boolean) => void) | null = null;
 let currentPlaybackSessionId = 0;
 const PREVIEW_START_TIMEOUT_MS = 4_000;
+const AUDIO_FOCUS_OWNER_ID = "voice-preview";
 
 export function VoicePreviewButton({
   previewAudioUrl,
@@ -45,6 +47,7 @@ export function VoicePreviewButton({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playbackSessionRef = useRef(0);
   const startupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusReleaseRef = useRef<(() => void) | null>(null);
 
   const isActive = previewAudioUrl !== null && previewAudioUrl.length > 0;
   const resolvedPlayLabel = playLabel ?? `Play preview: ${voiceLabel}`;
@@ -62,6 +65,12 @@ export function VoicePreviewButton({
       clearTimeout(startupTimeoutRef.current);
       startupTimeoutRef.current = null;
     }
+  };
+
+  const releaseFocus = () => {
+    focusReleaseRef.current?.();
+    focusReleaseRef.current = null;
+    releaseAudioFocus(AUDIO_FOCUS_OWNER_ID);
   };
 
   const scheduleStartupTimeout = (audio: HTMLAudioElement, sessionId: number) => {
@@ -89,6 +98,7 @@ export function VoicePreviewButton({
       audio.pause();
       clearCurrentPlayback(audio);
     }
+    releaseFocus();
     setIsPlaying(false);
   };
 
@@ -106,18 +116,21 @@ export function VoicePreviewButton({
     audio.addEventListener("ended", () => {
       clearStartupTimeout();
       clearCurrentPlayback(audio);
+      releaseFocus();
       setIsStarting(false);
       setIsPlaying(false);
     });
     audio.addEventListener("pause", () => {
       clearStartupTimeout();
       clearCurrentPlayback(audio);
+      releaseFocus();
       setIsStarting(false);
       setIsPlaying(false);
     });
     audio.addEventListener("error", () => {
       clearStartupTimeout();
       clearCurrentPlayback(audio);
+      releaseFocus();
       setIsStarting(false);
       setIsPlaying(false);
     });
@@ -177,6 +190,9 @@ export function VoicePreviewButton({
     playbackSessionRef.current = sessionId;
     currentlyPlayingAudio = audio;
     currentlyPlayingSetPlaying = setIsPlaying;
+    focusReleaseRef.current = requestAudioFocus(AUDIO_FOCUS_OWNER_ID, () => {
+      stopLocalPlayback(audio);
+    });
     setIsStarting(true);
     scheduleStartupTimeout(audio, sessionId);
     void audio

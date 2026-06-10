@@ -71,6 +71,35 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
+ADR-114 Slice 5a (web live-voice engine) focused web coverage:
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-live-voice.test.tsx`
+- `use-live-voice.test.tsx` must cover:
+  - direct WebRTC start with `conversationToken`, `connectionType: "webrtc"`, and the exact `overrides` / `customLlmExtraBody` shape;
+  - relay-primary start with websocket relay URL building from `clientConfig.relay.path + ticket`;
+  - direct connection failure falling back to relay websocket when relay metadata exists;
+  - microphone-denied client failure without relay fallback;
+  - structured `live_voice_*` unavailable backend start errors mapping to `status = "unavailable"`;
+  - explicit `stop()` teardown calling local SDK `endSession`, backend `stopLiveVoiceSession`, and audio-focus release.
+
+ADR-114 Slice 5b (web live-voice UX surface) focused web coverage:
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/live-voice-overlay.test.tsx app/app/_components/chat-input.test.tsx app/lib/audio-focus.test.ts`
+- `live-voice-overlay.test.tsx` must cover:
+  - connecting/listening/speaking/recovering presentation states;
+  - stop action for active states;
+  - error rendering with backend message and close action;
+  - unavailable hint rendering;
+  - microphone-denied copy.
+- `chat-input.test.tsx` must preserve the existing voice-note/send coverage and add:
+  - additive `liveVoice` button visible only when enabled and the composer is empty;
+  - hidden when omitted/disabled/streaming/recording;
+  - click calling `liveVoice.onStart()`;
+  - no regression to the hold-to-record gesture path.
+- `audio-focus.test.ts` must cover:
+  - new owner stopping the previous owner;
+  - release unregistering the owner cleanly.
+
 When a change touches Admin Knowledge embedding-model truth, assistant knowledge indexing/search model resolution, or plan removal of `embeddingModelKey`, add these focused checks before broad verification:
 
 ```bash
@@ -1014,6 +1043,34 @@ Interpretation rules:
 2. Persona forms may attach only ready active cloned voices; pending/failed rows stay visible in management UI but never become selectable persona voice truth.
 3. Persona create/update payloads must preserve preset `heygenVoiceId` fallback while forwarding optional `clonedVoiceId`.
 4. Runtime `video_generate` guidance may mention safe cloned-voice display labels only when talking video is enabled and the materialized persona catalog already carries that label; it must not expose provider ids or add keyword/fuzzy routing.
+
+## ADR-114 live voice focused checks
+
+When a change touches `assistant_live_voice_sessions`, live-voice session control routes, the PersAI Custom LLM streaming endpoint, live-voice runtime-provider settings, or ElevenLabs conversational credential issuance, run this focused pack before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma
+corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-custom-llm.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-session.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/elevenlabs-live-voice.client.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Session start must require operator readiness truth (`enabled`, `agentId`, `transportProtocol`, `transportRoute`), reuse the authenticated assistant/chat ownership boundary, and reject a second active live session for the same assistant chat.
+2. ElevenLabs credentials must be issued server-side only: WebRTC returns `conversationToken`, WebSocket returns `signedUrl`, and provider secret/API-key values must never appear in the public route payloads or logs.
+3. Start must snapshot the selected assistant `voiceProfile.elevenlabs.voiceId` into the durable session row; stop/status must preserve the stored transport snapshot plus local non-billing duration/failure metadata.
+4. `transportRoute` must remain explicit persisted truth (`direct | relay`) and must not be inferred from `transportProtocol`.
+5. The Custom LLM endpoint must reuse the existing fast PersAI streaming chat path rather than invent a second prompt/history/tool builder; it must take only the last spoken user utterance, bind identity through the active session row, stream assistant text as OpenAI-compatible SSE chunks ending with `data: [DONE]\n\n`, keep thinking/tool payloads out of the voice stream, and propagate barge-in through `isClientAborted` / `clientAbortSignal`.
+6. Slice 4 start responses must keep the direct path byte-for-byte unchanged when `preferRelay=false`, except that relay fallback is now best-effort: `clientConfig.preferRelay` remains required, `clientConfig.relay` is present when relay-ticket minting succeeds, and direct start must still succeed with `clientConfig.relay === undefined` when the relay signing secret is missing. When `transportRoute=relay`, the focused session test must prove `clientConfig.connectionType === "websocket"`, `transport.credential` is empty, the relay ticket is present on success, and direct ElevenLabs credential issuance is skipped entirely; if relay-ticket minting fails in relay-primary mode, start must reject with code `live_voice_relay_secret_unavailable`.
+7. Relay tickets must stay stateless and short-lived: focused tests must cover issue/verify round-trip, tamper detection, expiry, malformed input returning `null`, and missing secret causing ticket issuance to fail loudly.
+8. The relay connection core must stay transport-only and trivially unit-testable (no Nest/network imports). Focused tests must prove bidirectional frame forwarding with the binary flag preserved, idempotent close propagation, idle-timeout teardown, and max-duration teardown.
+9. Focused session tests must still prove locale-driven language selection for at least both `ru` and `en`, so the ElevenLabs `startSession` language override is not hardcoded.
+10. Clerk auth coverage must explicitly include only the three user live-voice routes (`start`, `status`, `stop`); the machine Custom LLM ingress and websocket relay upgrade path must remain outside the Clerk allowlist and continue to authenticate through the ingress secret / relay ticket respectively.
+11. Slice 4b credential cleanup must prove the ElevenLabs live-voice client now resolves `tool_tts_elevenlabs`, not the removed `tool_live_voice_elevenlabs` slot, and that admin/tool-credential typecheck passes after removing the old key from every exhaustive `ToolCredentialKey` map.
+12. Web admin coverage must render the `Admin -> Tools -> Live Voice` section with both internal-secret fields, helper hints, client-side generate, and clipboard copy behavior while keeping the existing write-only save flow unchanged.
 
 ## Step 20 files/sandbox/media focused checks
 

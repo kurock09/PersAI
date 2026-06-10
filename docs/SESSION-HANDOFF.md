@@ -3,6 +3,289 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-10 - ADR-114 Slice 5a live voice client engine
+
+## 2026-06-10 - ADR-114 Slice 5b live voice chat UX surface
+
+### Baseline
+
+- Starting point continued the accepted dirty ADR-114 working tree on `main`. Intentionally untouched baseline files remained untouched: `apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/_components/chat-message.test.tsx`, and `docs/ADR/114-realtime-live-voice-conversation-layer.md`.
+
+### What changed
+
+- `ChatArea` now owns `useLiveVoice({ chatId, getToken })`, passes an additive optional `liveVoice` prop into `ChatInput`, and mounts the new `LiveVoiceOverlay` whenever the hook status is not `idle`. The entrypoint is gated only by real readiness (`!!chat.chatId && assistantReady`); when live voice is not configured on the backend, `start` resolves to `unavailable` and the overlay shows a graceful message rather than crashing. (No build-time feature flag: the earlier `NEXT_PUBLIC_LIVE_VOICE_ENABLED` gate was removed as dead complexity.)
+- Added `app/app/_components/live-voice-overlay.tsx`, a client-only animated modal/bottom-sheet surface for sparse live states (`connecting`, `listening`, `speaking`, `working`, `recovering`, `stopping`) plus `error` and `unavailable`. It is controlled entirely by `chat-area`, uses `chat.liveVoice.*` copy from `next-intl`, focuses the primary stop/close action, and routes Escape to `stop` for active states and `close` for terminal states.
+- `ChatInput` gained one additive optional prop only: `liveVoice?: { enabled: boolean; onStart: () => void; disabled?: boolean }`. When present, it renders a separate `Live` entrypoint button next to the existing composer action area, but only while the composer is empty and not streaming/recording. The existing hold-to-record mic gesture path, pointer handlers, send/stop logic, attachments, and voice-note transcription flow were left intact.
+- Existing voice playback surfaces now participate in the shared `audio-focus` singleton: `voice-preview-button.tsx` requests focus when preview playback starts and releases it on pause/error/end while keeping the existing `currentlyPlayingAudio` mutex; `voice-message-player.tsx` requests focus when a bubble player starts and releases it on pause/end/src reset. Result: live voice (`live-voice` owner), voice preview, and voice-message playback are mutually exclusive.
+- Added `chat.liveVoice` copy in both `apps/web/messages/en.json` and `ru.json` (`start`, `connecting`, `listening`, `speaking`, `working`, `recovering`, `stopping`, `stop`, `close`, `unavailable`, `unavailableHint`, `error`, `errorHint`, `micDenied`), plus focused tests for the overlay, additive chat-input button behavior, and `audio-focus`.
+
+### Verification
+
+- Pending: run the requested full 8-step verification gate, capture exact tails, and record whether the optional voice-message-player test command needed to skip missing test files.
+
+### Risks / residuals
+
+- The `Live` entrypoint is always rendered for ready chats (no feature flag). Backend live-voice readiness, ElevenLabs agent setup, and the previously documented ingress/relay secrets remain required for it to actually connect; otherwise users see the `unavailable` overlay state.
+- This slice intentionally does not modify the existing live-voice engine internals beyond consuming the hook from `chat-area`.
+
+### Next recommended step
+
+- Continue ADR-114 Slice 6 hardening/smoke after the full requested gate and a live flagged web smoke confirm the deploy-dark UI behaves correctly.
+
+### Baseline
+
+- Starting point continued the accepted dirty ADR-114 working tree on `main`. Intentionally untouched baseline files remained untouched: `apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/_components/chat-message.test.tsx`, and `docs/ADR/114-realtime-live-voice-conversation-layer.md`.
+
+### What changed
+
+- Added the web-only live-voice engine substrate in `apps/web` without changing chat UI surfaces. New files: `app/app/_components/live-voice-types.ts`, `app/app/_components/use-live-voice.ts`, `app/app/_components/use-live-voice.test.tsx`, and `app/lib/audio-focus.ts`.
+- `assistant-api-client.ts` now exposes `startLiveVoiceSession`, `getLiveVoiceSessionStatus`, `stopLiveVoiceSession`, and `buildLiveVoiceRelayUrl`. The relay helper derives the websocket origin from `getApiBaseUrl()` and appends the backend-provided relay path plus `?ticket=...` without duplicating `/api/v1`.
+- `useLiveVoice` is client-only and dynamically imports `@elevenlabs/client` so SSR stays safe. Start flow now: acquires audio focus, starts the backend session, preflights microphone access, prefers relay when `clientConfig.preferRelay=true`, otherwise tries direct WebRTC/WebSocket first and falls back to the PersAI relay websocket when direct connection setup fails. Hook status is driven from SDK callbacks (`connecting`, `listening`, `speaking`, `recovering`, `idle`, `unavailable`, `error`, `stopping`), and stop/unmount teardown best-effort closes both the SDK session and backend session row.
+- Added focused hook tests covering direct WebRTC happy path, relay-primary path, direct-to-relay fallback, microphone denial, structured `live_voice_*` unavailable errors, and explicit stop teardown. Added `@elevenlabs/client` to `apps/web` dependencies.
+
+### Verification
+
+- Pending: run the requested 7-command gate in order and record exact tails once the working tree verification completes.
+
+### Risks / residuals
+
+- Slice 5a is engine-only. No chat-input button, no live overlay, no i18n copy, and no voice-preview / voice-message-player wiring landed here; those remain Slice 5b.
+- The focused hook tests still emit React 19 `act(...)` environment warnings under the current vitest/jsdom setup even though the assertions pass. Functional correctness is covered, but the warning source may be worth cleaning globally later in the web test harness.
+
+### Next recommended step
+
+- Continue ADR-114 Slice 5b: wire the engine into the actual chat UX (desktop/mobile affordance, visible state copy, overlay/stop controls, and audio-focus integration with existing voice preview / message playback).
+
+## 2026-06-10 - ADR-114 live voice relay secret robustness fix
+
+### Baseline
+
+- Starting point continued the accepted dirty ADR-114 working tree on `main`. Intentionally untouched baseline files remained untouched: `apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/_components/chat-message.test.tsx`, and `docs/ADR/114-realtime-live-voice-conversation-layer.md`.
+
+### What changed
+
+- Narrow backend-only fix in `AssistantLiveVoiceSessionService.startSession()`: relay ticket minting is now best-effort instead of unconditional. The service still creates the durable live session row first, then tries `AssistantLiveVoiceRelayTicketService.issue(...)` inside `try/catch`.
+- When the relay ticket succeeds, the response is unchanged and still includes `clientConfig.relay = { path, ticket, expiresAt }`.
+- When relay ticket minting fails and `preferRelay=false`, start now continues normally for the direct path, logs a warning without secrets, leaves `clientConfig.relay` undefined, and still returns the direct ElevenLabs credential.
+- When relay ticket minting fails and `preferRelay=true`, start now throws explicit `503 { code: "live_voice_relay_secret_unavailable", message: "Live voice relay transport is configured but its signing secret is not set." }` because the configured primary transport cannot work without relay signing.
+- Updated the exported API-side `AssistantLiveVoiceSessionStartState` type so `clientConfig.relay` is optional, removed `relay` from the OpenAPI `AssistantLiveVoiceClientConfigState.required` list, and regenerated the generated contracts.
+- Expanded `apps/api/test/assistant-live-voice-session.service.test.ts` with the two focused cases: direct route + relay-ticket failure must still succeed with `relay === undefined`, and relay route + relay-ticket failure must reject with `live_voice_relay_secret_unavailable`.
+
+### Verification
+
+- Pending: run the requested 9-command gate in order and record exact tails once the working tree verification completes.
+
+### Risks / residuals
+
+- This fix intentionally changes only the session-start robustness seam. `AssistantLiveVoiceRelayTicketService` still throws loudly on missing secret, and relay remains unavailable until operators configure `tool/live_voice/relay_ticket/secret`.
+- Older docs/history entries from the Slice 4 landing still describe relay as always present in start responses; they should now be read as superseded by this hotfix entry plus the updated contract.
+
+### Next recommended step
+
+- After verification passes, continue ADR-114 Slice 5 live UX/client autopick work on top of the more robust backend truth: direct-first users are no longer blocked by an unconfigured relay secret, while relay-primary misconfiguration now fails explicitly.
+
+## 2026-06-10 - ADR-114 Slice 4b live voice credentials
+
+### Baseline
+
+- Starting point continued the accepted dirty ADR-114 working tree. Intentionally untouched baseline files remained untouched: `apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/_components/chat-message.test.tsx`, and `docs/ADR/114-realtime-live-voice-conversation-layer.md`.
+
+### What changed
+
+- Consolidated the ElevenLabs live-voice client onto the existing shared TTS credential slot: `ElevenlabsLiveVoiceClient` now resolves `tool_tts_elevenlabs`, and the duplicate `tool_live_voice_elevenlabs` key was removed from `tool-credential-settings.ts` across `TOOL_CREDENTIAL_IDS`, `TOOL_CODE_BY_CREDENTIAL_KEY`, the admin display-name map, and the derived `ToolCredentialKey` union/exhaustive maps. No Prisma migration was added; any old `tool/live_voice/elevenlabs/api-key` secret row is simply unused now.
+- Updated the focused API tests so the live-voice client asserts `tool_tts_elevenlabs`, and the admin credential-catalog test now expects the reduced visible credential count after the removed key. The remaining catalog/admin runtime tests stayed aligned with the narrowed key union and the API typecheck is expected to catch any missed exhaustive map.
+- Added `Admin -> Tools -> Live Voice` in `apps/web/app/admin/tools/page.tsx` directly under TTS. The section explains that live voice reuses the TTS ElevenLabs API key and surfaces the two PersAI-internal secrets (`tool_live_voice_custom_llm_ingress`, `tool_live_voice_relay_ticket`) with write-only inputs, helper hints, client-side generate (`crypto.getRandomValues` -> base64url), and clipboard copy. The existing Save flow remains unchanged and still persists values only when the operator clicks `Save tool credentials`.
+- Extended `ToolCredentialCard` with optional `allowGenerate` and `hint` props so existing card usages stay unchanged, then added web tests covering section render, both hints, deterministic generate, and clipboard copy for the ingress secret.
+
+### Verification
+
+- Pending: run the requested full gate in order and record exact command tails plus the exact web test command/result.
+
+### Risks / residuals
+
+- Operator follow-up is still required after this slice: set both internal secrets in `Admin -> Tools -> Live Voice`, and paste the ingress secret into the ElevenLabs Agent Custom LLM `API Key` field. The relay-ticket secret remains server-only and must never be entered into ElevenLabs.
+- Slice 5 live UX/client autopick is still next; this slice changes only credential truth and admin/operator setup.
+
+### Next recommended step
+
+- Start ADR-114 Slice 5: web/mobile live UX and client autopick (`direct` first, fallback to relay where needed) on top of the now-real direct + relay backend substrate, after operators have configured the new live-voice secrets.
+
+## 2026-06-10 - ADR-114 Slice 4 websocket relay fallback
+
+### Baseline
+
+- Starting point continued the accepted dirty ADR-114 working tree. Intentionally untouched baseline files remained untouched: `apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/_components/chat-message.test.tsx`, and `docs/ADR/114-realtime-live-voice-conversation-layer.md`.
+
+### What changed
+
+- Added `AssistantLiveVoiceRelayTicketService` as the stateless relay-auth seam. It signs `{ sid, uid, exp }` with HMAC-SHA256 using the new managed secret `tool/live_voice/relay_ticket/secret`, returns a short-lived relay `ticket` plus `expiresAt`, and verifies tamper/expiry/format failures by returning `null` instead of throwing.
+- Added the pure relay pump core plus embedded websocket gateway in `apps/api`. `AssistantLiveVoiceRelayGateway` listens on the underlying HTTP server upgrade event for `/api/v1/assistant/live-voice/relay`, verifies the relay ticket, confirms the durable `assistant_live_voice_sessions` row is still `active` for the same user, mints the upstream ElevenLabs websocket signed URL server-side, opens the upstream websocket first, then upgrades the client socket and transparently pumps text/binary frames in both directions with idle/max-duration teardown and basic connect/disconnect/error logging. Provider URLs/tickets are never logged.
+- Extended `AssistantLiveVoiceSessionService.startSession()` additively again. Start now always issues a relay ticket after the session row is created and includes `clientConfig.preferRelay` plus `clientConfig.relay = { path, ticket, expiresAt }`. When operator readiness says `transportRoute=direct`, the existing direct credential path remains unchanged. When readiness says `transportRoute=relay`, API no longer throws unavailable, does not pre-issue a direct ElevenLabs credential, returns empty `transport.credential`, and sets `clientConfig.connectionType = "websocket"` so the future client autopick layer has a working fallback target.
+- Registered the new relay ticket secret in tool-credential truth (`tool/live_voice/relay_ticket/secret`), updated OpenAPI/generated contracts for the additive `clientConfig.preferRelay` / `clientConfig.relay` shape, added focused relay ticket + relay connection tests, and expanded the existing live-voice session tests to cover the relay-route branch without changing the direct-path assertions. No Prisma schema or migration change was added.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api add ws`
+- `corepack pnpm --filter @persai/api add -D @types/ws`
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm exec prettier --write "packages/contracts/src/generated/**/*.ts" "packages/contracts/openapi.yaml"` (needed a retry loop on Windows because a few generated files were transiently locked)
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-relay-ticket.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-relay-connection.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-session.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-custom-llm.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/elevenlabs-live-voice.client.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-credentials.service.test.ts`
+
+### Risks / residuals
+
+- Slice 4 is websocket-only relay fallback. WebRTC-over-relay / TURN / SFU remains explicitly deferred; reachable clients still rely on the unchanged direct path.
+- The backend now returns both direct and relay bootstrap truth, but the client autopick / web-mobile live UX that decides when to use relay is still Slice 5.
+- The relay gateway is embedded in `apps/api` for this slice. If live audio volume grows significantly, a later slice may need to revisit deployment isolation and operational scaling, but no new service was introduced here.
+
+### Next recommended step
+
+- Start ADR-114 Slice 5: web/mobile live UX and client autopick (`direct` first, fallback to relay where needed) on top of the now-real direct + relay backend substrate.
+
+## 2026-06-10 - ADR-114 Slice 3 client config + auth coverage
+
+### Baseline
+
+- Starting point continued the accepted dirty ADR-114 working tree. Intentionally untouched baseline files remained untouched: `apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/_components/chat-message.test.tsx`, and `docs/ADR/114-realtime-live-voice-conversation-layer.md`.
+
+### What changed
+
+- Extended `AssistantLiveVoiceSessionService.startSession()` additively so the public start response now includes `clientConfig` next to the existing `session` and `transport` fields. `clientConfig` carries `agentId`, `connectionType`, `overrides.voiceId`, `overrides.language`, and `customLlmExtraBody.persaiLiveVoiceSessionId`.
+- Injected the existing `ResolveUserLocaleService` as the last constructor dependency and resolved `language` with `forUserInWorkspace(userId, workspaceId)`, so live voice now follows the existing PersAI `ru|en` locale truth rather than a hardcoded language. The snapped `voiceId` remains the assistant's persisted ElevenLabs voice selected at session start, and `customLlmExtraBody.persaiLiveVoiceSessionId` binds the client-side ElevenLabs session back to the durable live-session row used by the Slice 2 Custom LLM ingress.
+- Added the three authenticated live-voice user routes to the explicit `ClerkAuthMiddleware` allowlist: `POST /api/v1/assistant/live-voice/start`, `GET /api/v1/assistant/live-voice/:sessionId`, and `POST /api/v1/assistant/live-voice/:sessionId/stop`. The machine Custom LLM ingress route remains outside the Clerk list and continues to self-authenticate with the ingress Bearer secret.
+- Updated the typed OpenAPI/generated contract for the additive `clientConfig` response shape and extended the focused session test helper to mock locale resolution, assert the full `clientConfig` block, and prove both `ru` and `en` language outcomes.
+
+### Verification
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm exec prettier --write "packages/contracts/src/generated/**/*.ts" "packages/contracts/openapi.yaml"`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-session.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-custom-llm.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/elevenlabs-live-voice.client.test.ts`
+
+### Risks / residuals
+
+- `transportRoute=relay` remains intentionally unavailable in the live session start path; this slice does not implement relay or return relay-aware transport config.
+- ElevenLabs still applies `voiceId` / `language` overrides only if the operator has enabled `platform_settings.overrides.conversation_config_override` for those fields on the agent. PersAI documents that precondition but does not enforce it from the API.
+
+### Next recommended step
+
+- Start ADR-114 Slice 4: realtime relay/proxy for blocked/unreliable regions, wiring `transportRoute=relay` end-to-end without changing the Custom LLM brain path.
+
+## 2026-06-10 - ADR-114 Slice 2 Custom LLM ingress
+
+### Baseline
+
+- Starting point continued the operator-approved dirty tree from the ADR-114 planning / Slice 1 flow. Accepted pre-existing dirty files remained untouched: `apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/_components/chat-message.test.tsx`, and `docs/ADR/114-realtime-live-voice-conversation-layer.md`.
+
+### What changed
+
+- Added backend-only machine ingress `POST /api/v1/assistant/live-voice/custom-llm/chat/completions` in a dedicated non-Clerk controller. The route authenticates `Authorization: Bearer <secret>` against a new admin-managed secret id `tool/live_voice/custom_llm_ingress/secret`, so ElevenLabs servers can call it without a user session.
+- Added `AssistantLiveVoiceCustomLlmService` as a thin transport adapter over `StreamWebChatTurnService`: it resolves the active live session, looks up the owning chat's existing `surfaceThreadKey`, takes only the last incoming `messages[].role === "user"` utterance, calls `prepare()` / `streamToCompletion()` unchanged, re-emits assistant text as OpenAI-compatible SSE `chat.completion.chunk` frames, suppresses thinking/tool content, and always terminates with `data: [DONE]`.
+- Abort / barge-in is now wired through `req.on("aborted")` and `res.on("close")` to an `AbortController` passed into the reused chat stream path, so the in-flight PersAI turn stops through the existing interruption behavior. No Prisma schema change, no generated contracts change, and no chat/runtime prompt/tool logic change were made.
+- Added focused tests covering adapter argument reuse, OpenAI SSE framing, machine-auth/session errors, abort propagation, and the "no thinking/tool frames" rule.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-custom-llm.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-session.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/elevenlabs-live-voice.client.test.ts`
+
+### Risks / residuals
+
+- Slice 2 is still backend-only ingress. It does not yet set per-session `conversation_config_override`, relay transport, agent language override, or any frontend/mobile live UX; those remain Slice 3+.
+- The ingress route stays intentionally outside `packages/contracts/openapi.yaml` and generated clients. Any future product client use would need a separate contract decision; current intended caller is ElevenLabs only.
+- This slice trusts only the durable live-session row for `userId + chatId + assistantId`, but it still depends on ElevenLabs eventually sending the correct `elevenlabs_extra_body.persaiLiveVoiceSessionId`; wiring that into the agent/session bootstrap remains later work.
+
+### Next recommended step
+
+- Start ADR-114 Slice 3: realtime transport/relay + agent config (`conversation_config_override` voice/language, direct vs relay route, reconnect/timeout/observability).
+
+## 2026-06-10 - ADR-114 Slice 1 live session substrate
+
+### Baseline
+
+- Starting point continued the operator-approved dirty tree from the ADR-114 planning session. Accepted pre-existing dirty files remained untouched: `apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/_components/chat-message.test.tsx`, and `docs/ADR/114-realtime-live-voice-conversation-layer.md`.
+
+### What changed
+
+- Added the durable backend session substrate for live voice: `assistant_live_voice_sessions` Prisma model truth + migration, authenticated assistant live-voice `start/status/stop` API routes, and `AssistantLiveVoiceSessionService`.
+- Added server-side ElevenLabs conversational credential issuance through a thin client: WebRTC sessions receive `conversationToken`, WebSocket sessions receive `signedUrl`, and the provider secret remains server-side.
+- Session start now snapshots the selected assistant `voiceProfile.elevenlabs.voiceId` into the durable session row and stores operator-selected transport metadata (`transportProtocol`, explicit `transportRoute`) plus the configured ElevenLabs `agentId`.
+- Added operator live-voice readiness settings to `platform_runtime_provider_settings.live_voice` with `enabled`, `agentId`, `transportProtocol`, and `transportRoute`. `transportRoute` is explicit `direct | relay` truth and is not inferred from protocol.
+- Added focused API tests for the live-voice session service and the ElevenLabs live-voice client.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma`
+- `corepack pnpm --filter @persai/api exec tsx test/elevenlabs-live-voice.client.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-session.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check` (after re-running `corepack pnpm run contracts:generate` and applying canonical Prettier to the regenerated `packages/contracts` output)
+
+### Risks / residuals
+
+- Slice 1 is substrate only. No transcript bridge, no live runtime turn ingestion, no provider-context/bootstrap packet, and no frontend/mobile live UX were added yet.
+- `transportRoute=relay` remains explicit persisted operator truth, but Slice 1 does not implement a relay path yet. Start currently admits only `direct` sessions and returns an honest service-unavailable error for relay-configured readiness.
+- The migration folder was authored to match the canonical schema truth after reconciling duplicate/missing schema definitions during implementation; live database apply/smoke remains for the next execution slice.
+- Stop metadata is intentionally local support/audit truth only and must not be reused as billing/provider-cost settlement input.
+- Re-running `contracts:generate` for the new live-voice schemas also surfaced pre-existing generated/openapi drift (memory-backfill and knowledge embedding-change-preview schemas already declared in `packages/contracts/openapi.yaml` but never regenerated into `packages/contracts/src/generated`). The committed regeneration now matches the source OpenAPI; these non-live-voice generated files are drift correction, not new contract surface from this slice.
+
+### Next recommended step
+
+- (Superseded — see the 2026-06-10 "ADR-114 direction change to Custom LLM" entry below. The bootstrap-packet Slice 2 was implemented and then reverted; the new Slice 2 is the PersAI Custom LLM streaming endpoint.)
+
+## 2026-06-10 - ADR-114 direction change to Custom LLM + Slice 2 revert
+
+### Decision
+
+- ADR-114 retargeted to **ElevenLabs Agent + Custom LLM → PersAI streaming chat**. The Agent becomes the realtime audio engine only (STT, VAD, turn-taking, interruption, TTS) and calls a PersAI OpenAI-compatible streaming `chat/completions` Custom LLM endpoint for each spoken turn. PersAI answers with its existing fast streaming chat (one brain), so every spoken turn is an ordinary PersAI chat turn.
+- This supersedes the earlier "ElevenLabs built-in LLM + PersAI hidden action tool + bootstrap context packet" design. It removes the two-LLM `intent` seam, removes post-session chat-context loss (turns persist natively), and removes the need for a separate voice action tool.
+
+### What changed
+
+- Reverted ADR-114 Slice 2 (bootstrap context packet): deleted `AssistantLiveVoiceBootstrapService` and its test, unwired it from `AssistantLiveVoiceSessionService.startSession` (start now returns only `session` + `transport`), removed it from the module providers, removed the `AssistantLiveVoiceBootstrap*` OpenAPI schemas and the `bootstrap` field on `AssistantLiveVoiceSessionStartState`, and regenerated/cleaned the contracts (including stale `index.ts` exports orval left behind).
+- Rewrote `docs/ADR/114-realtime-live-voice-conversation-layer.md` for the Custom LLM architecture with a new slice plan.
+- ADR-114 Slice 1 substrate is unchanged and remains the foundation.
+
+### Verification
+
+- `corepack pnpm run contracts:generate` + canonical Prettier on regenerated `packages/contracts` output
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-live-voice-session.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/elevenlabs-live-voice.client.test.ts`
+
+### Risks / residuals
+
+- Slice 1 substrate remains as-is; `transportRoute=relay` still returns an honest unavailable until transport (new Slice 3) lands.
+- The accepted dirty baseline (`apps/web/.../chat-message.tsx`, `.test.tsx`) remains untouched.
+
+### Next recommended step
+
+- Start ADR-114 Slice 2 (new): the PersAI OpenAI-compatible streaming `chat/completions` Custom LLM endpoint — authenticate/bind to the live session, map to the owning PersAI chat, reuse the existing fast streaming chat path, stream tokens in the OpenAI-compatible shape, keep TTFT low, dispatch heavy work to existing async jobs, and cancel on barge-in. No transport/UI yet.
+
 ## 2026-06-09 - ADR-114 realtime live voice program opened
 
 ### Baseline

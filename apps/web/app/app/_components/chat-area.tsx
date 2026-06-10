@@ -25,6 +25,8 @@ import { ChatMessageBubble } from "./chat-message";
 import { ChatInput, type ChatInputHandle } from "./chat-input";
 import { ActivityBadge } from "./activity-badge";
 import { AssistantAvatar } from "./assistant-avatar";
+import { LiveVoiceOverlay } from "./live-voice-overlay";
+import { useLiveVoice } from "./use-live-voice";
 import {
   type AssistantChatMode,
   patchAssistantWebChat,
@@ -95,6 +97,7 @@ export function ChatArea({
   const { getToken } = useAuth();
   const t = useTranslations("chat");
   const { openSidebar } = useShellActions();
+  const liveVoice = useLiveVoice({ chatId: chat.chatId ?? "", getToken });
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -284,6 +287,7 @@ export function ChatArea({
   const isEmpty = !chat.historyLoading && chat.messages.length === 0;
   const displayTitle = title ?? t("newChat");
   const canEdit = !!chat.chatId;
+  const liveVoiceEntrypointEnabled = !!chat.chatId && assistantReady;
 
   const startEdit = useCallback(() => {
     if (!canEdit) return;
@@ -897,7 +901,30 @@ export function ChatArea({
         pendingSendStatus={chat.pendingSendStatus}
         activeMediaJobs={chat.activeMediaJobs}
         activeDocumentJobs={chat.activeDocumentJobs}
+        liveVoice={{
+          enabled: liveVoiceEntrypointEnabled,
+          onStart: () => {
+            if (!chat.chatId) {
+              return;
+            }
+            void liveVoice.start();
+          },
+          disabled: chat.isStreaming
+        }}
       />
+      {liveVoice.status !== "idle" ? (
+        <LiveVoiceOverlay
+          status={liveVoice.status}
+          error={liveVoice.error}
+          transport={liveVoice.transport}
+          onStop={() => {
+            void liveVoice.stop();
+          }}
+          onClose={() => {
+            void liveVoice.stop();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

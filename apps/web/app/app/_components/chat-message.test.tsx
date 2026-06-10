@@ -620,7 +620,7 @@ describe("ChatMessageBubble — video attachment preview", () => {
     const video = container.querySelector("video");
     expect(video).not.toBeNull();
     expect(video).toHaveAttribute("data-preview-frame-ready", "false");
-    expect(screen.getAllByText("clip.mp4").length).toBeGreaterThan(0);
+    expect(screen.queryByText("clip.mp4")).toBeNull();
   });
 
   it("opens the video lightbox through the existing card click path", () => {

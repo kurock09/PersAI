@@ -1,13 +1,17 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatArea } from "./chat-area";
 import type { ChatMessage, UseChatReturn } from "./use-chat";
 import { patchAssistantWebChat } from "../assistant-api-client";
 import * as projectFilesEvents from "./project-files-events";
+import type { LiveVoiceStatus, LiveVoiceTransport } from "./live-voice-types";
 
 const chatMessageBubbleMock = vi.hoisted(() => vi.fn());
 const getTokenMock = vi.hoisted(() => vi.fn(async (): Promise<string | null> => null));
 const openSidebarMock = vi.hoisted(() => vi.fn());
+const useLiveVoiceMock = vi.hoisted(() => vi.fn());
+const chatInputMock = vi.hoisted(() => vi.fn());
+const liveVoiceOverlayMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -38,7 +42,10 @@ vi.mock("./chat-message", () => ({
 }));
 
 vi.mock("./chat-input", () => ({
-  ChatInput: () => <div data-testid="chat-input" />
+  ChatInput: (props: unknown) => {
+    chatInputMock(props);
+    return <div data-testid="chat-input" />;
+  }
 }));
 
 vi.mock("./activity-badge", () => ({
@@ -47,6 +54,17 @@ vi.mock("./activity-badge", () => ({
 
 vi.mock("./assistant-avatar", () => ({
   AssistantAvatar: () => <div data-testid="assistant-avatar" />
+}));
+
+vi.mock("./use-live-voice", () => ({
+  useLiveVoice: (...args: unknown[]) => useLiveVoiceMock(...args)
+}));
+
+vi.mock("./live-voice-overlay", () => ({
+  LiveVoiceOverlay: (props: unknown) => {
+    liveVoiceOverlayMock(props);
+    return <div data-testid="live-voice-overlay" />;
+  }
 }));
 
 vi.mock("../assistant-api-client", () => ({
@@ -87,9 +105,33 @@ afterEach(() => {
   chatMessageBubbleMock.mockClear();
   getTokenMock.mockClear();
   openSidebarMock.mockClear();
+  useLiveVoiceMock.mockReset();
+  useLiveVoiceMock.mockReturnValue({
+    status: "idle" as LiveVoiceStatus,
+    transport: null as LiveVoiceTransport | null,
+    error: null,
+    conversationId: null,
+    start: vi.fn(async () => undefined),
+    stop: vi.fn(async () => undefined),
+    isActive: false
+  });
+  chatInputMock.mockClear();
+  liveVoiceOverlayMock.mockClear();
   sessionStorage.clear();
   projectFilesEvents.resetProjectFilesHintStateForTests();
   vi.restoreAllMocks();
+});
+
+beforeEach(() => {
+  useLiveVoiceMock.mockReturnValue({
+    status: "idle" as LiveVoiceStatus,
+    transport: null as LiveVoiceTransport | null,
+    error: null,
+    conversationId: null,
+    start: vi.fn(async () => undefined),
+    stop: vi.fn(async () => undefined),
+    isActive: false
+  });
 });
 
 function createChat(
@@ -143,6 +185,39 @@ function createChat(
 }
 
 describe("ChatArea", () => {
+  it("passes live voice props to ChatInput when the chat is ready", () => {
+    render(<ChatArea chat={createChat("Hello", { isStreaming: false })} assistantReady />);
+
+    const props = chatInputMock.mock.calls.at(-1)?.[0] as {
+      liveVoice?: {
+        enabled: boolean;
+        onStart: () => void;
+        disabled?: boolean;
+      };
+    };
+
+    expect(props.liveVoice?.enabled).toBe(true);
+    expect(props.liveVoice?.disabled).toBe(false);
+  });
+
+  it("renders the live voice overlay when the hook is active", () => {
+    const stop = vi.fn(async () => undefined);
+    useLiveVoiceMock.mockReturnValue({
+      status: "listening" as LiveVoiceStatus,
+      transport: "direct-webrtc" as LiveVoiceTransport,
+      error: null,
+      conversationId: "conversation-1",
+      start: vi.fn(async () => undefined),
+      stop,
+      isActive: true
+    });
+
+    render(<ChatArea chat={createChat("Hello", { isStreaming: false })} assistantReady />);
+
+    expect(screen.getByTestId("live-voice-overlay")).toBeInTheDocument();
+    expect(liveVoiceOverlayMock).toHaveBeenCalled();
+  });
+
   it("persists project chat mode through the shared mode menu", async () => {
     getTokenMock.mockResolvedValueOnce("token-1");
     const patchMock = vi.mocked(patchAssistantWebChat);

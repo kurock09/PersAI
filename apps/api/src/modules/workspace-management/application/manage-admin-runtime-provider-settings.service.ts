@@ -87,6 +87,7 @@ export class ManageAdminRuntimeProviderSettingsService {
         heygenPersonaCreationVcoin: input.heygenPersonaCreationVcoin,
         heygenVoiceCloneWorkspaceLimit: input.heygenVoiceCloneWorkspaceLimit,
         heygenVoiceCloneCreationVcoin: input.heygenVoiceCloneCreationVcoin,
+        liveVoice: input.liveVoice as Prisma.InputJsonValue,
         updatedByUserId: userId
       },
       update: {
@@ -107,6 +108,7 @@ export class ManageAdminRuntimeProviderSettingsService {
         heygenPersonaCreationVcoin: input.heygenPersonaCreationVcoin,
         heygenVoiceCloneWorkspaceLimit: input.heygenVoiceCloneWorkspaceLimit,
         heygenVoiceCloneCreationVcoin: input.heygenVoiceCloneCreationVcoin,
+        liveVoice: input.liveVoice as Prisma.InputJsonValue,
         updatedByUserId: userId
       }
     });
@@ -157,6 +159,7 @@ export class ManageAdminRuntimeProviderSettingsService {
         routingFastModelKey: settings.routingFastModelKey,
         routerPolicy: settings.routerPolicy,
         skillRoutingPolicy: settings.skillRoutingPolicy,
+        liveVoice: settings.liveVoice,
         updatedProviders: Object.entries(input.providerKeys)
           .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
           .map(([provider]) => provider),

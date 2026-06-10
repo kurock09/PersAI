@@ -125,6 +125,11 @@ async function run(): Promise<void> {
     auditEventCode: "admin.materialization_rollout_created",
     auditSummary: "Admin queued a runtime provider settings materialization rollout."
   });
+
+  console.log("manage-admin-runtime-provider-settings.service: all assertions passed");
 }
 
-void run();
+run().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

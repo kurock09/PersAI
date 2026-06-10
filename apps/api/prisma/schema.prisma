@@ -616,6 +616,7 @@ model AppUser {
   workspaceSubscriptionLifecycleEvents   WorkspaceSubscriptionLifecycleEvent[]
   workspaceSubscriptionBillingEvents     WorkspaceSubscriptionBillingEvent[]
   workspacePaymentIntents                WorkspacePaymentIntent[]
+  liveVoiceSessions                      AssistantLiveVoiceSession[]
   notificationIntents                    NotificationIntent[]              @relation("NotificationIntentUser")
   createdMaterializationRollouts         MaterializationRollout[]          @relation("MaterializationRolloutCreatedByUser")
   materializationRolloutItems            MaterializationRolloutItem[]      @relation("MaterializationRolloutItemUser")
@@ -702,6 +703,7 @@ model Workspace {
   workspaceVcoinLedgerEvents        WorkspaceVcoinLedgerEvent[]
   workspaceVideoPersonas            WorkspaceVideoPersona[]
   workspaceVideoClonedVoices        WorkspaceVideoClonedVoice[]
+  liveVoiceSessions                 AssistantLiveVoiceSession[]
 
   @@map("workspaces")
 }
@@ -723,6 +725,7 @@ model WorkspaceMember {
   assistantKnowledgeSources    AssistantKnowledgeSource[]
   assistantSkillAssignments    AssistantSkillAssignment[]
   abuseGuardStates             AssistantAbuseGuardState[]
+  liveVoiceSessions            AssistantLiveVoiceSession[] @relation("WorkspaceMemberLiveVoiceSessions")
   workspace                    Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   user                         AppUser                       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
@@ -809,6 +812,7 @@ model Assistant {
   documents                            AssistantDocument[]
   documentVersions                     AssistantDocumentVersion[]
   documentRenderJobs                   AssistantDocumentRenderJob[]
+  liveVoiceSessions                    AssistantLiveVoiceSession[]
   notificationIntents                  NotificationIntent[]          @relation("NotificationIntentAssistant")
   activeForWorkspaceMembers            WorkspaceMember[]             @relation("WorkspaceMemberActiveAssistant")
 
@@ -990,6 +994,8 @@ model PlatformRuntimeProviderSettings {
   heygenVoiceCloneWorkspaceLimit  Int                             @default(5) @map("heygen_voice_clone_workspace_limit")
   /// ADR-111 Slice 3 — VC cost to create one cloned voice. Default 50 (= $2.50 at 1 VC = $0.05). Set to 0 for free creation.
   heygenVoiceCloneCreationVcoin   Int                             @default(50) @map("heygen_voice_clone_creation_vcoin")
+  /// ADR-114 Slice 1 — operator-owned live voice readiness/settings envelope.
+  liveVoice                       Json                            @default("{}") @map("live_voice_settings") @db.JsonB
   updatedByUserId                 String?                         @map("updated_by_user_id") @db.Uuid
   createdAt                       DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1910,6 +1916,7 @@ model AssistantChat {
   telegramAlbumCollectors     AssistantTelegramAlbumCollector[]
   documents                   AssistantDocument[]
   documentRenderJobs          AssistantDocumentRenderJob[]
+  liveVoiceSessions           AssistantLiveVoiceSession[]
 
   @@unique([assistantId, surface, surfaceThreadKey])
   @@unique([id, assistantId])
@@ -3467,3 +3474,59 @@ model WorkspaceVideoClonedVoice {
   @@index([workspaceId, status])
   @@map("workspace_video_cloned_voices")
 }
+
+enum AssistantLiveVoiceTransportProtocol {
+  webrtc
+  websocket
+}
+
+enum AssistantLiveVoiceTransportRoute {
+  direct
+  relay
+}
+
+enum AssistantLiveVoiceSessionStatus {
+  active
+  stopped
+  failed
+}
+
+/// ADR-114 Slice 1 — durable substrate for one live realtime voice session in
+/// an existing assistant chat.
+///
+/// This table is support/audit metadata only in Slice 1: start/status/stop,
+/// selected ElevenLabs voice snapshot, selected operator transport config
+/// snapshot, and local non-billing duration/failure facts. It is intentionally
+/// not a transcript store, raw-audio store, or provider settlement ledger.
+model AssistantLiveVoiceSession {
+  id                String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId       String                             @map("assistant_id") @db.Uuid
+  userId            String                             @map("user_id") @db.Uuid
+  workspaceId       String                             @map("workspace_id") @db.Uuid
+  chatId            String                             @map("chat_id") @db.Uuid
+  status            AssistantLiveVoiceSessionStatus    @default(active)
+  transportProtocol AssistantLiveVoiceTransportProtocol @map("transport_protocol")
+  transportRoute    AssistantLiveVoiceTransportRoute   @map("transport_route")
+  elevenlabsAgentId String                             @map("elevenlabs_agent_id") @db.VarChar(128)
+  elevenlabsVoiceId String                             @map("elevenlabs_voice_id") @db.VarChar(128)
+  localDurationMs   Int?                               @map("local_duration_ms")
+  failureCode       String?                            @map("failure_code") @db.VarChar(128)
+  failureMessage    String?                            @map("failure_message") @db.Text
+  metadata          Json                               @default("{}") @db.JsonB
+  startedAt         DateTime                           @default(now()) @map("started_at") @db.Timestamptz(6)
+  stoppedAt         DateTime?                          @map("stopped_at") @db.Timestamptz(6)
+  createdAt         DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  assistant       Assistant       @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace       Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember WorkspaceMember @relation("WorkspaceMemberLiveVoiceSessions", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  user            AppUser         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chat            AssistantChat   @relation(fields: [chatId, assistantId], references: [id, assistantId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([assistantId, chatId, status])
+  @@index([workspaceId, startedAt(sort: Desc)])
+  @@index([chatId, startedAt(sort: Desc)])
+  @@map("assistant_live_voice_sessions")
+}
+
