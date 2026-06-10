@@ -3,6 +3,31 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-10 - ADR-114 relay early-frame + pump null-callback + idempotent start (follow-up)
+
+### Symptom
+
+- After the relay upgrade attach fix below, the relay tunnel reached `connected` in the api logs, but the browser SDK failed with "Live voice connection timed out" (~8s) and a retry then hit "A live voice session is already active for this chat."
+
+### Root cause (verified in-cluster before any deploy)
+
+- Per the operator's request to confirm the hypothesis without redeploying, a one-off probe was run from inside the `api` pod: it pulled the `tool_tts_elevenlabs` key from the DB secret store, decrypted it with `RUNTIME_PROVIDER_SECRETS_MASTER_KEY` (sha256 → AES-256-GCM), minted a real `get-signed-url`, and opened a raw websocket. Result: ElevenLabs sends `conversation_initiation_metadata` at `+2ms` after `open`, before the client sends anything. The relay attached its `message` listener only inside the `wss.handleUpgrade` callback (after the client handshake), so this first frame was dropped → the SDK never established the session → 8s client timeout while the relay logged a healthy `connected`. Probe was removed from the pod afterwards.
+
+### What changed (backend only)
+
+- `assistant-live-voice-relay.gateway.ts`: buffer all upstream frames from socket creation (`bufferEarlyUpstream`), then flush them to the client in order immediately after the pump attaches in the `handleUpgrade` callback. Logs `flushed N early upstream frame(s)`.
+- `assistant-live-voice-relay-connection.ts`: the pump's `send` callback treated `null` as an error (`ws` calls back with `null`, not `undefined`, on success), so every successfully forwarded frame threw on `error.message`. Now only a truthy value disposes; callback type widened to `Error | null`.
+- `assistant-live-voice-session.service.ts`: `startSession` is now idempotent — instead of throwing `live_voice_session_already_active`, it supersedes any stale `active` session for the same assistant+chat (`updateMany` → `stopped` / `live_voice_superseded`). A failed transport attempt can no longer strand the next start.
+- Tests: rewrote the session "already active" case to assert supersede + new session; added `assistant-live-voice-relay.gateway.test.ts` (real http+ws sockets) proving the early upstream frame is delivered through the relay and a bad ticket is rejected.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck` → green; `--filter @persai/api run lint` → green; `corepack pnpm run format:check` → green; full `corepack pnpm --filter @persai/api run test` suite → green (includes the new gateway test via auto-discovery).
+
+### Next recommended step
+
+- Deploy (one GitOps push). After the api image rolls, retry live voice with `transportRoute=relay`: expect `relay connected` + `flushed 1 early upstream frame(s)` in api logs and an actual spoken session in the browser. If the conversation still stalls after metadata flush, investigate the Custom LLM turn path (voice/language overrides, `persaiLiveVoiceSessionId` binding), not the transport.
+
 ## 2026-06-10 - ADR-114 Slice 6 admin readiness + relay ingress + UX rework
 
 ### Baseline

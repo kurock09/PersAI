@@ -111,6 +111,20 @@ export class AssistantLiveVoiceRelayGateway implements OnApplicationShutdown {
     }
 
     const upstream = new WebSocket(signedUrl);
+
+    // ElevenLabs sends `conversation_initiation_metadata` ~2ms after the
+    // upstream socket opens, i.e. before the client websocket handshake below
+    // completes and before the pump attaches its `message` listener. Without
+    // buffering, that first frame is dropped and the SDK never establishes the
+    // session (client times out while the relay logs a healthy "connected").
+    // Capture every upstream frame from creation, then flush in order once the
+    // pump is attached.
+    const pendingUpstream: Array<{ data: WebSocket.RawData; isBinary: boolean }> = [];
+    const bufferEarlyUpstream = (data: WebSocket.RawData, isBinary: boolean): void => {
+      pendingUpstream.push({ data, isBinary });
+    };
+    upstream.on("message", bufferEarlyUpstream);
+
     let settled = false;
     let openTimeout: NodeJS.Timeout | null = setTimeout(() => {
       if (settled) {
@@ -155,6 +169,9 @@ export class AssistantLiveVoiceRelayGateway implements OnApplicationShutdown {
       this.wss.handleUpgrade(req, socket, head, (clientWs) => {
         const startedAt = Date.now();
         this.logger.log(`Live voice relay connected for session ${session.id}.`);
+        // Hand the upstream to the transparent pump, then flush any frames that
+        // arrived before the client handshake completed (see comment above).
+        upstream.off("message", bufferEarlyUpstream);
         const dispose = pumpRelayConnection({
           client: toRelaySocket(clientWs),
           upstream: toRelaySocket(upstream),
@@ -165,6 +182,17 @@ export class AssistantLiveVoiceRelayGateway implements OnApplicationShutdown {
             warn: (message) => this.logger.warn(`${message} session=${session.id}`)
           }
         });
+        if (pendingUpstream.length > 0) {
+          this.logger.log(
+            `Live voice relay flushed ${String(pendingUpstream.length)} early upstream frame(s) for session ${session.id}.`
+          );
+          for (const frame of pendingUpstream) {
+            if (clientWs.readyState === WebSocket.OPEN) {
+              clientWs.send(frame.data, { binary: frame.isBinary });
+            }
+          }
+          pendingUpstream.length = 0;
+        }
         const logClose = (source: string, code?: number): void => {
           const durationMs = Date.now() - startedAt;
           this.logger.log(

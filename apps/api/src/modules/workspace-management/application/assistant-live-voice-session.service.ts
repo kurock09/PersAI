@@ -104,19 +104,29 @@ export class AssistantLiveVoiceSessionService {
     }
     const preferRelay = liveVoice.transportRoute === "relay";
 
-    const existingActive = await this.prisma.assistantLiveVoiceSession.findFirst({
+    // Starting a fresh live session supersedes any session still marked active
+    // for this chat. A previous attempt that failed during transport setup can
+    // leave a stale `active` row (the client stop is best-effort); blocking the
+    // next start on it would strand the user. Superseding is idempotent and the
+    // only owner here is the same assistant+chat.
+    const stoppedAt = new Date();
+    const superseded = await this.prisma.assistantLiveVoiceSession.updateMany({
       where: {
         assistantId: context.assistantId,
         chatId: chat.id,
         status: "active"
       },
-      orderBy: [{ createdAt: "desc" }]
+      data: {
+        status: "stopped",
+        failureCode: "live_voice_superseded",
+        failureMessage: "Superseded by a new live voice session.",
+        stoppedAt
+      }
     });
-    if (existingActive !== null) {
-      throw new BadRequestException({
-        message: "A live voice session is already active for this chat.",
-        code: "live_voice_session_already_active"
-      });
+    if (superseded.count > 0) {
+      this.logger.warn(
+        `Superseded ${String(superseded.count)} stale active live voice session(s) for chat ${chat.id}.`
+      );
     }
 
     let credential:

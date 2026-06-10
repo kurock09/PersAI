@@ -8,7 +8,7 @@ export interface RelayWebSocketLike {
   on(event: "message", cb: RelayMessageListener): this;
   on(event: "close", cb: RelayCloseListener): this;
   on(event: "error", cb: RelayErrorListener): this;
-  send(data: unknown, opts?: { binary?: boolean }, cb?: (error?: Error) => void): void;
+  send(data: unknown, opts?: { binary?: boolean }, cb?: (error?: Error | null) => void): void;
   close(code?: number, reason?: string): void;
 }
 
@@ -89,8 +89,10 @@ export function pumpRelayConnection(input: {
         );
         return;
       }
-      target.send(data, { binary: isBinary }, (error?: Error) => {
-        if (error !== undefined) {
+      target.send(data, { binary: isBinary }, (error?: Error | null) => {
+        // `ws` invokes this callback with `null` (not `undefined`) on success,
+        // so only treat a truthy value as a real send failure.
+        if (error) {
           logger?.warn?.(`Live voice relay send failed for ${direction}: ${error.message}`);
           dispose(`Live voice relay send failed for ${direction}.`, 1011, "send failed");
         }

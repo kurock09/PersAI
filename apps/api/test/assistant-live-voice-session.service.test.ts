@@ -1,9 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  BadRequestException,
-  NotFoundException,
-  ServiceUnavailableException
-} from "@nestjs/common";
+import { NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { AssistantLiveVoiceSessionService } from "../src/modules/workspace-management/application/assistant-live-voice-session.service";
 
 function createService(options?: {
@@ -22,6 +18,7 @@ function createService(options?: {
 }) {
   const createdRows: Array<Record<string, unknown>> = [];
   const updatedRows: Array<Record<string, unknown>> = [];
+  const supersededCalls: Array<Record<string, unknown>> = [];
   const issueCredentialCalls: Array<Record<string, unknown>> = [];
   const relayIssueCalls: Array<Record<string, unknown>> = [];
   const service = new AssistantLiveVoiceSessionService(
@@ -51,6 +48,13 @@ function createService(options?: {
           };
           createdRows.push(row);
           return row;
+        },
+        async updateMany(input: Record<string, unknown>) {
+          supersededCalls.push(input);
+          const hasActive =
+            options?.existingSession != null &&
+            (options.existingSession as Record<string, unknown>).status === "active";
+          return { count: hasActive ? 1 : 0 };
         },
         async update(input: Record<string, unknown>) {
           const data = input.data as Record<string, unknown>;
@@ -146,7 +150,14 @@ function createService(options?: {
     } as never
   );
 
-  return { service, createdRows, updatedRows, issueCredentialCalls, relayIssueCalls };
+  return {
+    service,
+    createdRows,
+    updatedRows,
+    supersededCalls,
+    issueCredentialCalls,
+    relayIssueCalls
+  };
 }
 
 async function run(): Promise<void> {
@@ -225,12 +236,17 @@ async function run(): Promise<void> {
   }
 
   {
-    const { service } = createService({
+    // A stale active session must be superseded (not block the next start).
+    const { service, createdRows, supersededCalls } = createService({
       liveVoice: {
         enabled: true,
         agentId: "agent-1",
         transportProtocol: "websocket",
         transportRoute: "direct"
+      },
+      issueCredentialResult: {
+        transportProtocol: "websocket",
+        signedUrl: "wss://elevenlabs.example/session"
       },
       existingSession: {
         id: "session-1",
@@ -246,11 +262,13 @@ async function run(): Promise<void> {
         stoppedAt: null
       }
     });
-    await assert.rejects(
-      () => service.startSession({ userId: "user-1", chatId: "chat-1" }),
-      (error: unknown) =>
-        error instanceof BadRequestException && String(error.message).includes("already active")
-    );
+    const started = await service.startSession({ userId: "user-1", chatId: "chat-1" });
+    assert.equal(started.session.status, "active");
+    assert.equal(createdRows.length, 1);
+    assert.equal(supersededCalls.length, 1);
+    const supersedeData = (supersededCalls[0]?.data ?? {}) as Record<string, unknown>;
+    assert.equal(supersedeData.status, "stopped");
+    assert.equal(supersedeData.failureCode, "live_voice_superseded");
   }
 
   {
