@@ -171,7 +171,7 @@ export interface ChatSendOptions {
 interface UseChatOptions {
   assistantId?: string | null;
 }
-type LiveActivitySource = "tool" | "compaction" | "runtime" | "retrieval" | "project";
+type LiveActivitySource = "tool" | "compaction" | "retrieval" | "project";
 type LiveActivityEvent = ActivityEvent & {
   source: LiveActivitySource;
   skillDetail?: string | undefined;
@@ -476,8 +476,7 @@ const LIVE_ACTIVITY_PRIORITY: Record<LiveActivitySource, number> = {
   compaction: 5,
   tool: 4,
   retrieval: 3,
-  project: 2,
-  runtime: 1
+  project: 2
 };
 function shouldReplaceLiveActivity(
   currentActivity: LiveActivityEvent | undefined,
@@ -501,37 +500,6 @@ function mergeLiveActivity(
     return currentActivity ?? nextActivity;
   }
   return applyPriorSkillDetail(nextActivity, currentActivity);
-}
-function buildRuntimeLiveActivity(params: {
-  assistantMessageId: string;
-  respondedAt: string;
-  detail?: string | undefined;
-}): LiveActivityEvent {
-  return {
-    id: `activity-live-runtime-${Date.now()}`,
-    type: "runtime_done",
-    label: "Response generated",
-    detail:
-      params.detail ??
-      new Date(params.respondedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    timestamp: params.respondedAt,
-    afterMessageId: params.assistantMessageId,
-    emphasis: "strong",
-    source: "runtime"
-  };
-}
-function buildRuntimeDoneDetail(params: {
-  respondedAt: string;
-  priorActivity: LiveActivityEvent | undefined;
-}): string {
-  const respondedAtLabel = new Date(params.respondedAt).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-  if (!params.priorActivity?.skillDetail) {
-    return respondedAtLabel;
-  }
-  return `${respondedAtLabel} · ${params.priorActivity.skillDetail}`;
 }
 export function formatTurnRoutingBadgeLabel(
   turnRouting: NonNullable<RuntimeTransportMeta["turnRouting"]>
@@ -2974,26 +2942,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 : m
             )
           );
-          applyThreadLiveActivities(sendThreadKey, (prev) => {
-            const current = prev[assistantMsgId];
-            if (current?.source === "tool") {
-              return prev;
-            }
-            return {
-              ...prev,
-              [assistantMsgId]: applyPriorSkillDetail(
-                buildRuntimeLiveActivity({
-                  assistantMessageId: assistantMsgId,
-                  respondedAt,
-                  detail: buildRuntimeDoneDetail({
-                    respondedAt,
-                    priorActivity: current
-                  })
-                }),
-                current
-              )
-            };
-          });
         },
         onCompleted: ({ transport }: { transport: unknown }) => {
           acceptStartedStream();

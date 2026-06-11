@@ -117,6 +117,11 @@
   --animate-scroll-cue: scroll-cue 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
 /* Assistant response UI blocks */
 .assistant-response-header {
   position: relative;
@@ -435,6 +440,17 @@ textarea::-webkit-resizer {
   }
 }
 
+@keyframes fade-in-inline-status {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 @keyframes pulse-slow {
   0%,
   100% {
@@ -470,11 +486,18 @@ textarea::-webkit-resizer {
   border-radius: 0.75rem;
 }
 
+.animate-fade-in-inline-status {
+  animation: fade-in-inline-status 180ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .project-files-hint {
     animation: none;
     background-color: color-mix(in srgb, var(--accent) 12%, transparent);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+  .animate-fade-in-inline-status {
+    animation: none;
   }
   .scroll-cue-dot {
     animation: none !important;

@@ -6,6 +6,7 @@ import { MessageSquarePlus, Settings, Send, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
 import { AssistantAvatar } from "./assistant-avatar";
+import { userPillButtonClassName } from "./form-ui";
 import type { AppData } from "./use-app-data";
 
 interface HomeDashboardProps {
@@ -134,12 +135,7 @@ function QuickAction({
     <button
       type="button"
       onClick={onClick}
-      className={cn(
-        "inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full px-6 text-sm font-medium transition-all",
-        accent
-          ? "bg-accent text-white shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:bg-accent-hover"
-          : "border border-border/55 bg-background/80 text-text shadow-[0_6px_18px_rgba(0,0,0,0.05)] hover:border-border/70 hover:bg-background"
-      )}
+      className={cn(userPillButtonClassName(accent ? "primary" : "secondary", "min-h-10 px-6"))}
     >
       {icon}
       {label}

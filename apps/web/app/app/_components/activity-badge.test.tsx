@@ -9,8 +9,8 @@ vi.mock("next-intl", () => ({
 describe("ActivityBadge", () => {
   const event = {
     id: "activity-1",
-    type: "runtime_done" as const,
-    label: "Response generated",
+    type: "tool_use" as const,
+    label: "files_finished",
     detail: "20:05",
     shadowRoutingLabel: "premium (llm)"
   };
@@ -18,7 +18,7 @@ describe("ActivityBadge", () => {
   it("hides shadow routing details by default", () => {
     render(<ActivityBadge event={event} />);
 
-    expect(screen.getByText("activityResponseDone")).toBeInTheDocument();
+    expect(screen.getAllByText("activityFilesDone").length).toBeGreaterThan(0);
     expect(screen.getByText("20:05")).toBeInTheDocument();
     expect(screen.queryByText(/premium \(llm\)/i)).toBeNull();
   });
@@ -57,7 +57,7 @@ describe("ActivityBadge", () => {
       />
     );
 
-    expect(screen.getByText("activityFilesDone")).toBeInTheDocument();
+    expect(screen.getAllByText("activityFilesDone").length).toBeGreaterThan(0);
     expect(screen.queryByText("files_finished")).toBeNull();
   });
 

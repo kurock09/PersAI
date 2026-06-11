@@ -550,7 +550,7 @@ describe("AssistantSettings character CTA", () => {
 
     expect(screen.getByText("Quick actions")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Memory" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show sliders" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Character tuning" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Recreate" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));
@@ -1912,10 +1912,13 @@ describe("AssistantSettings limits", () => {
       { onOpenPricingPage: openPricingPage }
     );
 
-    expect(await screen.findByRole("button", { name: "Payment settings" })).toBeInTheDocument();
+    const paymentSettingsButton = await screen.findByRole("button", { name: "Payment settings" });
+    expect(paymentSettingsButton).toBeInTheDocument();
+    expect(paymentSettingsButton.className).toContain("border");
+    expect(paymentSettingsButton.className).toContain("bg-surface-raised/72");
     expect(screen.queryByRole("button", { name: "Change plan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Buy subscription" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
+    fireEvent.click(paymentSettingsButton);
 
     expect(await screen.findByRole("heading", { name: "Payment settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
@@ -2088,7 +2091,10 @@ describe("AssistantSettings limits", () => {
       "limits"
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Payment settings" }));
+    const paymentSettingsButton = await screen.findByRole("button", { name: "Payment settings" });
+    expect(paymentSettingsButton.className).toContain("border");
+    expect(paymentSettingsButton.className).toContain("bg-surface-raised/72");
+    fireEvent.click(paymentSettingsButton);
 
     expect(await screen.findByRole("heading", { name: "Payment settings" })).toBeInTheDocument();
     expect(screen.getByText("Paused")).toBeInTheDocument();
@@ -2166,7 +2172,10 @@ describe("AssistantSettings limits", () => {
       "limits"
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Payment settings" }));
+    const paymentSettingsButton = await screen.findByRole("button", { name: "Payment settings" });
+    expect(paymentSettingsButton.className).toContain("bg-accent");
+    expect(paymentSettingsButton.className).toContain("text-white");
+    fireEvent.click(paymentSettingsButton);
     fireEvent.click(await screen.findByRole("button", { name: "Restore subscription" }));
 
     await waitFor(() => {
@@ -3328,21 +3337,7 @@ function makePlanData(
 }
 
 describe("characters section", () => {
-  it("State A (locked): renders shared cards with a disabled create slot and pricing link", async () => {
-    // Default beforeEach mock returns empty personas list
-    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
-      provider: "heygen",
-      voices: [
-        {
-          voiceId: "voice-demo-en",
-          name: "Allison",
-          language: "English",
-          gender: "female",
-          previewAudioUrl: "https://cdn.heygen.com/allison.mp3",
-          languageBucket: "other"
-        }
-      ]
-    });
+  it("State A (locked): shows locked copy, disabled create slot, and pricing link without demo persona", async () => {
     renderSettings(
       makeAppData({ plan: makePlanData({ talkingVideoEnabled: false }) }),
       "characters"
@@ -3352,12 +3347,13 @@ describe("characters section", () => {
       expect(screen.getByText("Characters")).toBeInTheDocument();
     });
 
-    expect(screen.getAllByTestId("character-card")).toHaveLength(1);
-    expect(screen.getByText("Sophie")).toBeInTheDocument();
     expect(
-      screen.getByText("Saved characters stay visible here and unlock with plan activation.")
+      screen.getByText(
+        "Saved characters for avatar videos stay visible here and unlock with plan activation."
+      )
     ).toBeInTheDocument();
-    expect(screen.getByText("Voice - Allison")).toBeInTheDocument();
+    expect(screen.queryByText("Sophie")).toBeNull();
+    expect(screen.queryAllByTestId("character-card")).toHaveLength(0);
     expect(screen.getByRole("button", { name: "Create character" })).toBeDisabled();
     expect(screen.getByRole("link", { name: "Change plan" })).toHaveAttribute(
       "href",
@@ -3366,9 +3362,6 @@ describe("characters section", () => {
     // Personas ARE fetched even in locked state
     await waitFor(() => {
       expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
-    });
-    await waitFor(() => {
-      expect(assistantApiMocks.getWorkspaceVoiceCatalog).toHaveBeenCalled();
     });
   });
 
@@ -3385,29 +3378,7 @@ describe("characters section", () => {
     });
   });
 
-  it("State A (locked): demo character prefers a female localized voice", async () => {
-    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
-      provider: "heygen",
-      voices: [
-        {
-          voiceId: "voice-ru-male-1",
-          name: "Andrei",
-          language: "Russian",
-          gender: "male",
-          previewAudioUrl: "https://cdn.heygen.com/andrei.mp3",
-          languageBucket: "ru"
-        },
-        {
-          voiceId: "voice-ru-female-1",
-          name: "Alena",
-          language: "Russian",
-          gender: "female",
-          previewAudioUrl: "https://cdn.heygen.com/alena.mp3",
-          languageBucket: "ru"
-        }
-      ]
-    });
-
+  it("State A (locked): shows the new localized locked copy without a demo avatar", async () => {
     render(
       <NextIntlClientProvider locale="ru" messages={ruMessages}>
         <AssistantSettings
@@ -3418,11 +3389,15 @@ describe("characters section", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Софи")).toBeInTheDocument();
+      expect(screen.getByText("Персонажи")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Голос - Alena")).toBeInTheDocument();
-    expect(screen.queryByText("Голос - Andrei")).toBeNull();
+    expect(
+      screen.getByText(
+        "Сохранённые персонажи для аватар видео видны здесь и откроются после активации тарифа."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Софи")).toBeNull();
   });
 
   it("State A (locked) with real personas: shows saved personas in shared disabled cards and no delete controls", async () => {
@@ -3471,8 +3446,8 @@ describe("characters section", () => {
       expect(assistantApiMocks.getWorkspaceVideoPersonas).toHaveBeenCalled();
     });
 
-    expect(screen.getAllByTestId("character-card")).toHaveLength(3);
-    expect(screen.getByText("Sophie")).toBeInTheDocument();
+    expect(screen.getAllByTestId("character-card")).toHaveLength(2);
+    expect(screen.queryByText("Sophie")).toBeNull();
     expect(screen.getByText("AliceDisabled")).toBeInTheDocument();
     expect(screen.getByText("BobDisabled")).toBeInTheDocument();
     expect(screen.getByText("Voice - Voice 1")).toBeInTheDocument();

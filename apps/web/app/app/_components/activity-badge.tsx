@@ -1,10 +1,10 @@
 "use client";
 
-import { Zap, Cpu, RefreshCw, Info } from "lucide-react";
+import { Cpu, RefreshCw, Info } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 
-export type ActivityType = "runtime_done" | "tool_use" | "system" | "info";
+export type ActivityType = "tool_use" | "system" | "info";
 
 export interface ActivityEvent {
   id: string;
@@ -17,8 +17,12 @@ export interface ActivityEvent {
   emphasis?: "default" | "strong";
 }
 
+export interface ActivityDisplayParts {
+  label: string;
+  detail?: string;
+}
+
 const TYPE_CONFIG: Record<ActivityType, { icon: typeof Cpu; color: string }> = {
-  runtime_done: { icon: Zap, color: "text-text-subtle" },
   tool_use: { icon: Cpu, color: "text-text-subtle" },
   system: { icon: RefreshCw, color: "text-text-subtle" },
   info: { icon: Info, color: "text-text-subtle" }
@@ -129,6 +133,28 @@ function resolveActivityLabel(event: ActivityEvent, t: ReturnType<typeof useTran
   return mappedKey ? t(mappedKey) : event.label;
 }
 
+export function getActivityDisplayParts(
+  event: ActivityEvent,
+  t: ReturnType<typeof useTranslations>,
+  showShadowRoutingLabel = false
+): ActivityDisplayParts {
+  const mappedLabelKey = resolveActivityLabelKey(event);
+  const suppressDetail =
+    mappedLabelKey !== null &&
+    (mappedLabelKey.startsWith("activityProjectSummary") ||
+      mappedLabelKey.startsWith("activityProjectStage") ||
+      mappedLabelKey.startsWith("activityProjectReasoning"));
+
+  const detail = suppressDetail
+    ? undefined
+    : resolveActivityDetail(buildActivityDetail(event, showShadowRoutingLabel), t);
+
+  return {
+    label: resolveActivityLabel(event, t),
+    ...(detail ? { detail } : {})
+  };
+}
+
 const ACTIVITY_LABEL_KEYS: Record<string, string> = {
   searching_the_web: "activityWebSearchStart",
   web_results_ready: "activityWebSearchDone",
@@ -192,7 +218,6 @@ const ACTIVITY_LABEL_KEYS: Record<string, string> = {
   retrieval_user_started: "activityRetrievalUserStart",
   retrieval_product_started: "activityRetrievalProductStart",
   retrieval_web_started: "activityRetrievalWebStart",
-  response_generated: "activityResponseDone",
   reviewing_local_context_and_planning_the_next_step: "activityProjectSummaryPlanReview",
   checking_whether_the_gathered_context_actually_answers_the_task: "activityProjectSummaryCheckFit",
   local_context_is_still_thin_so_the_search_may_need_to_expand: "activityProjectSummaryThinContext",
@@ -233,16 +258,7 @@ export function ActivityBadge({
   const cfg = TYPE_CONFIG[event.type];
   const Icon = cfg.icon;
   const isStrong = event.emphasis === "strong";
-  const mappedLabelKey = resolveActivityLabelKey(event);
-  const suppressDetail =
-    mappedLabelKey !== null &&
-    (mappedLabelKey.startsWith("activityProjectSummary") ||
-      mappedLabelKey.startsWith("activityProjectStage") ||
-      mappedLabelKey.startsWith("activityProjectReasoning"));
-  const detail = suppressDetail
-    ? undefined
-    : resolveActivityDetail(buildActivityDetail(event, showShadowRoutingLabel), t);
-  const label = resolveActivityLabel(event, t);
+  const { label, detail } = getActivityDisplayParts(event, t, showShadowRoutingLabel);
 
   return (
     <div className="flex items-center justify-center py-0.5">

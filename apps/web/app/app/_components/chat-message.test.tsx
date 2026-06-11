@@ -784,22 +784,39 @@ describe("ChatMessageBubble — video attachment preview", () => {
 
 describe("ChatMessageBubble — pre-response status", () => {
   it("shows thinking before the first assistant token", () => {
-    render(<ChatMessageBubble message={makeAssistantMessage()} preResponseStatus="thinking" />);
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage()}
+        preResponseStatus={{ kind: "thinking" }}
+      />
+    );
 
     expect(screen.getByText("preResponseThinking")).toBeInTheDocument();
   });
 
-  it("shows working while a tool is active before text starts", () => {
-    render(<ChatMessageBubble message={makeAssistantMessage()} preResponseStatus="working" />);
+  it("shows the live activity label while work is active before text starts", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage()}
+        preResponseStatus={{
+          kind: "activity",
+          event: {
+            id: "activity-1",
+            type: "tool_use",
+            label: "knowledge_search_finished"
+          }
+        }}
+      />
+    );
 
-    expect(screen.getByText("preResponseWorking")).toBeInTheDocument();
+    expect(screen.getByText("activityKnowledgeSearchDone")).toBeInTheDocument();
   });
 
   it("hides pre-response status after text starts streaming", () => {
     render(
       <ChatMessageBubble
         message={makeAssistantMessage({ content: "Hello" })}
-        preResponseStatus="thinking"
+        preResponseStatus={{ kind: "thinking" }}
       />
     );
 

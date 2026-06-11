@@ -3,6 +3,82 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-11 - CTA size and tone unification
+
+### Follow-up
+
+- Final founder-directed UI polish landed in the same web-only slice without changing architecture/contracts: payment settings now promote to a primary CTA only in real billing-attention states, Knowledge base no longer reloads on incidental rerenders and now exposes an explicit manual status-refresh pill beside `Upload documents`, the locked Characters surface now removes the demo avatar card entirely in favor of pricing-gate copy only, and the compact token progress bar track inside the expanded sidebar account menu was restored to a clearer filled-track treatment.
+
+### Additional verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/sidebar.test.tsx app/app/_components/assistant-settings.test.tsx app/app/_components/assistant-knowledge-manager.test.tsx app/app/_components/chat-area.test.tsx app/app/_components/chat-message.test.tsx app/app/_components/activity-badge.test.tsx app/app/_components/home-dashboard.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Updated residuals
+
+- Remaining risk stays visual rather than architectural: the shared CTA/button/progress polish now spans several compact sidebar/settings surfaces, so any follow-up should be live visual review rather than more speculative code churn.
+
+### Baseline
+
+- Starting SHA: `2afc409808219e2b821842e063ea71de2b152115` on `main`. Clean tree at session start. Scope stayed UI-only: unify user-facing primary/secondary pill CTAs without changing product behavior.
+
+### What changed
+
+- Reduced the shared user pill CTA height by roughly 18% by moving the base min-height from `44px` (`min-h-11`) to `36px` (`min-h-9`) in the shared web CTA helper.
+- Lightened the shared secondary CTA tone in both themes: secondary pills now use a brighter `surface-raised` fill, a softer border, and a slightly lighter shadow so buttons like `Настроить` feel less heavy against both dark and light backgrounds.
+- Kept primary accent CTAs visually aligned with the same family while inheriting the smaller height, so pairs like `Сохранить / Настроить` now feel like one system rather than two nearby-but-different button stacks.
+- Removed the local CTA style duplication in `assistant-settings` `ActionButton` and `home-dashboard` `QuickAction`; both now reuse the same shared pill-button helper instead of carrying hardcoded copies of the primary/secondary styles.
+- Aligned the billing confirm modal CTA pair in assistant settings to the same quieter secondary family instead of leaving them as ad hoc local button styles.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx app/app/_components/home-dashboard.test.tsx app/app/profile/page.test.tsx app/app/_components/assistant-knowledge-manager.test.tsx app/app/_components/assistant-support-section.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- This pass intentionally touched the shared CTA system, so the main residual risk is visual density in surfaces not manually re-reviewed yet rather than logic or contract regression.
+- A few places still intentionally override height locally (`min-h-10`, `h-11`, etc.) for compact or row-bound layouts; they now inherit the lighter tone, but may still need founder review if full strict CTA-height unification is desired later.
+
+### Next recommended step
+
+- Live-review all visible primary/secondary CTA pairs in assistant settings, profile, knowledge/files, and dashboard, then decide whether the next pass should normalize the remaining local per-surface height overrides or keep them as purposeful compact exceptions.
+
+## 2026-06-11 - Chat inline activity status polish
+
+### Baseline
+
+- Starting SHA: `2afc409808219e2b821842e063ea71de2b152115` on `main`. Clean tree at session start. Scope stayed UI-only: ordinary chat + project chat activity/status presentation.
+
+### What changed
+
+- Removed the separate in-thread activity banners from the chat timeline for both normal and project chats. Live activity now appears only as one inline status beside the streaming cursor inside the active assistant response bubble.
+- Replaced the coarse `Working...` pre-response placeholder with the same localized tool/project activity copy that previously powered the standalone badges, so the active reply can show quieter real progress without duplicating status in the thread.
+- The inline status is intentionally calmer than main content: slightly dimmer, italic, and animated with a short left-to-right fade on appearance. It still falls back to the simple `Thinking...` / `Думаю...` state when no richer live activity exists yet.
+- Removed the visual `Response ready` / `Ответ готов` completion badge path. After the assistant finishes, the inline status disappears together with the streaming cursor instead of leaving a terminal banner in the chat.
+- Kept the transport/runtime completion event intact for stream lifecycle handling, but removed the dead web UI `runtime_done` presentation path and its unused localized copy.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx app/app/_components/chat-area.test.tsx app/app/_components/activity-badge.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This pass intentionally changed only the web presentation layer. The streaming/runtime event model is left intact, so main residual risk is visual timing feel in the live app rather than contract or execution correctness.
+- Focused tests cover inline-status wiring and removal of standalone activity rendering, but founder review in the real chat is still useful for final motion/contrast judgment.
+
+### Next recommended step
+
+- Live-review a normal chat and a project chat on desktop/mobile and decide whether the new inline status should stay italic as shipped or be made even quieter with only contrast/motion changes.
+
 ## 2026-06-11 - Assistant settings sidebar quiet UI pass
 
 ### Baseline

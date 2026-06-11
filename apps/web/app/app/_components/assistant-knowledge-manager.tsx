@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
+import { FileSearch, FileText, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import { userPillButtonClassName } from "./form-ui";
@@ -37,6 +37,8 @@ export function AssistantKnowledgeManager(props: {
 }) {
   const t = useTranslations("settings");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoLoadStateRef = useRef<"inline" | "open" | null>(null);
+  const getToken = props.getToken;
   const [state, setState] = useState<AssistantKnowledgeSourceListState | null>(null);
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -52,7 +54,7 @@ export function AssistantKnowledgeManager(props: {
   const isInline = mode === "inline";
 
   const load = useCallback(async () => {
-    const token = await props.getToken();
+    const token = await getToken();
     if (!token) {
       return;
     }
@@ -64,12 +66,19 @@ export function AssistantKnowledgeManager(props: {
       setFeedback(error instanceof Error ? error.message : t("knowledgeLoadFailed"));
     }
     setLoading(false);
-  }, [props, t]);
+  }, [getToken, t]);
 
   useEffect(() => {
-    if (isInline || props.open) {
-      void load();
+    if (!(isInline || props.open)) {
+      autoLoadStateRef.current = null;
+      return;
     }
+    const nextAutoLoadState = isInline ? "inline" : "open";
+    if (autoLoadStateRef.current === nextAutoLoadState) {
+      return;
+    }
+    autoLoadStateRef.current = nextAutoLoadState;
+    void load();
   }, [isInline, load, props.open]);
 
   const quotaLabel = useMemo(() => {
@@ -93,7 +102,7 @@ export function AssistantKnowledgeManager(props: {
         setFeedback(t("knowledgeUploadInvalid"));
         return;
       }
-      const token = await props.getToken();
+      const token = await getToken();
       if (!token) {
         return;
       }
@@ -109,12 +118,12 @@ export function AssistantKnowledgeManager(props: {
       }
       setUploading(false);
     },
-    [load, props, t]
+    [getToken, load, t]
   );
 
   const handleDelete = useCallback(
     async (sourceId: string) => {
-      const token = await props.getToken();
+      const token = await getToken();
       if (!token) {
         return;
       }
@@ -128,12 +137,12 @@ export function AssistantKnowledgeManager(props: {
       }
       setBusyId(null);
     },
-    [load, props, t]
+    [getToken, load, t]
   );
 
   const handleReindex = useCallback(
     async (sourceId: string) => {
-      const token = await props.getToken();
+      const token = await getToken();
       if (!token) {
         return;
       }
@@ -147,7 +156,7 @@ export function AssistantKnowledgeManager(props: {
       }
       setBusyId(null);
     },
-    [load, props, t]
+    [getToken, load, t]
   );
 
   const renderRow = (source: UploadedKnowledgeSource) => {
@@ -206,7 +215,7 @@ export function AssistantKnowledgeManager(props: {
                   setExpandedId(nextExpanded);
                   if (nextExpanded === source.id && !inspectById[source.id]) {
                     void (async () => {
-                      const token = await props.getToken();
+                      const token = await getToken();
                       if (!token) {
                         return;
                       }
@@ -295,7 +304,7 @@ export function AssistantKnowledgeManager(props: {
               {isBusy ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
+                <FileSearch className="h-3.5 w-3.5" />
               )}
             </button>
             <button
@@ -358,8 +367,25 @@ export function AssistantKnowledgeManager(props: {
       )}
 
       <div className="border-t border-border/45 pt-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {quotaLabel ? <p className="text-sm font-medium text-text">{quotaLabel}</p> : <span />}
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {quotaLabel ? <p className="text-xs font-medium text-text-muted">{quotaLabel}</p> : null}
+          <button
+            type="button"
+            disabled={loading || uploading}
+            onClick={() => void load()}
+            className={cn(
+              userPillButtonClassName("secondary", "h-9 w-9 min-h-9 rounded-full p-0"),
+              "shrink-0"
+            )}
+            title={t("knowledgeRefreshStatus")}
+            aria-label={t("knowledgeRefreshStatus")}
+          >
+            {loading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+          </button>
           <button
             type="button"
             disabled={uploading}

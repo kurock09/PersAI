@@ -23,7 +23,6 @@ import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import { ChatMessageBubble } from "./chat-message";
 import { ChatInput, type ChatInputHandle } from "./chat-input";
-import { ActivityBadge } from "./activity-badge";
 import { AssistantAvatar } from "./assistant-avatar";
 import {
   type AssistantChatMode,
@@ -578,9 +577,9 @@ export function ChatArea({
                 entry.message.status === "streaming" &&
                 entry.message.content.trim().length === 0 &&
                 !previousUserIsSending
-                  ? nextEntry?.kind === "activity" && nextEntry.event.type === "tool_use"
-                    ? "working"
-                    : "thinking"
+                  ? nextEntry?.kind === "activity"
+                    ? { kind: "activity" as const, event: nextEntry.event }
+                    : { kind: "thinking" as const }
                   : undefined;
 
               return entry.kind === "message" ? (
@@ -588,6 +587,7 @@ export function ChatArea({
                   key={entry.message.id}
                   message={entry.message}
                   preResponseStatus={preResponseStatus}
+                  showShadowRoutingLabel={showShadowRoutingBadge}
                   assistantAvatarUrl={assistantAvatarUrl}
                   assistantAvatarEmoji={assistantAvatarEmoji}
                   onAssistantAction={handleAssistantAction}
@@ -611,13 +611,7 @@ export function ChatArea({
                       : undefined
                   }
                 />
-              ) : (
-                <ActivityBadge
-                  key={entry.event.id}
-                  event={entry.event}
-                  showShadowRoutingLabel={showShadowRoutingBadge}
-                />
-              );
+              ) : null;
             })}
             <div ref={bottomRef} />
           </div>

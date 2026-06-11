@@ -41,6 +41,7 @@ import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { AssistantAvatar } from "./assistant-avatar";
+import { getActivityDisplayParts, type ActivityEvent } from "./activity-badge";
 import {
   buildStreamingMarkdownTailPreview,
   normalizeAssistantVisibleProgress,
@@ -331,7 +332,10 @@ interface ChatMessageBubbleProps {
   message: ChatMessage;
   assistantAvatarUrl?: string | undefined;
   assistantAvatarEmoji?: string | undefined;
-  preResponseStatus?: "thinking" | "working" | undefined;
+  preResponseStatus?:
+    | { kind: "thinking" | "activity"; event?: ActivityEvent | undefined }
+    | undefined;
+  showShadowRoutingLabel?: boolean | undefined;
   onAssistantAction?: ((text: string) => void) | undefined;
   onDoNotRemember?: ((messageId: string) => void) | undefined;
   forgotten?: boolean | undefined;
@@ -364,6 +368,37 @@ function CopyButton({ text }: { text: string }) {
     >
       {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
+  );
+}
+
+function InlineStreamingStatus({
+  preResponseStatus,
+  showShadowRoutingLabel = false
+}: {
+  preResponseStatus:
+    | { kind: "thinking" | "activity"; event?: ActivityEvent | undefined }
+    | undefined;
+  showShadowRoutingLabel?: boolean | undefined;
+}) {
+  const t = useTranslations("chat");
+  const statusParts =
+    preResponseStatus?.kind === "activity" && preResponseStatus.event
+      ? getActivityDisplayParts(preResponseStatus.event, t, showShadowRoutingLabel)
+      : {
+          label: t("preResponseThinking"),
+          detail: undefined
+        };
+
+  return (
+    <span className="animate-fade-in-inline-status inline-flex items-center gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none">
+      <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/65 align-middle" />
+      <span className="inline-flex items-baseline gap-1.5">
+        <span>{statusParts.label}</span>
+        {statusParts.detail ? (
+          <span className="text-text-subtle/62 not-italic">{statusParts.detail}</span>
+        ) : null}
+      </span>
+    </span>
   );
 }
 
@@ -1449,7 +1484,8 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   onRetryPendingSend,
   onCancelPendingSend,
   onDocumentJobAccepted,
-  preResponseStatus
+  preResponseStatus,
+  showShadowRoutingLabel
 }: ChatMessageBubbleProps) {
   const t = useTranslations("chat");
   const tSend = useTranslations("send");
@@ -1641,14 +1677,10 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
             {showPreResponseStatus ? (
-              <span className="inline-flex items-center gap-2 text-sm font-medium text-text-muted">
-                <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
-                <span>
-                  {preResponseStatus === "working"
-                    ? t("preResponseWorking")
-                    : t("preResponseThinking")}
-                </span>
-              </span>
+              <InlineStreamingStatus
+                preResponseStatus={preResponseStatus}
+                showShadowRoutingLabel={showShadowRoutingLabel}
+              />
             ) : (
               <>
                 {isStreaming ? (

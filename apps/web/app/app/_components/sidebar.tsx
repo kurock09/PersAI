@@ -623,11 +623,13 @@ function AccountFooter({
                     {ts("tokenPercentCompact", { pct: tokenUsage })}
                   </span>
                 </div>
-                <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-surface">
+                <div className="mt-2.5 h-2.5 overflow-hidden rounded-full bg-border/70 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]">
                   <div
                     className={cn(
                       "h-full rounded-full transition-all",
-                      tokenUsage >= 90 ? "bg-destructive" : "bg-accent"
+                      tokenUsage >= 90
+                        ? "bg-destructive"
+                        : "bg-accent shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
                     )}
                     style={{ width: `${Math.min(tokenUsage, 100)}%` }}
                   />

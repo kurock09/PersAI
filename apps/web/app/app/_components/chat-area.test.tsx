@@ -28,7 +28,7 @@ vi.mock("./app-shell", () => ({
 vi.mock("./chat-message", () => ({
   ChatMessageBubble: (props: {
     message: ChatMessage;
-    preResponseStatus?: "thinking" | "working";
+    preResponseStatus?: { kind: "thinking" | "activity"; event?: { label: string } };
     onAssistantAction?: (text: string) => void;
     onDoNotRemember?: (messageId: string) => void;
   }) => {
@@ -39,10 +39,6 @@ vi.mock("./chat-message", () => ({
 
 vi.mock("./chat-input", () => ({
   ChatInput: () => <div data-testid="chat-input" />
-}));
-
-vi.mock("./activity-badge", () => ({
-  ActivityBadge: ({ event }: { event: { label: string } }) => <div>{event.label}</div>
 }));
 
 vi.mock("./assistant-avatar", () => ({
@@ -408,6 +404,48 @@ describe("ChatArea", () => {
       ([props]) => props.message.id === "local-assistant-1"
     )?.[0];
     expect(assistantProps?.preResponseStatus).toBeUndefined();
+  });
+
+  it("passes the next activity into the streaming assistant bubble instead of rendering a banner", () => {
+    const assistantMessage: ChatMessage = {
+      id: "local-assistant-1",
+      role: "assistant",
+      content: "",
+      status: "streaming"
+    };
+    const baseChat = createChat("", { isStreaming: true });
+
+    render(
+      <ChatArea
+        chat={{
+          ...baseChat,
+          entries: [
+            { kind: "message", message: assistantMessage },
+            {
+              kind: "activity",
+              event: {
+                id: "activity-1",
+                type: "tool_use",
+                label: "knowledge_search_finished"
+              }
+            }
+          ],
+          messages: [assistantMessage]
+        }}
+      />
+    );
+
+    const assistantProps = chatMessageBubbleMock.mock.calls.find(
+      ([props]) => props.message.id === "local-assistant-1"
+    )?.[0];
+    expect(assistantProps?.preResponseStatus).toEqual({
+      kind: "activity",
+      event: {
+        id: "activity-1",
+        type: "tool_use",
+        label: "knowledge_search_finished"
+      }
+    });
   });
 
   it("renders media-package billing return copy instead of subscription copy", () => {

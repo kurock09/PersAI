@@ -145,7 +145,6 @@ type PersonaModalMode = "create" | "edit";
 type ClonedVoiceModalMode = "upload" | "record";
 
 const CHARACTERS_PRICING_URL = "https://persai.dev/app/pricing";
-const DEMO_PERSONA_PORTRAIT_URL = "/landing/demo-persona-portrait.png";
 
 function encodeAudioBufferAsWav(audioBuffer: AudioBuffer): Blob {
   const channelCount = Math.min(audioBuffer.numberOfChannels, 2);
@@ -899,12 +898,10 @@ function ActionButton({
       disabled={busy || disabled}
       onClick={onClick}
       className={cn(
-        "inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-all disabled:cursor-default disabled:opacity-50",
-        variant === "danger"
-          ? "border border-destructive/20 bg-destructive/10 text-destructive hover:bg-destructive/15"
-          : variant === "primary"
-            ? "bg-accent text-white shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:bg-accent-hover"
-            : "border border-border/55 bg-background/80 text-text shadow-[0_6px_18px_rgba(0,0,0,0.05)] hover:border-border/70 hover:bg-background",
+        userPillButtonClassName(
+          variant === "default" ? "secondary" : variant,
+          "cursor-pointer disabled:cursor-default"
+        ),
         pulse &&
           "animate-pulse border-success/25 bg-success/15 text-success shadow-[0_0_0_1px_rgba(52,168,83,0.18),0_0_22px_rgba(52,168,83,0.16)]",
         className
@@ -1811,44 +1808,6 @@ export function AssistantSettings({
       return matchesOtherVoiceLanguageSearch(voice.language, otherVoiceLanguageSearch);
     });
   }, [otherVoiceLanguageSearch, voiceCatalog, voiceLanguageFilter]);
-  const demoPersonaVoice = useMemo(() => {
-    const preferredLanguage = locale.toLowerCase().startsWith("ru") ? "ru" : "en";
-    return (
-      voiceCatalog.find(
-        (voice) =>
-          normalizeVoiceLanguageBucket(voice.language) === preferredLanguage &&
-          voice.gender === "female" &&
-          typeof voice.previewAudioUrl === "string" &&
-          voice.previewAudioUrl.length > 0
-      ) ??
-      voiceCatalog.find(
-        (voice) =>
-          voice.gender === "female" &&
-          typeof voice.previewAudioUrl === "string" &&
-          voice.previewAudioUrl.length > 0
-      ) ??
-      voiceCatalog.find(
-        (voice) =>
-          normalizeVoiceLanguageBucket(voice.language) === preferredLanguage &&
-          typeof voice.previewAudioUrl === "string" &&
-          voice.previewAudioUrl.length > 0
-      ) ??
-      voiceCatalog.find(
-        (voice) =>
-          normalizeVoiceLanguageBucket(voice.language) === preferredLanguage &&
-          voice.gender === "female"
-      ) ??
-      voiceCatalog.find((voice) => voice.gender === "female") ??
-      voiceCatalog.find(
-        (voice) => typeof voice.previewAudioUrl === "string" && voice.previewAudioUrl.length > 0
-      ) ??
-      voiceCatalog.find(
-        (voice) => normalizeVoiceLanguageBucket(voice.language) === preferredLanguage
-      ) ??
-      voiceCatalog[0] ??
-      null
-    );
-  }, [voiceCatalog, locale]);
   const charactersPlanGateLabel = t("charactersLockedHint", {
     plan: data.plan?.effectivePlan.code ?? "Pro"
   });
@@ -2220,6 +2179,15 @@ export function AssistantSettings({
     billingSubscription?.scheduledPlanChange?.changeKind === "downgrade"
       ? t("billingPlanTransitionHint")
       : billingPaymentMethodHint;
+  const paymentSettingsShouldBePrimary =
+    graceBadgeActive ||
+    billingSubscription?.canEnableAutoRenew === true ||
+    billingSubscription?.autoRenewEnabled === false ||
+    billingSubscription?.scheduledPlanChange != null ||
+    billingSubscription?.managePaymentMethodMode === "provider_managed_recovery" ||
+    billingSubscription?.recurringMigration.status === "in_progress" ||
+    billingSubscription?.recurringMigration.status === "failed" ||
+    (billingSubscription?.warning ?? null) !== null;
   useEffect(() => {
     setOpenSection(normalizeInitialSection(initialSection));
     if (initialSection === "memory") {
@@ -4052,7 +4020,7 @@ export function AssistantSettings({
         {/* 3. Knowledge */}
         <Section
           icon={<Upload className="h-4 w-4" />}
-          title={t("knowledge")}
+          title={t("knowledgeTitle")}
           open={openSection === "knowledge"}
           onToggle={() =>
             setOpenSection((current) => (current === "knowledge" ? null : "knowledge"))
@@ -4674,27 +4642,6 @@ export function AssistantSettings({
                 );
               })}
 
-              {!talkingVideoEnabled ? (
-                <CharacterCard
-                  name={t("charactersDemoName")}
-                  voiceLabel={t("charactersVoiceLabel", {
-                    voice: demoPersonaVoice?.name ?? t("charactersDemoVoiceFallback")
-                  })}
-                  portraitImageUrl={DEMO_PERSONA_PORTRAIT_URL}
-                  fallbackInitial={t("charactersDemoName").charAt(0)}
-                  previewAudioUrl={
-                    demoPersonaVoice
-                      ? resolveCatalogPreviewUrl(assistant?.workspaceId, demoPersonaVoice)
-                      : null
-                  }
-                  previewVoiceLabel={demoPersonaVoice?.name ?? t("charactersDemoVoiceFallback")}
-                  previewUnavailableLabel={t("charactersPreviewUnavailable")}
-                  badgeLabel={t("charactersDemoBadge")}
-                  disabled
-                  showPreview
-                />
-              ) : null}
-
               <CharacterCreateCard
                 label={t("charactersCreate")}
                 helperText={createPersonaDisabledReason ?? t("charactersUsageHint")}
@@ -5135,7 +5082,7 @@ export function AssistantSettings({
                               }
                             }}
                             className={cn(
-                              "min-w-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors",
+                              "min-h-8 min-w-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors",
                               voiceLanguageFilter === language
                                 ? "bg-accent/15 text-text"
                                 : "text-text-subtle hover:text-text"
@@ -5321,7 +5268,7 @@ export function AssistantSettings({
                       <button
                         type="button"
                         onClick={closePersonaModal}
-                        className="rounded-full border border-border px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-raised"
+                        className={userPillButtonClassName("secondary", "min-h-9 px-4")}
                       >
                         {t("charactersCancel")}
                       </button>
@@ -5410,7 +5357,7 @@ export function AssistantSettings({
                           }
                         }}
                         className={cn(
-                          "rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-white transition-opacity",
+                          userPillButtonClassName("primary", "min-h-9 px-4"),
                           (createPersonaSubmitting ||
                             createPersonaName.trim().length === 0 ||
                             !personaFallbackVoiceId ||
@@ -5710,7 +5657,10 @@ export function AssistantSettings({
                         <button
                           type="button"
                           onClick={() => void openBillingSettings()}
-                          className={userPillButtonClassName("secondary", "min-h-10 px-4 text-sm")}
+                          className={userPillButtonClassName(
+                            paymentSettingsShouldBePrimary ? "primary" : "secondary",
+                            "min-h-10 px-4"
+                          )}
                         >
                           {t("paymentSettings")}
                         </button>
@@ -5718,7 +5668,7 @@ export function AssistantSettings({
                         <button
                           type="button"
                           onClick={() => onOpenPricingPage?.()}
-                          className={userPillButtonClassName("secondary", "min-h-10 px-4 text-sm")}
+                          className={userPillButtonClassName("secondary", "min-h-10 px-4")}
                         >
                           {t("changePlan")}
                         </button>
@@ -6062,7 +6012,10 @@ export function AssistantSettings({
                               <button
                                 type="button"
                                 onClick={() => setDisableAutoRenewConfirmOpen(false)}
-                                className="inline-flex min-h-11 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-4 text-sm font-medium text-text transition-colors hover:bg-accent/15"
+                                className={userPillButtonClassName(
+                                  "secondary",
+                                  "border-accent/18 bg-accent/8 hover:bg-accent/12"
+                                )}
                               >
                                 {t("billingConfirmCancel")}
                               </button>
@@ -6070,7 +6023,10 @@ export function AssistantSettings({
                                 type="button"
                                 onClick={() => void confirmDisableAutoRenew()}
                                 disabled={disableAutoRenewPending}
-                                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-subtle transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+                                className={userPillButtonClassName(
+                                  "secondary",
+                                  "gap-2 border-border/60 bg-surface-raised/52 text-text-subtle hover:text-text"
+                                )}
                               >
                                 {disableAutoRenewPending ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -6222,24 +6178,24 @@ function LimitMetricCard({
         // - Desktop (sm+): keep the 3-slot vertical layout (header / value+
         //   secondary / chip-slot) so a row of 3 sibling cards stays
         //   visually aligned regardless of which slots are populated.
-        "group relative flex h-full overflow-hidden rounded-xl border bg-surface/70 p-2.5 text-left transition-colors",
+        "group relative flex h-full overflow-hidden rounded-xl border bg-surface-raised/50 p-2.5 text-left transition-colors",
         "flex-row items-center gap-3",
         "sm:min-h-[6.25rem] sm:flex-col sm:items-stretch sm:gap-0",
         hasBonus
-          ? "border-accent/30 bg-surface/80"
+          ? "border-accent/30 bg-surface-raised/62"
           : unavailable
-            ? "border-border/60 bg-surface/40"
-            : "border-border/80",
+            ? "border-border/60 bg-surface-raised/34"
+            : "border-border/75",
         interactive &&
-          "cursor-pointer hover:border-accent/30 hover:bg-surface/85 focus:outline-none focus:ring-2 focus:ring-accent/30"
+          "cursor-pointer hover:border-accent/28 hover:bg-surface-raised/68 focus:outline-none focus:ring-2 focus:ring-accent/30"
       )}
     >
       {WatermarkIcon ? (
         <div
           aria-hidden="true"
           className={cn(
-            "pointer-events-none absolute opacity-[0.07] text-text-subtle/80 transition-all duration-200 ease-out",
-            "drop-shadow-[0_1px_0_rgba(255,255,255,0.28)] group-hover:opacity-[0.14] group-hover:text-accent/55",
+            "pointer-events-none absolute opacity-[0.11] text-text-subtle/95 transition-all duration-200 ease-out",
+            "drop-shadow-[0_1px_0_rgba(255,255,255,0.28)] group-hover:opacity-[0.2] group-hover:text-accent/75",
             watermark?.className
           )}
         >
