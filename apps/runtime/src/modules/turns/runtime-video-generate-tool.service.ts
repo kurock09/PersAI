@@ -2334,6 +2334,7 @@ export class RuntimeVideoGenerateToolService {
     );
 
     let resolvedVoiceId: string;
+    let resolvedPersonaDefaultAspectRatio: "16:9" | "9:16" | "1:1" | null = null;
     let gatewayExtra: Pick<
       ProviderGatewayVideoGenerateRequest,
       "cachedHeygenAvatarId" | "portraitImageBytesBase64" | "portraitImageMimeType"
@@ -2490,6 +2491,7 @@ export class RuntimeVideoGenerateToolService {
         // Fall back to the persona's stored preset HeyGen voice ID.
         resolvedVoiceId = persona.heygenVoiceId;
       }
+      resolvedPersonaDefaultAspectRatio = persona.videoFormat;
 
       gatewayExtra = {
         cachedHeygenAvatarId: persona.heygenAvatarId,
@@ -2669,7 +2671,7 @@ export class RuntimeVideoGenerateToolService {
             inputMode: normalizedRequest.request.inputMode,
             videoModelParameters: credential.videoModelParameters,
             request: normalizedRequest.request,
-            personaDefaultAspectRatio: persona?.videoFormat ?? null,
+            personaDefaultAspectRatio: resolvedPersonaDefaultAspectRatio,
             providerParameters: credential.videoModelParameters?.providerParameters ?? null
           }),
           credential: {
