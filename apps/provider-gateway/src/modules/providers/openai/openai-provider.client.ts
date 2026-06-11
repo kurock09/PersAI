@@ -759,10 +759,13 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         message.includes("suspended") ||
         message.includes("disabled") ||
         message.includes("deactivated") ||
+        message.includes("incorrect api key") ||
+        message.includes("invalid api key") ||
         message.includes("insufficient_quota") ||
         message.includes("region") ||
         message.includes("unavailable") ||
         message.includes("auth") ||
+        code.includes("invalid_api_key") ||
         code.includes("insufficient_quota") ||
         code.includes("billing") ||
         code.includes("account") ||

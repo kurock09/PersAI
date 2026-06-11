@@ -1020,6 +1020,90 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     "api.proxyapi.ru"
   );
 
+  getApiClientCalls.length = 0;
+  let fallbackEditAttempts = 0;
+  (
+    client as unknown as {
+      getApiClient(
+        apiKey?: string,
+        baseURL?: string
+      ): {
+        images: {
+          generate(payload: unknown): Promise<unknown>;
+          edit(payload: unknown): Promise<unknown>;
+        };
+        audio: {
+          speech: {
+            create(payload: unknown): Promise<unknown>;
+          };
+        };
+      };
+    }
+  ).getApiClient = (apiKey?: string, baseURL?: string) => {
+    getApiClientCalls.push({
+      ...(apiKey === undefined ? {} : { apiKey }),
+      ...(baseURL === undefined ? {} : { baseURL })
+    });
+    return {
+      images: {
+        generate: generateImage,
+        edit: async (payload: unknown) => {
+          capturedImageEditPayload = payload;
+          fallbackEditAttempts += 1;
+          if (fallbackEditAttempts === 1) {
+            const error = new Error(
+              "401 Incorrect API key provided: 12345678. You can find your API key at https://platform.openai.com/account/api-keys."
+            );
+            (error as Error & { status?: number; error?: { code: string; type: string } }).status =
+              401;
+            (error as Error & { error?: { code: string; type: string } }).error = {
+              code: "invalid_api_key",
+              type: "authentication_error"
+            };
+            throw error;
+          }
+          return {
+            output_format: "png",
+            data: [{ b64_json: "cmVzZXJ2ZS1lZGl0ZWQtaW1hZ2U=", revised_prompt: null }],
+            usage: { input_tokens: 2, output_tokens: 3, total_tokens: 5 }
+          };
+        }
+      },
+      audio: {
+        speech: {
+          create: generateSpeech
+        }
+      }
+    };
+  };
+  const reserveEditResult = await client.editImage(
+    {
+      ...createImageEditRequest(),
+      credential: {
+        ...createImageEditRequest().credential,
+        requestContext: {
+          workspaceId: "ws-1",
+          runtimeRequestId: "req-edit-1",
+          runtimeSessionId: "session-1"
+        },
+        reserveTransport: {
+          enabled: true,
+          secretId: "tool/image_generate/reserve/api-key",
+          baseUrl: "https://api.proxyapi.ru/openai/v1"
+        }
+      }
+    },
+    {
+      apiKey: "12345678",
+      reserveApiKey: "reserve-api-key"
+    }
+  );
+  assert.equal(reserveEditResult.images.length, 1);
+  assert.deepEqual(getApiClientCalls, [
+    { apiKey: "12345678" },
+    { apiKey: "reserve-api-key", baseURL: "https://api.proxyapi.ru/openai/v1" }
+  ]);
+
   let capturedImageEditTimeoutMs: number | null = null;
   const originalCreateTimedSignal = (
     client as unknown as {
