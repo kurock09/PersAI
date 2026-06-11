@@ -8,6 +8,7 @@
 ### Follow-up
 
 - Final founder-directed UI polish landed in the same web-only slice without changing architecture/contracts: payment settings now promote to a primary CTA only in real billing-attention states, Knowledge base no longer reloads on incidental rerenders and now exposes an explicit manual status-refresh pill beside `Upload documents`, the locked Characters surface now removes the demo avatar card entirely in favor of pricing-gate copy only, and the compact token progress bar track inside the expanded sidebar account menu was restored to a clearer filled-track treatment.
+- Additional visual follow-up landed after live review: `Payment settings` and `Clone voice` now share the same compact pill baseline as the rest of the CTA system, the shared pill shadow is reduced to a much calmer depth, Files rows are now single-line/compact for ordinary files, the Characters voice-language selector matches the Gender control height/style, and the Memory drawer tabs/fields/list rows/right-edge delete affordances were repacked into a denser consistent layout.
 
 ### Additional verification
 

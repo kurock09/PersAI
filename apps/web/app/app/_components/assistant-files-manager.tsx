@@ -501,6 +501,10 @@ export function AssistantFilesManager() {
                         const isEditing = editingRef === file.fileRef;
                         const busy = busyRef === file.fileRef;
                         const versionLabel = documentVersionLabel(file);
+                        const currentOutputPinned =
+                          file.documentLink?.isCurrentOutput === true
+                            ? t("filesDocumentCurrentOutputPinnedShort")
+                            : null;
                         const downloadUrl = getAssistantFileDownloadUrl(file.fileRef, {
                           download: true
                         });
@@ -588,17 +592,20 @@ export function AssistantFilesManager() {
                                     </>
                                   )}
                                 </div>
-                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-subtle">
-                                  <span className="rounded-full bg-surface-raised/45 px-2 py-0.5">
-                                    {originLabel(file, t)}
-                                  </span>
-                                  {versionLabel ? (
-                                    <span className="rounded-full bg-surface-raised/45 px-2 py-0.5 text-text-subtle">
-                                      {versionLabel}
-                                    </span>
-                                  ) : null}
-                                  <span>{fileKind(file)}</span>
-                                </div>
+                                {currentOutputPinned || versionLabel ? (
+                                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-subtle">
+                                    {currentOutputPinned ? (
+                                      <span className="rounded-full bg-surface-raised/45 px-2 py-0.5">
+                                        {currentOutputPinned}
+                                      </span>
+                                    ) : null}
+                                    {versionLabel ? (
+                                      <span className="rounded-full bg-surface-raised/45 px-2 py-0.5 text-text-subtle">
+                                        {versionLabel}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                               </div>
                             </div>
                           </div>

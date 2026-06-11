@@ -657,6 +657,10 @@ describe("AssistantSettings Files", () => {
     expect(screen.queryByTitle("Open")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Media/i }));
     expect(screen.getByText("Video 2.mp4")).toBeInTheDocument();
+    expect(screen.queryByText("Uploaded")).toBeNull();
+    expect(screen.queryByText("Generated")).toBeNull();
+    expect(screen.queryByText("image")).toBeNull();
+    expect(screen.queryByText("video")).toBeNull();
     expect(screen.getAllByTitle("Download")[0]).toHaveAttribute(
       "href",
       "/api/assistant-file/file-ref-2?download=1"
@@ -811,7 +815,7 @@ describe("AssistantSettings Files", () => {
     expect(screen.getAllByText("Investor deck.pdf")).toHaveLength(1);
     expect(screen.getByText("v2")).toBeInTheDocument();
     expect(screen.queryByText("v1")).toBeNull();
-    expect(screen.queryByText("Current")).toBeNull();
+    expect(screen.getByText("Current")).toBeInTheDocument();
     expect(screen.getByTitle("Delete")).toBeInTheDocument();
   });
 });

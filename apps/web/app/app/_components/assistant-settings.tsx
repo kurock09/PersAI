@@ -2390,22 +2390,24 @@ export function AssistantSettings({
   const mergedHistoryMemoryView = mergedMemoryViews.history;
   const memoryPanel = (
     <>
-      <div className="mb-4 flex gap-1 border-b border-border/45 pb-3">
+      <div className="mb-4 border-b border-border/45 pb-3">
+        <div className="grid w-full grid-cols-2 rounded-full border border-border/60 bg-surface-raised/20 p-1">
         {(["workspace", "history"] as const).map((tab) => (
           <button
             key={tab}
             type="button"
             onClick={() => setMemoryTab(tab)}
             className={cn(
-              "flex-1 cursor-pointer rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              "min-h-[42px] cursor-pointer rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
               memoryTab === tab
-                ? "bg-surface-raised/65 text-text"
-                : "text-text hover:bg-surface-raised/30 hover:text-text"
+                ? "bg-surface text-text shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_1px_2px_rgba(0,0,0,0.04)]"
+                : "text-text hover:text-text"
             )}
           >
             {tab === "workspace" ? t("workspace") : t("history")}
           </button>
         ))}
+        </div>
       </div>
 
       {memoryTab === "workspace" && (
@@ -2419,7 +2421,7 @@ export function AssistantSettings({
                 if (e.key === "Enter") void loadWsMemory(wsMemorySearch || undefined);
               }}
               placeholder={t("searchMemories")}
-              className={userFieldClassName("min-w-0 flex-1")}
+              className={userFieldClassName("min-h-[42px] min-w-0 flex-1")}
             />
             <button
               type="button"
@@ -2439,7 +2441,7 @@ export function AssistantSettings({
                 if (e.key === "Enter") void handleAddWsMemory();
               }}
               placeholder={t("teachNew")}
-              className={userFieldClassName("min-w-0 flex-1")}
+              className={userFieldClassName("min-h-[42px] min-w-0 flex-1")}
             />
             <button
               type="button"
@@ -2479,12 +2481,12 @@ export function AssistantSettings({
                   const canExpand = rowText.length > 110;
                   return (
                     <li key={row.key} data-testid={`memory-row-${row.source}`} className="py-3">
-                      <div className="flex items-start gap-3">
+                      <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-start gap-2">
+                          <div className="flex items-start gap-3">
                             <p
                               className={cn(
-                                "min-w-0 flex-1 text-sm leading-7 text-text",
+                                "min-w-0 flex-1 text-sm leading-6 text-text",
                                 expanded ? "whitespace-pre-wrap" : "truncate"
                               )}
                             >
@@ -2502,7 +2504,7 @@ export function AssistantSettings({
                                 }
                                 className="shrink-0 text-xs font-medium text-text-subtle transition-colors hover:text-text"
                               >
-                                {expanded ? t("collapse") : `${t("loadMore")} >`}
+                                {expanded ? t("collapse") : t("loadMore")}
                               </button>
                             ) : null}
                           </div>
@@ -2542,7 +2544,7 @@ export function AssistantSettings({
                             </div>
                           )}
                         </div>
-                        <div className="flex shrink-0 items-center gap-1">
+                        <div className="flex shrink-0 items-start gap-1 pt-0.5">
                           {kind === "open_loop" && resolvedAt === null && (
                             <button
                               type="button"
@@ -2636,62 +2638,64 @@ export function AssistantSettings({
                   const canExpand = item.summary.length > 110;
                   return (
                     <li key={row.key} data-testid="memory-row-history" className="py-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start gap-2">
-                          <p
-                            className={cn(
-                              "min-w-0 flex-1 text-sm leading-7 text-text",
-                              expanded ? "whitespace-pre-wrap" : "truncate"
-                            )}
-                          >
-                            {item.summary}
-                          </p>
-                          {canExpand ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedHistoryMemoryKeys((prev) =>
-                                  prev.includes(row.key)
-                                    ? prev.filter((key) => key !== row.key)
-                                    : [...prev, row.key]
-                                )
-                              }
-                              className="shrink-0 text-xs font-medium text-text-subtle transition-colors hover:text-text"
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start gap-3">
+                            <p
+                              className={cn(
+                                "min-w-0 flex-1 text-sm leading-6 text-text",
+                                expanded ? "whitespace-pre-wrap" : "truncate"
+                              )}
                             >
-                              {expanded ? t("collapse") : `${t("loadMore")} >`}
-                            </button>
-                          ) : null}
+                              {item.summary}
+                            </p>
+                            {canExpand ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedHistoryMemoryKeys((prev) =>
+                                    prev.includes(row.key)
+                                      ? prev.filter((key) => key !== row.key)
+                                      : [...prev, row.key]
+                                  )
+                                }
+                                className="shrink-0 text-xs font-medium text-text-subtle transition-colors hover:text-text"
+                              >
+                                {expanded ? t("collapse") : t("loadMore")}
+                              </button>
+                            ) : null}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-text-subtle">
+                            <span
+                              className={
+                                item.memoryClass === "core"
+                                  ? "rounded-full bg-accent/12 px-2 py-0.5 font-medium text-accent"
+                                  : "rounded-full bg-surface-raised/45 px-2 py-0.5 font-medium text-text-subtle"
+                              }
+                            >
+                              {item.memoryClass === "core"
+                                ? t("memoryClassCore")
+                                : t("memoryClassContextual")}
+                            </span>
+                          </div>
                         </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-text-subtle">
-                          <span
-                            className={
-                              item.memoryClass === "core"
-                                ? "rounded-full bg-accent/12 px-2 py-0.5 font-medium text-accent"
-                                : "rounded-full bg-surface-raised/45 px-2 py-0.5 font-medium text-text-subtle"
-                            }
+                        <div className="flex shrink-0 items-start gap-1 pt-0.5">
+                          <button
+                            type="button"
+                            disabled={forgettingId === item.id}
+                            onClick={() => void handleForget(item.id)}
+                            className="cursor-pointer rounded-full p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                            title={t("forget")}
+                            aria-label={t("forget")}
+                            data-testid={`forget-history-${item.id}`}
                           >
-                            {item.memoryClass === "core"
-                              ? t("memoryClassCore")
-                              : t("memoryClassContextual")}
-                          </span>
+                            {forgettingId === item.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3 w-3" />
+                            )}
+                          </button>
                         </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          disabled={forgettingId === item.id}
-                          onClick={() => void handleForget(item.id)}
-                          className="cursor-pointer rounded-full p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                          title={t("forget")}
-                          aria-label={t("forget")}
-                          data-testid={`forget-history-${item.id}`}
-                        >
-                          {forgettingId === item.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3 w-3" />
-                          )}
-                        </button>
                       </div>
                     </li>
                   );
@@ -4698,7 +4702,7 @@ export function AssistantSettings({
                     className={userPillButtonClassName(
                       "secondary",
                       cn(
-                        "min-h-10 shrink-0 px-4 text-sm",
+                        "shrink-0",
                         clonedVoiceCreateDisabledReason !== null && "cursor-not-allowed opacity-60"
                       )
                     )}
@@ -5082,9 +5086,9 @@ export function AssistantSettings({
                               }
                             }}
                             className={cn(
-                              "min-h-8 min-w-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors",
+                              "min-h-[42px] min-w-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors",
                               voiceLanguageFilter === language
-                                ? "bg-accent/15 text-text"
+                                ? "bg-surface text-text shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_1px_2px_rgba(0,0,0,0.04)]"
                                 : "text-text-subtle hover:text-text"
                             )}
                           >
@@ -5659,7 +5663,7 @@ export function AssistantSettings({
                           onClick={() => void openBillingSettings()}
                           className={userPillButtonClassName(
                             paymentSettingsShouldBePrimary ? "primary" : "secondary",
-                            "min-h-10 px-4"
+                            undefined
                           )}
                         >
                           {t("paymentSettings")}
