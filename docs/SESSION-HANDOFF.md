@@ -21,6 +21,7 @@
 - Reserve transport attribution stays in logs and one existing-platform admin notification on successful fallback use; no new billing-facts metadata is added solely for attribution.
 - ADR-114 remains orchestrator-run: the parent agent studies and audits, assigns one sequential GPT-5.4 subagent per large slice, does not code implementation slices directly, avoids parallel implementation, and stops honestly if repo/API truth contradicts the plan.
 - Slice 1 implementation landed for `image_generate` and `image_edit` only. Admin Tools can now store enable/key/base URL reserve config; materialization carries it to runtime/provider-gateway; provider-gateway retries once on strict allowlisted OpenAI primary transport/account failures; successful reserve use logs and appends an existing-platform admin notification event.
+- Hotfix `8e4afc2139977e5ea16a5357f50fe08d9e38328f` fixed a live dev regression where enabling the reserve API key caused direct OpenAI image materialization to fail before the primary OpenAI request with `Unsupported PersAI-managed runtime secret id "tool/image_generate/reserve/api-key"`.
 - OpenAI video fallback was intentionally not implemented.
 
 ### Verification
@@ -34,16 +35,22 @@
 - `corepack pnpm --filter @persai/runtime run typecheck`
 - `corepack pnpm --filter @persai/web run typecheck`
 - `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- Hotfix follow-up:
+  - `corepack pnpm --filter @persai/api exec tsx test/tool-credential-settings.test.ts`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api run lint`
+  - `corepack pnpm run format:check`
+  - `persai-dev` API rolled to `europe-west1-docker.pkg.dev/project-44786b14-b7d7-4554-a8a/persai/api:8e4afc2139977e5ea16a5357f50fe08d9e38328f`; recent API/runtime/provider-gateway logs no longer show the unsupported reserve secret id failure.
 
 ### Risks / residuals
 
 - Fallback classification is the main risk: false fallback can hide product bugs or burn reserve quota.
 - Live ProxyAPI smoke was not run in this session.
-- Full repository lint and `format:check` remain to be run before closing the slice as merge-ready.
+- Live direct OpenAI image smoke after the hotfix should be repeated by creating a fresh image request from the UI. Do not intentionally break the primary OpenAI key until that direct path completes.
 
 ### Next recommended step
 
-- Run the full AGENTS verification gate, then perform live dev smoke for primary OpenAI image generate/edit and forced reserve fallback. Keep OpenAI video fallback deferred unless separately verified.
+- Perform live dev smoke in order: first primary OpenAI image generate/edit with reserve still configured, then intentionally break the primary OpenAI key and confirm reserve fallback uses ProxyAPI. Keep OpenAI video fallback deferred unless separately verified.
 
 ## 2026-06-09 - ADR-112 live video-tool follow-up
 
