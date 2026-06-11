@@ -28,7 +28,9 @@ import {
   X,
   UserCircle2,
   Plus,
-  Mic
+  Mic,
+  Image as ImageIcon,
+  Clapperboard
 } from "lucide-react";
 import type {
   AssistantLimitState,
@@ -792,21 +794,6 @@ function Section({
 // not get them anywhere.
 function isSessionExpiredText(text: string): boolean {
   return text.includes("Session expired") || text.includes("Сессия истекла");
-}
-
-function isPaidRecurringSubscription(
-  subscription: AssistantBillingSubscriptionManagementState | null
-): boolean {
-  if (
-    subscription === null ||
-    subscription.billingProvider !== "cloudpayments" ||
-    subscription.providerSubscriptionRef === null
-  ) {
-    return false;
-  }
-  return ["active", "grace_period", "past_due", "paused", "canceled"].includes(
-    subscription.subscriptionStatus
-  );
 }
 
 function resolveBillingManagementErrorMessage(
@@ -2100,7 +2087,6 @@ export function AssistantSettings({
     }
     window.open(url, "_blank", "noopener,noreferrer");
   }, [billingSubscription]);
-  const shouldShowRecurringBillingControls = isPaidRecurringSubscription(billingSubscription);
   const isEffectivePlanZeroPrice = isZeroPriceEffectivePlan(data.plan?.effectivePlan ?? null);
   const effectivePlanCanHaveBillingSettings =
     !isEffectivePlanZeroPrice &&
@@ -2141,25 +2127,29 @@ export function AssistantSettings({
       : t("billingUnknownValue");
   const billingDateHeadingLabel =
     billingSubscription !== null
-      ? billingSubscription.scheduledPlanChange?.changeKind === "downgrade"
-        ? t("billingPlanChangeLabel")
-        : billingSubscription.autoRenewEnabled &&
-            ["active"].includes(billingSubscription.subscriptionStatus)
-          ? t("billingNextCharge")
-          : t("billingAccessUntil")
+      ? graceBadgeActive
+        ? t("billingRetryAttemptLabel")
+        : billingSubscription.scheduledPlanChange?.changeKind === "downgrade"
+          ? t("billingPlanChangeLabel")
+          : billingSubscription.autoRenewEnabled &&
+              ["active"].includes(billingSubscription.subscriptionStatus)
+            ? t("billingNextCharge")
+            : t("billingAccessUntil")
       : t("billingDateLabel");
   const billingDateValueLabel =
     billingSubscription !== null
-      ? billingSubscription.scheduledPlanChange?.changeKind === "downgrade"
-        ? (resolveBillingSummaryCopy(
-            data.plan?.effectivePlan,
-            locale,
-            billingSubscription.scheduledPlanChange
-          ).dateLabel ?? t("billingDateUnavailable"))
-        : billingSubscription.autoRenewEnabled &&
-            ["active"].includes(billingSubscription.subscriptionStatus)
-          ? (nextChargeLabel ?? currentPeriodEndsLabel ?? t("billingDateUnavailable"))
-          : (currentPeriodEndsLabel ?? nextChargeLabel ?? t("billingDateUnavailable"))
+      ? graceBadgeActive
+        ? (nextChargeLabel ?? currentPeriodEndsLabel ?? t("billingDateUnavailable"))
+        : billingSubscription.scheduledPlanChange?.changeKind === "downgrade"
+          ? (resolveBillingSummaryCopy(
+              data.plan?.effectivePlan,
+              locale,
+              billingSubscription.scheduledPlanChange
+            ).dateLabel ?? t("billingDateUnavailable"))
+          : billingSubscription.autoRenewEnabled &&
+              ["active"].includes(billingSubscription.subscriptionStatus)
+            ? (nextChargeLabel ?? currentPeriodEndsLabel ?? t("billingDateUnavailable"))
+            : (currentPeriodEndsLabel ?? nextChargeLabel ?? t("billingDateUnavailable"))
       : t("billingUnknownValue");
   const billingLastPaymentMethodValue =
     billingSubscription !== null
@@ -2186,9 +2176,11 @@ export function AssistantSettings({
         billingSubscription.warning ??
         t("billingSettingsQuietHint"))
       : t("billingSettingsUnknownHint");
-  const billingSettingsDescription = shouldShowRecurringBillingControls
-    ? t("paymentSettingsDescription")
-    : t("paymentSettingsNonRecurringDescription");
+  const billingIssueInlineLabel = graceBadgeActive ? t("billingPaymentIssueInline") : null;
+  const billingPlanTransitionHint =
+    billingSubscription?.scheduledPlanChange?.changeKind === "downgrade"
+      ? t("billingPlanTransitionHint")
+      : billingPaymentMethodHint;
 
   useEffect(() => {
     setOpenSection(normalizeInitialSection(initialSection));
@@ -5502,11 +5494,6 @@ export function AssistantSettings({
                         t("freePlan")}
                     </p>
                     <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                      {graceBadgeActive ? (
-                        <span className="rounded-full border border-warning/35 bg-warning/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-warning">
-                          {t("paymentIssueBadge")}
-                        </span>
-                      ) : null}
                       {shouldShowBillingSettingsEntry ? (
                         <button
                           type="button"
@@ -5531,6 +5518,11 @@ export function AssistantSettings({
                       {billingSummary.dateLabel
                         ? t(billingSummary.dateKey, { date: billingSummary.dateLabel })
                         : t(billingSummary.dateKey)}
+                    </p>
+                  ) : null}
+                  {billingIssueInlineLabel ? (
+                    <p className="mt-1.5 text-[11px] font-medium text-[#b65c4a]">
+                      {billingIssueInlineLabel}
                     </p>
                   ) : null}
                 </div>
@@ -5582,6 +5574,7 @@ export function AssistantSettings({
                     {orderedMonthlyMediaCards.map((card) => (
                       <LimitMetricCard
                         key={card.toolCode}
+                        toolCode={card.toolCode}
                         label={card.label}
                         value={card.value}
                         secondary={card.secondary}
@@ -5694,7 +5687,6 @@ export function AssistantSettings({
                         <h3 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text">
                           {t("paymentSettings")}
                         </h3>
-                        <p className="mt-1 text-sm text-text-muted">{billingSettingsDescription}</p>
                       </div>
                       <button
                         type="button"
@@ -5735,8 +5727,8 @@ export function AssistantSettings({
                               ) : null}
                             </div>
                           </div>
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            <div className="rounded-full border border-border/70 bg-background/50 px-3 py-1.5">
+                          <div className="mt-4 flex flex-wrap gap-4">
+                            <div className="min-w-[140px] px-1 py-1">
                               <p className="text-[10px] uppercase tracking-[0.14em] text-text-subtle">
                                 {t("billingAutoRenew")}
                               </p>
@@ -5744,7 +5736,7 @@ export function AssistantSettings({
                                 {billingAutoRenewLabel}
                               </p>
                             </div>
-                            <div className="rounded-full border border-border/70 bg-background/50 px-3 py-1.5">
+                            <div className="min-w-[140px] px-1 py-1">
                               <p className="text-[10px] uppercase tracking-[0.14em] text-text-subtle">
                                 {billingDateHeadingLabel}
                               </p>
@@ -5777,8 +5769,8 @@ export function AssistantSettings({
                               </div>
                             </div>
                           </div>
-                          <p className="mt-3 rounded-2xl border border-border/60 bg-background/35 px-3 py-2 text-xs text-text-subtle">
-                            {billingPaymentMethodHint}
+                          <p className="mt-3 px-1 text-xs leading-5 text-text-subtle">
+                            {billingPlanTransitionHint}
                           </p>
                         </div>
                         <div className="grid gap-2">
@@ -5954,6 +5946,7 @@ function ChannelRow({
 }
 
 function LimitMetricCard({
+  toolCode,
   label,
   value,
   secondary,
@@ -5962,6 +5955,7 @@ function LimitMetricCard({
   buyChipLabel,
   onBuyClick
 }: {
+  toolCode?: string;
   label: React.ReactNode;
   value: string;
   secondary?: string | null;
@@ -5973,6 +5967,33 @@ function LimitMetricCard({
   const interactive = typeof onBuyClick === "function";
   const Comp = interactive ? "button" : "div";
   const showChip = interactive && typeof buyChipLabel === "string" && buyChipLabel.length > 0;
+  const watermark =
+    toolCode === "image_edit"
+      ? {
+          icon: ImageIcon,
+          className:
+            "right-7 top-1/2 h-14 w-14 -translate-y-[54%] rotate-[-12deg] sm:right-6 sm:top-[3.3rem] sm:h-16 sm:w-16 sm:translate-y-0"
+        }
+      : toolCode === "image_generate"
+        ? {
+            icon: Sparkles,
+            className:
+              "right-8 top-1/2 h-12 w-12 -translate-y-[52%] rotate-[8deg] sm:right-7 sm:top-[3.2rem] sm:h-14 sm:w-14 sm:translate-y-0"
+          }
+        : toolCode === "video_generate"
+          ? {
+              icon: Clapperboard,
+              className:
+                "right-6 top-1/2 h-14 w-14 -translate-y-[54%] rotate-[-8deg] sm:right-5 sm:top-[3.15rem] sm:h-16 sm:w-16 sm:translate-y-0"
+            }
+          : toolCode === "document"
+            ? {
+                icon: Files,
+                className:
+                  "right-6 top-1/2 h-14 w-14 -translate-y-[54%] rotate-[-7deg] sm:right-5 sm:top-[3.2rem] sm:h-16 sm:w-16 sm:translate-y-0"
+              }
+            : null;
+  const WatermarkIcon = watermark?.icon ?? null;
 
   return (
     <Comp
@@ -5998,6 +6019,18 @@ function LimitMetricCard({
           "cursor-pointer hover:border-accent/30 hover:bg-surface/85 focus:outline-none focus:ring-2 focus:ring-accent/30"
       )}
     >
+      {WatermarkIcon ? (
+        <div
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute opacity-[0.07] text-text-subtle/80 transition-all duration-200 ease-out",
+            "drop-shadow-[0_1px_0_rgba(255,255,255,0.28)] group-hover:opacity-[0.14] group-hover:text-accent/55",
+            watermark?.className
+          )}
+        >
+          <WatermarkIcon strokeWidth={1.7} className="h-full w-full" />
+        </div>
+      ) : null}
       <div className="min-w-0 flex-1">
         <p
           className={cn(
@@ -6029,7 +6062,7 @@ function LimitMetricCard({
           <span
             aria-hidden="true"
             className={cn(
-              "pointer-events-none inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] transition-colors",
+              "pointer-events-none inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-medium tracking-[0.02em] transition-colors",
               hasBonus
                 ? "border-accent/30 bg-accent/[0.06] text-accent/80 group-hover:bg-accent/10 group-hover:text-accent"
                 : "border-border/70 bg-bg/50 text-text-subtle group-hover:border-accent/30 group-hover:bg-accent/[0.06] group-hover:text-accent"

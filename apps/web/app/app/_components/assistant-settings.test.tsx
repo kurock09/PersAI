@@ -1898,9 +1898,7 @@ describe("AssistantSettings limits", () => {
     expect(screen.queryByRole("button", { name: "Buy subscription" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
 
-    expect(
-      await screen.findByText("Change plan, manage auto-renew, and review payment details.")
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Payment settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
     expect(screen.getAllByText("Bank card").length).toBe(2);
     expect(screen.getByText("On")).toBeInTheDocument();
@@ -1996,9 +1994,7 @@ describe("AssistantSettings limits", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
 
-    expect(
-      await screen.findByText("Change plan and review payment details and access period.")
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Payment settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
     expect(screen.getByText("Access until")).toBeInTheDocument();
     expect(screen.getByText(/May 12, 2026/i)).toBeInTheDocument();
@@ -2075,9 +2071,7 @@ describe("AssistantSettings limits", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Payment settings" }));
 
-    expect(
-      await screen.findByText("Change plan, manage auto-renew, and review payment details.")
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Payment settings" })).toBeInTheDocument();
     expect(screen.getByText("Paused")).toBeInTheDocument();
     expect(screen.getByText("Access until")).toBeInTheDocument();
     expect(screen.queryByText("Charge")).toBeNull();
@@ -2107,7 +2101,7 @@ describe("AssistantSettings limits", () => {
         targetPlanDisplayName: "Free",
         effectiveAt: "2026-05-12T00:00:00.000Z"
       },
-      warning: "Your current paid access stays active until May 12."
+      warning: null
     });
 
     renderSettings(
@@ -2625,7 +2619,7 @@ describe("AssistantSettings limits", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows access-deadline copy instead of next-charge copy during grace period", async () => {
+  it("shows payment-attempt copy in settings and quiet inline issue text during grace period", async () => {
     assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
       planCode: "pro",
       planDisplayName: "Pro",
@@ -2692,10 +2686,11 @@ describe("AssistantSettings limits", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Payment settings" }));
 
-    expect(await screen.findByText("Access until")).toBeInTheDocument();
-    expect(screen.queryByText("Next charge")).toBeNull();
-    expect(screen.getByText(/May 12, 2026/i)).toBeInTheDocument();
-    expect(screen.getAllByText("Payment issue").length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByText("Payment attempt")).toBeInTheDocument();
+    expect(screen.queryByText("Plan change")).toBeNull();
+    expect(screen.queryByText("Payment issue")).toBeNull();
+    expect(screen.getByText(/next attempt will run automatically/i)).toBeInTheDocument();
+    expect(screen.getByText(/Jun 12, 2026|June 12, 2026/i)).toBeInTheDocument();
   }, 15000);
 
   it("shows access-until copy for canceled subscription state in the limits summary", () => {
