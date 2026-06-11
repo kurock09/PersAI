@@ -278,8 +278,8 @@ export function AssistantSkillsManager({
                       className={cn(
                         "group flex min-h-[5.1rem] min-w-0 max-w-full cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-all",
                         checked
-                          ? "border-accent/50 bg-accent/8"
-                          : "border-border/45 bg-background/35 hover:border-border/65 hover:bg-surface-hover/55",
+                          ? "border-accent/45 bg-accent/8 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.03)]"
+                          : "border-border/55 bg-background/92 hover:border-border/70 hover:bg-surface-hover/65",
                         cardDisabled && "cursor-not-allowed opacity-65"
                       )}
                     >

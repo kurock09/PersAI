@@ -3,6 +3,35 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-12 - Setup recreate UX quiet cleanup
+
+### Baseline
+
+- Continued on the current `main` working tree for one more bounded web-only founder polish tail. Scope stayed narrow: remove noisy recreate/setup banners, normalize setup character surfaces to the same quiet assistant-settings visual language, and humanize reset copy. No architecture, API contract, or billing/runtime behavior changes.
+
+### What changed
+
+- `apps/web/app/app/setup/page.tsx` no longer renders the temporary recover/recreate notice banner at all. The flow still keeps explicit recover/recreate behavior internally, but regular users no longer see the explanatory banner block.
+- The avatar upload tile in setup now relies on the icon/selection state only; the extra bottom text badge on the upload card was removed to reduce noise.
+- The step-2 setup surfaces (`Настрой характер`) were aligned to the same calmer visual baseline as assistant settings: cards now use quieter standard backgrounds/borders, the freeform text area reuses the shared form-field helper, and the surrounding skills container follows the same softer surface treatment in both light and dark themes.
+- Recreate confirmation copy was rewritten in both locales to remove programmer-facing jargon (`runtime bundle/spec`, `media artifacts`) in favor of plain user language about clearing chats, memory, tasks, published versions, and assistant service data.
+- Focused `setup` tests were updated to assert the current flow truth instead of the removed banner text.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/setup/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- This slice intentionally changed only presentation/copy on the setup flow. Residual risk is visual only: a final live pass in both themes is still useful to confirm the quieter step-2 surfaces feel fully aligned with the already-polished assistant settings.
+
+### Next recommended step
+
+- Live-review setup/recreate in light and dark themes once, then stop unless a new founder review finds one or two remaining spacing/alignment outliers.
+
 ## 2026-06-12 - Persona video format as avatar identity
 
 ### Baseline

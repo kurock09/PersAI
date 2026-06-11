@@ -633,7 +633,7 @@ describe("SetupWizardPage", () => {
 
     renderWithIntl(<SetupWizardPage />);
 
-    expect(await screen.findByText("Recover existing draft")).toBeInTheDocument();
+    expect(await screen.findByText(enMessages.setup.step0Title)).toBeInTheDocument();
     fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
 
     expect(await screen.findByDisplayValue("Recovered Nova")).toBeInTheDocument();
@@ -676,9 +676,10 @@ describe("SetupWizardPage", () => {
 
     renderWithIntl(<SetupWizardPage />);
 
-    expect(await screen.findByText("Recreate existing assistant")).toBeInTheDocument();
+    expect(await screen.findByText(enMessages.setup.step0Title)).toBeInTheDocument();
     fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
 
+    expect(await screen.findByDisplayValue("PERSAI")).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText(/name — e\.g\./i), {
       target: { value: "Vera Rebuilt" }
     });

@@ -5,6 +5,7 @@
 
 ## 2026-06-12
 
+- Founder setup polish tail: the recreate/setup flow is quieter and more human. The upload-avatar card no longer shows an extra bottom banner, the temporary recreate/recover explanation banner was removed from the user path, the `Shape the personality` / `Настрой характер` surfaces now use the same calmer card/input language as assistant settings in both themes, and recreate-confirmation copy now describes the reset in plain language instead of exposing programmer terms like `runtime bundles/specs` or `media artifacts`.
 - Characters / HeyGen persona identity follow-up: workspace video personas now persist a fixed `videoFormat` (`16:9` / `9:16` / `1:1`) as part of avatar identity instead of treating talking-avatar aspect ratio as request-only truth. Persona creation now center-crops/normalizes the uploaded portrait to that stored format before HeyGen avatar creation, the Characters create modal exposes `Auto / 9:16 / 1:1 / 16:9` with auto-detect from source image dimensions, edit keeps avatar immutable and shows the stored format read-only, public/internal persona APIs now carry `videoFormat`, and runtime talking-avatar generation now resolves aspect ratio in the order `explicit request -> stored persona videoFormat -> provider/admin default`.
 
 ## 2026-06-11

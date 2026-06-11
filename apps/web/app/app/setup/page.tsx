@@ -22,7 +22,7 @@ import {
   User
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
-import { userFieldClassName } from "../_components/form-ui";
+import { userFieldClassName, userTextareaClassName } from "../_components/form-ui";
 import { LandingLocaleSwitcher } from "@/app/_components/landing-locale-switcher";
 import { useAppDataContext } from "../_components/app-shell";
 import {
@@ -119,8 +119,6 @@ const DEFAULT_SETUP_VOICE_PROFILE: AssistantLifecycleState["draft"]["voiceProfil
 const COMPLETION_TRANSITION_MS = 650;
 const COMPLETION_TRANSITION_DELAY_MS =
   process.env.NODE_ENV === "test" ? 0 : COMPLETION_TRANSITION_MS;
-const SETUP_MODE_NOTICE_MS = 5000;
-
 type LocalizedString = { ru: string; en: string };
 
 function normalizeBirthdayForDateInput(value: string | null | undefined): string {
@@ -307,7 +305,6 @@ export default function SetupWizardPage() {
   const [hasCompletedOnboardingProfile, setHasCompletedOnboardingProfile] = useState<
     boolean | null
   >(null);
-  const [showSetupModeNotice, setShowSetupModeNotice] = useState(false);
   const [completionScreen, setCompletionScreen] = useState<{
     title: string;
     body: string;
@@ -473,16 +470,6 @@ export default function SetupWizardPage() {
     setSelectedAvatarPresetId((current) => current ?? defaultPreset.id);
     setAssistantName(defaultPreset.defaultName);
   }, [assistantName, assistantNameTouched, setupMode]);
-
-  useEffect(() => {
-    if (setupMode === "create") {
-      setShowSetupModeNotice(false);
-      return;
-    }
-    setShowSetupModeNotice(true);
-    const timer = window.setTimeout(() => setShowSetupModeNotice(false), SETUP_MODE_NOTICE_MS);
-    return () => window.clearTimeout(timer);
-  }, [setupMode]);
 
   useEffect(() => {
     if (step !== 2 || archetypes.length === 0 || selectedArchetypeKey !== null) {
@@ -810,8 +797,6 @@ export default function SetupWizardPage() {
     t
   ]);
 
-  const setupModeTitle = setupMode === "recover" ? t("recoverModeTitle") : t("recreateModeTitle");
-  const setupModeBody = setupMode === "recover" ? t("recoverModeBody") : t("recreateModeBody");
   const submitActionLabel =
     setupMode === "recover"
       ? t("recoverAssistant")
@@ -1062,18 +1047,6 @@ export default function SetupWizardPage() {
                         <Upload className="h-5 w-5" />
                       </div>
                     </div>
-                    <div className="absolute inset-x-0 bottom-0 px-3 py-3">
-                      <span
-                        className={cn(
-                          "block rounded-[14px] border px-2.5 py-1.5 text-center text-[11px] font-semibold tracking-[0.01em] backdrop-blur-sm",
-                          isUsingCustomAvatar
-                            ? "border-accent/35 bg-[rgba(191,148,84,0.18)] text-white"
-                            : "border-white/10 bg-[rgba(18,18,18,0.42)] text-white/92"
-                        )}
-                      >
-                        {isUsingCustomAvatar ? t("yours") : t("upload")}
-                      </span>
-                    </div>
                   </button>
                 </div>
 
@@ -1114,10 +1087,10 @@ export default function SetupWizardPage() {
             {step === 2 && (
               <StepContainer key="step-2" className="max-w-5xl">
                 <div className="w-full">
-                  <div className="rounded-[28px] border border-border bg-surface/70 p-5 text-left shadow-[0_0_0_1px_rgba(255,255,255,0.02)] sm:p-6">
+                  <div className="rounded-[28px] border border-border/70 bg-background/88 p-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_1px_2px_rgba(0,0,0,0.03)] sm:p-6">
                     <div className="flex items-start gap-4 sm:gap-5">
                       <div className="relative shrink-0">
-                        <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] border border-border bg-surface text-4xl shadow-[0_0_32px_var(--accent-glow)] sm:h-[72px] sm:w-[72px] sm:text-5xl">
+                        <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] border border-border/80 bg-background text-4xl shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_1px_2px_rgba(0,0,0,0.03)] sm:h-[72px] sm:w-[72px] sm:text-5xl">
                           {currentAvatarPreviewUrl ? (
                             <img
                               src={currentAvatarPreviewUrl}
@@ -1157,7 +1130,7 @@ export default function SetupWizardPage() {
 
                   <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)] lg:items-start">
                     <div className="space-y-6">
-                      <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
+                      <div className="rounded-2xl border border-border/70 bg-background/88 p-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_1px_2px_rgba(0,0,0,0.03)]">
                         <div className="mb-4">
                           <p className="text-xs font-semibold text-text">
                             {t("presetSectionLabel")}
@@ -1175,8 +1148,8 @@ export default function SetupWizardPage() {
                               className={cn(
                                 "rounded-2xl border px-4 py-3 text-left transition-all",
                                 selectedArchetypeKey === archetype.key
-                                  ? "border-accent bg-accent/10 shadow-[0_0_24px_var(--accent-glow)]"
-                                  : "border-border bg-surface hover:border-border-strong hover:bg-surface-hover"
+                                  ? "border-accent/45 bg-accent/8 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.03)]"
+                                  : "border-border/55 bg-background/94 hover:border-border/70 hover:bg-surface-hover/65"
                               )}
                             >
                               <div className="flex items-start justify-between gap-3">
@@ -1195,7 +1168,7 @@ export default function SetupWizardPage() {
                                     {resolveLocalizedString(archetype.description, locale)}
                                   </p>
                                 </div>
-                                <div className="shrink-0 rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] uppercase tracking-wide text-text-subtle">
+                                <div className="shrink-0 rounded-full border border-border/60 bg-surface-raised/55 px-2 py-0.5 text-[10px] uppercase tracking-wide text-text-subtle">
                                   {archetype.voice.sentenceLength}
                                 </div>
                               </div>
@@ -1204,17 +1177,17 @@ export default function SetupWizardPage() {
                         </div>
                         {selectedArchetype ? (
                           <div className="mt-3 flex flex-wrap gap-2">
-                            <div className="rounded-full border border-border bg-surface px-2.5 py-1 text-[10px] text-text-subtle">
+                            <div className="rounded-full border border-border/60 bg-surface-raised/55 px-2.5 py-1 text-[10px] text-text-subtle">
                               pace: {selectedArchetype.voice.pace}
                             </div>
-                            <div className="rounded-full border border-border bg-surface px-2.5 py-1 text-[10px] text-text-subtle">
+                            <div className="rounded-full border border-border/60 bg-surface-raised/55 px-2.5 py-1 text-[10px] text-text-subtle">
                               irony: {selectedArchetype.voice.irony}
                             </div>
                           </div>
                         ) : null}
                       </div>
 
-                      <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
+                      <div className="rounded-2xl border border-border/70 bg-background/88 p-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_1px_2px_rgba(0,0,0,0.03)]">
                         <p className="mb-4 text-xs font-semibold text-text">{t("fineTune")}</p>
                         <div className="space-y-4">
                           {TRAIT_SLIDERS.map((trait) => (
@@ -1223,7 +1196,7 @@ export default function SetupWizardPage() {
                                 <span className="truncate text-text-muted">
                                   {tp(trait.labelLeftKey)}
                                 </span>
-                                <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] text-text-subtle">
+                                <span className="rounded-full border border-border/60 bg-surface-raised/55 px-2 py-0.5 text-[10px] text-text-subtle">
                                   {traits[trait.key]}
                                 </span>
                                 <span className="truncate text-right text-text-muted">
@@ -1245,7 +1218,7 @@ export default function SetupWizardPage() {
                       </div>
                     </div>
 
-                    <div className="flex h-full flex-col rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
+                    <div className="flex h-full flex-col rounded-2xl border border-border/70 bg-background/88 p-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_1px_2px_rgba(0,0,0,0.03)]">
                       <label className="block text-xs font-semibold text-text">
                         {t("describeCharacter")}
                       </label>
@@ -1253,7 +1226,7 @@ export default function SetupWizardPage() {
                         value={assistantNotes}
                         onChange={(e) => setAssistantNotes(e.target.value)}
                         rows={10}
-                        className="mt-2 min-h-[320px] w-full flex-1 rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent"
+                        className={userTextareaClassName("mt-2 min-h-[320px] flex-1")}
                         placeholder={t("instructionPlaceholder")}
                       />
                       <p className="mt-2 text-[11px] leading-relaxed text-text-subtle">
@@ -1262,7 +1235,7 @@ export default function SetupWizardPage() {
                     </div>
                   </div>
 
-                  <div className="mt-6 rounded-[28px] border border-border bg-surface/70 p-4 text-left sm:p-5">
+                  <div className="mt-6 rounded-[28px] border border-border/70 bg-background/88 p-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_1px_2px_rgba(0,0,0,0.03)] sm:p-5">
                     <AssistantSkillsManager
                       state={skillsState}
                       selectedSkillIds={selectedSkillIds}
@@ -1362,22 +1335,6 @@ export default function SetupWizardPage() {
                 <p className="mt-6 text-[10px] text-text-subtle/60 max-w-xs">{t("termsNotice")}</p>
               </StepContainer>
             )}
-          </AnimatePresence>
-          <AnimatePresence initial={false}>
-            {showSetupModeNotice && setupMode !== "create" ? (
-              <motion.div
-                className="mx-auto mt-8 w-full max-w-4xl"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-              >
-                <div className="rounded-2xl border border-accent/25 bg-accent/8 px-4 py-3 text-left shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
-                  <p className="text-sm font-semibold text-text">{setupModeTitle}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-text-muted">{setupModeBody}</p>
-                </div>
-              </motion.div>
-            ) : null}
           </AnimatePresence>
         </div>
       </div>
