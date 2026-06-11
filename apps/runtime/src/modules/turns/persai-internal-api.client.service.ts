@@ -1618,6 +1618,7 @@ export class PersaiInternalApiClientService {
     heygenAvatarId: string;
     heygenVoiceId: string;
     heygenVoiceLabel: string;
+    videoFormat: "16:9" | "9:16" | "1:1";
     clonedVoiceId: string | null;
     linkedClonedVoiceDisplayName: string | null;
     linkedClonedVoiceProviderId: string | null;
@@ -1650,6 +1651,9 @@ export class PersaiInternalApiClientService {
         typeof persona.heygenAvatarId === "string" &&
         typeof persona.heygenVoiceId === "string" &&
         typeof persona.heygenVoiceLabel === "string" &&
+        (persona.videoFormat === "16:9" ||
+          persona.videoFormat === "9:16" ||
+          persona.videoFormat === "1:1") &&
         (persona.clonedVoiceId === null || typeof persona.clonedVoiceId === "string") &&
         (persona.linkedClonedVoiceDisplayName === null ||
           typeof persona.linkedClonedVoiceDisplayName === "string") &&
@@ -1663,6 +1667,7 @@ export class PersaiInternalApiClientService {
           heygenAvatarId: persona.heygenAvatarId,
           heygenVoiceId: persona.heygenVoiceId,
           heygenVoiceLabel: persona.heygenVoiceLabel,
+          videoFormat: persona.videoFormat,
           clonedVoiceId: persona.clonedVoiceId ?? null,
           linkedClonedVoiceDisplayName: persona.linkedClonedVoiceDisplayName ?? null,
           linkedClonedVoiceProviderId: persona.linkedClonedVoiceProviderId ?? null,

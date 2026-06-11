@@ -980,6 +980,7 @@ describe("video-persona client URL shape (Slice 9 double-prefix fix)", () => {
     const fakeFile = new File(["portrait"], "portrait.jpg", { type: "image/jpeg" });
     await createWorkspaceVideoPersona("tok", WORKSPACE_ID, {
       displayName: "Alice",
+      videoFormat: "1:1",
       heygenVoiceId: "voice-1",
       portrait: fakeFile
     });
@@ -1121,6 +1122,7 @@ describe("video persona cloned voice forwarding", () => {
     const fakeFile = new File(["portrait"], "portrait.jpg", { type: "image/jpeg" });
     await createWorkspaceVideoPersona("tok", WORKSPACE_ID, {
       displayName: "Alice",
+      videoFormat: "9:16",
       heygenVoiceId: "voice-1",
       clonedVoiceId: "clone-1",
       portrait: fakeFile

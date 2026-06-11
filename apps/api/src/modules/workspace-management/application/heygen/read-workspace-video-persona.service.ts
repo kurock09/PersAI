@@ -23,6 +23,7 @@ export class ReadWorkspaceVideoPersonaService {
     heygenAvatarId: string;
     heygenVoiceId: string;
     heygenVoiceLabel: string;
+    videoFormat: "16:9" | "9:16" | "1:1";
     clonedVoiceId: string | null;
     linkedClonedVoiceDisplayName: string | null;
     linkedClonedVoiceProviderId: string | null;
@@ -38,6 +39,7 @@ export class ReadWorkspaceVideoPersonaService {
       heygenAvatarId: row.heygenAvatarId,
       heygenVoiceId: row.heygenVoiceId,
       heygenVoiceLabel: row.heygenVoiceLabel,
+      videoFormat: row.videoFormat,
       clonedVoiceId: row.clonedVoiceId,
       linkedClonedVoiceDisplayName: row.linkedClonedVoiceDisplayName,
       linkedClonedVoiceProviderId:

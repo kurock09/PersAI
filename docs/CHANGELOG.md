@@ -3,6 +3,10 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-06-12
+
+- Characters / HeyGen persona identity follow-up: workspace video personas now persist a fixed `videoFormat` (`16:9` / `9:16` / `1:1`) as part of avatar identity instead of treating talking-avatar aspect ratio as request-only truth. Persona creation now center-crops/normalizes the uploaded portrait to that stored format before HeyGen avatar creation, the Characters create modal exposes `Auto / 9:16 / 1:1 / 16:9` with auto-detect from source image dimensions, edit keeps avatar immutable and shows the stored format read-only, public/internal persona APIs now carry `videoFormat`, and runtime talking-avatar generation now resolves aspect ratio in the order `explicit request -> stored persona videoFormat -> provider/admin default`.
+
 ## 2026-06-11
 
 - Founder UI polish tail follow-up: several last-mile web settings surfaces were normalized after live review. `Payment settings` and `Clone voice` now sit on the same compact pill baseline as the rest of the CTA system; the shared pill-button shadow was reduced to a calmer half-strength treatment; Files rows became truly one-line and compact by dropping the redundant origin/type subline for ordinary files while keeping only meaningful document-output chips (`Current`, `vN`); the Characters voice language selector now matches the Gender segmented control height/style; and the Memory drawer was tightened so tabs, search/add controls, row spacing, expand actions, and right-edge delete affordances read as one dense premium list instead of mixed ad hoc controls.

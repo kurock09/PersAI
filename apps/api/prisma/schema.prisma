@@ -3411,6 +3411,7 @@ model WorkspaceVideoPersona {
   displayNameLower       String    @map("display_name_lower") @db.VarChar(80)
   portraitImageUrl       String    @map("portrait_image_url")
   portraitImageStorageKey String   @map("portrait_image_storage_key")
+  videoFormat            String    @map("video_format") @db.VarChar(8)
   heygenVoiceId          String    @map("heygen_voice_id") @db.VarChar(128)
   heygenVoiceLabel       String    @map("heygen_voice_label") @db.VarChar(120)
   heygenAvatarId         String    @map("heygen_avatar_id") @db.VarChar(128)

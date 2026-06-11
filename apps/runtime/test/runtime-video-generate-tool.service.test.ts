@@ -445,6 +445,7 @@ type FakePersona = {
   heygenAvatarId: string;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
+  videoFormat: "16:9" | "9:16" | "1:1";
   clonedVoiceId?: string | null;
   linkedClonedVoiceDisplayName?: string | null;
   linkedClonedVoiceProviderId?: string | null;
@@ -1576,6 +1577,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     heygenAvatarId: "ava-cached-1",
     heygenVoiceId: "heygen-voice-warm-001",
     heygenVoiceLabel: "Anya Warm",
+    videoFormat: "1:1",
     clonedVoiceId: null,
     linkedClonedVoiceDisplayName: null,
     linkedClonedVoiceProviderId: null,
@@ -1617,7 +1619,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(personaGatewayCall?.voiceKey, "heygen-voice-warm-001"); // persona preset fallback
   assert.deepEqual(personaGatewayCall?.providerParameters, {
     resolution: "720p",
-    aspectRatio: "9:16",
+    aspectRatio: "1:1",
     engine: "avatar_v"
   });
 
@@ -1628,6 +1630,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     heygenAvatarId: "ava-cached-clone",
     heygenVoiceId: "heygen-voice-warm-001",
     heygenVoiceLabel: "Anya Warm",
+    videoFormat: "9:16",
     clonedVoiceId: "clone-1",
     linkedClonedVoiceDisplayName: "Brand Voice",
     linkedClonedVoiceProviderId: "heygen-clone-provider-1",
@@ -2035,6 +2038,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     heygenAvatarId: "ava-cached-1",
     heygenVoiceId: "heygen-voice-warm-001",
     heygenVoiceLabel: "Anya Warm",
+    videoFormat: "1:1",
     portraitImageStorageKey: "workspaces/workspace-1/personas/persona-anya/portrait/current"
   });
   const planToggleMissingResult = await service.executeToolCall({
@@ -2114,6 +2118,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     heygenAvatarId: "ava-echo-123",
     heygenVoiceId: "heygen-voice-warm-001",
     heygenVoiceLabel: "Anya Warm",
+    videoFormat: "9:16",
     portraitImageStorageKey: "workspaces/workspace-1/personas/persona-echo-test/portrait/current"
   });
   const echoTestResult = await service.executeToolCall({
@@ -2325,6 +2330,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     heygenAvatarId: "ava-routing-001",
     heygenVoiceId: "heygen-voice-warm-001",
     heygenVoiceLabel: "Test Voice",
+    videoFormat: "1:1",
     portraitImageStorageKey: "workspaces/workspace-1/personas/persona-routing-test/portrait/current"
   });
   const talkingAvatarWithCredential = await service.executeToolCall({
@@ -2434,6 +2440,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     heygenAvatarId: "ava-defer-001",
     heygenVoiceId: "heygen-voice-warm-001",
     heygenVoiceLabel: "Defer Voice",
+    videoFormat: "16:9",
     portraitImageStorageKey: "workspaces/workspace-1/personas/persona-defer-test/portrait/current"
   });
   const talkingAvatarDeferAccepted = await service.executeToolCall({

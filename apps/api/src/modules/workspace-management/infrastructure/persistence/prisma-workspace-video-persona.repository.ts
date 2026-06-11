@@ -19,6 +19,13 @@ function isUuid(value: string): boolean {
   return UUID_PATTERN.test(value.trim());
 }
 
+function normalizeVideoFormat(value: string): "16:9" | "9:16" | "1:1" {
+  if (value === "16:9" || value === "9:16" || value === "1:1") {
+    return value;
+  }
+  return "1:1";
+}
+
 /**
  * ADR-109 Slice 5 — Prisma implementation of the workspace video persona
  * domain port.
@@ -103,6 +110,7 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
         displayNameLower: input.displayNameLower,
         portraitImageUrl: input.portraitImageUrl,
         portraitImageStorageKey: input.portraitImageStorageKey,
+        videoFormat: input.videoFormat,
         heygenVoiceId: input.heygenVoiceId,
         heygenVoiceLabel: input.heygenVoiceLabel,
         clonedVoiceId: input.clonedVoiceId ?? null,
@@ -133,6 +141,7 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
       data: {
         displayName: input.displayName,
         displayNameLower: input.displayNameLower,
+        ...(input.videoFormat === undefined ? {} : { videoFormat: input.videoFormat }),
         ...(input.heygenVoiceId === undefined ? {} : { heygenVoiceId: input.heygenVoiceId }),
         ...(input.heygenVoiceLabel === undefined
           ? {}
@@ -174,6 +183,7 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
     displayNameLower: string;
     portraitImageUrl: string;
     portraitImageStorageKey: string;
+    videoFormat: string;
     heygenVoiceId: string;
     heygenVoiceLabel: string;
     clonedVoiceId: string | null;
@@ -197,6 +207,7 @@ export class PrismaWorkspaceVideoPersonaRepository implements WorkspaceVideoPers
       displayNameLower: row.displayNameLower,
       portraitImageUrl: row.portraitImageUrl,
       portraitImageStorageKey: row.portraitImageStorageKey,
+      videoFormat: normalizeVideoFormat(row.videoFormat),
       heygenVoiceId: row.heygenVoiceId,
       heygenVoiceLabel: row.heygenVoiceLabel,
       clonedVoiceId: row.clonedVoiceId,

@@ -1012,8 +1012,10 @@ Interpretation rules:
 
 1. `My voices` must render honest ready/pending/failed state, visible legal guidance, and VC/limit gating without pretending clone creation is instant.
 2. Persona forms may attach only ready active cloned voices; pending/failed rows stay visible in management UI but never become selectable persona voice truth.
-3. Persona create/update payloads must preserve preset `heygenVoiceId` fallback while forwarding optional `clonedVoiceId`.
-4. Runtime `video_generate` guidance may mention safe cloned-voice display labels only when talking video is enabled and the materialized persona catalog already carries that label; it must not expose provider ids or add keyword/fuzzy routing.
+3. Persona create/update payloads must preserve preset `heygenVoiceId` fallback while forwarding optional `clonedVoiceId`, and persona create must persist the resolved `videoFormat` (`auto` is UI-only; API truth is stored as `16:9` / `9:16` / `1:1`).
+4. Persona portrait normalization must crop to the stored persona `videoFormat` before HeyGen avatar creation, so later talking-avatar renders do not rely on provider-added letterboxing/pillarboxing.
+5. Runtime `video_generate` guidance may mention safe cloned-voice display labels only when talking video is enabled and the materialized persona catalog already carries that label; it must not expose provider ids or add keyword/fuzzy routing.
+6. Talking-avatar aspect precedence must stay `explicit request > stored persona videoFormat > provider/admin default`.
 
 ## Step 20 files/sandbox/media focused checks
 

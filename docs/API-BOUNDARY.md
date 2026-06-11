@@ -39,7 +39,7 @@ Primary public API surface:
   - `POST /api/v1/workspaces/:workspaceId/video-cloned-voices` is multipart (`audio` + `displayName` + optional language hint/body metadata) and may fail honestly with stable product codes such as `cloned_voice_limit_reached`, `cloned_voice_duplicate_name`, `provider_plan_upgrade_required`, `provider_resource_limit_reached`, or VC-balance exhaustion
   - `DELETE /api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId` archives the workspace-owned clone from active selection
   - `POST /api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId/default` marks the ready clone as the default workspace choice
-  - `POST/PATCH /api/v1/workspaces/:workspaceId/video-personas*` may carry both `heygenVoiceId` (preset fallback) and optional `clonedVoiceId`; pending/failed clones must be rejected at the API boundary rather than silently accepted
+- `POST/PATCH /api/v1/workspaces/:workspaceId/video-personas*` may carry `videoFormat` (`16:9` / `9:16` / `1:1`) plus both `heygenVoiceId` (preset fallback) and optional `clonedVoiceId`; pending/failed clones must be rejected at the API boundary rather than silently accepted
 - single-batch web bootstrap: `GET /api/v1/app/bootstrap` — bearer-protected, fans out to assistant lifecycle, web chats, telegram integration, notification preference, user plan visibility, and admin plan visibility via `Promise.allSettled`; each section is `{ ok: true, data } | { ok: false, error }` so partial failures don't block the rest. Called once during SSR by `apps/web/app/app/layout.tsx`; mutations still use the per-endpoint refresh paths
 - Telegram webhook under `/telegram-webhook/*`
 

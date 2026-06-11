@@ -38,9 +38,9 @@ ADR-072 remains the historical migration ADR through the native-path closeout. A
 
 ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active PersAI-native path:
 
-- `apps/api` owns workspace-scoped talking-video persona truth plus workspace-scoped cloned-voice truth, including limit/cost gating, persona materialization, and safe display labels
+- `apps/api` owns workspace-scoped talking-video persona truth plus workspace-scoped cloned-voice truth, including limit/cost gating, create-time portrait normalization/cropping to the stored persona video format, persona materialization, and safe display labels
 - `apps/web` owns the `Settings -> Characters` UX for persona CRUD, `My voices`, clone upload/record flows, and honest pending/ready/failed status rendering
-- `apps/runtime` does not route on freeform voice keywords; it only receives structured `videoPersonaCatalog` guidance and may surface safe cloned-voice display labels when a saved persona already carries one
+- `apps/runtime` does not route on freeform voice keywords; it only receives structured `videoPersonaCatalog` guidance, may surface safe cloned-voice display labels when a saved persona already carries one, and uses stored persona `videoFormat` as the default talking-avatar aspect ratio only when the request itself does not explicitly choose a format
 - provider clone ids are never user-facing product labels and must not become model-facing routing hints
 
 ### Runtime plane

@@ -143,8 +143,30 @@ type PersonaVoiceLanguageFilter = "ru" | "en" | "other" | "mine";
 type PersonaLightboxState = { src: string; name: string } | null;
 type PersonaModalMode = "create" | "edit";
 type ClonedVoiceModalMode = "upload" | "record";
+type PersonaVideoFormat = "16:9" | "9:16" | "1:1";
+type PersonaVideoFormatChoice = "auto" | PersonaVideoFormat;
 
 const CHARACTERS_PRICING_URL = "https://persai.dev/app/pricing";
+
+function detectPersonaVideoFormatFromDimensions(width: number, height: number): PersonaVideoFormat {
+  if (width <= 0 || height <= 0) {
+    return "1:1";
+  }
+  const ratio = width / height;
+  if (Math.abs(ratio - 1) <= 0.08) {
+    return "1:1";
+  }
+  return ratio > 1 ? "16:9" : "9:16";
+}
+
+function formatPersonaVideoFormatLabel(
+  t: (key: string, params?: Record<string, string | number>) => string,
+  format: PersonaVideoFormat
+): string {
+  if (format === "16:9") return t("charactersFormVideoFormatLandscape");
+  if (format === "9:16") return t("charactersFormVideoFormatPortrait");
+  return t("charactersFormVideoFormatSquare");
+}
 
 function encodeAudioBufferAsWav(audioBuffer: AudioBuffer): Blob {
   const channelCount = Math.min(audioBuffer.numberOfChannels, 2);
@@ -1590,6 +1612,10 @@ export function AssistantSettings({
   const [createPersonaVoiceId, setCreatePersonaVoiceId] = useState<string | null>(null);
   const [createPersonaClonedVoiceId, setCreatePersonaClonedVoiceId] = useState<string | null>(null);
   const [createPersonaPortrait, setCreatePersonaPortrait] = useState<File | null>(null);
+  const [createPersonaVideoFormatChoice, setCreatePersonaVideoFormatChoice] =
+    useState<PersonaVideoFormatChoice>("auto");
+  const [createPersonaAutoVideoFormat, setCreatePersonaAutoVideoFormat] =
+    useState<PersonaVideoFormat>("1:1");
   const [createPersonaPortraitPreview, setCreatePersonaPortraitPreview] = useState<string | null>(
     null
   );
@@ -1652,6 +1678,8 @@ export function AssistantSettings({
       setCreatePersonaVoiceId(mode === "edit" ? (persona?.heygenVoiceId ?? null) : null);
       setCreatePersonaClonedVoiceId(mode === "edit" ? (persona?.clonedVoiceId ?? null) : null);
       setCreatePersonaPortrait(null);
+      setCreatePersonaVideoFormatChoice("auto");
+      setCreatePersonaAutoVideoFormat(mode === "edit" ? (persona?.videoFormat ?? "1:1") : "1:1");
       replacePersonaPortraitPreview(mode === "edit" ? (persona?.portraitImageUrl ?? null) : null);
       setCreatePersonaError(null);
       setCreatePersonaPortraitError(null);
@@ -1689,6 +1717,7 @@ export function AssistantSettings({
   const closePersonaModal = useCallback(() => {
     setCreatePersonaOpen(false);
     setCreatePersonaPortrait(null);
+    setCreatePersonaVideoFormatChoice("auto");
     replacePersonaPortraitPreview(null);
   }, [replacePersonaPortraitPreview]);
 
@@ -2391,22 +2420,22 @@ export function AssistantSettings({
   const memoryPanel = (
     <>
       <div className="mb-4 border-b border-border/45 pb-3">
-        <div className="grid w-full grid-cols-2 rounded-full border border-border/60 bg-surface-raised/20 p-1">
-        {(["workspace", "history"] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setMemoryTab(tab)}
-            className={cn(
-              "min-h-[42px] cursor-pointer rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-              memoryTab === tab
-                ? "bg-surface text-text shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_1px_2px_rgba(0,0,0,0.04)]"
-                : "text-text hover:text-text"
-            )}
-          >
-            {tab === "workspace" ? t("workspace") : t("history")}
-          </button>
-        ))}
+        <div className="flex items-center gap-3">
+          {(["workspace", "history"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setMemoryTab(tab)}
+              className={cn(
+                "flex-1 cursor-pointer rounded-2xl px-4 py-2 text-sm font-medium transition-colors",
+                memoryTab === tab
+                  ? "bg-surface text-text shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_1px_2px_rgba(0,0,0,0.04)]"
+                  : "text-text-subtle hover:bg-surface-raised/25 hover:text-text"
+              )}
+            >
+              {tab === "workspace" ? t("workspace") : t("history")}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -2426,7 +2455,7 @@ export function AssistantSettings({
             <button
               type="button"
               onClick={() => void loadWsMemory(wsMemorySearch || undefined)}
-              className={userPillButtonClassName("secondary", "min-w-[112px] shrink-0")}
+              className={userPillButtonClassName("secondary", "min-w-[116px] shrink-0")}
             >
               {t("search")}
             </button>
@@ -2449,7 +2478,7 @@ export function AssistantSettings({
               onClick={() => void handleAddWsMemory()}
               className={userPillButtonClassName(
                 "primary",
-                "min-w-[112px] shrink-0 disabled:opacity-50"
+                "min-w-[116px] shrink-0 disabled:opacity-50"
               )}
             >
               {wsMemoryAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : t("add")}
@@ -2504,7 +2533,7 @@ export function AssistantSettings({
                                 }
                                 className="shrink-0 text-xs font-medium text-text-subtle transition-colors hover:text-text"
                               >
-                                {expanded ? t("collapse") : t("loadMore")}
+                                {expanded ? t("memoryCollapse") : t("memoryExpand")}
                               </button>
                             ) : null}
                           </div>
@@ -2607,7 +2636,8 @@ export function AssistantSettings({
                   onClick={() => setWsMemoryVisibleCount((count) => count + 5)}
                   className={userPillButtonClassName("secondary", "mt-4 flex w-full")}
                 >
-                  {t("loadMore")} ({mergedWorkspaceMemoryView.length - wsMemoryVisibleCount})
+                  {t("memoryLoadMoreButton")} (
+                  {mergedWorkspaceMemoryView.length - wsMemoryVisibleCount})
                 </button>
               )}
             </>
@@ -2661,7 +2691,7 @@ export function AssistantSettings({
                                 }
                                 className="shrink-0 text-xs font-medium text-text-subtle transition-colors hover:text-text"
                               >
-                                {expanded ? t("collapse") : t("loadMore")}
+                                {expanded ? t("memoryCollapse") : t("memoryExpand")}
                               </button>
                             ) : null}
                           </div>
@@ -2707,7 +2737,8 @@ export function AssistantSettings({
                   onClick={() => setMemoryVisibleCount((count) => count + 5)}
                   className={userPillButtonClassName("secondary", "mt-4 flex w-full")}
                 >
-                  {t("loadMore")} ({mergedHistoryMemoryView.length - memoryVisibleCount})
+                  {t("memoryLoadMoreButton")} ({mergedHistoryMemoryView.length - memoryVisibleCount}
+                  )
                 </button>
               )}
             </>
@@ -3355,6 +3386,15 @@ export function AssistantSettings({
     setCreatePersonaPortrait(file);
     const url = URL.createObjectURL(file);
     replacePersonaPortraitPreview(url);
+    if (typeof window !== "undefined") {
+      const image = new window.Image();
+      image.onload = () => {
+        setCreatePersonaAutoVideoFormat(
+          detectPersonaVideoFormatFromDimensions(image.naturalWidth, image.naturalHeight)
+        );
+      };
+      image.src = url;
+    }
   }
 
   function handleClonedVoiceAudioFile(file: File): void {
@@ -5000,37 +5040,91 @@ export function AssistantSettings({
                               <p className="text-xs text-text-muted">
                                 {t("charactersAvatarEditHint")}
                               </p>
+                              <p className="mt-2 text-xs text-text-subtle">
+                                {t("charactersFormVideoFormatReadonly", {
+                                  format: formatPersonaVideoFormatLabel(
+                                    t,
+                                    createPersonaAutoVideoFormat
+                                  )
+                                })}
+                              </p>
                             </div>
                           </div>
                         </div>
                       ) : (
-                        <div
-                          className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-surface-raised/30 py-5 transition-colors hover:border-border"
-                          onClick={() => personaPortraitInputRef.current?.click()}
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            const file = e.dataTransfer.files?.[0];
-                            if (file) handlePersonaPortraitFile(file);
-                          }}
-                        >
-                          {createPersonaPortraitPreview ? (
-                            <img
-                              src={createPersonaPortraitPreview}
-                              alt="Portrait preview"
-                              className="h-20 w-20 rounded-full object-cover"
-                            />
-                          ) : (
-                            <>
-                              <Upload className="mb-1 h-5 w-5 text-text-subtle" />
-                              <p className="text-xs text-text-subtle">
-                                {t("charactersFormPortraitDrop")}
+                        <div className="rounded-xl border border-border/60 bg-surface-raised/20 p-3">
+                          <div className="grid gap-3 sm:grid-cols-[112px_minmax(0,1fr)] sm:items-start">
+                            <div
+                              className="flex min-h-[112px] cursor-pointer items-center justify-center rounded-2xl border-2 border-dashed border-border/60 bg-surface-raised/30 px-3 py-4 transition-colors hover:border-border"
+                              onClick={() => personaPortraitInputRef.current?.click()}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const file = e.dataTransfer.files?.[0];
+                                if (file) handlePersonaPortraitFile(file);
+                              }}
+                            >
+                              {createPersonaPortraitPreview ? (
+                                <img
+                                  src={createPersonaPortraitPreview}
+                                  alt="Portrait preview"
+                                  className="h-24 w-24 rounded-2xl object-cover"
+                                />
+                              ) : (
+                                <div className="flex flex-col items-center text-center">
+                                  <Upload className="mb-1 h-5 w-5 text-text-subtle" />
+                                  <p className="text-xs text-text-subtle">
+                                    {t("charactersFormPortraitDrop")}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs text-text-muted">
+                                {t("charactersAvatarCreateHint")}
                               </p>
-                              <p className="mt-0.5 max-w-[28rem] text-center text-[10px] text-text-subtle/70">
+                              <p className="mt-2 text-[10px] text-text-subtle/70">
                                 {t("charactersFormPortraitHint")}
                               </p>
-                            </>
-                          )}
+                              <div className="mt-3">
+                                <p className="mb-1 text-xs font-semibold text-text">
+                                  {t("charactersFormVideoFormat")}
+                                </p>
+                                <div className="grid grid-cols-4 gap-1 rounded-full border border-border/60 bg-surface p-1">
+                                  {(["auto", "9:16", "1:1", "16:9"] as const).map((option) => {
+                                    const selected = createPersonaVideoFormatChoice === option;
+                                    const label =
+                                      option === "auto"
+                                        ? t("charactersFormVideoFormatAuto")
+                                        : formatPersonaVideoFormatLabel(t, option);
+                                    return (
+                                      <button
+                                        key={option}
+                                        type="button"
+                                        onClick={() => setCreatePersonaVideoFormatChoice(option)}
+                                        className={cn(
+                                          "rounded-full px-2 py-1.5 text-[11px] font-medium transition-colors",
+                                          selected
+                                            ? "bg-accent text-accent-foreground"
+                                            : "text-text-subtle hover:bg-surface-raised hover:text-text"
+                                        )}
+                                      >
+                                        {label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <p className="mt-2 text-[10px] text-text-subtle">
+                                  {t("charactersFormVideoFormatAutoResolved", {
+                                    format: formatPersonaVideoFormatLabel(
+                                      t,
+                                      createPersonaAutoVideoFormat
+                                    )
+                                  })}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       )}
                       {personaModalMode === "create" ? (
@@ -5074,32 +5168,23 @@ export function AssistantSettings({
                       <p className="mb-1 text-xs font-semibold text-text">
                         {t("charactersFormVoice")}
                       </p>
-                      <div className="mb-2 grid w-full grid-cols-4 rounded-full border border-border/60 bg-surface-raised/20 p-1">
-                        {(["ru", "en", "other", "mine"] as const).map((language) => (
-                          <button
-                            key={language}
-                            type="button"
-                            onClick={() => {
-                              setVoiceLanguageFilter(language);
-                              if (language !== "other") {
-                                setOtherVoiceLanguageSearch("");
-                              }
-                            }}
-                            className={cn(
-                              "min-h-[42px] min-w-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors",
-                              voiceLanguageFilter === language
-                                ? "bg-surface text-text shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_1px_2px_rgba(0,0,0,0.04)]"
-                                : "text-text-subtle hover:text-text"
-                            )}
-                          >
-                            {language === "other"
-                              ? t("charactersFormVoiceFilterOther")
-                              : language === "mine"
-                                ? t("charactersFormVoiceFilterMine")
-                                : language.toUpperCase()}
-                          </button>
-                        ))}
-                      </div>
+                      <SegmentedChoice
+                        options={[
+                          { value: "ru", label: "RU" },
+                          { value: "en", label: "EN" },
+                          { value: "other", label: t("charactersFormVoiceFilterOther") },
+                          { value: "mine", label: t("charactersFormVoiceFilterMine") }
+                        ]}
+                        value={voiceLanguageFilter}
+                        onChange={(value) => {
+                          const next = value as PersonaVoiceLanguageFilter;
+                          setVoiceLanguageFilter(next);
+                          if (next !== "other") {
+                            setOtherVoiceLanguageSearch("");
+                          }
+                        }}
+                        className="mb-2 grid-cols-4"
+                      />
                       {voiceLanguageFilter === "other" ? (
                         <div className="mb-2 flex items-center gap-2">
                           <input
@@ -5291,6 +5376,10 @@ export function AssistantSettings({
                           if (!assistant?.workspaceId || !personaFallbackVoiceId) return;
                           const token = await getToken();
                           if (!token) return;
+                          const resolvedPersonaVideoFormat: PersonaVideoFormat =
+                            createPersonaVideoFormatChoice === "auto"
+                              ? createPersonaAutoVideoFormat
+                              : createPersonaVideoFormatChoice;
                           setCreatePersonaSubmitting(true);
                           setCreatePersonaError(null);
                           try {
@@ -5301,6 +5390,7 @@ export function AssistantSettings({
                                 assistant.workspaceId,
                                 {
                                   displayName: createPersonaName.trim(),
+                                  videoFormat: resolvedPersonaVideoFormat,
                                   heygenVoiceId: personaFallbackVoiceId,
                                   clonedVoiceId: createPersonaClonedVoiceId,
                                   portrait: createPersonaPortrait
@@ -5328,6 +5418,7 @@ export function AssistantSettings({
                                 editingPersonaId,
                                 {
                                   displayName: createPersonaName.trim(),
+                                  videoFormat: resolvedPersonaVideoFormat,
                                   heygenVoiceId: personaFallbackVoiceId,
                                   clonedVoiceId: createPersonaClonedVoiceId
                                 }

@@ -64,14 +64,6 @@ function fileDisplayName(file: AssistantFileState): string {
   return file.displayName ?? file.filename;
 }
 
-function fileKind(file: AssistantFileState): "image" | "audio" | "video" | "pdf" | "file" {
-  if (file.mimeType.startsWith("image/")) return "image";
-  if (file.mimeType.startsWith("audio/")) return "audio";
-  if (file.mimeType.startsWith("video/")) return "video";
-  if (file.mimeType === "application/pdf") return "pdf";
-  return "file";
-}
-
 function isPreviewableMedia(file: AssistantFileState): boolean {
   return file.mimeType.startsWith("image/") || file.mimeType.startsWith("video/");
 }
@@ -82,25 +74,6 @@ function documentVersionLabel(file: AssistantFileState): string | null {
     return null;
   }
   return typeof link.versionNumber === "number" ? `v${link.versionNumber}` : null;
-}
-
-function originLabel(
-  file: AssistantFileState,
-  t: (
-    key:
-      | "filesOrigin_uploaded_attachment"
-      | "filesOrigin_runtime_output"
-      | "filesOrigin_sandbox_output"
-  ) => string
-): string {
-  switch (file.origin) {
-    case "uploaded_attachment":
-      return t("filesOrigin_uploaded_attachment");
-    case "runtime_output":
-      return t("filesOrigin_runtime_output");
-    case "sandbox_output":
-      return t("filesOrigin_sandbox_output");
-  }
 }
 
 function bucketLabel(

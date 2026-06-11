@@ -1734,6 +1734,7 @@ export class RuntimeVideoGenerateToolService {
     videoModelParameters: RuntimeVideoModelParameters | null | undefined;
     providerParameters: RuntimeVideoModelParameters["providerParameters"] | null;
     request: RuntimeVideoGenerateRequest;
+    personaDefaultAspectRatio?: "16:9" | "9:16" | "1:1" | null;
   }): RuntimeVideoModelParameters["providerParameters"] | null {
     if (params.providerId === "kling") {
       return {
@@ -1755,6 +1756,7 @@ export class RuntimeVideoGenerateToolService {
         ...(params.providerParameters ?? {}),
         aspectRatio: this.resolveTalkingAvatarAspectRatio({
           requestedAspectRatio: params.request.talkingAvatarAspectRatio ?? null,
+          personaDefaultAspectRatio: params.personaDefaultAspectRatio ?? null,
           configuredAspectRatio: params.providerParameters?.aspectRatio ?? null
         })
       };
@@ -1770,6 +1772,7 @@ export class RuntimeVideoGenerateToolService {
       | "5:4"
       | null
       | undefined;
+    personaDefaultAspectRatio: "16:9" | "9:16" | "1:1" | null | undefined;
     configuredAspectRatio: "auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4" | null | undefined;
   }): "auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4" {
     if (
@@ -1781,6 +1784,13 @@ export class RuntimeVideoGenerateToolService {
       params.requestedAspectRatio === "5:4"
     ) {
       return params.requestedAspectRatio;
+    }
+    if (
+      params.personaDefaultAspectRatio === "16:9" ||
+      params.personaDefaultAspectRatio === "9:16" ||
+      params.personaDefaultAspectRatio === "1:1"
+    ) {
+      return params.personaDefaultAspectRatio;
     }
     if (params.configuredAspectRatio === "auto") {
       return "auto";
@@ -2337,6 +2347,7 @@ export class RuntimeVideoGenerateToolService {
         heygenAvatarId: string;
         heygenVoiceId: string;
         heygenVoiceLabel: string;
+        videoFormat: "16:9" | "9:16" | "1:1";
         clonedVoiceId: string | null;
         linkedClonedVoiceDisplayName: string | null;
         linkedClonedVoiceProviderId: string | null;
@@ -2658,6 +2669,7 @@ export class RuntimeVideoGenerateToolService {
             inputMode: normalizedRequest.request.inputMode,
             videoModelParameters: credential.videoModelParameters,
             request: normalizedRequest.request,
+            personaDefaultAspectRatio: persona?.videoFormat ?? null,
             providerParameters: credential.videoModelParameters?.providerParameters ?? null
           }),
           credential: {

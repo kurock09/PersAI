@@ -33,6 +33,8 @@ import { ReadWorkspaceVideoPreviewService } from "../../application/heygen/read-
 import { ResolveActiveAssistantService } from "../../application/resolve-active-assistant.service";
 import { streamRemoteAudioPreview } from "./stream-remote-audio-preview";
 
+type PersonaVideoFormat = "16:9" | "9:16" | "1:1";
+
 /**
  * ADR-109 Slice 5 — workspace-scoped video persona REST controller.
  *
@@ -77,6 +79,7 @@ export class WorkspaceVideoPersonasController {
     }
 
     const displayName = this.parseStringField(body, "displayName");
+    const videoFormat = this.parsePersonaVideoFormatField(body, "videoFormat");
     const heygenVoiceId = this.parseStringField(body, "heygenVoiceId");
     const clonedVoiceId = this.parseNullableStringField(body, "clonedVoiceId");
 
@@ -89,6 +92,7 @@ export class WorkspaceVideoPersonasController {
         mimeType: file.mimetype,
         originalFilename: file.originalname
       },
+      videoFormat,
       heygenVoiceId,
       ...(clonedVoiceId === undefined ? {} : { clonedVoiceId })
     });
@@ -163,11 +167,13 @@ export class WorkspaceVideoPersonasController {
     const displayName = this.parseStringField(body, "displayName");
     const heygenVoiceId = this.parseOptionalStringField(body, "heygenVoiceId");
     const clonedVoiceId = this.parseNullableStringField(body, "clonedVoiceId");
+    const videoFormat = this.parseOptionalPersonaVideoFormatField(body, "videoFormat");
 
     return this.manageWorkspaceVideoPersonasService.updatePersona({
       workspaceId,
       personaId,
       displayName,
+      ...(videoFormat === undefined ? {} : { videoFormat }),
       ...(heygenVoiceId === undefined ? {} : { heygenVoiceId }),
       ...(clonedVoiceId === undefined ? {} : { clonedVoiceId })
     });
@@ -293,5 +299,33 @@ export class WorkspaceVideoPersonasController {
     }
     const trimmed = value.trim();
     return trimmed.length === 0 ? null : trimmed;
+  }
+
+  private parsePersonaVideoFormatField(rawBody: unknown, fieldName: string): PersonaVideoFormat {
+    const value = this.parseStringField(rawBody, fieldName);
+    if (value === "16:9" || value === "9:16" || value === "1:1") {
+      return value;
+    }
+    throw new BadRequestException({
+      message: `Field "${fieldName}" must be one of: 16:9, 9:16, 1:1.`,
+      code: "invalid_field"
+    });
+  }
+
+  private parseOptionalPersonaVideoFormatField(
+    rawBody: unknown,
+    fieldName: string
+  ): PersonaVideoFormat | undefined {
+    const value = this.parseOptionalStringField(rawBody, fieldName);
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value === "16:9" || value === "9:16" || value === "1:1") {
+      return value;
+    }
+    throw new BadRequestException({
+      message: `Field "${fieldName}" must be one of: 16:9, 9:16, 1:1.`,
+      code: "invalid_field"
+    });
   }
 }

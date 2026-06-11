@@ -6162,9 +6162,10 @@ paths:
         Creates a new workspace-scoped video persona. Persona creation is
         REST-only (ADR-109 cross-slice invariant #14). Debits
         `heygenPersonaCreationVcoin` VC from the workspace wallet when the
-        platform cost > 0. Portrait image is normalized to JPEG 1024×1024.
-        Validates the provided `heygenVoiceId` against the cached HeyGen
-        voice shortlist.
+        platform cost > 0. Portrait image is normalized and center-cropped
+        server-side to the selected persona video format before the HeyGen
+        avatar is created. Validates the provided `heygenVoiceId` against the
+        cached HeyGen voice shortlist.
       security:
         - bearerAuth: []
       parameters:
@@ -6193,6 +6194,13 @@ paths:
                   type: string
                   maxLength: 80
                   description: Display name for the persona. Must be unique within the workspace (case-insensitive).
+                videoFormat:
+                  type: string
+                  enum:
+                    - "16:9"
+                    - "9:16"
+                    - "1:1"
+                  description: Stored persona video format. Determines portrait normalization/cropping before HeyGen avatar creation and acts as the default talking-avatar aspect ratio when the request does not explicitly choose one.
                 heygenVoiceId:
                   type: string
                   maxLength: 128
@@ -16658,6 +16666,7 @@ components:
         - id
         - displayName
         - portraitImageUrl
+        - videoFormat
         - heygenVoiceId
         - heygenVoiceLabel
         - createdAt
@@ -16670,6 +16679,12 @@ components:
           maxLength: 80
         portraitImageUrl:
           type: string
+        videoFormat:
+          type: string
+          enum:
+            - "16:9"
+            - "9:16"
+            - "1:1"
         heygenVoiceId:
           type: string
         heygenVoiceLabel:

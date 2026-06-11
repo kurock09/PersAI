@@ -418,6 +418,7 @@ beforeEach(() => {
       id: "persona-1",
       displayName: "Test",
       portraitImageUrl: "/api/persona-portrait/ws-1/persona-1/hash.jpg",
+      videoFormat: "1:1",
       heygenVoiceId: "en-US-Amy",
       heygenVoiceLabel: "Amy",
       clonedVoiceId: null,
@@ -432,6 +433,7 @@ beforeEach(() => {
       id: "persona-1",
       displayName: "Test",
       portraitImageUrl: "/api/persona-portrait/ws-1/persona-1/hash.jpg",
+      videoFormat: "1:1",
       heygenVoiceId: "en-US-Amy",
       heygenVoiceLabel: "Amy",
       clonedVoiceId: null,
@@ -3904,6 +3906,7 @@ describe("characters section", () => {
         id: "p-warn",
         displayName: "WarnPersona",
         portraitImageUrl: "",
+        videoFormat: "1:1",
         heygenVoiceId: "v-warn-test",
         heygenVoiceLabel: "StorageWarnVoice",
         createdAt: new Date().toISOString()
@@ -4628,6 +4631,7 @@ describe("characters section", () => {
           id: "persona-edit",
           displayName: "Masha",
           portraitImageUrl: "/api/persona-portrait/ws-1/p-1/hash.jpg",
+          videoFormat: "1:1",
           heygenVoiceId: "en-US-Amy",
           heygenVoiceLabel: "Preset Voice",
           clonedVoiceId: "clone-ready",
@@ -4666,6 +4670,7 @@ describe("characters section", () => {
         "ws-1",
         {
           displayName: "Alice",
+          videoFormat: "1:1",
           heygenVoiceId: "en-US-Amy",
           clonedVoiceId: "clone-ready",
           portrait: fakeFile
@@ -4686,6 +4691,7 @@ describe("characters section", () => {
         "persona-edit",
         {
           displayName: "Masha",
+          videoFormat: "1:1",
           heygenVoiceId: "en-US-Amy",
           clonedVoiceId: null
         }

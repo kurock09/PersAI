@@ -24,6 +24,7 @@ export type WorkspaceVideoPersonaRecord = {
   displayNameLower: string;
   portraitImageUrl: string;
   portraitImageStorageKey: string;
+  videoFormat: "16:9" | "9:16" | "1:1";
   heygenVoiceId: string;
   heygenVoiceLabel: string;
   clonedVoiceId: string | null;
@@ -51,6 +52,7 @@ export type WorkspaceVideoPersonaCreateInput = {
   displayNameLower: string;
   portraitImageUrl: string;
   portraitImageStorageKey: string;
+  videoFormat: "16:9" | "9:16" | "1:1";
   heygenVoiceId: string;
   heygenVoiceLabel: string;
   clonedVoiceId?: string | null;
@@ -63,6 +65,7 @@ export type WorkspaceVideoPersonaUpdateInput = {
   personaId: string;
   displayName: string;
   displayNameLower: string;
+  videoFormat?: "16:9" | "9:16" | "1:1";
   heygenVoiceId?: string;
   heygenVoiceLabel?: string;
   clonedVoiceId?: string | null;

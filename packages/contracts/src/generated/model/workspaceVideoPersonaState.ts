@@ -13,6 +13,7 @@ export interface WorkspaceVideoPersonaState {
   /** @maxLength 80 */
   displayName: string;
   portraitImageUrl: string;
+  videoFormat: "16:9" | "9:16" | "1:1";
   heygenVoiceId: string;
   heygenVoiceLabel: string;
   createdAt: string;

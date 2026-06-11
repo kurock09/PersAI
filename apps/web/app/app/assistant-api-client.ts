@@ -5680,6 +5680,7 @@ export type PersonaListItemDto = {
   id: string;
   displayName: string;
   portraitImageUrl: string;
+  videoFormat: "16:9" | "9:16" | "1:1";
   heygenVoiceId: string;
   heygenVoiceLabel: string;
   clonedVoiceId: string | null;
@@ -5876,6 +5877,7 @@ export async function createWorkspaceVideoPersona(
   workspaceId: string,
   payload: {
     displayName: string;
+    videoFormat: "16:9" | "9:16" | "1:1";
     heygenVoiceId: string;
     clonedVoiceId?: string | null;
     portrait: File;
@@ -5888,6 +5890,7 @@ export async function createWorkspaceVideoPersona(
   const base = getApiBaseUrl();
   const form = new FormData();
   form.set("displayName", payload.displayName);
+  form.set("videoFormat", payload.videoFormat);
   form.set("heygenVoiceId", payload.heygenVoiceId);
   if (payload.clonedVoiceId !== undefined) {
     form.set("clonedVoiceId", payload.clonedVoiceId ?? "");
@@ -5918,6 +5921,7 @@ export async function updateWorkspaceVideoPersona(
   personaId: string,
   payload: {
     displayName: string;
+    videoFormat?: "16:9" | "9:16" | "1:1";
     heygenVoiceId?: string;
     clonedVoiceId?: string | null;
   }
@@ -5935,6 +5939,7 @@ export async function updateWorkspaceVideoPersona(
       },
       body: JSON.stringify({
         displayName: payload.displayName,
+        ...(payload.videoFormat !== undefined ? { videoFormat: payload.videoFormat } : {}),
         ...(payload.heygenVoiceId !== undefined ? { heygenVoiceId: payload.heygenVoiceId } : {}),
         ...(payload.clonedVoiceId !== undefined ? { clonedVoiceId: payload.clonedVoiceId } : {})
       })

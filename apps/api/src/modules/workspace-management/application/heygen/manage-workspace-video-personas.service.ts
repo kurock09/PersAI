@@ -31,11 +31,13 @@ const PORTRAIT_NORMALIZED_MIME_TYPE = "image/jpeg";
 const PORTRAIT_NORMALIZED_DIMENSION = 1024;
 const PORTRAIT_NORMALIZED_QUALITY = 85;
 const PORTRAIT_URL_PREFIX = "/api/persona-portrait/";
+type PersonaVideoFormat = "16:9" | "9:16" | "1:1";
 
 export type WorkspaceVideoPersonaDto = {
   id: string;
   displayName: string;
   portraitImageUrl: string;
+  videoFormat: PersonaVideoFormat;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
   clonedVoiceId: string | null;
@@ -47,6 +49,7 @@ export type PersonaListItem = {
   id: string;
   displayName: string;
   portraitImageUrl: string;
+  videoFormat: PersonaVideoFormat;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
   clonedVoiceId: string | null;
@@ -122,6 +125,7 @@ export class ManageWorkspaceVideoPersonasService {
     userId: string;
     displayName: string;
     portraitImageFile: { buffer: Buffer; mimeType: string; originalFilename: string };
+    videoFormat: PersonaVideoFormat;
     heygenVoiceId: string;
     clonedVoiceId?: string | null;
   }): Promise<CreatePersonaResult> {
@@ -160,7 +164,8 @@ export class ManageWorkspaceVideoPersonasService {
 
     const normalizedPortrait = await this.normalizePortraitBuffer(
       input.portraitImageFile.buffer,
-      validated.effectiveMimeType
+      validated.effectiveMimeType,
+      input.videoFormat
     );
 
     const personaId = randomUUID();
@@ -265,6 +270,7 @@ export class ManageWorkspaceVideoPersonasService {
             displayNameLower,
             portraitImageUrl,
             portraitImageStorageKey: storageKey,
+            videoFormat: input.videoFormat,
             heygenVoiceId: input.heygenVoiceId,
             heygenVoiceLabel,
             clonedVoiceId: linkedClonedVoice?.id ?? null,
@@ -420,6 +426,7 @@ export class ManageWorkspaceVideoPersonasService {
     workspaceId: string;
     personaId: string;
     displayName: string;
+    videoFormat?: PersonaVideoFormat;
     heygenVoiceId?: string;
     clonedVoiceId?: string | null;
   }): Promise<UpdatePersonaResult> {
@@ -472,6 +479,7 @@ export class ManageWorkspaceVideoPersonasService {
       personaId: input.personaId,
       displayName: input.displayName,
       displayNameLower,
+      ...(input.videoFormat === undefined ? {} : { videoFormat: input.videoFormat }),
       ...(input.heygenVoiceId === undefined ? {} : { heygenVoiceId: input.heygenVoiceId }),
       ...(matchedVoiceLabel === undefined ? {} : { heygenVoiceLabel: matchedVoiceLabel }),
       ...(input.clonedVoiceId === undefined ? {} : { clonedVoiceId: input.clonedVoiceId })
@@ -516,12 +524,16 @@ export class ManageWorkspaceVideoPersonasService {
   }
 
   /**
-   * Normalize any supported image input to a square 1024×1024 JPEG.
+   * Normalize any supported image input to a HeyGen-safe aspect-correct 1024px JPEG.
    * Mirrors the approach in `ManageAssistantAvatarService.normalizeAvatarBuffer`.
    * If sharp is unavailable (should not happen in production), falls back to
    * original bytes without normalization.
    */
-  private async normalizePortraitBuffer(buffer: Buffer, mimeType: string): Promise<Buffer> {
+  private async normalizePortraitBuffer(
+    buffer: Buffer,
+    mimeType: string,
+    videoFormat: PersonaVideoFormat
+  ): Promise<Buffer> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sharpFn = await this.loadSharp();
     if (sharpFn === null) {
@@ -531,9 +543,15 @@ export class ManageWorkspaceVideoPersonasService {
       return buffer;
     }
     try {
+      const target =
+        videoFormat === "16:9"
+          ? { width: 1280, height: 720 }
+          : videoFormat === "9:16"
+            ? { width: 720, height: 1280 }
+            : { width: PORTRAIT_NORMALIZED_DIMENSION, height: PORTRAIT_NORMALIZED_DIMENSION };
       return await sharpFn(buffer)
         .rotate()
-        .resize(PORTRAIT_NORMALIZED_DIMENSION, PORTRAIT_NORMALIZED_DIMENSION, {
+        .resize(target.width, target.height, {
           fit: "cover",
           position: "center",
           withoutEnlargement: false
@@ -563,6 +581,7 @@ export class ManageWorkspaceVideoPersonasService {
       id: row.id,
       displayName: row.displayName,
       portraitImageUrl: row.portraitImageUrl,
+      videoFormat: row.videoFormat,
       heygenVoiceId: row.heygenVoiceId,
       heygenVoiceLabel: row.heygenVoiceLabel,
       clonedVoiceId: row.clonedVoiceId,
@@ -576,6 +595,7 @@ export class ManageWorkspaceVideoPersonasService {
       id: row.id,
       displayName: row.displayName,
       portraitImageUrl: row.portraitImageUrl,
+      videoFormat: row.videoFormat,
       heygenVoiceId: row.heygenVoiceId,
       heygenVoiceLabel: row.heygenVoiceLabel,
       clonedVoiceId: row.clonedVoiceId,

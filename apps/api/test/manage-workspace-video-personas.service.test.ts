@@ -64,6 +64,7 @@ function makePersonaRecord(
     displayNameLower: "test persona",
     portraitImageUrl: "/api/persona-portrait/ws/pid/hash.jpg",
     portraitImageStorageKey: "workspaces/ws/personas/pid/portrait/current",
+    videoFormat: "1:1",
     heygenVoiceId: VOICE_ID,
     heygenVoiceLabel: VOICE_DISPLAY_NAME,
     clonedVoiceId: null,
@@ -260,6 +261,7 @@ function makeService(opts: {
         id: input.id,
         displayName: input.displayName,
         displayNameLower: input.displayNameLower,
+        videoFormat: input.videoFormat,
         heygenVoiceId: input.heygenVoiceId,
         heygenVoiceLabel: input.heygenVoiceLabel,
         clonedVoiceId: input.clonedVoiceId ?? null,
@@ -387,6 +389,7 @@ async function run(): Promise<void> {
           id: input.id,
           displayName: input.displayName,
           displayNameLower: input.displayNameLower,
+          videoFormat: input.videoFormat,
           heygenVoiceId: input.heygenVoiceId,
           heygenVoiceLabel: input.heygenVoiceLabel,
           clonedVoiceId: input.clonedVoiceId ?? null,
@@ -477,6 +480,7 @@ async function run(): Promise<void> {
       workspaceId: WORKSPACE_ID,
       userId: USER_ID,
       displayName: "My Persona",
+      videoFormat: "16:9",
       portraitImageFile: makePortraitFile(),
       heygenVoiceId: VOICE_ID
     });
@@ -495,6 +499,7 @@ async function run(): Promise<void> {
       MOCK_AVATAR_ID,
       "Persona must have the HeyGen avatar ID"
     );
+    assert.equal(insertedPersonas[0]?.videoFormat, "16:9");
     // Ledger event recorded
     assert.equal(ledgerEvents.length, 1);
     assert.equal(ledgerEvents[0]!["kind"], "persona_creation");
@@ -522,6 +527,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "X",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID
         }),
@@ -549,6 +555,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Duplicate",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID
         }),
@@ -643,6 +650,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Voice Test",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: "bad-voice-id"
         }),
@@ -671,6 +679,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Balance Test",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID
         }),
@@ -795,6 +804,7 @@ async function run(): Promise<void> {
       workspaceId: WORKSPACE_ID,
       userId: USER_ID,
       displayName: "Free Persona",
+      videoFormat: "1:1",
       portraitImageFile: makePortraitFile(),
       heygenVoiceId: VOICE_ID
     });
@@ -892,6 +902,7 @@ async function run(): Promise<void> {
       workspaceId: WORKSPACE_ID,
       userId: USER_ID,
       displayName: "Storage Order Test",
+      videoFormat: "1:1",
       portraitImageFile: makePortraitFile(),
       heygenVoiceId: VOICE_ID
     });
@@ -991,6 +1002,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "HeyGen Fail Test",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID
         }),
@@ -1113,6 +1125,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Race Persona",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID
         }),
@@ -1150,6 +1163,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Limit Test",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID
         }),
@@ -1181,6 +1195,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Dup Name Test",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID
         }),
@@ -1213,6 +1228,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Balance Gate Test",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID
         }),
@@ -1327,16 +1343,19 @@ async function run(): Promise<void> {
       workspaceId: WORKSPACE_ID,
       userId: USER_ID,
       displayName: "Linked Persona",
+      videoFormat: "9:16",
       portraitImageFile: makePortraitFile(),
       heygenVoiceId: VOICE_ID,
       clonedVoiceId: linkedClone.id
     });
     assert.equal(insertedPersonas.length, 1);
     assert.equal(insertedPersonas[0]?.clonedVoiceId, linkedClone.id);
+    assert.equal(insertedPersonas[0]?.videoFormat, "9:16");
     assert.equal(insertedPersonas[0]?.heygenVoiceId, VOICE_ID);
     assert.equal(insertedPersonas[0]?.heygenVoiceLabel, VOICE_DISPLAY_NAME);
     assert.equal(result.persona.clonedVoiceId, linkedClone.id);
     assert.equal(result.persona.clonedVoiceDisplayName, "Brand Voice");
+    assert.equal(result.persona.videoFormat, "9:16");
     assert.equal(result.persona.heygenVoiceId, VOICE_ID);
     console.log("✓ Test 15b: createPersona links ready cloned voice and preserves preset fallback");
   }
@@ -1470,6 +1489,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Archived Clone Persona",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID,
           clonedVoiceId: archivedClone.id
@@ -1488,6 +1508,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Pending Clone Persona",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID,
           clonedVoiceId: pendingClone.id
@@ -1506,6 +1527,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Missing Clone Persona",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID,
           clonedVoiceId: "clone-missing"
@@ -1524,6 +1546,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Cross Workspace Clone Persona",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID,
           clonedVoiceId: otherWorkspaceClone.id
@@ -1723,6 +1746,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Race Debit",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID
         }),
@@ -1834,6 +1858,7 @@ async function run(): Promise<void> {
           workspaceId: WORKSPACE_ID,
           userId: USER_ID,
           displayName: "Infra Error Test",
+          videoFormat: "1:1",
           portraitImageFile: makePortraitFile(),
           heygenVoiceId: VOICE_ID
         }),

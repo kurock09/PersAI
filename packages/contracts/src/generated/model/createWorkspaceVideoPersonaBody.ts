@@ -6,7 +6,7 @@
  */
 
 export type CreateWorkspaceVideoPersonaBody = {
-  /** Portrait image file (JPEG, PNG, or WebP). Normalized to 1024×1024 JPEG server-side. */
+  /** Portrait image file (JPEG, PNG, or WebP). Normalized and center-cropped server-side to the selected persona video format before avatar creation. */
   portrait: Blob;
   /**
    * Display name for the persona. Must be unique within the workspace (case-insensitive).
@@ -18,4 +18,6 @@ export type CreateWorkspaceVideoPersonaBody = {
    * @maxLength 128
    */
   heygenVoiceId: string;
+  /** Stored persona video format used for portrait cropping and default talking-avatar aspect ratio. */
+  videoFormat: "16:9" | "9:16" | "1:1";
 };

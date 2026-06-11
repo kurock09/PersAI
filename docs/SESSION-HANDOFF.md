@@ -3,6 +3,36 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-12 - Persona video format as avatar identity
+
+### Baseline
+
+- Starting SHA: `8fc95b76aa5c6381507efeddc799e9f6c180a8aa` on `main`. Clean tree at session start. Scope stayed bounded to workspace video personas / talking-avatar format truth: persist persona `videoFormat`, normalize portrait uploads to that format before HeyGen avatar creation, expose the format in Characters UI/API, and use stored persona format as the runtime default below explicit request-level overrides.
+
+### What changed
+
+- `workspace_video_personas` now stores a required `videoFormat` (`16:9` / `9:16` / `1:1`). Historical rows are backfilled to `1:1`, which matches the old square-normalized portrait substrate instead of inventing a legacy compatibility mode.
+- API/controller/repository/internal-runtime persona reads now carry `videoFormat` as first-class truth. Persona create/update contract handling stays additive: preset `heygenVoiceId` fallback and optional `clonedVoiceId` remain intact, with `videoFormat` added as the persona identity field.
+- Persona portrait normalization is now format-aware instead of always square. On create, the uploaded image is rotated and center-cropped to the stored persona format before the HeyGen photo avatar is created, which prevents later white/black bars caused by mismatched source aspect.
+- `Settings -> Characters` create flow now shows the portrait block on the left and quiet avatar warning + `Video format` selector on the right. The selector offers `Auto / 9:16 / 1:1 / 16:9`; `Auto` resolves from the uploaded image dimensions, while edit keeps avatar immutable and shows the stored format read-only.
+- Talking-avatar runtime aspect precedence is now `explicit request -> stored persona videoFormat -> provider/admin default`. This keeps user/model intent authoritative while making saved personas behave consistently when the request omits a format.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-workspace-video-personas.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-video-personas.controller.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+
+### Risks / residuals
+
+- Existing personas are intentionally backfilled to `1:1` because the historical persisted portrait substrate was always square-normalized. That keeps runtime behavior honest, but previously created personas will not retroactively gain a wider/taller source crop unless the user recreates them.
+- The create modal resolves `Auto` client-side from the source image dimensions while the API stores only the resolved fixed format. That is intentional for clean persisted truth, but any future UI wanting to re-show the original `Auto` choice would need separate metadata and is out of scope for this slice.
+
+### Next recommended step
+
+- Live-review one new portrait persona for each format (`9:16`, `1:1`, `16:9`) against HeyGen output and then decide whether the next bounded follow-up should improve multilingual HeyGen voice catalog selection or stop here.
+
 ## 2026-06-11 - CTA size and tone unification
 
 ### Follow-up
