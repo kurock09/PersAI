@@ -3,6 +3,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { userFieldClassName } from "./form-ui";
 
 interface PasswordFieldProps {
   value: string;
@@ -40,11 +41,7 @@ export function PasswordField({
         placeholder={placeholder}
         autoFocus={autoFocus}
         autoComplete={autoComplete}
-        className={cn(
-          "w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent",
-          className,
-          "pr-11"
-        )}
+        className={cn(userFieldClassName(), className, "pr-11")}
       />
       <button
         type="button"

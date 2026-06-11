@@ -28,6 +28,11 @@ import {
   type TelegramGroupInfo,
   type AssistantTelegramConfigUpdateRequest
 } from "../assistant-api-client";
+import { userFieldClassName, userPillButtonClassName } from "./form-ui";
+
+function pillButtonClass(variant: "primary" | "secondary" | "danger" = "secondary"): string {
+  return userPillButtonClassName(variant);
+}
 
 interface TelegramConnectProps {
   integration: TelegramIntegrationState | null;
@@ -39,6 +44,7 @@ interface TelegramConnectProps {
 }
 
 type Feedback = { type: "ok" | "err"; text: string } | null;
+type InlineFeedback = { type: "ok" | "err"; text: string } | null;
 
 function openTelegramUrl(url: string): void {
   if (typeof window === "undefined") {
@@ -195,7 +201,7 @@ function ConnectForm({
           onChange={(e) => setBotToken(e.target.value)}
           placeholder={t("botTokenPlaceholder")}
           autoFocus
-          className="w-full rounded-lg border border-border bg-bg px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+          className={userFieldClassName()}
           onKeyDown={(e) => {
             if (e.key === "Enter" && ready) void handleConnect();
           }}
@@ -304,6 +310,7 @@ function ConnectedView({
   );
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [groupsFeedback, setGroupsFeedback] = useState<InlineFeedback>(null);
   const [groups, setGroups] = useState<TelegramGroupInfo[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(true);
   const [groupsRefreshing, setGroupsRefreshing] = useState(false);
@@ -505,16 +512,16 @@ function ConnectedView({
       return;
     }
 
-    setFeedback(null);
+    setGroupsFeedback(null);
     setGroupsRefreshing(true);
     try {
       await postAssistantTelegramGroupsRefresh(token);
       const nextGroups = await fetchAssistantTelegramGroups(token);
       setGroups(nextGroups);
-      setFeedback({ type: "ok", text: t("groupsRefreshSuccess") });
+      setGroupsFeedback({ type: "ok", text: t("groupsRefreshSuccess") });
       onUpdated();
     } catch (e) {
-      setFeedback({
+      setGroupsFeedback({
         type: "err",
         text: e instanceof Error ? e.message : t("groupsRefreshFailed")
       });
@@ -571,7 +578,7 @@ function ConnectedView({
               <button
                 type="button"
                 onClick={() => void handleCopyClaimCode()}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-3 text-xs font-medium text-text transition-colors hover:bg-surface-hover"
+                className={pillButtonClass("secondary")}
               >
                 {claimCodeCopied ? (
                   <CheckCircle2 className="h-4 w-4" />
@@ -588,7 +595,7 @@ function ConnectedView({
               type="button"
               onClick={handleFindBot}
               disabled={!findBotUrl}
-              className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-3 text-xs font-semibold text-white shadow-sm shadow-accent/20 transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className={cn("flex-1", pillButtonClass("primary"))}
             >
               {t("findBot")}
               <ExternalLink className="h-3.5 w-3.5" />
@@ -598,7 +605,7 @@ function ConnectedView({
                 type="button"
                 onClick={() => void handleResendOwnerMessage()}
                 disabled={resendingOwnerMessage}
-                className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-3 text-xs font-medium text-text transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+                className={cn("flex-1", pillButtonClass("secondary"))}
               >
                 {resendingOwnerMessage && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {resendingOwnerMessage ? t("resendingOwnerMessage") : t("resendOwnerMessage")}
@@ -669,7 +676,7 @@ function ConnectedView({
           {configOpen && (
             <div className="space-y-4 border-t border-border px-4 py-4">
               <div className="space-y-2">
-                <label className="block text-xs font-medium text-text-muted">
+                <label className="block text-xs font-semibold text-text">
                   {t("defaultParseMode")}
                 </label>
                 <div className="flex gap-2">
@@ -689,11 +696,10 @@ function ConnectedView({
                     </button>
                   ))}
                 </div>
-                <p className="text-[11px] text-text-subtle">{t("parseModeMarkdownFootnote")}</p>
               </div>
 
               <div className="space-y-2">
-                <label className="block text-xs font-medium text-text-muted">
+                <label className="block text-xs font-semibold text-text">
                   {t("groupAccessMode")}
                 </label>
                 <div className="flex gap-2">
@@ -718,15 +724,10 @@ function ConnectedView({
                     </button>
                   ))}
                 </div>
-                <p className="text-[11px] text-text-subtle">
-                  {telegramAccessMode === "owner_only"
-                    ? t("groupAccessOwnerOnlyDesc")
-                    : t("groupAccessMembersDesc")}
-                </p>
               </div>
 
               <div className="space-y-2">
-                <label className="block text-xs font-medium text-text-muted">
+                <label className="block text-xs font-semibold text-text">
                   {t("groupReplyMode")}
                 </label>
                 <div className="flex gap-2">
@@ -751,30 +752,20 @@ function ConnectedView({
                     </button>
                   ))}
                 </div>
-                <p className="text-[11px] text-text-subtle">
-                  {groupReplyMode === "mention_reply"
-                    ? t("groupReplyMentionDesc")
-                    : t("groupReplyAllDesc")}
-                </p>
               </div>
 
               <div className="border-t border-border/45 pt-3 space-y-3">
                 <Toggle label={t("inboundMessages")} checked={inbound} onChange={setInbound} />
                 <Toggle label={t("outboundMessages")} checked={outbound} onChange={setOutbound} />
-              </div>
-
-              <div className="border-t border-border/45 pt-3 space-y-3">
                 <Toggle
                   label={t("autoCompaction")}
                   checked={autoCompactionEnabled}
                   onChange={setAutoCompactionEnabled}
-                  description={t("autoCompactionDesc")}
                 />
                 <Toggle
                   label={t("deepModeDefault")}
                   checked={defaultDeepModeEnabled}
                   onChange={setDefaultDeepModeEnabled}
-                  description={t("deepModeDefaultDesc")}
                 />
               </div>
 
@@ -783,7 +774,7 @@ function ConnectedView({
                 type="button"
                 onClick={() => void handleSave()}
                 disabled={saving}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
+                className={cn("flex w-full", pillButtonClass("primary"))}
               >
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {t("saveConfig")}
@@ -825,6 +816,16 @@ function ConnectedView({
             <RefreshCw className={cn("h-3 w-3", groupsRefreshing && "animate-spin")} />
             <span>{t("refreshGroups")}</span>
           </button>
+          {groupsFeedback ? (
+            <span
+              className={cn(
+                "text-[11px]",
+                groupsFeedback.type === "ok" ? "text-success" : "text-destructive"
+              )}
+            >
+              {groupsFeedback.text}
+            </span>
+          ) : null}
           <span className="ml-auto text-xs text-text-muted">
             {t("activeCount", { count: groups.filter((g) => g.status === "active").length })}
           </span>
@@ -870,7 +871,7 @@ function ConnectedView({
         <button
           type="button"
           onClick={onReconnect}
-          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-xs font-medium text-text transition-colors hover:bg-surface-hover"
+          className={cn("flex w-full", pillButtonClass("secondary"))}
         >
           <RefreshCw className="h-3.5 w-3.5" />
           {t("reconnectToken")}
@@ -880,7 +881,7 @@ function ConnectedView({
           <button
             type="button"
             onClick={() => setConfirmDisconnect(true)}
-            className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-medium text-destructive/70 transition-colors hover:bg-destructive/5 hover:text-destructive"
+            className={cn("flex w-full", pillButtonClass("danger"))}
           >
             <Unplug className="h-3.5 w-3.5" />
             {t("disconnectBot")}
@@ -891,7 +892,7 @@ function ConnectedView({
               type="button"
               onClick={() => setConfirmDisconnect(false)}
               disabled={disconnecting}
-              className="flex flex-1 cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover"
+              className={cn("flex-1", pillButtonClass("secondary"))}
             >
               {tc("cancel")}
             </button>
@@ -899,7 +900,7 @@ function ConnectedView({
               type="button"
               onClick={() => void handleDisconnect()}
               disabled={disconnecting}
-              className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2.5 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-60"
+              className={cn("flex-1", pillButtonClass("danger"))}
             >
               {disconnecting && <Loader2 className="h-3 w-3 animate-spin" />}
               {t("confirmDisconnect")}

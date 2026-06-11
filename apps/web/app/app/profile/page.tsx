@@ -17,6 +17,7 @@ import {
   User
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { userFieldClassName, userPillButtonClassName } from "../_components/form-ui";
 import { navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
 import { mapClerkError } from "@/app/lib/clerk-error-messages";
 import { useClerkAvatar } from "../_components/use-clerk-avatar";
@@ -278,7 +279,7 @@ export default function ProfilePage() {
                 type="text"
                 value={firstName}
                 onChange={(event) => setFirstName(event.target.value)}
-                className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+                className={userFieldClassName("px-3 py-2.5")}
               />
             </label>
             <label className="block">
@@ -287,7 +288,7 @@ export default function ProfilePage() {
                 type="text"
                 value={lastName}
                 onChange={(event) => setLastName(event.target.value)}
-                className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+                className={userFieldClassName("px-3 py-2.5")}
               />
             </label>
           </div>
@@ -295,7 +296,7 @@ export default function ProfilePage() {
             type="button"
             onClick={() => void handleProfileSave()}
             disabled={profileSaving}
-            className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-default disabled:opacity-60"
+            className={userPillButtonClassName("primary", "mt-4")}
           >
             {profileSaving ? (
               <Loader2 className="h-4 w-4 animate-spin" />

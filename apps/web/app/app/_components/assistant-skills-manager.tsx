@@ -264,7 +264,7 @@ export function AssistantSkillsManager({
               </p>
               <div
                 className={cn(
-                  "grid min-w-0 max-w-full gap-2.5",
+                  "grid min-w-0 max-w-full gap-2.5 pl-1",
                   mode === "setup" ? "md:grid-cols-2" : "2xl:grid-cols-2"
                 )}
               >

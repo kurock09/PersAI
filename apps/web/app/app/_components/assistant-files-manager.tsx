@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
+import { userFieldClassName, userPillButtonClassName } from "./form-ui";
 import {
   cleanupAssistantFilesCache,
   deleteAssistantFile,
@@ -393,14 +394,14 @@ export function AssistantFilesManager() {
               if (event.key === "Enter") void loadFiles(query);
             }}
             placeholder={t("filesSearchPlaceholder")}
-            className="h-11 w-full rounded-2xl border border-border/55 bg-background/55 pr-3 pl-9 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong sm:h-10 sm:text-xs"
+            className={userFieldClassName("h-11 pr-3 pl-9 sm:h-10 sm:text-xs")}
           />
         </div>
         <button
           type="button"
           onClick={() => void loadFiles(query)}
           disabled={loading}
-          className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-border/55 bg-background/55 px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-default disabled:opacity-60 sm:h-10 sm:text-xs"
+          className={userPillButtonClassName("secondary", "h-11 sm:h-10 sm:text-xs")}
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -504,8 +505,8 @@ export function AssistantFilesManager() {
                           download: true
                         });
                         return (
-                          <div key={file.fileRef} className="px-3 py-2">
-                            <div className="flex min-w-0 items-start gap-2.5">
+                          <div key={file.fileRef} className="px-3 py-2.5">
+                            <div className="flex min-w-0 items-center gap-2.5">
                               <FileText className="h-4 w-4 shrink-0 text-text-subtle" />
                               <div className="min-w-0 flex-1">
                                 <div className="flex min-w-0 items-center gap-2">
@@ -535,54 +536,59 @@ export function AssistantFilesManager() {
                                       {busy ? "..." : t("save")}
                                     </button>
                                   ) : (
-                                    <div className="flex shrink-0 items-center gap-1">
-                                      {isPreviewableMedia(file) ? (
+                                    <>
+                                      <span className="shrink-0 text-[11px] text-text-subtle">
+                                        {formatBytes(file.sizeBytes)}
+                                      </span>
+                                      <div className="ml-2 flex shrink-0 items-center gap-1">
+                                        {isPreviewableMedia(file) ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => setPreviewFileRef(file.fileRef)}
+                                            className="rounded-full border border-border/45 bg-background/55 p-2 text-text-muted transition-colors hover:text-text"
+                                            title={t("filesPreview")}
+                                            aria-label={t("filesPreview")}
+                                          >
+                                            <Eye className="h-3.5 w-3.5" />
+                                          </button>
+                                        ) : null}
+                                        <a
+                                          href={downloadUrl}
+                                          download={name}
+                                          className="rounded-full border border-border/45 bg-background/55 p-2 text-text-muted transition-colors hover:text-text"
+                                          title={t("filesDownload")}
+                                        >
+                                          <Download className="h-3.5 w-3.5" />
+                                        </a>
                                         <button
                                           type="button"
-                                          onClick={() => setPreviewFileRef(file.fileRef)}
-                                          className="rounded-xl border border-border/45 bg-background/55 px-2.5 py-2 text-text-muted transition-colors hover:text-text"
-                                          title={t("filesPreview")}
-                                          aria-label={t("filesPreview")}
+                                          onClick={() => {
+                                            setEditingRef(file.fileRef);
+                                            setDraftName(name);
+                                          }}
+                                          className="rounded-full border border-border/45 bg-background/55 p-2 text-text-muted transition-colors hover:text-text"
+                                          title={t("filesRename")}
                                         >
-                                          <Eye className="h-3.5 w-3.5" />
+                                          <Pencil className="h-3.5 w-3.5" />
                                         </button>
-                                      ) : null}
-                                      <a
-                                        href={downloadUrl}
-                                        download={name}
-                                        className="rounded-xl border border-border/45 bg-background/55 px-2.5 py-2 text-text-muted transition-colors hover:text-text"
-                                        title={t("filesDownload")}
-                                      >
-                                        <Download className="h-3.5 w-3.5" />
-                                      </a>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setEditingRef(file.fileRef);
-                                          setDraftName(name);
-                                        }}
-                                        className="rounded-xl border border-border/45 bg-background/55 px-2.5 py-2 text-text-muted transition-colors hover:text-text"
-                                        title={t("filesRename")}
-                                      >
-                                        <Pencil className="h-3.5 w-3.5" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleDelete(file.fileRef)}
-                                        disabled={busy}
-                                        className="rounded-xl border border-border/45 bg-background/55 px-2.5 py-2 text-text-muted transition-colors hover:border-destructive/35 hover:text-destructive disabled:opacity-50"
-                                        title={t("filesDelete")}
-                                      >
-                                        {busy ? (
-                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        ) : (
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        )}
-                                      </button>
-                                    </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleDelete(file.fileRef)}
+                                          disabled={busy}
+                                          className="rounded-full border border-border/45 bg-background/55 p-2 text-text-muted transition-colors hover:border-destructive/35 hover:text-destructive disabled:opacity-50"
+                                          title={t("filesDelete")}
+                                        >
+                                          {busy ? (
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                          ) : (
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          )}
+                                        </button>
+                                      </div>
+                                    </>
                                   )}
                                 </div>
-                                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-text-subtle">
+                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-subtle">
                                   <span className="rounded-full bg-surface-raised/45 px-2 py-0.5">
                                     {originLabel(file, t)}
                                   </span>
@@ -592,7 +598,6 @@ export function AssistantFilesManager() {
                                     </span>
                                   ) : null}
                                   <span>{fileKind(file)}</span>
-                                  <span>{formatBytes(file.sizeBytes)}</span>
                                 </div>
                               </div>
                             </div>

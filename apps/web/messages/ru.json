@@ -945,6 +945,8 @@
     "knowledgeReindexFailed": "Не удалось переиндексировать документ знаний.",
     "knowledgeInspectorShow": "Показать детали документа",
     "knowledgeInspectorHide": "Скрыть детали документа",
+    "knowledgeInspectorShowShort": "Детали",
+    "knowledgeInspectorHideShort": "Скрыть",
     "knowledgeInspectorLoading": "Загружаю детали документа...",
     "knowledgeInspectorLoadFailed": "Не удалось загрузить детали документа.",
     "knowledgeInspectorQualityBadge": "качество {status} ({score})",

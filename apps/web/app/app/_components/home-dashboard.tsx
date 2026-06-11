@@ -135,10 +135,10 @@ function QuickAction({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium transition-all",
+        "inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full px-6 text-sm font-medium transition-all",
         accent
-          ? "bg-accent text-white shadow-sm shadow-accent-glow hover:bg-accent-hover"
-          : "border border-border bg-surface text-text-muted hover:border-border-strong hover:bg-surface-hover hover:text-text"
+          ? "bg-accent text-white shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:bg-accent-hover"
+          : "border border-border/55 bg-background/80 text-text shadow-[0_6px_18px_rgba(0,0,0,0.05)] hover:border-border/70 hover:bg-background"
       )}
     >
       {icon}

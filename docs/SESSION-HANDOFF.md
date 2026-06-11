@@ -3,6 +3,37 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-11 - Assistant settings sidebar quiet UI pass
+
+### Baseline
+
+- Starting SHA: `4f65d06c2742e92098cff520c308d895d4431c84` on `main`, continuing the founder-directed assistant-settings cleanup/polish pass.
+
+### What changed
+
+- Unified the user-facing sidebar/settings controls around one softer form language: shared soft-outlined inputs, pill buttons, and flatter list rows now back the remaining assistant-settings, profile, and setup surfaces touched in this pass.
+- Quieted the noisiest assistant-settings sections by removing extra card shells and making list rows denser: Knowledge and Files now read as thin inline lists, Support and sidebar account surfaces are calmer, and voice/character/payment actions use the same button rhythm.
+- Telegram settings were cleaned further: helper subcopy stays removed, control labels remain compact, and the `groupsRefreshSuccess` feedback is now local inline text beside `Refresh` in the `Groups` row instead of falling through to the page-level feedback area.
+- Added the small shared `form-ui.ts` helpers so the current user-facing inputs/buttons stay visually consistent across assistant settings, Telegram settings, profile, setup, and password entry.
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/telegram-connect.test.tsx app/app/_components/sidebar.test.tsx app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+
+### Risks / residuals
+
+- This pass is intentionally UI-polish-heavy and keeps the existing data/API contract surfaces intact; remaining risk is mainly visual regression in untouched sidebar sections or mobile spacing details that still need founder review in the live app.
+- The focused web component tests passed, but there is still no dedicated regression test for the exact inline placement of the Telegram refresh-success text.
+
+### Next recommended step
+
+- Live-review the right sidebar on desktop + mobile once more and then either stop at this unified style system or do one last narrow polish pass only for any remaining spacing/alignment outliers.
+
 ## 2026-06-11 - Billing lifecycle grace-period self-heal
 
 ## 2026-06-11 - Grace quota truth + payment-issue badge

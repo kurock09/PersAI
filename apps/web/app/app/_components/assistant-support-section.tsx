@@ -6,6 +6,7 @@ import { ChevronDown, Loader2, MessageCircle, Paperclip, X } from "lucide-react"
 import { useAuth } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
+import { userFieldClassName, userTextareaClassName, userPillButtonClassName } from "./form-ui";
 import {
   getAssistantSupportTicket,
   getAssistantSupportTickets,
@@ -441,7 +442,7 @@ export function AssistantSupportSection({
           onClick={() => setNewFormExpanded((value) => !value)}
           className="flex w-full cursor-pointer items-center justify-between gap-2 px-1 py-2.5 text-left transition-colors hover:bg-surface-hover/35"
         >
-          <span className="text-xs font-medium text-text">{t("supportNewRequest")}</span>
+          <span className="text-sm font-semibold text-text">{t("supportNewRequest")}</span>
           <ChevronDown
             className={cn(
               "h-4 w-4 shrink-0 text-text-subtle transition-transform",
@@ -456,14 +457,14 @@ export function AssistantSupportSection({
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder={t("supportSubjectOptional")}
-              className="w-full rounded-xl border border-border/55 bg-background/55 px-3 py-2 text-sm text-text"
+              className={userFieldClassName()}
             />
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={4}
               placeholder={t("supportBodyPlaceholder")}
-              className="w-full rounded-xl border border-border/55 bg-background/55 px-3 py-2 text-sm text-text"
+              className={userTextareaClassName()}
             />
             {attachmentFile && (
               <div className="flex items-center gap-2 rounded-xl bg-background/45 px-3 py-2 text-[11px] text-text-muted">
@@ -505,7 +506,7 @@ export function AssistantSupportSection({
                 type="button"
                 disabled={submitting}
                 onClick={() => void handleSubmit()}
-                className="inline-flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-4 py-2 text-xs font-medium text-accent disabled:opacity-50"
+                className={userPillButtonClassName("primary", "min-w-0 flex-1")}
               >
                 {submitting ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />

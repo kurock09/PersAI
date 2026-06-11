@@ -563,13 +563,7 @@ function AccountFooter({
     ];
 
   return (
-    <div
-      ref={ref}
-      className={cn(
-        "overflow-hidden rounded-[22px] transition-colors duration-200",
-        open ? "bg-surface-raised/55" : "bg-transparent"
-      )}
-    >
+    <div ref={ref} className="overflow-hidden">
       <motion.button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -577,7 +571,7 @@ function AccountFooter({
         aria-expanded={open}
         className={cn(
           "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors",
-          open ? "bg-surface-hover/50" : "hover:bg-surface-hover"
+          open ? "bg-transparent" : "hover:bg-surface-hover"
         )}
         animate={{ y: open ? -4 : 0 }}
         transition={{ duration: 0.18, ease: "easeOut" }}
@@ -608,13 +602,13 @@ function AccountFooter({
         {open && (
           <motion.div
             role="menu"
-            className="px-2.5 pb-2"
+            className="px-0 pb-0"
             initial={{ opacity: 0, y: 10, height: 0 }}
             animate={{ opacity: 1, y: 0, height: "auto" }}
             exit={{ opacity: 0, y: 6, height: 0 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
-            <div className="border-t border-border/70 px-0 pt-2.5">
+            <div className="border-t border-border/55 pt-2.5">
               <button
                 type="button"
                 onClick={() => {

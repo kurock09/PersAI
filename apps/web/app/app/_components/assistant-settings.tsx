@@ -107,6 +107,7 @@ import {
 import { AssistantAvatar } from "./assistant-avatar";
 import { VoicePreviewButton } from "../../_components/voice-preview-button";
 import { AssistantSupportSection } from "./assistant-support-section";
+import { userFieldClassName, userPillButtonClassName } from "./form-ui";
 import { resolveBillingSummaryCopy } from "./billing-summary";
 import {
   filterVoicePickerEntries,
@@ -362,13 +363,13 @@ function CharacterCreateCard({
       title={title}
       onClick={onClick}
       className={cn(
-        "flex min-h-[84px] w-full items-center gap-3 rounded-xl border border-dashed border-accent/28 bg-accent/[0.04] p-3 text-left transition-colors",
+        "flex min-h-[84px] w-full items-center gap-3 rounded-[22px] border border-border/55 bg-background/80 p-3 text-left shadow-[0_6px_18px_rgba(0,0,0,0.05)] transition-all",
         disabled
           ? "cursor-not-allowed opacity-60"
-          : "hover:border-accent/50 hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent/20"
+          : "hover:border-border/70 hover:bg-background focus:outline-none focus:ring-2 focus:ring-accent/20"
       )}
     >
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-accent/10 text-accent">
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-border/45 bg-background text-text-subtle">
         <Plus className="h-4 w-4" />
       </div>
       <div className="min-w-0">
@@ -898,14 +899,14 @@ function ActionButton({
       disabled={busy || disabled}
       onClick={onClick}
       className={cn(
-        "flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-50",
+        "inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-all disabled:cursor-default disabled:opacity-50",
         variant === "danger"
-          ? "bg-destructive/10 text-destructive hover:bg-destructive/20"
+          ? "border border-destructive/20 bg-destructive/10 text-destructive hover:bg-destructive/15"
           : variant === "primary"
-            ? "bg-accent text-white shadow-sm shadow-accent/20 hover:bg-accent-hover"
-            : "bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text",
+            ? "bg-accent text-white shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:bg-accent-hover"
+            : "border border-border/55 bg-background/80 text-text shadow-[0_6px_18px_rgba(0,0,0,0.05)] hover:border-border/70 hover:bg-background",
         pulse &&
-          "animate-pulse bg-success/15 text-success shadow-[0_0_0_1px_rgba(52,168,83,0.18),0_0_22px_rgba(52,168,83,0.16)]",
+          "animate-pulse border-success/25 bg-success/15 text-success shadow-[0_0_0_1px_rgba(52,168,83,0.18),0_0_22px_rgba(52,168,83,0.16)]",
         className
       )}
     >
@@ -1535,6 +1536,8 @@ export function AssistantSettings({
   const [wsMemoryVisibleCount, setWsMemoryVisibleCount] = useState(5);
   const [wsMemoryFb, setWsMemoryFb] = useState<ActionFeedback>(null);
   const [memoryTab, setMemoryTab] = useState<"workspace" | "history">("workspace");
+  const [expandedWorkspaceMemoryKeys, setExpandedWorkspaceMemoryKeys] = useState<string[]>([]);
+  const [expandedHistoryMemoryKeys, setExpandedHistoryMemoryKeys] = useState<string[]>([]);
 
   const [taskItems, setTaskItems] = useState<AssistantTaskRegistryItemState[]>([]);
   const [backgroundTaskItems, setBackgroundTaskItems] = useState<
@@ -2429,7 +2432,7 @@ export function AssistantSettings({
               "flex-1 cursor-pointer rounded-lg px-3 py-2 text-sm font-medium transition-colors",
               memoryTab === tab
                 ? "bg-surface-raised/65 text-text"
-                : "text-text-muted hover:bg-surface-raised/30 hover:text-text"
+                : "text-text hover:bg-surface-raised/30 hover:text-text"
             )}
           >
             {tab === "workspace" ? t("workspace") : t("history")}
@@ -2448,12 +2451,12 @@ export function AssistantSettings({
                 if (e.key === "Enter") void loadWsMemory(wsMemorySearch || undefined);
               }}
               placeholder={t("searchMemories")}
-              className="min-w-0 flex-1 rounded-xl border border-border/55 bg-background/55 px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+              className={userFieldClassName("min-w-0 flex-1")}
             />
             <button
               type="button"
               onClick={() => void loadWsMemory(wsMemorySearch || undefined)}
-              className="shrink-0 cursor-pointer rounded-xl bg-surface-raised/60 px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
+              className={userPillButtonClassName("secondary", "min-w-[112px] shrink-0")}
             >
               {t("search")}
             </button>
@@ -2468,13 +2471,16 @@ export function AssistantSettings({
                 if (e.key === "Enter") void handleAddWsMemory();
               }}
               placeholder={t("teachNew")}
-              className="min-w-0 flex-1 rounded-xl border border-border/55 bg-background/55 px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+              className={userFieldClassName("min-w-0 flex-1")}
             />
             <button
               type="button"
               disabled={wsMemoryAdding || !wsNewMemory.trim()}
               onClick={() => void handleAddWsMemory()}
-              className="shrink-0 cursor-pointer rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+              className={userPillButtonClassName(
+                "primary",
+                "min-w-[112px] shrink-0 disabled:opacity-50"
+              )}
             >
               {wsMemoryAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : t("add")}
             </button>
@@ -2492,7 +2498,7 @@ export function AssistantSettings({
           ) : (
             <>
               <ul
-                className="space-y-2.5"
+                className="divide-y divide-border/45 border-t border-border/35"
                 data-testid="memory-center-workspace-list"
                 aria-label={t("workspace")}
               >
@@ -2500,103 +2506,126 @@ export function AssistantSettings({
                   const { memoryClass, kind } = row.item;
                   const resolvedAt =
                     row.source === "registry" ? row.item.resolvedAt : (row.item.resolvedAt ?? null);
+                  const rowText = row.source === "registry" ? row.item.summary : row.item.content;
+                  const expanded = expandedWorkspaceMemoryKeys.includes(row.key);
+                  const canExpand = rowText.length > 110;
                   return (
-                    <li
-                      key={row.key}
-                      data-testid={`memory-row-${row.source}`}
-                      className="flex items-start gap-2 rounded-xl bg-background/42 px-4 py-3"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-muted">
-                          {row.source === "registry" ? row.item.summary : row.item.content}
-                        </p>
-                        {memoryClass !== undefined && (
-                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-text-subtle">
-                            <span
-                              className={
-                                memoryClass === "core"
-                                  ? "rounded-md bg-accent/12 px-2 py-0.5 font-medium text-accent"
-                                  : "rounded-md bg-surface-raised/55 px-2 py-0.5 font-medium text-text-subtle"
-                              }
+                    <li key={row.key} data-testid={`memory-row-${row.source}`} className="py-3">
+                      <div className="flex items-start gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start gap-2">
+                            <p
+                              className={cn(
+                                "min-w-0 flex-1 text-sm leading-7 text-text",
+                                expanded ? "whitespace-pre-wrap" : "truncate"
+                              )}
                             >
-                              {memoryClass === "core"
-                                ? t("memoryClassCore")
-                                : t("memoryClassContextual")}
-                            </span>
-                            {kind === "fact" && (
-                              <span className="rounded-md bg-surface-raised/55 px-2 py-0.5 font-medium text-text-subtle">
-                                {t("memoryKindFact")}
-                              </span>
-                            )}
-                            {kind === "preference" && (
-                              <span className="rounded-md bg-surface-raised/55 px-2 py-0.5 font-medium text-text-subtle">
-                                {t("memoryKindPreference")}
-                              </span>
-                            )}
-                            {kind === "open_loop" && (
-                              <span className="rounded-md bg-surface-raised/55 px-2 py-0.5 font-medium text-text-subtle">
-                                {t("memoryKindOpenLoop")}
-                              </span>
-                            )}
-                            {resolvedAt !== null && (
-                              <span className="rounded-md bg-success/12 px-2 py-0.5 font-medium text-success">
-                                {t("memoryResolved")}
-                              </span>
-                            )}
+                              {rowText}
+                            </p>
+                            {canExpand ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedWorkspaceMemoryKeys((prev) =>
+                                    prev.includes(row.key)
+                                      ? prev.filter((key) => key !== row.key)
+                                      : [...prev, row.key]
+                                  )
+                                }
+                                className="shrink-0 text-xs font-medium text-text-subtle transition-colors hover:text-text"
+                              >
+                                {expanded ? t("collapse") : `${t("loadMore")} >`}
+                              </button>
+                            ) : null}
                           </div>
-                        )}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {kind === "open_loop" && resolvedAt === null && (
-                          <button
-                            type="button"
-                            disabled={closingOpenLoopId === row.item.id}
-                            onClick={() => void handleCloseOpenLoop(row.item.id)}
-                            className="cursor-pointer rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-accent disabled:cursor-default disabled:opacity-50"
-                            title={t("markAsClosed")}
-                            aria-label={t("markAsClosed")}
-                            data-testid={`close-open-loop-${row.item.id}`}
-                          >
-                            {closingOpenLoopId === row.item.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <CheckCircle2 className="h-3 w-3" />
-                            )}
-                          </button>
-                        )}
-                        {row.source === "registry" ? (
-                          <button
-                            type="button"
-                            disabled={forgettingId === row.item.id}
-                            onClick={() => void handleForget(row.item.id)}
-                            className="cursor-pointer rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                            title={t("forget")}
-                            aria-label={t("forget")}
-                            data-testid={`forget-registry-${row.item.id}`}
-                          >
-                            {forgettingId === row.item.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3 w-3" />
-                            )}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={wsForgettingId === row.item.id}
-                            onClick={() => void handleForgetWsMemory(row.item.id)}
-                            className="cursor-pointer rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                            title={t("forget")}
-                            aria-label={t("forget")}
-                            data-testid={`forget-workspace-${row.item.id}`}
-                          >
-                            {wsForgettingId === row.item.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3 w-3" />
-                            )}
-                          </button>
-                        )}
+                          {memoryClass !== undefined && (
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-text-subtle">
+                              <span
+                                className={
+                                  memoryClass === "core"
+                                    ? "rounded-full bg-accent/12 px-2 py-0.5 font-medium text-accent"
+                                    : "rounded-full bg-surface-raised/45 px-2 py-0.5 font-medium text-text-subtle"
+                                }
+                              >
+                                {memoryClass === "core"
+                                  ? t("memoryClassCore")
+                                  : t("memoryClassContextual")}
+                              </span>
+                              {kind === "fact" && (
+                                <span className="rounded-full bg-surface-raised/45 px-2 py-0.5 font-medium text-text-subtle">
+                                  {t("memoryKindFact")}
+                                </span>
+                              )}
+                              {kind === "preference" && (
+                                <span className="rounded-full bg-surface-raised/45 px-2 py-0.5 font-medium text-text-subtle">
+                                  {t("memoryKindPreference")}
+                                </span>
+                              )}
+                              {kind === "open_loop" && (
+                                <span className="rounded-full bg-surface-raised/45 px-2 py-0.5 font-medium text-text-subtle">
+                                  {t("memoryKindOpenLoop")}
+                                </span>
+                              )}
+                              {resolvedAt !== null && (
+                                <span className="rounded-full bg-success/12 px-2 py-0.5 font-medium text-success">
+                                  {t("memoryResolved")}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {kind === "open_loop" && resolvedAt === null && (
+                            <button
+                              type="button"
+                              disabled={closingOpenLoopId === row.item.id}
+                              onClick={() => void handleCloseOpenLoop(row.item.id)}
+                              className="cursor-pointer rounded-full p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-accent disabled:cursor-default disabled:opacity-50"
+                              title={t("markAsClosed")}
+                              aria-label={t("markAsClosed")}
+                              data-testid={`close-open-loop-${row.item.id}`}
+                            >
+                              {closingOpenLoopId === row.item.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="h-3 w-3" />
+                              )}
+                            </button>
+                          )}
+                          {row.source === "registry" ? (
+                            <button
+                              type="button"
+                              disabled={forgettingId === row.item.id}
+                              onClick={() => void handleForget(row.item.id)}
+                              className="cursor-pointer rounded-full p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                              title={t("forget")}
+                              aria-label={t("forget")}
+                              data-testid={`forget-registry-${row.item.id}`}
+                            >
+                              {forgettingId === row.item.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3 w-3" />
+                              )}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={wsForgettingId === row.item.id}
+                              onClick={() => void handleForgetWsMemory(row.item.id)}
+                              className="cursor-pointer rounded-full p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                              title={t("forget")}
+                              aria-label={t("forget")}
+                              data-testid={`forget-workspace-${row.item.id}`}
+                            >
+                              {wsForgettingId === row.item.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3 w-3" />
+                              )}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </li>
                   );
@@ -2606,7 +2635,7 @@ export function AssistantSettings({
                 <button
                   type="button"
                   onClick={() => setWsMemoryVisibleCount((count) => count + 5)}
-                  className="mt-3 w-full cursor-pointer rounded-xl border border-border/55 py-2.5 text-sm font-medium text-text-muted transition-colors hover:bg-surface-raised/55 hover:text-text"
+                  className={userPillButtonClassName("secondary", "mt-4 flex w-full")}
                 >
                   {t("loadMore")} ({mergedWorkspaceMemoryView.length - wsMemoryVisibleCount})
                 </button>
@@ -2628,27 +2657,49 @@ export function AssistantSettings({
           ) : (
             <>
               <ul
-                className="space-y-2.5"
+                className="divide-y divide-border/45 border-t border-border/35"
                 data-testid="memory-center-history-list"
                 aria-label={t("history")}
               >
                 {mergedHistoryMemoryView.slice(0, memoryVisibleCount).map((row) => {
                   if (row.source !== "registry") return null;
                   const item = row.item;
+                  const expanded = expandedHistoryMemoryKeys.includes(row.key);
+                  const canExpand = item.summary.length > 110;
                   return (
-                    <li
-                      key={row.key}
-                      data-testid="memory-row-history"
-                      className="flex items-start gap-2 rounded-xl bg-background/42 px-4 py-3"
-                    >
+                    <li key={row.key} data-testid="memory-row-history" className="py-3">
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm leading-relaxed text-text-muted">{item.summary}</p>
+                        <div className="flex items-start gap-2">
+                          <p
+                            className={cn(
+                              "min-w-0 flex-1 text-sm leading-7 text-text",
+                              expanded ? "whitespace-pre-wrap" : "truncate"
+                            )}
+                          >
+                            {item.summary}
+                          </p>
+                          {canExpand ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedHistoryMemoryKeys((prev) =>
+                                  prev.includes(row.key)
+                                    ? prev.filter((key) => key !== row.key)
+                                    : [...prev, row.key]
+                                )
+                              }
+                              className="shrink-0 text-xs font-medium text-text-subtle transition-colors hover:text-text"
+                            >
+                              {expanded ? t("collapse") : `${t("loadMore")} >`}
+                            </button>
+                          ) : null}
+                        </div>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-text-subtle">
                           <span
                             className={
                               item.memoryClass === "core"
-                                ? "rounded-md bg-accent/12 px-2 py-0.5 font-medium text-accent"
-                                : "rounded-md bg-surface-raised/55 px-2 py-0.5 font-medium text-text-subtle"
+                                ? "rounded-full bg-accent/12 px-2 py-0.5 font-medium text-accent"
+                                : "rounded-full bg-surface-raised/45 px-2 py-0.5 font-medium text-text-subtle"
                             }
                           >
                             {item.memoryClass === "core"
@@ -2662,7 +2713,7 @@ export function AssistantSettings({
                           type="button"
                           disabled={forgettingId === item.id}
                           onClick={() => void handleForget(item.id)}
-                          className="cursor-pointer rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                          className="cursor-pointer rounded-full p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-destructive disabled:cursor-default disabled:opacity-50"
                           title={t("forget")}
                           aria-label={t("forget")}
                           data-testid={`forget-history-${item.id}`}
@@ -2682,7 +2733,7 @@ export function AssistantSettings({
                 <button
                   type="button"
                   onClick={() => setMemoryVisibleCount((count) => count + 5)}
-                  className="mt-3 w-full cursor-pointer rounded-xl border border-border/55 py-2.5 text-sm font-medium text-text-muted transition-colors hover:bg-surface-raised/55 hover:text-text"
+                  className={userPillButtonClassName("secondary", "mt-4 flex w-full")}
                 >
                   {t("loadMore")} ({mergedHistoryMemoryView.length - memoryVisibleCount})
                 </button>
@@ -3937,22 +3988,22 @@ export function AssistantSettings({
                 )}
               </div>
 
-              <div className="mt-5 border-t border-border/70 pt-5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="mr-1 text-sm font-medium text-text">{t("quickActions")}</p>
+              <div className="mt-5 border-t border-border/70 pt-5 pb-2">
+                <p className="mb-3 text-sm font-medium text-text">{t("quickActions")}</p>
+                <div className="flex flex-wrap items-center gap-2.5">
                   <ActionButton
                     icon={<Brain className="h-3.5 w-3.5" />}
                     label={t("memory")}
                     onClick={() => setMemoryDrawerOpen(true)}
                     busy={false}
-                    className="rounded-full px-4"
+                    className="min-w-[140px] justify-center"
                   />
                   <ActionButton
                     icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
                     label={showTraitControls ? t("hideTraitControls") : t("showTraitControls")}
                     onClick={() => setShowTraitControls((open) => !open)}
                     busy={false}
-                    className="rounded-full px-4"
+                    className="min-w-[170px] justify-center"
                   />
                   <ActionButton
                     icon={<Trash2 className="h-3.5 w-3.5" />}
@@ -3960,7 +4011,7 @@ export function AssistantSettings({
                     onClick={() => setResetConfirmOpen(true)}
                     busy={false}
                     variant="danger"
-                    className="rounded-full px-4"
+                    className="min-w-[160px] justify-center"
                   />
                 </div>
 
@@ -4697,11 +4748,12 @@ export function AssistantSettings({
                       }
                       resetClonedVoiceModal(false);
                     }}
-                    className={cn(
-                      "inline-flex min-h-8 shrink-0 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3 text-[11px] font-medium text-text transition-all",
-                      clonedVoiceCreateDisabledReason !== null
-                        ? "cursor-not-allowed opacity-60"
-                        : "hover:border-accent/35 hover:bg-accent/14"
+                    className={userPillButtonClassName(
+                      "secondary",
+                      cn(
+                        "min-h-10 shrink-0 px-4 text-sm",
+                        clonedVoiceCreateDisabledReason !== null && "cursor-not-allowed opacity-60"
+                      )
                     )}
                   >
                     {t("voicesCreate")}
@@ -4710,16 +4762,15 @@ export function AssistantSettings({
 
                 {clonedVoicesExpanded ? (
                   <div className="mt-3 border-t border-border/50 pt-3">
-                    <p className="text-xs leading-5 text-text-muted">{t("voicesHelperText")}</p>
                     {clonedVoiceListLoading && clonedVoiceList.length === 0 ? (
-                      <div className="mt-3 flex items-center gap-2 py-1 text-xs text-text-subtle">
+                      <div className="flex items-center gap-2 py-1 text-xs text-text-subtle">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         <span>{t("charactersLoading")}</span>
                       </div>
                     ) : clonedVoiceList.length === 0 ? (
-                      <p className="mt-3 text-xs text-text-subtle">{t("voicesEmpty")}</p>
+                      <p className="text-xs text-text-subtle">{t("voicesEmpty")}</p>
                     ) : (
-                      <div className="mt-3 divide-y divide-border/45">
+                      <div className="divide-y divide-border/45">
                         {clonedVoiceList.map((voice) => {
                           const busy = clonedVoiceSubmittingId === voice.id;
                           const statusLabel =
@@ -4963,7 +5014,7 @@ export function AssistantSettings({
 
                     {/* Portrait */}
                     <div className="mb-3">
-                      <p className="mb-1 text-[11px] font-medium text-text-subtle">
+                      <p className="mb-1 text-xs font-semibold text-text">
                         {t("charactersFormPortrait")}
                       </p>
                       {personaModalMode === "edit" ? (
@@ -5024,7 +5075,7 @@ export function AssistantSettings({
                               <p className="text-xs text-text-subtle">
                                 {t("charactersFormPortraitDrop")}
                               </p>
-                              <p className="mt-0.5 text-[10px] text-text-subtle/70">
+                              <p className="mt-0.5 max-w-[28rem] text-center text-[10px] text-text-subtle/70">
                                 {t("charactersFormPortraitHint")}
                               </p>
                             </>
@@ -5054,7 +5105,7 @@ export function AssistantSettings({
 
                     {/* Name */}
                     <div className="mb-3">
-                      <label className="mb-1 block text-[11px] font-medium text-text-subtle">
+                      <label className="mb-1 block text-xs font-semibold text-text">
                         {t("charactersFormName")}
                       </label>
                       <input
@@ -5063,13 +5114,13 @@ export function AssistantSettings({
                         value={createPersonaName}
                         onChange={(e) => setCreatePersonaName(e.target.value)}
                         placeholder={t("charactersFormNamePlaceholder")}
-                        className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+                        className={userFieldClassName()}
                       />
                     </div>
 
                     {/* Voice picker */}
                     <div className="mb-3">
-                      <p className="mb-1 text-[11px] font-medium text-text-subtle">
+                      <p className="mb-1 text-xs font-semibold text-text">
                         {t("charactersFormVoice")}
                       </p>
                       <div className="mb-2 grid w-full grid-cols-4 rounded-full border border-border/60 bg-surface-raised/20 p-1">
@@ -5084,7 +5135,7 @@ export function AssistantSettings({
                               }
                             }}
                             className={cn(
-                              "min-w-0 rounded-full px-2 py-1 text-[11px] font-medium transition-colors",
+                              "min-w-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors",
                               voiceLanguageFilter === language
                                 ? "bg-accent/15 text-text"
                                 : "text-text-subtle hover:text-text"
@@ -5105,7 +5156,7 @@ export function AssistantSettings({
                             value={otherVoiceLanguageSearch}
                             onChange={(event) => setOtherVoiceLanguageSearch(event.target.value)}
                             placeholder={t("charactersFormVoiceLanguageSearchPlaceholder")}
-                            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+                            className={userFieldClassName("text-xs")}
                           />
                         </div>
                       ) : null}
@@ -5416,7 +5467,7 @@ export function AssistantSettings({
                     </div>
 
                     <div className="mt-4">
-                      <label className="mb-1 block text-[11px] font-medium text-text-subtle">
+                      <label className="mb-1 block text-xs font-semibold text-text">
                         {t("voicesFormName")}
                       </label>
                       <input
@@ -5425,7 +5476,7 @@ export function AssistantSettings({
                         value={createClonedVoiceName}
                         onChange={(event) => setCreateClonedVoiceName(event.target.value)}
                         placeholder={t("voicesFormNamePlaceholder")}
-                        className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+                        className={userFieldClassName()}
                       />
                     </div>
 
@@ -5473,7 +5524,7 @@ export function AssistantSettings({
                         >
                           <Upload className="mb-1 h-5 w-5 text-text-subtle" />
                           <p className="text-xs text-text-subtle">{t("voicesFormAudioDrop")}</p>
-                          <p className="mt-0.5 text-[10px] text-text-subtle/70">
+                          <p className="mt-0.5 max-w-[28rem] text-center text-[10px] text-text-subtle/70">
                             {t("voicesFormAudioHint")}
                           </p>
                         </div>
@@ -5504,7 +5555,7 @@ export function AssistantSettings({
                             <button
                               type="button"
                               onClick={stopClonedVoiceRecording}
-                              className="inline-flex min-h-10 items-center justify-center rounded-full bg-accent px-4 text-sm font-medium text-white"
+                              className={userPillButtonClassName("primary")}
                             >
                               {t("voicesRecordStop", {
                                 duration: formatDuration(createClonedVoiceRecordingSeconds)
@@ -5514,7 +5565,7 @@ export function AssistantSettings({
                             <button
                               type="button"
                               onClick={() => void startClonedVoiceRecording()}
-                              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:bg-surface-raised"
+                              className={userPillButtonClassName("secondary")}
                             >
                               <Mic className="h-4 w-4" />
                               {createClonedVoiceAudio
@@ -5529,7 +5580,10 @@ export function AssistantSettings({
                                 setClonedVoiceAudioFile(null);
                                 setCreateClonedVoiceMicError(null);
                               }}
-                              className="rounded-full border border-border px-3 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface hover:text-text"
+                              className={userPillButtonClassName(
+                                "secondary",
+                                "min-h-9 px-3 text-xs"
+                              )}
                             >
                               {t("voicesRecordClear")}
                             </button>
@@ -5581,7 +5635,7 @@ export function AssistantSettings({
                               closeClonedVoiceModal();
                               onOpenPackagesPage?.();
                             }}
-                            className="text-accent underline underline-offset-2"
+                            className="text-sm font-medium text-accent underline underline-offset-2"
                           >
                             {t("voicesErrorInsufficientBalance")}
                           </button>
@@ -5597,7 +5651,7 @@ export function AssistantSettings({
                       <button
                         type="button"
                         onClick={closeClonedVoiceModal}
-                        className="rounded-full border border-border px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-raised"
+                        className={userPillButtonClassName("secondary")}
                       >
                         {t("charactersCancel")}
                       </button>
@@ -5613,7 +5667,7 @@ export function AssistantSettings({
                         }
                         onClick={() => void submitClonedVoice()}
                         className={cn(
-                          "rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-white transition-opacity",
+                          userPillButtonClassName("primary"),
                           (createClonedVoiceSubmitting ||
                             createClonedVoiceName.trim().length === 0 ||
                             createClonedVoiceAudio === null ||
@@ -5656,7 +5710,7 @@ export function AssistantSettings({
                         <button
                           type="button"
                           onClick={() => void openBillingSettings()}
-                          className="inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
+                          className={userPillButtonClassName("secondary", "min-h-10 px-4 text-sm")}
                         >
                           {t("paymentSettings")}
                         </button>
@@ -5664,7 +5718,7 @@ export function AssistantSettings({
                         <button
                           type="button"
                           onClick={() => onOpenPricingPage?.()}
-                          className="inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
+                          className={userPillButtonClassName("secondary", "min-h-10 px-4 text-sm")}
                         >
                           {t("changePlan")}
                         </button>
@@ -5937,7 +5991,7 @@ export function AssistantSettings({
                           <button
                             type="button"
                             onClick={() => onOpenPricingPage?.()}
-                            className="inline-flex min-h-11 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-4 text-sm font-medium text-text transition-colors hover:bg-accent/15"
+                            className={userPillButtonClassName("secondary", "w-full")}
                           >
                             {t("changePlan")}
                           </button>
@@ -5945,7 +5999,7 @@ export function AssistantSettings({
                             <button
                               type="button"
                               onClick={handleManagePaymentMethod}
-                              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border/80 bg-surface-raised/60 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
+                              className={userPillButtonClassName("secondary", "w-full")}
                             >
                               <span>{t("billingManagePaymentMethod")}</span>
                               <ExternalLink className="h-4 w-4" />
@@ -5956,7 +6010,10 @@ export function AssistantSettings({
                               type="button"
                               onClick={() => void handleEnableAutoRenew()}
                               disabled={enableAutoRenewPending}
-                              className="inline-flex min-h-11 items-center justify-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 text-sm font-medium text-text transition-colors hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                              className={cn(
+                                userPillButtonClassName("primary", "w-full"),
+                                "disabled:cursor-not-allowed disabled:opacity-50"
+                              )}
                             >
                               {enableAutoRenewPending ? (
                                 <span className="inline-flex items-center gap-2">
@@ -6193,7 +6250,7 @@ function LimitMetricCard({
         <p
           className={cn(
             "text-[10px] font-medium uppercase leading-4 tracking-[0.12em] sm:min-h-[2rem]",
-            unavailable ? "text-text-subtle/80" : "text-text-subtle"
+            unavailable ? "text-text/80" : "text-text"
           )}
         >
           {label}

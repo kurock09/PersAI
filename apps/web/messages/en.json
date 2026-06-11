@@ -945,6 +945,8 @@
     "knowledgeReindexFailed": "Failed to reindex the knowledge document.",
     "knowledgeInspectorShow": "Show document details",
     "knowledgeInspectorHide": "Hide document details",
+    "knowledgeInspectorShowShort": "Details",
+    "knowledgeInspectorHideShort": "Hide",
     "knowledgeInspectorLoading": "Loading document details...",
     "knowledgeInspectorLoadFailed": "Failed to load document details.",
     "knowledgeInspectorQualityBadge": "quality {status} ({score})",

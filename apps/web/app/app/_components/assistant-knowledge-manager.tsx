@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
+import { userPillButtonClassName } from "./form-ui";
 import {
   deleteAssistantKnowledgeSource,
   getAssistantKnowledgeSources,
@@ -158,42 +159,46 @@ export function AssistantKnowledgeManager(props: {
         : (source.processingQuality ?? null);
     const qualityStatus = typeof quality?.status === "string" ? quality.status : null;
     const qualityScore = typeof quality?.score === "number" ? quality.score : null;
+    const title = source.displayName ?? source.originalFilename;
+    const showFilenameMeta = source.originalFilename !== title;
     return (
       <li
         key={source.id}
         className={cn(
-          "rounded-xl px-4 py-3",
-          isInline ? "bg-background/42" : "border border-border/70 bg-surface-raised p-3"
+          "py-4",
+          isInline ? "" : "rounded-xl border border-border/70 bg-surface-raised px-4"
         )}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-text">
-              {source.displayName ?? source.originalFilename}
-            </p>
-            <p className="mt-1 text-[11px] text-text-subtle">
-              {source.originalFilename} · {formatBytes(source.sizeBytes)}
-            </p>
-            <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
-              <span className="rounded-full bg-background px-2 py-0.5 text-text-muted">
-                {t(`knowledgeStatus.${source.status}` as never)}
-              </span>
-              <span className="rounded-full bg-background px-2 py-0.5 text-text-muted">
-                {t("knowledgeChunks", { count: source.chunkCount })}
-              </span>
-              {qualityStatus ? (
-                <span className="rounded-full bg-background px-2 py-0.5 text-text-muted">
-                  {t("knowledgeInspectorQualityBadge", {
-                    status: qualityStatus,
-                    score: qualityScore === null ? "-" : qualityScore.toFixed(1)
-                  })}
-                </span>
-              ) : null}
-            </div>
-            {source.lastErrorMessage ? (
-              <p className="mt-2 text-[11px] text-destructive">{source.lastErrorMessage}</p>
+            <p className="truncate text-sm font-semibold text-text">{title}</p>
+            {showFilenameMeta ? (
+              <p className="mt-1 text-[11px] text-text-subtle">
+                {source.originalFilename} · {formatBytes(source.sizeBytes)}
+              </p>
             ) : null}
-            <div className="mt-2">
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-muted">
+              <span>{t(`knowledgeStatus.${source.status}` as never)}</span>
+              <span aria-hidden="true" className="text-border/90">
+                |
+              </span>
+              <span>{t("knowledgeChunks", { count: source.chunkCount })}</span>
+              {qualityStatus ? (
+                <>
+                  <span aria-hidden="true" className="text-border/90">
+                    |
+                  </span>
+                  <span>
+                    {t("knowledgeInspectorQualityBadge", {
+                      status: qualityStatus,
+                      score: qualityScore === null ? "-" : qualityScore.toFixed(1)
+                    })}
+                  </span>
+                </>
+              ) : null}
+              <span aria-hidden="true" className="text-border/90">
+                |
+              </span>
               <button
                 type="button"
                 onClick={() => {
@@ -221,13 +226,16 @@ export function AssistantKnowledgeManager(props: {
                     })();
                   }
                 }}
-                className="text-[11px] text-text-muted underline-offset-2 hover:text-text hover:underline"
+                className="font-medium text-text-subtle underline-offset-2 transition-colors hover:text-text hover:underline"
               >
                 {expandedId === source.id
-                  ? t("knowledgeInspectorHide")
-                  : t("knowledgeInspectorShow")}
+                  ? t("knowledgeInspectorHideShort")
+                  : t("knowledgeInspectorShowShort")}
               </button>
             </div>
+            {source.lastErrorMessage ? (
+              <p className="mt-2 text-[11px] text-destructive">{source.lastErrorMessage}</p>
+            ) : null}
             {expandedId === source.id ? (
               <div
                 className={cn(
@@ -312,31 +320,6 @@ export function AssistantKnowledgeManager(props: {
   const content = (
     <div className={cn("space-y-4", isInline ? "px-1 py-1" : "p-5")}>
       <div className={cn(isInline ? "" : "rounded-2xl border border-border/70 bg-surface p-4")}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-text">{t("knowledgeManagerTitle")}</p>
-            <p className="mt-1 text-xs text-text-muted">{t("knowledgeManagerHelp")}</p>
-            {quotaLabel ? <p className="mt-2 text-[11px] text-text-subtle">{quotaLabel}</p> : null}
-          </div>
-          <button
-            type="button"
-            disabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium disabled:opacity-50",
-              isInline
-                ? "bg-accent text-white hover:bg-accent-hover"
-                : "bg-accent text-white hover:bg-accent-hover"
-            )}
-          >
-            {uploading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Upload className="h-3.5 w-3.5" />
-            )}
-            {t("knowledgeUpload")}
-          </button>
-        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -356,7 +339,9 @@ export function AssistantKnowledgeManager(props: {
           <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
         </div>
       ) : state?.sources.length ? (
-        <ul className="space-y-2.5">{state.sources.map(renderRow)}</ul>
+        <ul className={cn(isInline ? "divide-y divide-border/45" : "space-y-2.5")}>
+          {state.sources.map(renderRow)}
+        </ul>
       ) : (
         <div
           className={cn(
@@ -371,6 +356,28 @@ export function AssistantKnowledgeManager(props: {
           <p className="mt-1 text-xs text-text-muted">{t("knowledgeEmptyBody")}</p>
         </div>
       )}
+
+      <div className="border-t border-border/45 pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {quotaLabel ? <p className="text-sm font-medium text-text">{quotaLabel}</p> : <span />}
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+            className={cn(
+              userPillButtonClassName("primary", "disabled:opacity-50"),
+              "min-w-[220px]"
+            )}
+          >
+            {uploading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Upload className="h-3.5 w-3.5" />
+            )}
+            {t("knowledgeUpload")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 

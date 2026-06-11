@@ -22,6 +22,7 @@ import {
   User
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { userFieldClassName } from "../_components/form-ui";
 import { LandingLocaleSwitcher } from "@/app/_components/landing-locale-switcher";
 import { useAppDataContext } from "../_components/app-shell";
 import {
@@ -899,7 +900,7 @@ export default function SetupWizardPage() {
                 <div className="mt-8 w-full max-w-sm space-y-4">
                   {/* User name */}
                   <div>
-                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
+                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-text">
                       <User className="h-3.5 w-3.5" />
                       {t("yourName")}
                     </label>
@@ -910,13 +911,13 @@ export default function SetupWizardPage() {
                       placeholder={t("namePlaceholder")}
                       maxLength={40}
                       autoFocus
-                      className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                      className={userFieldClassName()}
                     />
                   </div>
 
                   {/* Birthday */}
                   <div>
-                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
+                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-text">
                       <Calendar className="h-3.5 w-3.5" />
                       {t("birthday")}
                     </label>
@@ -924,13 +925,13 @@ export default function SetupWizardPage() {
                       type="date"
                       value={birthday}
                       onChange={(e) => setBirthday(e.target.value)}
-                      className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent [color-scheme:dark]"
+                      className={userFieldClassName("[color-scheme:dark]")}
                     />
                   </div>
 
                   {/* Gender */}
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-text-muted">
+                    <label className="mb-1.5 block text-xs font-semibold text-text">
                       {t("gender")}
                     </label>
                     <div className="flex gap-2">
@@ -960,7 +961,7 @@ export default function SetupWizardPage() {
 
                   {/* Country */}
                   <div>
-                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
+                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-text">
                       <Globe className="h-3.5 w-3.5" />
                       {t("country")}
                     </label>
@@ -969,7 +970,7 @@ export default function SetupWizardPage() {
 
                   {/* Timezone */}
                   <div>
-                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
+                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-text">
                       <Globe className="h-3.5 w-3.5" />
                       {t("timezone")}
                     </label>
@@ -996,7 +997,9 @@ export default function SetupWizardPage() {
                   placeholder={t("assistantNamePlaceholder")}
                   maxLength={40}
                   autoFocus
-                  className="mt-8 w-full max-w-sm rounded-xl border border-border bg-surface-raised px-5 py-3.5 text-center text-lg font-medium text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                  className={userFieldClassName(
+                    "mt-8 max-w-sm px-5 py-3.5 text-center text-lg font-medium"
+                  )}
                 />
 
                 {/* Avatars */}
@@ -1075,7 +1078,7 @@ export default function SetupWizardPage() {
                 </div>
 
                 <div className="mt-6 w-full max-w-md space-y-2">
-                  <label className="block text-xs font-medium text-text-muted">
+                  <label className="block text-xs font-semibold text-text">
                     {t("assistantGender")}
                   </label>
                   <div className="grid grid-cols-3 gap-2">
@@ -1156,7 +1159,7 @@ export default function SetupWizardPage() {
                     <div className="space-y-6">
                       <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
                         <div className="mb-4">
-                          <p className="text-xs font-medium text-text-muted">
+                          <p className="text-xs font-semibold text-text">
                             {t("presetSectionLabel")}
                           </p>
                           <p className="mt-1 text-[11px] leading-relaxed text-text-subtle">
@@ -1212,7 +1215,7 @@ export default function SetupWizardPage() {
                       </div>
 
                       <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
-                        <p className="mb-4 text-xs font-medium text-text-muted">{t("fineTune")}</p>
+                        <p className="mb-4 text-xs font-semibold text-text">{t("fineTune")}</p>
                         <div className="space-y-4">
                           {TRAIT_SLIDERS.map((trait) => (
                             <div key={trait.key}>
@@ -1243,7 +1246,7 @@ export default function SetupWizardPage() {
                     </div>
 
                     <div className="flex h-full flex-col rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
-                      <label className="block text-xs font-medium text-text-muted">
+                      <label className="block text-xs font-semibold text-text">
                         {t("describeCharacter")}
                       </label>
                       <textarea
