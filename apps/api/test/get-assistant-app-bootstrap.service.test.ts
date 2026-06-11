@@ -53,7 +53,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async execute(id: string) {
+      async getState(id: string) {
         assert.equal(id, userId);
         return { sentinel: "billing-subscription" } as never;
       }
@@ -107,7 +107,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async execute() {
+      async getState() {
         return { sentinel: "billing-subscription" } as never;
       }
     } as never
@@ -160,7 +160,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async execute() {
+      async getState() {
         return { sentinel: "billing-subscription" } as never;
       }
     } as never
