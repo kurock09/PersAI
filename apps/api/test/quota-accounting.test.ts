@@ -94,7 +94,36 @@ async function run(): Promise<void> {
 
   const planRepo: PlanRepoStub = {
     async findByCode(code: string) {
-      assert.equal(code, "starter_trial");
+      assert.ok(code === "starter_trial" || code === "basic");
+      if (code === "basic") {
+        return {
+          id: "plan-2",
+          code: "basic",
+          displayName: "Basic",
+          description: null,
+          status: "active",
+          billingProviderHints: {
+            quotaAccounting: {
+              tokenBudgetLimit: 20000000,
+              costOrTokenDrivingToolClassUnitsLimit: 600,
+              imageGenerateMonthlyUnitsLimit: 50,
+              imageEditMonthlyUnitsLimit: 50,
+              knowledgeStorageBytesLimit: 32
+            }
+          },
+          entitlementModel: {
+            schemaVersion: 1,
+            capabilities: [],
+            toolClasses: [{ key: "cost_driving", allowed: true, quotaGoverned: true }],
+            channelsAndSurfaces: []
+          },
+          isDefaultFirstRegistrationPlan: false,
+          isTrialPlan: false,
+          trialDurationDays: null,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+      }
       return {
         id: "plan-1",
         code: "starter_trial",
@@ -736,10 +765,19 @@ async function run(): Promise<void> {
   };
   const gracePeriodToolQuota = await service.resolveAssistantMonthlyToolQuotaSnapshot(assistant);
   const gracePeriodTokenBudget = await service.resolveAssistantTokenBudgetQuotaSnapshot(assistant);
-  assert.equal(gracePeriodToolQuota.planCode, "starter_trial");
+  assert.equal(gracePeriodToolQuota.planCode, "basic");
+  assert.equal(gracePeriodTokenBudget.limitCredits, BigInt(20000000));
   assert.equal(gracePeriodToolQuota.periodSource, "subscription_period");
   assert.equal(gracePeriodToolQuota.periodStartedAt, "2026-05-03T00:00:00.000Z");
   assert.equal(gracePeriodToolQuota.periodEndsAt, "2026-06-03T00:00:00.000Z");
+  assert.equal(
+    gracePeriodToolQuota.tools.find((tool) => tool.toolCode === "image_generate")?.limitUnits,
+    50
+  );
+  assert.equal(
+    gracePeriodToolQuota.tools.find((tool) => tool.toolCode === "image_generate")?.remainingUnits,
+    46
+  );
   assert.equal(gracePeriodTokenBudget.periodSource, "subscription_period");
   assert.equal(gracePeriodTokenBudget.periodStartedAt, "2026-05-03T00:00:00.000Z");
   assert.equal(gracePeriodTokenBudget.periodEndsAt, "2026-06-03T00:00:00.000Z");

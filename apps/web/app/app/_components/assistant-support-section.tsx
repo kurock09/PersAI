@@ -364,7 +364,7 @@ export function AssistantSupportSection({
 
   return (
     <div className={cn("space-y-3", className)}>
-      <div className="rounded-xl border border-border bg-surface-raised/40 p-3">
+      <div className="px-1 py-1">
         <p className="text-xs font-medium text-text">{t("supportMyTickets")}</p>
         {loading ? (
           <div className="mt-3 flex items-center gap-2 text-[11px] text-text-subtle">
@@ -435,11 +435,11 @@ export function AssistantSupportSection({
         ) : null}
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-surface-raised/60">
+      <div className="border-t border-border/45 pt-3">
         <button
           type="button"
           onClick={() => setNewFormExpanded((value) => !value)}
-          className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-hover/60"
+          className="flex w-full cursor-pointer items-center justify-between gap-2 px-1 py-2.5 text-left transition-colors hover:bg-surface-hover/35"
         >
           <span className="text-xs font-medium text-text">{t("supportNewRequest")}</span>
           <ChevronDown
@@ -451,22 +451,22 @@ export function AssistantSupportSection({
         </button>
 
         {newFormExpanded && (
-          <div className="space-y-2 border-t border-border/70 px-3 pb-3 pt-2">
+          <div className="space-y-2 border-t border-border/45 px-1 pb-1 pt-3">
             <input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder={t("supportSubjectOptional")}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-text"
+              className="w-full rounded-xl border border-border/55 bg-background/55 px-3 py-2 text-sm text-text"
             />
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={4}
               placeholder={t("supportBodyPlaceholder")}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-text"
+              className="w-full rounded-xl border border-border/55 bg-background/55 px-3 py-2 text-sm text-text"
             />
             {attachmentFile && (
-              <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-background/80 px-2.5 py-1.5 text-[11px] text-text-muted">
+              <div className="flex items-center gap-2 rounded-xl bg-background/45 px-3 py-2 text-[11px] text-text-muted">
                 <Paperclip className="h-3.5 w-3.5 shrink-0 text-text-subtle" aria-hidden />
                 <span className="min-w-0 flex-1 truncate" title={attachmentFile.name}>
                   {attachmentFile.name}

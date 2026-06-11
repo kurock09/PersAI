@@ -269,7 +269,7 @@ function workspace(overrides: Partial<WorkspaceMemoryItem>): WorkspaceMemoryItem
 
 function renderSettings(
   data: AppData = makeAppData(),
-  section = "memory",
+  section = "character",
   extraProps: Partial<ComponentProps<typeof AssistantSettings>> = {}
 ): void {
   render(
@@ -543,6 +543,25 @@ describe("AssistantSettings character CTA", () => {
     expect(screen.getByRole("button", { name: "Customize" })).toBeInTheDocument();
   }, 10000);
 
+  it("moves memory and recreate into character actions and opens dedicated overlays", async () => {
+    renderSettings(makeAppData(), "character");
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+
+    expect(screen.getByText("Quick actions")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Memory" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show sliders" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Recreate" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+    expect(await screen.findByRole("dialog", { name: "Memory" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search memories...")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Recreate" }));
+    expect(await screen.findByRole("dialog", { name: "Recreate" })).toBeInTheDocument();
+    expect(screen.getByText(/delete chats, memory, and assistant settings/i)).toBeInTheDocument();
+  });
+
   it("shows avatar presets without visible name labels in assistant settings", () => {
     renderSettings(makeAppData(), "character");
 
@@ -811,7 +830,7 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([openLoop]);
     assistantApiMocks.postAssistantMemoryItemCloseOpenLoop.mockResolvedValue(undefined);
 
-    renderSettings();
+    renderSettings(makeAppData(), "memory");
 
     await waitFor(() => {
       expect(screen.getByTestId(`close-open-loop-${openLoop.id}`)).toBeInTheDocument();
@@ -843,7 +862,7 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
       new Error("Memory item not found.")
     );
 
-    renderSettings();
+    renderSettings(makeAppData(), "memory");
 
     await waitFor(() => {
       expect(screen.getByTestId(`close-open-loop-${openLoop.id}`)).toBeInTheDocument();
@@ -880,7 +899,7 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([structured, echo]);
     assistantApiMocks.getWorkspaceMemoryItems.mockResolvedValue([wsRow]);
 
-    renderSettings();
+    renderSettings(makeAppData(), "memory");
 
     const workspaceList = await screen.findByTestId("memory-center-workspace-list");
     const wsScope = within(workspaceList);
@@ -915,7 +934,7 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([structured]);
     assistantApiMocks.getWorkspaceMemoryItems.mockResolvedValue([wsDup, wsUnique]);
 
-    renderSettings();
+    renderSettings(makeAppData(), "memory");
 
     const workspaceList = await screen.findByTestId("memory-center-workspace-list");
     const items = within(workspaceList).getAllByRole("listitem");
@@ -941,7 +960,7 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
     assistantApiMocks.getWorkspaceMemoryItems.mockResolvedValue([wsRow]);
 
-    renderSettings();
+    renderSettings(makeAppData(), "memory");
 
     const workspaceList = await screen.findByTestId("memory-center-workspace-list");
     const row = within(workspaceList).getByText(wsRow.content).closest("li");
@@ -964,7 +983,7 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
     assistantApiMocks.getWorkspaceMemoryItems.mockResolvedValue([wsLoop]);
     assistantApiMocks.postAssistantMemoryItemCloseOpenLoop.mockResolvedValue(undefined);
 
-    renderSettings();
+    renderSettings(makeAppData(), "memory");
 
     const workspaceList = await screen.findByTestId("memory-center-workspace-list");
     const row = within(workspaceList).getByText(wsLoop.content).closest("li");
@@ -993,7 +1012,7 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
 
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([fact, pref, loop]);
 
-    renderSettings();
+    renderSettings(makeAppData(), "memory");
 
     await screen.findByTestId("memory-center-workspace-list");
 
@@ -1022,7 +1041,7 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
 
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([resolved]);
 
-    renderSettings();
+    renderSettings(makeAppData(), "memory");
 
     await screen.findByTestId("memory-center-workspace-list");
     expect(screen.queryByTestId(`close-open-loop-${resolved.id}`)).toBeNull();

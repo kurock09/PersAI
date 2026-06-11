@@ -13,9 +13,9 @@
 
 ### What changed
 
-- Fixed the remaining billing/quota semantics gap for `grace_period`: scheduled downgrades no longer silently change quota truth before payment actually succeeds. `TrackWorkspaceQuotaUsageService` now resolves grace-period quota plan/period from the previous paid plan when the row entered grace because of a failed renewal, so usage counters keep the last paid subscription window instead of opening a downgraded/basic quota period early.
+- Corrected the billing/quota semantics for `grace_period` after an already-effective scheduled downgrade: the current plan and limits now stay on the downgraded plan, but the quota period still stays anchored to the last paid subscription window until payment recovery or fallback. `TrackWorkspaceQuotaUsageService` now preserves only the previous paid period boundaries during grace instead of rewriting the active grace plan back to the previous paid plan.
 - The write path now persists `previousPaidPlanCode` into grace metadata when `startPaidGrace()` is triggered from a paid renewal failure. For older grace rows created before this field existed, quota reads can still recover the previous paid plan and paid period from the latest matching `renewal_failed -> grace_period` lifecycle event.
-- The same grace override is applied to both assistant-level quota snapshots and workspace-level quota limits so API truth stays consistent across token/media/tool checks.
+- The same grace-period window override is applied to both assistant-level quota snapshots and workspace-level quota limits so API truth stays consistent across token/media/tool checks without reverting current limits to the previous paid plan.
 - Added focused regression coverage for direct quota accounting and success-only document quota flows under the new constructor/dependency shape, plus an explicit grace-with-scheduled-downgrade quota-window assertion.
 - Added the requested calm payment-issue badge (`Payment issue` / `Сбой оплаты`) to the three visible UI surfaces for `grace_period` / `past_due`: collapsed sidebar mini-profile, expanded sidebar account card, and settings plan/payment surfaces. The badge takes precedence over the existing `light mode` marker.
 - Billing UI follow-up completed for scheduled downgrades and recurring date copy. Shared billing summary resolution now shows ordinary active recurring states as `Charge {date}` / `Списание {date}` and replaces that with future-plan copy (`BASIC c 26 июн.` style) when billing truth already contains a scheduled downgrade. To make that honest across non-modal surfaces, the app bootstrap/app-data seam now includes `billingSubscription` state in addition to `planVisibility`, so sidebar/account surfaces can render scheduled-change truth from the same source as payment settings.
@@ -37,12 +37,12 @@
 ### Risks / residuals
 
 - The wide repo web test wrapper still has unrelated historical timeout failures outside this slice (`telegram-connect` and several older `assistant-settings` long-running tests). The targeted tests covering the new grace badge surfaces passed.
-- Existing grace rows that lack both `previousPaidPlanCode` metadata and a usable matching lifecycle event will still fall back to their stored current plan. New rows are fully fixed on write.
+- Existing grace rows that lack both `previousPaidPlanCode` metadata and a usable matching lifecycle event will still fall back to their stored current period boundaries. New rows are fully fixed on write for the grace-period window recovery path.
 - The scheduled downgrade copy now depends on the additive `billingSubscription` bootstrap section. If that section fails while `planVisibility` still succeeds, surfaces honestly fall back to the older plan-only summary instead of inventing downgrade state.
 
 ### Next recommended step
 
-- Deploy and live-check one real workspace with a scheduled downgrade plus one workspace in `grace_period`: confirm quotas still reflect the previous paid period during grace, the payment-issue badge still appears in the three intended UI surfaces, and scheduled downgrade copy renders as future-plan/date truth instead of generic charge copy.
+- Deploy and live-check one real workspace with a scheduled downgrade plus one workspace in `grace_period`: confirm current plan/limits already reflect the downgraded plan, quota counters still remain on the previous paid period during grace, the payment-issue badge still appears in the three intended UI surfaces, and scheduled downgrade copy renders as future-plan/date truth instead of generic charge copy.
 
 ### Baseline
 

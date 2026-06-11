@@ -130,7 +130,7 @@ describe("TelegramConnect", () => {
     renderTelegramConnect();
 
     fireEvent.click(screen.getByRole("button", { name: "Configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Linked group members" }));
+    fireEvent.click(screen.getByRole("button", { name: "Everyone" }));
     fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
 
     await waitFor(() => {

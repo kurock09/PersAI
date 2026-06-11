@@ -518,6 +518,8 @@ function AccountFooter({
           : t("notConnected");
 
   const displayName = user?.firstName ?? user?.username ?? "User";
+  const expandedName = user?.fullName ?? displayName;
+  const expandedEmail = user?.primaryEmailAddress?.emailAddress ?? "";
 
   const currentLocale =
     (typeof document !== "undefined" &&
@@ -561,239 +563,248 @@ function AccountFooter({
     ];
 
   return (
-    <div ref={ref} className="relative">
-      <button
+    <div
+      ref={ref}
+      className={cn(
+        "overflow-hidden rounded-[22px] transition-colors duration-200",
+        open ? "bg-surface-raised/55" : "bg-transparent"
+      )}
+    >
+      <motion.button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-surface-hover"
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors",
+          open ? "bg-surface-hover/50" : "hover:bg-surface-hover"
+        )}
+        animate={{ y: open ? -4 : 0 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
       >
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-surface-raised text-[13px] font-semibold text-text-subtle shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
           {initials}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-text">{displayName}</span>
+          <span className="block truncate text-sm font-medium text-text">
+            {open ? expandedName : displayName}
+          </span>
           <span className="block truncate text-[11px] tracking-wide text-text-muted">
-            {planName} · {tokenUsage}%
-            {graceBadgeActive
-              ? ` · ${t("paymentIssueBadge")}`
-              : paidLightModeActive
-                ? ` · ${t("lightModeBadge")}`
-                : ""}
+            {open
+              ? expandedEmail
+              : `${planName} · ${tokenUsage}%${
+                  graceBadgeActive
+                    ? ` · ${t("paymentIssueBadge")}`
+                    : paidLightModeActive
+                      ? ` · ${t("lightModeBadge")}`
+                      : ""
+                }`}
           </span>
         </span>
         <Settings className="h-4 w-4 shrink-0 text-text-subtle" />
-      </button>
+      </motion.button>
 
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {open && (
           <motion.div
             role="menu"
-            className="absolute right-0 bottom-full left-0 z-50 mb-2 rounded-2xl border border-border-strong bg-surface-raised/95 p-2 shadow-[0_20px_48px_rgba(0,0,0,0.28)] backdrop-blur-md"
-            initial={{ opacity: 0, y: 6, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 4, scale: 0.98 }}
-            transition={{ duration: 0.16, ease: "easeOut" }}
+            className="px-2.5 pb-2"
+            initial={{ opacity: 0, y: 10, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: "auto" }}
+            exit={{ opacity: 0, y: 6, height: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
           >
-            <div className="border-b border-border/80 px-3 py-2.5">
-              <p className="truncate text-xs font-medium text-text">
-                {user?.fullName ?? displayName}
-              </p>
-              <p className="truncate text-[10px] text-text-muted">
-                {user?.primaryEmailAddress?.emailAddress ?? ""}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onLimitsClick?.();
-              }}
-              className="mt-1.5 block w-full cursor-pointer rounded-xl border border-border/55 bg-bg/30 px-3 py-2.5 text-left transition-colors hover:border-border/80 hover:bg-surface-hover/60"
-            >
-              <div className="flex items-center justify-between gap-3 text-[11px]">
-                <span className="text-text-muted">{t("tokenUsage")}</span>
-                <span className="text-text-subtle">
-                  {ts("tokenPercentCompact", { pct: tokenUsage })}
-                </span>
-              </div>
-              <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-surface">
-                <div
-                  className={cn(
-                    "h-full rounded-full transition-all",
-                    tokenUsage >= 90 ? "bg-destructive" : "bg-accent"
-                  )}
-                  style={{ width: `${Math.min(tokenUsage, 100)}%` }}
-                />
-              </div>
-              <div className="mt-2 flex items-center justify-between gap-3 text-[11px]">
-                <span className="max-w-[160px] truncate text-text-muted">{planName}</span>
-                {graceBadgeActive ? (
-                  <span className="rounded-full border border-warning/35 bg-warning/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-warning">
-                    {t("paymentIssueBadge")}
+            <div className="border-t border-border/70 px-0 pt-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onLimitsClick?.();
+                }}
+                className="block w-full cursor-pointer rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-hover/55"
+              >
+                <div className="flex items-center justify-between gap-3 text-[11px]">
+                  <span className="text-text-muted">{t("tokenUsage")}</span>
+                  <span className="text-text-subtle">
+                    {ts("tokenPercentCompact", { pct: tokenUsage })}
                   </span>
-                ) : paidLightModeActive ? (
-                  <span className="rounded-full border border-border/70 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-warning">
-                    {t("lightModeBadge")}
-                  </span>
+                </div>
+                <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-surface">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all",
+                      tokenUsage >= 90 ? "bg-destructive" : "bg-accent"
+                    )}
+                    style={{ width: `${Math.min(tokenUsage, 100)}%` }}
+                  />
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3 text-[11px]">
+                  <span className="max-w-[160px] truncate text-text-muted">{planName}</span>
+                  {graceBadgeActive ? (
+                    <span className="rounded-full border border-warning/35 bg-warning/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-warning">
+                      {t("paymentIssueBadge")}
+                    </span>
+                  ) : paidLightModeActive ? (
+                    <span className="rounded-full border border-border/70 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-warning">
+                      {t("lightModeBadge")}
+                    </span>
+                  ) : null}
+                </div>
+                {billingSummary.dateKey && billingSummary.dateLabel ? (
+                  <p className="mt-1.5 text-[10px] text-text-subtle">
+                    {ts(billingSummary.dateKey, { date: billingSummary.dateLabel })}
+                  </p>
                 ) : null}
+              </button>
+
+              <div className="my-1.5 border-t border-border/70" />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onTelegramClick?.();
+                }}
+                className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-surface-hover/70"
+              >
+                <Send className="h-3.5 w-3.5 text-text-muted" />
+                <span className="min-w-0 flex-1 truncate text-xs text-text">{t("telegram")}</span>
+                <span className="flex items-center gap-1.5 text-[10px] text-text-subtle">
+                  <span
+                    className={cn(
+                      "inline-block h-1.5 w-1.5 rounded-full",
+                      telegramConnected ? "bg-success" : "bg-text-subtle"
+                    )}
+                  />
+                  {telegramStatusLabel}
+                </span>
+              </button>
+              <div className="flex items-center gap-2.5 rounded-xl px-3 py-2 opacity-50">
+                <Smartphone className="h-3.5 w-3.5 text-text-muted" />
+                <span className="min-w-0 flex-1 truncate text-xs text-text">{t("whatsApp")}</span>
+                <span className="text-[10px] text-text-subtle">{t("comingSoon")}</span>
               </div>
-              {billingSummary.dateKey && billingSummary.dateLabel ? (
-                <p className="mt-1.5 text-[10px] text-text-subtle">
-                  {ts(billingSummary.dateKey, { date: billingSummary.dateLabel })}
-                </p>
-              ) : null}
-            </button>
+              <div className="flex items-center gap-2.5 rounded-xl px-3 py-2 opacity-50">
+                <MessageCircle className="h-3.5 w-3.5 text-text-muted" />
+                <span className="min-w-0 flex-1 truncate text-xs text-text">{t("max")}</span>
+                <span className="text-[10px] text-text-subtle">{t("comingSoon")}</span>
+              </div>
 
-            <div className="my-1.5 border-t border-border/80" />
+              <div className="my-1.5 border-t border-border/70" />
 
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onTelegramClick?.();
-              }}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-surface-hover/70"
-            >
-              <Send className="h-3.5 w-3.5 text-text-muted" />
-              <span className="min-w-0 flex-1 truncate text-xs text-text">{t("telegram")}</span>
-              <span className="flex items-center gap-1.5 text-[10px] text-text-subtle">
-                <span
-                  className={cn(
-                    "inline-block h-1.5 w-1.5 rounded-full",
-                    telegramConnected ? "bg-success" : "bg-text-subtle"
-                  )}
-                />
-                {telegramStatusLabel}
-              </span>
-            </button>
-            <div className="flex items-center gap-2.5 rounded-xl px-3 py-2 opacity-50">
-              <Smartphone className="h-3.5 w-3.5 text-text-muted" />
-              <span className="min-w-0 flex-1 truncate text-xs text-text">{t("whatsApp")}</span>
-              <span className="text-[10px] text-text-subtle">{t("comingSoon")}</span>
-            </div>
-            <div className="flex items-center gap-2.5 rounded-xl px-3 py-2 opacity-50">
-              <MessageCircle className="h-3.5 w-3.5 text-text-muted" />
-              <span className="min-w-0 flex-1 truncate text-xs text-text">{t("max")}</span>
-              <span className="text-[10px] text-text-subtle">{t("comingSoon")}</span>
-            </div>
-
-            <div className="my-1.5 border-t border-border/80" />
-
-            <div className="rounded-xl border border-border/55 bg-bg/25 px-3 py-2.5">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col items-start gap-1.5">
-                  <div className="flex items-center rounded-xl border border-border/60 bg-surface/70 p-0.5">
-                    {themeOptions.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setTheme(opt.id)}
-                        title={opt.label}
-                        aria-label={opt.label}
-                        className={cn(
-                          "rounded-lg p-1.5 transition-colors",
-                          theme === opt.id
-                            ? "bg-surface-raised text-text"
-                            : "text-text-subtle hover:text-text"
-                        )}
-                      >
-                        {opt.icon}
-                      </button>
-                    ))}
+              <div className="rounded-xl px-3 py-2.5">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col items-start gap-1.5">
+                    <div className="flex items-center rounded-xl border border-border/50 bg-surface/60 p-0.5">
+                      {themeOptions.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setTheme(opt.id)}
+                          title={opt.label}
+                          aria-label={opt.label}
+                          className={cn(
+                            "rounded-lg p-1.5 transition-colors",
+                            theme === opt.id
+                              ? "bg-surface-raised text-text"
+                              : "text-text-subtle hover:text-text"
+                          )}
+                        >
+                          {opt.icon}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="pl-0.5 text-[10px] tracking-[0.02em] text-text-subtle">
+                      {t("theme")}
+                    </span>
                   </div>
-                  <span className="pl-0.5 text-[10px] tracking-[0.02em] text-text-subtle">
-                    {t("theme")}
-                  </span>
-                </div>
-                <div className="flex flex-col items-start gap-1.5">
-                  <div className="flex items-center rounded-xl border border-border/60 bg-surface/70 p-0.5">
-                    {LOCALES.map((loc) => (
-                      <button
-                        key={loc.code}
-                        type="button"
-                        onClick={() => switchLocale(loc.code)}
-                        className={cn(
-                          "rounded-lg px-2 py-1 text-[11px] font-medium transition-colors",
-                          currentLocale === loc.code
-                            ? "bg-surface-raised text-text"
-                            : "text-text-subtle hover:text-text"
-                        )}
-                      >
-                        {loc.label}
-                      </button>
-                    ))}
+                  <div className="flex flex-col items-start gap-1.5">
+                    <div className="flex items-center rounded-xl border border-border/50 bg-surface/60 p-0.5">
+                      {LOCALES.map((loc) => (
+                        <button
+                          key={loc.code}
+                          type="button"
+                          onClick={() => switchLocale(loc.code)}
+                          className={cn(
+                            "rounded-lg px-2 py-1 text-[11px] font-medium transition-colors",
+                            currentLocale === loc.code
+                              ? "bg-surface-raised text-text"
+                              : "text-text-subtle hover:text-text"
+                          )}
+                        >
+                          {loc.label}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="pl-0.5 text-[10px] tracking-[0.02em] text-text-subtle">
+                      {t("language")}
+                    </span>
                   </div>
-                  <span className="pl-0.5 text-[10px] tracking-[0.02em] text-text-subtle">
-                    {t("language")}
-                  </span>
                 </div>
               </div>
-            </div>
 
-            <div className="my-1.5 border-t border-border/80" />
+              <div className="my-1.5 border-t border-border/70" />
 
-            {data.isAdmin && (
+              {data.isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void guardedNavigate(() => {
+                      setOpen(false);
+                      onClose?.();
+                      router.push("/admin" as Route);
+                    });
+                  }}
+                  className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover/70 hover:text-text"
+                >
+                  <Shield className="h-3.5 w-3.5" />
+                  {t("adminPanel")}
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => {
                   void guardedNavigate(() => {
                     setOpen(false);
                     onClose?.();
-                    router.push("/admin" as Route);
+                    router.push("/app/profile" as Route);
                   });
                 }}
                 className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover/70 hover:text-text"
               >
-                <Shield className="h-3.5 w-3.5" />
-                {t("adminPanel")}
+                <Settings className="h-3.5 w-3.5" />
+                {t("accountSettings")}
               </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => {
-                void guardedNavigate(() => {
+              <button
+                type="button"
+                onClick={() => {
+                  if (logoutInFlightRef.current) return;
+                  logoutInFlightRef.current = true;
                   setOpen(false);
                   onClose?.();
-                  router.push("/app/profile" as Route);
-                });
-              }}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover/70 hover:text-text"
-            >
-              <Settings className="h-3.5 w-3.5" />
-              {t("accountSettings")}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (logoutInFlightRef.current) return;
-                logoutInFlightRef.current = true;
-                setOpen(false);
-                onClose?.();
-                setSigningOut(true);
-                void signOut({ redirectUrl: "/" })
-                  .catch(() => undefined)
-                  .finally(() => {
-                    navigateAfterClerkAuth("/", "replace");
-                  });
-              }}
-              disabled={signingOut}
-              aria-busy={signingOut}
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-destructive transition-colors hover:bg-destructive/10",
-                signingOut ? "cursor-wait opacity-70" : "cursor-pointer"
-              )}
-            >
-              {signingOut ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <LogOut className="h-3.5 w-3.5" />
-              )}
-              {signingOut ? t("signingOut") : t("signOut")}
-            </button>
+                  setSigningOut(true);
+                  void signOut({ redirectUrl: "/" })
+                    .catch(() => undefined)
+                    .finally(() => {
+                      navigateAfterClerkAuth("/", "replace");
+                    });
+                }}
+                disabled={signingOut}
+                aria-busy={signingOut}
+                className={cn(
+                  "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-destructive transition-colors hover:bg-destructive/10",
+                  signingOut ? "cursor-wait opacity-70" : "cursor-pointer"
+                )}
+              >
+                {signingOut ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <LogOut className="h-3.5 w-3.5" />
+                )}
+                {signingOut ? t("signingOut") : t("signOut")}
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

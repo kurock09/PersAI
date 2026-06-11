@@ -267,9 +267,9 @@ function CharacterCard({
           : undefined
       }
       className={cn(
-        "flex min-h-[88px] items-center gap-3 rounded-2xl border border-border/60 bg-surface p-3 text-left transition-colors",
+        "flex min-h-[84px] items-center gap-3 rounded-xl border border-border/45 bg-background/35 p-3 text-left transition-colors",
         interactive
-          ? "cursor-pointer hover:bg-surface-raised/60 focus:outline-none focus:ring-2 focus:ring-accent/20"
+          ? "cursor-pointer hover:bg-surface-raised/45 focus:outline-none focus:ring-2 focus:ring-accent/20"
           : "opacity-75"
       )}
     >
@@ -362,7 +362,7 @@ function CharacterCreateCard({
       title={title}
       onClick={onClick}
       className={cn(
-        "flex min-h-[88px] w-full items-center gap-3 rounded-2xl border border-dashed border-accent/35 bg-accent/5 p-3 text-left transition-colors",
+        "flex min-h-[84px] w-full items-center gap-3 rounded-xl border border-dashed border-accent/28 bg-accent/[0.04] p-3 text-left transition-colors",
         disabled
           ? "cursor-not-allowed opacity-60"
           : "hover:border-accent/50 hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent/20"
@@ -409,43 +409,24 @@ function VoiceCloneCard({
   return (
     <div
       data-testid={`voice-clone-card-${voice.status}`}
-      className="flex min-h-[100px] flex-col gap-2 rounded-2xl border border-border/60 bg-surface p-3"
+      className="flex items-center gap-3 rounded-xl border-b border-border/45 px-1 py-3 last:border-b-0"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <p className="min-w-0 truncate text-sm font-medium text-text" title={voice.displayName}>
-              {voice.displayName}
-            </p>
-            {voice.isDefault ? (
-              <span className="shrink-0 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
-                {defaultLabel}
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 truncate text-[11px] text-text-muted">{voiceLabel}</p>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="min-w-0 truncate text-sm font-medium text-text" title={voice.displayName}>
+            {voice.displayName}
+          </p>
+          {voice.isDefault ? (
+            <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+              {defaultLabel}
+            </span>
+          ) : null}
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <div className="flex items-center gap-1">
-            <VoicePreviewButton
-              previewAudioUrl={previewAudioUrl}
-              voiceLabel={voice.displayName}
-              previewUnavailableLabel={previewUnavailableLabel}
-            />
-            {onArchive ? (
-              <button
-                type="button"
-                onClick={onArchive}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
-                aria-label={archiveLabel}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-          </div>
-          <p
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-muted">
+          <span>{voiceLabel}</span>
+          <span
             className={cn(
-              "text-right text-[11px] font-medium",
+              "font-medium",
               statusTone === "success"
                 ? "text-accent"
                 : statusTone === "warn"
@@ -456,29 +437,40 @@ function VoiceCloneCard({
             )}
           >
             {statusLabel}
-          </p>
-        </div>
-      </div>
-      {linkedSummary || onMakeDefault ? (
-        <div className="mt-auto flex min-w-0 items-end justify-between gap-3 pt-0.5">
+          </span>
           {linkedSummary ? (
-            <p className="min-w-0 truncate text-[11px] text-text-subtle" title={linkedSummary}>
+            <span className="truncate text-text-subtle" title={linkedSummary}>
               {linkedSummary}
-            </p>
-          ) : (
-            <span aria-hidden="true" />
-          )}
+            </span>
+          ) : null}
           {onMakeDefault ? (
             <button
               type="button"
               onClick={onMakeDefault}
-              className="shrink-0 text-[11px] font-medium text-text-subtle underline-offset-4 transition-colors hover:text-text hover:underline"
+              className="text-[11px] font-medium text-text-subtle underline-offset-4 transition-colors hover:text-text hover:underline"
             >
               {makeDefaultLabel}
             </button>
           ) : null}
         </div>
-      ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <VoicePreviewButton
+          previewAudioUrl={previewAudioUrl}
+          voiceLabel={voice.displayName}
+          previewUnavailableLabel={previewUnavailableLabel}
+        />
+        {onArchive ? (
+          <button
+            type="button"
+            onClick={onArchive}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
+            aria-label={archiveLabel}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -507,7 +499,6 @@ function normalizeInitialSection(value: string | undefined): SettingsSectionId {
     case "knowledge":
     case "files":
     case "skills":
-    case "memory":
     case "tasks":
     case "channels":
     case "support":
@@ -515,6 +506,8 @@ function normalizeInitialSection(value: string | undefined): SettingsSectionId {
     case "character":
     case "characters":
       return value;
+    case "memory":
+      return "character";
     default:
       return "character";
   }
@@ -887,7 +880,8 @@ function ActionButton({
   busy,
   variant = "default",
   disabled,
-  className
+  className,
+  pulse = false
 }: {
   icon: React.ReactNode;
   label: string;
@@ -896,6 +890,7 @@ function ActionButton({
   variant?: "default" | "primary" | "danger";
   disabled?: boolean;
   className?: string;
+  pulse?: boolean;
 }) {
   return (
     <button
@@ -909,12 +904,50 @@ function ActionButton({
           : variant === "primary"
             ? "bg-accent text-white shadow-sm shadow-accent/20 hover:bg-accent-hover"
             : "bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text",
+        pulse &&
+          "animate-pulse bg-success/15 text-success shadow-[0_0_0_1px_rgba(52,168,83,0.18),0_0_22px_rgba(52,168,83,0.16)]",
         className
       )}
     >
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : icon}
       {label}
     </button>
+  );
+}
+
+function SegmentedChoice({
+  options,
+  value,
+  onChange,
+  className
+}: {
+  options: ReadonlyArray<{ value: string; label: string }>;
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "grid w-full rounded-full border border-border/60 bg-surface-raised/20 p-1",
+        className
+      )}
+    >
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          aria-pressed={value === option.value}
+          className={cn(
+            "min-w-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors",
+            value === option.value ? "bg-accent/15 text-text" : "text-text-muted hover:text-text"
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -1451,6 +1484,8 @@ export function AssistantSettings({
   const [editingPersonality, setEditingPersonality] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveFb, setSaveFb] = useState<ActionFeedback>(null);
+  const [saveButtonState, setSaveButtonState] = useState<"idle" | "saved">("idle");
+  const saveButtonResetTimerRef = useRef<number | null>(null);
 
   const [draftTraits, setDraftTraits] = useState<Record<string, number>>(
     (assistant?.draft.traits as Record<string, number> | null) ?? DEFAULT_TRAITS
@@ -1465,15 +1500,15 @@ export function AssistantSettings({
     normalizeVoiceProfile(assistant?.draft.voiceProfile)
   );
   const [showTraitControls, setShowTraitControls] = useState(false);
+  const [memoryDrawerOpen, setMemoryDrawerOpen] = useState(initialSection === "memory");
   const [avatarPreviewBlobUrl, setAvatarPreviewBlobUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
 
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [resetConfirm, setResetConfirm] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetFb, setResetFb] = useState<ActionFeedback>(null);
-  const [knowledgeManagerOpen, setKnowledgeManagerOpen] = useState(false);
   const [skillsState, setSkillsState] = useState<AssistantSkillsState | null>(null);
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
@@ -1510,6 +1545,7 @@ export function AssistantSettings({
   const [tasksFb, setTasksFb] = useState<ActionFeedback>(null);
   const [showUserTasks, setShowUserTasks] = useState(false);
   const [showAssistantActions, setShowAssistantActions] = useState(false);
+  const [showCompletedAssistantActions, setShowCompletedAssistantActions] = useState(false);
   const [notificationChannel, setNotificationChannel] =
     useState<AssistantPreferredNotificationChannel>("web");
   const [notificationSaving, setNotificationSaving] = useState(false);
@@ -2181,10 +2217,21 @@ export function AssistantSettings({
     billingSubscription?.scheduledPlanChange?.changeKind === "downgrade"
       ? t("billingPlanTransitionHint")
       : billingPaymentMethodHint;
-
   useEffect(() => {
     setOpenSection(normalizeInitialSection(initialSection));
+    if (initialSection === "memory") {
+      setEditingPersonality(true);
+      setMemoryDrawerOpen(true);
+    }
   }, [initialSection]);
+
+  useEffect(() => {
+    return () => {
+      if (saveButtonResetTimerRef.current !== null) {
+        window.clearTimeout(saveButtonResetTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isLoaded) {
@@ -2370,6 +2417,282 @@ export function AssistantSettings({
   );
   const mergedWorkspaceMemoryView = mergedMemoryViews.workspace;
   const mergedHistoryMemoryView = mergedMemoryViews.history;
+  const memoryPanel = (
+    <>
+      <div className="mb-4 flex gap-1 border-b border-border/45 pb-3">
+        {(["workspace", "history"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setMemoryTab(tab)}
+            className={cn(
+              "flex-1 cursor-pointer rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              memoryTab === tab
+                ? "bg-surface-raised/65 text-text"
+                : "text-text-muted hover:bg-surface-raised/30 hover:text-text"
+            )}
+          >
+            {tab === "workspace" ? t("workspace") : t("history")}
+          </button>
+        ))}
+      </div>
+
+      {memoryTab === "workspace" && (
+        <>
+          <div className="mb-2 flex gap-2">
+            <input
+              type="text"
+              value={wsMemorySearch}
+              onChange={(e) => setWsMemorySearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void loadWsMemory(wsMemorySearch || undefined);
+              }}
+              placeholder={t("searchMemories")}
+              className="min-w-0 flex-1 rounded-xl border border-border/55 bg-background/55 px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+            />
+            <button
+              type="button"
+              onClick={() => void loadWsMemory(wsMemorySearch || undefined)}
+              className="shrink-0 cursor-pointer rounded-xl bg-surface-raised/60 px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
+            >
+              {t("search")}
+            </button>
+          </div>
+
+          <div className="mb-4 flex gap-2">
+            <input
+              type="text"
+              value={wsNewMemory}
+              onChange={(e) => setWsNewMemory(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleAddWsMemory();
+              }}
+              placeholder={t("teachNew")}
+              className="min-w-0 flex-1 rounded-xl border border-border/55 bg-background/55 px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+            />
+            <button
+              type="button"
+              disabled={wsMemoryAdding || !wsNewMemory.trim()}
+              onClick={() => void handleAddWsMemory()}
+              className="shrink-0 cursor-pointer rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            >
+              {wsMemoryAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : t("add")}
+            </button>
+          </div>
+
+          <FeedbackLine fb={wsMemoryFb} />
+          <FeedbackLine fb={memoryFb} />
+
+          {wsMemoryLoading || memoryLoading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+            </div>
+          ) : mergedWorkspaceMemoryView.length === 0 ? (
+            <p className="text-xs text-text-subtle">{t("noWorkspaceMemories")}</p>
+          ) : (
+            <>
+              <ul
+                className="space-y-2.5"
+                data-testid="memory-center-workspace-list"
+                aria-label={t("workspace")}
+              >
+                {mergedWorkspaceMemoryView.slice(0, wsMemoryVisibleCount).map((row) => {
+                  const { memoryClass, kind } = row.item;
+                  const resolvedAt =
+                    row.source === "registry" ? row.item.resolvedAt : (row.item.resolvedAt ?? null);
+                  return (
+                    <li
+                      key={row.key}
+                      data-testid={`memory-row-${row.source}`}
+                      className="flex items-start gap-2 rounded-xl bg-background/42 px-4 py-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-muted">
+                          {row.source === "registry" ? row.item.summary : row.item.content}
+                        </p>
+                        {memoryClass !== undefined && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-text-subtle">
+                            <span
+                              className={
+                                memoryClass === "core"
+                                  ? "rounded-md bg-accent/12 px-2 py-0.5 font-medium text-accent"
+                                  : "rounded-md bg-surface-raised/55 px-2 py-0.5 font-medium text-text-subtle"
+                              }
+                            >
+                              {memoryClass === "core"
+                                ? t("memoryClassCore")
+                                : t("memoryClassContextual")}
+                            </span>
+                            {kind === "fact" && (
+                              <span className="rounded-md bg-surface-raised/55 px-2 py-0.5 font-medium text-text-subtle">
+                                {t("memoryKindFact")}
+                              </span>
+                            )}
+                            {kind === "preference" && (
+                              <span className="rounded-md bg-surface-raised/55 px-2 py-0.5 font-medium text-text-subtle">
+                                {t("memoryKindPreference")}
+                              </span>
+                            )}
+                            {kind === "open_loop" && (
+                              <span className="rounded-md bg-surface-raised/55 px-2 py-0.5 font-medium text-text-subtle">
+                                {t("memoryKindOpenLoop")}
+                              </span>
+                            )}
+                            {resolvedAt !== null && (
+                              <span className="rounded-md bg-success/12 px-2 py-0.5 font-medium text-success">
+                                {t("memoryResolved")}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {kind === "open_loop" && resolvedAt === null && (
+                          <button
+                            type="button"
+                            disabled={closingOpenLoopId === row.item.id}
+                            onClick={() => void handleCloseOpenLoop(row.item.id)}
+                            className="cursor-pointer rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-accent disabled:cursor-default disabled:opacity-50"
+                            title={t("markAsClosed")}
+                            aria-label={t("markAsClosed")}
+                            data-testid={`close-open-loop-${row.item.id}`}
+                          >
+                            {closingOpenLoopId === row.item.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="h-3 w-3" />
+                            )}
+                          </button>
+                        )}
+                        {row.source === "registry" ? (
+                          <button
+                            type="button"
+                            disabled={forgettingId === row.item.id}
+                            onClick={() => void handleForget(row.item.id)}
+                            className="cursor-pointer rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                            title={t("forget")}
+                            aria-label={t("forget")}
+                            data-testid={`forget-registry-${row.item.id}`}
+                          >
+                            {forgettingId === row.item.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3 w-3" />
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={wsForgettingId === row.item.id}
+                            onClick={() => void handleForgetWsMemory(row.item.id)}
+                            className="cursor-pointer rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                            title={t("forget")}
+                            aria-label={t("forget")}
+                            data-testid={`forget-workspace-${row.item.id}`}
+                          >
+                            {wsForgettingId === row.item.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3 w-3" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              {wsMemoryVisibleCount < mergedWorkspaceMemoryView.length && (
+                <button
+                  type="button"
+                  onClick={() => setWsMemoryVisibleCount((count) => count + 5)}
+                  className="mt-3 w-full cursor-pointer rounded-xl border border-border/55 py-2.5 text-sm font-medium text-text-muted transition-colors hover:bg-surface-raised/55 hover:text-text"
+                >
+                  {t("loadMore")} ({mergedWorkspaceMemoryView.length - wsMemoryVisibleCount})
+                </button>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {memoryTab === "history" && (
+        <>
+          <FeedbackLine fb={memoryFb} />
+          {memoryLoading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+            </div>
+          ) : mergedHistoryMemoryView.length === 0 ? (
+            <p className="text-xs text-text-subtle">{t("noMemoriesStored")}</p>
+          ) : (
+            <>
+              <ul
+                className="space-y-2.5"
+                data-testid="memory-center-history-list"
+                aria-label={t("history")}
+              >
+                {mergedHistoryMemoryView.slice(0, memoryVisibleCount).map((row) => {
+                  if (row.source !== "registry") return null;
+                  const item = row.item;
+                  return (
+                    <li
+                      key={row.key}
+                      data-testid="memory-row-history"
+                      className="flex items-start gap-2 rounded-xl bg-background/42 px-4 py-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm leading-relaxed text-text-muted">{item.summary}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-text-subtle">
+                          <span
+                            className={
+                              item.memoryClass === "core"
+                                ? "rounded-md bg-accent/12 px-2 py-0.5 font-medium text-accent"
+                                : "rounded-md bg-surface-raised/55 px-2 py-0.5 font-medium text-text-subtle"
+                            }
+                          >
+                            {item.memoryClass === "core"
+                              ? t("memoryClassCore")
+                              : t("memoryClassContextual")}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={forgettingId === item.id}
+                          onClick={() => void handleForget(item.id)}
+                          className="cursor-pointer rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-raised/60 hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                          title={t("forget")}
+                          aria-label={t("forget")}
+                          data-testid={`forget-history-${item.id}`}
+                        >
+                          {forgettingId === item.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3 w-3" />
+                          )}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              {memoryVisibleCount < mergedHistoryMemoryView.length && (
+                <button
+                  type="button"
+                  onClick={() => setMemoryVisibleCount((count) => count + 5)}
+                  className="mt-3 w-full cursor-pointer rounded-xl border border-border/55 py-2.5 text-sm font-medium text-text-muted transition-colors hover:bg-surface-raised/55 hover:text-text"
+                >
+                  {t("loadMore")} ({mergedHistoryMemoryView.length - memoryVisibleCount})
+                </button>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
   const elevenLabsAdminVoices = voiceSettings?.elevenlabs?.admin?.voices ?? [];
   const elevenLabsPublicVoices =
     voiceSettings?.elevenlabs?.admin?.publicVoices ?? voiceSettings?.elevenlabs?.voices ?? [];
@@ -2746,6 +3069,7 @@ export function AssistantSettings({
     if (!token) return;
     setSaving(true);
     setSaveFb(null);
+    setSaveButtonState("idle");
     try {
       await patchAssistantDraft(token, {
         displayName: draftName || null,
@@ -2767,7 +3091,14 @@ export function AssistantSettings({
         archetypeKey: assistant?.draft.archetypeKey ?? null
       });
       await postAssistantPublish(token);
-      setSaveFb({ type: "ok", text: t("saved") });
+      setSaveButtonState("saved");
+      if (saveButtonResetTimerRef.current !== null) {
+        window.clearTimeout(saveButtonResetTimerRef.current);
+      }
+      saveButtonResetTimerRef.current = window.setTimeout(() => {
+        setSaveButtonState("idle");
+        saveButtonResetTimerRef.current = null;
+      }, 1800);
       data.reload();
     } catch (e) {
       setSaveFb({ type: "err", text: e instanceof Error ? e.message : t("saveFailed") });
@@ -3216,7 +3547,7 @@ export function AssistantSettings({
           className="order-1"
         >
           <div className="flex flex-col gap-3">
-            <div className="rounded-2xl border border-border/70 bg-surface p-4">
+            <div className="px-1 py-1">
               <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_14rem] lg:items-center">
                 <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                   <button
@@ -3279,11 +3610,18 @@ export function AssistantSettings({
                 </div>
                 <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-1">
                   <ActionButton
-                    icon={<Rocket className="h-3.5 w-3.5" />}
-                    label={t("save")}
+                    icon={
+                      saveButtonState === "saved" ? (
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      ) : (
+                        <Rocket className="h-3.5 w-3.5" />
+                      )
+                    }
+                    label={saveButtonState === "saved" ? t("saved") : t("save")}
                     onClick={() => void handleSaveAndApply()}
                     busy={saving}
                     variant="primary"
+                    pulse={saveButtonState === "saved"}
                     className="h-9 min-w-0 justify-center"
                   />
                   <ActionButton
@@ -3296,45 +3634,57 @@ export function AssistantSettings({
                 </div>
               </div>
               {avatarPickerOpen && (
-                <div className="mt-3 grid grid-cols-4 gap-1.5 rounded-[20px] border border-border/80 bg-surface/95 p-2 shadow-[0_14px_32px_rgba(0,0,0,0.16)] md:grid-cols-8 md:gap-2 md:p-2.5">
-                  {ASSISTANT_AVATAR_PRESETS.map((preset) => (
+                <div className="mt-3 overflow-x-auto pb-1">
+                  <div className="flex min-w-max items-center gap-2 pr-1">
+                    {ASSISTANT_AVATAR_PRESETS.map((preset, index) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => {
+                          setDraftAvatarUrl(preset.imagePath);
+                          setAvatarPickerOpen(false);
+                        }}
+                        className={cn(
+                          "animate-fade-in flex h-[68px] w-[68px] shrink-0 cursor-pointer items-center justify-center rounded-[18px] border-[0.5px] bg-surface-raised/72 p-[3px] transition-all duration-200",
+                          findAssistantAvatarPresetByUrl(draftAvatarUrl)?.id === preset.id
+                            ? "border-accent/60 bg-[linear-gradient(180deg,rgba(191,148,84,0.14),rgba(191,148,84,0.05))] shadow-[0_0_0_0.5px_rgba(191,148,84,0.22),0_10px_20px_rgba(0,0,0,0.12)]"
+                            : "border-border/35 hover:border-border/60 hover:bg-surface-hover/90 hover:shadow-[0_8px_18px_rgba(0,0,0,0.10)]"
+                        )}
+                        style={{
+                          animationDelay: `${index * 40}ms`,
+                          animationDuration: "280ms",
+                          animationFillMode: "both"
+                        }}
+                        aria-label={preset.label}
+                      >
+                        <img
+                          src={preset.imagePath}
+                          alt=""
+                          className="h-full w-full rounded-[14px] object-cover"
+                        />
+                      </button>
+                    ))}
                     <button
-                      key={preset.id}
                       type="button"
-                      onClick={() => {
-                        setDraftAvatarUrl(preset.imagePath);
-                        setAvatarPickerOpen(false);
-                      }}
+                      onClick={() => fileInputRef.current?.click()}
                       className={cn(
-                        "flex aspect-square min-w-0 cursor-pointer items-center justify-center rounded-[15px] border bg-surface-raised/85 p-1 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
-                        findAssistantAvatarPresetByUrl(draftAvatarUrl)?.id === preset.id
-                          ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.16),rgba(191,148,84,0.07))] ring-1 ring-accent/45 shadow-[0_0_0_1px_rgba(191,148,84,0.18),0_12px_24px_rgba(0,0,0,0.18)]"
-                          : "border-border/70 hover:border-border-strong hover:bg-surface-hover hover:shadow-[0_10px_22px_rgba(0,0,0,0.16)]"
+                        "animate-fade-in flex h-[68px] w-[68px] shrink-0 cursor-pointer items-center justify-center rounded-[18px] border-[0.5px] border-dashed bg-surface-raised/60 p-[3px] text-text-subtle transition-all duration-200",
+                        draftAvatarUrl && findAssistantAvatarPresetByUrl(draftAvatarUrl) === null
+                          ? "border-accent/60 bg-[linear-gradient(180deg,rgba(191,148,84,0.14),rgba(191,148,84,0.05))] shadow-[0_0_0_0.5px_rgba(191,148,84,0.22),0_10px_20px_rgba(0,0,0,0.12)]"
+                          : "border-border/45 hover:border-border/65 hover:bg-surface-hover/85 hover:shadow-[0_8px_18px_rgba(0,0,0,0.10)]"
                       )}
-                      aria-label={preset.label}
+                      style={{
+                        animationDelay: `${ASSISTANT_AVATAR_PRESETS.length * 40}ms`,
+                        animationDuration: "280ms",
+                        animationFillMode: "both"
+                      }}
+                      title={t("uploadImage")}
                     >
-                      <img
-                        src={preset.imagePath}
-                        alt=""
-                        className="h-full w-full rounded-[11px] object-cover"
-                      />
+                      <div className="flex h-8 w-8 items-center justify-center rounded-[12px] border-[0.5px] border-border/55 bg-surface/80 text-text-subtle md:h-7 md:w-7">
+                        <Upload className="h-4 w-4" />
+                      </div>
                     </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className={cn(
-                      "flex aspect-square min-w-0 cursor-pointer items-center justify-center rounded-[15px] border border-dashed bg-surface-raised/70 p-1 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
-                      draftAvatarUrl && findAssistantAvatarPresetByUrl(draftAvatarUrl) === null
-                        ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.16),rgba(191,148,84,0.07))] shadow-[0_0_0_1px_rgba(191,148,84,0.18),0_12px_24px_rgba(0,0,0,0.18)]"
-                        : "border-border-strong text-text-subtle hover:bg-surface-hover hover:shadow-[0_10px_22px_rgba(0,0,0,0.16)]"
-                    )}
-                    title={t("uploadImage")}
-                  >
-                    <div className="flex h-8 w-8 items-center justify-center rounded-[12px] border border-border/70 bg-surface text-text-subtle md:h-7 md:w-7">
-                      <Upload className="h-4 w-4" />
-                    </div>
-                  </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -3366,10 +3716,10 @@ export function AssistantSettings({
               })();
             }}
           />
-          <FeedbackLine fb={saveFb} />
+          <FeedbackLine fb={saveFb?.type === "err" ? saveFb : null} />
 
           {editingPersonality && (
-            <div className="mt-4 rounded-2xl border border-border/70 bg-surface px-5 py-5">
+            <div className="mt-4 border-t border-border/45 px-1 pt-4">
               <div>
                 <p className="text-sm font-medium text-text">{t("behaviorTitle")}</p>
                 <p className="mt-1 text-xs leading-relaxed text-text-muted">{t("behaviorHelp")}</p>
@@ -3377,32 +3727,24 @@ export function AssistantSettings({
                   value={draftInstructions}
                   onChange={(e) => setDraftInstructions(e.target.value)}
                   placeholder={t("behaviorPlaceholder")}
-                  rows={8}
-                  className="mt-3 min-h-[240px] w-full resize-y rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                  rows={5}
+                  className="mt-3 min-h-[144px] w-full resize-y rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
                 />
               </div>
 
               <div className="mt-5 border-t border-border/70 pt-5">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
+                <p className="mb-2 block text-sm font-medium text-text">
                   {t("assistantGenderLabel")}
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {ASSISTANT_GENDER_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setDraftAssistantGender(opt.value)}
-                      className={cn(
-                        "min-h-[40px] min-w-[120px] rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
-                        draftAssistantGender === opt.value
-                          ? "border-accent bg-accent/10 text-accent"
-                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
-                      )}
-                    >
-                      {tp(opt.labelKey)}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedChoice
+                  options={ASSISTANT_GENDER_OPTIONS.map((opt) => ({
+                    value: opt.value,
+                    label: tp(opt.labelKey)
+                  }))}
+                  value={draftAssistantGender ?? "neutral"}
+                  onChange={(value) => setDraftAssistantGender(value as AssistantGender)}
+                  className="grid-cols-3"
+                />
               </div>
 
               <div className="mt-4">
@@ -3596,28 +3938,39 @@ export function AssistantSettings({
               </div>
 
               <div className="mt-5 border-t border-border/70 pt-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-text">{t("traitControlsTitle")}</p>
-                    <p className="mt-1 text-xs text-text-muted">{t("traitControlsHelp")}</p>
-                  </div>
-                  <button
-                    type="button"
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="mr-1 text-sm font-medium text-text">{t("quickActions")}</p>
+                  <ActionButton
+                    icon={<Brain className="h-3.5 w-3.5" />}
+                    label={t("memory")}
+                    onClick={() => setMemoryDrawerOpen(true)}
+                    busy={false}
+                    className="rounded-full px-4"
+                  />
+                  <ActionButton
+                    icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
+                    label={showTraitControls ? t("hideTraitControls") : t("showTraitControls")}
                     onClick={() => setShowTraitControls((open) => !open)}
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface-raised px-3 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                  >
-                    <SlidersHorizontal className="h-3.5 w-3.5" />
-                    {showTraitControls ? t("hideTraitControls") : t("showTraitControls")}
-                  </button>
+                    busy={false}
+                    className="rounded-full px-4"
+                  />
+                  <ActionButton
+                    icon={<Trash2 className="h-3.5 w-3.5" />}
+                    label={t("reset")}
+                    onClick={() => setResetConfirmOpen(true)}
+                    busy={false}
+                    variant="danger"
+                    className="rounded-full px-4"
+                  />
                 </div>
 
                 {showTraitControls && (
-                  <div className="mt-4 divide-y divide-border/60 rounded-xl border border-border/70 bg-surface-raised px-4">
+                  <div className="mt-4 divide-y divide-border/60">
                     {TRAIT_SLIDERS.map(({ key, labelLeftKey, labelRightKey }) => (
                       <div key={key} className="py-3">
                         <div className="mb-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-[11px]">
                           <span className="truncate text-text-muted">{tp(labelLeftKey)}</span>
-                          <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] text-text-subtle">
+                          <span className="rounded-full bg-surface-raised/40 px-2 py-0.5 text-[10px] text-text-subtle">
                             {draftTraits[key] ?? 50}
                           </span>
                           <span className="truncate text-right text-text-muted">
@@ -3640,53 +3993,7 @@ export function AssistantSettings({
                   </div>
                 )}
               </div>
-
-              <div className="mt-5 border-t border-border/70 pt-5">
-                <div className="rounded-2xl border border-destructive/15 bg-destructive/5 px-4 py-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-text">{t("reset")}</p>
-                      <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                        {t("resetScopeWarning")}
-                      </p>
-                    </div>
-                    {!resetConfirm ? (
-                      <button
-                        type="button"
-                        onClick={() => setResetConfirm(true)}
-                        className="inline-flex min-h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl border border-destructive/20 bg-background/40 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        {t("reset")}
-                      </button>
-                    ) : (
-                      <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleReset()}
-                          disabled={resetting}
-                          className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:cursor-wait disabled:opacity-70"
-                        >
-                          {resetting ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <AlertTriangle className="h-4 w-4" />
-                          )}
-                          {t("confirmReset")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setResetConfirm(false)}
-                          className="inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-border bg-surface-raised px-4 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                        >
-                          {t("cancel")}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <FeedbackLine fb={resetFb} />
-                </div>
-              </div>
+              <FeedbackLine fb={resetFb} />
             </div>
           )}
         </Section>
@@ -3701,20 +4008,7 @@ export function AssistantSettings({
           }
           className="order-6"
         >
-          <div className="rounded-2xl border border-border/70 bg-surface p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-text">{t("knowledgeTitle")}</p>
-                <p className="mt-1 text-xs text-text-muted">{t("knowledgeDescription")}</p>
-              </div>
-              <ActionButton
-                icon={<Upload className="h-3.5 w-3.5" />}
-                label={t("knowledgeManage")}
-                onClick={() => setKnowledgeManagerOpen(true)}
-                busy={false}
-              />
-            </div>
-          </div>
+          <AssistantKnowledgeManager getToken={getToken} mode="inline" />
         </Section>
 
         {/* 4. Files */}
@@ -3749,311 +4043,107 @@ export function AssistantSettings({
           {skillsFb?.type === "ok" ? <FeedbackLine fb={skillsFb} /> : null}
         </Section>
 
-        {/* 6. Memory */}
-        <Section
-          icon={<Brain className="h-4 w-4" />}
-          title={t("memory")}
-          open={openSection === "memory"}
-          onToggle={() => setOpenSection((current) => (current === "memory" ? null : "memory"))}
-          className="order-5"
-        >
-          {/* ADR-074 Slice M3.3 — UX merge:
-              - "Workspace" tab = curated structured memory: every
-                workspace_memory_items row + every registry row whose
-                kind ∈ {fact, preference, open_loop}, deduplicated by
-                normalized text (registry rows win collisions because
-                they carry kind/memoryClass/resolvedAt + close/forget
-                buttons; the workspace echo is dropped on collision).
-              - "History" tab = turn-derived echoes: registry rows where
-                kind === null. No "Mark as closed" buttons here. */}
-          <div className="mb-3 flex gap-1 rounded-lg bg-surface p-0.5">
-            {(["workspace", "history"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setMemoryTab(tab)}
-                className={cn(
-                  "flex-1 cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                  memoryTab === tab
-                    ? "bg-surface-raised text-text shadow-sm"
-                    : "text-text-muted hover:text-text"
-                )}
+        {memoryDrawerOpen && typeof document !== "undefined"
+          ? createPortal(
+              <div
+                className="fixed inset-0 z-[130] flex justify-end bg-black/40 backdrop-blur-sm"
+                onClick={() => setMemoryDrawerOpen(false)}
+                role="dialog"
+                aria-modal="true"
+                aria-label={t("memory")}
               >
-                {tab === "workspace" ? t("workspace") : t("history")}
-              </button>
-            ))}
-          </div>
-
-          {memoryTab === "workspace" && (
-            <>
-              <div className="flex gap-2 mb-3">
-                <input
-                  type="text"
-                  value={wsMemorySearch}
-                  onChange={(e) => setWsMemorySearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void loadWsMemory(wsMemorySearch || undefined);
-                  }}
-                  placeholder={t("searchMemories")}
-                  className="min-w-0 flex-1 rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-xs text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-                />
-                <button
-                  type="button"
-                  onClick={() => void loadWsMemory(wsMemorySearch || undefined)}
-                  className="shrink-0 cursor-pointer rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
+                <div
+                  className="h-full w-full max-w-2xl overflow-y-auto border-l border-border/70 bg-[color:var(--surface)] shadow-2xl"
+                  onClick={(event) => event.stopPropagation()}
                 >
-                  {t("search")}
-                </button>
-              </div>
-
-              <div className="flex gap-2 mb-3">
-                <input
-                  type="text"
-                  value={wsNewMemory}
-                  onChange={(e) => setWsNewMemory(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void handleAddWsMemory();
-                  }}
-                  placeholder={t("teachNew")}
-                  className="min-w-0 flex-1 rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-xs text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-                />
-                <button
-                  type="button"
-                  disabled={wsMemoryAdding || !wsNewMemory.trim()}
-                  onClick={() => void handleAddWsMemory()}
-                  className="shrink-0 cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50 transition-colors"
-                >
-                  {wsMemoryAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : t("add")}
-                </button>
-              </div>
-
-              <FeedbackLine fb={wsMemoryFb} />
-              <FeedbackLine fb={memoryFb} />
-
-              {wsMemoryLoading || memoryLoading ? (
-                <div className="flex justify-center py-4">
-                  <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+                  <div className="sticky top-0 z-10 border-b border-border/70 bg-[color:var(--surface)]/95 px-5 py-4 backdrop-blur">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-xl font-semibold tracking-[-0.02em] text-text">
+                          {t("memory")}
+                        </h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setMemoryDrawerOpen(false)}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/80 bg-surface-raised/60 text-text-muted transition-colors hover:text-text"
+                        aria-label={t("closeBillingSettings")}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="px-5 py-5">{memoryPanel}</div>
                 </div>
-              ) : mergedWorkspaceMemoryView.length === 0 ? (
-                <p className="text-xs text-text-subtle">{t("noWorkspaceMemories")}</p>
-              ) : (
-                <>
-                  <ul
-                    className="space-y-2"
-                    data-testid="memory-center-workspace-list"
-                    aria-label={t("workspace")}
-                  >
-                    {mergedWorkspaceMemoryView.slice(0, wsMemoryVisibleCount).map((row) => {
-                      const { memoryClass, kind } = row.item;
-                      const resolvedAt =
-                        row.source === "registry"
-                          ? row.item.resolvedAt
-                          : (row.item.resolvedAt ?? null);
-                      return (
-                        <li
-                          key={row.key}
-                          data-testid={`memory-row-${row.source}`}
-                          className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs leading-relaxed text-text-muted whitespace-pre-wrap">
-                              {row.source === "registry" ? row.item.summary : row.item.content}
-                            </p>
-                            {memoryClass !== undefined && (
-                              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
-                                <span
-                                  className={
-                                    memoryClass === "core"
-                                      ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
-                                      : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
-                                  }
-                                >
-                                  {memoryClass === "core"
-                                    ? t("memoryClassCore")
-                                    : t("memoryClassContextual")}
-                                </span>
-                                {/* ADR-074 Slice M3.3 — strict per-kind badges.
-                                  Workspace rows can now arrive with the same
-                                  metadata as registry rows, so render badges
-                                  from either source while keeping actions
-                                  source-specific. */}
-                                {kind === "fact" && (
-                                  <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
-                                    {t("memoryKindFact")}
-                                  </span>
-                                )}
-                                {kind === "preference" && (
-                                  <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
-                                    {t("memoryKindPreference")}
-                                  </span>
-                                )}
-                                {kind === "open_loop" && (
-                                  <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
-                                    {t("memoryKindOpenLoop")}
-                                  </span>
-                                )}
-                                {resolvedAt !== null && (
-                                  <span className="rounded bg-success/15 px-1.5 py-0.5 font-medium text-success">
-                                    {t("memoryResolved")}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1">
-                            {kind === "open_loop" && resolvedAt === null && (
-                              <button
-                                type="button"
-                                disabled={closingOpenLoopId === row.item.id}
-                                onClick={() => void handleCloseOpenLoop(row.item.id)}
-                                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-default disabled:opacity-50"
-                                title={t("markAsClosed")}
-                                aria-label={t("markAsClosed")}
-                                data-testid={`close-open-loop-${row.item.id}`}
-                              >
-                                {closingOpenLoopId === row.item.id ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <CheckCircle2 className="h-3 w-3" />
-                                )}
-                              </button>
-                            )}
-                            {row.source === "registry" ? (
-                              <button
-                                type="button"
-                                disabled={forgettingId === row.item.id}
-                                onClick={() => void handleForget(row.item.id)}
-                                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                                title={t("forget")}
-                                aria-label={t("forget")}
-                                data-testid={`forget-registry-${row.item.id}`}
-                              >
-                                {forgettingId === row.item.id ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-3 w-3" />
-                                )}
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={wsForgettingId === row.item.id}
-                                onClick={() => void handleForgetWsMemory(row.item.id)}
-                                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                                title={t("forget")}
-                                aria-label={t("forget")}
-                                data-testid={`forget-workspace-${row.item.id}`}
-                              >
-                                {wsForgettingId === row.item.id ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-3 w-3" />
-                                )}
-                              </button>
-                            )}
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  {wsMemoryVisibleCount < mergedWorkspaceMemoryView.length && (
+              </div>,
+              document.body
+            )
+          : null}
+
+        {resetConfirmOpen && typeof document !== "undefined"
+          ? createPortal(
+              <div
+                className="fixed inset-0 z-[140] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
+                onClick={() => {
+                  if (!resetting) {
+                    setResetConfirmOpen(false);
+                  }
+                }}
+                role="dialog"
+                aria-modal="true"
+                aria-label={t("reset")}
+              >
+                <div
+                  className="w-full max-w-md rounded-2xl border border-border/80 bg-[color:var(--surface)] p-5 shadow-2xl"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 rounded-full bg-destructive/10 p-2 text-destructive">
+                      {resetting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-base font-semibold text-text">{t("reset")}</h3>
+                      <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                        {t("resetScopeWarning")}
+                      </p>
+                      <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                        {t("resetClearing")}
+                      </p>
+                    </div>
+                  </div>
+                  <FeedbackLine fb={resetFb} />
+                  <div className="mt-5 flex justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => setWsMemoryVisibleCount((count) => count + 5)}
-                      className="mt-3 w-full cursor-pointer rounded-lg border border-border py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
+                      disabled={resetting}
+                      onClick={() => setResetConfirmOpen(false)}
+                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-border bg-surface-raised px-4 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-50"
                     >
-                      {t("loadMore")} ({mergedWorkspaceMemoryView.length - wsMemoryVisibleCount})
+                      {t("cancel")}
                     </button>
-                  )}
-                </>
-              )}
-            </>
-          )}
-
-          {memoryTab === "history" && (
-            <>
-              <FeedbackLine fb={memoryFb} />
-              {memoryLoading ? (
-                <div className="flex justify-center py-4">
-                  <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
-                </div>
-              ) : mergedHistoryMemoryView.length === 0 ? (
-                <p className="text-xs text-text-subtle">{t("noMemoriesStored")}</p>
-              ) : (
-                <>
-                  <ul
-                    className="space-y-2"
-                    data-testid="memory-center-history-list"
-                    aria-label={t("history")}
-                  >
-                    {mergedHistoryMemoryView.slice(0, memoryVisibleCount).map((row) => {
-                      if (row.source !== "registry") return null;
-                      const item = row.item;
-                      return (
-                        <li
-                          key={row.key}
-                          data-testid="memory-row-history"
-                          className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs leading-relaxed text-text-muted">
-                              {item.summary}
-                            </p>
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
-                              <span
-                                className={
-                                  item.memoryClass === "core"
-                                    ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
-                                    : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
-                                }
-                              >
-                                {item.memoryClass === "core"
-                                  ? t("memoryClassCore")
-                                  : t("memoryClassContextual")}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <button
-                              type="button"
-                              disabled={forgettingId === item.id}
-                              onClick={() => void handleForget(item.id)}
-                              className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                              title={t("forget")}
-                              aria-label={t("forget")}
-                              data-testid={`forget-history-${item.id}`}
-                            >
-                              {forgettingId === item.id ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-3 w-3" />
-                              )}
-                            </button>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  {memoryVisibleCount < mergedHistoryMemoryView.length && (
                     <button
                       type="button"
-                      onClick={() => setMemoryVisibleCount((count) => count + 5)}
-                      className="mt-3 w-full cursor-pointer rounded-lg border border-border py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
+                      disabled={resetting}
+                      onClick={() => void handleReset()}
+                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:cursor-wait disabled:opacity-70"
                     >
-                      {t("loadMore")} ({mergedHistoryMemoryView.length - memoryVisibleCount})
+                      {resetting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4" />
+                      )}
+                      {t("confirmReset")}
                     </button>
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </Section>
-
-        <AssistantKnowledgeManager
-          getToken={getToken}
-          open={knowledgeManagerOpen}
-          onClose={() => setKnowledgeManagerOpen(false)}
-        />
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )
+          : null}
 
         {/* 4. Tasks */}
         <Section
@@ -4070,7 +4160,7 @@ export function AssistantSettings({
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3.5">
+              <div className="rounded-xl bg-surface-raised/[0.18] p-3.5">
                 <button
                   type="button"
                   onClick={() => setShowUserTasks((open) => !open)}
@@ -4080,7 +4170,7 @@ export function AssistantSettings({
                     <p className="text-sm font-medium text-text">{t("userTasksTitle")}</p>
                     <p className="mt-1 text-[11px] text-text-subtle">{t("userTasksHelp")}</p>
                   </div>
-                  <span className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-background px-2.5 text-sm font-bold tabular-nums text-text">
+                  <span className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-background/70 px-2.5 text-sm font-semibold tabular-nums text-text">
                     {userTaskItems.length}
                   </span>
                 </button>
@@ -4137,7 +4227,7 @@ export function AssistantSettings({
                 )}
               </div>
 
-              <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3.5">
+              <div className="rounded-xl bg-surface-raised/[0.18] p-3.5">
                 <button
                   type="button"
                   onClick={() => setShowAssistantActions((open) => !open)}
@@ -4149,117 +4239,185 @@ export function AssistantSettings({
                       {t("assistantActionsDescription")}
                     </p>
                   </div>
-                  <span className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-background px-2.5 text-sm font-bold tabular-nums text-text">
+                  <span className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-background/70 px-2.5 text-sm font-semibold tabular-nums text-text">
                     {assistantTaskItems.length}
                   </span>
                 </button>
 
                 {showAssistantActions && (
                   <>
-                    {assistantTaskItems.length === 0 ? (
-                      <p className="mt-3 text-xs text-text-subtle">{t("noAssistantActions")}</p>
-                    ) : (
-                      <ul className="mt-3 space-y-2.5">
-                        {assistantTaskItems.map((item) => {
-                          const recentRuns = item.recentRuns.slice(0, 5);
-                          const completed = item.status === "completed";
-                          return (
-                            <li
-                              key={item.id}
-                              className={cn(
-                                completed
-                                  ? "p-0"
-                                  : "rounded-xl border border-border/70 bg-background/70 p-3 shadow-sm"
-                              )}
-                            >
-                              {!completed && (
-                                <>
-                                  <div className="flex flex-wrap items-start gap-2">
-                                    <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-text">
-                                      {item.title}
-                                    </span>
-                                    <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
-                                      {t("assistantAction")}
-                                    </span>
-                                    <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
-                                      {getBackgroundTaskStatusLabel(item.status)}
-                                    </span>
-                                  </div>
-                                  <p className="mt-1.5 text-[11px] text-text-subtle">
-                                    {getBackgroundTaskTimingLabel(item)}
-                                  </p>
-                                  <p className="mt-2 text-xs leading-relaxed text-text-muted">
-                                    {item.brief}
-                                  </p>
-                                </>
-                              )}
-                              {recentRuns.length > 0 && (
-                                <div
-                                  className={cn(
-                                    "rounded-lg border border-border/60 bg-surface-raised/40 p-2.5",
-                                    completed ? "mt-0" : "mt-3"
-                                  )}
-                                >
-                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
-                                    {t("runHistory")}
-                                  </p>
-                                  <ul className="mt-1.5 space-y-1">
-                                    {recentRuns.map((run) => (
-                                      <li key={run.id} className="text-[11px] text-text-subtle">
-                                        {formatBackgroundRunLine(run)}
-                                        {run.pushText && (
-                                          <span className="mt-0.5 block text-text-muted">
-                                            {run.pushText}
-                                          </span>
+                    {(() => {
+                      const activeAssistantActions = backgroundTaskItems.filter(
+                        (item) => item.status !== "completed"
+                      );
+                      const completedAssistantActions = backgroundTaskItems.filter(
+                        (item) => item.status === "completed"
+                      );
+
+                      if (backgroundTaskItems.length === 0) {
+                        return (
+                          <p className="mt-3 text-xs text-text-subtle">{t("noAssistantActions")}</p>
+                        );
+                      }
+
+                      return (
+                        <>
+                          {activeAssistantActions.length > 0 ? (
+                            <ul className="mt-3 space-y-2.5">
+                              {activeAssistantActions.map((item) => {
+                                const recentRuns = item.recentRuns.slice(0, 5);
+                                return (
+                                  <li
+                                    key={item.id}
+                                    className="rounded-xl border border-border/55 bg-background/55 p-3 shadow-sm"
+                                  >
+                                    <div className="flex flex-wrap items-start gap-2">
+                                      <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-text">
+                                        {item.title}
+                                      </span>
+                                      <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
+                                        {t("assistantAction")}
+                                      </span>
+                                      <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
+                                        {getBackgroundTaskStatusLabel(item.status)}
+                                      </span>
+                                    </div>
+                                    <p className="mt-1.5 text-[11px] text-text-subtle">
+                                      {getBackgroundTaskTimingLabel(item)}
+                                    </p>
+                                    <p className="mt-2 text-xs leading-relaxed text-text-muted">
+                                      {item.brief}
+                                    </p>
+                                    {recentRuns.length > 0 && (
+                                      <div className="mt-3 rounded-lg bg-surface-raised/30 p-2.5">
+                                        <p className="text-[10px] font-medium text-text-subtle">
+                                          {t("runHistory")}
+                                        </p>
+                                        <ul className="mt-1.5 space-y-1">
+                                          {recentRuns.map((run) => (
+                                            <li
+                                              key={run.id}
+                                              className="text-[11px] text-text-subtle"
+                                            >
+                                              {formatBackgroundRunLine(run)}
+                                              {run.pushText && (
+                                                <span className="mt-0.5 block text-text-muted">
+                                                  {run.pushText}
+                                                </span>
+                                              )}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-3">
+                                      <div className="flex gap-1.5">
+                                        {item.status === "active" && (
+                                          <ActionButton
+                                            icon={<RotateCcw className="h-3 w-3" />}
+                                            label={t("disable")}
+                                            onClick={() =>
+                                              void handleBackgroundTaskAction(item.id, "disable")
+                                            }
+                                            busy={taskActionId === item.id}
+                                            className="px-2.5 py-1.5"
+                                          />
                                         )}
+                                        {item.status === "disabled" && (
+                                          <ActionButton
+                                            icon={<RotateCcw className="h-3 w-3" />}
+                                            label={t("enable")}
+                                            onClick={() =>
+                                              void handleBackgroundTaskAction(item.id, "enable")
+                                            }
+                                            busy={taskActionId === item.id}
+                                            className="px-2.5 py-1.5"
+                                          />
+                                        )}
+                                        <ActionButton
+                                          icon={<Trash2 className="h-3 w-3" />}
+                                          label={t("cancel")}
+                                          variant="danger"
+                                          onClick={() =>
+                                            void handleBackgroundTaskAction(item.id, "cancel")
+                                          }
+                                          busy={taskActionId === item.id}
+                                          className="px-2.5 py-1.5"
+                                        />
+                                      </div>
+                                    </div>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          ) : (
+                            <p className="mt-3 text-xs text-text-subtle">
+                              {t("noAssistantActions")}
+                            </p>
+                          )}
+
+                          {completedAssistantActions.length > 0 ? (
+                            <div className="mt-3">
+                              <button
+                                type="button"
+                                onClick={() => setShowCompletedAssistantActions((open) => !open)}
+                                className="text-xs font-medium text-text-muted transition-colors hover:text-text"
+                              >
+                                {showCompletedAssistantActions
+                                  ? t("assistantActionsHideCompleted")
+                                  : t("assistantActionsShowCompleted", {
+                                      count: completedAssistantActions.length
+                                    })}
+                              </button>
+                              {showCompletedAssistantActions ? (
+                                <ul className="mt-2 space-y-2">
+                                  {completedAssistantActions.map((item) => {
+                                    const recentRuns = item.recentRuns.slice(0, 5);
+                                    return (
+                                      <li
+                                        key={item.id}
+                                        className="rounded-xl bg-background/40 px-3 py-2.5"
+                                      >
+                                        <div className="flex flex-wrap items-start gap-2">
+                                          <span className="min-w-0 flex-1 text-sm font-medium leading-snug text-text">
+                                            {item.title}
+                                          </span>
+                                          <span className="shrink-0 rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-medium text-text-subtle">
+                                            {getBackgroundTaskStatusLabel(item.status)}
+                                          </span>
+                                        </div>
+                                        {recentRuns.length > 0 ? (
+                                          <div className="mt-2 rounded-lg bg-surface-raised/20 p-2">
+                                            <p className="text-[10px] font-medium text-text-subtle">
+                                              {t("runHistory")}
+                                            </p>
+                                            <ul className="mt-1 space-y-1">
+                                              {recentRuns.map((run) => (
+                                                <li
+                                                  key={run.id}
+                                                  className="text-[11px] text-text-subtle"
+                                                >
+                                                  {formatBackgroundRunLine(run)}
+                                                  {run.pushText ? (
+                                                    <span className="mt-0.5 block text-text-muted">
+                                                      {run.pushText}
+                                                    </span>
+                                                  ) : null}
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          </div>
+                                        ) : null}
                                       </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {!completed && (
-                                <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-3">
-                                  <div className="flex gap-1.5">
-                                    {item.status === "active" && (
-                                      <ActionButton
-                                        icon={<RotateCcw className="h-3 w-3" />}
-                                        label={t("disable")}
-                                        onClick={() =>
-                                          void handleBackgroundTaskAction(item.id, "disable")
-                                        }
-                                        busy={taskActionId === item.id}
-                                        className="px-2.5 py-1.5"
-                                      />
-                                    )}
-                                    {item.status === "disabled" && (
-                                      <ActionButton
-                                        icon={<RotateCcw className="h-3 w-3" />}
-                                        label={t("enable")}
-                                        onClick={() =>
-                                          void handleBackgroundTaskAction(item.id, "enable")
-                                        }
-                                        busy={taskActionId === item.id}
-                                        className="px-2.5 py-1.5"
-                                      />
-                                    )}
-                                    <ActionButton
-                                      icon={<Trash2 className="h-3 w-3" />}
-                                      label={t("cancel")}
-                                      variant="danger"
-                                      onClick={() =>
-                                        void handleBackgroundTaskAction(item.id, "cancel")
-                                      }
-                                      busy={taskActionId === item.id}
-                                      className="px-2.5 py-1.5"
-                                    />
-                                  </div>
-                                </div>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
+                                    );
+                                  })}
+                                </ul>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                   </>
                 )}
               </div>
@@ -4275,7 +4433,7 @@ export function AssistantSettings({
           onToggle={() => setOpenSection((current) => (current === "channels" ? null : "channels"))}
           className="order-8"
         >
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <ChannelRow
               name="Telegram"
               connected={
@@ -4287,7 +4445,7 @@ export function AssistantSettings({
             <ChannelRow name="WhatsApp" comingSoon />
             <ChannelRow name="MAX" comingSoon />
           </div>
-          <div className="mt-4 rounded-xl border border-border bg-surface-raised/60 p-3">
+          <div className="mt-4 border-t border-border/45 pt-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-medium text-text">{t("reminderDelivery")}</p>
@@ -4306,8 +4464,8 @@ export function AssistantSettings({
                     className={cn(
                       "rounded-full border px-3 py-1.5 text-xs transition-colors disabled:opacity-50",
                       active
-                        ? "border-accent bg-accent/10 text-accent"
-                        : "border-border bg-background text-text-muted hover:bg-surface-hover"
+                        ? "border-accent/45 bg-accent/10 text-accent"
+                        : "border-border/50 bg-background/45 text-text-muted hover:bg-surface-hover"
                     )}
                   >
                     {t(
@@ -4501,13 +4659,13 @@ export function AssistantSettings({
             </div>
 
             {talkingVideoEnabled ? (
-              <div className="rounded-2xl border border-border/60 bg-surface/60 p-2.5">
+              <div className="border-t border-border/45 pt-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <button
                     type="button"
                     aria-expanded={clonedVoicesExpanded}
                     onClick={() => setClonedVoicesExpanded((open) => !open)}
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-surface-raised/40"
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-1 py-1.5 text-left transition-colors hover:bg-surface-raised/30"
                   >
                     <ChevronRight
                       className={cn(
@@ -4525,7 +4683,7 @@ export function AssistantSettings({
                         })}
                       </p>
                     </div>
-                    <span className="shrink-0 rounded-full border border-border/60 bg-surface px-2 py-0.5 text-[10px] font-medium text-text-subtle">
+                    <span className="shrink-0 rounded-full border border-border/45 bg-background/55 px-2 py-0.5 text-[10px] font-medium text-text-subtle">
                       {clonedVoiceList.length}/{clonedVoiceLimit}
                     </span>
                   </button>
@@ -4543,7 +4701,7 @@ export function AssistantSettings({
                       "inline-flex min-h-8 shrink-0 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3 text-[11px] font-medium text-text transition-all",
                       clonedVoiceCreateDisabledReason !== null
                         ? "cursor-not-allowed opacity-60"
-                        : "hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
+                        : "hover:border-accent/35 hover:bg-accent/14"
                     )}
                   >
                     {t("voicesCreate")}
@@ -4561,7 +4719,7 @@ export function AssistantSettings({
                     ) : clonedVoiceList.length === 0 ? (
                       <p className="mt-3 text-xs text-text-subtle">{t("voicesEmpty")}</p>
                     ) : (
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div className="mt-3 divide-y divide-border/45">
                         {clonedVoiceList.map((voice) => {
                           const busy = clonedVoiceSubmittingId === voice.id;
                           const statusLabel =
@@ -5485,7 +5643,7 @@ export function AssistantSettings({
         >
           {data.plan ? (
             <div className="space-y-3">
-              <div className="rounded-xl border border-border/80 bg-surface-raised/40 p-3.5">
+              <div className="px-1 py-1">
                 <div>
                   <div className="flex items-center justify-between gap-3">
                     <p className="truncate text-xl font-semibold tracking-[-0.02em] text-text">
@@ -5588,11 +5746,11 @@ export function AssistantSettings({
                   </div>
                 ) : null}
               </div>
-              <div className="rounded-lg border border-border/80 bg-surface-raised/40">
+              <div className="border-t border-border/45 pt-3">
                 <button
                   type="button"
                   onClick={() => setToolLimitsExpanded((value) => !value)}
-                  className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left"
+                  className="group flex w-full cursor-pointer items-center gap-3 rounded-xl px-2 py-3 text-left transition-colors hover:bg-surface-hover/40"
                   aria-expanded={toolLimitsExpanded}
                 >
                   <div className="min-w-0 flex-1">
@@ -5601,15 +5759,17 @@ export function AssistantSettings({
                       {t("toolLimitsCount", { count: activeToolCount })}
                     </p>
                   </div>
-                  <ChevronRight
-                    className={cn(
-                      "h-4 w-4 shrink-0 text-text-subtle transition-transform",
-                      toolLimitsExpanded && "rotate-90"
-                    )}
-                  />
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 bg-surface-raised/50 text-text-subtle transition-all group-hover:border-border/70 group-hover:bg-surface-raised/80 group-hover:text-text">
+                    <ChevronRight
+                      className={cn(
+                        "h-4 w-4 transition-transform",
+                        toolLimitsExpanded && "rotate-90"
+                      )}
+                    />
+                  </span>
                 </button>
                 {toolLimitsExpanded && (
-                  <div className="border-t border-border/80 px-3 py-3">
+                  <div className="mt-1 border-t border-border/45 px-2 py-3">
                     {documentMonthlyCard !== null || compactQuotaBuckets.length > 0 ? (
                       <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                         {documentMonthlyCard !== null ? (
@@ -5971,26 +6131,24 @@ function LimitMetricCard({
     toolCode === "image_edit"
       ? {
           icon: ImageIcon,
-          className:
-            "right-7 top-1/2 h-14 w-14 -translate-y-[54%] rotate-[-12deg] sm:right-6 sm:top-[3.3rem] sm:h-16 sm:w-16 sm:translate-y-0"
+          className: "right-7 top-6 h-14 w-14 rotate-[-12deg] sm:right-6 sm:top-7 sm:h-16 sm:w-16"
         }
       : toolCode === "image_generate"
         ? {
             icon: Sparkles,
-            className:
-              "right-8 top-1/2 h-12 w-12 -translate-y-[52%] rotate-[8deg] sm:right-7 sm:top-[3.2rem] sm:h-14 sm:w-14 sm:translate-y-0"
+            className: "right-8 top-6 h-12 w-12 rotate-[8deg] sm:right-7 sm:top-7 sm:h-14 sm:w-14"
           }
         : toolCode === "video_generate"
           ? {
               icon: Clapperboard,
               className:
-                "right-6 top-1/2 h-14 w-14 -translate-y-[54%] rotate-[-8deg] sm:right-5 sm:top-[3.15rem] sm:h-16 sm:w-16 sm:translate-y-0"
+                "right-6 top-6 h-14 w-14 rotate-[-8deg] sm:right-5 sm:top-7 sm:h-16 sm:w-16"
             }
           : toolCode === "document"
             ? {
                 icon: Files,
                 className:
-                  "right-6 top-1/2 h-14 w-14 -translate-y-[54%] rotate-[-7deg] sm:right-5 sm:top-[3.2rem] sm:h-16 sm:w-16 sm:translate-y-0"
+                  "right-6 top-6 h-14 w-14 rotate-[-7deg] sm:right-5 sm:top-7 sm:h-16 sm:w-16"
               }
             : null;
   const WatermarkIcon = watermark?.icon ?? null;
@@ -6091,22 +6249,17 @@ function ToolLimitRow({
       : tool.active
         ? t("toolStatusEnabled")
         : t("toolStatusDisabled");
-  const hint = !tool.active
-    ? t("toolLimitDisabled")
-    : tool.dailyCallLimit === null
-      ? t("toolLimitUnlimited")
-      : t("toolLimitPerDay", { count: tool.dailyCallLimit });
 
   return (
     <li
       className={cn(
-        "flex items-start gap-3 rounded-xl border border-border/70 px-3 py-2.5",
+        "flex items-center gap-3 rounded-xl border border-border/70 px-3 py-3",
         tool.active ? "bg-surface/70" : "bg-surface/30"
       )}
     >
       <span
         className={cn(
-          "mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+          "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
           !tool.active
             ? "bg-text-subtle/50"
             : tool.dailyCallLimit !== null && tool.dailyCallsUsed >= tool.dailyCallLimit
@@ -6114,14 +6267,11 @@ function ToolLimitRow({
               : "bg-accent"
         )}
       />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-3">
-          <span className={cn("text-[11px]", tool.active ? "text-text" : "text-text-muted")}>
-            {label}
-          </span>
-          <span className="shrink-0 text-[11px] tabular-nums text-text-subtle">{valueLabel}</span>
-        </div>
-        <p className="mt-1 text-[10px] text-text-subtle">{hint}</p>
+      <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+        <span className={cn("truncate text-[11px]", tool.active ? "text-text" : "text-text-muted")}>
+          {label}
+        </span>
+        <span className="shrink-0 text-[11px] tabular-nums text-text-subtle">{valueLabel}</span>
       </div>
     </li>
   );

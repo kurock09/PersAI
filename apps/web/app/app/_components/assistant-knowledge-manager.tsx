@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { cn } from "@/app/lib/utils";
 import {
   deleteAssistantKnowledgeSource,
   getAssistantKnowledgeSources,
@@ -29,8 +30,9 @@ function formatBytes(bytes: number): string {
 
 export function AssistantKnowledgeManager(props: {
   getToken: () => Promise<string | null>;
-  open: boolean;
-  onClose: () => void;
+  open?: boolean;
+  onClose?: () => void;
+  mode?: "drawer" | "inline";
 }) {
   const t = useTranslations("settings");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -44,6 +46,9 @@ export function AssistantKnowledgeManager(props: {
   const [inspectById, setInspectById] = useState<
     Record<string, AssistantKnowledgeSourceInspectState>
   >({});
+
+  const mode = props.mode ?? "drawer";
+  const isInline = mode === "inline";
 
   const load = useCallback(async () => {
     const token = await props.getToken();
@@ -61,10 +66,10 @@ export function AssistantKnowledgeManager(props: {
   }, [props, t]);
 
   useEffect(() => {
-    if (props.open) {
+    if (isInline || props.open) {
       void load();
     }
-  }, [load, props.open]);
+  }, [isInline, load, props.open]);
 
   const quotaLabel = useMemo(() => {
     const quota = state?.quota;
@@ -154,7 +159,13 @@ export function AssistantKnowledgeManager(props: {
     const qualityStatus = typeof quality?.status === "string" ? quality.status : null;
     const qualityScore = typeof quality?.score === "number" ? quality.score : null;
     return (
-      <li key={source.id} className="rounded-xl border border-border/70 bg-surface-raised p-3">
+      <li
+        key={source.id}
+        className={cn(
+          "rounded-xl px-4 py-3",
+          isInline ? "bg-background/42" : "border border-border/70 bg-surface-raised p-3"
+        )}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-text">
@@ -218,7 +229,12 @@ export function AssistantKnowledgeManager(props: {
               </button>
             </div>
             {expandedId === source.id ? (
-              <div className="mt-3 rounded-lg border border-border/70 bg-background p-3 text-[11px] text-text-muted">
+              <div
+                className={cn(
+                  "mt-3 rounded-lg p-3 text-[11px] text-text-muted",
+                  isInline ? "bg-surface-raised/20" : "border border-border/70 bg-background"
+                )}
+              >
                 {inspectLoadingId === source.id ? (
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -265,7 +281,7 @@ export function AssistantKnowledgeManager(props: {
               type="button"
               disabled={isBusy}
               onClick={() => void handleReindex(source.id)}
-              className="rounded-lg border border-border px-2 py-1 text-[11px] text-text-muted hover:bg-surface hover:text-text disabled:opacity-50"
+              className="rounded-lg border border-border/55 px-2 py-1 text-[11px] text-text-muted hover:bg-surface hover:text-text disabled:opacity-50"
               title={t("knowledgeReindex")}
             >
               {isBusy ? (
@@ -278,7 +294,7 @@ export function AssistantKnowledgeManager(props: {
               type="button"
               disabled={isBusy}
               onClick={() => void handleDelete(source.id)}
-              className="rounded-lg border border-destructive/40 px-2 py-1 text-[11px] text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              className="rounded-lg border border-destructive/30 px-2 py-1 text-[11px] text-destructive hover:bg-destructive/10 disabled:opacity-50"
               title={t("knowledgeDelete")}
             >
               {isBusy ? (
@@ -293,65 +309,83 @@ export function AssistantKnowledgeManager(props: {
     );
   };
 
+  const content = (
+    <div className={cn("space-y-4", isInline ? "px-1 py-1" : "p-5")}>
+      <div className={cn(isInline ? "" : "rounded-2xl border border-border/70 bg-surface p-4")}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-text">{t("knowledgeManagerTitle")}</p>
+            <p className="mt-1 text-xs text-text-muted">{t("knowledgeManagerHelp")}</p>
+            {quotaLabel ? <p className="mt-2 text-[11px] text-text-subtle">{quotaLabel}</p> : null}
+          </div>
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium disabled:opacity-50",
+              isInline
+                ? "bg-accent text-white hover:bg-accent-hover"
+                : "bg-accent text-white hover:bg-accent-hover"
+            )}
+          >
+            {uploading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Upload className="h-3.5 w-3.5" />
+            )}
+            {t("knowledgeUpload")}
+          </button>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            void handleUploadFiles(event.target.files);
+            event.target.value = "";
+          }}
+        />
+      </div>
+
+      {feedback ? <p className="text-xs text-destructive">{feedback}</p> : null}
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+        </div>
+      ) : state?.sources.length ? (
+        <ul className="space-y-2.5">{state.sources.map(renderRow)}</ul>
+      ) : (
+        <div
+          className={cn(
+            "text-center",
+            isInline
+              ? "rounded-xl border border-dashed border-border/55 bg-background/30 p-5"
+              : "rounded-2xl border border-dashed border-border/70 bg-surface p-6"
+          )}
+        >
+          <FileText className="mx-auto h-8 w-8 text-text-subtle" />
+          <p className="mt-3 text-sm font-medium text-text">{t("knowledgeEmptyTitle")}</p>
+          <p className="mt-1 text-xs text-text-muted">{t("knowledgeEmptyBody")}</p>
+        </div>
+      )}
+    </div>
+  );
+
+  if (isInline) {
+    return content;
+  }
+
   return (
     <SlideOver
-      open={props.open}
-      onClose={props.onClose}
+      open={props.open ?? false}
+      onClose={props.onClose ?? (() => undefined)}
       title={t("knowledgeManagerTitle")}
       size="narrow"
     >
-      <div className="space-y-4 p-5">
-        <div className="rounded-2xl border border-border/70 bg-surface p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-text">{t("knowledgeManagerTitle")}</p>
-              <p className="mt-1 text-xs text-text-muted">{t("knowledgeManagerHelp")}</p>
-              {quotaLabel ? (
-                <p className="mt-2 text-[11px] text-text-subtle">{quotaLabel}</p>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              disabled={uploading}
-              onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-xl bg-accent px-3 py-2 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
-            >
-              {uploading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Upload className="h-3.5 w-3.5" />
-              )}
-              {t("knowledgeUpload")}
-            </button>
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(event) => {
-              void handleUploadFiles(event.target.files);
-              event.target.value = "";
-            }}
-          />
-        </div>
-
-        {feedback ? <p className="text-xs text-destructive">{feedback}</p> : null}
-
-        {loading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
-          </div>
-        ) : state?.sources.length ? (
-          <ul className="space-y-2">{state.sources.map(renderRow)}</ul>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-border/70 bg-surface p-6 text-center">
-            <FileText className="mx-auto h-8 w-8 text-text-subtle" />
-            <p className="mt-3 text-sm font-medium text-text">{t("knowledgeEmptyTitle")}</p>
-            <p className="mt-1 text-xs text-text-muted">{t("knowledgeEmptyBody")}</p>
-          </div>
-        )}
-      </div>
+      {content}
     </SlideOver>
   );
 }

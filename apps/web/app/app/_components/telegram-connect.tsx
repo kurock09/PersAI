@@ -40,19 +40,6 @@ interface TelegramConnectProps {
 
 type Feedback = { type: "ok" | "err"; text: string } | null;
 
-function resolveSystemNoteLabel(note: string, t: (key: string) => string): string {
-  switch (note) {
-    case "Telegram is modeled as one provider + one interaction surface binding.":
-      return t("systemNoteProviderSurface");
-    case "Telegram direct messages are owner-only after claim.":
-      return t("systemNoteOwnerOnlyDm");
-    case "Web remains the primary control-plane surface for assistant configuration.":
-      return t("systemNoteWebControlPlane");
-    default:
-      return note;
-  }
-}
-
 function openTelegramUrl(url: string): void {
   if (typeof window === "undefined") {
     return;
@@ -315,7 +302,6 @@ function ConnectedView({
   const [groupReplyMode, setGroupReplyMode] = useState<"mention_reply" | "all_messages">(
     config.groupReplyMode
   );
-  const [notes, setNotes] = useState(config.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [groups, setGroups] = useState<TelegramGroupInfo[]>([]);
@@ -355,14 +341,12 @@ function ConnectedView({
     setOutbound(config.outboundAssistantMessagesEnabled);
     setTelegramAccessMode(config.telegramAccessMode);
     setGroupReplyMode(config.groupReplyMode);
-    setNotes(config.notes ?? "");
   }, [
     config.autoCompactionEnabled,
     config.defaultDeepModeEnabled,
     config.defaultParseMode,
     config.groupReplyMode,
     config.inboundUserMessagesEnabled,
-    config.notes,
     config.outboundAssistantMessagesEnabled,
     config.telegramAccessMode
   ]);
@@ -423,7 +407,6 @@ function ConnectedView({
         defaultDeepModeEnabled,
         inboundUserMessagesEnabled: inbound,
         outboundAssistantMessagesEnabled: outbound,
-        notes: notes.trim() || null,
         telegramAccessMode,
         groupReplyMode
       };
@@ -444,7 +427,6 @@ function ConnectedView({
     getToken,
     groupReplyMode,
     inbound,
-    notes,
     onUpdated,
     outbound,
     parseMode,
@@ -685,10 +667,9 @@ function ConnectedView({
           </button>
 
           {configOpen && (
-            <div className="space-y-3.5 border-t border-border px-4 py-4">
-              {/* Parse mode */}
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-text-muted">
+            <div className="space-y-4 border-t border-border px-4 py-4">
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-text-muted">
                   {t("defaultParseMode")}
                 </label>
                 <div className="flex gap-2">
@@ -698,39 +679,21 @@ function ConnectedView({
                       type="button"
                       onClick={() => setParseMode(mode)}
                       className={cn(
-                        "flex-1 cursor-pointer rounded-lg border py-2 text-xs font-medium transition-all",
+                        "flex-1 cursor-pointer rounded-xl border px-3 py-2 text-xs font-medium transition-all",
                         parseMode === mode
-                          ? "border-accent bg-accent/10 text-accent"
-                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong"
+                          ? "border-accent/45 bg-accent/10 text-accent"
+                          : "border-border/55 bg-background/45 text-text-muted hover:border-border-strong"
                       )}
                     >
                       {mode === "plain_text" ? t("plainText") : t("markdown")}
                     </button>
                   ))}
                 </div>
-                <p className="mt-1.5 text-[11px] text-text-subtle">
-                  {t("parseModeMarkdownFootnote")}
-                </p>
+                <p className="text-[11px] text-text-subtle">{t("parseModeMarkdownFootnote")}</p>
               </div>
 
-              {/* Toggles */}
-              <Toggle
-                label={t("autoCompaction")}
-                checked={autoCompactionEnabled}
-                onChange={setAutoCompactionEnabled}
-                description={t("autoCompactionDesc")}
-              />
-              <Toggle
-                label={t("deepModeDefault")}
-                checked={defaultDeepModeEnabled}
-                onChange={setDefaultDeepModeEnabled}
-              />
-              <Toggle label={t("inboundMessages")} checked={inbound} onChange={setInbound} />
-              <Toggle label={t("outboundMessages")} checked={outbound} onChange={setOutbound} />
-
-              {/* Group access mode */}
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-text-muted">
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-text-muted">
                   {t("groupAccessMode")}
                 </label>
                 <div className="flex gap-2">
@@ -745,26 +708,25 @@ function ConnectedView({
                       type="button"
                       onClick={() => setTelegramAccessMode(option.value)}
                       className={cn(
-                        "flex-1 cursor-pointer rounded-lg border py-2 text-xs font-medium transition-all",
+                        "flex-1 cursor-pointer rounded-xl border px-3 py-2 text-xs font-medium transition-all",
                         telegramAccessMode === option.value
-                          ? "border-accent bg-accent/10 text-accent"
-                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong"
+                          ? "border-accent/45 bg-accent/10 text-accent"
+                          : "border-border/55 bg-background/45 text-text-muted hover:border-border-strong"
                       )}
                     >
                       {t(option.labelKey)}
                     </button>
                   ))}
                 </div>
-                <p className="mt-1 text-[10px] text-text-subtle">
+                <p className="text-[11px] text-text-subtle">
                   {telegramAccessMode === "owner_only"
                     ? t("groupAccessOwnerOnlyDesc")
                     : t("groupAccessMembersDesc")}
                 </p>
               </div>
 
-              {/* Group reply mode */}
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-text-muted">
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-text-muted">
                   {t("groupReplyMode")}
                 </label>
                 <div className="flex gap-2">
@@ -779,34 +741,40 @@ function ConnectedView({
                       type="button"
                       onClick={() => setGroupReplyMode(option.value)}
                       className={cn(
-                        "flex-1 cursor-pointer rounded-lg border py-2 text-xs font-medium transition-all",
+                        "flex-1 cursor-pointer rounded-xl border px-3 py-2 text-xs font-medium transition-all",
                         groupReplyMode === option.value
-                          ? "border-accent bg-accent/10 text-accent"
-                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong"
+                          ? "border-accent/45 bg-accent/10 text-accent"
+                          : "border-border/55 bg-background/45 text-text-muted hover:border-border-strong"
                       )}
                     >
                       {t(option.labelKey)}
                     </button>
                   ))}
                 </div>
-                <p className="mt-1 text-[10px] text-text-subtle">
+                <p className="text-[11px] text-text-subtle">
                   {groupReplyMode === "mention_reply"
                     ? t("groupReplyMentionDesc")
                     : t("groupReplyAllDesc")}
                 </p>
               </div>
 
-              {/* Notes */}
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-text-muted">
-                  {t("notes")}
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={2}
-                  className="w-full resize-none rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
-                  placeholder={t("notesPlaceholder")}
+              <div className="border-t border-border/45 pt-3 space-y-3">
+                <Toggle label={t("inboundMessages")} checked={inbound} onChange={setInbound} />
+                <Toggle label={t("outboundMessages")} checked={outbound} onChange={setOutbound} />
+              </div>
+
+              <div className="border-t border-border/45 pt-3 space-y-3">
+                <Toggle
+                  label={t("autoCompaction")}
+                  checked={autoCompactionEnabled}
+                  onChange={setAutoCompactionEnabled}
+                  description={t("autoCompactionDesc")}
+                />
+                <Toggle
+                  label={t("deepModeDefault")}
+                  checked={defaultDeepModeEnabled}
+                  onChange={setDefaultDeepModeEnabled}
+                  description={t("deepModeDefaultDesc")}
                 />
               </div>
 
@@ -896,20 +864,6 @@ function ConnectedView({
           )}
         </div>
       </div>
-
-      {/* Integration notes */}
-      {integration.notes.length > 0 && (
-        <div className="rounded-xl border border-border p-4">
-          <p className="mb-2 text-xs font-medium text-text-muted">{t("systemNotes")}</p>
-          <ul className="space-y-1">
-            {integration.notes.map((note, i) => (
-              <li key={i} className="text-xs text-text-subtle">
-                {resolveSystemNoteLabel(note, t)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {/* Disconnect / Reconnect */}
       <div className="space-y-2 pt-1">

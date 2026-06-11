@@ -392,6 +392,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     await waitFor(() => {
       expect(screen.getByText("billingDateTrialEnds")).toBeInTheDocument();
     });
+    expect(screen.getByRole("button", { name: "accountSettings" })).toBeInTheDocument();
   });
 
   it("shows a quiet light-mode marker when paid token light mode is active", () => {

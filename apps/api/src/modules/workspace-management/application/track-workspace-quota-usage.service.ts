@@ -124,7 +124,6 @@ export type AssistantTokenBudgetQuotaSnapshot = {
 };
 
 type GraceQuotaPlanOverride = {
-  planCode: string | null;
   currentPeriodStartedAt: string | null;
   currentPeriodEndsAt: string | null;
 };
@@ -1396,7 +1395,7 @@ export class TrackWorkspaceQuotaUsageService {
       assistant.workspaceId,
       effectiveSubscription
     );
-    const quotaPlanCode = graceQuotaPlanOverride?.planCode ?? effectiveSubscription.planCode;
+    const quotaPlanCode = effectiveSubscription.planCode;
     const plan =
       quotaPlanCode === null
         ? null
@@ -1408,7 +1407,6 @@ export class TrackWorkspaceQuotaUsageService {
           ? effectiveSubscription
           : {
               ...effectiveSubscription,
-              planCode: graceQuotaPlanOverride.planCode,
               currentPeriodStartedAt: graceQuotaPlanOverride.currentPeriodStartedAt,
               currentPeriodEndsAt: graceQuotaPlanOverride.currentPeriodEndsAt
             },
@@ -1466,7 +1464,6 @@ export class TrackWorkspaceQuotaUsageService {
       effectiveSubscription.planCode === scheduledDowngradeTargetPlanCode
     ) {
       return {
-        planCode: previousPaidPlanCode,
         currentPeriodStartedAt: subscription?.currentPeriodStartedAt?.toISOString() ?? null,
         currentPeriodEndsAt: subscription?.currentPeriodEndsAt?.toISOString() ?? null
       };
@@ -1490,7 +1487,6 @@ export class TrackWorkspaceQuotaUsageService {
         });
       if (previousGraceTransition !== null && previousGraceTransition.previousPlanCode !== null) {
         return {
-          planCode: previousGraceTransition.previousPlanCode,
           currentPeriodStartedAt:
             previousGraceTransition.previousPeriodStartedAt?.toISOString() ??
             subscription?.currentPeriodStartedAt?.toISOString() ??
@@ -1518,11 +1514,7 @@ export class TrackWorkspaceQuotaUsageService {
       assistantPlanOverrideCode: null,
       assistantQuotaPlanCode: null
     });
-    const graceQuotaPlanOverride = await this.resolveGraceQuotaPlanOverride(
-      workspaceId,
-      effectiveSubscription
-    );
-    const quotaPlanCode = graceQuotaPlanOverride?.planCode ?? effectiveSubscription.planCode;
+    const quotaPlanCode = effectiveSubscription.planCode;
     const plan =
       quotaPlanCode === null
         ? null

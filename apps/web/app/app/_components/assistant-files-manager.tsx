@@ -370,7 +370,7 @@ export function AssistantFilesManager() {
   }, [getToken, t]);
 
   return (
-    <div className="rounded-[22px] border border-border/70 bg-surface p-3 sm:p-4">
+    <div className="px-1 py-1">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-text">{t("filesTitle")}</p>
@@ -378,7 +378,7 @@ export function AssistantFilesManager() {
             {t("filesDescription")}
           </p>
         </div>
-        <div className="shrink-0 rounded-full border border-border/60 bg-surface-raised px-2.5 py-1 text-[11px] text-text-subtle">
+        <div className="shrink-0 rounded-full border border-border/50 bg-surface-raised/55 px-2.5 py-1 text-[11px] text-text-subtle">
           {visibleFileCount} · {formatBytes(totalBytes)}
         </div>
       </div>
@@ -393,14 +393,14 @@ export function AssistantFilesManager() {
               if (event.key === "Enter") void loadFiles(query);
             }}
             placeholder={t("filesSearchPlaceholder")}
-            className="h-11 w-full rounded-2xl border border-border bg-surface-raised pr-3 pl-9 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong sm:h-10 sm:text-xs"
+            className="h-11 w-full rounded-2xl border border-border/55 bg-background/55 pr-3 pl-9 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong sm:h-10 sm:text-xs"
           />
         </div>
         <button
           type="button"
           onClick={() => void loadFiles(query)}
           disabled={loading}
-          className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-border bg-surface-raised px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-default disabled:opacity-60 sm:h-10 sm:text-xs"
+          className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-border/55 bg-background/55 px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-default disabled:opacity-60 sm:h-10 sm:text-xs"
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -461,13 +461,13 @@ export function AssistantFilesManager() {
             <p className="mt-1 text-xs text-text-muted">{t("filesEmptyBody")}</p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {groupedFiles.map((group) => {
               const expanded = expandedBuckets[group.bucket] ?? true;
               return (
                 <section
                   key={group.bucket}
-                  className="overflow-hidden rounded-2xl border border-border/65 bg-surface-raised/25"
+                  className="overflow-hidden rounded-xl border border-border/45 bg-background/28"
                 >
                   <button
                     type="button"
@@ -477,7 +477,7 @@ export function AssistantFilesManager() {
                         [group.bucket]: !(current[group.bucket] ?? true)
                       }))
                     }
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-hover/35"
                   >
                     <span className="min-w-0 text-xs font-medium text-text">
                       {bucketLabel(group.bucket, t)}
@@ -494,7 +494,7 @@ export function AssistantFilesManager() {
                   </button>
 
                   {expanded ? (
-                    <div className="divide-y divide-border/55 border-t border-border/55">
+                    <div className="divide-y divide-border/45 border-t border-border/45">
                       {group.files.map((file) => {
                         const name = fileDisplayName(file);
                         const isEditing = editingRef === file.fileRef;
@@ -504,8 +504,8 @@ export function AssistantFilesManager() {
                           download: true
                         });
                         return (
-                          <div key={file.fileRef} className="px-3 py-2.5">
-                            <div className="flex min-w-0 items-center gap-2.5">
+                          <div key={file.fileRef} className="px-3 py-2">
+                            <div className="flex min-w-0 items-start gap-2.5">
                               <FileText className="h-4 w-4 shrink-0 text-text-subtle" />
                               <div className="min-w-0 flex-1">
                                 <div className="flex min-w-0 items-center gap-2">
@@ -517,7 +517,7 @@ export function AssistantFilesManager() {
                                         if (event.key === "Enter") void handleRename(file.fileRef);
                                         if (event.key === "Escape") setEditingRef(null);
                                       }}
-                                      className="h-9 min-w-0 flex-1 rounded-xl border border-border bg-surface px-2 text-sm text-text outline-none focus:border-border-strong"
+                                      className="h-8 min-w-0 flex-1 rounded-xl border border-border/55 bg-background/55 px-2 text-sm text-text outline-none focus:border-border-strong"
                                       autoFocus
                                     />
                                   ) : (
@@ -540,7 +540,7 @@ export function AssistantFilesManager() {
                                         <button
                                           type="button"
                                           onClick={() => setPreviewFileRef(file.fileRef)}
-                                          className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:text-text"
+                                          className="rounded-xl border border-border/45 bg-background/55 px-2.5 py-2 text-text-muted transition-colors hover:text-text"
                                           title={t("filesPreview")}
                                           aria-label={t("filesPreview")}
                                         >
@@ -550,7 +550,7 @@ export function AssistantFilesManager() {
                                       <a
                                         href={downloadUrl}
                                         download={name}
-                                        className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:text-text"
+                                        className="rounded-xl border border-border/45 bg-background/55 px-2.5 py-2 text-text-muted transition-colors hover:text-text"
                                         title={t("filesDownload")}
                                       >
                                         <Download className="h-3.5 w-3.5" />
@@ -561,7 +561,7 @@ export function AssistantFilesManager() {
                                           setEditingRef(file.fileRef);
                                           setDraftName(name);
                                         }}
-                                        className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:text-text"
+                                        className="rounded-xl border border-border/45 bg-background/55 px-2.5 py-2 text-text-muted transition-colors hover:text-text"
                                         title={t("filesRename")}
                                       >
                                         <Pencil className="h-3.5 w-3.5" />
@@ -570,7 +570,7 @@ export function AssistantFilesManager() {
                                         type="button"
                                         onClick={() => void handleDelete(file.fileRef)}
                                         disabled={busy}
-                                        className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
+                                        className="rounded-xl border border-border/45 bg-background/55 px-2.5 py-2 text-text-muted transition-colors hover:border-destructive/35 hover:text-destructive disabled:opacity-50"
                                         title={t("filesDelete")}
                                       >
                                         {busy ? (
@@ -583,11 +583,11 @@ export function AssistantFilesManager() {
                                   )}
                                 </div>
                                 <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-text-subtle">
-                                  <span className="rounded-full bg-surface px-2 py-0.5">
+                                  <span className="rounded-full bg-surface-raised/45 px-2 py-0.5">
                                     {originLabel(file, t)}
                                   </span>
                                   {versionLabel ? (
-                                    <span className="rounded-full bg-surface px-2 py-0.5 text-text-subtle">
+                                    <span className="rounded-full bg-surface-raised/45 px-2 py-0.5 text-text-subtle">
                                       {versionLabel}
                                     </span>
                                   ) : null}
