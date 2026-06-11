@@ -12,6 +12,7 @@ import type { ManageMediaPackagePurchaseService } from "../src/modules/workspace
 import type { ResolveEffectiveSubscriptionStateService } from "../src/modules/workspace-management/application/resolve-effective-subscription-state.service";
 import type { ResolvePlatformRuntimeProviderSettingsService } from "../src/modules/workspace-management/application/resolve-platform-runtime-provider-settings.service";
 import { TrackWorkspaceQuotaUsageService } from "../src/modules/workspace-management/application/track-workspace-quota-usage.service";
+import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 
 type GovernanceRepoStub = Pick<AssistantGovernanceRepository, "findByAssistantId">;
 type PlanRepoStub = Pick<AssistantPlanCatalogRepository, "findByCode">;
@@ -175,12 +176,21 @@ async function run(): Promise<void> {
       };
     }
   };
+  const prisma = {
+    workspaceSubscription: {
+      findUnique: async () => null
+    },
+    workspaceSubscriptionLifecycleEvent: {
+      findFirst: async () => null
+    }
+  };
 
   const service = new TrackWorkspaceQuotaUsageService(
     governanceRepo as AssistantGovernanceRepository,
     planRepo as AssistantPlanCatalogRepository,
     quotaRepo as WorkspaceQuotaAccountingRepository,
     toolDailyUsageRepo as WorkspaceToolDailyUsageRepository,
+    prisma as unknown as WorkspaceManagementPrismaService,
     {
       async execute() {
         return {

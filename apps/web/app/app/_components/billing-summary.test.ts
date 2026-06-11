@@ -76,4 +76,38 @@ describe("resolveBillingSummaryCopy", () => {
     expect(summary.dateKey).toBe("billingDateNextBilling");
     expect(summary.dateLabel).toBeTruthy();
   });
+
+  it("shows a scheduled downgrade summary instead of ordinary charge copy", () => {
+    const summary = resolveBillingSummaryCopy(
+      {
+        code: "pro",
+        displayName: "Pro",
+        status: "active",
+        source: "workspace_subscription",
+        subscriptionStatus: "active",
+        trialEndsAt: null,
+        graceStartedAt: null,
+        graceEndsAt: null,
+        currentPeriodEndsAt: "2026-06-26T00:00:00.000Z",
+        isTrialPlan: false,
+        trialFallbackPlanCode: null,
+        paidFallbackPlanCode: null,
+        price: { amount: 980, currency: "RUB", billingPeriod: "month" }
+      },
+      "ru",
+      {
+        changeKind: "downgrade",
+        targetPlanCode: "basic",
+        targetPlanDisplayName: "BASIC",
+        amountMinor: 490,
+        currency: "RUB",
+        billingPeriod: "month",
+        effectiveAt: "2026-06-26T00:00:00.000Z",
+        nextChargeAt: null
+      }
+    );
+
+    expect(summary.dateKey).toBe("billingDateScheduledPlanChange");
+    expect(summary.dateLabel).toBe("BASIC c 26 июн.");
+  });
 });

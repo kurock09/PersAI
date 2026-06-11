@@ -4,6 +4,7 @@ import type {
   AssistantLimitState,
   AssistantLifecycleState,
   AssistantListItemState,
+  AssistantBillingSubscriptionManagementState,
   AssistantWebChatListItemState,
   TelegramIntegrationState,
   UserPlanVisibilityState,
@@ -42,6 +43,7 @@ export interface AppBootstrapInitialData {
   telegram: BootstrapSection<TelegramIntegrationState>;
   notificationPreference: BootstrapSection<AssistantNotificationPreferenceState>;
   plan: BootstrapSection<UserPlanVisibilityState>;
+  billingSubscription: BootstrapSection<AssistantBillingSubscriptionManagementState>;
   admin: BootstrapSection<AdminPlanVisibilityState>;
 }
 
@@ -58,6 +60,7 @@ function emptyInitialData(error: BootstrapErrorState): AppBootstrapInitialData {
     telegram: { ok: false, error },
     notificationPreference: { ok: false, error },
     plan: { ok: false, error },
+    billingSubscription: { ok: false, error },
     admin: { ok: false, error }
   };
 }

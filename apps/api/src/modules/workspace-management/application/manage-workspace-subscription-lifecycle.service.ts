@@ -114,6 +114,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
             lifecycleState: "grace_period",
             lifecycleReason: "paid_renewal_failed",
             paidPlanCode,
+            previousPaidPlanCode: current.planCode,
             graceStartedAt: now.toISOString(),
             graceEndsAt: graceEndsAt.toISOString()
           })

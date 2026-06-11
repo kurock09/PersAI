@@ -51,6 +51,12 @@ async function run(): Promise<void> {
         assert.equal(id, userId);
         return { sentinel: "admin-plan" } as never;
       }
+    } as never,
+    {
+      async execute(id: string) {
+        assert.equal(id, userId);
+        return { sentinel: "billing-subscription" } as never;
+      }
     } as never
   );
 
@@ -68,6 +74,7 @@ async function run(): Promise<void> {
   assert.equal(happy.telegram.ok, true);
   assert.equal(happy.notificationPreference.ok, true);
   assert.equal(happy.plan.ok, true);
+  assert.equal(happy.billingSubscription.ok, true);
   assert.equal(happy.admin.ok, true);
 
   const partialService = new GetAssistantAppBootstrapService(
@@ -98,6 +105,11 @@ async function run(): Promise<void> {
       async getAdminVisibility() {
         throw new UnauthorizedException("Not an admin.");
       }
+    } as never,
+    {
+      async execute() {
+        return { sentinel: "billing-subscription" } as never;
+      }
     } as never
   );
 
@@ -111,6 +123,7 @@ async function run(): Promise<void> {
   assert.equal(partial.telegram.ok, true);
   assert.equal(partial.notificationPreference.ok, true);
   assert.equal(partial.plan.ok, true);
+  assert.equal(partial.billingSubscription.ok, true);
   assert.equal(partial.admin.ok, false);
   if (!partial.admin.ok) {
     assert.equal(partial.admin.error.category, "auth");
@@ -144,6 +157,11 @@ async function run(): Promise<void> {
       },
       async getAdminVisibility() {
         return { sentinel: "admin-plan" } as never;
+      }
+    } as never,
+    {
+      async execute() {
+        return { sentinel: "billing-subscription" } as never;
       }
     } as never
   );

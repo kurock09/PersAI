@@ -1,4 +1,7 @@
-import type { UserPlanVisibilityState } from "@persai/contracts";
+import type {
+  AssistantBillingSubscriptionManagementState,
+  UserPlanVisibilityState
+} from "@persai/contracts";
 
 type EffectivePlanState = UserPlanVisibilityState["effectivePlan"];
 
@@ -7,6 +10,8 @@ export type BillingSummaryCopy = {
   dateKey: string | null;
   dateLabel: string | null;
 };
+
+type ScheduledPlanChange = AssistantBillingSubscriptionManagementState["scheduledPlanChange"];
 
 function formatBillingDate(value: string, locale: string): string | null {
   const date = new Date(value);
@@ -31,7 +36,8 @@ function isSubscriptionFallbackPlan(plan: EffectivePlanState): boolean {
 
 export function resolveBillingSummaryCopy(
   plan: EffectivePlanState | null | undefined,
-  locale: string
+  locale: string,
+  scheduledPlanChange?: ScheduledPlanChange
 ): BillingSummaryCopy {
   if (plan === null || plan === undefined) {
     return {
@@ -45,6 +51,14 @@ export function resolveBillingSummaryCopy(
     statusKey: resolveBillingStatusKey(plan),
     dateKey: value ? dateKey : null,
     dateLabel: value ? formatBillingDate(value, locale) : null
+  });
+  const resolveScheduledPlanChange = (
+    targetPlanDisplayName: string | null,
+    effectiveAt: string
+  ): BillingSummaryCopy => ({
+    statusKey: resolveBillingStatusKey(plan),
+    dateKey: "billingDateScheduledPlanChange",
+    dateLabel: formatScheduledPlanChange(targetPlanDisplayName, effectiveAt, locale)
   });
 
   if (
@@ -71,6 +85,15 @@ export function resolveBillingSummaryCopy(
     case "past_due":
       return resolveDate("billingDateGraceEnds", plan.graceEndsAt);
     case "active":
+      if (
+        scheduledPlanChange?.changeKind === "downgrade" &&
+        typeof scheduledPlanChange.effectiveAt === "string"
+      ) {
+        return resolveScheduledPlanChange(
+          scheduledPlanChange.targetPlanDisplayName ?? scheduledPlanChange.targetPlanCode ?? null,
+          scheduledPlanChange.effectiveAt
+        );
+      }
       return resolveDate("billingDateNextBilling", plan.currentPeriodEndsAt);
     case "paused":
       return resolveDate("billingDateAccessUntil", plan.currentPeriodEndsAt);
@@ -92,6 +115,22 @@ export function resolveBillingSummaryCopy(
         dateLabel: null
       };
   }
+}
+
+function formatScheduledPlanChange(
+  targetPlanDisplayName: string | null,
+  effectiveAt: string,
+  locale: string
+): string | null {
+  const formattedDate = formatBillingDate(effectiveAt, locale);
+  if (formattedDate === null) {
+    return null;
+  }
+  const planLabel = targetPlanDisplayName?.trim();
+  if (!planLabel) {
+    return null;
+  }
+  return `${planLabel} c ${formattedDate}`;
 }
 
 function resolveBillingStatusKey(plan: EffectivePlanState): string {

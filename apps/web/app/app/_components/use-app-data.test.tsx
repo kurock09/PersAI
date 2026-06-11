@@ -12,6 +12,7 @@ const apiMocks = vi.hoisted(() => ({
   getAssistantTelegramIntegration: vi.fn(),
   getAssistantNotificationPreference: vi.fn(),
   getAssistantPlanVisibility: vi.fn(),
+  getAssistantBillingSubscription: vi.fn(),
   getAdminPlanVisibility: vi.fn(),
   postAssistantCreateLifecycleView: vi.fn(),
   postAssistantSwitch: vi.fn()
@@ -29,6 +30,7 @@ vi.mock("../assistant-api-client", () => ({
   getAssistantTelegramIntegration: apiMocks.getAssistantTelegramIntegration,
   getAssistantNotificationPreference: apiMocks.getAssistantNotificationPreference,
   getAssistantPlanVisibility: apiMocks.getAssistantPlanVisibility,
+  getAssistantBillingSubscription: apiMocks.getAssistantBillingSubscription,
   getAdminPlanVisibility: apiMocks.getAdminPlanVisibility,
   postAssistantCreateLifecycleView: apiMocks.postAssistantCreateLifecycleView,
   postAssistantSwitch: apiMocks.postAssistantSwitch
@@ -48,6 +50,7 @@ describe("useAppData", () => {
     apiMocks.getAssistantTelegramIntegration.mockResolvedValue(null);
     apiMocks.getAssistantNotificationPreference.mockResolvedValue(null);
     apiMocks.getAssistantPlanVisibility.mockResolvedValue(null);
+    apiMocks.getAssistantBillingSubscription.mockResolvedValue(null);
     apiMocks.getAdminPlanVisibility.mockRejectedValue(new Error("not admin"));
     apiMocks.postAssistantCreateLifecycleView.mockResolvedValue({
       assistant: {

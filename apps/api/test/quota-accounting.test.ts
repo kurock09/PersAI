@@ -13,6 +13,7 @@ import type {
   WorkspaceQuotaAccountingRepository
 } from "../src/modules/workspace-management/domain/workspace-quota-accounting.repository";
 import type { WorkspaceToolDailyUsageRepository } from "../src/modules/workspace-management/domain/workspace-tool-daily-usage.repository";
+import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 
 type GovernanceRepoStub = Pick<AssistantGovernanceRepository, "findByAssistantId">;
 type PlanRepoStub = Pick<AssistantPlanCatalogRepository, "findByCode">;
@@ -369,6 +370,14 @@ async function run(): Promise<void> {
       return effectiveSubscription;
     }
   };
+  const prisma = {
+    workspaceSubscription: {
+      findUnique: async () => null
+    },
+    workspaceSubscriptionLifecycleEvent: {
+      findFirst: async () => null
+    }
+  };
 
   const toolDailyUsageRepo: ToolDailyUsageRepoStub = {
     async incrementAndGet() {
@@ -445,6 +454,7 @@ async function run(): Promise<void> {
     planRepo as AssistantPlanCatalogRepository,
     quotaRepo as WorkspaceQuotaAccountingRepository,
     toolDailyUsageRepo as WorkspaceToolDailyUsageRepository,
+    prisma as unknown as WorkspaceManagementPrismaService,
     subscriptionResolver as ResolveEffectiveSubscriptionStateService,
     runtimeProviderSettingsResolver as ResolvePlatformRuntimeProviderSettingsService,
     {
@@ -695,6 +705,44 @@ async function run(): Promise<void> {
   assert.equal(recoveredPeriodTokenBudget.periodSource, "subscription_period");
   assert.equal(recoveredPeriodTokenBudget.periodStartedAt, "2026-05-03T00:00:00.000Z");
   assert.equal(recoveredPeriodTokenBudget.periodEndsAt, "2026-06-03T00:00:00.000Z");
+
+  prisma.workspaceSubscription.findUnique = async () => ({
+    currentPeriodStartedAt: new Date("2026-05-03T00:00:00.000Z"),
+    currentPeriodEndsAt: new Date("2026-06-03T00:00:00.000Z"),
+    metadata: {
+      previousPaidPlanCode: "starter_trial",
+      pendingPlanChange: {
+        targetPlanCode: "basic",
+        targetPlanDisplayName: "Basic",
+        amountMinor: 0,
+        currency: "RUB",
+        billingPeriod: "month",
+        effectiveAt: "2026-06-03T00:00:00.000Z",
+        nextChargeAt: "2026-06-03T00:00:00.000Z",
+        changeKind: "downgrade"
+      }
+    }
+  });
+  effectiveSubscription = {
+    source: "workspace_subscription",
+    status: "grace_period",
+    planCode: "basic",
+    trialEndsAt: null,
+    graceStartedAt: "2026-06-03T00:00:00.000Z",
+    graceEndsAt: "2026-06-07T00:00:00.000Z",
+    currentPeriodStartedAt: "2026-06-03T00:00:00.000Z",
+    currentPeriodEndsAt: "2026-06-07T00:00:00.000Z",
+    cancelAtPeriodEnd: false
+  };
+  const gracePeriodToolQuota = await service.resolveAssistantMonthlyToolQuotaSnapshot(assistant);
+  const gracePeriodTokenBudget = await service.resolveAssistantTokenBudgetQuotaSnapshot(assistant);
+  assert.equal(gracePeriodToolQuota.planCode, "starter_trial");
+  assert.equal(gracePeriodToolQuota.periodSource, "subscription_period");
+  assert.equal(gracePeriodToolQuota.periodStartedAt, "2026-05-03T00:00:00.000Z");
+  assert.equal(gracePeriodToolQuota.periodEndsAt, "2026-06-03T00:00:00.000Z");
+  assert.equal(gracePeriodTokenBudget.periodSource, "subscription_period");
+  assert.equal(gracePeriodTokenBudget.periodStartedAt, "2026-05-03T00:00:00.000Z");
+  assert.equal(gracePeriodTokenBudget.periodEndsAt, "2026-06-03T00:00:00.000Z");
 }
 
 void run();

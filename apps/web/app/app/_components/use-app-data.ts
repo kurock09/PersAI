@@ -6,12 +6,14 @@ import type {
   AssistantLifecycleState,
   AssistantLimitState,
   AssistantListItemState,
+  AssistantBillingSubscriptionManagementState,
   AssistantWebChatListItemState,
   TelegramIntegrationState,
   UserPlanVisibilityState
 } from "@persai/contracts";
 import {
   getAssistantLifecycleView,
+  getAssistantBillingSubscription,
   getAssistantNotificationPreference,
   getAssistantWebChats,
   getAssistantTelegramIntegration,
@@ -49,6 +51,7 @@ export interface AppData {
   telegram: TelegramIntegrationState | null;
   notificationPreference: AssistantNotificationPreferenceState | null;
   plan: UserPlanVisibilityState | null;
+  billingSubscription: AssistantBillingSubscriptionManagementState | null;
   isAdmin: boolean;
   /**
    * ADR-076 Slice 5 — true only during the cold-start fan-out (when the SSR
@@ -90,6 +93,7 @@ interface SeededState {
   telegram: TelegramIntegrationState | null;
   notificationPreference: AssistantNotificationPreferenceState | null;
   plan: UserPlanVisibilityState | null;
+  billingSubscription: AssistantBillingSubscriptionManagementState | null;
   isAdmin: boolean;
   assistantResolved: boolean;
   isLoading: boolean;
@@ -114,6 +118,7 @@ function seedFromInitialData(initialData: AppBootstrapInitialData | null): Seede
       telegram: null,
       notificationPreference: null,
       plan: null,
+      billingSubscription: null,
       isAdmin: false,
       assistantResolved: false,
       isLoading: true,
@@ -128,6 +133,7 @@ function seedFromInitialData(initialData: AppBootstrapInitialData | null): Seede
   const preferenceSection = initialData.notificationPreference;
   const planSection = initialData.plan;
   const adminSection = initialData.admin;
+  const billingSubscriptionSection = initialData.billingSubscription;
 
   return {
     assistant: assistantSection.ok ? assistantSection.data.assistant : null,
@@ -138,6 +144,7 @@ function seedFromInitialData(initialData: AppBootstrapInitialData | null): Seede
     telegram: telegramSection.ok ? telegramSection.data : null,
     notificationPreference: preferenceSection.ok ? preferenceSection.data : null,
     plan: planSection.ok ? planSection.data : null,
+    billingSubscription: billingSubscriptionSection.ok ? billingSubscriptionSection.data : null,
     isAdmin: adminSection.ok,
     assistantResolved: assistantSection.ok,
     isLoading: !assistantSection.ok,
@@ -171,6 +178,8 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
   const [notificationPreference, setNotificationPreference] =
     useState<AssistantNotificationPreferenceState | null>(seed.current.notificationPreference);
   const [plan, setPlan] = useState<UserPlanVisibilityState | null>(seed.current.plan);
+  const [billingSubscription, setBillingSubscription] =
+    useState<AssistantBillingSubscriptionManagementState | null>(seed.current.billingSubscription);
   const [isAdmin, setIsAdmin] = useState(seed.current.isAdmin);
   const [isLoading, setIsLoading] = useState(seed.current.isLoading);
   const [isReloading, setIsReloading] = useState(false);
@@ -188,12 +197,14 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
 
   const refreshAssistantScopedSlices = useCallback(
     async (token: string) => {
-      const [chatsRes, telegramRes, preferenceRes, planRes] = await Promise.allSettled([
-        getAssistantWebChats(token),
-        getAssistantTelegramIntegration(token),
-        getAssistantNotificationPreference(token),
-        getAssistantPlanVisibility(token)
-      ]);
+      const [chatsRes, telegramRes, preferenceRes, planRes, billingSubscriptionRes] =
+        await Promise.allSettled([
+          getAssistantWebChats(token),
+          getAssistantTelegramIntegration(token),
+          getAssistantNotificationPreference(token),
+          getAssistantPlanVisibility(token),
+          getAssistantBillingSubscription(token)
+        ]);
 
       if (chatsRes.status === "fulfilled") {
         setChats(chatsRes.value);
@@ -207,8 +218,11 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
       if (planRes.status === "fulfilled") {
         setPlan(planRes.value);
       }
+      if (billingSubscriptionRes.status === "fulfilled") {
+        setBillingSubscription(billingSubscriptionRes.value);
+      }
     },
-    [setChats, setNotificationPreference, setTelegram, setPlan]
+    [setBillingSubscription, setChats, setNotificationPreference, setTelegram, setPlan]
   );
 
   const runAssistantDirectoryMutation = useCallback(
@@ -353,6 +367,7 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
     telegram,
     notificationPreference,
     plan,
+    billingSubscription,
     isAdmin,
     isLoading,
     isReloading,

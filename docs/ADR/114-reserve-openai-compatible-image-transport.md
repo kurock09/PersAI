@@ -2,7 +2,7 @@
 
 ## Status
 
-Partially implemented. Baseline SHA: `22bad4919040b54b87539531ed92ea5ccf3206de` on `main`; working tree was clean at ADR replacement start.
+Completed for the decided scope. Baseline SHA: `22bad4919040b54b87539531ed92ea5ccf3206de` on `main`; working tree was clean at ADR replacement start.
 
 Implemented in Slice 1:
 
@@ -10,9 +10,10 @@ Implemented in Slice 1:
 - materialized reserve transport config for image generation/edit refs;
 - one-shot reserve retry for `image_generate` and `image_edit` on allowlisted primary OpenAI transport/account failures;
 - internal logs and existing-platform admin notification on successful reserve fallback;
-- focused provider/API/runtime/web typechecks and focused tests.
+- focused provider/API/runtime/web typechecks and focused tests;
+- live operator validation that reserve image fallback works as intended.
 
-Not implemented: OpenAI video fallback. It remains deferred until a separate live compatibility proof for PersAI's exact OpenAI video route.
+Not implemented by design: OpenAI video fallback. It remains explicitly deferred until a separate live compatibility proof for PersAI's exact OpenAI video route exists and a new follow-up decision chooses to implement it.
 
 This ADR replaces the withdrawn realtime live voice ADR-114 and the superseded fal-backed image-provider draft. The active decision is intentionally narrower: add a reserve OpenAI-compatible transport inside the existing Media credential block for OpenAI image calls, and for OpenAI video only after the current video route is verified as compatible.
 
@@ -205,7 +206,7 @@ Exit with a short implementation brief. If any assumption is wrong, amend this A
 
 **Type:** one coherent API/provider-gateway implementation slice by one GPT-5.4 subagent.  
 **Deploy:** required.
-**Status:** implemented for image generation/editing only.
+**Status:** completed for image generation/editing only.
 
 Implement:
 
@@ -237,6 +238,8 @@ Complete:
   - forced primary retryable failure falls back to reserve edit;
   - fallback success creates one admin notification;
   - invalid request does not fallback.
+
+This hardening/live-smoke slice is now complete for the ADR's image-only scope.
 
 ## Verification Baseline
 

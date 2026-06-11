@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { ResolveEffectiveSubscriptionStateService } from "../src/modules/workspace-management/application/resolve-effective-subscription-state.service";
+import type { BillingProviderPort } from "../src/modules/workspace-management/application/billing-provider.port";
 import type { ManageWorkspaceSubscriptionLifecycleService } from "../src/modules/workspace-management/application/manage-workspace-subscription-lifecycle.service";
 import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
 import type { WorkspaceSubscriptionRepository } from "../src/modules/workspace-management/domain/workspace-subscription.repository";
@@ -16,7 +17,11 @@ type SubscriptionRepoStub = Pick<
 function createService(deps: {
   planRepo: PlanRepoStub;
   workspaceSubscriptionRepo: SubscriptionRepoStub;
-  lifecycleService?: Pick<ManageWorkspaceSubscriptionLifecycleService, "startPaidGrace">;
+  lifecycleService?: Pick<
+    ManageWorkspaceSubscriptionLifecycleService,
+    "startPaidGrace" | "expireGrace" | "recoverPayment" | "applyCancelledPaidPeriodEndFallback"
+  >;
+  billingProviderPort?: Pick<BillingProviderPort, "getManagedSubscription">;
 }): ResolveEffectiveSubscriptionStateService {
   let generation = 300;
   const lifecycleService =
@@ -24,8 +29,27 @@ function createService(deps: {
     ({
       async startPaidGrace() {
         throw new Error("unexpected startPaidGrace");
+      },
+      async expireGrace() {
+        throw new Error("unexpected expireGrace");
+      },
+      async recoverPayment() {
+        throw new Error("unexpected recoverPayment");
+      },
+      async applyCancelledPaidPeriodEndFallback() {
+        throw new Error("unexpected applyCancelledPaidPeriodEndFallback");
       }
-    } as Pick<ManageWorkspaceSubscriptionLifecycleService, "startPaidGrace">);
+    } as Pick<
+      ManageWorkspaceSubscriptionLifecycleService,
+      "startPaidGrace" | "expireGrace" | "recoverPayment" | "applyCancelledPaidPeriodEndFallback"
+    >);
+  const billingProviderPort =
+    deps.billingProviderPort ??
+    ({
+      async getManagedSubscription() {
+        throw new Error("unexpected getManagedSubscription");
+      }
+    } as Pick<BillingProviderPort, "getManagedSubscription">);
   return new ResolveEffectiveSubscriptionStateService(
     deps.workspaceSubscriptionRepo as WorkspaceSubscriptionRepository,
     deps.planRepo as AssistantPlanCatalogRepository,
@@ -57,6 +81,7 @@ function createService(deps: {
         return { id: "rollout-1" };
       }
     } as never,
+    billingProviderPort as BillingProviderPort,
     lifecycleService as ManageWorkspaceSubscriptionLifecycleService
   );
 }
@@ -606,6 +631,288 @@ async function run(): Promise<void> {
   assert.equal(manualExpiredPaid.source, "workspace_subscription");
   assert.equal(manualExpiredPaid.status, "grace_period");
   assert.equal(manualExpiredPaid.planCode, "pro");
+
+  let providerRecoverApplied = false;
+  const providerOverdueSubscription = {
+    id: "sub-provider-overdue",
+    workspaceId: "ws-1",
+    planCode: "basic",
+    status: "active" as const,
+    trialStartedAt: null,
+    trialEndsAt: null,
+    graceStartedAt: null,
+    graceEndsAt: null,
+    currentPeriodStartedAt: new Date("2026-05-10T20:14:32.000Z"),
+    currentPeriodEndsAt: new Date("2026-06-10T20:14:32.000Z"),
+    cancelAtPeriodEnd: false,
+    billingProvider: "cloudpayments",
+    providerCustomerRef: "acct-1",
+    providerSubscriptionRef: "sub-provider-1",
+    metadata: null,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  };
+  const providerRecovered = await createService({
+    workspaceSubscriptionRepo: {
+      async findByWorkspaceId() {
+        return providerRecoverApplied
+          ? {
+              ...providerOverdueSubscription,
+              currentPeriodStartedAt: new Date("2026-06-10T20:14:32.000Z"),
+              currentPeriodEndsAt: new Date("2026-07-10T20:14:32.000Z")
+            }
+          : providerOverdueSubscription;
+      },
+      async upsertFromBillingSnapshot() {
+        throw new Error("unexpected upsert");
+      }
+    },
+    planRepo: {
+      async findByCode() {
+        return null;
+      },
+      async findDefaultRegistrationPlan() {
+        return null;
+      }
+    },
+    billingProviderPort: {
+      async getManagedSubscription(input) {
+        assert.equal(input.providerSubscriptionRef, "sub-provider-1");
+        return {
+          providerKey: "cloudpayments",
+          providerSubscriptionRef: "sub-provider-1",
+          status: "Active",
+          nextChargeAt: "2026-07-10T20:14:32.000Z",
+          amountMinor: 56000,
+          currency: "RUB",
+          interval: "Month",
+          period: 1,
+          customerPortalUrl: null,
+          paymentMethodUpdateUrl: null,
+          cancelUrl: null,
+          raw: {}
+        };
+      }
+    },
+    lifecycleService: {
+      async startPaidGrace() {
+        throw new Error("unexpected startPaidGrace");
+      },
+      async expireGrace() {
+        throw new Error("unexpected expireGrace");
+      },
+      async recoverPayment(input) {
+        providerRecoverApplied = true;
+        assert.equal(input.workspaceId, "ws-1");
+        assert.equal(input.paidPlanCode, "basic");
+        assert.equal(input.currentPeriodStartedAt, "2026-06-10T20:14:32.000Z");
+        assert.equal(input.currentPeriodEndsAt, "2026-07-10T20:14:32.000Z");
+        assert.equal(input.source, "system");
+        assert.equal(
+          input.refs?.metadata?.reason,
+          "provider_subscription_reconciled_after_missed_webhook"
+        );
+      },
+      async applyCancelledPaidPeriodEndFallback() {
+        throw new Error("unexpected applyCancelledPaidPeriodEndFallback");
+      }
+    }
+  }).execute({
+    userId: "user-1",
+    workspaceId: "ws-1",
+    assistantId: "assistant-1",
+    assistantPlanOverrideCode: null,
+    assistantQuotaPlanCode: null
+  });
+  assert.equal(providerRecoverApplied, true);
+  assert.equal(providerRecovered.source, "workspace_subscription");
+  assert.equal(providerRecovered.status, "active");
+  assert.equal(providerRecovered.currentPeriodEndsAt, "2026-07-10T20:14:32.000Z");
+
+  let providerCancelledFallbackApplied = false;
+  const providerCancelled = await createService({
+    workspaceSubscriptionRepo: {
+      async findByWorkspaceId() {
+        return providerCancelledFallbackApplied
+          ? {
+              ...providerOverdueSubscription,
+              planCode: "free",
+              status: "expired_fallback",
+              billingProvider: null,
+              providerCustomerRef: null,
+              providerSubscriptionRef: null,
+              currentPeriodStartedAt: new Date("2026-06-11T00:00:00.000Z"),
+              currentPeriodEndsAt: null
+            }
+          : providerOverdueSubscription;
+      },
+      async upsertFromBillingSnapshot() {
+        throw new Error("unexpected upsert");
+      }
+    },
+    planRepo: {
+      async findByCode() {
+        return null;
+      },
+      async findDefaultRegistrationPlan() {
+        return null;
+      }
+    },
+    billingProviderPort: {
+      async getManagedSubscription() {
+        return {
+          providerKey: "cloudpayments",
+          providerSubscriptionRef: "sub-provider-1",
+          status: "Cancelled",
+          nextChargeAt: null,
+          amountMinor: 56000,
+          currency: "RUB",
+          interval: "Month",
+          period: 1,
+          customerPortalUrl: null,
+          paymentMethodUpdateUrl: null,
+          cancelUrl: null,
+          raw: {}
+        };
+      }
+    },
+    lifecycleService: {
+      async startPaidGrace() {
+        throw new Error("unexpected startPaidGrace");
+      },
+      async expireGrace() {
+        throw new Error("unexpected expireGrace");
+      },
+      async recoverPayment() {
+        throw new Error("unexpected recoverPayment");
+      },
+      async applyCancelledPaidPeriodEndFallback(input) {
+        providerCancelledFallbackApplied = true;
+        assert.equal(input.workspaceId, "ws-1");
+        assert.equal(input.userId, "user-1");
+      }
+    }
+  }).execute({
+    userId: "user-1",
+    workspaceId: "ws-1",
+    assistantId: "assistant-1",
+    assistantPlanOverrideCode: null,
+    assistantQuotaPlanCode: null
+  });
+  assert.equal(providerCancelledFallbackApplied, true);
+  assert.equal(providerCancelled.source, "subscription_paid_fallback");
+  assert.equal(providerCancelled.status, "expired_fallback");
+  assert.equal(providerCancelled.planCode, "free");
+
+  let expiredGraceApplied = false;
+  const expiredGraceSubscription = {
+    id: "sub-expired-grace",
+    workspaceId: "ws-1",
+    planCode: "pro",
+    status: "grace_period" as const,
+    trialStartedAt: null,
+    trialEndsAt: null,
+    graceStartedAt: new Date("2026-05-01T00:00:00.000Z"),
+    graceEndsAt: new Date("2026-05-06T00:00:00.000Z"),
+    currentPeriodStartedAt: new Date("2026-04-01T00:00:00.000Z"),
+    currentPeriodEndsAt: new Date("2026-05-01T00:00:00.000Z"),
+    cancelAtPeriodEnd: false,
+    billingProvider: "cloudpayments",
+    providerCustomerRef: "cust-1",
+    providerSubscriptionRef: "sub-1",
+    metadata: null,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  };
+  const expiredGraceResolved = await createService({
+    workspaceSubscriptionRepo: {
+      async findByWorkspaceId() {
+        return expiredGraceApplied
+          ? {
+              ...expiredGraceSubscription,
+              planCode: "starter",
+              status: "expired_fallback",
+              billingProvider: null,
+              providerCustomerRef: null,
+              providerSubscriptionRef: null,
+              metadata: {
+                lifecycleReason: "grace_expired_without_payment"
+              }
+            }
+          : expiredGraceSubscription;
+      },
+      async upsertFromBillingSnapshot() {
+        throw new Error("unexpected upsert");
+      }
+    },
+    planRepo: {
+      async findByCode() {
+        return null;
+      },
+      async findDefaultRegistrationPlan() {
+        return null;
+      }
+    },
+    lifecycleService: {
+      async startPaidGrace() {
+        throw new Error("unexpected startPaidGrace");
+      },
+      async expireGrace(input) {
+        expiredGraceApplied = true;
+        assert.equal(input.workspaceId, "ws-1");
+        assert.equal(input.userId, "user-1");
+      }
+    }
+  }).execute({
+    userId: "user-1",
+    workspaceId: "ws-1",
+    assistantId: "assistant-1",
+    assistantPlanOverrideCode: null,
+    assistantQuotaPlanCode: null
+  });
+  assert.equal(expiredGraceApplied, true);
+  assert.equal(expiredGraceResolved.source, "subscription_paid_fallback");
+  assert.equal(expiredGraceResolved.status, "expired_fallback");
+  assert.equal(expiredGraceResolved.planCode, "starter");
+
+  let expiredGraceSkipCalls = 0;
+  const expiredGraceSkipped = await createService({
+    workspaceSubscriptionRepo: {
+      async findByWorkspaceId() {
+        return expiredGraceSubscription;
+      },
+      async upsertFromBillingSnapshot() {
+        throw new Error("unexpected upsert");
+      }
+    },
+    planRepo: {
+      async findByCode() {
+        return null;
+      },
+      async findDefaultRegistrationPlan() {
+        return null;
+      }
+    },
+    lifecycleService: {
+      async startPaidGrace() {
+        throw new Error("unexpected startPaidGrace");
+      },
+      async expireGrace() {
+        expiredGraceSkipCalls += 1;
+        throw new Error("fallback plan missing");
+      }
+    }
+  }).execute({
+    userId: "user-1",
+    workspaceId: "ws-1",
+    assistantId: "assistant-1",
+    assistantPlanOverrideCode: null,
+    assistantQuotaPlanCode: null
+  });
+  assert.equal(expiredGraceSkipCalls, 1);
+  assert.equal(expiredGraceSkipped.source, "workspace_subscription");
+  assert.equal(expiredGraceSkipped.status, "grace_period");
+  assert.equal(expiredGraceSkipped.planCode, "pro");
 
   const none = await createService({
     workspaceSubscriptionRepo: {

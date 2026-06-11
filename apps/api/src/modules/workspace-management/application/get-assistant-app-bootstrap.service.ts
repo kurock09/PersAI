@@ -5,11 +5,13 @@ import {
   NotFoundException,
   UnauthorizedException
 } from "@nestjs/common";
+import type { AssistantBillingSubscriptionManagementState } from "./manage-assistant-billing-subscription.service";
 import type { AssistantLifecycleViewState } from "./assistant-lifecycle.types";
 import type { AssistantNotificationPreferenceState } from "./assistant-notification-preference.types";
 import type { AdminPlanVisibilityState, UserPlanVisibilityState } from "./plan-visibility.types";
 import type { TelegramIntegrationState } from "./telegram-integration.types";
 import type { AssistantWebChatListItemState } from "./web-chat.types";
+import { ManageAssistantBillingSubscriptionService } from "./manage-assistant-billing-subscription.service";
 import { ManageWebChatListService } from "./manage-web-chat-list.service";
 import { ResolveAssistantLifecycleViewService } from "./resolve-assistant-lifecycle-view.service";
 import { ResolveAssistantNotificationPreferenceService } from "./resolve-assistant-notification-preference.service";
@@ -42,6 +44,7 @@ export interface AppBootstrapSectionsState {
   telegram: BootstrapSection<TelegramIntegrationState>;
   notificationPreference: BootstrapSection<AssistantNotificationPreferenceState>;
   plan: BootstrapSection<UserPlanVisibilityState>;
+  billingSubscription: BootstrapSection<AssistantBillingSubscriptionManagementState>;
   admin: BootstrapSection<AdminPlanVisibilityState>;
 }
 
@@ -102,7 +105,8 @@ export class GetAssistantAppBootstrapService {
     private readonly manageWebChatListService: ManageWebChatListService,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
     private readonly resolveAssistantNotificationPreferenceService: ResolveAssistantNotificationPreferenceService,
-    private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService
+    private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService,
+    private readonly manageAssistantBillingSubscriptionService: ManageAssistantBillingSubscriptionService
   ) {}
 
   async execute(userId: string): Promise<AppBootstrapSectionsState> {
@@ -112,6 +116,7 @@ export class GetAssistantAppBootstrapService {
       telegramResult,
       notificationResult,
       planResult,
+      billingSubscriptionResult,
       adminResult
     ] = await Promise.allSettled([
       this.resolveAssistantLifecycleViewService.execute(userId),
@@ -119,6 +124,7 @@ export class GetAssistantAppBootstrapService {
       this.resolveTelegramIntegrationStateService.execute(userId),
       this.resolveAssistantNotificationPreferenceService.execute(userId),
       this.resolvePlanVisibilityService.getUserVisibility(userId),
+      this.manageAssistantBillingSubscriptionService.getState(userId),
       this.resolvePlanVisibilityService.getAdminVisibility(userId)
     ]);
 
@@ -128,6 +134,7 @@ export class GetAssistantAppBootstrapService {
       telegram: toSection(telegramResult),
       notificationPreference: toSection(notificationResult),
       plan: toSection(planResult),
+      billingSubscription: toSection(billingSubscriptionResult),
       admin: toSection(adminResult)
     };
   }

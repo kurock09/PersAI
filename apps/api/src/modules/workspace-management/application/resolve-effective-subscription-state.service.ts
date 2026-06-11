@@ -16,6 +16,7 @@ import { ManageWorkspaceSubscriptionLifecycleService } from "./manage-workspace-
 import { BillingLifecycleProducerService } from "./billing-lifecycle-producer.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import { MaterializationRolloutService } from "./materialization-rollout.service";
+import { BILLING_PROVIDER_PORT, type BillingProviderPort } from "./billing-provider.port";
 
 export type ResolveEffectiveSubscriptionInput = {
   userId: string;
@@ -44,6 +45,8 @@ export class ResolveEffectiveSubscriptionStateService {
     private readonly BillingLifecycleProducerService: BillingLifecycleProducerService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     private readonly materializationRolloutService: MaterializationRolloutService,
+    @Inject(BILLING_PROVIDER_PORT)
+    private readonly billingProviderPort: BillingProviderPort,
     @Inject(forwardRef(() => ManageWorkspaceSubscriptionLifecycleService))
     private readonly manageWorkspaceSubscriptionLifecycleService: ManageWorkspaceSubscriptionLifecycleService
   ) {}
@@ -183,12 +186,20 @@ export class ResolveEffectiveSubscriptionStateService {
     }
     if (
       !workspaceSubscription.cancelAtPeriodEnd &&
-      workspaceSubscription.providerSubscriptionRef === null &&
       (workspaceSubscription.status === "active" || workspaceSubscription.status === "past_due") &&
       workspaceSubscription.currentPeriodEndsAt !== null &&
       workspaceSubscription.currentPeriodEndsAt.getTime() <= Date.now()
     ) {
       try {
+        if (workspaceSubscription.providerSubscriptionRef !== null) {
+          const providerReconciled = await this.tryProviderManagedOverdueReconcile(
+            input,
+            workspaceSubscription
+          );
+          if (providerReconciled !== null) {
+            return providerReconciled;
+          }
+        }
         await this.manageWorkspaceSubscriptionLifecycleService.startPaidGrace({
           workspaceId: input.workspaceId,
           userId: input.userId,
@@ -246,8 +257,117 @@ export class ResolveEffectiveSubscriptionStateService {
         return this.toEffectiveWorkspaceSubscription(workspaceSubscription);
       }
     }
+    if (
+      workspaceSubscription.status === "grace_period" &&
+      workspaceSubscription.graceEndsAt !== null &&
+      workspaceSubscription.graceEndsAt.getTime() <= Date.now()
+    ) {
+      try {
+        await this.manageWorkspaceSubscriptionLifecycleService.expireGrace({
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          now: new Date()
+        });
+        const refreshed = await this.workspaceSubscriptionRepository.findByWorkspaceId(
+          input.workspaceId
+        );
+        if (refreshed !== null) {
+          return this.toEffectiveWorkspaceSubscription(refreshed);
+        }
+      } catch (err) {
+        this.logger.warn({
+          event: "expired_grace_fallback_skipped",
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          planCode: workspaceSubscription.planCode,
+          reason: err instanceof Error ? err.message : String(err)
+        });
+        return this.toEffectiveWorkspaceSubscription(workspaceSubscription);
+      }
+    }
 
     return this.toEffectiveWorkspaceSubscription(workspaceSubscription);
+  }
+
+  private async tryProviderManagedOverdueReconcile(
+    input: ResolveEffectiveSubscriptionInput,
+    workspaceSubscription: WorkspaceSubscription
+  ): Promise<EffectiveSubscriptionState | null> {
+    if (
+      workspaceSubscription.providerSubscriptionRef === null ||
+      workspaceSubscription.currentPeriodEndsAt === null
+    ) {
+      return null;
+    }
+
+    const providerSnapshot = await this.billingProviderPort
+      .getManagedSubscription({
+        providerSubscriptionRef: workspaceSubscription.providerSubscriptionRef
+      })
+      .catch((err: unknown) => {
+        this.logger.warn({
+          event: "provider_managed_subscription_reconcile_skipped",
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          planCode: workspaceSubscription.planCode,
+          providerSubscriptionRef: workspaceSubscription.providerSubscriptionRef,
+          reason: err instanceof Error ? err.message : String(err)
+        });
+        return null;
+      });
+    if (providerSnapshot === null) {
+      return null;
+    }
+
+    const providerStatus = providerSnapshot.status.trim().toLowerCase();
+    const nextChargeAt =
+      providerSnapshot.nextChargeAt === null ? null : new Date(providerSnapshot.nextChargeAt);
+    const nextChargeAtValid =
+      nextChargeAt !== null && !Number.isNaN(nextChargeAt.getTime()) ? nextChargeAt : null;
+
+    if (
+      providerStatus === "active" &&
+      nextChargeAtValid !== null &&
+      nextChargeAtValid.getTime() > workspaceSubscription.currentPeriodEndsAt.getTime()
+    ) {
+      await this.manageWorkspaceSubscriptionLifecycleService.recoverPayment({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        paidPlanCode: workspaceSubscription.planCode,
+        currentPeriodStartedAt: workspaceSubscription.currentPeriodEndsAt.toISOString(),
+        currentPeriodEndsAt: nextChargeAtValid.toISOString(),
+        billingProvider: workspaceSubscription.billingProvider,
+        providerCustomerRef: workspaceSubscription.providerCustomerRef,
+        providerSubscriptionRef: workspaceSubscription.providerSubscriptionRef,
+        source: "system",
+        refs: {
+          metadata: {
+            reason: "provider_subscription_reconciled_after_missed_webhook",
+            providerStatus: providerSnapshot.status,
+            providerNextChargeAt: nextChargeAtValid.toISOString(),
+            previousPeriodEndsAt: workspaceSubscription.currentPeriodEndsAt.toISOString()
+          }
+        }
+      });
+      const refreshed = await this.workspaceSubscriptionRepository.findByWorkspaceId(
+        input.workspaceId
+      );
+      return refreshed === null ? null : this.toEffectiveWorkspaceSubscription(refreshed);
+    }
+
+    if (providerStatus === "cancelled" || providerStatus === "canceled") {
+      await this.manageWorkspaceSubscriptionLifecycleService.applyCancelledPaidPeriodEndFallback({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        now: new Date()
+      });
+      const refreshed = await this.workspaceSubscriptionRepository.findByWorkspaceId(
+        input.workspaceId
+      );
+      return refreshed === null ? null : this.toEffectiveWorkspaceSubscription(refreshed);
+    }
+
+    return null;
   }
 
   private async createInitialWorkspaceSubscription(

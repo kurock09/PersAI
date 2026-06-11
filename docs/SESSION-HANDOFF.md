@@ -3,6 +3,108 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-11 - Billing lifecycle grace-period self-heal
+
+## 2026-06-11 - Grace quota truth + payment-issue badge
+
+### Baseline
+
+- Starting SHA: `7892dfc7cb8698eace0e24176ff2deb6f9753117` on `main`, continuing the already-open billing working tree from the same operator-directed session stack.
+
+### What changed
+
+- Fixed the remaining billing/quota semantics gap for `grace_period`: scheduled downgrades no longer silently change quota truth before payment actually succeeds. `TrackWorkspaceQuotaUsageService` now resolves grace-period quota plan/period from the previous paid plan when the row entered grace because of a failed renewal, so usage counters keep the last paid subscription window instead of opening a downgraded/basic quota period early.
+- The write path now persists `previousPaidPlanCode` into grace metadata when `startPaidGrace()` is triggered from a paid renewal failure. For older grace rows created before this field existed, quota reads can still recover the previous paid plan and paid period from the latest matching `renewal_failed -> grace_period` lifecycle event.
+- The same grace override is applied to both assistant-level quota snapshots and workspace-level quota limits so API truth stays consistent across token/media/tool checks.
+- Added focused regression coverage for direct quota accounting and success-only document quota flows under the new constructor/dependency shape, plus an explicit grace-with-scheduled-downgrade quota-window assertion.
+- Added the requested calm payment-issue badge (`Payment issue` / `Сбой оплаты`) to the three visible UI surfaces for `grace_period` / `past_due`: collapsed sidebar mini-profile, expanded sidebar account card, and settings plan/payment surfaces. The badge takes precedence over the existing `light mode` marker.
+- Billing UI follow-up completed for scheduled downgrades and recurring date copy. Shared billing summary resolution now shows ordinary active recurring states as `Charge {date}` / `Списание {date}` and replaces that with future-plan copy (`BASIC c 26 июн.` style) when billing truth already contains a scheduled downgrade. To make that honest across non-modal surfaces, the app bootstrap/app-data seam now includes `billingSubscription` state in addition to `planVisibility`, so sidebar/account surfaces can render scheduled-change truth from the same source as payment settings.
+
+### Verification
+
+- `corepack pnpm exec tsx test/quota-accounting.test.ts`
+- `corepack pnpm exec tsx test/document-quota-success-only.test.ts`
+- `corepack pnpm exec vitest run --config vitest.config.ts "app/app/_components/sidebar.test.tsx" "app/app/_components/assistant-settings.test.tsx" -t "payment-issue|access-deadline copy instead of next-charge copy during grace period|quiet light-mode marker" --testTimeout=15000`
+- `corepack pnpm exec tsx test/get-assistant-app-bootstrap.service.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm exec vitest run --config vitest.config.ts "app/app/_components/billing-summary.test.ts" "app/app/_components/sidebar.test.tsx" "app/app/_components/assistant-settings.test.tsx" --testTimeout=15000`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- The wide repo web test wrapper still has unrelated historical timeout failures outside this slice (`telegram-connect` and several older `assistant-settings` long-running tests). The targeted tests covering the new grace badge surfaces passed.
+- Existing grace rows that lack both `previousPaidPlanCode` metadata and a usable matching lifecycle event will still fall back to their stored current plan. New rows are fully fixed on write.
+- The scheduled downgrade copy now depends on the additive `billingSubscription` bootstrap section. If that section fails while `planVisibility` still succeeds, surfaces honestly fall back to the older plan-only summary instead of inventing downgrade state.
+
+### Next recommended step
+
+- Deploy and live-check one real workspace with a scheduled downgrade plus one workspace in `grace_period`: confirm quotas still reflect the previous paid period during grace, the payment-issue badge still appears in the three intended UI surfaces, and scheduled downgrade copy renders as future-plan/date truth instead of generic charge copy.
+
+### Baseline
+
+- Starting SHA: `7892dfc7cb8698eace0e24176ff2deb6f9753117` on `main`. Working tree was clean at session start.
+
+### What changed
+
+- Fixed a systemic billing lifecycle truth gap where workspaces could stay stuck in `grace_period` after `graceEndsAt` had already passed if no separate process invoked the expiry transition.
+- `ResolveEffectiveSubscriptionStateService` now mirrors the existing expired-trial lazy self-healing path for expired paid grace: on read, an overdue `grace_period` subscription calls `ManageWorkspaceSubscriptionLifecycleService.expireGrace()`, reloads the subscription row, and returns the refreshed `expired_fallback` state.
+- The read path keeps the same honest failure behavior as expired trial fallback: if grace expiry cannot be applied cleanly (for example fallback plan misconfiguration), the service logs `expired_grace_fallback_skipped` and returns the stale row instead of surfacing a user-facing 4xx from admin/runtime reads.
+- Added focused regression coverage for both the successful self-heal path and the honest skip path.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This closes the read-time healing gap, but already-stuck rows still need to be read by an API/admin/runtime path before they self-correct. If immediate cleanup of old rows is required, run a one-time admin sweep separately.
+
+### Next recommended step
+
+- After deploy, spot-check one known overdue `grace_period` workspace through an admin/API read path and confirm it flips to `expired_fallback` without manual intervention.
+
+## 2026-06-11 - Billing lifecycle overdue recurring backstop
+
+### Baseline
+
+- Starting SHA: `7892dfc7cb8698eace0e24176ff2deb6f9753117` on `main`. Working tree was clean at session start.
+
+### What changed
+
+- Fixed the remaining provider-managed billing truth gap for overdue paid subscriptions that could stay `active` forever when a CloudPayments renewal webhook was missed or not applied.
+- `ResolveEffectiveSubscriptionStateService` no longer treats only non-provider paid rows as self-healable after `currentPeriodEndsAt`. For overdue provider-managed rows (`providerSubscriptionRef != null`), it now first asks the billing provider for the current subscription snapshot before deciding the lifecycle transition.
+- If CloudPayments still reports the subscription as `Active` and `NextTransactionDateIso` has already moved past PersAI's stale `currentPeriodEndsAt`, PersAI self-heals the missed success webhook by calling `recoverPayment()` and refreshing the stored paid period.
+- If CloudPayments reports the subscription as `Cancelled`, PersAI self-heals the stale row through the normal canceled-period-end fallback instead of leaving the workspace indefinitely `active`.
+- If provider reconciliation cannot prove a successful renewed period, the existing overdue-paid grace start remains the safety fallback, so missed recurring failure webhooks still degrade into `grace_period` instead of infinite paid access.
+- Added focused regression coverage for both provider-managed self-heal branches: missed success webhook (`Active` + advanced next charge date) and stale canceled recurring contract (`Cancelled`).
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-billing-subscription.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This backstop relies on CloudPayments `subscriptions/get` availability on read paths. Provider outages are handled honestly: PersAI logs the reconciliation skip and falls back to the grace-start safety path instead of preserving stale `active` forever.
+- We still do not persist a separate durable reconciliation marker; the behavior remains intentionally additive and read-time driven.
+
+### Next recommended step
+
+- After deploy, spot-check two live recurring cases through admin/API reads: one known overdue paid row with stale `active` state and one already-in-grace row, to confirm provider-managed overdue access now self-heals into the correct paid/grace/fallback truth.
+
 ## 2026-06-11 - ADR-114 Slice 1 reserve OpenAI-compatible image transport
 
 ### Baseline
@@ -23,6 +125,7 @@
 - Slice 1 implementation landed for `image_generate` and `image_edit` only. Admin Tools can now store enable/key/base URL reserve config; materialization carries it to runtime/provider-gateway; provider-gateway retries once on strict allowlisted OpenAI primary transport/account failures; successful reserve use logs and appends an existing-platform admin notification event.
 - Hotfix `8e4afc2139977e5ea16a5357f50fe08d9e38328f` fixed a live dev regression where enabling the reserve API key caused direct OpenAI image materialization to fail before the primary OpenAI request with `Unsupported PersAI-managed runtime secret id "tool/image_generate/reserve/api-key"`.
 - Hotfix `430df214b4e4d6183e1c420eef83442e1d98f135` fixed the forced-fallback trigger for intentionally broken primary OpenAI image keys. Live dev showed `image_edit` reached provider-gateway and failed with OpenAI `401 Incorrect API key provided: 12345678`, but reserve was not tried because the classifier did not treat `incorrect/invalid API key` as an account-access failure.
+- Live operator validation is now complete: primary OpenAI image flow works, reserve fallback works for the intended retryable image path, and ADR-114 is considered closed for its image-only scope.
 - OpenAI video fallback was intentionally not implemented.
 
 ### Verification
@@ -51,12 +154,11 @@
 ### Risks / residuals
 
 - Fallback classification is the main risk: false fallback can hide product bugs or burn reserve quota.
-- Live ProxyAPI smoke was not run in this session.
-- Provider-gateway rollout for `430df214b4e4d6183e1c420eef83442e1d98f135` must complete before retrying the intentionally broken primary key smoke. Until then, `401 Incorrect API key provided` will still fail without reserve.
+- OpenAI video fallback remains intentionally out of scope; a separate future decision would be required before implementing reserve handling for PersAI's OpenAI video route.
 
 ### Next recommended step
 
-- After provider-gateway rolls to `430df214b4e4d6183e1c420eef83442e1d98f135`, retry the intentionally broken primary OpenAI key smoke and confirm provider-gateway logs `openai_image_primary_failed_reserve_retrying` / `openai_image_primary_failed_reserve_used` for ProxyAPI. Keep OpenAI video fallback deferred unless separately verified.
+- ADR-114 is closed for the image-only reserve transport scope. Only open a follow-up if product later wants reserve fallback for PersAI's OpenAI video route and first proves that route live against ProxyAPI compatibility.
 
 ## 2026-06-09 - ADR-112 live video-tool follow-up
 

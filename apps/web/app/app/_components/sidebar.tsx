@@ -498,7 +498,14 @@ function AccountFooter({
     data.plan?.limits.quotaBuckets.find((bucket) => bucket.bucketCode === "token_budget") ?? null;
   const tokenUsage = tokenBucket?.percent ?? 0;
   const paidLightModeActive = data.plan?.advisories?.tokenBudget?.paidLightModeActive ?? false;
-  const billingSummary = resolveBillingSummaryCopy(data.plan?.effectivePlan, locale);
+  const graceBadgeActive =
+    data.plan?.effectivePlan.subscriptionStatus === "grace_period" ||
+    data.plan?.effectivePlan.subscriptionStatus === "past_due";
+  const billingSummary = resolveBillingSummaryCopy(
+    data.plan?.effectivePlan,
+    locale,
+    data.billingSubscription?.scheduledPlanChange
+  );
 
   const telegramConnected = data.telegram?.connectionStatus === "connected";
   const telegramStatusLabel =
@@ -568,7 +575,12 @@ function AccountFooter({
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-text">{displayName}</span>
           <span className="block truncate text-[11px] tracking-wide text-text-muted">
-            {planName} · {tokenUsage}%{paidLightModeActive ? ` · ${t("lightModeBadge")}` : ""}
+            {planName} · {tokenUsage}%
+            {graceBadgeActive
+              ? ` · ${t("paymentIssueBadge")}`
+              : paidLightModeActive
+                ? ` · ${t("lightModeBadge")}`
+                : ""}
           </span>
         </span>
         <Settings className="h-4 w-4 shrink-0 text-text-subtle" />
@@ -618,7 +630,11 @@ function AccountFooter({
               </div>
               <div className="mt-2 flex items-center justify-between gap-3 text-[11px]">
                 <span className="max-w-[160px] truncate text-text-muted">{planName}</span>
-                {paidLightModeActive ? (
+                {graceBadgeActive ? (
+                  <span className="rounded-full border border-warning/35 bg-warning/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-warning">
+                    {t("paymentIssueBadge")}
+                  </span>
+                ) : paidLightModeActive ? (
                   <span className="rounded-full border border-border/70 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-warning">
                     {t("lightModeBadge")}
                   </span>

@@ -37,6 +37,7 @@ import {
 } from "./runtime-provider-profile";
 import { resolveRecurringQuotaPeriod, type RecurringQuotaPeriod } from "./recurring-quota-period";
 import { ManageMediaPackagePurchaseService } from "./manage-media-package-purchase.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 /**
  * ADR-108 Slice 8 — `videoGenerateMonthlyUnitsLimit` was removed from
@@ -120,6 +121,12 @@ export type AssistantTokenBudgetQuotaSnapshot = {
   periodStartedAt: string;
   periodEndsAt: string;
   periodSource: RecurringQuotaPeriod["periodSource"];
+};
+
+type GraceQuotaPlanOverride = {
+  planCode: string | null;
+  currentPeriodStartedAt: string | null;
+  currentPeriodEndsAt: string | null;
 };
 
 export type AssistantMonthlyToolQuotaToolSnapshot = {
@@ -408,6 +415,7 @@ export class TrackWorkspaceQuotaUsageService {
     private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
     @Inject(WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY)
     private readonly toolDailyUsageRepository: WorkspaceToolDailyUsageRepository,
+    private readonly prisma: WorkspaceManagementPrismaService,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     private readonly manageMediaPackagePurchaseService: ManageMediaPackagePurchaseService
@@ -1384,18 +1392,118 @@ export class TrackWorkspaceQuotaUsageService {
       assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
       assistantQuotaPlanCode: governance.quotaPlanCode
     });
+    const graceQuotaPlanOverride = await this.resolveGraceQuotaPlanOverride(
+      assistant.workspaceId,
+      effectiveSubscription
+    );
+    const quotaPlanCode = graceQuotaPlanOverride?.planCode ?? effectiveSubscription.planCode;
     const plan =
-      effectiveSubscription.planCode === null
+      quotaPlanCode === null
         ? null
-        : await this.assistantPlanCatalogRepository.findByCode(effectiveSubscription.planCode);
+        : await this.assistantPlanCatalogRepository.findByCode(quotaPlanCode);
     return {
       config,
-      effectiveSubscription,
+      effectiveSubscription:
+        graceQuotaPlanOverride === null
+          ? effectiveSubscription
+          : {
+              ...effectiveSubscription,
+              planCode: graceQuotaPlanOverride.planCode,
+              currentPeriodStartedAt: graceQuotaPlanOverride.currentPeriodStartedAt,
+              currentPeriodEndsAt: graceQuotaPlanOverride.currentPeriodEndsAt
+            },
       planQuotaHints: parsePlanQuotaHints(
         plan?.billingProviderHints ?? null,
         plan?.entitlementModel?.limitsPermissions
       )
     };
+  }
+
+  private async resolveGraceQuotaPlanOverride(
+    workspaceId: string,
+    effectiveSubscription: Awaited<ReturnType<ResolveEffectiveSubscriptionStateService["execute"]>>
+  ): Promise<GraceQuotaPlanOverride | null> {
+    if (effectiveSubscription.status !== "grace_period") {
+      return null;
+    }
+
+    const subscription = await this.prisma.workspaceSubscription.findUnique({
+      where: { workspaceId },
+      select: {
+        currentPeriodStartedAt: true,
+        currentPeriodEndsAt: true,
+        metadata: true
+      }
+    });
+    const metadata =
+      subscription?.metadata !== null &&
+      subscription?.metadata !== undefined &&
+      typeof subscription.metadata === "object" &&
+      !Array.isArray(subscription.metadata)
+        ? (subscription.metadata as Record<string, unknown>)
+        : null;
+    const previousPaidPlanCode =
+      typeof metadata?.previousPaidPlanCode === "string" && metadata.previousPaidPlanCode.length > 0
+        ? metadata.previousPaidPlanCode
+        : null;
+    const pendingPlanChange =
+      metadata?.pendingPlanChange !== null &&
+      metadata?.pendingPlanChange !== undefined &&
+      typeof metadata.pendingPlanChange === "object" &&
+      !Array.isArray(metadata.pendingPlanChange)
+        ? (metadata.pendingPlanChange as Record<string, unknown>)
+        : null;
+    const scheduledDowngradeTargetPlanCode =
+      pendingPlanChange?.changeKind === "downgrade" &&
+      typeof pendingPlanChange.targetPlanCode === "string" &&
+      pendingPlanChange.targetPlanCode.length > 0
+        ? pendingPlanChange.targetPlanCode
+        : null;
+
+    if (
+      previousPaidPlanCode !== null &&
+      scheduledDowngradeTargetPlanCode !== null &&
+      effectiveSubscription.planCode === scheduledDowngradeTargetPlanCode
+    ) {
+      return {
+        planCode: previousPaidPlanCode,
+        currentPeriodStartedAt: subscription?.currentPeriodStartedAt?.toISOString() ?? null,
+        currentPeriodEndsAt: subscription?.currentPeriodEndsAt?.toISOString() ?? null
+      };
+    }
+
+    if (scheduledDowngradeTargetPlanCode !== null) {
+      const previousGraceTransition =
+        await this.prisma.workspaceSubscriptionLifecycleEvent.findFirst({
+          where: {
+            workspaceId,
+            eventCode: "renewal_failed",
+            nextStatus: "grace_period",
+            nextPlanCode: scheduledDowngradeTargetPlanCode
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            previousPlanCode: true,
+            previousPeriodStartedAt: true,
+            previousPeriodEndsAt: true
+          }
+        });
+      if (previousGraceTransition !== null && previousGraceTransition.previousPlanCode !== null) {
+        return {
+          planCode: previousGraceTransition.previousPlanCode,
+          currentPeriodStartedAt:
+            previousGraceTransition.previousPeriodStartedAt?.toISOString() ??
+            subscription?.currentPeriodStartedAt?.toISOString() ??
+            null,
+          currentPeriodEndsAt:
+            previousGraceTransition.previousPeriodEndsAt?.toISOString() ??
+            subscription?.currentPeriodEndsAt?.toISOString() ??
+            null
+        };
+      }
+    }
+
+    return null;
   }
 
   private async resolveWorkspaceLimits(
@@ -1410,10 +1518,15 @@ export class TrackWorkspaceQuotaUsageService {
       assistantPlanOverrideCode: null,
       assistantQuotaPlanCode: null
     });
+    const graceQuotaPlanOverride = await this.resolveGraceQuotaPlanOverride(
+      workspaceId,
+      effectiveSubscription
+    );
+    const quotaPlanCode = graceQuotaPlanOverride?.planCode ?? effectiveSubscription.planCode;
     const plan =
-      effectiveSubscription.planCode === null
+      quotaPlanCode === null
         ? null
-        : await this.assistantPlanCatalogRepository.findByCode(effectiveSubscription.planCode);
+        : await this.assistantPlanCatalogRepository.findByCode(quotaPlanCode);
     return this.buildWorkspaceQuotaLimits(
       config,
       parsePlanQuotaHints(

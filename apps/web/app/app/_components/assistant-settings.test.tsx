@@ -226,6 +226,7 @@ function makeAppData(overrides: Partial<AppData> = {}): AppData {
     telegram: null,
     notificationPreference: { selectedChannel: "web", availableChannels: ["web"] },
     plan: null,
+    billingSubscription: null,
     isAdmin: false,
     isLoading: false,
     isReloading: false,
@@ -2079,7 +2080,7 @@ describe("AssistantSettings limits", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Paused")).toBeInTheDocument();
     expect(screen.getByText("Access until")).toBeInTheDocument();
-    expect(screen.queryByText("Next charge")).toBeNull();
+    expect(screen.queryByText("Charge")).toBeNull();
   }, 15000);
 
   it("shows restore subscription CTA for scheduled FREE and updates billing state", async () => {
@@ -2168,6 +2169,108 @@ describe("AssistantSettings limits", () => {
     expect(
       await screen.findByText("Subscription restored and auto-renew is enabled again.")
     ).toBeInTheDocument();
+  }, 15000);
+
+  it("shows scheduled downgrade copy instead of ordinary charge copy", async () => {
+    assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "active",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-provider-1",
+      autoRenewEnabled: true,
+      canEnableAutoRenew: false,
+      canDisableAutoRenew: true,
+      nextChargeAt: "2026-06-26T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-06-26T00:00:00.000Z",
+      lastPaymentMethodLabel: "Bank card",
+      autoRenewMethodLabel: "Bank card",
+      recurringMigration: billingRecurringMigrationIdle,
+      managePaymentMethodUrl: "https://my.cloudpayments.ru/",
+      managePaymentMethodMode: "provider_portal",
+      cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
+      scheduledPlanChange: {
+        changeKind: "downgrade",
+        targetPlanCode: "basic",
+        targetPlanDisplayName: "BASIC",
+        effectiveAt: "2026-06-26T00:00:00.000Z"
+      },
+      warning: null
+    });
+
+    renderSettings(
+      makeAppData({
+        billingSubscription: {
+          planCode: "pro",
+          planDisplayName: "Pro",
+          subscriptionStatus: "active",
+          billingProvider: "cloudpayments",
+          providerSubscriptionRef: "sub-provider-1",
+          autoRenewEnabled: true,
+          canEnableAutoRenew: false,
+          enableAutoRenewMode: "provider_portal",
+          canDisableAutoRenew: true,
+          canScheduleDowngrade: true,
+          canSwitchToFree: true,
+          nextChargeAt: "2026-06-26T00:00:00.000Z",
+          currentPeriodEndsAt: "2026-06-26T00:00:00.000Z",
+          scheduledPlanChange: {
+            changeKind: "downgrade",
+            targetPlanCode: "basic",
+            targetPlanDisplayName: "BASIC",
+            effectiveAt: "2026-06-26T00:00:00.000Z"
+          },
+          lastPaymentMethodLabel: "Bank card",
+          autoRenewMethodLabel: "Bank card",
+          recurringMigration: billingRecurringMigrationIdle,
+          managePaymentMethodUrl: "https://my.cloudpayments.ru/",
+          managePaymentMethodMode: "provider_portal",
+          cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
+          warning: null
+        } as never,
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "active",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-06-26T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null,
+            price: { amount: 980, currency: "RUB", billingPeriod: "month" }
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "pro",
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: "subscription_period",
+              tools: []
+            },
+            toolDailyLimits: []
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits"
+    );
+
+    expect(await screen.findByText(/BASIC c (26 Jun|Jun 26)/i)).toBeInTheDocument();
+    expect(screen.queryByText("Charge")).toBeNull();
   }, 15000);
 
   it("hands bind checkout off to the shell callback instead of leaving settings open", async () => {
@@ -2592,6 +2695,7 @@ describe("AssistantSettings limits", () => {
     expect(await screen.findByText("Access until")).toBeInTheDocument();
     expect(screen.queryByText("Next charge")).toBeNull();
     expect(screen.getByText(/May 12, 2026/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Payment issue").length).toBeGreaterThanOrEqual(1);
   }, 15000);
 
   it("shows access-until copy for canceled subscription state in the limits summary", () => {
