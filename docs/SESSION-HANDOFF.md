@@ -22,6 +22,7 @@
 - ADR-114 remains orchestrator-run: the parent agent studies and audits, assigns one sequential GPT-5.4 subagent per large slice, does not code implementation slices directly, avoids parallel implementation, and stops honestly if repo/API truth contradicts the plan.
 - Slice 1 implementation landed for `image_generate` and `image_edit` only. Admin Tools can now store enable/key/base URL reserve config; materialization carries it to runtime/provider-gateway; provider-gateway retries once on strict allowlisted OpenAI primary transport/account failures; successful reserve use logs and appends an existing-platform admin notification event.
 - Hotfix `8e4afc2139977e5ea16a5357f50fe08d9e38328f` fixed a live dev regression where enabling the reserve API key caused direct OpenAI image materialization to fail before the primary OpenAI request with `Unsupported PersAI-managed runtime secret id "tool/image_generate/reserve/api-key"`.
+- Hotfix `430df214b4e4d6183e1c420eef83442e1d98f135` fixed the forced-fallback trigger for intentionally broken primary OpenAI image keys. Live dev showed `image_edit` reached provider-gateway and failed with OpenAI `401 Incorrect API key provided: 12345678`, but reserve was not tried because the classifier did not treat `incorrect/invalid API key` as an account-access failure.
 - OpenAI video fallback was intentionally not implemented.
 
 ### Verification
@@ -41,16 +42,21 @@
   - `corepack pnpm --filter @persai/api run lint`
   - `corepack pnpm run format:check`
   - `persai-dev` API rolled to `europe-west1-docker.pkg.dev/project-44786b14-b7d7-4554-a8a/persai/api:8e4afc2139977e5ea16a5357f50fe08d9e38328f`; recent API/runtime/provider-gateway logs no longer show the unsupported reserve secret id failure.
+- Forced-fallback hotfix follow-up:
+  - `corepack pnpm --filter @persai/provider-gateway exec tsx test/openai-provider.client.test.ts`
+  - `corepack pnpm --filter @persai/provider-gateway run typecheck`
+  - `corepack pnpm --filter @persai/provider-gateway run lint`
+  - `corepack pnpm run format:check`
 
 ### Risks / residuals
 
 - Fallback classification is the main risk: false fallback can hide product bugs or burn reserve quota.
 - Live ProxyAPI smoke was not run in this session.
-- Live direct OpenAI image smoke after the hotfix should be repeated by creating a fresh image request from the UI. Do not intentionally break the primary OpenAI key until that direct path completes.
+- Provider-gateway rollout for `430df214b4e4d6183e1c420eef83442e1d98f135` must complete before retrying the intentionally broken primary key smoke. Until then, `401 Incorrect API key provided` will still fail without reserve.
 
 ### Next recommended step
 
-- Perform live dev smoke in order: first primary OpenAI image generate/edit with reserve still configured, then intentionally break the primary OpenAI key and confirm reserve fallback uses ProxyAPI. Keep OpenAI video fallback deferred unless separately verified.
+- After provider-gateway rolls to `430df214b4e4d6183e1c420eef83442e1d98f135`, retry the intentionally broken primary OpenAI key smoke and confirm provider-gateway logs `openai_image_primary_failed_reserve_retrying` / `openai_image_primary_failed_reserve_used` for ProxyAPI. Keep OpenAI video fallback deferred unless separately verified.
 
 ## 2026-06-09 - ADR-112 live video-tool follow-up
 

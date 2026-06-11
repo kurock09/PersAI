@@ -933,10 +933,9 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       };
     }
   ).getApiClient = (apiKey?: string, baseURL?: string) => {
-    getApiClientCalls.push({
-      ...(apiKey === undefined ? {} : { apiKey }),
-      ...(baseURL === undefined ? {} : { baseURL })
-    });
+    getApiClientCalls.push(
+      baseURL === undefined ? { apiKey: apiKey ?? "" } : { apiKey: apiKey ?? "", baseURL }
+    );
     return {
       images: {
         generate: async (payload: unknown) => {
@@ -1099,6 +1098,84 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     }
   );
   assert.equal(reserveEditResult.images.length, 1);
+  assert.deepEqual(getApiClientCalls, [
+    { apiKey: "12345678" },
+    { apiKey: "reserve-api-key", baseURL: "https://api.proxyapi.ru/openai/v1" }
+  ]);
+
+  getApiClientCalls.length = 0;
+  let invalidKeyGenerateAttempts = 0;
+  (
+    client as unknown as {
+      getApiClient(
+        apiKey?: string,
+        baseURL?: string
+      ): {
+        images: {
+          generate(payload: unknown): Promise<unknown>;
+          edit(payload: unknown): Promise<unknown>;
+        };
+        audio: {
+          speech: {
+            create(payload: unknown): Promise<unknown>;
+          };
+        };
+      };
+    }
+  ).getApiClient = (apiKey?: string, baseURL?: string) => {
+    getApiClientCalls.push(
+      baseURL === undefined ? { apiKey: apiKey ?? "" } : { apiKey: apiKey ?? "", baseURL }
+    );
+    return {
+      images: {
+        generate: async (payload: unknown) => {
+          capturedImagePayload = payload;
+          invalidKeyGenerateAttempts += 1;
+          if (invalidKeyGenerateAttempts === 1) {
+            const error = new Error(
+              "401 Incorrect API key provided: 12345678. You can find your API key at https://platform.openai.com/account/api-keys."
+            );
+            (error as Error & { status?: number; error?: { code: string; type: string } }).status =
+              401;
+            (error as Error & { error?: { code: string; type: string } }).error = {
+              code: "invalid_api_key",
+              type: "authentication_error"
+            };
+            throw error;
+          }
+          return {
+            output_format: "png",
+            data: [{ b64_json: "cmVzZXJ2ZS1pbWFnZQ==", revised_prompt: null }],
+            usage: { input_tokens: 2, output_tokens: 4, total_tokens: 6 }
+          };
+        },
+        edit: editImage
+      },
+      audio: {
+        speech: {
+          create: generateSpeech
+        }
+      }
+    };
+  };
+  const reserveGenerateInvalidKeyResult = await client.generateImage(
+    {
+      ...createImageGenerateRequest(),
+      credential: {
+        ...createImageGenerateRequest().credential,
+        reserveTransport: {
+          enabled: true,
+          secretId: "tool/image_generate/reserve/api-key",
+          baseUrl: "https://api.proxyapi.ru/openai/v1"
+        }
+      }
+    },
+    {
+      apiKey: "12345678",
+      reserveApiKey: "reserve-api-key"
+    }
+  );
+  assert.equal(reserveGenerateInvalidKeyResult.images.length, 1);
   assert.deepEqual(getApiClientCalls, [
     { apiKey: "12345678" },
     { apiKey: "reserve-api-key", baseURL: "https://api.proxyapi.ru/openai/v1" }
