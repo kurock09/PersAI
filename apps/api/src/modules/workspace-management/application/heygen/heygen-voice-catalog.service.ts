@@ -9,12 +9,14 @@ import { PlatformRuntimeProviderSecretStoreService } from "../platform-runtime-p
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
 const HEYGEN_VOICES_URL = "https://api.heygen.com/v3/voices";
-const HEYGEN_VOICE_CACHE_KEY = "heygen-voices";
+const HEYGEN_VOICE_CACHE_KEY = "heygen-voices-avatar-v";
 const HEYGEN_VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const HEYGEN_VOICE_SHORTLIST_LIMIT = 24;
 const PREFERRED_VOICE_LANGUAGES = ["ru", "en"] as const;
 const HEYGEN_VOICE_PAGE_LIMIT = 100;
-const HEYGEN_VOICE_MAX_PAGES = 20;
+const HEYGEN_VOICE_MAX_PAGES = 100;
+const HEYGEN_VOICE_ENGINE = "avatar_v";
+const HEYGEN_VOICE_TYPE = "public";
 
 type CachedVoiceCatalogRow = {
   voices: RuntimeVideoVoiceCatalogEntry[];
@@ -103,6 +105,7 @@ export class HeyGenVoiceCatalogService {
     for (let page = 0; page < HEYGEN_VOICE_MAX_PAGES; page += 1) {
       const url = new URL(HEYGEN_VOICES_URL);
       url.searchParams.set("limit", String(HEYGEN_VOICE_PAGE_LIMIT));
+      url.searchParams.set("type", HEYGEN_VOICE_TYPE);
       if (nextToken !== null) {
         url.searchParams.set("token", nextToken);
       }
@@ -140,7 +143,7 @@ export class HeyGenVoiceCatalogService {
     const parsed = rows
       .map((row) => this.parseVoiceRow(row))
       .filter((entry): entry is RuntimeVideoVoiceCatalogEntry => entry !== null);
-    return this.normalizeEntries(parsed);
+    return this.expandMultiLanguageEntries(this.normalizeEntries(parsed));
   }
 
   private buildShortlist(
@@ -186,8 +189,9 @@ export class HeyGenVoiceCatalogService {
     const deduped = new Map<string, RuntimeVideoVoiceCatalogEntry>();
     for (const entry of entries) {
       const key = entry.providerVoiceId.trim().toLowerCase();
-      if (!deduped.has(key)) {
-        deduped.set(key, entry);
+      const variantKey = `${key}:${entry.voiceKey.trim().toLowerCase()}:${entry.locale ?? ""}`;
+      if (!deduped.has(variantKey)) {
+        deduped.set(variantKey, entry);
       }
     }
     return [...deduped.values()].sort((left, right) =>
@@ -221,6 +225,9 @@ export class HeyGenVoiceCatalogService {
 
   private normalizeLanguageBucket(locale: string | null): string {
     const normalized = locale?.trim().toLowerCase() ?? "";
+    if (this.isMultiLanguageLocale(normalized)) {
+      return "multi";
+    }
     if (
       normalized === "ru" ||
       normalized.startsWith("ru-") ||
@@ -238,6 +245,50 @@ export class HeyGenVoiceCatalogService {
       return "en";
     }
     return "other";
+  }
+
+  private expandMultiLanguageEntries(
+    entries: RuntimeVideoVoiceCatalogEntry[]
+  ): RuntimeVideoVoiceCatalogEntry[] {
+    const expanded: RuntimeVideoVoiceCatalogEntry[] = [];
+    for (const entry of entries) {
+      if (!this.isMultiLanguageLocale(entry.locale)) {
+        expanded.push(entry);
+        continue;
+      }
+      expanded.push(
+        this.withLocaleVariant(entry, "ru", "ru"),
+        this.withLocaleVariant(entry, "en", "en")
+      );
+    }
+    return expanded;
+  }
+
+  private withLocaleVariant(
+    entry: RuntimeVideoVoiceCatalogEntry,
+    locale: "ru" | "en",
+    suffix: string
+  ): RuntimeVideoVoiceCatalogEntry {
+    return {
+      ...entry,
+      voiceKey: `${entry.voiceKey}-${suffix}`,
+      locale,
+      description: this.buildDescription(locale, entry.styleTags)
+    };
+  }
+
+  private isMultiLanguageLocale(locale: string | null): boolean {
+    const normalized = locale?.trim().toLowerCase() ?? "";
+    return (
+      normalized === "multi" ||
+      normalized === "multilingual" ||
+      normalized === "multi-language" ||
+      normalized === "multi language" ||
+      normalized === "multilanguage" ||
+      normalized.includes("multilingual") ||
+      normalized.includes("multi-language") ||
+      normalized.includes("multi language")
+    );
   }
 
   private extractNextToken(value: unknown): string | null {
@@ -315,6 +366,9 @@ export class HeyGenVoiceCatalogService {
     if (providerVoiceId === null || displayName === null) {
       return null;
     }
+    if (!this.isUsableVideoVoiceRow(row)) {
+      return null;
+    }
     const locale =
       this.asNonEmptyString(row.language) ??
       this.asNonEmptyString(row.voice_language) ??
@@ -337,6 +391,67 @@ export class HeyGenVoiceCatalogService {
       styleTags,
       previewAudioUrl
     };
+  }
+
+  private isUsableVideoVoiceRow(row: Record<string, unknown>): boolean {
+    const type = this.asNonEmptyString(row.type)?.toLowerCase() ?? null;
+    if (type !== null && type !== "public") {
+      return false;
+    }
+
+    const status =
+      this.asNonEmptyString(row.status) ??
+      this.asNonEmptyString(row.state) ??
+      this.asNonEmptyString(row.voice_status) ??
+      this.asNonEmptyString(row.voiceStatus);
+    if (
+      status !== null &&
+      !["ready", "active", "available", "completed"].includes(status.toLowerCase())
+    ) {
+      return false;
+    }
+
+    for (const field of [
+      "available",
+      "is_available",
+      "isAvailable",
+      "enabled",
+      "disabled",
+      "archived"
+    ]) {
+      if (field in row && typeof row[field] === "boolean") {
+        const value = row[field];
+        if ((field === "disabled" || field === "archived") && value === true) {
+          return false;
+        }
+        if (
+          (field === "available" ||
+            field === "is_available" ||
+            field === "isAvailable" ||
+            field === "enabled") &&
+          value === false
+        ) {
+          return false;
+        }
+      }
+    }
+
+    const engines = this.readEngineList(row);
+    return engines.length === 0 || engines.includes(HEYGEN_VOICE_ENGINE);
+  }
+
+  private readEngineList(row: Record<string, unknown>): string[] {
+    const raw =
+      row.engine ??
+      row.engines ??
+      row.supported_engines ??
+      row.supportedEngines ??
+      row.supported_api_engines ??
+      row.supportedApiEngines;
+    const values = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,\s/]+/) : [];
+    return values
+      .map((value) => (typeof value === "string" ? value.trim().toLowerCase() : ""))
+      .filter((value) => value.length > 0);
   }
 
   private readStyleTags(row: Record<string, unknown>): string[] {

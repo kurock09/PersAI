@@ -1229,7 +1229,7 @@
     "charactersFormPortraitDrop": "Перетащите изображение или нажмите для выбора",
     "charactersFormPortraitSizeError": "Файл слишком большой. Максимальный размер — 10 МБ.",
     "charactersFormPortraitTypeError": "Принимаются только JPG и PNG.",
-    "charactersAvatarCreateHint": "Тщательно выберите фото. После создания персонажа сменить аватар нельзя — для другого образа нужно создать нового персонажа.",
+    "charactersAvatarCreateHint": "Тщательно выберите фото. После создания персонажа сменить аватар нельзя.",
     "charactersFormVoiceUnavailable": "Каталог голосов недоступен. Попробуйте позже.",
     "charactersFormVoiceEmptyForFilter": "Для выбранного языкового фильтра голоса не найдены.",
     "charactersFormVoiceEmptyForLanguageSearch": "Для этого поиска по языку голоса не найдены.",

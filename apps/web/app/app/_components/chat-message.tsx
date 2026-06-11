@@ -1188,26 +1188,16 @@ function VideoAttachmentPreview({
             />
           ) : null}
           <span className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),transparent_34%,rgba(0,0,0,0.38))]" />
-          <span className="absolute inset-x-0 top-0 h-16 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),transparent)]" />
-          <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2">
-            <span className="max-w-[70%] truncate rounded-full bg-black/28 px-2.5 py-1 text-[10px] font-medium tracking-[0.02em] text-white/88 backdrop-blur-sm">
-              {filename ?? "Video"}
-            </span>
-            {durationLabel ? (
+          {durationLabel ? (
+            <div className="absolute inset-x-3 top-3 flex items-start justify-end">
               <span className="rounded-full bg-black/42 px-2 py-1 text-[10px] font-medium text-white/88 backdrop-blur-sm">
                 {durationLabel}
               </span>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
           <span className="relative flex h-12 w-12 items-center justify-center rounded-full border border-white/18 bg-white/14 text-white shadow-[0_18px_44px_-24px_rgba(0,0,0,0.9)] backdrop-blur-md transition group-hover:scale-[1.03]">
             <Play className="ml-0.5 h-5 w-5 fill-current" />
           </span>
-          <div className="pointer-events-none absolute inset-x-3 bottom-3">
-            <div className="rounded-2xl border border-white/10 bg-black/24 px-3 py-2 text-left backdrop-blur-sm">
-              <p className="truncate text-sm font-medium text-white">{filename ?? "Video"}</p>
-              <p className="mt-0.5 text-[11px] text-white/68">{t("openVideo")}</p>
-            </div>
-          </div>
         </div>
       </button>
       <ImageLightbox

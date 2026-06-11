@@ -88,7 +88,7 @@ export function VoicePicker({
               disabled={disabled}
               aria-pressed={languageBucket === tab.value}
               className={cn(
-                "min-w-0 rounded-full px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-60",
+                "min-w-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors disabled:opacity-60",
                 languageBucket === tab.value
                   ? "bg-accent/15 text-text"
                   : "text-text-muted hover:text-text"

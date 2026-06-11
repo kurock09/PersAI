@@ -396,6 +396,28 @@ function createReferenceAttachment(
   };
 }
 
+async function createTestPngBuffer(input: { width: number; height: number }): Promise<Buffer> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sharp = require("sharp");
+  return sharp({
+    create: {
+      width: input.width,
+      height: input.height,
+      channels: 3,
+      background: { r: 64, g: 120, b: 200 }
+    }
+  })
+    .png()
+    .toBuffer();
+}
+
+async function readImageMetadata(buffer: Buffer): Promise<{ width?: number; height?: number }> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sharp = require("sharp");
+  const metadata = await sharp(buffer).metadata();
+  return { width: metadata.width, height: metadata.height };
+}
+
 class FakeProviderGatewayClientService {
   videoCalls: Array<{
     input: ProviderGatewayVideoGenerateRequest;
@@ -1623,6 +1645,43 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     engine: "avatar_v"
   });
 
+  persaiInternalApiClientService.personaMap.set("workspace-1:persona-wide", {
+    id: "persona-wide",
+    displayName: "Wide Persona",
+    heygenAvatarId: "ava-wide-1",
+    heygenVoiceId: "heygen-voice-warm-001",
+    heygenVoiceLabel: "Anya Warm",
+    videoFormat: "16:9",
+    clonedVoiceId: null,
+    linkedClonedVoiceDisplayName: null,
+    linkedClonedVoiceProviderId: null,
+    portraitImageStorageKey: "workspaces/workspace-1/personas/persona-wide/portrait/current"
+  });
+  const talkingAvatarPersonaAspectGuardCall = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Short avatar video with Wide Persona",
+      mode: "talking_avatar",
+      speechText: "This should keep the saved persona format.",
+      speechLanguage: "en-US",
+      personaId: "persona-wide",
+      talkingAvatarAspectRatio: "9:16"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-talking-avatar-persona-aspect-guard"
+  });
+  assert.equal(talkingAvatarPersonaAspectGuardCall.payload.action, "generated");
+  assert.equal(
+    talkingAvatarPersonaAspectGuardCall.payload.requestedTalkingAvatarAspectRatio,
+    "9:16"
+  );
+  assert.deepEqual(providerGatewayClientService.videoCalls.at(-1)?.input.providerParameters, {
+    resolution: "720p",
+    aspectRatio: "16:9",
+    engine: "avatar_v"
+  });
+
   // ── ADR-111 Slice 4b: linked cloned voice is used when no explicit voiceKey is provided ──
   persaiInternalApiClientService.personaMap.set("workspace-1:persona-linked-clone", {
     id: "persona-linked-clone",
@@ -1721,7 +1780,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   // ── Slice 7: Test 4 — Portrait alias path happy path ──────────────────────
   mediaObjectStorage.sourceObjects.set(
     "media/reference-1.png",
-    Buffer.from("portrait-image-binary")
+    await createTestPngBuffer({ width: 1200, height: 800 })
   );
   const talkingAvatarPortraitCall = await service.executeToolCall({
     bundle: heygenBundle,
@@ -1753,6 +1812,14 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     typeof portraitGatewayCall?.portraitImageBytesBase64 === "string" &&
       portraitGatewayCall.portraitImageBytesBase64.length > 0,
     "portraitImageBytesBase64 must be populated for ad-hoc portrait path"
+  );
+  assert.equal(portraitGatewayCall?.portraitImageMimeType, "image/jpeg");
+  assert.equal(portraitGatewayCall?.providerParameters?.aspectRatio, "16:9");
+  assert.deepEqual(
+    await readImageMetadata(
+      Buffer.from(portraitGatewayCall?.portraitImageBytesBase64 ?? "", "base64")
+    ),
+    { width: 1280, height: 720 }
   );
   assert.equal(portraitGatewayCall?.voiceKey, "heygen-voice-warm-001"); // providerVoiceId
 
@@ -1888,10 +1955,13 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   });
   assert.equal(talkingAvatarAutoAspectChoice.payload.action, "generated");
   assert.equal(talkingAvatarAutoAspectChoice.payload.requestedTalkingAvatarAspectRatio, "9:16");
-  assert.equal(
-    providerGatewayClientService.videoCalls.at(-1)?.input.providerParameters?.aspectRatio,
-    "9:16"
+  const adHocVerticalGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
+  assert.equal(adHocVerticalGatewayCall?.providerParameters?.aspectRatio, "9:16");
+  assert.equal(adHocVerticalGatewayCall?.portraitImageMimeType, "image/jpeg");
+  const adHocVerticalMetadata = await readImageMetadata(
+    Buffer.from(adHocVerticalGatewayCall?.portraitImageBytesBase64 ?? "", "base64")
   );
+  assert.deepEqual(adHocVerticalMetadata, { width: 720, height: 1280 });
 
   const talkingAvatarFixedAspectBundle = createBundle({
     providerId: "heygen",
@@ -1984,9 +2054,14 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   });
   assert.equal(talkingAvatarLandscapeDefaultChoice.payload.action, "generated");
   assert.equal(talkingAvatarLandscapeDefaultChoice.payload.requestedTalkingAvatarAspectRatio, null);
-  assert.equal(
-    providerGatewayClientService.videoCalls.at(-1)?.input.providerParameters?.aspectRatio,
-    "auto"
+  const adHocDetectedGatewayCall = providerGatewayClientService.videoCalls.at(-1)?.input;
+  assert.equal(adHocDetectedGatewayCall?.providerParameters?.aspectRatio, "16:9");
+  assert.equal(adHocDetectedGatewayCall?.portraitImageMimeType, "image/jpeg");
+  assert.deepEqual(
+    await readImageMetadata(
+      Buffer.from(adHocDetectedGatewayCall?.portraitImageBytesBase64 ?? "", "base64")
+    ),
+    { width: 1280, height: 720 }
   );
 
   // ── Slice 7: Test 7 — Plan toggle off → talking_avatar_plan_disabled ───────

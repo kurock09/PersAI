@@ -257,8 +257,182 @@ async function run(): Promise<void> {
       );
       assert.equal(seenUrls.length, 2, "must fetch both pages");
       assert.match(seenUrls[0] ?? "", /limit=100/);
+      assert.match(seenUrls[0] ?? "", /type=public/);
       assert.match(seenUrls[1] ?? "", /token=token-2/);
       console.log("PASS: paginated response follows token cursor and merges pages");
+    }
+
+    // ── Test 3d: Pagination cap is 100 pages ────────────────────────────────
+    {
+      const seenUrls: string[] = [];
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        seenUrls.push(url);
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                voice_id: `voice-${String(seenUrls.length)}`,
+                name: `Voice ${String(seenUrls.length)}`,
+                language: "English",
+                gender: "female"
+              }
+            ],
+            next_token: `token-${String(seenUrls.length + 1)}`
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }) as typeof fetch;
+
+      const service = new HeyGenVoiceCatalogService(
+        {
+          platformHeygenVoiceCatalogCache: {
+            async findUnique() {
+              return null;
+            },
+            async upsert(input: Record<string, unknown>) {
+              return input;
+            }
+          }
+        } as never,
+        {
+          async resolveSecretValueById() {
+            return "heygen-test-api-key";
+          }
+        } as never
+      );
+
+      const catalog = await service.getMaterializedVoiceCatalog();
+      assert.ok(catalog);
+      assert.equal(seenUrls.length, 100, "must fetch up to 100 pages before stopping");
+      console.log("PASS: pagination cap expanded to 100 pages");
+    }
+
+    // ── Test 3e: Unusable/provider-incompatible rows are filtered ───────────
+    {
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                voice_id: "good-avatar-v",
+                name: "Good Avatar V",
+                language: "English",
+                gender: "female",
+                type: "public",
+                status: "ready",
+                supported_api_engines: ["avatar_v"]
+              },
+              {
+                voice_id: "private-voice",
+                name: "Private Voice",
+                language: "English",
+                gender: "male",
+                type: "private"
+              },
+              {
+                voice_id: "failed-voice",
+                name: "Failed Voice",
+                language: "English",
+                gender: "male",
+                status: "failed"
+              },
+              {
+                voice_id: "disabled-voice",
+                name: "Disabled Voice",
+                language: "English",
+                gender: "male",
+                is_available: false
+              },
+              {
+                voice_id: "starfish-only",
+                name: "Starfish Only",
+                language: "English",
+                gender: "male",
+                supported_api_engines: ["starfish"]
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )) as typeof fetch;
+
+      const service = new HeyGenVoiceCatalogService(
+        {
+          platformHeygenVoiceCatalogCache: {
+            async findUnique() {
+              return null;
+            },
+            async upsert(input: Record<string, unknown>) {
+              return input;
+            }
+          }
+        } as never,
+        {
+          async resolveSecretValueById() {
+            return "heygen-test-api-key";
+          }
+        } as never
+      );
+
+      const catalog = await service.getMaterializedVoiceCatalog();
+      assert.ok(catalog);
+      assert.deepEqual(
+        catalog.shortlist.map((entry) => entry.providerVoiceId),
+        ["good-avatar-v"]
+      );
+      console.log("PASS: unusable/provider-incompatible HeyGen voices are filtered");
+    }
+
+    // ── Test 3f: Multilingual voices project into both RU and EN ─────────────
+    {
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                voice_id: "multi-voice",
+                name: "Multi Voice",
+                language: "Multilingual",
+                gender: "female"
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )) as typeof fetch;
+
+      const service = new HeyGenVoiceCatalogService(
+        {
+          platformHeygenVoiceCatalogCache: {
+            async findUnique() {
+              return null;
+            },
+            async upsert(input: Record<string, unknown>) {
+              const create = input.create as { voicesJson?: unknown };
+              const voices = create.voicesJson as Array<{
+                providerVoiceId: string;
+                locale: string;
+              }>;
+              assert.deepEqual(
+                voices.map((entry) => `${entry.providerVoiceId}:${entry.locale}`).sort(),
+                ["multi-voice:en", "multi-voice:ru"]
+              );
+              return input;
+            }
+          }
+        } as never,
+        {
+          async resolveSecretValueById() {
+            return "heygen-test-api-key";
+          }
+        } as never
+      );
+
+      const fullCatalogEntries = await service.getFullVoiceCatalogEntries();
+      assert.deepEqual(
+        fullCatalogEntries.map((entry) => `${entry.providerVoiceId}:${entry.locale}`).sort(),
+        ["multi-voice:en", "multi-voice:ru"]
+      );
+      console.log("PASS: multilingual voices are available in RU and EN without a Multi bucket");
     }
 
     // ── Test 3c: Repeated token from upstream → stop early without looping forever ──

@@ -55,6 +55,27 @@ const SUPPORTED_VIDEO_REFERENCE_IMAGE_MIME_TYPES = new Set([
   "image/jpeg",
   "image/webp"
 ]);
+const TALKING_AVATAR_NORMALIZED_MIME_TYPE = "image/jpeg";
+const TALKING_AVATAR_NORMALIZED_QUALITY = 85;
+type TalkingAvatarAspectRatio = "16:9" | "9:16" | "1:1";
+type SharpMetadata = {
+  width?: number;
+  height?: number;
+};
+type SharpPipeline = {
+  resize(
+    width: number,
+    height: number,
+    options: { fit: "cover"; position: "center"; withoutEnlargement: boolean }
+  ): SharpPipeline;
+  jpeg(options: { quality: number; mozjpeg: boolean }): {
+    toBuffer(): Promise<Buffer>;
+  };
+};
+type SharpFactory = (input: Buffer) => {
+  metadata(): Promise<SharpMetadata>;
+  rotate(): SharpPipeline;
+};
 
 type ResolvedVideoReferenceSelection =
   | {
@@ -1734,7 +1755,7 @@ export class RuntimeVideoGenerateToolService {
     videoModelParameters: RuntimeVideoModelParameters | null | undefined;
     providerParameters: RuntimeVideoModelParameters["providerParameters"] | null;
     request: RuntimeVideoGenerateRequest;
-    personaDefaultAspectRatio?: "16:9" | "9:16" | "1:1" | null;
+    avatarDefaultAspectRatio?: TalkingAvatarAspectRatio | null;
   }): RuntimeVideoModelParameters["providerParameters"] | null {
     if (params.providerId === "kling") {
       return {
@@ -1755,8 +1776,11 @@ export class RuntimeVideoGenerateToolService {
       return {
         ...(params.providerParameters ?? {}),
         aspectRatio: this.resolveTalkingAvatarAspectRatio({
-          requestedAspectRatio: params.request.talkingAvatarAspectRatio ?? null,
-          personaDefaultAspectRatio: params.personaDefaultAspectRatio ?? null,
+          requestedAspectRatio:
+            params.request.personaId !== null
+              ? null
+              : (params.request.talkingAvatarAspectRatio ?? null),
+          avatarDefaultAspectRatio: params.avatarDefaultAspectRatio ?? null,
           configuredAspectRatio: params.providerParameters?.aspectRatio ?? null
         })
       };
@@ -1772,7 +1796,7 @@ export class RuntimeVideoGenerateToolService {
       | "5:4"
       | null
       | undefined;
-    personaDefaultAspectRatio: "16:9" | "9:16" | "1:1" | null | undefined;
+    avatarDefaultAspectRatio: TalkingAvatarAspectRatio | null | undefined;
     configuredAspectRatio: "auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4" | null | undefined;
   }): "auto" | "16:9" | "9:16" | "1:1" | "4:5" | "5:4" {
     if (
@@ -1786,11 +1810,11 @@ export class RuntimeVideoGenerateToolService {
       return params.requestedAspectRatio;
     }
     if (
-      params.personaDefaultAspectRatio === "16:9" ||
-      params.personaDefaultAspectRatio === "9:16" ||
-      params.personaDefaultAspectRatio === "1:1"
+      params.avatarDefaultAspectRatio === "16:9" ||
+      params.avatarDefaultAspectRatio === "9:16" ||
+      params.avatarDefaultAspectRatio === "1:1"
     ) {
-      return params.personaDefaultAspectRatio;
+      return params.avatarDefaultAspectRatio;
     }
     if (params.configuredAspectRatio === "auto") {
       return "auto";
@@ -2334,7 +2358,7 @@ export class RuntimeVideoGenerateToolService {
     );
 
     let resolvedVoiceId: string;
-    let resolvedPersonaDefaultAspectRatio: "16:9" | "9:16" | "1:1" | null = null;
+    let resolvedAvatarDefaultAspectRatio: TalkingAvatarAspectRatio | null = null;
     let gatewayExtra: Pick<
       ProviderGatewayVideoGenerateRequest,
       "cachedHeygenAvatarId" | "portraitImageBytesBase64" | "portraitImageMimeType"
@@ -2491,7 +2515,7 @@ export class RuntimeVideoGenerateToolService {
         // Fall back to the persona's stored preset HeyGen voice ID.
         resolvedVoiceId = persona.heygenVoiceId;
       }
-      resolvedPersonaDefaultAspectRatio = persona.videoFormat;
+      resolvedAvatarDefaultAspectRatio = persona.videoFormat;
 
       gatewayExtra = {
         cachedHeygenAvatarId: persona.heygenAvatarId,
@@ -2643,10 +2667,17 @@ export class RuntimeVideoGenerateToolService {
         };
       }
 
+      const normalizedPortrait = await this.normalizeAdHocTalkingAvatarPortrait({
+        requestId,
+        image: loadedPortrait.image,
+        aspectRatio: normalizedRequest.request.talkingAvatarAspectRatio ?? null
+      });
+      resolvedAvatarDefaultAspectRatio = normalizedPortrait.aspectRatio;
+
       gatewayExtra = {
         cachedHeygenAvatarId: null,
-        portraitImageBytesBase64: loadedPortrait.image.bytesBase64,
-        portraitImageMimeType: loadedPortrait.image.mimeType
+        portraitImageBytesBase64: normalizedPortrait.bytesBase64,
+        portraitImageMimeType: normalizedPortrait.mimeType
       };
     }
 
@@ -2671,7 +2702,7 @@ export class RuntimeVideoGenerateToolService {
             inputMode: normalizedRequest.request.inputMode,
             videoModelParameters: credential.videoModelParameters,
             request: normalizedRequest.request,
-            personaDefaultAspectRatio: resolvedPersonaDefaultAspectRatio,
+            avatarDefaultAspectRatio: resolvedAvatarDefaultAspectRatio,
             providerParameters: credential.videoModelParameters?.providerParameters ?? null
           }),
           credential: {
@@ -2754,6 +2785,92 @@ export class RuntimeVideoGenerateToolService {
         artifacts: [],
         isError: true
       };
+    }
+  }
+
+  private async normalizeAdHocTalkingAvatarPortrait(input: {
+    requestId: string;
+    image: {
+      bytesBase64: string;
+      mimeType: string;
+      filename: string | null;
+    };
+    aspectRatio: TalkingAvatarAspectRatio | null;
+  }): Promise<{
+    bytesBase64: string;
+    mimeType: string;
+    filename: string | null;
+    aspectRatio: TalkingAvatarAspectRatio | null;
+  }> {
+    const sharpFn = await this.loadSharp();
+    if (sharpFn === null) {
+      if (input.aspectRatio === null) {
+        return { ...input.image, aspectRatio: null };
+      }
+      this.logger.warn(
+        `[talking-avatar] sharp not available; using original ad-hoc portrait requestId=${input.requestId} aspectRatio=${input.aspectRatio}`
+      );
+      return { ...input.image, aspectRatio: input.aspectRatio };
+    }
+
+    try {
+      const buffer = Buffer.from(input.image.bytesBase64, "base64");
+      const aspectRatio =
+        input.aspectRatio ?? (await this.detectTalkingAvatarAspectRatio(sharpFn, buffer));
+      const target =
+        aspectRatio === "16:9"
+          ? { width: 1280, height: 720 }
+          : aspectRatio === "9:16"
+            ? { width: 720, height: 1280 }
+            : { width: 1024, height: 1024 };
+      const normalized = await sharpFn(buffer)
+        .rotate()
+        .resize(target.width, target.height, {
+          fit: "cover",
+          position: "center",
+          withoutEnlargement: false
+        })
+        .jpeg({ quality: TALKING_AVATAR_NORMALIZED_QUALITY, mozjpeg: true })
+        .toBuffer();
+
+      return {
+        bytesBase64: normalized.toString("base64"),
+        mimeType: TALKING_AVATAR_NORMALIZED_MIME_TYPE,
+        filename: input.image.filename,
+        aspectRatio
+      };
+    } catch (error) {
+      this.logger.warn(
+        `[talking-avatar] ad-hoc portrait normalization failed requestId=${input.requestId} aspectRatio=${input.aspectRatio}: ${String(error)}`
+      );
+      return { ...input.image, aspectRatio: input.aspectRatio };
+    }
+  }
+
+  private async detectTalkingAvatarAspectRatio(
+    sharpFn: SharpFactory,
+    buffer: Buffer
+  ): Promise<TalkingAvatarAspectRatio> {
+    const metadata = await sharpFn(buffer).metadata();
+    const width = typeof metadata.width === "number" && metadata.width > 0 ? metadata.width : 1;
+    const height = typeof metadata.height === "number" && metadata.height > 0 ? metadata.height : 1;
+    const ratio = width / height;
+    const candidates: Array<{ aspectRatio: TalkingAvatarAspectRatio; ratio: number }> = [
+      { aspectRatio: "16:9", ratio: 16 / 9 },
+      { aspectRatio: "1:1", ratio: 1 },
+      { aspectRatio: "9:16", ratio: 9 / 16 }
+    ];
+    return candidates.reduce((best, candidate) =>
+      Math.abs(candidate.ratio - ratio) < Math.abs(best.ratio - ratio) ? candidate : best
+    ).aspectRatio;
+  }
+
+  private async loadSharp(): Promise<SharpFactory | null> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return require("sharp");
+    } catch {
+      return null;
     }
   }
 

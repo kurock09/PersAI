@@ -139,6 +139,7 @@ interface AssistantSettingsProps {
 }
 
 type ActionFeedback = { type: "ok" | "err" | "warn"; text: string } | null;
+type PersonaVoiceGenderFilter = "female" | "male" | "neutral";
 type PersonaVoiceLanguageFilter = "ru" | "en" | "other" | "mine";
 type PersonaLightboxState = { src: string; name: string } | null;
 type PersonaModalMode = "create" | "edit";
@@ -856,7 +857,7 @@ function FeedbackLine({ fb }: { fb: ActionFeedback }) {
       className={cn(
         "mt-2 flex flex-wrap items-center gap-2 text-xs",
         fb.type === "ok"
-          ? "text-success"
+          ? "text-accent"
           : fb.type === "warn"
             ? "text-yellow-600"
             : "text-destructive"
@@ -925,7 +926,7 @@ function ActionButton({
           "cursor-pointer disabled:cursor-default"
         ),
         pulse &&
-          "animate-pulse border-success/25 bg-success/15 text-success shadow-[0_0_0_1px_rgba(52,168,83,0.18),0_0_22px_rgba(52,168,83,0.16)]",
+          "animate-pulse border-accent/25 bg-accent/12 text-accent shadow-[0_0_0_1px_rgba(191,148,84,0.16),0_0_18px_rgba(191,148,84,0.12)]",
         className
       )}
     >
@@ -1117,10 +1118,22 @@ function matchesVoiceLanguageFilter(
   filter: PersonaVoiceLanguageFilter
 ): boolean {
   const normalized = language?.trim().toLowerCase() ?? "";
+  const isMultilingual =
+    normalized === "multi" ||
+    normalized === "multilingual" ||
+    normalized === "multi-language" ||
+    normalized === "multi language" ||
+    normalized === "multilanguage" ||
+    normalized.includes("multilingual") ||
+    normalized.includes("multi-language") ||
+    normalized.includes("multi language");
   if (filter === "mine") {
     return false;
   }
   if (filter === "ru") {
+    if (isMultilingual) {
+      return true;
+    }
     return (
       normalized === "ru" ||
       normalized.startsWith("ru-") ||
@@ -1129,6 +1142,9 @@ function matchesVoiceLanguageFilter(
     );
   }
   if (filter === "en") {
+    if (isMultilingual) {
+      return true;
+    }
     return (
       normalized === "en" ||
       normalized.startsWith("en-") ||
@@ -1600,6 +1616,7 @@ export function AssistantSettings({
   const [voiceCatalog, setVoiceCatalog] = useState<VoiceCatalogEntry[]>([]);
   const [voiceCatalogLoading, setVoiceCatalogLoading] = useState(false);
   const [voiceCatalogUnavailable, setVoiceCatalogUnavailable] = useState(false);
+  const [voiceGenderFilter, setVoiceGenderFilter] = useState<PersonaVoiceGenderFilter>("neutral");
   const [voiceLanguageFilter, setVoiceLanguageFilter] = useState<PersonaVoiceLanguageFilter>(
     locale.toLowerCase().startsWith("ru") ? "ru" : "en"
   );
@@ -1684,6 +1701,7 @@ export function AssistantSettings({
       setCreatePersonaError(null);
       setCreatePersonaPortraitError(null);
       setOtherVoiceLanguageSearch("");
+      setVoiceGenderFilter("neutral");
       setVoiceLanguageFilter(locale.toLowerCase().startsWith("ru") ? "ru" : "en");
       setCreatePersonaOpen(true);
     },
@@ -1819,6 +1837,12 @@ export function AssistantSettings({
   const talkingVideoEnabled = data.plan?.entitlements?.talkingVideoEnabled === true;
   const filteredVoiceCatalog = useMemo(() => {
     return voiceCatalog.filter((voice) => {
+      if (
+        voiceGenderFilter !== "neutral" &&
+        voice.gender.trim().toLowerCase() !== voiceGenderFilter
+      ) {
+        return false;
+      }
       const derivedBucket = normalizeVoiceLanguageBucket(voice.language);
       const bucket =
         voice.languageBucket === "ru" ||
@@ -1836,7 +1860,7 @@ export function AssistantSettings({
       }
       return matchesOtherVoiceLanguageSearch(voice.language, otherVoiceLanguageSearch);
     });
-  }, [otherVoiceLanguageSearch, voiceCatalog, voiceLanguageFilter]);
+  }, [otherVoiceLanguageSearch, voiceCatalog, voiceGenderFilter, voiceLanguageFilter]);
   const charactersPlanGateLabel = t("charactersLockedHint", {
     plan: data.plan?.effectivePlan.code ?? "Pro"
   });
@@ -2420,28 +2444,20 @@ export function AssistantSettings({
   const memoryPanel = (
     <>
       <div className="mb-4 border-b border-border/45 pb-3">
-        <div className="flex items-center gap-3">
-          {(["workspace", "history"] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setMemoryTab(tab)}
-              className={cn(
-                "flex-1 cursor-pointer rounded-2xl px-4 py-2 text-sm font-medium transition-colors",
-                memoryTab === tab
-                  ? "bg-surface text-text shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_1px_2px_rgba(0,0,0,0.04)]"
-                  : "text-text-subtle hover:bg-surface-raised/25 hover:text-text"
-              )}
-            >
-              {tab === "workspace" ? t("workspace") : t("history")}
-            </button>
-          ))}
-        </div>
+        <SegmentedChoice
+          options={[
+            { value: "workspace", label: t("workspace") },
+            { value: "history", label: t("history") }
+          ]}
+          value={memoryTab}
+          onChange={(value) => setMemoryTab(value as "workspace" | "history")}
+          className="grid-cols-2"
+        />
       </div>
 
       {memoryTab === "workspace" && (
         <>
-          <div className="mb-2 flex gap-2">
+          <div className="mb-2 flex items-center gap-2">
             <input
               type="text"
               value={wsMemorySearch}
@@ -2455,13 +2471,13 @@ export function AssistantSettings({
             <button
               type="button"
               onClick={() => void loadWsMemory(wsMemorySearch || undefined)}
-              className={userPillButtonClassName("secondary", "min-w-[116px] shrink-0")}
+              className={userPillButtonClassName("secondary", "shrink-0")}
             >
               {t("search")}
             </button>
           </div>
 
-          <div className="mb-4 flex gap-2">
+          <div className="mb-4 flex items-center gap-2">
             <input
               type="text"
               value={wsNewMemory}
@@ -2476,10 +2492,7 @@ export function AssistantSettings({
               type="button"
               disabled={wsMemoryAdding || !wsNewMemory.trim()}
               onClick={() => void handleAddWsMemory()}
-              className={userPillButtonClassName(
-                "primary",
-                "min-w-[116px] shrink-0 disabled:opacity-50"
-              )}
+              className={userPillButtonClassName("primary", "shrink-0 disabled:opacity-50")}
             >
               {wsMemoryAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : t("add")}
             </button>
@@ -3389,9 +3402,12 @@ export function AssistantSettings({
     if (typeof window !== "undefined") {
       const image = new window.Image();
       image.onload = () => {
-        setCreatePersonaAutoVideoFormat(
-          detectPersonaVideoFormatFromDimensions(image.naturalWidth, image.naturalHeight)
+        const detectedFormat = detectPersonaVideoFormatFromDimensions(
+          image.naturalWidth,
+          image.naturalHeight
         );
+        setCreatePersonaAutoVideoFormat(detectedFormat);
+        setCreatePersonaVideoFormatChoice(detectedFormat);
       };
       image.src = url;
     }
@@ -4600,7 +4616,7 @@ export function AssistantSettings({
                 className={cn(
                   "rounded-lg px-3 py-2 text-xs",
                   personaFb.type === "ok"
-                    ? "bg-green-500/10 text-green-600"
+                    ? "border border-accent/18 bg-accent/8 text-accent"
                     : personaFb.type === "warn"
                       ? "bg-yellow-500/10 text-yellow-600"
                       : "bg-destructive/10 text-destructive"
@@ -4614,7 +4630,7 @@ export function AssistantSettings({
                 className={cn(
                   "rounded-lg px-3 py-2 text-xs",
                   clonedVoiceFb.type === "ok"
-                    ? "bg-green-500/10 text-green-600"
+                    ? "border border-accent/18 bg-accent/8 text-accent"
                     : clonedVoiceFb.type === "warn"
                       ? "bg-yellow-500/10 text-yellow-600"
                       : "bg-destructive/10 text-destructive"
@@ -5055,7 +5071,12 @@ export function AssistantSettings({
                         <div className="rounded-xl border border-border/60 bg-surface-raised/20 p-3">
                           <div className="grid gap-3 sm:grid-cols-[112px_minmax(0,1fr)] sm:items-start">
                             <div
-                              className="flex min-h-[112px] cursor-pointer items-center justify-center rounded-2xl border-2 border-dashed border-border/60 bg-surface-raised/30 px-3 py-4 transition-colors hover:border-border"
+                              className={cn(
+                                "flex aspect-square w-full cursor-pointer items-center justify-center rounded-2xl transition-colors sm:w-28",
+                                createPersonaPortraitPreview
+                                  ? "overflow-hidden bg-transparent p-0"
+                                  : "border-2 border-dashed border-border/60 bg-surface-raised/30 p-3 hover:border-border"
+                              )}
                               onClick={() => personaPortraitInputRef.current?.click()}
                               onDragOver={(e) => e.preventDefault()}
                               onDrop={(e) => {
@@ -5068,7 +5089,7 @@ export function AssistantSettings({
                                 <img
                                   src={createPersonaPortraitPreview}
                                   alt="Portrait preview"
-                                  className="h-24 w-24 rounded-2xl object-cover"
+                                  className="h-full w-full rounded-2xl object-cover"
                                 />
                               ) : (
                                 <div className="flex flex-col items-center text-center">
@@ -5083,11 +5104,8 @@ export function AssistantSettings({
                               <p className="text-xs text-text-muted">
                                 {t("charactersAvatarCreateHint")}
                               </p>
-                              <p className="mt-2 text-[10px] text-text-subtle/70">
-                                {t("charactersFormPortraitHint")}
-                              </p>
                               <div className="mt-3">
-                                <p className="mb-1 text-xs font-semibold text-text">
+                                <p className="mb-1 text-[11px] font-medium text-text-muted">
                                   {t("charactersFormVideoFormat")}
                                 </p>
                                 <div className="grid grid-cols-4 gap-1 rounded-full border border-border/60 bg-surface p-1">
@@ -5114,14 +5132,6 @@ export function AssistantSettings({
                                     );
                                   })}
                                 </div>
-                                <p className="mt-2 text-[10px] text-text-subtle">
-                                  {t("charactersFormVideoFormatAutoResolved", {
-                                    format: formatPersonaVideoFormatLabel(
-                                      t,
-                                      createPersonaAutoVideoFormat
-                                    )
-                                  })}
-                                </p>
                               </div>
                             </div>
                           </div>
@@ -5168,6 +5178,18 @@ export function AssistantSettings({
                       <p className="mb-1 text-xs font-semibold text-text">
                         {t("charactersFormVoice")}
                       </p>
+                      <SegmentedChoice
+                        options={[
+                          { value: "female", label: t("genderFemale") },
+                          { value: "male", label: t("genderMale") },
+                          { value: "neutral", label: t("genderNeutral") }
+                        ]}
+                        value={voiceGenderFilter}
+                        onChange={(value) =>
+                          setVoiceGenderFilter(value as PersonaVoiceGenderFilter)
+                        }
+                        className="mb-2 grid-cols-3"
+                      />
                       <SegmentedChoice
                         options={[
                           { value: "ru", label: "RU" },
@@ -5249,7 +5271,7 @@ export function AssistantSettings({
                             {t("voicesCreateInline")}
                           </button>
                           {activePersonaVoiceOption ? (
-                            <p className="text-[11px] text-green-600">
+                            <p className="text-[11px] text-accent">
                               {t("charactersFormClonedVoiceSelected", {
                                 name: activePersonaVoiceOption.displayName
                               })}

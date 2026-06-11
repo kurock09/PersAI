@@ -1015,9 +1015,9 @@ function createVideoGenerateToolDefinition(
         // Section 6: voice selection — portrait alias path
         "Voice selection (portrait alias path): when passing portraitImageAlias, select voiceKey from the available voice shortlist based on the visual character in the image plus the request context (language, tone, brand fit, likely presentation). If the image strongly suggests a masculine/feminine presentation, prefer a matching voice, but treat this as a practical fit choice rather than a factual identity claim. If the image is ambiguous or confidence is low, you may briefly ask the user which voice they want. When voiceKey is omitted on the portrait path, runtime returns voice_required honestly so the model can retry with an explicit choice.",
         // Section 7: aspect-ratio selection for talking_avatar
-        "Talking-avatar aspect ratio: if the user explicitly requests vertical, portrait, square, Reels, Stories, feed, widescreen, or landscape output, pass talkingAvatarAspectRatio accordingly. If the user does not specify it, you may choose talkingAvatarAspectRatio from the task, platform, source image shape, and overall context. Use 9:16 for vertical short-form video, 1:1 for square output, and 16:9 for widescreen output. Only leave talkingAvatarAspectRatio omitted when automatic/provider-default behavior is truly intended.",
+        "Talking-avatar aspect ratio: for saved personas (personaId), omit talkingAvatarAspectRatio; the saved persona's avatar format is fixed and runtime will use it. For ad-hoc portraitImageAlias only, pass talkingAvatarAspectRatio only when the user explicitly says vertical/portrait/9:16, square/1:1, or widescreen/landscape/16:9. Do not infer aspect ratio from words like short, social, platform, task, source image shape, or general context.",
         // Section 8: cinematic-only fields ignored in talking_avatar mode
-        "When mode='talking_avatar', omit all cinematic-only controls: audioMode, inputMode, voiceKeys, voiceIds, referenceImageAlias, referenceImageAliases, size, seconds, and filename. Talking-avatar audio comes from speechText + voiceKey (or the persona's stored voice); the portrait source is personaId XOR portraitImageAlias. talkingAvatarAspectRatio is the user/model-level aspect hint for talking-avatar output. Explicit user/model aspect intent wins; when it is omitted, runtime may use a talking-avatar-safe provider default/auto behavior, but a generic cinematic landscape default must not silently override the talking-avatar context.",
+        "When mode='talking_avatar', omit all cinematic-only controls: audioMode, inputMode, voiceKeys, voiceIds, referenceImageAlias, referenceImageAliases, size, seconds, and filename. Talking-avatar audio comes from speechText + voiceKey (or the persona's stored voice); the portrait source is personaId XOR portraitImageAlias. talkingAvatarAspectRatio is only an explicit ad-hoc portraitImageAlias aspect request; never use it as a model guess for saved personas.",
         // Section 9: persona shortlist (from talking-avatar credential ref)
         describeVideoPersonaCatalogHint(talkingAvatarCredential)
       ].join(" ")
@@ -1039,7 +1039,7 @@ function createVideoGenerateToolDefinition(
       ),
       [
         [
-          "Prefer calling this tool immediately when the user clearly wants a video. For cinematic mode, pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. For talking_avatar mode, do not pass cinematic seconds/size/audio/input/filename controls; provide a non-empty speechText from the user's requested script plus exactly one avatar source (personaId or portraitImageAlias), and use talkingAvatarAspectRatio when the user or context implies a specific vertical, square, or widescreen format. If the user wants an avatar/person to move without speaking, that is cinematic, not talking_avatar.",
+          "Prefer calling this tool immediately when the user clearly wants a video. For cinematic mode, pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. For talking_avatar mode, do not pass cinematic seconds/size/audio/input/filename controls; provide a non-empty speechText from the user's requested script plus exactly one avatar source (personaId or portraitImageAlias). If personaId is used, omit talkingAvatarAspectRatio because the persona's saved avatar format controls output. If portraitImageAlias is used, pass talkingAvatarAspectRatio only for an explicit user aspect request. If the user wants an avatar/person to move without speaking, that is cinematic, not talking_avatar.",
           buildPendingDeliveryHint({
             subject: "the video is being prepared",
             quotaToolCode: "video_generate"
@@ -1099,7 +1099,7 @@ function createVideoGenerateToolDefinition(
                 type: "string",
                 enum: ["16:9", "9:16", "1:1"],
                 description:
-                  "Optional talking-avatar output aspect ratio. Use this only when mode='talking_avatar'. Prefer 9:16 for vertical short-form video, 1:1 for square output, and 16:9 for widescreen output. Omit only when automatic/provider-default aspect selection is truly intended."
+                  "Optional talking-avatar output aspect ratio for ad-hoc portraitImageAlias only. Do not pass with personaId; saved personas keep their stored avatar format. For portraitImageAlias, pass only when the user explicitly requested vertical/portrait/9:16, square/1:1, or widescreen/landscape/16:9. Never infer this from short/social/platform/context wording."
               }
             }
           : {}),

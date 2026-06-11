@@ -1229,7 +1229,7 @@
     "charactersFormPortraitDrop": "Drop image here or click to select",
     "charactersFormPortraitSizeError": "File too large. Maximum size is 10 MB.",
     "charactersFormPortraitTypeError": "Only JPG and PNG images are accepted.",
-    "charactersAvatarCreateHint": "Choose the photo carefully. After the character is created, the avatar cannot be changed — use a new character for a different look.",
+    "charactersAvatarCreateHint": "Choose the photo carefully. After the character is created, the avatar cannot be changed.",
     "charactersFormVoiceUnavailable": "Voice catalog unavailable. Try again later.",
     "charactersFormVoiceEmptyForFilter": "No voices found for this language filter.",
     "charactersFormVoiceEmptyForLanguageSearch": "No voices found for this language search.",
