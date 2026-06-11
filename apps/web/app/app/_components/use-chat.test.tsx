@@ -1265,7 +1265,7 @@ describe("useChat", () => {
     expect(activityEntries).toHaveLength(0);
   });
 
-  it("shows the live status badge only for the latest assistant reply", async () => {
+  it("clears live status activity after the latest assistant reply completes", async () => {
     let sendCount = 0;
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
@@ -1316,12 +1316,10 @@ describe("useChat", () => {
         entry.kind === "activity"
     );
 
-    expect(activityEntries).toHaveLength(1);
-    expect(activityEntries[0]?.event.label).toBe("Response generated");
-    expect(activityEntries[0]?.event.afterMessageId).toBe("assistant-msg-2");
+    expect(activityEntries).toHaveLength(0);
   });
 
-  it("preserves active Skill detail on the final response-ready badge", async () => {
+  it("keeps the last real live activity instead of a synthetic response-ready badge", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
         _token: string,
@@ -1383,11 +1381,9 @@ describe("useChat", () => {
     );
 
     expect(activityEntries).toHaveLength(1);
-    expect(activityEntries[0]?.event.label).toBe("Response generated");
-    expect(activityEntries[0]?.event.emphasis).toBe("strong");
+    expect(activityEntries[0]?.event.label).toBe("retrieval_product_started");
     expect(activityEntries[0]?.event.detail).toContain("skillBadgePrefix - ✈️");
     expect(activityEntries[0]?.event.detail).not.toContain("Диетолог");
-    expect(activityEntries[0]?.event.afterMessageId).toBe("assistant-msg-1");
   });
 
   it("keeps only the latest project live status for project-mode streams", async () => {
@@ -1588,7 +1584,7 @@ describe("useChat", () => {
     expect(activityEntries).toHaveLength(0);
   });
 
-  it("appends the shadow routing label for owner or admin viewers", async () => {
+  it("does not materialize a final shadow routing badge after completion", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
         _token: string,
@@ -1641,12 +1637,10 @@ describe("useChat", () => {
         entry.kind === "activity"
     );
 
-    expect(activityEntries).toHaveLength(1);
-    expect(activityEntries[0]?.event.label).toBe("Response generated");
-    expect(activityEntries[0]?.event.shadowRoutingLabel).toBe("premium (llm)");
+    expect(activityEntries).toHaveLength(0);
   });
 
-  it("keeps active-mode routing labels out of the shadow badge metadata", async () => {
+  it("does not leave active-mode routing metadata in a final activity badge", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
         _token: string,
@@ -1699,9 +1693,7 @@ describe("useChat", () => {
         entry.kind === "activity"
     );
 
-    expect(activityEntries).toHaveLength(1);
-    expect(activityEntries[0]?.event.label).toBe("Response generated");
-    expect(activityEntries[0]?.event.shadowRoutingLabel).toBeUndefined();
+    expect(activityEntries).toHaveLength(0);
   });
 
   it("surfaces a recent auto-compaction notice after a turn refresh", async () => {
