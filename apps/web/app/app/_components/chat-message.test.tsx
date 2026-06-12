@@ -899,6 +899,36 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByText("Открываю точную страницу API.")).toBeInTheDocument();
     expect(screen.getByText("Да. Вот итог.")).toBeInTheDocument();
   });
+
+  it("collapses completed working blocks behind a quiet disclosure", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: `:::working
+Проверяю сайт.
+:::
+
+Готово.`
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "workingNotesDone" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+    expect(screen.queryByText("Проверяю сайт.")).not.toBeInTheDocument();
+    expect(screen.getByText("Готово.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "workingNotesDone" }));
+
+    expect(screen.getByRole("button", { name: "workingNotesDone" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
+    expect(screen.getByText("Проверяю сайт.")).toBeInTheDocument();
+  });
 });
 
 describe("resolveInternalChatCta", () => {

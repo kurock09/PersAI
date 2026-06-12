@@ -55,6 +55,9 @@ const fakeAssistantFileRegistry = {
   async ensureAttachmentFile(input: Record<string, unknown>) {
     lastEnsureAttachmentFileInput = input;
     return { fileRef: `file-${String(input.sourceAttachmentId)}` };
+  },
+  async ensureMediaDerivativeTracking() {
+    return undefined;
   }
 };
 

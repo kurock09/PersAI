@@ -21,7 +21,10 @@ import {
   type ToolCredentialKey,
   type UpdateToolCredentialsInput
 } from "./tool-credential-settings";
-import { HeyGenVoiceCatalogService } from "./heygen/heygen-voice-catalog.service";
+import {
+  HEYGEN_VOICE_CACHE_KEY,
+  HeyGenVoiceCatalogService
+} from "./heygen/heygen-voice-catalog.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 @Injectable()
@@ -273,7 +276,7 @@ export class ManageAdminToolCredentialsService {
   }> {
     const row =
       await this.workspaceManagementPrismaService.platformHeygenVoiceCatalogCache.findUnique({
-        where: { cacheKey: "heygen-voices" },
+        where: { cacheKey: HEYGEN_VOICE_CACHE_KEY },
         select: { fetchedAt: true, voicesJson: true }
       });
     return {

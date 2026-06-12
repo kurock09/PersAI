@@ -350,7 +350,7 @@ Preface
             },
             assistantMessage: {
               id: "assistant-msg-1",
-              content: "Итоговый ответ",
+              content: "Проверяю сайт.\n\nИтоговый ответ",
               attachments: []
             },
             runtime: null

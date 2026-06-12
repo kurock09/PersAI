@@ -42,6 +42,9 @@ const fakeAssistantFileRegistry = {
   },
   async linkAttachmentToExistingFile() {
     return undefined;
+  },
+  async ensureMediaDerivativeTracking() {
+    return undefined;
   }
 };
 
@@ -476,6 +479,9 @@ async function run(): Promise<void> {
       },
       async linkAttachmentToExistingFile(input: { sourceAttachmentId: string; fileRef: string }) {
         existingFileLinks.push(input);
+      },
+      async ensureMediaDerivativeTracking() {
+        return undefined;
       }
     } as never,
     fakeUploadMicroDescriptionJobService as never,

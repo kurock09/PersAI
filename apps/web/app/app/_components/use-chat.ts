@@ -569,6 +569,37 @@ function demoteStreamingAssistantPrefix(
   });
 }
 
+function normalizeWorkingText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function removeDuplicatedWorkingAnswerPrefix(answerText: string, workingBlocks: string[]): string {
+  let nextAnswer = answerText.replace(/^\s+/, "");
+  for (const block of workingBlocks) {
+    const normalizedBlock = normalizeWorkingText(block);
+    if (normalizedBlock.length === 0) {
+      continue;
+    }
+    const normalizedAnswer = normalizeWorkingText(nextAnswer);
+    if (normalizedAnswer === normalizedBlock) {
+      return "";
+    }
+    if (!normalizedAnswer.startsWith(`${normalizedBlock} `)) {
+      continue;
+    }
+    const blockLines = block.trim().split(/\r?\n/);
+    if (blockLines.length > 1 && nextAnswer.startsWith(block.trim())) {
+      nextAnswer = nextAnswer.slice(block.trim().length).replace(/^\s+/, "");
+      continue;
+    }
+    const firstLine = blockLines[0]?.trim();
+    if (firstLine && nextAnswer.startsWith(firstLine)) {
+      nextAnswer = nextAnswer.slice(firstLine.length).replace(/^\s+/, "");
+    }
+  }
+  return nextAnswer;
+}
+
 function reconcileAuthoritativeAssistantContent(
   currentContent: string,
   authoritativeContent: string | null
@@ -591,6 +622,10 @@ function reconcileAuthoritativeAssistantContent(
   if (authoritativeSegments.workingBlocks.length > 0) {
     return authoritativeContent;
   }
+  const dedupedAuthoritative = removeDuplicatedWorkingAnswerPrefix(
+    authoritativeContent,
+    currentSegments.workingBlocks
+  );
   if (currentSegments.answerText.trim() === trimmedAuthoritative) {
     return currentContent;
   }
@@ -598,7 +633,38 @@ function reconcileAuthoritativeAssistantContent(
     0,
     currentContent.length - currentSegments.answerText.length
   );
-  return `${workingPrefix}${authoritativeContent}`;
+  return `${workingPrefix}${dedupedAuthoritative}`;
+}
+
+function reconcileServerAssistantMessageWithLocal(
+  serverMessage: ChatMessage,
+  localMessages: ChatMessage[]
+): ChatMessage {
+  if (serverMessage.role !== "assistant") {
+    return serverMessage;
+  }
+  const localMessage = localMessages.find(
+    (message) => message.id === serverMessage.id && message.role === "assistant"
+  );
+  if (!localMessage?.content.includes(":::working")) {
+    return serverMessage;
+  }
+  const nextContent = reconcileAuthoritativeAssistantContent(
+    localMessage.content,
+    serverMessage.content
+  );
+  return nextContent === null || nextContent === serverMessage.content
+    ? serverMessage
+    : { ...serverMessage, content: nextContent };
+}
+
+function reconcileServerAssistantMessagesWithLocal(
+  serverMessages: ChatMessage[],
+  localMessages: ChatMessage[]
+): ChatMessage[] {
+  return serverMessages.map((message) =>
+    reconcileServerAssistantMessageWithLocal(message, localMessages)
+  );
 }
 
 function toChatAttachment(
@@ -1484,9 +1550,18 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const page = await getChatMessages(token, targetChatId, undefined, 20);
           const nextActiveMediaJobs = page.activeMediaJobs ?? [];
           const nextActiveDocumentJobs = page.activeDocumentJobs ?? [];
-          const loaded = page.messages
+          const rawLoaded = page.messages
             .map(toCommittedChatMessage)
             .filter((message): message is ChatMessage => message !== null);
+          const localAssistantMessages = [
+            ...(activeTurnSnapshotsRef.current.get(targetThreadKey)?.messages ?? []),
+            ...(cachedThreadHistorySnapshotsRef.current.get(targetThreadKey)?.messages ?? []),
+            ...(currentThreadKeyRef.current === targetThreadKey ? messages : [])
+          ];
+          const loaded = reconcileServerAssistantMessagesWithLocal(
+            rawLoaded,
+            localAssistantMessages
+          );
           if (loaded.length === 0) {
             return false;
           }
@@ -1678,9 +1753,19 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       status: WebChatTurnStatusState
     ): "running" | "terminal" | "unknown" => {
       const userMessage = status.userMessage ? toCommittedChatMessage(status.userMessage) : null;
-      const assistantMessage = status.assistantMessage
+      const rawAssistantMessage = status.assistantMessage
         ? toCommittedChatMessage(status.assistantMessage)
         : null;
+      const existingSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+      const cachedSnapshot = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
+      const localMessages =
+        existingSnapshot?.messages ??
+        cachedSnapshot?.messages ??
+        (currentThreadKeyRef.current === targetThreadKey ? messages : []);
+      const assistantMessage =
+        rawAssistantMessage !== null
+          ? reconcileServerAssistantMessageWithLocal(rawAssistantMessage, localMessages)
+          : null;
       const followUpAssistantMessage = status.followUpAssistantMessage
         ? toCommittedChatMessage(status.followUpAssistantMessage)
         : null;
@@ -1688,7 +1773,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         if (userMessage === null && targetThreadKey !== WELCOME_THREAD_KEY) {
           return "unknown";
         }
-        const existingSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
         // Resolve the LIVE assistant by `liveAssistantMessageId`, not by
         // "first assistant role found in snapshot.messages". After a
         // loadHistory merge, snapshot.messages may contain OLDER committed
@@ -1868,7 +1952,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         status.status === "failed" ||
         status.status === "interrupted"
       ) {
-        const existingSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
         clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
         setLiveActivitiesByMessageId((prev) =>
           currentThreadKeyRef.current === targetThreadKey ? {} : prev
@@ -1892,7 +1975,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             assistantMessage,
             ...(followUpAssistantMessage ? [followUpAssistantMessage] : [])
           ];
-          const cachedSnapshot = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
           const baseMessages =
             existingSnapshot?.messages ??
             cachedSnapshot?.messages ??
@@ -3637,29 +3719,33 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               } | null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
-              const authoritativeAssistantContent =
-                typeof t?.assistantMessage?.content === "string"
-                  ? t.assistantMessage.content
-                  : null;
               const assistantAttachments =
                 Array.isArray(t?.assistantMessage?.attachments) &&
                 t.assistantMessage.attachments.length > 0
                   ? t.assistantMessage.attachments.map((attachment) => toChatAttachment(attachment))
                   : undefined;
               setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? {
-                        ...m,
-                        ...(newAssistantId ? { id: newAssistantId } : {}),
-                        ...(authoritativeAssistantContent !== null
-                          ? { content: authoritativeAssistantContent }
-                          : {}),
-                        status: "committed" as const,
-                        attachments: assistantAttachments
-                      }
-                    : m
-                )
+                prev.map((m) => {
+                  if (m.id !== assistantMsgId) {
+                    return m;
+                  }
+                  const authoritativeAssistantContent =
+                    typeof t?.assistantMessage?.content === "string"
+                      ? reconcileAuthoritativeAssistantContent(
+                          m.content,
+                          t.assistantMessage.content
+                        )
+                      : null;
+                  return {
+                    ...m,
+                    ...(newAssistantId ? { id: newAssistantId } : {}),
+                    ...(authoritativeAssistantContent !== null
+                      ? { content: authoritativeAssistantContent }
+                      : {}),
+                    status: "committed" as const,
+                    attachments: assistantAttachments
+                  };
+                })
               );
               const resolvedAssistantMessageId = newAssistantId ?? assistantMsgId;
               if (t?.runtime?.turnRouting?.mode === "shadow") {
@@ -3677,15 +3763,24 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   liveAssistantMessageId: resolvedAssistantMessageId,
                   messages: snapshot.messages.map((message) =>
                     message.id === assistantMsgId
-                      ? {
-                          ...message,
-                          id: resolvedAssistantMessageId,
-                          ...(authoritativeAssistantContent !== null
-                            ? { content: authoritativeAssistantContent }
-                            : {}),
-                          status: "committed" as const,
-                          attachments: assistantAttachments
-                        }
+                      ? (() => {
+                          const authoritativeAssistantContent =
+                            typeof t?.assistantMessage?.content === "string"
+                              ? reconcileAuthoritativeAssistantContent(
+                                  message.content,
+                                  t.assistantMessage.content
+                                )
+                              : null;
+                          return {
+                            ...message,
+                            id: resolvedAssistantMessageId,
+                            ...(authoritativeAssistantContent !== null
+                              ? { content: authoritativeAssistantContent }
+                              : {}),
+                            status: "committed" as const,
+                            attachments: assistantAttachments
+                          };
+                        })()
                       : message
                   )
                 });
@@ -3702,26 +3797,28 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               } | null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
-              const authoritativeAssistantContent =
-                typeof t?.assistantMessage?.content === "string"
-                  ? t.assistantMessage.content
-                  : null;
               setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? (() => {
-                        const nextContent = authoritativeAssistantContent ?? m.content;
-                        return {
-                          ...m,
-                          ...(newAssistantId ? { id: newAssistantId } : {}),
-                          ...(authoritativeAssistantContent !== null
-                            ? { content: authoritativeAssistantContent }
-                            : {}),
-                          status: nextContent.trim().length > 0 ? "partial" : "streaming"
-                        };
-                      })()
-                    : m
-                )
+                prev.map((m) => {
+                  if (m.id !== assistantMsgId) {
+                    return m;
+                  }
+                  const authoritativeAssistantContent =
+                    typeof t?.assistantMessage?.content === "string"
+                      ? reconcileAuthoritativeAssistantContent(
+                          m.content,
+                          t.assistantMessage.content
+                        )
+                      : null;
+                  const nextContent = authoritativeAssistantContent ?? m.content;
+                  return {
+                    ...m,
+                    ...(newAssistantId ? { id: newAssistantId } : {}),
+                    ...(authoritativeAssistantContent !== null
+                      ? { content: authoritativeAssistantContent }
+                      : {}),
+                    status: nextContent.trim().length > 0 ? "partial" : "streaming"
+                  };
+                })
               );
             },
             onFailed: (payload) => {
@@ -3732,23 +3829,27 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               } | null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
-              const authoritativeAssistantContent =
-                typeof t?.assistantMessage?.content === "string"
-                  ? t.assistantMessage.content
-                  : null;
               setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? {
-                        ...m,
-                        ...(newAssistantId ? { id: newAssistantId } : {}),
-                        ...(authoritativeAssistantContent !== null
-                          ? { content: authoritativeAssistantContent }
-                          : {}),
-                        status: "partial" as const
-                      }
-                    : m
-                )
+                prev.map((m) => {
+                  if (m.id !== assistantMsgId) {
+                    return m;
+                  }
+                  const authoritativeAssistantContent =
+                    typeof t?.assistantMessage?.content === "string"
+                      ? reconcileAuthoritativeAssistantContent(
+                          m.content,
+                          t.assistantMessage.content
+                        )
+                      : null;
+                  return {
+                    ...m,
+                    ...(newAssistantId ? { id: newAssistantId } : {}),
+                    ...(authoritativeAssistantContent !== null
+                      ? { content: authoritativeAssistantContent }
+                      : {}),
+                    status: "partial" as const
+                  };
+                })
               );
             }
           },
@@ -3807,13 +3908,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           status.userMessage !== null &&
           status.assistantMessage !== null
         ) {
-          const committed = [
+          const rawCommitted = [
             status.userMessage,
             status.assistantMessage,
             ...(status.followUpAssistantMessage ? [status.followUpAssistantMessage] : [])
           ]
             .map(toCommittedChatMessage)
             .filter((m): m is ChatMessage => m !== null);
+          const committed = reconcileServerAssistantMessagesWithLocal(rawCommitted, messages);
           setMessages((prev) => {
             const idsToRemove = new Set<string>([pending.userMsgId]);
             if (pending.assistantMsgId !== null) idsToRemove.add(pending.assistantMsgId);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { ManageAdminToolCredentialsService } from "../src/modules/workspace-management/application/manage-admin-tool-credentials.service";
+import { HEYGEN_VOICE_CACHE_KEY } from "../src/modules/workspace-management/application/heygen/heygen-voice-catalog.service";
 
 async function run(): Promise<void> {
   const rolloutRequests: unknown[] = [];
@@ -7,6 +8,7 @@ async function run(): Promise<void> {
 
   const service = new ManageAdminToolCredentialsService(
     {
+      assertCanReadAdminSurface: async () => undefined,
       assertCanPerformDangerousAdminAction: async () => ({ workspaceId: "ws-1" })
     } as never,
     {
@@ -35,12 +37,22 @@ async function run(): Promise<void> {
     } as never,
     {
       platformHeygenVoiceCatalogCache: {
-        async findUnique() {
-          return null;
+        async findUnique(input: { where: { cacheKey: string } }) {
+          assert.equal(input.where.cacheKey, HEYGEN_VOICE_CACHE_KEY);
+          return {
+            fetchedAt: new Date("2026-06-12T13:52:14.570Z"),
+            voicesJson: [{ voiceKey: "imported", providerVoiceId: "voice-1" }]
+          };
         }
       }
     } as never
   );
+
+  const state = await service.getCredentials("admin-1");
+  assert.deepEqual(state.heygenVoiceCatalog, {
+    refreshedAt: "2026-06-12T13:52:14.570Z",
+    voicesCount: 1
+  });
 
   await service.updateCredentials(
     "admin-1",

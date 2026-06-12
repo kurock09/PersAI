@@ -3,6 +3,36 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-12 - Working notes + HeyGen private voices fixpack
+
+### Baseline
+
+- Starting SHA: `8d4eda51` on `main`. Continued in the current founder-reported fix context instead of claiming a clean-tree ADR slice because the user explicitly asked to apply the three already-investigated fixes in-place. Scope stayed bounded to `:::working` persistence/rendering, Admin Tools HeyGen voice-count truth, and HeyGen imported private voice visibility.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts` now preserves local `:::working` markdown blocks when final/history/status/reattach paths receive server-authoritative assistant content without those blocks, and removes duplicated working-note text from the final answer prefix instead of rendering both.
+- `apps/web/app/app/_components/chat-message.tsx` now renders streaming working notes as one quiet left-rail stack, then collapses completed working notes behind a small localized `Done` / `Выполнено` disclosure with an arrow. Expanded completed notes reuse the same quiet rail style.
+- `HeyGenVoiceCatalogService` now refreshes both `type=public` and `type=private` `/v3/voices` pages, keeps imported private voices, marks those private imports as ElevenLabs-quality entries, and treats unknown-language private imports as multilingual so they surface in RU/EN buckets instead of disappearing into `OTHER`.
+- Admin Tools HeyGen catalog meta now reads the same active cache key as the voice catalog service (`heygen-voices-avatar-v`), so the displayed voice count no longer comes from the stale legacy `heygen-voices` row.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx app/app/_components/use-chat.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/heygen-voice-catalog.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-credentials.service.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / residuals
+
+- HeyGen still does not expose an official quality/rating field. Private imports are classified from the observed HeyGen `type=private` account catalog path and ranked using PersAI's existing derived metadata, not a provider-certified score.
+- The completed working-note summary intentionally does not claim elapsed seconds yet because `ChatMessage` does not carry reliable turn start/end timing. The label is neutral now and can become `Выполнено за N сек` after timing is added to message/turn state.
+
+### Next recommended step
+
+- Refresh the HeyGen catalog in Admin Tools on dev, confirm the count matches the new active cache row, and live-check that imported ElevenLabs/private voices appear in the Characters RU/EN voice picker.
+
 ## 2026-06-12 - Chat media derivatives
 
 ### Baseline

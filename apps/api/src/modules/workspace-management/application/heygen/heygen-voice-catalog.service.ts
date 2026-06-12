@@ -11,14 +11,14 @@ import { PlatformRuntimeProviderSecretStoreService } from "../platform-runtime-p
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
 const HEYGEN_VOICES_URL = "https://api.heygen.com/v3/voices";
-const HEYGEN_VOICE_CACHE_KEY = "heygen-voices-avatar-v";
+export const HEYGEN_VOICE_CACHE_KEY = "heygen-voices-avatar-v";
 const HEYGEN_VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const HEYGEN_VOICE_SHORTLIST_LIMIT = 24;
 const PREFERRED_VOICE_LANGUAGES = ["ru", "en"] as const;
 const HEYGEN_VOICE_PAGE_LIMIT = 100;
 const HEYGEN_VOICE_MAX_PAGES = 100;
 const HEYGEN_VOICE_ENGINE = "avatar_v";
-const HEYGEN_VOICE_TYPE = "public";
+const HEYGEN_VOICE_TYPES = ["public", "private"] as const;
 const GOOD_QUALITY_TAGS: RuntimeVideoVoiceQualityTag[] = ["professional", "natural", "lifelike"];
 
 type CachedVoiceCatalogRow = {
@@ -102,13 +102,25 @@ export class HeyGenVoiceCatalogService {
   }
 
   private async fetchVoiceCatalog(apiKey: string): Promise<RuntimeVideoVoiceCatalogEntry[]> {
+    const pages = (
+      await Promise.all(
+        HEYGEN_VOICE_TYPES.map((voiceType) => this.fetchVoiceCatalogPages(apiKey, voiceType))
+      )
+    ).flat();
+    return this.parseVoiceCatalogPages(pages);
+  }
+
+  private async fetchVoiceCatalogPages(
+    apiKey: string,
+    voiceType: (typeof HEYGEN_VOICE_TYPES)[number]
+  ): Promise<unknown[]> {
     const pages: unknown[] = [];
     let nextToken: string | null = null;
     const seenTokens = new Set<string>();
     for (let page = 0; page < HEYGEN_VOICE_MAX_PAGES; page += 1) {
       const url = new URL(HEYGEN_VOICES_URL);
       url.searchParams.set("limit", String(HEYGEN_VOICE_PAGE_LIMIT));
-      url.searchParams.set("type", HEYGEN_VOICE_TYPE);
+      url.searchParams.set("type", voiceType);
       if (nextToken !== null) {
         url.searchParams.set("token", nextToken);
       }
@@ -138,7 +150,7 @@ export class HeyGenVoiceCatalogService {
         break;
       }
     }
-    return this.parseVoiceCatalogPages(pages);
+    return pages;
   }
 
   private parseVoiceCatalogPages(values: unknown[]): RuntimeVideoVoiceCatalogEntry[] {
@@ -399,7 +411,7 @@ export class HeyGenVoiceCatalogService {
     if (!this.isUsableVideoVoiceRow(row)) {
       return null;
     }
-    const locale =
+    const rawLocale =
       this.asNonEmptyString(row.language) ??
       this.asNonEmptyString(row.voice_language) ??
       this.asNonEmptyString(row.voiceLanguage) ??
@@ -412,6 +424,8 @@ export class HeyGenVoiceCatalogService {
       this.asNonEmptyString(row.previewAudioUrl) ??
       null;
     const source = this.detectVoiceSource(row, displayName, previewAudioUrl);
+    const locale =
+      source === "elevenlabs" && this.isUnknownLocale(rawLocale) ? "Multilingual" : rawLocale;
     const qualityTags = this.detectQualityTags(displayName, row, source);
     const previewAvailable = this.isPreviewLikelyAvailable(previewAudioUrl);
     const localeControl = this.asBoolean(row.support_locale ?? row.supportLocale) ?? false;
@@ -442,7 +456,7 @@ export class HeyGenVoiceCatalogService {
 
   private isUsableVideoVoiceRow(row: Record<string, unknown>): boolean {
     const type = this.asNonEmptyString(row.type)?.toLowerCase() ?? null;
-    if (type !== null && type !== "public") {
+    if (type !== null && type !== "public" && type !== "private") {
       return false;
     }
 
@@ -519,6 +533,14 @@ export class HeyGenVoiceCatalogService {
     return [];
   }
 
+  private isUnknownLocale(value: string | null): boolean {
+    if (value === null) {
+      return true;
+    }
+    const normalized = value.trim().toLowerCase();
+    return normalized.length === 0 || normalized === "unknown";
+  }
+
   private detectVoiceSource(
     row: Record<string, unknown>,
     displayName: string,
@@ -536,6 +558,9 @@ export class HeyGenVoiceCatalogService {
       .filter((value): value is string => value !== null)
       .join(" ")
       .toLowerCase();
+    if (this.asNonEmptyString(row.type)?.toLowerCase() === "private") {
+      return "elevenlabs";
+    }
     if (joined.includes("eleven")) {
       return "elevenlabs";
     }
@@ -557,7 +582,7 @@ export class HeyGenVoiceCatalogService {
     const haystack = [displayName, ...rawTags].join(" ").toLowerCase();
     const tags = GOOD_QUALITY_TAGS.filter((tag) => haystack.includes(tag));
     if (source === "elevenlabs" && tags.length === 0) {
-      return [];
+      return ["professional"];
     }
     return tags;
   }

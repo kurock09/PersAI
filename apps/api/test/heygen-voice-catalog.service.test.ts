@@ -193,6 +193,12 @@ async function run(): Promise<void> {
       globalThis.fetch = (async (input: RequestInfo | URL) => {
         const url = String(input);
         seenUrls.push(url);
+        if (url.includes("type=private")) {
+          return new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
         if (url.includes("token=token-2")) {
           return new Response(
             JSON.stringify({
@@ -255,10 +261,13 @@ async function run(): Promise<void> {
         catalog.shortlist.some((entry) => entry.providerVoiceId === "ru-RU-Anna"),
         "must keep RU voice from next page"
       );
-      assert.equal(seenUrls.length, 2, "must fetch both pages");
+      assert.equal(seenUrls.length, 3, "must fetch public pages and private voice page");
       assert.match(seenUrls[0] ?? "", /limit=100/);
       assert.match(seenUrls[0] ?? "", /type=public/);
-      assert.match(seenUrls[1] ?? "", /token=token-2/);
+      assert.ok(
+        seenUrls.some((url) => url.includes("token=token-2")),
+        "must follow the public pagination token"
+      );
       console.log("PASS: paginated response follows token cursor and merges pages");
     }
 
@@ -304,7 +313,11 @@ async function run(): Promise<void> {
 
       const catalog = await service.getMaterializedVoiceCatalog();
       assert.ok(catalog);
-      assert.equal(seenUrls.length, 100, "must fetch up to 100 pages before stopping");
+      assert.equal(
+        seenUrls.length,
+        200,
+        "must fetch up to 100 pages per voice type before stopping"
+      );
       console.log("PASS: pagination cap expanded to 100 pages");
     }
 
@@ -376,11 +389,79 @@ async function run(): Promise<void> {
 
       const catalog = await service.getMaterializedVoiceCatalog();
       assert.ok(catalog);
-      assert.deepEqual(
-        catalog.shortlist.map((entry) => entry.providerVoiceId),
-        ["good-avatar-v"]
+      assert.deepEqual(catalog.shortlist.map((entry) => entry.providerVoiceId).sort(), [
+        "good-avatar-v",
+        "private-voice"
+      ]);
+      console.log(
+        "PASS: unusable/provider-incompatible HeyGen voices are filtered, private imports remain"
       );
-      console.log("PASS: unusable/provider-incompatible HeyGen voices are filtered");
+    }
+
+    // ── Test 3e2: Private imported voices are retained as quality ElevenLabs voices ──
+    {
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        const isPrivate = url.includes("type=private");
+        return new Response(
+          JSON.stringify({
+            data: isPrivate
+              ? [
+                  {
+                    voice_id: "private-imported",
+                    name: "Elena Gromova — Podcasts & Conversation",
+                    language: "unknown",
+                    gender: "unknown",
+                    type: "private",
+                    support_pause: true
+                  }
+                ]
+              : []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }) as typeof fetch;
+
+      const service = new HeyGenVoiceCatalogService(
+        {
+          platformHeygenVoiceCatalogCache: {
+            async findUnique() {
+              return null;
+            },
+            async upsert(input: Record<string, unknown>) {
+              const create = input.create as { voicesJson?: unknown };
+              const voices = create.voicesJson as Array<{
+                providerVoiceId: string;
+                locale: string;
+                source: string;
+                qualityTags: string[];
+              }>;
+              assert.deepEqual(
+                voices
+                  .map((entry) => `${entry.providerVoiceId}:${entry.locale}:${entry.source}`)
+                  .sort(),
+                ["private-imported:en:elevenlabs", "private-imported:ru:elevenlabs"]
+              );
+              assert.ok(voices.every((entry) => entry.qualityTags.includes("professional")));
+              return input;
+            }
+          }
+        } as never,
+        {
+          async resolveSecretValueById() {
+            return "heygen-test-api-key";
+          }
+        } as never
+      );
+
+      const fullCatalogEntries = await service.getFullVoiceCatalogEntries();
+      assert.deepEqual(
+        fullCatalogEntries
+          .map((entry) => `${entry.providerVoiceId}:${entry.locale}:${entry.source}`)
+          .sort(),
+        ["private-imported:en:elevenlabs", "private-imported:ru:elevenlabs"]
+      );
+      console.log("PASS: private imported HeyGen voices are retained as ElevenLabs quality voices");
     }
 
     // ── Test 3f: Multilingual voices project into both RU and EN ─────────────
@@ -546,9 +627,12 @@ async function run(): Promise<void> {
       const catalog = await service.getMaterializedVoiceCatalog();
       assert.ok(catalog);
       assert.equal(catalog.shortlist.length, 1);
-      assert.equal(seenUrls.length, 2, "must stop once upstream repeats the cursor");
+      assert.equal(seenUrls.length, 4, "must stop once upstream repeats the cursor per voice type");
       assert.match(seenUrls[0] ?? "", /limit=100/);
-      assert.match(seenUrls[1] ?? "", /token=stuck-token/);
+      assert.ok(
+        seenUrls.some((url) => url.includes("token=stuck-token")),
+        "must request the repeated cursor before stopping"
+      );
       console.log("PASS: repeated token stops pagination early");
     }
 

@@ -766,21 +766,50 @@ function MarkdownFragment({ content }: { content: string }) {
   );
 }
 
-function WorkingTextBlocks({ blocks }: { blocks: string[] }) {
+function WorkingTextBlocks({ blocks, isStreaming }: { blocks: string[]; isStreaming: boolean }) {
   const visibleBlocks = blocks.filter((block) => block.trim().length > 0);
+  const [expanded, setExpanded] = useState(isStreaming);
+  const blockKey = visibleBlocks.join("\n\n");
+  const t = useTranslations("chat");
+  useEffect(() => {
+    setExpanded(isStreaming);
+  }, [blockKey, isStreaming]);
   if (visibleBlocks.length === 0) {
     return null;
   }
+  const notes = (
+    <div className="border-l border-text-subtle/18 pl-3">
+      <div className="space-y-1.5">
+        {visibleBlocks.map((block, index) => (
+          <div
+            key={`${index}-${block}`}
+            className="text-[13px] leading-6 text-text-muted/65 italic dark:text-text-subtle/68"
+          >
+            <MarkdownFragment content={block} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  if (isStreaming) {
+    return <div className="mb-2.5">{notes}</div>;
+  }
   return (
-    <div className="mb-2 space-y-1.5">
-      {visibleBlocks.map((block, index) => (
-        <div
-          key={`${index}-${block}`}
-          className="rounded-xl border border-border/35 bg-surface-raised/18 px-3 py-2 text-[13px] leading-relaxed text-text-muted/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:border-white/8 dark:bg-white/[0.03] dark:text-text-subtle/78"
-        >
-          <MarkdownFragment content={block} />
-        </div>
-      ))}
+    <div className="mb-2.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        className="group inline-flex items-center gap-1.5 text-[13px] font-medium text-text-muted/70 transition-colors hover:text-text-muted"
+        aria-expanded={expanded}
+      >
+        {expanded ? (
+          <ChevronUp className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
+        )}
+        <span className="border-b border-accent/45 pb-0.5">{t("workingNotesDone")}</span>
+      </button>
+      {expanded ? <div className="mt-2">{notes}</div> : null}
     </div>
   );
 }
@@ -1745,7 +1774,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         ) : (
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
-            <WorkingTextBlocks blocks={assistantSegments.workingBlocks} />
+            <WorkingTextBlocks blocks={assistantSegments.workingBlocks} isStreaming={isStreaming} />
             {isStreaming ? (
               <>
                 {hasVisibleAnswerText ? (

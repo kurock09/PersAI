@@ -187,6 +187,9 @@ function buildVideoSettleService(opts?: {
     },
     async linkAttachmentToExistingFile() {
       return undefined;
+    },
+    async ensureMediaDerivativeTracking() {
+      return undefined;
     }
   } as never;
 
