@@ -148,6 +148,7 @@ type PersonaVideoFormat = "16:9" | "9:16" | "1:1";
 type PersonaVideoFormatChoice = "auto" | PersonaVideoFormat;
 
 const CHARACTERS_PRICING_URL = "https://persai.dev/app/pricing";
+const MEMORY_INLINE_EXPAND_MIN_CHARS = 72;
 
 function detectPersonaVideoFormatFromDimensions(width: number, height: number): PersonaVideoFormat {
   if (width <= 0 || height <= 0) {
@@ -1216,6 +1217,14 @@ function formatVoiceLanguageLabel(voice: VoiceCatalogEntry): string {
   return "OTHER";
 }
 
+function voiceMultilingualSignature(voice: VoiceCatalogEntry): string {
+  return [
+    voice.voiceId.trim().toLowerCase(),
+    voice.name.trim().toLowerCase(),
+    voice.gender.trim().toLowerCase()
+  ].join(":");
+}
+
 // ADR-074 Slice M3.3 — Memory Center merged view row. The Workspace tab
 // renders both registry rows (structured `kind ∈ {fact, preference,
 // open_loop}`) and workspace rows; deduplicated by normalized text with
@@ -1835,6 +1844,26 @@ export function AssistantSettings({
   }, [assistant?.workspaceId, getToken]);
 
   const talkingVideoEnabled = data.plan?.entitlements?.talkingVideoEnabled === true;
+  const multilingualVoiceSignatures = useMemo(() => {
+    const languagesBySignature = new Map<string, Set<string>>();
+    for (const voice of voiceCatalog) {
+      const language = voice.language?.trim().toLowerCase();
+      if (language !== "ru" && language !== "en") {
+        continue;
+      }
+      const signature = voiceMultilingualSignature(voice);
+      const languages = languagesBySignature.get(signature) ?? new Set<string>();
+      languages.add(language);
+      languagesBySignature.set(signature, languages);
+    }
+    const signatures = new Set<string>();
+    for (const [signature, languages] of languagesBySignature) {
+      if (languages.has("ru") && languages.has("en")) {
+        signatures.add(signature);
+      }
+    }
+    return signatures;
+  }, [voiceCatalog]);
   const filteredVoiceCatalog = useMemo(() => {
     return voiceCatalog.filter((voice) => {
       if (
@@ -2520,12 +2549,12 @@ export function AssistantSettings({
                     row.source === "registry" ? row.item.resolvedAt : (row.item.resolvedAt ?? null);
                   const rowText = row.source === "registry" ? row.item.summary : row.item.content;
                   const expanded = expandedWorkspaceMemoryKeys.includes(row.key);
-                  const canExpand = rowText.length > 110;
+                  const canExpand = rowText.length > MEMORY_INLINE_EXPAND_MIN_CHARS;
                   return (
                     <li key={row.key} data-testid={`memory-row-${row.source}`} className="py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-start gap-3">
+                          <div className="flex items-baseline gap-3">
                             <p
                               className={cn(
                                 "min-w-0 flex-1 text-sm leading-6 text-text",
@@ -2544,7 +2573,7 @@ export function AssistantSettings({
                                       : [...prev, row.key]
                                   )
                                 }
-                                className="shrink-0 text-xs font-medium text-text-subtle transition-colors hover:text-text"
+                                className="shrink-0 text-xs font-medium leading-6 text-text-subtle transition-colors hover:text-text"
                               >
                                 {expanded ? t("memoryCollapse") : t("memoryExpand")}
                               </button>
@@ -2678,12 +2707,12 @@ export function AssistantSettings({
                   if (row.source !== "registry") return null;
                   const item = row.item;
                   const expanded = expandedHistoryMemoryKeys.includes(row.key);
-                  const canExpand = item.summary.length > 110;
+                  const canExpand = item.summary.length > MEMORY_INLINE_EXPAND_MIN_CHARS;
                   return (
                     <li key={row.key} data-testid="memory-row-history" className="py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-start gap-3">
+                          <div className="flex items-baseline gap-3">
                             <p
                               className={cn(
                                 "min-w-0 flex-1 text-sm leading-6 text-text",
@@ -2702,7 +2731,7 @@ export function AssistantSettings({
                                       : [...prev, row.key]
                                   )
                                 }
-                                className="shrink-0 text-xs font-medium text-text-subtle transition-colors hover:text-text"
+                                className="shrink-0 text-xs font-medium leading-6 text-text-subtle transition-colors hover:text-text"
                               >
                                 {expanded ? t("memoryCollapse") : t("memoryExpand")}
                               </button>
@@ -4449,42 +4478,29 @@ export function AssistantSettings({
                                     })}
                               </button>
                               {showCompletedAssistantActions ? (
-                                <ul className="mt-2 space-y-2">
+                                <ul className="mt-2 divide-y divide-border/45 border-t border-border/35">
                                   {completedAssistantActions.map((item) => {
-                                    const recentRuns = item.recentRuns.slice(0, 5);
+                                    const lastRun = item.recentRuns[0] ?? null;
                                     return (
-                                      <li
-                                        key={item.id}
-                                        className="rounded-xl bg-background/40 px-3 py-2.5"
-                                      >
-                                        <div className="flex flex-wrap items-start gap-2">
-                                          <span className="min-w-0 flex-1 text-sm font-medium leading-snug text-text">
+                                      <li key={item.id} className="py-2.5">
+                                        <div className="flex items-baseline gap-3">
+                                          <span className="min-w-0 flex-1 truncate text-sm font-medium leading-6 text-text">
                                             {item.title}
                                           </span>
-                                          <span className="shrink-0 rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-medium text-text-subtle">
+                                          <span className="shrink-0 text-[11px] font-medium text-text-subtle">
                                             {getBackgroundTaskStatusLabel(item.status)}
                                           </span>
                                         </div>
-                                        {recentRuns.length > 0 ? (
-                                          <div className="mt-2 rounded-lg bg-surface-raised/20 p-2">
-                                            <p className="text-[10px] font-medium text-text-subtle">
-                                              {t("runHistory")}
+                                        {lastRun ? (
+                                          <div className="mt-1 min-w-0 text-[11px] leading-5 text-text-subtle">
+                                            <p className="truncate">
+                                              {formatBackgroundRunLine(lastRun)}
                                             </p>
-                                            <ul className="mt-1 space-y-1">
-                                              {recentRuns.map((run) => (
-                                                <li
-                                                  key={run.id}
-                                                  className="text-[11px] text-text-subtle"
-                                                >
-                                                  {formatBackgroundRunLine(run)}
-                                                  {run.pushText ? (
-                                                    <span className="mt-0.5 block text-text-muted">
-                                                      {run.pushText}
-                                                    </span>
-                                                  ) : null}
-                                                </li>
-                                              ))}
-                                            </ul>
+                                            {lastRun.pushText ? (
+                                              <p className="truncate text-text-muted">
+                                                {lastRun.pushText}
+                                              </p>
+                                            ) : null}
                                           </div>
                                         ) : null}
                                       </li>
@@ -5322,7 +5338,10 @@ export function AssistantSettings({
                                 {voice.name}
                               </span>
                               <span className="shrink-0 text-text-subtle">
-                                {formatVoiceLanguageLabel(voice)} · {voice.gender}
+                                {multilingualVoiceSignatures.has(voiceMultilingualSignature(voice))
+                                  ? t("charactersFormVoiceLanguageMulti")
+                                  : formatVoiceLanguageLabel(voice)}{" "}
+                                · {voice.gender}
                               </span>
                               <VoicePreviewButton
                                 previewAudioUrl={resolveCatalogPreviewUrl(

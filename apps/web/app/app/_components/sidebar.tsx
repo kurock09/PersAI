@@ -237,7 +237,7 @@ export function Sidebar({
     [isOnline, recheck]
   );
   return (
-    <aside className="flex h-dvh w-[280px] shrink-0 flex-col border-r border-border bg-surface md:h-auto md:rounded-2xl md:border md:border-border">
+    <aside className="relative flex h-dvh w-[280px] shrink-0 flex-col overflow-hidden border-r border-border bg-surface md:h-auto md:rounded-2xl md:border md:border-border">
       {/* Mobile close button */}
       {onClose && (
         <div className="flex justify-end px-2 pt-2 md:hidden">
@@ -393,7 +393,10 @@ export function Sidebar({
       ) : null}
 
       {/* Bottom: single account row, everything else lives behind the popup */}
-      <div className="shrink-0 border-t border-border p-2" suppressHydrationWarning>
+      <div
+        className="relative z-20 shrink-0 border-t border-border bg-surface p-2"
+        suppressHydrationWarning
+      >
         {mounted && onClose && showAndroidSidebarDownload ? (
           <div className="px-1 pb-2">
             <AndroidAppDownloadBanner
@@ -563,7 +566,7 @@ function AccountFooter({
     ];
 
   return (
-    <div ref={ref} className="overflow-hidden">
+    <div ref={ref} className="relative">
       <motion.button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -602,13 +605,13 @@ function AccountFooter({
         {open && (
           <motion.div
             role="menu"
-            className="px-0 pb-0"
-            initial={{ opacity: 0, y: 10, height: 0 }}
-            animate={{ opacity: 1, y: 0, height: "auto" }}
-            exit={{ opacity: 0, y: 6, height: 0 }}
+            className="absolute inset-x-0 bottom-full z-30 mb-1.5"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
-            <div className="border-t border-border/55 pt-2.5">
+            <div className="rounded-t-2xl border-t border-border/60 bg-surface px-0 pb-1 pt-2.5 shadow-[0_-18px_34px_-28px_rgba(24,22,17,0.62)]">
               <button
                 type="button"
                 onClick={() => {
