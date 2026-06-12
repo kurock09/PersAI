@@ -145,6 +145,82 @@ async function run(): Promise<void> {
 
 void run();
 
+async function runDerivativeDownloadVisibility(): Promise<void> {
+  const rows = [
+    createRow({
+      id: "file-parent-1",
+      origin: "uploaded_attachment",
+      objectKey: "objects/parent.png",
+      relativePath: "uploads/parent.png",
+      displayName: "parent.png",
+      mimeType: "image/png",
+      sizeBytes: BigInt(100),
+      metadata: { source: "web_staged_upload" }
+    }),
+    createRow({
+      id: "file-thumb-1",
+      origin: "runtime_output",
+      objectKey: "objects/thumb.jpg",
+      relativePath: "derivatives/thumb.jpg",
+      displayName: "thumb.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: BigInt(10),
+      metadata: {
+        schema: "persai.mediaDerivativeFile.v1",
+        role: "media_derivative",
+        parentFileRef: "file-parent-1",
+        derivativeKind: "thumbnail"
+      }
+    })
+  ];
+  const service = new AssistantFileRegistryService(
+    {
+      assistantFile: {
+        findMany: async () => rows,
+        findFirst: async ({ where }: { where: { id: string } }) =>
+          rows.find(
+            (row) =>
+              row.id === where.id &&
+              row.assistantId === "assistant-1" &&
+              row.workspaceId === "workspace-1"
+          ) ?? null
+      },
+      assistantDocumentDeliveredFile: {
+        findMany: async () => [],
+        findFirst: async () => null
+      }
+    } as never,
+    {
+      async downloadObject(objectKey: string) {
+        assert.equal(objectKey, "objects/thumb.jpg");
+        return { buffer: Buffer.from("thumb"), contentType: "application/octet-stream" };
+      }
+    } as never
+  );
+
+  const visibleFiles = await service.listAssistantFiles({
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    limit: 20
+  });
+  assert.deepEqual(
+    visibleFiles.map((file) => file.fileRef),
+    ["file-parent-1"],
+    "derivative rows stay hidden from Files"
+  );
+
+  const downloaded = await service.downloadAssistantFile({
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    fileRef: "file-thumb-1"
+  });
+  assert.equal(downloaded.file.fileRef, "file-thumb-1");
+  assert.equal(downloaded.file.mimeType, "image/jpeg");
+  assert.equal(downloaded.buffer.toString("utf8"), "thumb");
+}
+
+void runDerivativeDownloadVisibility();
+
 async function runArchivesDeliveredDocumentDeletion(): Promise<void> {
   const rows = [
     createRow({

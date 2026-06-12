@@ -209,7 +209,7 @@ export class AssistantFileRegistryService {
     workspaceId: string;
     fileRef: string;
   }): Promise<{ file: AssistantFileRegistryRecord; buffer: Buffer; contentType: string }> {
-    const file = await this.findAssistantFile(input);
+    const file = await this.findDownloadableAssistantFile(input);
     if (file === null) {
       throw new NotFoundException("File not found.");
     }
@@ -222,6 +222,21 @@ export class AssistantFileRegistryService {
       buffer: downloaded.buffer,
       contentType: downloaded.contentType
     };
+  }
+
+  private async findDownloadableAssistantFile(input: {
+    assistantId: string;
+    workspaceId: string;
+    fileRef: string;
+  }): Promise<AssistantFileRegistryRecord | null> {
+    const row = await this.prisma.assistantFile.findFirst({
+      where: {
+        id: input.fileRef,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId
+      }
+    });
+    return row === null ? null : this.mapRow(row);
   }
 
   async updateAssistantFileMetadata(input: {
