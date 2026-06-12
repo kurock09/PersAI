@@ -56,7 +56,7 @@ export class ReadWorkspaceVideoPreviewService {
   }
 
   async resolveCatalogVoicePreviewUrl(input: { voiceId: string }): Promise<string | null> {
-    const voices = await this.heyGenVoiceCatalogService.getFullVoiceCatalogEntries();
+    const voices = await this.heyGenVoiceCatalogService.getApprovedVoiceCatalogEntries();
     const voice = voices.find((entry) => entry.providerVoiceId === input.voiceId);
     return this.normalizeUrl(voice?.previewAudioUrl ?? null);
   }

@@ -127,6 +127,85 @@ async function run(): Promise<void> {
       console.log("PASS: fresh cache row → no network call");
     }
 
+    // ── Test 2b: Admin curation gates user and model voice catalogs ─────────
+    {
+      globalThis.fetch = (async () => new Response("{}", { status: 500 })) as typeof fetch;
+      const cachedVoices = [
+        {
+          voiceKey: "approved-voice",
+          providerVoiceId: "approved-001",
+          displayName: "Approved Voice",
+          locale: "Multilingual",
+          gender: "unknown",
+          description: null,
+          styleTags: [],
+          previewAudioUrl: "https://cdn.heygen.com/preview/approved.mp3",
+          providerVoiceType: "private",
+          multilingual: true
+        },
+        {
+          voiceKey: "pending-voice",
+          providerVoiceId: "pending-001",
+          displayName: "Pending Voice",
+          locale: "ru",
+          gender: "female",
+          description: null,
+          styleTags: [],
+          previewAudioUrl: "https://cdn.heygen.com/preview/pending.mp3",
+          providerVoiceType: "public",
+          multilingual: false
+        }
+      ];
+      const service = new HeyGenVoiceCatalogService(
+        {
+          platformHeygenVoiceCatalogCache: {
+            async findUnique() {
+              return {
+                voicesJson: cachedVoices,
+                fetchedAt: new Date(Date.now() - 60 * 1000)
+              };
+            },
+            async upsert() {
+              throw new Error("should not refresh fresh cache");
+            }
+          },
+          platformHeygenVoiceCuration: {
+            async findMany(input?: { where?: Record<string, unknown> }) {
+              const rows = [
+                {
+                  providerVoiceId: "approved-001",
+                  approved: true,
+                  enabled: true,
+                  modelShortlist: false,
+                  languageBucket: "ru",
+                  gender: "female",
+                  updatedAt: new Date("2026-06-12T12:00:00.000Z")
+                }
+              ];
+              return input?.where?.modelShortlist === true ? [] : rows;
+            },
+            async upsert() {
+              throw new Error("should not update curation");
+            }
+          }
+        } as never,
+        {
+          async resolveSecretValueById() {
+            return "heygen-test-api-key";
+          }
+        } as never
+      );
+
+      const userCatalog = await service.getApprovedVoiceCatalogEntries();
+      assert.deepEqual(
+        userCatalog.map((entry) => `${entry.providerVoiceId}:${entry.locale}:${entry.gender}`),
+        ["approved-001:ru:female"]
+      );
+      const modelCatalog = await service.getMaterializedVoiceCatalog();
+      assert.deepEqual(modelCatalog?.shortlist, []);
+      console.log("PASS: admin curation gates user catalog and model shortlist separately");
+    }
+
     // ── Test 3: Expired cache → triggers refresh ──
     {
       const upserts: Array<Record<string, unknown>> = [];

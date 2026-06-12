@@ -94,6 +94,51 @@ async function run(): Promise<void> {
   );
   assert.equal(inlineResponse.body!.toString("utf8"), "Привет\n");
 
+  const controllerWithoutDisplayName = new MediaAttachmentController(
+    {} as never,
+    {
+      async execute({ userId }: { userId: string }) {
+        assert.equal(userId, "user-1");
+        return {
+          assistantId: "assistant-1",
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "workspace-1"
+          }
+        };
+      }
+    } as never,
+    {
+      async downloadAssistantFile() {
+        return {
+          file: {
+            displayName: null,
+            relativePath: "assistant-files/generated/friendly-name.mp4",
+            mimeType: "video/mp4"
+          },
+          buffer: Buffer.from([1, 2, 3]),
+          contentType: "video/mp4"
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        throw new Error("not used");
+      }
+    } as never
+  );
+  const fallbackNameResponse = new FakeResponse();
+  await controllerWithoutDisplayName.downloadAssistantFile(
+    req as never,
+    fallbackNameResponse as never,
+    "file-ref-video-1",
+    "1"
+  );
+  assert.equal(
+    fallbackNameResponse.headers.get("Content-Disposition"),
+    "attachment; filename=\"friendly-name.mp4\"; filename*=UTF-8''friendly-name.mp4"
+  );
+
   assert.deepEqual(
     await controller.preparePresentationPptx(req as never, "doc-1", { versionId: "version-1" }),
     {

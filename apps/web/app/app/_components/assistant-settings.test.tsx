@@ -279,6 +279,49 @@ function renderSettings(
   );
 }
 
+describe("integrations section", () => {
+  it("renders integrations cards and moves reminder delivery into tasks", async () => {
+    const openTelegramSettings = vi.fn();
+    renderSettings(
+      makeAppData({
+        telegram: { connectionStatus: "connected" } as AppData["telegram"],
+        notificationPreference: {
+          selectedChannel: "telegram",
+          availableChannels: ["web", "telegram"]
+        }
+      }),
+      "channels",
+      { onOpenTelegramSettings: openTelegramSettings }
+    );
+
+    expect(await screen.findByText("Integrations")).toBeInTheDocument();
+    expect(screen.getByText("Telegram")).toBeInTheDocument();
+    expect(screen.getByText("WhatsApp")).toBeInTheDocument();
+    expect(screen.getByText("MAX")).toBeInTheDocument();
+    expect(screen.getByText("Connected")).toBeInTheDocument();
+    expect(screen.queryByText("Reminder delivery")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Telegram/i }));
+    expect(openTelegramSettings).toHaveBeenCalled();
+
+    cleanup();
+
+    renderSettings(
+      makeAppData({
+        notificationPreference: {
+          selectedChannel: "telegram",
+          availableChannels: ["web", "telegram"]
+        }
+      }),
+      "tasks"
+    );
+
+    expect(await screen.findByText("Tasks & reminders")).toBeInTheDocument();
+    expect(screen.getByText("Reminder delivery")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Telegram" })).toBeInTheDocument();
+  });
+});
+
 function withIntl(node: ReactNode): ReactNode {
   return (
     <NextIntlClientProvider locale="en" messages={enMessages}>

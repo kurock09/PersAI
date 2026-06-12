@@ -21,7 +21,11 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
-import { tryNativeMediaShare } from "./persai-native-bridge";
+import {
+  tryNativeMediaSave,
+  tryNativeMediaShare,
+  type NativeMediaTransferRequest
+} from "./persai-native-bridge";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
 
 interface ImageLightboxProps {
@@ -71,6 +75,55 @@ function formatMediaTime(totalSeconds: number): string {
   return `${String(minutes)}:${String(seconds).padStart(2, "0")}`;
 }
 
+function guessMimeTypeFromFilename(
+  filename: string | undefined,
+  mediaType: "image" | "video"
+): string | null {
+  const normalized = filename?.trim().toLowerCase() ?? "";
+  const extension = normalized.includes(".") ? (normalized.split(".").at(-1) ?? "") : "";
+  switch (extension) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    case "gif":
+      return "image/gif";
+    case "mp4":
+      return "video/mp4";
+    case "mov":
+      return "video/quicktime";
+    case "webm":
+      return "video/webm";
+    default:
+      return mediaType === "video" ? "video/mp4" : "image/jpeg";
+  }
+}
+
+type ResolvedLightboxAsset = {
+  blob: Blob;
+  objectUrl: string | null;
+};
+
+function buildNativeTransferRequest(input: {
+  assetUrl: string;
+  assetFilename: string;
+  assetMimeType: string | null;
+}): NativeMediaTransferRequest | null {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return null;
+  }
+  return {
+    url: new URL(input.assetUrl, window.location.href).href,
+    filename: input.assetFilename,
+    title: input.assetFilename,
+    userAgent: navigator.userAgent,
+    mimeType: input.assetMimeType ?? undefined
+  };
+}
+
 /**
  * Full-screen image viewer used in chat for tapping image attachments.
  *
@@ -115,6 +168,8 @@ export function ImageLightbox({
   const [swipeDismissOffsetY, setSwipeDismissOffsetY] = useState(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const assetFetchRef = useRef<Promise<ResolvedLightboxAsset> | null>(null);
+  const assetCacheRef = useRef<ResolvedLightboxAsset | null>(null);
   const videoChromeHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Active pointer tracking for pinch + drag.
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
@@ -175,6 +230,14 @@ export function ImageLightbox({
         clearTimeout(videoChromeHideTimeoutRef.current);
         videoChromeHideTimeoutRef.current = null;
       }
+      if (
+        assetCacheRef.current?.objectUrl !== null &&
+        assetCacheRef.current?.objectUrl !== undefined
+      ) {
+        URL.revokeObjectURL(assetCacheRef.current.objectUrl);
+      }
+      assetCacheRef.current = null;
+      assetFetchRef.current = null;
       pointersRef.current.clear();
       pinchRef.current = null;
       dragRef.current = null;
@@ -192,6 +255,14 @@ export function ImageLightbox({
     dragRef.current = null;
     swipeDismissRef.current = null;
     gallerySwipeRef.current = null;
+    if (
+      assetCacheRef.current?.objectUrl !== null &&
+      assetCacheRef.current?.objectUrl !== undefined
+    ) {
+      URL.revokeObjectURL(assetCacheRef.current.objectUrl);
+    }
+    assetCacheRef.current = null;
+    assetFetchRef.current = null;
   }, [src]);
 
   useEffect(() => {
@@ -530,46 +601,114 @@ export function ImageLightbox({
     [navigateGallery, onClose]
   );
 
-  const triggerDownload = useCallback(() => {
-    if (typeof document === "undefined") return;
-    const anchor = document.createElement("a");
-    anchor.href = downloadUrl ?? src;
-    anchor.download = safeMediaFilename(filename ?? alt, mediaType);
-    anchor.rel = "noopener";
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-  }, [alt, downloadUrl, filename, mediaType, src]);
+  const assetFilename = safeMediaFilename(filename ?? alt, mediaType);
+  const assetUrl = downloadUrl ?? src;
+  const assetMimeType = guessMimeTypeFromFilename(assetFilename, mediaType);
+
+  const triggerDownload = useCallback(
+    (resolvedObjectUrl?: string) => {
+      if (typeof document === "undefined") return;
+      const anchor = document.createElement("a");
+      anchor.href = resolvedObjectUrl ?? assetUrl;
+      anchor.download = assetFilename;
+      anchor.rel = "noopener";
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+    },
+    [assetFilename, assetUrl]
+  );
+
+  const ensureDownloadObjectUrl = useCallback((asset: ResolvedLightboxAsset): string | null => {
+    if (asset.objectUrl !== null) {
+      return asset.objectUrl;
+    }
+    if (typeof URL.createObjectURL !== "function") {
+      return null;
+    }
+    asset.objectUrl = URL.createObjectURL(asset.blob);
+    return asset.objectUrl;
+  }, []);
+
+  const resolveTransferAsset = useCallback(async (): Promise<ResolvedLightboxAsset> => {
+    if (assetCacheRef.current !== null) {
+      return assetCacheRef.current;
+    }
+    if (assetFetchRef.current !== null) {
+      return assetFetchRef.current;
+    }
+    const fetchPromise = (async () => {
+      const response = await fetch(assetUrl, { credentials: "same-origin" });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch media asset: ${response.status}`);
+      }
+      const blob = await response.blob();
+      const resolved: ResolvedLightboxAsset = {
+        blob,
+        objectUrl: null
+      };
+      assetCacheRef.current = resolved;
+      assetFetchRef.current = null;
+      return resolved;
+    })().catch((error) => {
+      assetFetchRef.current = null;
+      throw error;
+    });
+    assetFetchRef.current = fetchPromise;
+    return fetchPromise;
+  }, [assetUrl]);
+
+  const handleSave = useCallback(async () => {
+    const nativeTransferRequest = buildNativeTransferRequest({
+      assetUrl,
+      assetFilename,
+      assetMimeType
+    });
+    if (nativeTransferRequest && tryNativeMediaSave(nativeTransferRequest)) {
+      return;
+    }
+    try {
+      const resolved = await resolveTransferAsset();
+      const objectUrl = ensureDownloadObjectUrl(resolved);
+      triggerDownload(objectUrl ?? undefined);
+    } catch {
+      triggerDownload();
+    }
+  }, [
+    assetFilename,
+    assetMimeType,
+    assetUrl,
+    ensureDownloadObjectUrl,
+    resolveTransferAsset,
+    triggerDownload
+  ]);
 
   const handleShare = useCallback(async () => {
-    const shareTitle = safeMediaFilename(filename ?? alt, mediaType);
-    const shareUrl = new URL(downloadUrl ?? src, window.location.href).href;
-
-    if (
-      tryNativeMediaShare({
-        url: shareUrl,
-        filename: shareTitle,
-        title: shareTitle,
-        userAgent: navigator.userAgent
-      })
-    ) {
+    const nativeTransferRequest = buildNativeTransferRequest({
+      assetUrl,
+      assetFilename,
+      assetMimeType
+    });
+    if (nativeTransferRequest && tryNativeMediaShare(nativeTransferRequest)) {
       return;
     }
 
     if (typeof navigator === "undefined" || typeof navigator.share !== "function") {
-      triggerDownload();
+      await handleSave();
       return;
     }
 
     setSharing(true);
     try {
-      const response = await fetch(downloadUrl ?? src);
-      const blob = await response.blob();
-      const file = new File([blob], shareTitle, {
-        type: blob.type || (mediaType === "video" ? "video/mp4" : "image/jpeg")
+      const resolved = await resolveTransferAsset();
+      const file = new File([resolved.blob], assetFilename, {
+        type:
+          resolved.blob.type ||
+          assetMimeType ||
+          (mediaType === "video" ? "video/mp4" : "image/jpeg")
       });
       const fileShare: ShareData = {
-        title: shareTitle,
+        title: assetFilename,
         files: [file]
       };
       if (typeof navigator.canShare === "function" && navigator.canShare(fileShare)) {
@@ -577,17 +716,19 @@ export function ImageLightbox({
         return;
       }
       await navigator.share({
-        title: shareTitle,
-        url: shareUrl
+        title: assetFilename,
+        url:
+          nativeTransferRequest?.url ??
+          (typeof window !== "undefined" ? new URL(assetUrl, window.location.href).href : assetUrl)
       });
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
-        triggerDownload();
+        await handleSave();
       }
     } finally {
       setSharing(false);
     }
-  }, [alt, downloadUrl, filename, mediaType, src, triggerDownload]);
+  }, [assetFilename, assetMimeType, assetUrl, handleSave, mediaType, resolveTransferAsset]);
 
   const toggleVideoPlayback = useCallback(async () => {
     const video = videoRef.current;
@@ -679,7 +820,7 @@ export function ImageLightbox({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                triggerDownload();
+                void handleSave();
               }}
               aria-label={saveLabel}
               title={saveLabel}

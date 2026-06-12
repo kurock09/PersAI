@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="MAX">
+  <defs>
+    <linearGradient id="max-bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#14181F" />
+      <stop offset="100%" stop-color="#2B3240" />
+    </linearGradient>
+    <linearGradient id="max-accent" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#7C5CFF" />
+      <stop offset="100%" stop-color="#4AC2FF" />
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="232" height="232" rx="56" fill="url(#max-bg)" />
+  <path
+    fill="url(#max-accent)"
+    d="M53 168V72h23l26 40 26-40h23v96h-22v-57l-22 34h-10l-22-34v57H53Zm112 0 30-48-28-48h25l17 30 17-30h24l-28 47 29 49h-25l-18-31-19 31h-24Z"
+  />
+</svg>

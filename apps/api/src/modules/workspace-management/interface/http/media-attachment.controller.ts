@@ -259,11 +259,12 @@ export class MediaAttachmentController {
     res.setHeader("Content-Type", payload.contentType);
     res.setHeader("Cache-Control", "private, max-age=3600");
     res.setHeader("Accept-Ranges", "bytes");
-    if (result.file.displayName) {
+    const resolvedDownloadFilename = this.resolveDownloadFilename(result.file);
+    if (resolvedDownloadFilename !== null) {
       res.setHeader(
         "Content-Disposition",
         this.buildContentDisposition(
-          result.file.displayName,
+          resolvedDownloadFilename,
           download === "1" ? "attachment" : "inline"
         )
       );
@@ -408,6 +409,37 @@ export class MediaAttachmentController {
     const sanitizedFilename = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\r\n]/g, "_");
     const encodedFilename = encodeURIComponent(filename);
     return `${mode}; filename="${sanitizedFilename}"; filename*=UTF-8''${encodedFilename}`;
+  }
+
+  private resolveDownloadFilename(
+    file: Pick<AssistantFileRegistryRecord, "displayName" | "relativePath" | "mimeType">
+  ): string | null {
+    const preferred = file.displayName?.trim();
+    if (preferred && preferred.length > 0) {
+      return preferred;
+    }
+    const basename = this.basename(file.relativePath).trim();
+    if (basename.length > 0) {
+      return basename;
+    }
+    return this.defaultFilenameForMimeType(file.mimeType);
+  }
+
+  private defaultFilenameForMimeType(mimeType: string): string {
+    const normalized = mimeType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+    if (normalized.startsWith("video/")) {
+      return "persai-video";
+    }
+    if (normalized.startsWith("image/")) {
+      return "persai-image";
+    }
+    if (normalized.startsWith("audio/")) {
+      return "persai-audio";
+    }
+    if (normalized === "application/pdf") {
+      return "persai-document.pdf";
+    }
+    return "persai-file";
   }
 
   private prepareDownloadPayload(input: {

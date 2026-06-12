@@ -1086,7 +1086,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   );
   const historyRefreshInFlightByKeyRef = useRef<Map<string, Promise<boolean>>>(new Map());
   const turnReattachInFlightByKeyRef = useRef<
-    Map<string, Promise<"running" | "terminal" | "unknown">>
+    Map<string, Promise<"running" | "terminal" | "terminal_status" | "unknown">>
   >(new Map());
   const resumeRefreshInFlightRef = useRef(false);
   const historyLoadedRef = useRef<Set<string>>(new Set());
@@ -1676,7 +1676,22 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               activeSnapshot !== undefined && !shouldReplaceActiveTurn
                 ? []
                 : loaded.filter((message) => !nextIds.has(message.id));
-            return [...next, ...missing];
+            const merged = [...next, ...missing];
+            if (activeSnapshot !== undefined) {
+              const liveTurnIds = new Set<string>(
+                [activeSnapshot.liveUserMessageId, activeSnapshot.liveAssistantMessageId].filter(
+                  (value): value is string => typeof value === "string"
+                )
+              );
+              const loadedIds = new Set(loaded.map((message) => message.id));
+              return merged.filter(
+                (message) =>
+                  liveTurnIds.has(message.id) ||
+                  !currentBaseMessageIds.has(message.id) ||
+                  loadedIds.has(message.id)
+              );
+            }
+            return merged;
           });
           olderCursorRef.current = page.nextCursor;
           if (currentThreadKeyRef.current === targetThreadKey) {
@@ -1751,7 +1766,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       targetThreadKey: string,
       clientTurnId: string,
       status: WebChatTurnStatusState
-    ): "running" | "terminal" | "unknown" => {
+    ): "running" | "terminal" | "terminal_status" | "unknown" => {
       const userMessage = status.userMessage ? toCommittedChatMessage(status.userMessage) : null;
       const rawAssistantMessage = status.assistantMessage
         ? toCommittedChatMessage(status.assistantMessage)
@@ -2024,7 +2039,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             return [...withoutActiveTurn, ...committed];
           });
         }
-        return "terminal";
+        return "terminal_status";
       }
       return "unknown";
     },
@@ -2034,7 +2049,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     async (
       targetThreadKey: string,
       clientTurnId: string
-    ): Promise<"running" | "terminal" | "unknown"> => {
+    ): Promise<"running" | "terminal" | "terminal_status" | "unknown"> => {
       const token = await getToken({ skipCache: true });
       if (!token) return "unknown";
       try {
@@ -2050,17 +2065,19 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     async (
       targetThreadKey: string,
       clientTurnId: string
-    ): Promise<"running" | "terminal" | "unknown"> => {
+    ): Promise<"running" | "terminal" | "terminal_status" | "unknown"> => {
       const reattachKey = `${targetThreadKey}:${clientTurnId}`;
       const existingReattach = turnReattachInFlightByKeyRef.current.get(reattachKey);
       if (existingReattach !== undefined) {
         return existingReattach;
       }
-      const reattachPromise = (async (): Promise<"running" | "terminal" | "unknown"> => {
+      const reattachPromise = (async (): Promise<
+        "running" | "terminal" | "terminal_status" | "unknown"
+      > => {
         const token = await getToken({ skipCache: true });
         if (!token) return "unknown";
         const controller = new AbortController();
-        let latestResult: "running" | "terminal" | "unknown" = "unknown";
+        let latestResult: "running" | "terminal" | "terminal_status" | "unknown" = "unknown";
         try {
           await reattachAssistantWebChatTurnStream(
             token,
@@ -2195,14 +2212,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 const reconciled = targetChatId
                   ? await refreshLatestHistory(targetChatId, { targetThreadKey })
                   : false;
-                latestResult = reconciled ? "terminal" : "unknown";
+                latestResult = reconciled ? "terminal" : "terminal";
               },
               onInterrupted: async () => {
                 const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
                 const reconciled = targetChatId
                   ? await refreshLatestHistory(targetChatId, { targetThreadKey })
                   : false;
-                latestResult = reconciled ? "terminal" : "unknown";
+                latestResult = reconciled ? "terminal" : latestResult;
               },
               onFailed: async (payload) => {
                 setIssue(toWebChatUxIssue(payload));
@@ -2210,7 +2227,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 const reconciled = targetChatId
                   ? await refreshLatestHistory(targetChatId, { targetThreadKey })
                   : false;
-                latestResult = reconciled ? "terminal" : "unknown";
+                latestResult = reconciled ? "terminal" : "running";
               }
             },
             controller.signal
@@ -2277,6 +2294,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             return;
           }
           if (statusResult === "terminal") {
+            await refreshLatestHistory(targetChatId, {
+              clearIssueOnReconcile: true,
+              targetThreadKey
+            });
+            abortControllersByThreadRef.current.delete(targetThreadKey);
+            return;
+          }
+          if (statusResult === "terminal_status") {
             abortControllersByThreadRef.current.delete(targetThreadKey);
             return;
           }
@@ -2445,10 +2470,15 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               return;
             }
             if (statusResult === "terminal") {
-              await refreshLatestHistory(targetChatId, {
-                clearIssueOnReconcile: true,
-                targetThreadKey
-              });
+              const stillActiveAfterTerminal =
+                activeTurnSnapshotsRef.current.has(targetThreadKey) ||
+                abortControllersByThreadRef.current.has(targetThreadKey);
+              if (stillActiveAfterTerminal) {
+                await refreshLatestHistory(targetChatId, {
+                  clearIssueOnReconcile: true,
+                  targetThreadKey
+                });
+              }
               void refreshCompactionState(targetChatId);
               return;
             }

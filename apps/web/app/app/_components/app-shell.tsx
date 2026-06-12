@@ -240,7 +240,10 @@ export function AppShell({
                       setSettingsInitialSection(undefined);
                       setSettingsOpen(true);
                     }}
-                    onTelegramClick={() => setTelegramOpen(true)}
+                    onTelegramClick={() => {
+                      setSettingsInitialSection("channels");
+                      setSettingsOpen(true);
+                    }}
                     onLimitsClick={() => {
                       setSettingsInitialSection("limits");
                       setSettingsOpen(true);
@@ -279,7 +282,8 @@ export function AppShell({
                           }}
                           onTelegramClick={() => {
                             setSidebarOpen(false);
-                            setTelegramOpen(true);
+                            setSettingsInitialSection("channels");
+                            setSettingsOpen(true);
                           }}
                           onLimitsClick={() => {
                             setSidebarOpen(false);

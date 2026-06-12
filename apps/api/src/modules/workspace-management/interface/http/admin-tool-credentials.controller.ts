@@ -1,7 +1,22 @@
-import { Body, Controller, Get, Post, Put, Req, UnauthorizedException } from "@nestjs/common";
-import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Req,
+  Res,
+  UnauthorizedException
+} from "@nestjs/common";
+import type {
+  RequestWithPlatformContext,
+  ResponseWithPlatformContext
+} from "../../../platform-core/interface/http/request-http.types";
 import { ManageAdminToolCredentialsService } from "../../application/manage-admin-tool-credentials.service";
 import type { AdminToolCredentialsState } from "../../application/tool-credential-settings";
+import { streamRemoteAudioPreview } from "./stream-remote-audio-preview";
 
 @Controller("api/v1/admin/runtime/tool-credentials")
 export class AdminToolCredentialsController {
@@ -57,6 +72,51 @@ export class AdminToolCredentialsController {
       requestId: req.requestId ?? null,
       credentials
     };
+  }
+
+  @Get("heygen-voice-catalog/curation")
+  async listHeygenVoiceCuration(@Req() req: RequestWithPlatformContext) {
+    const userId = this.resolveRequestUserId(req);
+    const catalog = await this.manageAdminToolCredentialsService.listHeygenVoiceCuration(userId);
+    return {
+      requestId: req.requestId ?? null,
+      catalog
+    };
+  }
+
+  @Patch("heygen-voice-catalog/curation")
+  async updateHeygenVoiceCuration(@Req() req: RequestWithPlatformContext, @Body() body: unknown) {
+    const userId = this.resolveRequestUserId(req);
+    const catalog = await this.manageAdminToolCredentialsService.updateHeygenVoiceCuration(
+      userId,
+      body,
+      this.resolveStepUpToken(req)
+    );
+    return {
+      requestId: req.requestId ?? null,
+      catalog
+    };
+  }
+
+  @Get("heygen-voice-catalog/:voiceId/preview")
+  async getHeygenVoicePreview(
+    @Req() req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext,
+    @Param("voiceId") voiceId: string
+  ): Promise<void> {
+    const userId = this.resolveRequestUserId(req);
+    const previewUrl =
+      await this.manageAdminToolCredentialsService.resolveAdminHeygenVoicePreviewUrl(
+        userId,
+        voiceId
+      );
+    if (previewUrl === null) {
+      res.statusCode = 404;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ message: "Preview audio not found.", code: "preview_not_found" }));
+      return;
+    }
+    await streamRemoteAudioPreview({ request: req, response: res, sourceUrl: previewUrl });
   }
 
   private resolveRequestUserId(req: RequestWithPlatformContext): string {

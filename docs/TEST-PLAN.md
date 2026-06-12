@@ -1023,7 +1023,10 @@ When a change touches `Settings -> Characters`, workspace video personas, cloned
 
 ```bash
 corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts app/app/_components/assistant-settings.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/api exec tsx test/heygen-voice-catalog.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/tools/page.test.tsx
 corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts
+corepack pnpm --filter @persai/api run typecheck
 corepack pnpm --filter @persai/web run typecheck
 corepack pnpm --filter @persai/runtime run typecheck
 ```
@@ -1036,6 +1039,7 @@ Interpretation rules:
 4. Persona portrait normalization must crop to the stored persona `videoFormat` before HeyGen avatar creation, so later talking-avatar renders do not rely on provider-added letterboxing/pillarboxing.
 5. Runtime `video_generate` guidance may mention safe cloned-voice display labels only when talking video is enabled and the materialized persona catalog already carries that label; it must not expose provider ids or add keyword/fuzzy routing.
 6. Talking-avatar aspect precedence must stay `explicit request > stored persona videoFormat > provider/admin default`.
+7. HeyGen provider refresh must not overwrite `platform_heygen_voice_curation`; user-facing Characters catalogs require `approved && enabled`, and model-facing talking-avatar shortlists additionally require `modelShortlist`.
 
 ## Step 20 files/sandbox/media focused checks
 

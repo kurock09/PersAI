@@ -395,6 +395,76 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(screen.getByRole("button", { name: "accountSettings" })).toBeInTheDocument();
   });
 
+  it("replaces messenger rows with one integrations entry in the account footer", async () => {
+    const onTelegramClick = vi.fn();
+    render(
+      <Sidebar
+        data={makeAppData({
+          telegram: { connectionStatus: "connected" } as AppData["telegram"],
+          plan: {
+            effectivePlan: {
+              code: "starter_trial",
+              displayName: "Starter Trial",
+              status: "active",
+              source: "plan",
+              subscriptionStatus: "trialing",
+              trialEndsAt: null,
+              graceStartedAt: null,
+              graceEndsAt: null,
+              currentPeriodEndsAt: null,
+              isTrialPlan: true,
+              trialFallbackPlanCode: null,
+              paidFallbackPlanCode: null,
+              price: { amount: 980, currency: "RUB", billingPeriod: "month" }
+            },
+            entitlements: {
+              channelsAndSurfaces: {
+                webChat: true,
+                telegram: true,
+                whatsapp: false,
+                max: false
+              }
+            },
+            limits: {
+              quotaBuckets: [
+                {
+                  bucketCode: "token_budget",
+                  displayName: "Token budget",
+                  unit: "tokens",
+                  used: 2100,
+                  limit: 10000,
+                  percent: 21,
+                  usageAvailable: true,
+                  status: "ok"
+                }
+              ],
+              monthlyMediaQuotas: {
+                planCode: "starter_trial",
+                periodStartedAt: "2026-05-01T00:00:00.000Z",
+                periodEndsAt: "2026-06-01T00:00:00.000Z",
+                periodSource: "subscription_period",
+                tools: []
+              },
+              toolDailyLimits: []
+            },
+            updatedAt: "2026-05-01T10:00:00.000Z"
+          } as unknown as AppData["plan"]
+        })}
+        onTelegramClick={onTelegramClick}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Starter Trial · 21%").closest("button")!);
+
+    const integrationsButton = await screen.findByRole("button", { name: /integrations/i });
+    expect(integrationsButton).toBeInTheDocument();
+    expect(screen.queryByText(/^WhatsApp$/)).toBeNull();
+    expect(screen.queryByText(/^MAX$/)).toBeNull();
+
+    fireEvent.click(integrationsButton);
+    expect(onTelegramClick).toHaveBeenCalled();
+  });
+
   it("shows a quiet light-mode marker when paid token light mode is active", () => {
     render(
       <Sidebar

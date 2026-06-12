@@ -23,6 +23,8 @@ import {
 } from "./tool-credential-settings";
 import {
   HEYGEN_VOICE_CACHE_KEY,
+  type AdminHeygenVoiceCurationCatalog,
+  type AdminHeygenVoiceCurationPatch,
   HeyGenVoiceCatalogService
 } from "./heygen/heygen-voice-catalog.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
@@ -240,6 +242,93 @@ export class ManageAdminToolCredentialsService {
       summary: "HeyGen voice catalog refreshed."
     });
     return this.getCredentials(userId);
+  }
+
+  async listHeygenVoiceCuration(userId: string): Promise<AdminHeygenVoiceCurationCatalog> {
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    return this.heyGenVoiceCatalogService.listAdminVoiceCurationCatalog();
+  }
+
+  async updateHeygenVoiceCuration(
+    userId: string,
+    body: unknown,
+    stepUpToken: string | null
+  ): Promise<AdminHeygenVoiceCurationCatalog> {
+    await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      userId,
+      "admin.tool_credentials.update",
+      stepUpToken
+    );
+    const patches = this.parseHeygenVoiceCurationPatches(body);
+    const result = await this.heyGenVoiceCatalogService.updateAdminVoiceCuration({
+      actorUserId: userId,
+      patches
+    });
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: null,
+      assistantId: null,
+      actorUserId: userId,
+      eventCategory: "admin_action",
+      eventCode: "admin.heygen_voice_curation_updated",
+      summary: "HeyGen voice curation updated.",
+      details: { updatedCount: patches.length }
+    });
+    return result;
+  }
+
+  async resolveAdminHeygenVoicePreviewUrl(
+    userId: string,
+    providerVoiceId: string
+  ): Promise<string | null> {
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const voices = await this.heyGenVoiceCatalogService.getFullVoiceCatalogEntries();
+    const voice = voices.find((entry) => entry.providerVoiceId === providerVoiceId);
+    const previewUrl = voice?.previewAudioUrl;
+    return typeof previewUrl === "string" && previewUrl.trim().length > 0
+      ? previewUrl.trim()
+      : null;
+  }
+
+  private parseHeygenVoiceCurationPatches(body: unknown): AdminHeygenVoiceCurationPatch[] {
+    const record =
+      body !== null && typeof body === "object" ? (body as Record<string, unknown>) : {};
+    const rawPatches = record.patches;
+    if (!Array.isArray(rawPatches)) {
+      throw new BadRequestException("Invalid HeyGen voice curation request.");
+    }
+    return rawPatches.map((rawPatch) => {
+      const patch =
+        rawPatch !== null && typeof rawPatch === "object"
+          ? (rawPatch as Record<string, unknown>)
+          : {};
+      const providerVoiceId =
+        typeof patch.providerVoiceId === "string" ? patch.providerVoiceId.trim() : "";
+      const languageBucket =
+        patch.languageBucket === "ru" ||
+        patch.languageBucket === "en" ||
+        patch.languageBucket === "other" ||
+        patch.languageBucket === "multi"
+          ? patch.languageBucket
+          : null;
+      const gender =
+        patch.gender === "female" ||
+        patch.gender === "male" ||
+        patch.gender === "neutral" ||
+        patch.gender === "unknown"
+          ? patch.gender
+          : null;
+      if (providerVoiceId.length === 0 || languageBucket === null || gender === null) {
+        throw new BadRequestException("Invalid HeyGen voice curation patch.");
+      }
+      return {
+        providerVoiceId,
+        approved: patch.approved === true,
+        enabled: patch.enabled !== false,
+        modelShortlist: patch.modelShortlist === true,
+        languageBucket,
+        gender
+      };
+    });
   }
 
   private async loadProviderSelections(): Promise<Partial<Record<ToolCredentialKey, string>>> {

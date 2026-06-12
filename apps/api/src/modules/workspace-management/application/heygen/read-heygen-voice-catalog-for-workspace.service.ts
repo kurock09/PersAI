@@ -26,10 +26,10 @@ export type WorkspaceVoiceCatalogResult = {
 /**
  * ADR-109 Slice 9 — workspace-scoped voice catalog reader for the settings UI.
  *
- * Wraps the platform-wide HeyGen voice catalog cache (Slice 4) and
- * re-projects it into a UI-friendly shape. The workspace ID is accepted
- * at the controller layer for auth-scoping only; the underlying data is
- * platform-wide (no per-workspace filtering).
+ * Wraps the platform-wide HeyGen voice catalog cache plus admin curation and
+ * re-projects only approved/enabled voices into a UI-friendly shape. The
+ * workspace ID is accepted at the controller layer for auth-scoping only; the
+ * underlying data is platform-wide (no per-workspace filtering).
  *
  * Returns null when the catalog is unavailable (no HeyGen credential or
  * empty cache). The UI should render an honest "voice catalog unavailable"
@@ -40,7 +40,7 @@ export class ReadHeygenVoiceCatalogForWorkspaceService {
   constructor(private readonly heyGenVoiceCatalogService: HeyGenVoiceCatalogService) {}
 
   async getVoiceCatalogForWorkspace(_workspaceId: string): Promise<WorkspaceVoiceCatalogResult> {
-    const voices = await this.heyGenVoiceCatalogService.getFullVoiceCatalogEntries();
+    const voices = await this.heyGenVoiceCatalogService.getApprovedVoiceCatalogEntries();
     if (voices.length === 0) {
       return null;
     }

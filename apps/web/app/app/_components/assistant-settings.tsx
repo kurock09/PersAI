@@ -4298,7 +4298,7 @@ export function AssistantSettings({
         {/* 4. Tasks */}
         <Section
           icon={<ListTodo className="h-4 w-4" />}
-          title={t("tasks")}
+          title={t("tasksAndReminders")}
           open={openSection === "tasks"}
           onToggle={() => setOpenSection((current) => (current === "tasks" ? null : "tasks"))}
           className="order-3"
@@ -4375,6 +4375,44 @@ export function AssistantSettings({
                     )}
                   </>
                 )}
+              </div>
+
+              <div className="rounded-xl bg-surface-raised/[0.18] p-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-text">{t("reminderDelivery")}</p>
+                    <p className="mt-1 text-[11px] text-text-subtle">{t("reminderDescription")}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(data.notificationPreference?.availableChannels ?? ["web"]).map((channel) => {
+                    const active = notificationChannel === channel;
+                    return (
+                      <button
+                        key={channel}
+                        type="button"
+                        disabled={notificationSaving}
+                        onClick={() => void handleNotificationPreferenceChange(channel)}
+                        className={cn(
+                          "rounded-full border px-3 py-1.5 text-xs transition-colors disabled:opacity-50",
+                          active
+                            ? "border-accent/45 bg-accent/10 text-accent"
+                            : "border-border/50 bg-background/45 text-text-muted hover:bg-surface-hover"
+                        )}
+                      >
+                        {t(
+                          (
+                            {
+                              telegram: "channelTelegram",
+                              web: "channelWeb"
+                            } as Record<string, string>
+                          )[channel] ?? "channelWeb"
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <FeedbackLine fb={notificationFb} />
               </div>
 
               <div className="rounded-xl bg-surface-raised/[0.18] p-3.5">
@@ -4562,62 +4600,39 @@ export function AssistantSettings({
           )}
         </Section>
 
-        {/* 5. Channels */}
+        {/* 5. Integrations */}
         <Section
           icon={<Send className="h-4 w-4" />}
-          title={t("channels")}
+          title={t("integrations")}
           open={openSection === "channels"}
           onToggle={() => setOpenSection((current) => (current === "channels" ? null : "channels"))}
           className="order-8"
         >
-          <div className="space-y-1">
-            <ChannelRow
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <IntegrationCard
               name="Telegram"
-              connected={
+              logoSrc="/integrations/telegram-logo.svg"
+              statusLabel={
                 data.telegram?.connectionStatus === "connected" ||
                 data.telegram?.connectionStatus === "claim_required"
+                  ? t("channelConnected")
+                  : t("telegramReadyToConnect")
               }
+              active
               onClick={onOpenTelegramSettings}
             />
-            <ChannelRow name="WhatsApp" comingSoon />
-            <ChannelRow name="MAX" comingSoon />
-          </div>
-          <div className="mt-4 border-t border-border/45 pt-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-medium text-text">{t("reminderDelivery")}</p>
-                <p className="mt-1 text-[11px] text-text-subtle">{t("reminderDescription")}</p>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {(data.notificationPreference?.availableChannels ?? ["web"]).map((channel) => {
-                const active = notificationChannel === channel;
-                return (
-                  <button
-                    key={channel}
-                    type="button"
-                    disabled={notificationSaving}
-                    onClick={() => void handleNotificationPreferenceChange(channel)}
-                    className={cn(
-                      "rounded-full border px-3 py-1.5 text-xs transition-colors disabled:opacity-50",
-                      active
-                        ? "border-accent/45 bg-accent/10 text-accent"
-                        : "border-border/50 bg-background/45 text-text-muted hover:bg-surface-hover"
-                    )}
-                  >
-                    {t(
-                      (
-                        {
-                          telegram: "channelTelegram",
-                          web: "channelWeb"
-                        } as Record<string, string>
-                      )[channel] ?? "channelWeb"
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            <FeedbackLine fb={notificationFb} />
+            <IntegrationCard
+              name="WhatsApp"
+              logoSrc="/integrations/whatsapp-logo.svg"
+              statusLabel={t("channelComingSoon")}
+              comingSoon
+            />
+            <IntegrationCard
+              name="MAX"
+              logoSrc="/integrations/max-logo.svg"
+              statusLabel={t("channelComingSoon")}
+              comingSoon
+            />
           </div>
         </Section>
 
@@ -6261,50 +6276,59 @@ const STATUS_LABELS: Record<string, { label: string; dot: string }> = {
   none: { label: "Not created", dot: "bg-text-subtle" }
 };
 
-function ChannelRow({
+function IntegrationCard({
   name,
-  connected,
+  logoSrc,
+  statusLabel,
+  active,
   comingSoon,
   onClick
 }: {
   name: string;
-  connected?: boolean;
+  logoSrc: string;
+  statusLabel: string;
+  active?: boolean;
   comingSoon?: boolean;
   onClick?: (() => void) | undefined;
 }) {
   const t = useTranslations("settings");
   const interactive = Boolean(onClick) && !comingSoon;
-  const content = (
-    <>
-      <span
-        className={cn(
-          "inline-block h-2 w-2 rounded-full",
-          connected ? "bg-success" : "bg-text-subtle"
-        )}
-      />
-      <span className="text-xs text-text-muted">{name}</span>
-      {comingSoon && <span className="text-[10px] text-text-subtle">{t("channelComingSoon")}</span>}
-      {connected && <span className="text-[10px] text-success">{t("channelConnected")}</span>}
-      {interactive && <ChevronRight className="ml-auto h-3.5 w-3.5 text-text-subtle" />}
-    </>
-  );
-
-  if (interactive) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface-hover"
-      >
-        {content}
-      </button>
-    );
-  }
-
+  const Comp = interactive ? "button" : "div";
   return (
-    <div className={cn("flex items-center gap-2 rounded-lg px-3 py-2", comingSoon && "opacity-50")}>
-      {content}
-    </div>
+    <Comp
+      type={interactive ? "button" : undefined}
+      onClick={interactive ? onClick : undefined}
+      className={cn(
+        "group flex min-h-[132px] flex-col items-start rounded-2xl border px-4 py-4 text-left transition-all",
+        active
+          ? "border-accent/25 bg-accent/[0.07] shadow-[0_16px_32px_-24px_rgba(29,161,242,0.55)] hover:border-accent/40 hover:bg-accent/[0.1]"
+          : "border-border/60 bg-background/50",
+        comingSoon && "opacity-55",
+        interactive && "cursor-pointer hover:-translate-y-[1px]"
+      )}
+    >
+      <div className="flex w-full items-start justify-between gap-3">
+        <img src={logoSrc} alt="" className="h-10 w-10 rounded-xl object-contain" />
+        <span
+          className={cn(
+            "inline-block h-2.5 w-2.5 rounded-full",
+            active ? "bg-success" : "bg-text-subtle/55"
+          )}
+        />
+      </div>
+      <div className="mt-4 min-w-0">
+        <p className="text-sm font-medium text-text">{name}</p>
+        <p className={cn("mt-1 text-xs", active ? "text-success" : "text-text-subtle")}>
+          {comingSoon ? t("channelComingSoon") : statusLabel}
+        </p>
+      </div>
+      {interactive ? (
+        <span className="mt-auto inline-flex items-center gap-1 pt-4 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text">
+          {t("openIntegration")}
+          <ChevronRight className="h-3.5 w-3.5" />
+        </span>
+      ) : null}
+    </Comp>
   );
 }
 

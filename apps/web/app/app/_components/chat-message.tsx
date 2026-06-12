@@ -796,19 +796,21 @@ function WorkingTextBlocks({ blocks, isStreaming }: { blocks: string[]; isStream
   }
   return (
     <div className="mb-2.5">
-      <button
-        type="button"
-        onClick={() => setExpanded((current) => !current)}
-        className="group inline-flex items-center gap-1.5 text-[13px] font-medium text-text-muted/70 transition-colors hover:text-text-muted"
-        aria-expanded={expanded}
-      >
-        {expanded ? (
-          <ChevronUp className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
-        ) : (
-          <ChevronDown className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
-        )}
-        <span className="border-b border-accent/45 pb-0.5">{t("workingNotesDone")}</span>
-      </button>
+      <div className="border-l border-text-subtle/18 pl-3">
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="group inline-flex items-center gap-1.5 text-[13px] font-medium text-text-muted/70 transition-colors hover:text-text-muted"
+          aria-expanded={expanded}
+        >
+          {expanded ? (
+            <ChevronUp className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
+          )}
+          <span>{t("workingNotesDone")}</span>
+        </button>
+      </div>
       {expanded ? <div className="mt-2">{notes}</div> : null}
     </div>
   );
@@ -1580,13 +1582,12 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const tSend = useTranslations("send");
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming" && message.role === "assistant";
-  const assistantSegments = useMemo(
-    () =>
-      message.role === "assistant"
-        ? splitWorkingMarkdownContent(message.content)
-        : { workingBlocks: [], answerText: message.content },
-    [message.content, message.role]
-  );
+  const assistantSegments = useMemo(() => {
+    if (message.role !== "assistant") {
+      return { workingBlocks: [], answerText: message.content };
+    }
+    return splitWorkingMarkdownContent(message.content);
+  }, [message.content, message.role]);
   const hasWorkingBlocks = assistantSegments.workingBlocks.length > 0;
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const showPreResponseStatus =

@@ -1768,6 +1768,8 @@ export interface RuntimeVideoVoiceCatalogEntry {
   previewAvailable?: boolean;
   localeControl?: boolean;
   pauseSupport?: boolean;
+  providerVoiceType?: "public" | "private" | "unknown";
+  multilingual?: boolean;
 }
 
 export interface RuntimeVideoVoiceCatalog {

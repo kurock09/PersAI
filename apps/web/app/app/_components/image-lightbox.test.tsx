@@ -184,11 +184,102 @@ describe("ImageLightbox", () => {
           url: "http://localhost:3000/api/assistant-file/file-ref-image-1?download=1",
           filename: "image.png",
           title: "image.png",
-          userAgent: navigator.userAgent
+          userAgent: navigator.userAgent,
+          mimeType: "image/png"
         })
       );
     });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("prefers the native mobile save bridge when available", async () => {
+    const nativeSave = vi.fn().mockReturnValue(true);
+    (
+      window as unknown as { PersaiNative?: { saveMedia?: (payloadJson: string) => boolean } }
+    ).PersaiNative = {
+      saveMedia: nativeSave
+    };
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-image-1"
+        downloadUrl="/api/assistant-file/file-ref-image-1?download=1"
+        filename="image.png"
+        alt="Generated image"
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "lightboxSave" }));
+
+    await waitFor(() => {
+      expect(nativeSave).toHaveBeenCalledWith(
+        JSON.stringify({
+          url: "http://localhost:3000/api/assistant-file/file-ref-image-1?download=1",
+          filename: "image.png",
+          title: "image.png",
+          userAgent: navigator.userAgent,
+          mimeType: "image/png"
+        })
+      );
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("reuses one fetched blob across share and save fallback actions", async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    const canShare = vi.fn().mockReturnValue(true);
+    const createObjectUrlSpy = vi.fn().mockReturnValue("blob:http://localhost/object-1");
+    vi.stubGlobal(
+      "URL",
+      class extends URL {
+        static createObjectURL = createObjectUrlSpy;
+        static revokeObjectURL = vi.fn();
+      }
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(new Blob(["image"], { type: "image/png" })))
+    );
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: share
+    });
+    Object.defineProperty(navigator, "canShare", {
+      configurable: true,
+      value: canShare
+    });
+    const anchorClickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-image-1"
+        downloadUrl="/api/assistant-file/file-ref-image-1?download=1"
+        filename="image.png"
+        alt="Generated image"
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "lightboxShare" }));
+    await waitFor(() => {
+      expect(share).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "lightboxSave" }));
+    await waitFor(() => {
+      expect(anchorClickSpy).toHaveBeenCalled();
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
+    anchorClickSpy.mockRestore();
   });
 
   it("renders the custom action chrome for video too", () => {

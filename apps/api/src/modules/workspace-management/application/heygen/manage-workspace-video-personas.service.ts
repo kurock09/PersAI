@@ -133,14 +133,14 @@ export class ManageWorkspaceVideoPersonasService {
     const limit = settings.heygenPersonaWorkspaceLimit;
     const cost = settings.heygenPersonaCreationVcoin;
 
-    const catalog = await this.heyGenVoiceCatalogService.getMaterializedVoiceCatalog();
-    if (catalog === null || catalog.shortlist.length === 0) {
+    const catalogEntries = await this.heyGenVoiceCatalogService.getApprovedVoiceCatalogEntries();
+    if (catalogEntries.length === 0) {
       throw new BadRequestException({
         message: "HeyGen voice catalog is unavailable. Please try again later.",
         code: "voice_not_found"
       });
     }
-    const matchedVoice = catalog.shortlist.find(
+    const matchedVoice = catalogEntries.find(
       (entry) => entry.providerVoiceId === input.heygenVoiceId
     );
     if (matchedVoice === undefined) {
@@ -440,7 +440,7 @@ export class ManageWorkspaceVideoPersonasService {
 
     let matchedVoiceLabel: string | undefined;
     if (input.heygenVoiceId !== undefined) {
-      const catalogEntries = await this.heyGenVoiceCatalogService.getFullVoiceCatalogEntries();
+      const catalogEntries = await this.heyGenVoiceCatalogService.getApprovedVoiceCatalogEntries();
       if (catalogEntries.length === 0) {
         throw new BadRequestException({
           message: "HeyGen voice catalog is unavailable. Please try again later.",

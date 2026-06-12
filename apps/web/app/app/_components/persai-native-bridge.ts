@@ -12,13 +12,15 @@ import type { ResolvedTheme } from "./use-theme";
 export interface PersaiNativeBridge {
   setTheme?: (theme: string) => void;
   shareMedia?: (payloadJson: string) => boolean | void;
+  saveMedia?: (payloadJson: string) => boolean | void;
 }
 
-interface NativeMediaShareRequest {
+export interface NativeMediaTransferRequest {
   url: string;
   filename: string;
   title: string;
   userAgent: string;
+  mimeType?: string | undefined;
 }
 
 function getNativeBridge(): PersaiNativeBridge | undefined {
@@ -36,12 +38,24 @@ export function syncNativeSystemBars(resolved: ResolvedTheme): void {
   }
 }
 
-export function tryNativeMediaShare(request: NativeMediaShareRequest): boolean {
+function tryNativeMediaAction(
+  request: NativeMediaTransferRequest,
+  action: "shareMedia" | "saveMedia"
+): boolean {
   const native = getNativeBridge();
-  if (!native?.shareMedia) return false;
+  const handler = native?.[action];
+  if (typeof handler !== "function") return false;
   try {
-    return native.shareMedia(JSON.stringify(request)) !== false;
+    return handler(JSON.stringify(request)) !== false;
   } catch {
     return false;
   }
+}
+
+export function tryNativeMediaShare(request: NativeMediaTransferRequest): boolean {
+  return tryNativeMediaAction(request, "shareMedia");
+}
+
+export function tryNativeMediaSave(request: NativeMediaTransferRequest): boolean {
+  return tryNativeMediaAction(request, "saveMedia");
 }

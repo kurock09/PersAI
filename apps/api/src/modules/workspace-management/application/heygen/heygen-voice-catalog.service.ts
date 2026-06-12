@@ -20,10 +20,55 @@ const HEYGEN_VOICE_MAX_PAGES = 100;
 const HEYGEN_VOICE_ENGINE = "avatar_v";
 const HEYGEN_VOICE_TYPES = ["public", "private"] as const;
 const GOOD_QUALITY_TAGS: RuntimeVideoVoiceQualityTag[] = ["professional", "natural", "lifelike"];
+export type HeygenVoiceCurationLanguageBucket = "ru" | "en" | "other" | "multi";
+export type HeygenVoiceCurationGender = "female" | "male" | "neutral" | "unknown";
+
+export type AdminHeygenVoiceCurationPatch = {
+  providerVoiceId: string;
+  approved: boolean;
+  enabled: boolean;
+  modelShortlist: boolean;
+  languageBucket: HeygenVoiceCurationLanguageBucket;
+  gender: HeygenVoiceCurationGender;
+};
+
+export type AdminHeygenVoiceCurationEntry = {
+  providerVoiceId: string;
+  displayName: string;
+  detectedLanguageBucket: HeygenVoiceCurationLanguageBucket;
+  languageBucket: HeygenVoiceCurationLanguageBucket;
+  detectedGender: HeygenVoiceCurationGender;
+  gender: HeygenVoiceCurationGender;
+  source: RuntimeVideoVoiceSource;
+  providerVoiceType: "public" | "private" | "unknown";
+  multilingual: boolean;
+  previewAudioUrl: string | null;
+  previewAvailable: boolean;
+  qualityTags: RuntimeVideoVoiceQualityTag[];
+  approved: boolean;
+  enabled: boolean;
+  modelShortlist: boolean;
+  manuallyCurated: boolean;
+  updatedAt: string | null;
+};
+
+export type AdminHeygenVoiceCurationCatalog = {
+  voices: AdminHeygenVoiceCurationEntry[];
+};
 
 type CachedVoiceCatalogRow = {
   voices: RuntimeVideoVoiceCatalogEntry[];
   fetchedAt: Date;
+};
+
+type HeygenVoiceCurationRow = {
+  providerVoiceId: string;
+  approved: boolean;
+  enabled: boolean;
+  modelShortlist: boolean;
+  languageBucket: string;
+  gender: string;
+  updatedAt: Date;
 };
 
 @Injectable()
@@ -36,7 +81,16 @@ export class HeyGenVoiceCatalogService {
   ) {}
 
   async getMaterializedVoiceCatalog(): Promise<RuntimeVideoVoiceCatalog | null> {
-    return this.toCatalog(await this.ensureFreshCacheRow());
+    const row = await this.ensureFreshCacheRow();
+    if (row === null) {
+      return null;
+    }
+    const entries = await this.buildApprovedVoiceEntries(row.voices, { modelOnly: true });
+    return {
+      provider: "heygen",
+      fetchedAt: row.fetchedAt.toISOString(),
+      shortlist: this.buildShortlist(entries)
+    };
   }
 
   async getFullVoiceCatalogEntries(): Promise<RuntimeVideoVoiceCatalogEntry[]> {
@@ -44,8 +98,103 @@ export class HeyGenVoiceCatalogService {
     return row?.voices ?? [];
   }
 
+  async getApprovedVoiceCatalogEntries(): Promise<RuntimeVideoVoiceCatalogEntry[]> {
+    const row = await this.ensureFreshCacheRow();
+    if (row === null) {
+      return [];
+    }
+    return this.buildApprovedVoiceEntries(row.voices, { modelOnly: false });
+  }
+
+  async listAdminVoiceCurationCatalog(): Promise<AdminHeygenVoiceCurationCatalog> {
+    const row = await this.ensureFreshCacheRow();
+    if (row === null) {
+      return { voices: [] };
+    }
+    const curationRows = (await this.findVoiceCurationRows()) ?? [];
+    const curationByVoiceId = new Map(
+      curationRows.map((curation) => [curation.providerVoiceId, curation])
+    );
+    const baseEntries = this.toBaseProviderVoiceEntries(row.voices);
+    return {
+      voices: baseEntries.map((entry) => {
+        const curation = curationByVoiceId.get(entry.providerVoiceId) ?? null;
+        const detectedLanguageBucket =
+          this.toCurationLanguageBucket(entry.locale, entry.multilingual) ?? "other";
+        const detectedGender = this.toCurationGender(entry.gender) ?? "unknown";
+        return {
+          providerVoiceId: entry.providerVoiceId,
+          displayName: entry.displayName,
+          detectedLanguageBucket,
+          languageBucket:
+            this.toCurationLanguageBucket(curation?.languageBucket, false) ??
+            detectedLanguageBucket,
+          detectedGender,
+          gender: this.toCurationGender(curation?.gender) ?? detectedGender,
+          source: entry.source ?? "unknown",
+          providerVoiceType: entry.providerVoiceType ?? "unknown",
+          multilingual: entry.multilingual === true,
+          previewAudioUrl: entry.previewAudioUrl ?? null,
+          previewAvailable: entry.previewAvailable ?? false,
+          qualityTags: entry.qualityTags ?? [],
+          approved: curation?.approved ?? false,
+          enabled: curation?.enabled ?? true,
+          modelShortlist: curation?.modelShortlist ?? false,
+          manuallyCurated: curation !== null,
+          updatedAt: curation?.updatedAt.toISOString() ?? null
+        };
+      })
+    };
+  }
+
+  async updateAdminVoiceCuration(input: {
+    actorUserId: string;
+    patches: AdminHeygenVoiceCurationPatch[];
+  }): Promise<AdminHeygenVoiceCurationCatalog> {
+    for (const patch of input.patches) {
+      const providerVoiceId = patch.providerVoiceId.trim();
+      if (providerVoiceId.length === 0) {
+        continue;
+      }
+      const curationDelegate = this.getVoiceCurationDelegate();
+      if (curationDelegate === null) {
+        continue;
+      }
+      await curationDelegate.upsert({
+        where: { providerVoiceId },
+        create: {
+          providerVoiceId,
+          approved: patch.approved,
+          enabled: patch.enabled,
+          modelShortlist: patch.approved && patch.enabled && patch.modelShortlist,
+          languageBucket: patch.languageBucket,
+          gender: patch.gender,
+          updatedByUserId: input.actorUserId
+        },
+        update: {
+          approved: patch.approved,
+          enabled: patch.enabled,
+          modelShortlist: patch.approved && patch.enabled && patch.modelShortlist,
+          languageBucket: patch.languageBucket,
+          gender: patch.gender,
+          updatedByUserId: input.actorUserId
+        }
+      });
+    }
+    return this.listAdminVoiceCurationCatalog();
+  }
+
   async forceRefreshVoiceCatalog(): Promise<RuntimeVideoVoiceCatalog | null> {
-    return this.toCatalog(await this.refreshVoiceCatalog());
+    const row = await this.refreshVoiceCatalog();
+    if (row === null) {
+      return null;
+    }
+    const entries = await this.buildApprovedVoiceEntries(row.voices, { modelOnly: true });
+    return {
+      provider: "heygen",
+      fetchedAt: row.fetchedAt.toISOString(),
+      shortlist: this.buildShortlist(entries)
+    };
   }
 
   private async ensureFreshCacheRow(): Promise<CachedVoiceCatalogRow | null> {
@@ -159,6 +308,145 @@ export class HeyGenVoiceCatalogService {
       .map((row) => this.parseVoiceRow(row))
       .filter((entry): entry is RuntimeVideoVoiceCatalogEntry => entry !== null);
     return this.expandMultiLanguageEntries(this.normalizeEntries(parsed));
+  }
+
+  private async buildApprovedVoiceEntries(
+    entries: RuntimeVideoVoiceCatalogEntry[],
+    options: { modelOnly: boolean }
+  ): Promise<RuntimeVideoVoiceCatalogEntry[]> {
+    const curationRows = await this.findVoiceCurationRows({
+      where: {
+        approved: true,
+        enabled: true,
+        ...(options.modelOnly ? { modelShortlist: true } : {})
+      }
+    });
+    if (curationRows === null) {
+      return entries;
+    }
+    if (curationRows.length === 0) {
+      return [];
+    }
+    const curationByVoiceId = new Map(
+      curationRows.map((curation) => [curation.providerVoiceId, curation])
+    );
+    return this.toBaseProviderVoiceEntries(entries).flatMap((entry) => {
+      const curation = curationByVoiceId.get(entry.providerVoiceId);
+      if (curation === undefined) {
+        return [];
+      }
+      const gender =
+        this.toCurationGender(curation.gender) ?? this.toCurationGender(entry.gender) ?? "unknown";
+      const languageBucket =
+        this.toCurationLanguageBucket(curation.languageBucket, false) ??
+        this.toCurationLanguageBucket(entry.locale, entry.multilingual) ??
+        "other";
+      return this.applyCuratedLanguageAndGender(entry, languageBucket, gender);
+    });
+  }
+
+  private toBaseProviderVoiceEntries(
+    entries: RuntimeVideoVoiceCatalogEntry[]
+  ): RuntimeVideoVoiceCatalogEntry[] {
+    const byProviderVoiceId = new Map<string, RuntimeVideoVoiceCatalogEntry>();
+    for (const entry of entries) {
+      if (!byProviderVoiceId.has(entry.providerVoiceId)) {
+        byProviderVoiceId.set(entry.providerVoiceId, entry);
+        continue;
+      }
+      const current = byProviderVoiceId.get(entry.providerVoiceId);
+      if (current?.previewAvailable !== true && entry.previewAvailable === true) {
+        byProviderVoiceId.set(entry.providerVoiceId, entry);
+      }
+    }
+    return [...byProviderVoiceId.values()].sort((left, right) =>
+      left.displayName.localeCompare(right.displayName)
+    );
+  }
+
+  private async findVoiceCurationRows(args?: {
+    where?: {
+      approved?: boolean;
+      enabled?: boolean;
+      modelShortlist?: boolean;
+    };
+  }): Promise<HeygenVoiceCurationRow[] | null> {
+    const curationDelegate = this.getVoiceCurationDelegate();
+    return curationDelegate === null ? null : curationDelegate.findMany(args);
+  }
+
+  private getVoiceCurationDelegate(): {
+    findMany: (args?: {
+      where?: {
+        approved?: boolean;
+        enabled?: boolean;
+        modelShortlist?: boolean;
+      };
+    }) => Promise<HeygenVoiceCurationRow[]>;
+    upsert: (args: {
+      where: { providerVoiceId: string };
+      create: {
+        providerVoiceId: string;
+        approved: boolean;
+        enabled: boolean;
+        modelShortlist: boolean;
+        languageBucket: string;
+        gender: string;
+        updatedByUserId: string;
+      };
+      update: {
+        approved: boolean;
+        enabled: boolean;
+        modelShortlist: boolean;
+        languageBucket: string;
+        gender: string;
+        updatedByUserId: string;
+      };
+    }) => Promise<unknown>;
+  } | null {
+    const prisma = this.prisma as unknown as {
+      platformHeygenVoiceCuration?: {
+        findMany?: unknown;
+        upsert?: unknown;
+      };
+    };
+    const delegate = prisma.platformHeygenVoiceCuration;
+    if (
+      delegate === undefined ||
+      typeof delegate.findMany !== "function" ||
+      typeof delegate.upsert !== "function"
+    ) {
+      return null;
+    }
+    return delegate as ReturnType<HeyGenVoiceCatalogService["getVoiceCurationDelegate"]>;
+  }
+
+  private applyCuratedLanguageAndGender(
+    entry: RuntimeVideoVoiceCatalogEntry,
+    languageBucket: HeygenVoiceCurationLanguageBucket,
+    gender: HeygenVoiceCurationGender
+  ): RuntimeVideoVoiceCatalogEntry[] {
+    if (languageBucket === "multi") {
+      return [
+        this.withCuratedLocaleVariant(entry, "ru", gender),
+        this.withCuratedLocaleVariant(entry, "en", gender)
+      ];
+    }
+    return [this.withCuratedLocaleVariant(entry, languageBucket, gender)];
+  }
+
+  private withCuratedLocaleVariant(
+    entry: RuntimeVideoVoiceCatalogEntry,
+    locale: "ru" | "en" | "other",
+    gender: HeygenVoiceCurationGender
+  ): RuntimeVideoVoiceCatalogEntry {
+    return {
+      ...entry,
+      voiceKey: locale === "other" ? entry.voiceKey : `${entry.voiceKey}-${locale}`,
+      locale,
+      gender,
+      description: this.buildDescription(locale, entry.styleTags)
+    };
   }
 
   private buildShortlist(
@@ -333,6 +621,50 @@ export class HeyGenVoiceCatalogService {
     );
   }
 
+  private toCurationLanguageBucket(
+    locale: string | null | undefined,
+    multilingual: boolean | undefined
+  ): HeygenVoiceCurationLanguageBucket | null {
+    const normalized = locale?.trim().toLowerCase() ?? "";
+    if (multilingual === true || this.isMultiLanguageLocale(normalized)) {
+      return "multi";
+    }
+    if (
+      normalized === "ru" ||
+      normalized.startsWith("ru-") ||
+      normalized === "russian" ||
+      normalized.startsWith("russian ")
+    ) {
+      return "ru";
+    }
+    if (
+      normalized === "en" ||
+      normalized.startsWith("en-") ||
+      normalized === "english" ||
+      normalized.startsWith("english ")
+    ) {
+      return "en";
+    }
+    if (normalized === "multi") {
+      return "multi";
+    }
+    if (normalized === "other") {
+      return "other";
+    }
+    return normalized.length === 0 ? null : "other";
+  }
+
+  private toCurationGender(value: string | null | undefined): HeygenVoiceCurationGender | null {
+    const normalized = value?.trim().toLowerCase() ?? "";
+    if (normalized === "female" || normalized === "male" || normalized === "neutral") {
+      return normalized;
+    }
+    if (normalized === "unknown") {
+      return "unknown";
+    }
+    return normalized.length === 0 ? null : "unknown";
+  }
+
   private extractNextToken(value: unknown): string | null {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
       return null;
@@ -424,6 +756,7 @@ export class HeyGenVoiceCatalogService {
       this.asNonEmptyString(row.previewAudioUrl) ??
       null;
     const source = this.detectVoiceSource(row, displayName, previewAudioUrl);
+    const providerVoiceType = this.detectProviderVoiceType(row);
     const locale =
       source === "elevenlabs" && this.isUnknownLocale(rawLocale) ? "Multilingual" : rawLocale;
     const qualityTags = this.detectQualityTags(displayName, row, source);
@@ -450,8 +783,18 @@ export class HeyGenVoiceCatalogService {
       }),
       previewAvailable,
       localeControl,
-      pauseSupport
+      pauseSupport,
+      providerVoiceType,
+      multilingual: this.isMultiLanguageLocale(locale)
     };
+  }
+
+  private detectProviderVoiceType(row: Record<string, unknown>): "public" | "private" | "unknown" {
+    const type = this.asNonEmptyString(row.type)?.toLowerCase() ?? "";
+    if (type === "public" || type === "private") {
+      return type;
+    }
+    return "unknown";
   }
 
   private isUsableVideoVoiceRow(row: Record<string, unknown>): boolean {
@@ -697,22 +1040,17 @@ export class HeyGenVoiceCatalogService {
           ? { previewAvailable: row.previewAvailable }
           : {}),
         ...(typeof row.localeControl === "boolean" ? { localeControl: row.localeControl } : {}),
-        ...(typeof row.pauseSupport === "boolean" ? { pauseSupport: row.pauseSupport } : {})
+        ...(typeof row.pauseSupport === "boolean" ? { pauseSupport: row.pauseSupport } : {}),
+        ...(row.providerVoiceType === "public" ||
+        row.providerVoiceType === "private" ||
+        row.providerVoiceType === "unknown"
+          ? { providerVoiceType: row.providerVoiceType }
+          : {}),
+        ...(typeof row.multilingual === "boolean" ? { multilingual: row.multilingual } : {})
       };
       entries.push(parsed);
     }
     return entries;
-  }
-
-  private toCatalog(row: CachedVoiceCatalogRow | null): RuntimeVideoVoiceCatalog | null {
-    if (row === null || row.voices.length === 0) {
-      return null;
-    }
-    return {
-      provider: "heygen",
-      fetchedAt: row.fetchedAt.toISOString(),
-      shortlist: this.buildShortlist(row.voices)
-    };
   }
 
   private isExpired(fetchedAt: Date): boolean {

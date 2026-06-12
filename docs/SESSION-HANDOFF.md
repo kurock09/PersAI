@@ -3,6 +3,38 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-12 - Full repo verification and contract-alignment fixpack
+
+### Baseline
+
+- Starting SHA: `7bc5e6258bc2ab02240027bc7ab89a4cf7e16ad9` on `main`, continuing on the already-dirty founder working tree by explicit operator request to verify, fix, then commit/push everything together. Scope stayed bounded to repo-wide AGENTS gate verification plus whatever regressions surfaced from the already-landed web/API/mobile changes.
+
+### What changed
+
+- Completed a full repo verification pass over the current founder working tree and fixed the remaining regressions instead of narrowing scope to one slice.
+- `apps/web/app/app/_components/use-chat.ts` now treats direct terminal turn-status reconciliation as a distinct `terminal_status` outcome across the soft-detach/reattach path, which keeps the new stream-continuity behavior type-safe and avoids the final web typecheck failure.
+- HeyGen workspace/persona readers/tests were aligned to the current approved-catalog contract: API test doubles now implement `getApprovedVoiceCatalogEntries()` where the production services no longer read the older full-catalog-only interface.
+- The full repo test sweep now passes on the current tree after updating the stale HeyGen voice-catalog doubles in `manage-workspace-video-personas.service.test.ts` and `read-heygen-voice-catalog-for-workspace.service.test.ts`.
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-workspace-video-personas.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-heygen-voice-catalog-for-workspace.service.test.ts`
+- `corepack pnpm run test`
+
+### Risks / residuals
+
+- This session intentionally validated and committed a broad founder-directed dirty tree rather than a single clean ADR slice. The codebase is green on lint/format/typecheck/tests, but the resulting commit is intentionally wide because it batches concurrent web/API/mobile/doc work already present in the tree.
+- `apps/web/public/mobile/persai-android-release.apk` and related Android release metadata remain large generated artifacts by design because the founder explicitly asked for the rebuilt mobile deliverable to live in this repo path.
+
+### Next recommended step
+
+- Live-smoke the merged founder surfaces that changed together in this batch: chat stream continuity after app backgrounding/thread switches, the sidebar/integrations flow, HeyGen voice approval/editing, and the updated Android release artifact.
+
 ## 2026-06-12 - Working notes + HeyGen private voices fixpack
 
 ### Baseline
@@ -11,6 +43,9 @@
 
 ### What changed
 
+- Follow-up: Admin Tools now includes a HeyGen `Edit voices` modal next to `Refresh voices`. Operators can browse all cached public/private voices, preview them, filter/search, approve/enable rows, correct language (`RU` / `EN` / `Other` / `Multi`) and gender, and separately mark approved voices as model-selectable.
+- Added `platform_heygen_voice_curation` as the PersAI-owned manual approval truth keyed by HeyGen provider voice id. HeyGen refresh updates only the raw provider cache and does not overwrite manual curation.
+- User-facing Characters voice catalogs and workspace voice preview routes now require approved + enabled HeyGen voices. The model-facing talking-avatar shortlist additionally requires the `modelShortlist` checkbox, so private imports/clones do not become globally available by refresh alone.
 - `apps/web/app/app/_components/use-chat.ts` now preserves local `:::working` markdown blocks when final/history/status/reattach paths receive server-authoritative assistant content without those blocks, and removes duplicated working-note text from the final answer prefix instead of rendering both.
 - `apps/web/app/app/_components/chat-message.tsx` now renders streaming working notes as one quiet left-rail stack, then collapses completed working notes behind a small localized `Done` / `Выполнено` disclosure with an arrow. Expanded completed notes reuse the same quiet rail style.
 - `HeyGenVoiceCatalogService` now refreshes both `type=public` and `type=private` `/v3/voices` pages, keeps imported private voices, marks those private imports as ElevenLabs-quality entries, and treats unknown-language private imports as multilingual so they surface in RU/EN buckets instead of disappearing into `OTHER`.
@@ -21,17 +56,19 @@
 - `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx app/app/_components/use-chat.test.tsx --config vitest.config.ts`
 - `corepack pnpm --filter @persai/api exec tsx test/heygen-voice-catalog.service.test.ts`
 - `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-credentials.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/heygen-voice-catalog.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/tools/page.test.tsx`
 - `corepack pnpm --filter @persai/web run typecheck`
 - `corepack pnpm --filter @persai/api run typecheck`
 
 ### Risks / residuals
 
-- HeyGen still does not expose an official quality/rating field. Private imports are classified from the observed HeyGen `type=private` account catalog path and ranked using PersAI's existing derived metadata, not a provider-certified score.
+- HeyGen still does not expose an official quality/rating field. Private imports are classified from the observed HeyGen `type=private` account catalog path and ranked using PersAI's existing derived metadata, not a provider-certified score. New private/imported voices remain hidden from users/model selection until an operator approves them.
 - The completed working-note summary intentionally does not claim elapsed seconds yet because `ChatMessage` does not carry reliable turn start/end timing. The label is neutral now and can become `Выполнено за N сек` after timing is added to message/turn state.
 
 ### Next recommended step
 
-- Refresh the HeyGen catalog in Admin Tools on dev, confirm the count matches the new active cache row, and live-check that imported ElevenLabs/private voices appear in the Characters RU/EN voice picker.
+- Run the new Admin Tools `Edit voices` table on dev, approve the intended RU/EN voices, mark only the best subset as `Model`, then live-check that Characters shows approved voices while unapproved private clones stay hidden.
 
 ## 2026-06-12 - Chat media derivatives
 

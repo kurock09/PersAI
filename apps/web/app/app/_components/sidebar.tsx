@@ -7,8 +7,6 @@ import { useAuth } from "@clerk/nextjs";
 import type { Route } from "next";
 import {
   MessageSquarePlus,
-  Send,
-  Smartphone,
   MessageCircle,
   X,
   MoreHorizontal,
@@ -511,6 +509,7 @@ function AccountFooter({
   );
 
   const telegramConnected = data.telegram?.connectionStatus === "connected";
+  const anyIntegrationConnected = telegramConnected;
   const telegramStatusLabel =
     data.telegram?.connectionStatus === "connected"
       ? t("connected")
@@ -681,28 +680,24 @@ function AccountFooter({
                   }}
                   className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-surface-hover/70"
                 >
-                  <Send className="h-3.5 w-3.5 text-text-muted" />
-                  <span className="min-w-0 flex-1 truncate text-xs text-text">{t("telegram")}</span>
+                  <img
+                    src="/integrations/telegram-logo.svg"
+                    alt=""
+                    className="h-4 w-4 shrink-0 rounded-full object-contain"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-xs text-text">
+                    {t("integrations")}
+                  </span>
+                  <span className="text-[10px] text-text-subtle">{telegramStatusLabel}</span>
                   <span className="flex items-center gap-1.5 text-[10px] text-text-subtle">
                     <span
                       className={cn(
                         "inline-block h-1.5 w-1.5 rounded-full",
-                        telegramConnected ? "bg-success" : "bg-text-subtle"
+                        anyIntegrationConnected ? "bg-success" : "bg-text-subtle"
                       )}
                     />
-                    {telegramStatusLabel}
                   </span>
                 </button>
-                <div className="flex items-center gap-2.5 rounded-xl px-3 py-2 opacity-50">
-                  <Smartphone className="h-3.5 w-3.5 text-text-muted" />
-                  <span className="min-w-0 flex-1 truncate text-xs text-text">{t("whatsApp")}</span>
-                  <span className="text-[10px] text-text-subtle">{t("comingSoon")}</span>
-                </div>
-                <div className="flex items-center gap-2.5 rounded-xl px-3 py-2 opacity-50">
-                  <MessageCircle className="h-3.5 w-3.5 text-text-muted" />
-                  <span className="min-w-0 flex-1 truncate text-xs text-text">{t("max")}</span>
-                  <span className="text-[10px] text-text-subtle">{t("comingSoon")}</span>
-                </div>
 
                 <div className="my-1.5 border-t border-border/70" />
 

@@ -160,6 +160,9 @@ function makeVoiceCatalog() {
         shortlist
       };
     },
+    async getApprovedVoiceCatalogEntries() {
+      return shortlist;
+    },
     async getFullVoiceCatalogEntries() {
       return shortlist;
     }
@@ -630,6 +633,9 @@ async function run(): Promise<void> {
             fetchedAt: new Date().toISOString(),
             shortlist: []
           };
+        },
+        async getApprovedVoiceCatalogEntries() {
+          return [];
         }
       } as never,
       {

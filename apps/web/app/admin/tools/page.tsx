@@ -73,6 +73,36 @@ type AdminToolCredentialsState = {
   notes: string[];
 };
 
+type HeygenVoiceLanguageBucket = "ru" | "en" | "other" | "multi";
+type HeygenVoiceGender = "female" | "male" | "neutral" | "unknown";
+type HeygenVoiceCurationEntry = {
+  providerVoiceId: string;
+  displayName: string;
+  detectedLanguageBucket: HeygenVoiceLanguageBucket;
+  languageBucket: HeygenVoiceLanguageBucket;
+  detectedGender: HeygenVoiceGender;
+  gender: HeygenVoiceGender;
+  source: "heygen" | "elevenlabs" | "gemini" | "unknown";
+  providerVoiceType: "public" | "private" | "unknown";
+  multilingual: boolean;
+  previewAudioUrl: string | null;
+  previewAvailable: boolean;
+  qualityTags: string[];
+  approved: boolean;
+  enabled: boolean;
+  modelShortlist: boolean;
+  manuallyCurated: boolean;
+  updatedAt: string | null;
+};
+type HeygenVoiceCurationPatch = {
+  approved: boolean;
+  enabled: boolean;
+  modelShortlist: boolean;
+  languageBucket: HeygenVoiceLanguageBucket;
+  gender: HeygenVoiceGender;
+};
+type HeygenVoiceCurationDraft = Partial<HeygenVoiceCurationPatch>;
+
 const DEFAULT_MEDIA_RESERVE_STATE: AdminToolCredentialsState["mediaReserve"] = {
   enabled: false,
   apiKeyConfigured: false,
@@ -192,6 +222,19 @@ export default function AdminToolsPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [refreshingHeygenVoices, setRefreshingHeygenVoices] = useState(false);
   const [heygenVoiceCatalogFeedback, setHeygenVoiceCatalogFeedback] = useState<string | null>(null);
+  const [heygenVoiceCurationOpen, setHeygenVoiceCurationOpen] = useState(false);
+  const [heygenVoiceCurationLoading, setHeygenVoiceCurationLoading] = useState(false);
+  const [heygenVoiceCurationSaving, setHeygenVoiceCurationSaving] = useState(false);
+  const [heygenVoiceCurationRows, setHeygenVoiceCurationRows] = useState<
+    HeygenVoiceCurationEntry[]
+  >([]);
+  const [heygenVoiceCurationDrafts, setHeygenVoiceCurationDrafts] = useState<
+    Record<string, HeygenVoiceCurationDraft>
+  >({});
+  const [heygenVoiceCurationSearch, setHeygenVoiceCurationSearch] = useState("");
+  const [heygenVoiceCurationFilter, setHeygenVoiceCurationFilter] = useState<
+    "all" | "private" | "pending" | "approved" | "model"
+  >("all");
   const [billingFeedback, setBillingFeedback] = useState<string | null>(null);
   const [documentProcessingFeedback, setDocumentProcessingFeedback] = useState<string | null>(null);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
@@ -433,6 +476,141 @@ export default function AdminToolsPage() {
       setRefreshingHeygenVoices(false);
     }
   }, [getToken]);
+
+  const loadHeygenVoiceCuration = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    setHeygenVoiceCurationLoading(true);
+    setHeygenVoiceCatalogFeedback(null);
+    try {
+      const res = await fetch(
+        "/api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/curation",
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(readErrorMessage(err) ?? `Load voices failed: ${res.status}`);
+      }
+      const data = (await res.json()) as { catalog?: { voices?: HeygenVoiceCurationEntry[] } };
+      setHeygenVoiceCurationRows(data.catalog?.voices ?? []);
+      setHeygenVoiceCurationDrafts({});
+    } catch (e) {
+      setHeygenVoiceCatalogFeedback(e instanceof Error ? e.message : "Failed to load voices.");
+    } finally {
+      setHeygenVoiceCurationLoading(false);
+    }
+  }, [getToken]);
+
+  const openHeygenVoiceCuration = useCallback(() => {
+    setHeygenVoiceCurationOpen(true);
+    void loadHeygenVoiceCuration();
+  }, [loadHeygenVoiceCuration]);
+
+  const patchHeygenVoiceDraft = useCallback(
+    (providerVoiceId: string, patch: HeygenVoiceCurationDraft) => {
+      setHeygenVoiceCurationDrafts((current) => ({
+        ...current,
+        [providerVoiceId]: {
+          ...(current[providerVoiceId] ?? {}),
+          ...patch
+        }
+      }));
+    },
+    []
+  );
+
+  const resolveHeygenVoicePatch = useCallback(
+    (row: HeygenVoiceCurationEntry): HeygenVoiceCurationPatch => ({
+      approved: heygenVoiceCurationDrafts[row.providerVoiceId]?.approved ?? row.approved,
+      enabled: heygenVoiceCurationDrafts[row.providerVoiceId]?.enabled ?? row.enabled,
+      modelShortlist:
+        heygenVoiceCurationDrafts[row.providerVoiceId]?.modelShortlist ?? row.modelShortlist,
+      languageBucket:
+        heygenVoiceCurationDrafts[row.providerVoiceId]?.languageBucket ?? row.languageBucket,
+      gender: heygenVoiceCurationDrafts[row.providerVoiceId]?.gender ?? row.gender
+    }),
+    [heygenVoiceCurationDrafts]
+  );
+
+  const filteredHeygenVoiceRows = heygenVoiceCurationRows.filter((row) => {
+    const patch = resolveHeygenVoicePatch(row);
+    const search = heygenVoiceCurationSearch.trim().toLowerCase();
+    const matchesSearch =
+      search.length === 0 ||
+      row.displayName.toLowerCase().includes(search) ||
+      row.providerVoiceId.toLowerCase().includes(search) ||
+      row.source.toLowerCase().includes(search);
+    if (!matchesSearch) return false;
+    if (heygenVoiceCurationFilter === "private") return row.providerVoiceType === "private";
+    if (heygenVoiceCurationFilter === "pending") return !patch.approved;
+    if (heygenVoiceCurationFilter === "approved") return patch.approved && patch.enabled;
+    if (heygenVoiceCurationFilter === "model") return patch.modelShortlist;
+    return true;
+  });
+
+  const saveHeygenVoiceCuration = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    const patches = heygenVoiceCurationRows
+      .map((row) => {
+        const patch = resolveHeygenVoicePatch(row);
+        const changed =
+          patch.approved !== row.approved ||
+          patch.enabled !== row.enabled ||
+          patch.modelShortlist !== row.modelShortlist ||
+          patch.languageBucket !== row.languageBucket ||
+          patch.gender !== row.gender;
+        return changed ? { providerVoiceId: row.providerVoiceId, ...patch } : null;
+      })
+      .filter(
+        (patch): patch is { providerVoiceId: string } & HeygenVoiceCurationPatch => patch !== null
+      );
+    if (patches.length === 0) {
+      setHeygenVoiceCatalogFeedback("No voice curation changes.");
+      return;
+    }
+    setHeygenVoiceCurationSaving(true);
+    setHeygenVoiceCatalogFeedback(null);
+    try {
+      const challengeRes = await fetch("/api/v1/admin/step-up/challenge", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ action: "admin.tool_credentials.update" })
+      });
+      if (!challengeRes.ok) throw new Error("Step-up challenge failed.");
+      const challengeData = await challengeRes.json();
+      const stepUpToken = challengeData.challenge?.token ?? challengeData.token;
+      const res = await fetch(
+        "/api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/curation",
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "x-persai-step-up-token": stepUpToken
+          },
+          body: JSON.stringify({ patches })
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(readErrorMessage(err) ?? `Save voices failed: ${res.status}`);
+      }
+      const data = (await res.json()) as { catalog?: { voices?: HeygenVoiceCurationEntry[] } };
+      setHeygenVoiceCurationRows(data.catalog?.voices ?? []);
+      setHeygenVoiceCurationDrafts({});
+      setHeygenVoiceCatalogFeedback(`Saved ${String(patches.length)} voice change(s).`);
+    } catch (e) {
+      setHeygenVoiceCatalogFeedback(e instanceof Error ? e.message : "Failed to save voices.");
+    } finally {
+      setHeygenVoiceCurationSaving(false);
+    }
+  }, [getToken, heygenVoiceCurationRows, resolveHeygenVoicePatch]);
 
   const handleSaveBilling = useCallback(async () => {
     const token = await getToken();
@@ -1351,19 +1529,28 @@ export default function AdminToolsPage() {
                       {String(state.heygenVoiceCatalog?.voicesCount ?? 0)} voices
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleRefreshHeygenVoices()}
-                    disabled={refreshingHeygenVoices}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-[11px] font-medium text-text transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {refreshingHeygenVoices ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCcw className="h-3.5 w-3.5" />
-                    )}
-                    Refresh voices
-                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={openHeygenVoiceCuration}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-[11px] font-medium text-text transition-colors hover:bg-surface"
+                    >
+                      Edit voices
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleRefreshHeygenVoices()}
+                      disabled={refreshingHeygenVoices}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-[11px] font-medium text-text transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {refreshingHeygenVoices ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCcw className="h-3.5 w-3.5" />
+                      )}
+                      Refresh voices
+                    </button>
+                  </div>
                 </div>
                 {heygenVoiceCatalogFeedback ? (
                   <p className="mb-3 text-[11px] text-text-muted">{heygenVoiceCatalogFeedback}</p>
@@ -1387,6 +1574,204 @@ export default function AdminToolsPage() {
           </div>
         )}
       </div>
+      {heygenVoiceCurationOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex max-h-[86vh] w-full max-w-6xl flex-col rounded-2xl border border-border bg-surface-raised shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+              <div>
+                <p className="text-base font-semibold text-text">Edit HeyGen voices</p>
+                <p className="text-xs text-text-muted">
+                  Approve voices for users, correct language/gender, and mark which approved voices
+                  the model may choose automatically.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHeygenVoiceCurationOpen(false)}
+                className="rounded-full border border-border px-3 py-1.5 text-xs text-text hover:bg-surface"
+              >
+                Close
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3">
+              <input
+                value={heygenVoiceCurationSearch}
+                onChange={(event) => setHeygenVoiceCurationSearch(event.target.value)}
+                placeholder="Search voice..."
+                className="min-w-64 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+              />
+              {(["all", "private", "pending", "approved", "model"] as const).map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setHeygenVoiceCurationFilter(filter)}
+                  className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                    heygenVoiceCurationFilter === filter
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-border text-text-muted hover:bg-surface"
+                  }`}
+                >
+                  {filter}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => void loadHeygenVoiceCuration()}
+                disabled={heygenVoiceCurationLoading}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-[11px] font-medium text-text hover:bg-surface disabled:opacity-50"
+              >
+                {heygenVoiceCurationLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCcw className="h-3.5 w-3.5" />
+                )}
+                Reload
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="w-full min-w-[980px] text-left text-xs">
+                <thead className="sticky top-0 z-10 border-b border-border bg-surface-raised text-[11px] uppercase tracking-wide text-text-subtle">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Voice</th>
+                    <th className="px-3 py-3 font-medium">Preview</th>
+                    <th className="px-3 py-3 font-medium">Language</th>
+                    <th className="px-3 py-3 font-medium">Gender</th>
+                    <th className="px-3 py-3 font-medium">Approve</th>
+                    <th className="px-3 py-3 font-medium">Enabled</th>
+                    <th className="px-3 py-3 font-medium">Model</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredHeygenVoiceRows.map((row) => {
+                    const patch = resolveHeygenVoicePatch(row);
+                    const previewUrl = `/api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/${encodeURIComponent(row.providerVoiceId)}/preview`;
+                    return (
+                      <tr key={row.providerVoiceId} className="align-top">
+                        <td className="px-4 py-3">
+                          <p className="font-medium text-text">{row.displayName}</p>
+                          <p className="mt-1 break-all text-[11px] text-text-subtle">
+                            {row.providerVoiceId}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] text-text-muted">
+                              {row.source}
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] ${
+                                row.providerVoiceType === "private"
+                                  ? "bg-danger/10 text-danger"
+                                  : "bg-surface text-text-muted"
+                              }`}
+                            >
+                              {row.providerVoiceType}
+                            </span>
+                            {row.multilingual ? (
+                              <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] text-accent">
+                                multi
+                              </span>
+                            ) : null}
+                            {row.qualityTags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="rounded-full bg-surface px-2 py-0.5 text-[10px] text-text-muted"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          {row.previewAvailable && row.previewAudioUrl ? (
+                            <audio controls preload="none" src={previewUrl} className="w-36" />
+                          ) : (
+                            <span className="text-[11px] text-text-subtle">No preview</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3">
+                          <select
+                            value={patch.languageBucket}
+                            onChange={(event) =>
+                              patchHeygenVoiceDraft(row.providerVoiceId, {
+                                languageBucket: event.target.value as HeygenVoiceLanguageBucket
+                              })
+                            }
+                            className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-text"
+                          >
+                            <option value="ru">RU</option>
+                            <option value="en">EN</option>
+                            <option value="other">Other</option>
+                            <option value="multi">Multi</option>
+                          </select>
+                          <p className="mt-1 text-[10px] text-text-subtle">
+                            detected: {row.detectedLanguageBucket}
+                          </p>
+                        </td>
+                        <td className="px-3 py-3">
+                          <select
+                            value={patch.gender}
+                            onChange={(event) =>
+                              patchHeygenVoiceDraft(row.providerVoiceId, {
+                                gender: event.target.value as HeygenVoiceGender
+                              })
+                            }
+                            className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-text"
+                          >
+                            <option value="female">Female</option>
+                            <option value="male">Male</option>
+                            <option value="neutral">Neutral</option>
+                            <option value="unknown">Unknown</option>
+                          </select>
+                          <p className="mt-1 text-[10px] text-text-subtle">
+                            detected: {row.detectedGender}
+                          </p>
+                        </td>
+                        {(["approved", "enabled", "modelShortlist"] as const).map((field) => (
+                          <td key={field} className="px-3 py-3">
+                            <input
+                              type="checkbox"
+                              checked={patch[field]}
+                              onChange={(event) =>
+                                patchHeygenVoiceDraft(row.providerVoiceId, {
+                                  [field]: event.target.checked
+                                })
+                              }
+                              className="h-4 w-4 accent-accent"
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                  {filteredHeygenVoiceRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-sm text-text-muted">
+                        {heygenVoiceCurationLoading ? "Loading voices..." : "No voices match."}
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4">
+              <p className="text-xs text-text-muted">
+                Showing {String(filteredHeygenVoiceRows.length)} of{" "}
+                {String(heygenVoiceCurationRows.length)} voices.
+              </p>
+              <button
+                type="button"
+                onClick={() => void saveHeygenVoiceCuration()}
+                disabled={heygenVoiceCurationSaving}
+                className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {heygenVoiceCurationSaving ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                Save voice approvals
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
