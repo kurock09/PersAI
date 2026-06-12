@@ -8,7 +8,17 @@ import {
   type PointerEvent as ReactPointerEvent
 } from "react";
 import { createPortal } from "react-dom";
-import { Download, Pause, Play, Share2, Volume2, VolumeX, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Pause,
+  Play,
+  Share2,
+  Volume2,
+  VolumeX,
+  X
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import { tryNativeMediaShare } from "./persai-native-bridge";
@@ -21,6 +31,14 @@ interface ImageLightboxProps {
   filename?: string | undefined;
   alt?: string | undefined;
   mediaType?: "image" | "video" | undefined;
+  galleryItems?: Array<{
+    src: string;
+    downloadUrl?: string | undefined;
+    filename?: string | undefined;
+    alt?: string | undefined;
+  }>;
+  currentIndex?: number | undefined;
+  onNavigate?: ((nextIndex: number) => void) | undefined;
   onClose: () => void;
 }
 
@@ -29,6 +47,7 @@ const WHEEL_SENSITIVITY = 0.0015;
 const MIN_SCALE = 1;
 const MAX_SCALE = 6;
 const SWIPE_CLOSE_THRESHOLD_PX = 120;
+const SWIPE_GALLERY_THRESHOLD_PX = 72;
 const VIDEO_CHROME_AUTO_HIDE_MS = 1800;
 
 function safeMediaFilename(
@@ -79,6 +98,9 @@ export function ImageLightbox({
   filename,
   alt,
   mediaType = "image",
+  galleryItems,
+  currentIndex,
+  onNavigate,
   onClose
 }: ImageLightboxProps) {
   const t = useTranslations("chat");
@@ -118,7 +140,23 @@ export function ImageLightbox({
     startY: number;
     engaged: boolean;
   } | null>(null);
+  const gallerySwipeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    engaged: boolean;
+  } | null>(null);
   const swipeDismissOffsetYRef = useRef(0);
+  const resolvedGalleryItems =
+    mediaType === "image" && galleryItems && galleryItems.length > 1 ? galleryItems : [];
+  const hasGallery = resolvedGalleryItems.length > 1 && onNavigate !== undefined;
+  const resolvedGalleryIndex =
+    hasGallery && typeof currentIndex === "number"
+      ? Math.min(Math.max(currentIndex, 0), resolvedGalleryItems.length - 1)
+      : 0;
+  const galleryPositionLabel = hasGallery
+    ? `${resolvedGalleryIndex + 1} / ${resolvedGalleryItems.length}`
+    : null;
 
   useHistoryBackToClose(open, onClose);
 
@@ -141,8 +179,20 @@ export function ImageLightbox({
       pinchRef.current = null;
       dragRef.current = null;
       swipeDismissRef.current = null;
+      gallerySwipeRef.current = null;
     }
   }, [open]);
+
+  useEffect(() => {
+    setScale(1);
+    setPan({ x: 0, y: 0 });
+    setSwipeDismissOffsetY(0);
+    pointersRef.current.clear();
+    pinchRef.current = null;
+    dragRef.current = null;
+    swipeDismissRef.current = null;
+    gallerySwipeRef.current = null;
+  }, [src]);
 
   useEffect(() => {
     swipeDismissOffsetYRef.current = swipeDismissOffsetY;
@@ -196,17 +246,6 @@ export function ImageLightbox({
     }
   }, [mediaType, open, videoMuted]);
 
-  // ESC closes on desktop. Mobile uses the system Back button via
-  // useHistoryBackToClose, so no extra wiring is needed there.
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
-
   const applyZoom = useCallback(
     (
       anchorX: number,
@@ -247,6 +286,32 @@ export function ImageLightbox({
     [applyZoom, pan, scale]
   );
 
+  const navigateGallery = useCallback(
+    (direction: -1 | 1) => {
+      if (!hasGallery || onNavigate === undefined) {
+        return;
+      }
+      const nextIndex =
+        (resolvedGalleryIndex + direction + resolvedGalleryItems.length) %
+        resolvedGalleryItems.length;
+      onNavigate(nextIndex);
+    },
+    [hasGallery, onNavigate, resolvedGalleryIndex, resolvedGalleryItems.length]
+  );
+
+  // ESC closes on desktop. Arrow keys move through image galleries.
+  // Mobile uses the system Back button via useHistoryBackToClose.
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (mediaType === "image" && e.key === "ArrowLeft") navigateGallery(-1);
+      if (mediaType === "image" && e.key === "ArrowRight") navigateGallery(1);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [mediaType, navigateGallery, open, onClose]);
+
   const handleImageClick = useCallback(
     (e: React.MouseEvent<HTMLImageElement>) => {
       e.stopPropagation();
@@ -283,7 +348,10 @@ export function ImageLightbox({
   const handlePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLImageElement>) => {
       e.stopPropagation();
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      const target = e.currentTarget as HTMLElement;
+      if (typeof target.setPointerCapture === "function") {
+        target.setPointerCapture(e.pointerId);
+      }
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (scale === 1 && e.pointerType !== "mouse" && pointersRef.current.size === 1) {
         swipeDismissRef.current = {
@@ -292,6 +360,14 @@ export function ImageLightbox({
           startY: e.clientY,
           engaged: false
         };
+        if (hasGallery && mediaType === "image") {
+          gallerySwipeRef.current = {
+            pointerId: e.pointerId,
+            startX: e.clientX,
+            startY: e.clientY,
+            engaged: false
+          };
+        }
       }
 
       const points = Array.from(pointersRef.current.values());
@@ -322,13 +398,34 @@ export function ImageLightbox({
         };
       }
     },
-    [scale, pan]
+    [hasGallery, mediaType, scale, pan]
   );
 
   const handlePointerMove = useCallback(
     (e: ReactPointerEvent<HTMLImageElement>) => {
       if (!pointersRef.current.has(e.pointerId)) return;
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      const gallerySwipe = gallerySwipeRef.current;
+      if (
+        gallerySwipe &&
+        gallerySwipe.pointerId === e.pointerId &&
+        scale === 1 &&
+        pointersRef.current.size === 1 &&
+        e.pointerType !== "mouse"
+      ) {
+        const dx = e.clientX - gallerySwipe.startX;
+        const dy = e.clientY - gallerySwipe.startY;
+        if (!gallerySwipe.engaged) {
+          if (Math.abs(dx) >= 12 && Math.abs(dx) > Math.abs(dy) * 1.25) {
+            gallerySwipe.engaged = true;
+            swipeDismissRef.current = null;
+          }
+        }
+        if (gallerySwipe.engaged) {
+          return;
+        }
+      }
 
       const swipe = swipeDismissRef.current;
       if (
@@ -392,6 +489,7 @@ export function ImageLightbox({
       pointersRef.current.delete(e.pointerId);
       const wasPinching = pinchRef.current !== null;
       const swipe = swipeDismissRef.current;
+      const gallerySwipe = gallerySwipeRef.current;
       if (pointersRef.current.size < 2) {
         pinchRef.current = null;
       }
@@ -409,6 +507,19 @@ export function ImageLightbox({
         }
         swipeDismissRef.current = null;
       }
+      if (gallerySwipe && gallerySwipe.pointerId === e.pointerId) {
+        const dx = e.clientX - gallerySwipe.startX;
+        const dy = e.clientY - gallerySwipe.startY;
+        if (
+          gallerySwipe.engaged &&
+          Math.abs(dx) >= SWIPE_GALLERY_THRESHOLD_PX &&
+          Math.abs(dx) > Math.abs(dy) * 1.25
+        ) {
+          suppressClickRef.current = true;
+          navigateGallery(dx < 0 ? 1 : -1);
+        }
+        gallerySwipeRef.current = null;
+      }
       // Browsers fire a synthetic click after a touch sequence even if the
       // user clearly meant to pinch — swallow that one click so we don't
       // immediately cycle the zoom.
@@ -416,7 +527,7 @@ export function ImageLightbox({
         suppressClickRef.current = true;
       }
     },
-    [onClose]
+    [navigateGallery, onClose]
   );
 
   const triggerDownload = useCallback(() => {
@@ -556,7 +667,12 @@ export function ImageLightbox({
           className="absolute top-3 right-3 left-3 z-10 flex items-center justify-between gap-3"
         >
           <div className="min-w-0 rounded-full border border-white/10 bg-black/45 px-3 py-1.5 text-[11px] font-medium text-white/75 shadow-lg shadow-black/20 backdrop-blur-md">
-            <span className="block max-w-[48vw] truncate sm:max-w-[32rem]">{mediaTitle}</span>
+            <span className="flex max-w-[48vw] items-center gap-2 truncate sm:max-w-[32rem]">
+              <span className="truncate">{mediaTitle}</span>
+              {galleryPositionLabel ? (
+                <span className="shrink-0 text-white/45">{galleryPositionLabel}</span>
+              ) : null}
+            </span>
           </div>
           <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/45 p-1 text-white/90 shadow-lg shadow-black/20 backdrop-blur-md">
             <button
@@ -744,27 +860,55 @@ export function ImageLightbox({
           ) : null}
         </div>
       ) : (
-        <img
-          data-testid="media-lightbox-image-surface"
-          src={src}
-          alt={alt ?? ""}
-          draggable={false}
-          onClick={handleImageClick}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          style={{
-            transform: mediaSurfaceTransform,
-            opacity: mediaSurfaceOpacity,
-            transition: dragRef.current ? "none" : "transform 0.18s ease-out",
-            touchAction: "none"
-          }}
-          className={cn(
-            "max-h-full max-w-full object-contain",
-            scale > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-in"
-          )}
-        />
+        <>
+          {hasGallery ? (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigateGallery(-1);
+                }}
+                aria-label={t("lightboxPrevious")}
+                className="absolute top-1/2 left-3 z-10 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-black/30 text-white/70 shadow-lg shadow-black/20 backdrop-blur-md transition hover:bg-black/45 hover:text-white sm:inline-flex"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigateGallery(1);
+                }}
+                aria-label={t("lightboxNext")}
+                className="absolute top-1/2 right-3 z-10 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-black/30 text-white/70 shadow-lg shadow-black/20 backdrop-blur-md transition hover:bg-black/45 hover:text-white sm:inline-flex"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </>
+          ) : null}
+          <img
+            data-testid="media-lightbox-image-surface"
+            src={src}
+            alt={alt ?? ""}
+            draggable={false}
+            onClick={handleImageClick}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            style={{
+              transform: mediaSurfaceTransform,
+              opacity: mediaSurfaceOpacity,
+              transition: dragRef.current ? "none" : "transform 0.18s ease-out",
+              touchAction: "none"
+            }}
+            className={cn(
+              "max-h-full max-w-full object-contain",
+              scale > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-in"
+            )}
+          />
+        </>
       )}
     </div>,
     document.body

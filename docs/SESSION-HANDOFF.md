@@ -3,6 +3,36 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-12 - HeyGen voice catalog quality hardening + chat media gallery
+
+### Baseline
+
+- Starting SHA: `e22dd9ca6beea16ea8a20c4c11cd652acfd361ed` on `main`. Clean tree at session start. Scope stayed bounded to the HeyGen talking-avatar voice catalog quality slice plus a small chat media gallery polish follow-up: enrich catalog metadata, demote broken/noisy voices, sort the Characters picker by quality inside the existing filters, improve the model-facing 24-voice shortlist, and let same-message image attachments navigate inside the existing lightbox.
+
+### What changed
+
+- `HeyGenVoiceCatalogService` now derives source (`elevenlabs`, `heygen`, `gemini`, `unknown`), quality tags (`professional`, `natural`, `lifelike`), preview availability, locale support, pause support, and `qualityRank` from the real HeyGen `/v3/voices` fields. ElevenLabs-backed voices are detected from HeyGen preview URLs such as `model=eleven_multilingual_v2`; HeyGen does not expose a first-class provider/rating field.
+- The model-facing HeyGen shortlist now sorts quality-first across RU/EN with gender balancing instead of alphabetical filler: ElevenLabs-backed entries first, then tagged high-quality HeyGen voices, then fallback voices. Broken static Gemini preview voices are demoted and do not compete as top candidates.
+- The workspace Characters voice catalog response now includes the additive quality metadata plus a stable per-row `catalogId` so duplicated RU/EN multilingual variants no longer rely on the raw provider voice id as the React row key.
+- The Characters voice picker keeps the existing Gender + RU/EN/OTHER/MY filters, but each filtered bucket is sorted by the server quality rank and shows compact inline labels such as `ElevenLabs`, `Pro`, `Natural`, and `Lifelike`. Voices whose preview is known-broken are not offered as playable previews.
+- Chat image attachments in the same message now open as one lightbox gallery: mobile horizontal swipes navigate images while vertical swipe-down still closes, desktop has quiet previous/next controls plus keyboard arrows, and video lightbox behavior is unchanged.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/heygen-voice-catalog.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-heygen-voice-catalog-for-workspace.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/image-lightbox.test.tsx app/app/_components/chat-message.test.tsx --config vitest.config.ts`
+
+### Risks / residuals
+
+- HeyGen's public `/v3/voices` response still does not expose an official rating, quality score, or source/provider field. The new rank is a PersAI-derived quality heuristic from available fields and live-observed URL patterns, not a provider-certified score.
+- The live HeyGen account currently exposes only a small number of ElevenLabs-backed voices, mostly English. RU ElevenLabs quality will improve automatically after more ElevenLabs voices are imported into the HeyGen account/catalog, but this slice cannot create HeyGen-visible voices by itself.
+
+### Next recommended step
+
+- Import a small curated RU/EN ElevenLabs set into HeyGen Console, refresh the HeyGen catalog, and live-check that the Characters picker and model shortlist place those voices at the top.
+
 ## 2026-06-12 - Chat working-text stream cleanup
 
 ### Baseline

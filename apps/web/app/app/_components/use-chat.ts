@@ -34,7 +34,7 @@ import {
 } from "../assistant-api-client";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
-import { appendWorkingMarkdownBlock } from "./chat-message-streaming";
+import { appendWorkingMarkdownBlock, splitWorkingMarkdownContent } from "./chat-message-streaming";
 import { dispatchProjectFilesChanged } from "./project-files-events";
 import { scopeThreadKey, useStreamingThreadsRegistry } from "./streaming-threads";
 /** * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server * does not return 2xx headers within this window, the request is aborted * and the user bubble flips to "send_failed". 10s is well above normal * server response time but short enough to feel responsive on flaky * mobile networks. (ADR-075 T� "Single-slot pending send".) */ const HEADERS_TIMEOUT_MS = 10_000;
@@ -567,6 +567,38 @@ function demoteStreamingAssistantPrefix(
       content: nextContent
     };
   });
+}
+
+function reconcileAuthoritativeAssistantContent(
+  currentContent: string,
+  authoritativeContent: string | null
+): string | null {
+  if (authoritativeContent === null) {
+    return null;
+  }
+  const trimmedAuthoritative = authoritativeContent.trim();
+  if (!currentContent.includes(":::working")) {
+    return authoritativeContent;
+  }
+  if (trimmedAuthoritative.length === 0) {
+    return currentContent;
+  }
+  const currentSegments = splitWorkingMarkdownContent(currentContent);
+  if (currentSegments.workingBlocks.length === 0) {
+    return authoritativeContent;
+  }
+  const authoritativeSegments = splitWorkingMarkdownContent(authoritativeContent);
+  if (authoritativeSegments.workingBlocks.length > 0) {
+    return authoritativeContent;
+  }
+  if (currentSegments.answerText.trim() === trimmedAuthoritative) {
+    return currentContent;
+  }
+  const workingPrefix = currentContent.slice(
+    0,
+    currentContent.length - currentSegments.answerText.length
+  );
+  return `${workingPrefix}${authoritativeContent}`;
 }
 function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null | undefined): {
   messages: ChatMessage[];
@@ -3041,7 +3073,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               if (m.id === assistantMsgId) {
                 const authoritativeAssistantContent =
                   typeof t?.assistantMessage?.content === "string"
-                    ? t.assistantMessage.content
+                    ? reconcileAuthoritativeAssistantContent(m.content, t.assistantMessage.content)
                     : null;
                 return {
                   ...m,
@@ -3232,7 +3264,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               }
               const authoritativeAssistantContent =
                 typeof t?.assistantMessage?.content === "string"
-                  ? t.assistantMessage.content
+                  ? reconcileAuthoritativeAssistantContent(m.content, t.assistantMessage.content)
                   : null;
               const nextContent = authoritativeAssistantContent ?? m.content;
               return [
@@ -3293,7 +3325,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               }
               const authoritativeAssistantContent =
                 typeof t?.assistantMessage?.content === "string"
-                  ? t.assistantMessage.content
+                  ? reconcileAuthoritativeAssistantContent(m.content, t.assistantMessage.content)
                   : null;
               return [
                 {

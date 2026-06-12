@@ -3705,6 +3705,85 @@ describe("characters section", () => {
     });
   });
 
+  it("Create flow: RU voice catalog prioritizes ElevenLabs, then pro HeyGen, then other voices", async () => {
+    assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
+      personas: [],
+      limit: 3,
+      creationVcoinCost: 20
+    });
+    assistantApiMocks.getWorkspaceVoiceCatalog.mockResolvedValue({
+      provider: "heygen",
+      voices: [
+        {
+          catalogId: "ru-gemini",
+          voiceId: "ru-gemini",
+          name: "Gacrux",
+          language: "ru",
+          gender: "female",
+          previewAudioUrl: "https://static.heygen.ai/voice_preview/gemini/gacrux.wav",
+          languageBucket: "ru",
+          source: "gemini",
+          qualityTags: [],
+          qualityRank: -60,
+          previewAvailable: false,
+          localeControl: false,
+          pauseSupport: false
+        },
+        {
+          catalogId: "ru-heygen-pro",
+          voiceId: "ru-heygen-pro",
+          name: "Dariya - Professional",
+          language: "Russian",
+          gender: "female",
+          previewAudioUrl: "https://resource.heygen.ai/text_to_speech/dariya.wav",
+          languageBucket: "ru",
+          source: "heygen",
+          qualityTags: ["professional"],
+          qualityRank: 88,
+          previewAvailable: true,
+          localeControl: false,
+          pauseSupport: true
+        },
+        {
+          catalogId: "ru-eleven",
+          voiceId: "ru-eleven",
+          name: "Nadia",
+          language: "Russian",
+          gender: "female",
+          previewAudioUrl:
+            "https://resource.heygen.ai/text_to_speech/model=eleven_multilingual_v2.mp3",
+          languageBucket: "ru",
+          source: "elevenlabs",
+          qualityTags: [],
+          qualityRank: 128,
+          previewAvailable: true,
+          localeControl: false,
+          pauseSupport: true
+        }
+      ]
+    });
+
+    renderSettings(
+      makeAppData({ plan: makePlanData({ talkingVideoEnabled: true }) }),
+      "characters"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create character" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "RU" }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText("Nadia")).toBeInTheDocument();
+      expect(within(dialog).getByText("ElevenLabs")).toBeInTheDocument();
+      expect(within(dialog).getByText("Pro")).toBeInTheDocument();
+    });
+
+    const names = within(dialog)
+      .getAllByText(/Nadia|Dariya - Professional|Gacrux/)
+      .map((node) => node.textContent);
+    expect(names).toEqual(["Nadia", "Dariya - Professional", "Gacrux"]);
+  });
+
   it("Create flow: insufficient balance disables submit", async () => {
     assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
       personas: [],

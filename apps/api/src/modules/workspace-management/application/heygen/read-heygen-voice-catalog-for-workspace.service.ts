@@ -3,12 +3,19 @@ import type { RuntimeVideoVoiceCatalogEntry } from "@persai/runtime-contract";
 import { HeyGenVoiceCatalogService } from "./heygen-voice-catalog.service";
 
 export type WorkspaceVoiceCatalogEntry = {
+  catalogId: string;
   voiceId: string;
   name: string;
   language: string | null;
   gender: string;
   previewAudioUrl: string | null;
   languageBucket: "ru" | "en" | "other";
+  source: "heygen" | "elevenlabs" | "gemini" | "unknown";
+  qualityTags: string[];
+  qualityRank: number;
+  previewAvailable: boolean;
+  localeControl: boolean;
+  pauseSupport: boolean;
 };
 
 export type WorkspaceVoiceCatalogResult = {
@@ -40,14 +47,25 @@ export class ReadHeygenVoiceCatalogForWorkspaceService {
     return {
       provider: "heygen",
       voices: voices.map((entry: RuntimeVideoVoiceCatalogEntry) => ({
+        catalogId: this.buildCatalogId(entry),
         voiceId: entry.providerVoiceId,
         name: entry.displayName,
         language: entry.locale ?? null,
         gender: entry.gender,
         previewAudioUrl: entry.previewAudioUrl ?? null,
-        languageBucket: this.toLanguageBucket(entry.locale)
+        languageBucket: this.toLanguageBucket(entry.locale),
+        source: entry.source ?? "unknown",
+        qualityTags: entry.qualityTags ?? [],
+        qualityRank: entry.qualityRank ?? 0,
+        previewAvailable: entry.previewAvailable ?? false,
+        localeControl: entry.localeControl ?? false,
+        pauseSupport: entry.pauseSupport ?? false
       }))
     };
+  }
+
+  private buildCatalogId(entry: RuntimeVideoVoiceCatalogEntry): string {
+    return `${entry.providerVoiceId}:${entry.voiceKey}:${entry.locale ?? "unknown"}`;
   }
 
   private toLanguageBucket(locale: string | null): "ru" | "en" | "other" {

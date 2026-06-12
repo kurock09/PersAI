@@ -35,7 +35,13 @@ async function run(): Promise<void> {
           gender: "female",
           description: "en-US | news",
           styleTags: ["news"],
-          previewAudioUrl: "https://cdn.heygen.com/preview/amy.mp3"
+          previewAudioUrl: "https://cdn.heygen.com/preview/amy.mp3",
+          source: "elevenlabs",
+          qualityTags: ["professional"],
+          qualityRank: 188,
+          previewAvailable: true,
+          localeControl: false,
+          pauseSupport: true
         },
         {
           voiceKey: "boris",
@@ -58,6 +64,11 @@ async function run(): Promise<void> {
     assert.equal(result.voices[0]!.language, "en-US");
     assert.equal(result.voices[0]!.gender, "female");
     assert.equal(result.voices[0]!.previewAudioUrl, "https://cdn.heygen.com/preview/amy.mp3");
+    assert.equal(result.voices[0]!.source, "elevenlabs");
+    assert.deepEqual(result.voices[0]!.qualityTags, ["professional"]);
+    assert.equal(result.voices[0]!.qualityRank, 188);
+    assert.equal(result.voices[0]!.previewAvailable, true);
+    assert.equal(result.voices[0]!.pauseSupport, true);
     console.log("✓ Test 1: happy path non-empty cache");
   }
 

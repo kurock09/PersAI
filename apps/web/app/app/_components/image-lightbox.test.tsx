@@ -42,6 +42,80 @@ describe("ImageLightbox", () => {
     expect(container).not.toContainElement(screen.getByRole("dialog"));
   });
 
+  it("renders quiet gallery controls and navigates with buttons and keyboard", () => {
+    const onNavigate = vi.fn();
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-image-2"
+        downloadUrl="/api/assistant-file/file-ref-image-2?download=1"
+        filename="image-2.png"
+        alt="Generated image 2"
+        galleryItems={[
+          { src: "/api/assistant-file/file-ref-image-1", filename: "image-1.png" },
+          { src: "/api/assistant-file/file-ref-image-2", filename: "image-2.png" },
+          { src: "/api/assistant-file/file-ref-image-3", filename: "image-3.png" }
+        ]}
+        currentIndex={1}
+        onNavigate={onNavigate}
+        onClose={() => undefined}
+      />
+    );
+
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "lightboxNext" }));
+    expect(onNavigate).toHaveBeenCalledWith(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "lightboxPrevious" }));
+    expect(onNavigate).toHaveBeenCalledWith(0);
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(onNavigate).toHaveBeenCalledWith(2);
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(onNavigate).toHaveBeenCalledWith(0);
+  });
+
+  it("navigates image gallery with horizontal touch swipes", () => {
+    const onNavigate = vi.fn();
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-image-1"
+        filename="image-1.png"
+        alt="Generated image 1"
+        galleryItems={[
+          { src: "/api/assistant-file/file-ref-image-1", filename: "image-1.png" },
+          { src: "/api/assistant-file/file-ref-image-2", filename: "image-2.png" }
+        ]}
+        currentIndex={0}
+        onNavigate={onNavigate}
+        onClose={() => undefined}
+      />
+    );
+
+    const image = screen.getByTestId("media-lightbox-image-surface");
+    fireEvent.pointerDown(image, {
+      pointerId: 1,
+      clientX: 240,
+      clientY: 100,
+      pointerType: "touch"
+    });
+    fireEvent.pointerMove(image, {
+      pointerId: 1,
+      clientX: 120,
+      clientY: 104,
+      pointerType: "touch"
+    });
+    fireEvent.pointerUp(image, {
+      pointerId: 1,
+      clientX: 120,
+      clientY: 104,
+      pointerType: "touch"
+    });
+
+    expect(onNavigate).toHaveBeenCalledWith(1);
+  });
+
   it("shares the image file when Web Share supports files", async () => {
     const share = vi.fn().mockResolvedValue(undefined);
     const canShare = vi.fn().mockReturnValue(true);

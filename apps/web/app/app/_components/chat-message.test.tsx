@@ -31,6 +31,9 @@ vi.mock("./image-lightbox", () => ({
     downloadUrl?: string;
     filename?: string;
     mediaType?: string;
+    galleryItems?: Array<{ src: string; filename?: string }>;
+    currentIndex?: number;
+    onNavigate?: (nextIndex: number) => void;
   }) => {
     imageLightboxMock(props);
     return props.open ? (
@@ -40,6 +43,8 @@ vi.mock("./image-lightbox", () => ({
         data-download-url={props.downloadUrl}
         data-filename={props.filename}
         data-media-type={props.mediaType}
+        data-gallery-count={props.galleryItems?.length ?? 0}
+        data-current-index={props.currentIndex}
       />
     ) : null;
   }
@@ -428,6 +433,40 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
 });
 
 describe("ChatMessageBubble — canonical file attachments", () => {
+  it("passes same-message image attachments as a gallery to the lightbox", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
+          attachments: [
+            { ...makeImageAttachment("att-image-1"), fileRef: "file-ref-image-1" },
+            { ...makeImageAttachment("att-image-2"), fileRef: "file-ref-image-2" }
+          ]
+        })}
+      />
+    );
+
+    const imageButtons = screen.getAllByRole("button");
+    fireEvent.click(imageButtons[0]!);
+
+    const lightbox = screen.getByTestId("mock-image-lightbox");
+    expect(lightbox).toHaveAttribute("data-src", "/api/assistant-file/file-ref-image-1");
+    expect(lightbox).toHaveAttribute("data-gallery-count", "2");
+    expect(lightbox).toHaveAttribute("data-current-index", "0");
+    expect(imageLightboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        open: true,
+        src: "/api/assistant-file/file-ref-image-1",
+        galleryItems: [
+          expect.objectContaining({ src: "/api/assistant-file/file-ref-image-1" }),
+          expect.objectContaining({ src: "/api/assistant-file/file-ref-image-2" })
+        ],
+        currentIndex: 0,
+        onNavigate: expect.any(Function)
+      })
+    );
+  });
+
   it("uses fileRef download URLs when an attachment is linked to a canonical File", () => {
     render(
       <ChatMessageBubble
@@ -812,7 +851,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByText("activityKnowledgeSearchDone")).toBeInTheDocument();
   });
 
-  it("keeps pre-response status visible after text starts streaming", () => {
+  it("hides pre-response status once visible answer text starts streaming", () => {
     render(
       <ChatMessageBubble
         message={makeAssistantMessage({ content: "Hello" })}
@@ -820,8 +859,8 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.getByText("preResponseThinking")).toBeInTheDocument();
     expect(screen.getByText("Hello")).toBeInTheDocument();
+    expect(screen.queryByText("preResponseThinking")).not.toBeInTheDocument();
   });
 
   it("renders prior working blocks separately from the live answer", () => {

@@ -2,7 +2,9 @@ import { Injectable, Logger } from "@nestjs/common";
 import type {
   RuntimeVideoVoiceCatalog,
   RuntimeVideoVoiceCatalogEntry,
-  RuntimeVideoVoiceGender
+  RuntimeVideoVoiceGender,
+  RuntimeVideoVoiceQualityTag,
+  RuntimeVideoVoiceSource
 } from "@persai/runtime-contract";
 import { TOOL_CREDENTIAL_IDS } from "../tool-credential-settings";
 import { PlatformRuntimeProviderSecretStoreService } from "../platform-runtime-provider-secret-store.service";
@@ -17,6 +19,7 @@ const HEYGEN_VOICE_PAGE_LIMIT = 100;
 const HEYGEN_VOICE_MAX_PAGES = 100;
 const HEYGEN_VOICE_ENGINE = "avatar_v";
 const HEYGEN_VOICE_TYPE = "public";
+const GOOD_QUALITY_TAGS: RuntimeVideoVoiceQualityTag[] = ["professional", "natural", "lifelike"];
 
 type CachedVoiceCatalogRow = {
   voices: RuntimeVideoVoiceCatalogEntry[];
@@ -149,7 +152,7 @@ export class HeyGenVoiceCatalogService {
   private buildShortlist(
     entries: RuntimeVideoVoiceCatalogEntry[]
   ): RuntimeVideoVoiceCatalogEntry[] {
-    const normalized = this.normalizeEntries(entries);
+    const normalized = this.sortForQuality(this.normalizeEntries(entries));
     const byLanguage = new Map<string, RuntimeVideoVoiceCatalogEntry[]>();
     for (const entry of normalized) {
       const language = this.normalizeLanguageBucket(entry.locale);
@@ -171,12 +174,12 @@ export class HeyGenVoiceCatalogService {
 
     for (const language of PREFERRED_VOICE_LANGUAGES) {
       const bucket = byLanguage.get(language) ?? [];
-      for (const entry of this.balanceGender(bucket).slice(0, 10)) {
+      for (const entry of this.balanceGender(this.sortForQuality(bucket)).slice(0, 12)) {
         take(entry);
       }
     }
 
-    for (const entry of normalized) {
+    for (const entry of this.sortForQuality(normalized)) {
       take(entry);
     }
 
@@ -197,6 +200,33 @@ export class HeyGenVoiceCatalogService {
     return [...deduped.values()].sort((left, right) =>
       left.displayName.localeCompare(right.displayName)
     );
+  }
+
+  private sortForQuality(
+    entries: RuntimeVideoVoiceCatalogEntry[]
+  ): RuntimeVideoVoiceCatalogEntry[] {
+    return [...entries].sort((left, right) => {
+      const rankDelta = this.resolveQualityRank(right) - this.resolveQualityRank(left);
+      if (rankDelta !== 0) {
+        return rankDelta;
+      }
+      const sourceDelta = this.sourceRank(right.source) - this.sourceRank(left.source);
+      if (sourceDelta !== 0) {
+        return sourceDelta;
+      }
+      return left.displayName.localeCompare(right.displayName);
+    });
+  }
+
+  private resolveQualityRank(entry: RuntimeVideoVoiceCatalogEntry): number {
+    return typeof entry.qualityRank === "number" ? entry.qualityRank : 0;
+  }
+
+  private sourceRank(source: RuntimeVideoVoiceSource | undefined): number {
+    if (source === "elevenlabs") return 3;
+    if (source === "heygen") return 2;
+    if (source === "gemini") return 1;
+    return 0;
   }
 
   private balanceGender(entries: RuntimeVideoVoiceCatalogEntry[]): RuntimeVideoVoiceCatalogEntry[] {
@@ -381,6 +411,11 @@ export class HeyGenVoiceCatalogService {
       this.asNonEmptyString(row.preview_audio_url) ??
       this.asNonEmptyString(row.previewAudioUrl) ??
       null;
+    const source = this.detectVoiceSource(row, displayName, previewAudioUrl);
+    const qualityTags = this.detectQualityTags(displayName, row, source);
+    const previewAvailable = this.isPreviewLikelyAvailable(previewAudioUrl);
+    const localeControl = this.asBoolean(row.support_locale ?? row.supportLocale) ?? false;
+    const pauseSupport = this.asBoolean(row.support_pause ?? row.supportPause) ?? false;
     return {
       voiceKey: this.buildVoiceKey(displayName, providerVoiceId),
       providerVoiceId,
@@ -389,7 +424,19 @@ export class HeyGenVoiceCatalogService {
       gender: this.normalizeGender(row.gender ?? row.voice_gender ?? row.sex),
       description: this.buildDescription(locale, styleTags),
       styleTags,
-      previewAudioUrl
+      previewAudioUrl,
+      source,
+      qualityTags,
+      qualityRank: this.buildQualityRank({
+        source,
+        qualityTags,
+        previewAvailable,
+        localeControl,
+        pauseSupport
+      }),
+      previewAvailable,
+      localeControl,
+      pauseSupport
     };
   }
 
@@ -472,6 +519,77 @@ export class HeyGenVoiceCatalogService {
     return [];
   }
 
+  private detectVoiceSource(
+    row: Record<string, unknown>,
+    displayName: string,
+    previewAudioUrl: string | null
+  ): RuntimeVideoVoiceSource {
+    const joined = [
+      displayName,
+      previewAudioUrl ?? "",
+      this.asNonEmptyString(row.provider),
+      this.asNonEmptyString(row.source),
+      this.asNonEmptyString(row.vendor),
+      this.asNonEmptyString(row.provider_name),
+      this.asNonEmptyString(row.providerName)
+    ]
+      .filter((value): value is string => value !== null)
+      .join(" ")
+      .toLowerCase();
+    if (joined.includes("eleven")) {
+      return "elevenlabs";
+    }
+    if (joined.includes("gemini")) {
+      return "gemini";
+    }
+    if (joined.includes("heygen")) {
+      return "heygen";
+    }
+    return "heygen";
+  }
+
+  private detectQualityTags(
+    displayName: string,
+    row: Record<string, unknown>,
+    source: RuntimeVideoVoiceSource
+  ): RuntimeVideoVoiceQualityTag[] {
+    const rawTags = this.readStyleTags(row);
+    const haystack = [displayName, ...rawTags].join(" ").toLowerCase();
+    const tags = GOOD_QUALITY_TAGS.filter((tag) => haystack.includes(tag));
+    if (source === "elevenlabs" && tags.length === 0) {
+      return [];
+    }
+    return tags;
+  }
+
+  private isPreviewLikelyAvailable(previewAudioUrl: string | null): boolean {
+    if (previewAudioUrl === null) {
+      return false;
+    }
+    const normalized = previewAudioUrl.trim().toLowerCase();
+    if (normalized.length === 0) {
+      return false;
+    }
+    return !normalized.includes("static.heygen.ai/voice_preview/gemini/");
+  }
+
+  private buildQualityRank(input: {
+    source: RuntimeVideoVoiceSource;
+    qualityTags: RuntimeVideoVoiceQualityTag[];
+    previewAvailable: boolean;
+    localeControl: boolean;
+    pauseSupport: boolean;
+  }): number {
+    let rank = 0;
+    if (input.previewAvailable) rank += 20;
+    if (input.source === "elevenlabs") rank += 100;
+    if (input.qualityTags.length > 0) rank += 60;
+    if (input.pauseSupport) rank += 8;
+    if (input.localeControl) rank += 4;
+    if (input.source === "gemini" && !input.previewAvailable) rank -= 80;
+    return rank;
+  }
+
   private buildDescription(locale: string | null, styleTags: string[]): string | null {
     const parts: string[] = [];
     if (locale !== null) {
@@ -529,7 +647,9 @@ export class HeyGenVoiceCatalogService {
       if (voiceKey === null || providerVoiceId === null || displayName === null) {
         continue;
       }
-      entries.push({
+      const source = this.normalizeSource(row.source);
+      const qualityTags = this.normalizeQualityTags(row.qualityTags);
+      const parsed: RuntimeVideoVoiceCatalogEntry = {
         voiceKey,
         providerVoiceId,
         displayName,
@@ -544,8 +664,17 @@ export class HeyGenVoiceCatalogService {
         previewAudioUrl:
           typeof row.previewAudioUrl === "string" && row.previewAudioUrl.trim().length > 0
             ? row.previewAudioUrl.trim()
-            : null
-      });
+            : null,
+        ...(source === undefined ? {} : { source }),
+        ...(qualityTags === undefined ? {} : { qualityTags }),
+        ...(typeof row.qualityRank === "number" ? { qualityRank: row.qualityRank } : {}),
+        ...(typeof row.previewAvailable === "boolean"
+          ? { previewAvailable: row.previewAvailable }
+          : {}),
+        ...(typeof row.localeControl === "boolean" ? { localeControl: row.localeControl } : {}),
+        ...(typeof row.pauseSupport === "boolean" ? { pauseSupport: row.pauseSupport } : {})
+      };
+      entries.push(parsed);
     }
     return entries;
   }
@@ -567,5 +696,25 @@ export class HeyGenVoiceCatalogService {
 
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private asBoolean(value: unknown): boolean | null {
+    return typeof value === "boolean" ? value : null;
+  }
+
+  private normalizeSource(value: unknown): RuntimeVideoVoiceSource | undefined {
+    if (value === "heygen" || value === "elevenlabs" || value === "gemini" || value === "unknown") {
+      return value;
+    }
+    return undefined;
+  }
+
+  private normalizeQualityTags(value: unknown): RuntimeVideoVoiceQualityTag[] | undefined {
+    if (!Array.isArray(value)) {
+      return undefined;
+    }
+    return value.filter((tag): tag is RuntimeVideoVoiceQualityTag =>
+      GOOD_QUALITY_TAGS.includes(tag as RuntimeVideoVoiceQualityTag)
+    );
   }
 }

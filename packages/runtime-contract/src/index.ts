@@ -1745,6 +1745,14 @@ export const RUNTIME_VIDEO_VOICE_GENDERS = ["male", "female", "neutral", "unknow
 
 export type RuntimeVideoVoiceGender = (typeof RUNTIME_VIDEO_VOICE_GENDERS)[number];
 
+export const RUNTIME_VIDEO_VOICE_SOURCES = ["heygen", "elevenlabs", "gemini", "unknown"] as const;
+
+export type RuntimeVideoVoiceSource = (typeof RUNTIME_VIDEO_VOICE_SOURCES)[number];
+
+export const RUNTIME_VIDEO_VOICE_QUALITY_TAGS = ["professional", "natural", "lifelike"] as const;
+
+export type RuntimeVideoVoiceQualityTag = (typeof RUNTIME_VIDEO_VOICE_QUALITY_TAGS)[number];
+
 export interface RuntimeVideoVoiceCatalogEntry {
   voiceKey: string;
   providerVoiceId: string;
@@ -1754,6 +1762,12 @@ export interface RuntimeVideoVoiceCatalogEntry {
   description: string | null;
   styleTags: string[];
   previewAudioUrl?: string | null;
+  source?: RuntimeVideoVoiceSource;
+  qualityTags?: RuntimeVideoVoiceQualityTag[];
+  qualityRank?: number;
+  previewAvailable?: boolean;
+  localeControl?: boolean;
+  pauseSupport?: boolean;
 }
 
 export interface RuntimeVideoVoiceCatalog {

@@ -435,6 +435,73 @@ async function run(): Promise<void> {
       console.log("PASS: multilingual voices are available in RU and EN without a Multi bucket");
     }
 
+    // ── Test 3g: Quality metadata ranks ElevenLabs / pro voices above broken previews ──
+    {
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                voice_id: "gemini-broken",
+                name: "Gacrux",
+                language: "Multilingual",
+                gender: "female",
+                preview_audio_url: "https://static.heygen.ai/voice_preview/gemini/gacrux.wav",
+                support_pause: false
+              },
+              {
+                voice_id: "heygen-pro-ru",
+                name: "Dariya - Professional",
+                language: "Russian",
+                gender: "female",
+                preview_audio_url: "https://resource.heygen.ai/text_to_speech/dariya.wav",
+                support_pause: true
+              },
+              {
+                voice_id: "eleven-ru",
+                name: "Nadia",
+                language: "Russian",
+                gender: "female",
+                preview_audio_url:
+                  "https://resource.heygen.ai/text_to_speech/locale=ru-RUmodel=eleven_multilingual_v2id=voice.mp3",
+                support_pause: true
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )) as typeof fetch;
+
+      const service = new HeyGenVoiceCatalogService(
+        {
+          platformHeygenVoiceCatalogCache: {
+            async findUnique() {
+              return null;
+            },
+            async upsert(input: Record<string, unknown>) {
+              return input;
+            }
+          }
+        } as never,
+        {
+          async resolveSecretValueById() {
+            return "heygen-test-api-key";
+          }
+        } as never
+      );
+
+      const catalog = await service.getMaterializedVoiceCatalog();
+      assert.ok(catalog);
+      assert.deepEqual(
+        catalog.shortlist.map((entry) => entry.providerVoiceId),
+        ["eleven-ru", "heygen-pro-ru", "gemini-broken"]
+      );
+      assert.equal(catalog.shortlist[0]?.source, "elevenlabs");
+      assert.deepEqual(catalog.shortlist[1]?.qualityTags, ["professional"]);
+      assert.equal(catalog.shortlist[2]?.source, "gemini");
+      assert.equal(catalog.shortlist[2]?.previewAvailable, false);
+      console.log("PASS: quality metadata ranks good voices above broken Gemini previews");
+    }
+
     // ── Test 3c: Repeated token from upstream → stop early without looping forever ──
     {
       const seenUrls: string[] = [];

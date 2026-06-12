@@ -5695,12 +5695,19 @@ export type PersonaListResponse = {
 };
 
 export type VoiceCatalogEntry = {
+  catalogId?: string | null;
   voiceId: string;
   name: string;
   language: string | null;
   gender: string;
   previewAudioUrl: string | null;
   languageBucket?: "ru" | "en" | "other" | null;
+  source?: "heygen" | "elevenlabs" | "gemini" | "unknown" | null;
+  qualityTags?: Array<"professional" | "natural" | "lifelike"> | null;
+  qualityRank?: number | null;
+  previewAvailable?: boolean | null;
+  localeControl?: boolean | null;
+  pauseSupport?: boolean | null;
 };
 
 export type VoiceCatalogResponse = {

@@ -1180,9 +1180,12 @@ function matchesOtherVoiceLanguageSearch(
 
 function resolveCatalogPreviewUrl(
   workspaceId: string | null | undefined,
-  voice: Pick<VoiceCatalogEntry, "voiceId" | "previewAudioUrl">
+  voice: Pick<VoiceCatalogEntry, "voiceId" | "previewAudioUrl" | "previewAvailable">
 ): string | null {
   if (!voice.previewAudioUrl) {
+    return null;
+  }
+  if ("previewAvailable" in voice && voice.previewAvailable === false) {
     return null;
   }
   return workspaceId
@@ -1215,6 +1218,37 @@ function formatVoiceLanguageLabel(voice: VoiceCatalogEntry): string {
     return "EN";
   }
   return "OTHER";
+}
+
+function voiceCatalogRowKey(voice: VoiceCatalogEntry): string {
+  return voice.catalogId?.trim() || `${voice.voiceId}:${voice.language ?? "unknown"}:${voice.name}`;
+}
+
+function voiceQualityBadgeLabels(voice: VoiceCatalogEntry): string[] {
+  const labels: string[] = [];
+  if (voice.source === "elevenlabs") {
+    labels.push("ElevenLabs");
+  }
+  for (const tag of voice.qualityTags ?? []) {
+    if (tag === "professional") labels.push("Pro");
+    if (tag === "natural") labels.push("Natural");
+    if (tag === "lifelike") labels.push("Lifelike");
+  }
+  return labels;
+}
+
+function voiceCatalogSortRank(voice: VoiceCatalogEntry): number {
+  if (typeof voice.qualityRank === "number") {
+    return voice.qualityRank;
+  }
+  let rank = 0;
+  if (voice.previewAvailable !== false && voice.previewAudioUrl) rank += 20;
+  if (voice.source === "elevenlabs") rank += 100;
+  if ((voice.qualityTags ?? []).length > 0) rank += 60;
+  if (voice.pauseSupport === true) rank += 8;
+  if (voice.localeControl === true) rank += 4;
+  if (voice.source === "gemini" && voice.previewAvailable === false) rank -= 80;
+  return rank;
 }
 
 function voiceMultilingualSignature(voice: VoiceCatalogEntry): string {
@@ -1865,30 +1899,38 @@ export function AssistantSettings({
     return signatures;
   }, [voiceCatalog]);
   const filteredVoiceCatalog = useMemo(() => {
-    return voiceCatalog.filter((voice) => {
-      if (
-        voiceGenderFilter !== "neutral" &&
-        voice.gender.trim().toLowerCase() !== voiceGenderFilter
-      ) {
-        return false;
-      }
-      const derivedBucket = normalizeVoiceLanguageBucket(voice.language);
-      const bucket =
-        voice.languageBucket === "ru" ||
-        voice.languageBucket === "en" ||
-        voice.languageBucket === "other"
-          ? voice.languageBucket === derivedBucket
-            ? voice.languageBucket
-            : derivedBucket
-          : derivedBucket;
-      if (bucket !== voiceLanguageFilter) {
-        return false;
-      }
-      if (voiceLanguageFilter !== "other") {
-        return true;
-      }
-      return matchesOtherVoiceLanguageSearch(voice.language, otherVoiceLanguageSearch);
-    });
+    return voiceCatalog
+      .filter((voice) => {
+        if (
+          voiceGenderFilter !== "neutral" &&
+          voice.gender.trim().toLowerCase() !== voiceGenderFilter
+        ) {
+          return false;
+        }
+        const derivedBucket = normalizeVoiceLanguageBucket(voice.language);
+        const bucket =
+          voice.languageBucket === "ru" ||
+          voice.languageBucket === "en" ||
+          voice.languageBucket === "other"
+            ? voice.languageBucket === derivedBucket
+              ? voice.languageBucket
+              : derivedBucket
+            : derivedBucket;
+        if (bucket !== voiceLanguageFilter) {
+          return false;
+        }
+        if (voiceLanguageFilter !== "other") {
+          return true;
+        }
+        return matchesOtherVoiceLanguageSearch(voice.language, otherVoiceLanguageSearch);
+      })
+      .sort((left, right) => {
+        const rankDelta = voiceCatalogSortRank(right) - voiceCatalogSortRank(left);
+        if (rankDelta !== 0) {
+          return rankDelta;
+        }
+        return left.name.localeCompare(right.name);
+      });
   }, [otherVoiceLanguageSearch, voiceCatalog, voiceGenderFilter, voiceLanguageFilter]);
   const charactersPlanGateLabel = t("charactersLockedHint", {
     plan: data.plan?.effectivePlan.code ?? "Pro"
@@ -5312,47 +5354,59 @@ export function AssistantSettings({
                         </p>
                       ) : (
                         <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
-                          {filteredVoiceCatalog.map((voice) => (
-                            <div
-                              key={voice.voiceId}
-                              role="button"
-                              tabIndex={0}
-                              aria-pressed={createPersonaVoiceId === voice.voiceId}
-                              onClick={() => {
-                                setCreatePersonaVoiceId(voice.voiceId);
-                                setCreatePersonaClonedVoiceId(null);
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
+                          {filteredVoiceCatalog.map((voice) => {
+                            const qualityBadges = voiceQualityBadgeLabels(voice);
+                            return (
+                              <div
+                                key={voiceCatalogRowKey(voice)}
+                                role="button"
+                                tabIndex={0}
+                                aria-pressed={createPersonaVoiceId === voice.voiceId}
+                                onClick={() => {
                                   setCreatePersonaVoiceId(voice.voiceId);
                                   setCreatePersonaClonedVoiceId(null);
-                                }
-                              }}
-                              className={cn(
-                                "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-accent/20",
-                                createPersonaVoiceId === voice.voiceId && "bg-accent/10"
-                              )}
-                            >
-                              <span className="flex-1 truncate font-medium text-text">
-                                {voice.name}
-                              </span>
-                              <span className="shrink-0 text-text-subtle">
-                                {multilingualVoiceSignatures.has(voiceMultilingualSignature(voice))
-                                  ? t("charactersFormVoiceLanguageMulti")
-                                  : formatVoiceLanguageLabel(voice)}{" "}
-                                · {voice.gender}
-                              </span>
-                              <VoicePreviewButton
-                                previewAudioUrl={resolveCatalogPreviewUrl(
-                                  assistant?.workspaceId,
-                                  voice
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    setCreatePersonaVoiceId(voice.voiceId);
+                                    setCreatePersonaClonedVoiceId(null);
+                                  }
+                                }}
+                                className={cn(
+                                  "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-accent/20",
+                                  createPersonaVoiceId === voice.voiceId && "bg-accent/10"
                                 )}
-                                voiceLabel={voice.name}
-                                previewUnavailableLabel={t("charactersPreviewUnavailable")}
-                              />
-                            </div>
-                          ))}
+                              >
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate font-medium text-text">
+                                    {voice.name}
+                                  </span>
+                                  {qualityBadges.length > 0 ? (
+                                    <span className="mt-0.5 block truncate text-[10px] font-medium text-accent/80">
+                                      {qualityBadges.join(" · ")}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="shrink-0 text-text-subtle">
+                                  {multilingualVoiceSignatures.has(
+                                    voiceMultilingualSignature(voice)
+                                  )
+                                    ? t("charactersFormVoiceLanguageMulti")
+                                    : formatVoiceLanguageLabel(voice)}{" "}
+                                  · {voice.gender}
+                                </span>
+                                <VoicePreviewButton
+                                  previewAudioUrl={resolveCatalogPreviewUrl(
+                                    assistant?.workspaceId,
+                                    voice
+                                  )}
+                                  voiceLabel={voice.name}
+                                  previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                                />
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

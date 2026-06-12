@@ -306,14 +306,75 @@ Preface
       await result.current.send("Hello");
     });
 
+    const assistantEntry = [...result.current.entries]
+      .reverse()
+      .find(
+        (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "message" }> =>
+          entry.kind === "message" && entry.message.role === "assistant"
+      );
+
+    expect(assistantEntry?.message.content).toBe("Hello, full final answer");
+    expect(assistantEntry?.message.status).toBe("committed");
+    expect(assistantEntry?.message.id).toBe("assistant-msg-1");
+  });
+
+  it("preserves prior working markdown blocks when completed transport returns only final answer text", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onDelta?: (payload: { delta: string }) => void;
+          onTool?: (payload: {
+            phase: "start" | "end";
+            toolName: string;
+            isError: boolean;
+          }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+        });
+        handlers.onDelta?.({ delta: "Проверяю сайт." });
+        handlers.onTool?.({ phase: "start", toolName: "web_search", isError: false });
+        handlers.onDelta?.({ delta: "Итоговый ответ" });
+        handlers.onCompleted?.({
+          transport: {
+            userMessage: {
+              id: "user-msg-1",
+              chatId: "chat-1",
+              attachments: []
+            },
+            assistantMessage: {
+              id: "assistant-msg-1",
+              content: "Итоговый ответ",
+              attachments: []
+            },
+            runtime: null
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("Hello");
+    });
+
     const assistantEntry = result.current.entries.find(
       (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "message" }> =>
         entry.kind === "message" && entry.message.role === "assistant"
     );
 
-    expect(assistantEntry?.message.content).toBe("Hello, full final answer");
-    expect(assistantEntry?.message.status).toBe("committed");
-    expect(assistantEntry?.message.id).toBe("assistant-msg-1");
+    expect(assistantEntry?.message.content).toBe(`:::working
+Проверяю сайт.
+:::
+
+Итоговый ответ`);
   });
 
   it("keeps primary stream ownership when focus status returns running before completed", async () => {

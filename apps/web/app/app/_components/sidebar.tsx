@@ -612,7 +612,7 @@ function AccountFooter({
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
-            className="absolute -inset-x-2 bottom-0 z-30 bg-surface"
+            className="absolute -inset-x-2 bottom-0 z-30 border-t border-border/60 bg-surface shadow-[0_-10px_18px_-16px_rgba(24,22,17,0.58)]"
             initial={{ opacity: 1 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 1 }}
@@ -626,7 +626,7 @@ function AccountFooter({
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
             >
-              <div className="border-t border-border/60 bg-surface px-2 pb-1 pt-2.5 shadow-[0_-8px_14px_-13px_rgba(24,22,17,0.5)]">
+              <div className="bg-surface px-2 pb-1 pt-2.5">
                 <button
                   type="button"
                   onClick={() => {

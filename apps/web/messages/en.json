@@ -562,6 +562,8 @@
     "lightboxClose": "Close image",
     "lightboxSave": "Save to gallery",
     "lightboxShare": "Share",
+    "lightboxPrevious": "Previous image",
+    "lightboxNext": "Next image",
     "defaultAssistant": "Your assistant",
     "greeting1": "Hey! What's on your mind?",
     "greeting2": "I'm here whenever you need me.",

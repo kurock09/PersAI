@@ -771,11 +771,11 @@ function WorkingTextBlocks({ blocks }: { blocks: string[] }) {
     return null;
   }
   return (
-    <div className="mb-2.5 space-y-1.5">
+    <div className="mb-2 space-y-1.5">
       {visibleBlocks.map((block, index) => (
         <div
           key={`${index}-${block}`}
-          className="rounded-2xl border border-border/55 bg-surface-raised/35 px-3 py-2 text-[13px] leading-relaxed text-text-muted/90"
+          className="rounded-xl border border-border/35 bg-surface-raised/18 px-3 py-2 text-[13px] leading-relaxed text-text-muted/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:border-white/8 dark:bg-white/[0.03] dark:text-text-subtle/78"
         >
           <MarkdownFragment content={block} />
         </div>
@@ -1247,6 +1247,34 @@ function AttachmentStrip({
   // Lightbox state is keyed by attachment id so we can open/close
   // independently per image without lifting the state to the message bubble.
   const [openImageId, setOpenImageId] = useState<string | null>(null);
+  const galleryImages = useMemo(
+    () =>
+      attachments
+        .filter((att) => att.attachmentType === "image")
+        .map((att) => {
+          const isDeleted = att.fileDeleted === true;
+          const inlineUrl =
+            isDeleted || att.id.startsWith("local-") || !att.fileRef
+              ? undefined
+              : getAssistantFileDownloadUrl(att.fileRef);
+          const downloadUrl =
+            isDeleted || att.id.startsWith("local-") || !att.fileRef
+              ? undefined
+              : getAssistantFileDownloadUrl(att.fileRef, { download: true });
+          const fullUrl = inlineUrl ?? att.localPreviewUrl;
+          return fullUrl
+            ? {
+                id: att.id,
+                src: fullUrl,
+                downloadUrl: downloadUrl ?? fullUrl,
+                filename: att.originalFilename ?? undefined,
+                alt: att.originalFilename ?? undefined
+              }
+            : null;
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
+    [attachments]
+  );
   if (attachments.length === 0) return null;
 
   return (
@@ -1317,6 +1345,14 @@ function AttachmentStrip({
                   downloadUrl={downloadUrl ?? fullUrl}
                   filename={att.originalFilename ?? undefined}
                   alt={att.originalFilename ?? undefined}
+                  galleryItems={galleryImages.map((image) => ({
+                    src: image.src,
+                    downloadUrl: image.downloadUrl,
+                    filename: image.filename,
+                    alt: image.alt
+                  }))}
+                  currentIndex={galleryImages.findIndex((image) => image.id === att.id)}
+                  onNavigate={(nextIndex) => setOpenImageId(galleryImages[nextIndex]?.id ?? null)}
                   onClose={() => setOpenImageId(null)}
                 />
               )}
@@ -1506,7 +1542,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     [message.content, message.role]
   );
   const hasWorkingBlocks = assistantSegments.workingBlocks.length > 0;
-  const showPreResponseStatus = isStreaming && preResponseStatus !== undefined;
+  const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
+  const showPreResponseStatus =
+    isStreaming && preResponseStatus !== undefined && !hasVisibleAnswerText;
   const isUserSending =
     isUser && (message.status === "sending" || message.status === "reconciling");
   const isUserSendFailed = isUser && message.status.startsWith("send_failed");
@@ -1693,15 +1731,13 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             <WorkingTextBlocks blocks={assistantSegments.workingBlocks} />
             {isStreaming ? (
               <>
-                {assistantSegments.answerText.trim().length > 0 ? (
+                {hasVisibleAnswerText ? (
                   <StreamingMarkdownMessageContent
                     content={assistantSegments.answerText}
                     onAction={onAssistantAction}
                   />
                 ) : null}
-                {(showPreResponseStatus ||
-                  assistantSegments.answerText.trim().length > 0 ||
-                  hasWorkingBlocks) && (
+                {(showPreResponseStatus || (!hasVisibleAnswerText && hasWorkingBlocks)) && (
                   <span className="inline-flex items-center gap-2 align-middle">
                     {showPreResponseStatus ? (
                       <InlineStreamingStatus
@@ -1709,7 +1745,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                         showShadowRoutingLabel={showShadowRoutingLabel}
                       />
                     ) : null}
-                    <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
+                    {!showPreResponseStatus ? (
+                      <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
+                    ) : null}
                   </span>
                 )}
               </>
