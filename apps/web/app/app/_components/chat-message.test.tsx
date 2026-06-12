@@ -24,6 +24,20 @@ vi.mock("./voice-message-player", () => ({
   VoiceMessagePlayer: () => <div data-testid="voice-message-player" />
 }));
 
+vi.mock("./authenticated-attachment-image", () => ({
+  AuthenticatedAttachmentImage: ({
+    src,
+    alt,
+    className
+  }: {
+    src: string;
+    alt: string;
+    className?: string;
+  }) => (
+    <img data-testid="authenticated-attachment-image" src={src} alt={alt} className={className} />
+  )
+}));
+
 vi.mock("./image-lightbox", () => ({
   ImageLightbox: (props: {
     open: boolean;

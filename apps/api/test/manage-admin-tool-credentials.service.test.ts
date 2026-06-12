@@ -129,3 +129,59 @@ async function run(): Promise<void> {
 }
 
 void run();
+
+async function runModelShortlistImpliesApproval(): Promise<void> {
+  let receivedPatches: unknown[] = [];
+  const service = new ManageAdminToolCredentialsService(
+    {
+      assertCanReadAdminSurface: async () => undefined,
+      assertCanPerformDangerousAdminAction: async () => ({ workspaceId: "ws-1" })
+    } as never,
+    { execute: async () => 1 } as never,
+    {
+      assertEncryptionConfigured: () => undefined,
+      upsertProviderKey: async () => undefined,
+      resolveSecretValueByProviderKey: async () => null,
+      loadKeyMetadataByKeys: async () => ({})
+    } as never,
+    { execute: async () => undefined } as never,
+    { createAutomaticGlobalRollout: async () => ({}) } as never,
+    {
+      updateAdminVoiceCuration: async (input: { patches: unknown[] }) => {
+        receivedPatches = input.patches;
+        return { voices: [] };
+      }
+    } as never,
+    {} as never
+  );
+
+  await service.updateHeygenVoiceCuration(
+    "admin-1",
+    {
+      patches: [
+        {
+          providerVoiceId: "voice-model-only",
+          approved: false,
+          enabled: false,
+          modelShortlist: true,
+          languageBucket: "ru",
+          gender: "female"
+        }
+      ]
+    },
+    "step-up"
+  );
+
+  assert.deepEqual(receivedPatches, [
+    {
+      providerVoiceId: "voice-model-only",
+      approved: true,
+      enabled: true,
+      modelShortlist: true,
+      languageBucket: "ru",
+      gender: "female"
+    }
+  ]);
+}
+
+void runModelShortlistImpliesApproval();

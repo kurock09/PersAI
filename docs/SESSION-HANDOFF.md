@@ -5,6 +5,40 @@
 
 ## 2026-06-12 - Post-interruption UI/API fixpack
 
+## 2026-06-12 - Media auth path + APK refresh
+
+### Baseline
+
+- Starting SHA: `977707c7` on `main`, continuing on the explicitly dirty founder tree by direct request to finish the Chrome/Capacitor media regression, rebuild the Android shell, and then re-run the AGENTS verification gate before commit/push.
+
+### What changed
+
+- `apps/web/app/api/assistant-file/[fileRef]/route.ts` now accepts a fresh same-origin `X-PersAI-Session-Token` header instead of depending only on the server-side Clerk token. This aligns the assistant-file BFF with the already-working support/document BFF routes and fixes the auth seam that differed between Cursor browser and ordinary Chrome/Capacitor sessions.
+- Chat inline image previews now use the existing authenticated blob loader instead of a raw `<img>` against the protected `/api/assistant-file/...` URL, so thumbnail requests follow the same auth-safe same-origin path already used elsewhere in the app.
+- `ImageLightbox` now fetches transfer assets with the same fresh same-origin session token and forwards that token into the native media payload. The native bridge payload type was extended accordingly.
+- The Capacitor shell native media transfer path now forwards `X-PersAI-Session-Token` on Android and iOS in addition to cookies, so native save/share no longer relies solely on WebView cookie continuity for `/api/assistant-file/...` downloads.
+- The Android release APK was rebuilt from the updated `persai-mobile` shell and re-exported into `apps/web/public/mobile/persai-android-release.apk` plus both Android release metadata files.
+- Follow-up HeyGen admin voice curation hardening also landed in this tree: `Model` now implies `approved + enabled`, and private imported HeyGen voices enrich missing preview URLs from the legacy `/v2/voices` catalog when `/v3/voices?type=private` omits them.
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/heygen-voice-catalog.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-credentials.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/api/assistant-file/[fileRef]/route.test.ts app/app/_components/chat-message.test.tsx app/app/_components/image-lightbox.test.tsx app/admin/tools/page.test.tsx`
+- `corepack pnpm run test` was not rerun in this slice because the founder-directed fix was bounded to the touched media/admin surfaces and the focused gates above plus lint/format/typecheck all passed.
+
+### Risks / residuals
+
+- The rebuilt APK is exported into the repo, but a real-device live smoke in Chrome + Capacitor is still the final proof for the founder-reported media path because the original failure depended on session/auth behavior outside jsdom coverage.
+
+### Next recommended step
+
+- Deploy this web/API fixpack, install the rebuilt Android APK, and live-smoke one chat image thumbnail, one lightbox save/share action, and one Capacitor native save/share path against `persai.dev`.
+
 ### Baseline
 
 - Starting SHA: `7d75f440` on `main`. Continued on the explicitly dirty founder tree after the interrupted session; scope stayed bounded to finishing the already-started post-feedback web/API fixes and re-verifying the repo state.

@@ -11,6 +11,7 @@ import { PlatformRuntimeProviderSecretStoreService } from "../platform-runtime-p
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
 const HEYGEN_VOICES_URL = "https://api.heygen.com/v3/voices";
+const HEYGEN_LEGACY_VOICES_URL = "https://api.heygen.com/v2/voices";
 export const HEYGEN_VOICE_CACHE_KEY = "heygen-voices-avatar-v";
 const HEYGEN_VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const HEYGEN_VOICE_SHORTLIST_LIMIT = 24;
@@ -256,7 +257,31 @@ export class HeyGenVoiceCatalogService {
         HEYGEN_VOICE_TYPES.map((voiceType) => this.fetchVoiceCatalogPages(apiKey, voiceType))
       )
     ).flat();
-    return this.parseVoiceCatalogPages(pages);
+    const entries = this.parseVoiceCatalogPages(pages);
+    const previewUrlsByVoiceId = await this.fetchLegacyVoicePreviewAudioUrls(apiKey).catch(
+      (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`[heygen-voice-catalog] legacy preview enrichment failed: ${message}`);
+        return new Map<string, string>();
+      }
+    );
+    if (previewUrlsByVoiceId.size === 0) {
+      return entries;
+    }
+    return entries.map((entry) => {
+      if (typeof entry.previewAudioUrl === "string" && entry.previewAudioUrl.trim().length > 0) {
+        return entry;
+      }
+      const previewAudioUrl = previewUrlsByVoiceId.get(entry.providerVoiceId);
+      if (previewAudioUrl === undefined) {
+        return entry;
+      }
+      return {
+        ...entry,
+        previewAudioUrl,
+        previewAvailable: this.isPreviewLikelyAvailable(previewAudioUrl)
+      };
+    });
   }
 
   private async fetchVoiceCatalogPages(
@@ -300,6 +325,41 @@ export class HeyGenVoiceCatalogService {
       }
     }
     return pages;
+  }
+
+  private async fetchLegacyVoicePreviewAudioUrls(apiKey: string): Promise<Map<string, string>> {
+    const response = await fetch(HEYGEN_LEGACY_VOICES_URL, {
+      method: "GET",
+      headers: {
+        "X-Api-Key": apiKey,
+        Accept: "application/json"
+      }
+    });
+    const body = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) {
+      throw new Error(`HeyGen legacy voices HTTP ${String(response.status)}`);
+    }
+    const rows = this.extractVoiceRows(body);
+    const previewUrlsByVoiceId = new Map<string, string>();
+    for (const row of rows) {
+      if (row === null || typeof row !== "object" || Array.isArray(row)) {
+        continue;
+      }
+      const record = row as Record<string, unknown>;
+      const providerVoiceId =
+        this.asNonEmptyString(record.voice_id) ??
+        this.asNonEmptyString(record.voiceId) ??
+        this.asNonEmptyString(record.id);
+      const previewAudioUrl =
+        this.asNonEmptyString(record.preview_audio) ??
+        this.asNonEmptyString(record.previewAudio) ??
+        this.asNonEmptyString(record.preview_audio_url) ??
+        this.asNonEmptyString(record.previewAudioUrl);
+      if (providerVoiceId !== null && previewAudioUrl !== null) {
+        previewUrlsByVoiceId.set(providerVoiceId, previewAudioUrl);
+      }
+    }
+    return previewUrlsByVoiceId;
   }
 
   private parseVoiceCatalogPages(values: unknown[]): RuntimeVideoVoiceCatalogEntry[] {

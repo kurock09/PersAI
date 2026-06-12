@@ -50,6 +50,7 @@ import {
 import { VoiceMessagePlayer } from "./voice-message-player";
 import { ImageLightbox } from "./image-lightbox";
 import { PresentationPptxPrepareAction } from "./presentation-pptx-prepare-action";
+import { AuthenticatedAttachmentImage } from "./authenticated-attachment-image";
 import {
   getAssistantDocumentPptxPrepareUrl,
   getAssistantAttachmentPreviewUrl,
@@ -1368,7 +1369,7 @@ function AttachmentStrip({
                       : "rounded-[14px] border border-border hover:border-border-strong"
                   )}
                 >
-                  <img
+                  <AuthenticatedAttachmentImage
                     src={previewUrl}
                     alt={att.originalFilename ?? "image"}
                     className={cn(

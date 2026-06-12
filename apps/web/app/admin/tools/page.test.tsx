@@ -163,6 +163,42 @@ describe("AdminToolsPage economics", () => {
           }
         });
       }
+      if (
+        url.endsWith("/api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/curation") &&
+        init?.method !== "PATCH"
+      ) {
+        return jsonResponse({
+          catalog: {
+            voices: [
+              {
+                providerVoiceId: "voice-model-only",
+                displayName: "Model Only Voice",
+                detectedLanguageBucket: "ru",
+                languageBucket: "ru",
+                detectedGender: "female",
+                gender: "female",
+                source: "elevenlabs",
+                providerVoiceType: "private",
+                multilingual: false,
+                previewAudioUrl: null,
+                previewAvailable: false,
+                qualityTags: [],
+                approved: false,
+                enabled: true,
+                modelShortlist: false,
+                manuallyCurated: false,
+                updatedAt: null
+              }
+            ]
+          }
+        });
+      }
+      if (
+        url.endsWith("/api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/curation") &&
+        init?.method === "PATCH"
+      ) {
+        return jsonResponse({ catalog: { voices: [] } });
+      }
       if (url.endsWith("/api/v1/admin/tools/economics") && init?.method === "PUT") {
         return jsonResponse({
           catalog: economicsPayload.catalog,
@@ -260,5 +296,47 @@ describe("AdminToolsPage economics", () => {
         ) && init?.method === "POST"
     );
     expect(refreshCall).toBeTruthy();
+  });
+
+  it("treats Model as approved and enabled when saving HeyGen voice curation", async () => {
+    render(<AdminToolsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit voices" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit voices" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Model Only Voice")).toBeTruthy();
+    });
+
+    const modelCheckbox = screen.getAllByRole("checkbox").at(-1);
+    expect(modelCheckbox).toBeTruthy();
+    fireEvent.click(modelCheckbox!);
+    fireEvent.click(screen.getByRole("button", { name: "Save voice approvals" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Saved 1 voice change(s).")).toBeTruthy();
+    });
+
+    const saveCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith(
+          "/api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/curation"
+        ) && init?.method === "PATCH"
+    );
+    expect(saveCall).toBeTruthy();
+    const body = JSON.parse(String(saveCall?.[1]?.body));
+    expect(body.patches).toEqual([
+      {
+        providerVoiceId: "voice-model-only",
+        approved: true,
+        enabled: true,
+        modelShortlist: true,
+        languageBucket: "ru",
+        gender: "female"
+      }
+    ]);
   });
 });

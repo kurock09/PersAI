@@ -340,7 +340,11 @@ async function run(): Promise<void> {
         catalog.shortlist.some((entry) => entry.providerVoiceId === "ru-RU-Anna"),
         "must keep RU voice from next page"
       );
-      assert.equal(seenUrls.length, 3, "must fetch public pages and private voice page");
+      assert.equal(
+        seenUrls.length,
+        4,
+        "must fetch public pages, private page, and legacy previews"
+      );
       assert.match(seenUrls[0] ?? "", /limit=100/);
       assert.match(seenUrls[0] ?? "", /type=public/);
       assert.ok(
@@ -394,8 +398,8 @@ async function run(): Promise<void> {
       assert.ok(catalog);
       assert.equal(
         seenUrls.length,
-        200,
-        "must fetch up to 100 pages per voice type before stopping"
+        201,
+        "must fetch up to 100 pages per voice type before legacy preview enrichment"
       );
       console.log("PASS: pagination cap expanded to 100 pages");
     }
@@ -481,6 +485,22 @@ async function run(): Promise<void> {
     {
       globalThis.fetch = (async (input: RequestInfo | URL) => {
         const url = String(input);
+        if (url.includes("/v2/voices")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                voices: [
+                  {
+                    voice_id: "private-imported",
+                    name: "Elena Gromova — Podcasts & Conversation",
+                    preview_audio: "https://resource2.heygen.ai/voice_preview/private-imported.mp3"
+                  }
+                ]
+              }
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
         const isPrivate = url.includes("type=private");
         return new Response(
           JSON.stringify({
@@ -514,6 +534,7 @@ async function run(): Promise<void> {
                 locale: string;
                 source: string;
                 qualityTags: string[];
+                previewAudioUrl: string | null;
               }>;
               assert.deepEqual(
                 voices
@@ -522,6 +543,13 @@ async function run(): Promise<void> {
                 ["private-imported:en:elevenlabs", "private-imported:ru:elevenlabs"]
               );
               assert.ok(voices.every((entry) => entry.qualityTags.includes("professional")));
+              assert.ok(
+                voices.every(
+                  (entry) =>
+                    entry.previewAudioUrl ===
+                    "https://resource2.heygen.ai/voice_preview/private-imported.mp3"
+                )
+              );
               return input;
             }
           }
@@ -536,11 +564,19 @@ async function run(): Promise<void> {
       const fullCatalogEntries = await service.getFullVoiceCatalogEntries();
       assert.deepEqual(
         fullCatalogEntries
-          .map((entry) => `${entry.providerVoiceId}:${entry.locale}:${entry.source}`)
+          .map(
+            (entry) =>
+              `${entry.providerVoiceId}:${entry.locale}:${entry.source}:${entry.previewAudioUrl}`
+          )
           .sort(),
-        ["private-imported:en:elevenlabs", "private-imported:ru:elevenlabs"]
+        [
+          "private-imported:en:elevenlabs:https://resource2.heygen.ai/voice_preview/private-imported.mp3",
+          "private-imported:ru:elevenlabs:https://resource2.heygen.ai/voice_preview/private-imported.mp3"
+        ]
       );
-      console.log("PASS: private imported HeyGen voices are retained as ElevenLabs quality voices");
+      console.log(
+        "PASS: private imported HeyGen voices are retained and enriched with legacy previews"
+      );
     }
 
     // ── Test 3f: Multilingual voices project into both RU and EN ─────────────
@@ -706,7 +742,11 @@ async function run(): Promise<void> {
       const catalog = await service.getMaterializedVoiceCatalog();
       assert.ok(catalog);
       assert.equal(catalog.shortlist.length, 1);
-      assert.equal(seenUrls.length, 4, "must stop once upstream repeats the cursor per voice type");
+      assert.equal(
+        seenUrls.length,
+        5,
+        "must stop once upstream repeats the cursor per voice type before legacy preview enrichment"
+      );
       assert.match(seenUrls[0] ?? "", /limit=100/);
       assert.ok(
         seenUrls.some((url) => url.includes("token=stuck-token")),

@@ -21,6 +21,7 @@ export interface NativeMediaTransferRequest {
   title: string;
   userAgent: string;
   mimeType?: string | undefined;
+  sessionToken?: string | undefined;
 }
 
 function getNativeBridge(): PersaiNativeBridge | undefined {

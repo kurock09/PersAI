@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent
 } from "react";
 import { createPortal } from "react-dom";
+import { useAuth } from "@clerk/nextjs";
 import {
   ChevronLeft,
   ChevronRight,
@@ -53,6 +54,7 @@ const MAX_SCALE = 6;
 const SWIPE_CLOSE_THRESHOLD_PX = 120;
 const SWIPE_GALLERY_THRESHOLD_PX = 72;
 const VIDEO_CHROME_AUTO_HIDE_MS = 1800;
+const SESSION_TOKEN_HEADER = "X-PersAI-Session-Token";
 
 function safeMediaFilename(
   filename: string | undefined,
@@ -111,6 +113,7 @@ function buildNativeTransferRequest(input: {
   assetUrl: string;
   assetFilename: string;
   assetMimeType: string | null;
+  sessionToken: string | null;
 }): NativeMediaTransferRequest | null {
   if (typeof window === "undefined" || typeof navigator === "undefined") {
     return null;
@@ -120,7 +123,8 @@ function buildNativeTransferRequest(input: {
     filename: input.assetFilename,
     title: input.assetFilename,
     userAgent: navigator.userAgent,
-    mimeType: input.assetMimeType ?? undefined
+    mimeType: input.assetMimeType ?? undefined,
+    sessionToken: input.sessionToken ?? undefined
   };
 }
 
@@ -157,6 +161,7 @@ export function ImageLightbox({
   onClose
 }: ImageLightboxProps) {
   const t = useTranslations("chat");
+  const { getToken } = useAuth();
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [sharing, setSharing] = useState(false);
@@ -638,7 +643,13 @@ export function ImageLightbox({
       return assetFetchRef.current;
     }
     const fetchPromise = (async () => {
-      const response = await fetch(assetUrl, { credentials: "same-origin" });
+      const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
+      const headers: HeadersInit | undefined =
+        token !== null && assetUrl.startsWith("/") ? { [SESSION_TOKEN_HEADER]: token } : undefined;
+      const response = await fetch(assetUrl, {
+        credentials: "same-origin",
+        ...(headers === undefined ? {} : { headers })
+      });
       if (!response.ok) {
         throw new Error(`Failed to fetch media asset: ${response.status}`);
       }
@@ -656,13 +667,15 @@ export function ImageLightbox({
     });
     assetFetchRef.current = fetchPromise;
     return fetchPromise;
-  }, [assetUrl]);
+  }, [assetUrl, getToken]);
 
   const handleSave = useCallback(async () => {
+    const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
     const nativeTransferRequest = buildNativeTransferRequest({
       assetUrl,
       assetFilename,
-      assetMimeType
+      assetMimeType,
+      sessionToken: token
     });
     if (nativeTransferRequest && tryNativeMediaSave(nativeTransferRequest)) {
       return;
@@ -679,15 +692,18 @@ export function ImageLightbox({
     assetMimeType,
     assetUrl,
     ensureDownloadObjectUrl,
+    getToken,
     resolveTransferAsset,
     triggerDownload
   ]);
 
   const handleShare = useCallback(async () => {
+    const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
     const nativeTransferRequest = buildNativeTransferRequest({
       assetUrl,
       assetFilename,
-      assetMimeType
+      assetMimeType,
+      sessionToken: token
     });
     if (nativeTransferRequest && tryNativeMediaShare(nativeTransferRequest)) {
       return;
@@ -728,7 +744,15 @@ export function ImageLightbox({
     } finally {
       setSharing(false);
     }
-  }, [assetFilename, assetMimeType, assetUrl, handleSave, mediaType, resolveTransferAsset]);
+  }, [
+    assetFilename,
+    assetMimeType,
+    assetUrl,
+    getToken,
+    handleSave,
+    mediaType,
+    resolveTransferAsset
+  ]);
 
   const toggleVideoPlayback = useCallback(async () => {
     const video = videoRef.current;

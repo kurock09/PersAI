@@ -95,6 +95,34 @@ describe("assistant file BFF route", () => {
     });
   });
 
+  it("prefers the fresh same-origin session token header over the server cookie token", async () => {
+    authMock.mockResolvedValue({
+      getToken: vi.fn().mockResolvedValue("stale-server-token")
+    });
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: {
+          "Content-Type": "image/webp",
+          "Content-Length": "3"
+        }
+      })
+    ) as typeof fetch;
+
+    const response = await GET(
+      request("/api/assistant-file/file-1", {
+        "X-PersAI-Session-Token": "fresh-client-token"
+      }),
+      params()
+    );
+
+    expect(response.status).toBe(200);
+    const [, init] = vi.mocked(global.fetch).mock.calls[0] ?? [];
+    expect((init as RequestInit | undefined)?.headers).toEqual({
+      Authorization: "Bearer fresh-client-token"
+    });
+  });
+
   it("uses the generic octet-stream fallback only when upstream omits content type", async () => {
     authMock.mockResolvedValue({
       getToken: vi.fn().mockResolvedValue("server-token")

@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 
 const rawProxyTarget = process.env.PERSAI_WEB_API_PROXY_TARGET ?? "http://localhost:3001";
 const apiBase = rawProxyTarget.replace(/\/$/, "").replace(/\/api\/v1$/, "") + "/api/v1";
+const SESSION_TOKEN_HEADER = "x-persai-session-token";
 
 // HTTP headers we want to mirror back from the upstream API to the WebView /
 // browser. Range support is critical for `<video>` playback in Android
@@ -25,7 +26,7 @@ export async function GET(
   { params }: { params: Promise<unknown> }
 ): Promise<Response> {
   const { getToken } = await auth();
-  const token = await getToken();
+  const token = readSessionTokenHeader(request) ?? (await getToken());
   if (!token) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -82,4 +83,9 @@ export async function GET(
   // Preserve real upstream status (200 OK, 206 Partial Content, 304 Not
   // Modified, 404, etc.). Hard-coding 200 broke ranged playback on Android.
   return new Response(res.body, { status: res.status, headers: passthroughHeaders });
+}
+
+function readSessionTokenHeader(request: Request): string | null {
+  const value = request.headers.get(SESSION_TOKEN_HEADER)?.trim();
+  return value && value.length > 0 ? value : null;
 }

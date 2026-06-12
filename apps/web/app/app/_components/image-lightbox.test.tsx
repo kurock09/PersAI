@@ -2,6 +2,12 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ImageLightbox } from "./image-lightbox";
 
+vi.mock("@clerk/nextjs", () => ({
+  useAuth: () => ({
+    getToken: vi.fn().mockResolvedValue("fresh-client-token")
+  })
+}));
+
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key
 }));
@@ -185,7 +191,8 @@ describe("ImageLightbox", () => {
           filename: "image.png",
           title: "image.png",
           userAgent: navigator.userAgent,
-          mimeType: "image/png"
+          mimeType: "image/png",
+          sessionToken: "fresh-client-token"
         })
       );
     });
@@ -222,7 +229,8 @@ describe("ImageLightbox", () => {
           filename: "image.png",
           title: "image.png",
           userAgent: navigator.userAgent,
-          mimeType: "image/png"
+          mimeType: "image/png",
+          sessionToken: "fresh-client-token"
         })
       );
     });
@@ -280,6 +288,39 @@ describe("ImageLightbox", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
     anchorClickSpy.mockRestore();
+  });
+
+  it("uses the fresh same-origin session token when fetching transfer assets", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(new Blob(["image"], { type: "image/png" })));
+    vi.stubGlobal("fetch", fetchSpy);
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: vi.fn().mockRejectedValue(new Error("share unsupported"))
+    });
+
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-image-1"
+        downloadUrl="/api/assistant-file/file-ref-image-1?download=1"
+        filename="image.png"
+        alt="Generated image"
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "lightboxShare" }));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith("/api/assistant-file/file-ref-image-1?download=1", {
+        credentials: "same-origin",
+        headers: {
+          "X-PersAI-Session-Token": "fresh-client-token"
+        }
+      });
+    });
   });
 
   it("renders the custom action chrome for video too", () => {

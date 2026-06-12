@@ -320,11 +320,12 @@ export class ManageAdminToolCredentialsService {
       if (providerVoiceId.length === 0 || languageBucket === null || gender === null) {
         throw new BadRequestException("Invalid HeyGen voice curation patch.");
       }
+      const modelShortlist = patch.modelShortlist === true;
       return {
         providerVoiceId,
-        approved: patch.approved === true,
-        enabled: patch.enabled !== false,
-        modelShortlist: patch.modelShortlist === true,
+        approved: modelShortlist || patch.approved === true,
+        enabled: modelShortlist || patch.enabled !== false,
+        modelShortlist,
         languageBucket,
         gender
       };

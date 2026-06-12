@@ -514,11 +514,16 @@ export default function AdminToolsPage() {
 
   const patchHeygenVoiceDraft = useCallback(
     (providerVoiceId: string, patch: HeygenVoiceCurationDraft) => {
+      const normalizedPatch = {
+        ...patch,
+        ...(patch.modelShortlist === true ? { approved: true, enabled: true } : {}),
+        ...(patch.approved === false || patch.enabled === false ? { modelShortlist: false } : {})
+      };
       setHeygenVoiceCurationDrafts((current) => ({
         ...current,
         [providerVoiceId]: {
           ...(current[providerVoiceId] ?? {}),
-          ...patch
+          ...normalizedPatch
         }
       }));
     },
