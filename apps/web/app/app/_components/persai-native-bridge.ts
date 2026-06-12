@@ -44,10 +44,11 @@ function tryNativeMediaAction(
   action: "shareMedia" | "saveMedia"
 ): boolean {
   const native = getNativeBridge();
-  const handler = native?.[action];
+  if (!native) return false;
+  const handler = native[action];
   if (typeof handler !== "function") return false;
   try {
-    return handler(JSON.stringify(request)) !== false;
+    return Reflect.apply(handler, native, [JSON.stringify(request)]) !== false;
   } catch {
     return false;
   }

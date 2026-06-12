@@ -3,6 +3,36 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-13 - Mobile bridge binding fix + exported APK refresh
+
+### Baseline
+
+- Starting SHA: `da21441d` on `main`, continuing on the explicitly dirty founder tree by direct request to rebuild the mobile app, place the refreshed APK into `PersAI`, run the full AGENTS verification gate (`agents md + like ci + lint format`), then commit/push the repo.
+
+### What changed
+
+- `apps/web/app/app/_components/persai-native-bridge.ts` now invokes `window.PersaiNative.shareMedia/saveMedia` with the native bridge object as the call context (`Reflect.apply(handler, native, ...)`) instead of detaching the method first. This preserves the Android `addJavascriptInterface` receiver binding so native save/share requests actually reach the shell instead of silently failing over to the dead `blob:` browser path.
+- `apps/web/app/app/_components/image-lightbox.test.tsx` now locks that contract with a regression test proving the native bridge method executes with the native object as `this`, alongside the existing native-preference/save/share coverage.
+- The Android release artifact was rebuilt again from `persai-mobile` and exported back into `apps/web/public/mobile/persai-android-release.apk` plus both Android release metadata files under `apps/web/public/mobile/android-release.json` and `apps/web/app/_data/android-release.json`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/image-lightbox.test.tsx app/app/_components/chat-message.test.tsx --config vitest.config.ts`
+- `corepack pnpm run test:ci-detect-affected`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run test`
+
+### Risks / residuals
+
+- The core bridge-binding defect is now fixed in `apps/web`, and the exported APK artifact is refreshed, but final founder confirmation still requires live mobile smoke against the deployed `persai.dev` web bundle because the shell loads the live site rather than an embedded local web build.
+
+### Next recommended step
+
+- Live-smoke one image lightbox `Save` and one `Share` action from the refreshed deployed `persai.dev` mobile flow, then only if that is clean continue with any remaining chat-preview residual investigation.
+
 ## 2026-06-12 - Post-interruption UI/API fixpack
 
 ## 2026-06-12 - Media auth path + APK refresh

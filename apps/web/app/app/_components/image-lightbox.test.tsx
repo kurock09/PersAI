@@ -237,6 +237,32 @@ describe("ImageLightbox", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("calls native bridge methods with the native object context", async () => {
+    const nativeBridge = {
+      saveMedia: vi.fn(function (this: unknown) {
+        return this === nativeBridge;
+      })
+    };
+    (window as unknown as { PersaiNative?: typeof nativeBridge }).PersaiNative = nativeBridge;
+
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-image-1"
+        downloadUrl="/api/assistant-file/file-ref-image-1?download=1"
+        filename="image.png"
+        alt="Generated image"
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "lightboxSave" }));
+
+    await waitFor(() => {
+      expect(nativeBridge.saveMedia).toHaveReturnedWith(true);
+    });
+  });
+
   it("reuses one fetched blob across share and save fallback actions", async () => {
     const share = vi.fn().mockResolvedValue(undefined);
     const canShare = vi.fn().mockReturnValue(true);
