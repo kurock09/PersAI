@@ -7,7 +7,7 @@ import { PullToRefresh } from "./pull-to-refresh";
 
 export function AppHomePage() {
   const data = useAppDataContext();
-  const { openSettings, openTelegram } = useShellActions();
+  const { openSettings } = useShellActions();
 
   // Pull-to-refresh on the app home only re-fetches the home dashboard's
   // own data sources (assistant lifecycle + chats + telegram + plan). It
@@ -19,7 +19,7 @@ export function AppHomePage() {
 
   return (
     <PullToRefresh onRefresh={handleRefresh} className="h-full">
-      <HomeDashboard data={data} onSettingsClick={openSettings} onTelegramClick={openTelegram} />
+      <HomeDashboard data={data} onSettingsClick={openSettings} />
     </PullToRefresh>
   );
 }

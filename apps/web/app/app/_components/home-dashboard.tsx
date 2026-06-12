@@ -2,20 +2,25 @@
 
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import { MessageSquarePlus, Settings, Send, ArrowRight } from "lucide-react";
+import { MessageSquarePlus, Settings, ArrowRight, FolderKanban, Sparkles } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
 import { AssistantAvatar } from "./assistant-avatar";
 import { userPillButtonClassName } from "./form-ui";
 import type { AppData } from "./use-app-data";
+import type { AssistantWebChatListItemState } from "@persai/contracts";
+import {
+  useHasThreadActiveDocumentJobs,
+  useHasThreadActiveMediaJobs,
+  useIsThreadStreaming
+} from "./streaming-threads";
 
 interface HomeDashboardProps {
   data: AppData;
   onSettingsClick: () => void;
-  onTelegramClick: () => void;
 }
 
-export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDashboardProps) {
+export function HomeDashboard({ data, onSettingsClick }: HomeDashboardProps) {
   const router = useRouter();
   const t = useTranslations("home");
   const tc = useTranslations("chat");
@@ -26,10 +31,6 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
         Math.floor((Date.now() - new Date(data.assistant.createdAt).getTime()) / 86_400_000)
       )
     : null;
-
-  const telegramConnected =
-    data.telegram?.connectionStatus === "connected" ||
-    data.telegram?.connectionStatus === "claim_required";
 
   const recentChats = data.chats
     .filter((c) => c.chat.archivedAt === null)
@@ -76,11 +77,6 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
             label={t("settings")}
             onClick={onSettingsClick}
           />
-          <QuickAction
-            icon={<Send className="h-4 w-4" />}
-            label={telegramConnected ? t("telegramConnected") : t("connectTelegram")}
-            onClick={onTelegramClick}
-          />
         </div>
 
         {/* Recent chats */}
@@ -91,32 +87,92 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
             </h2>
             <div className="space-y-1">
               {recentChats.map((item) => (
-                <button
+                <RecentChatRow
                   key={item.chat.id}
-                  type="button"
-                  onClick={() =>
+                  item={item}
+                  assistantId={data.assistant?.id ?? null}
+                  onNavigate={() =>
                     router.push(`/app/chat?thread=${item.chat.surfaceThreadKey}` as Route)
                   }
-                  className="group flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-hover"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-text">
-                      {item.chat.title ?? item.chat.surfaceThreadKey}
-                    </p>
-                    {item.lastMessagePreview && (
-                      <p className="mt-0.5 truncate text-xs text-text-subtle">
-                        {item.lastMessagePreview}
-                      </p>
-                    )}
-                  </div>
-                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-text-subtle opacity-0 transition-opacity group-hover:opacity-100" />
-                </button>
+                />
               ))}
             </div>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function RecentChatRow({
+  item,
+  assistantId,
+  onNavigate
+}: {
+  item: AssistantWebChatListItemState;
+  assistantId: string | null;
+  onNavigate: () => void;
+}) {
+  const t = useTranslations("sidebar");
+  const isThreadStreaming = useIsThreadStreaming(item.chat.surfaceThreadKey, assistantId);
+  const hasThreadActiveMediaJobs = useHasThreadActiveMediaJobs(
+    item.chat.surfaceThreadKey,
+    assistantId
+  );
+  const hasThreadActiveDocumentJobs = useHasThreadActiveDocumentJobs(
+    item.chat.surfaceThreadKey,
+    assistantId
+  );
+  const showLiveIndicator =
+    isThreadStreaming ||
+    hasThreadActiveMediaJobs ||
+    hasThreadActiveDocumentJobs ||
+    item.activeTurn !== null ||
+    (item.activeMediaJobs?.length ?? 0) > 0 ||
+    (item.activeDocumentJobs?.length ?? 0) > 0;
+  const modeLabel =
+    item.chat.chatMode === "project"
+      ? t("projectModeBadge")
+      : item.chat.chatMode === "normal"
+        ? null
+        : t("deepModeBadge");
+
+  return (
+    <button
+      type="button"
+      onClick={onNavigate}
+      className="group flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-hover"
+    >
+      <div className="min-w-0 flex-1">
+        <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-text">
+          {modeLabel ? (
+            <span
+              title={modeLabel}
+              aria-label={modeLabel}
+              className="inline-flex shrink-0 text-accent-premium/75 transition-colors group-hover:text-accent-premium"
+            >
+              {item.chat.chatMode === "project" ? (
+                <FolderKanban className="h-3.5 w-3.5" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+            </span>
+          ) : null}
+          <span className="min-w-0 truncate">{item.chat.title ?? item.chat.surfaceThreadKey}</span>
+          {showLiveIndicator ? (
+            <span
+              title={t("streamingIndicator")}
+              aria-label={t("streamingIndicator")}
+              className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-success/85 shadow-[0_0_8px_rgba(115,139,112,0.55)]"
+            />
+          ) : null}
+        </p>
+        {item.lastMessagePreview ? (
+          <p className="mt-0.5 truncate text-xs text-text-subtle">{item.lastMessagePreview}</p>
+        ) : null}
+      </div>
+      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-text-subtle opacity-0 transition-opacity group-hover:opacity-100" />
+    </button>
   );
 }
 

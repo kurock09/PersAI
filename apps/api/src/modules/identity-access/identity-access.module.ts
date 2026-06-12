@@ -267,6 +267,18 @@ export class IdentityAccessModule implements NestModule {
         path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/refresh",
         method: RequestMethod.POST
       },
+      {
+        path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/curation",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/curation",
+        method: RequestMethod.PATCH
+      },
+      {
+        path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/:voiceId/preview",
+        method: RequestMethod.GET
+      },
       { path: "api/v1/admin/tools/billing", method: RequestMethod.GET },
       { path: "api/v1/admin/tools/billing", method: RequestMethod.PUT },
       { path: "api/v1/admin/tools/metadata", method: RequestMethod.GET },

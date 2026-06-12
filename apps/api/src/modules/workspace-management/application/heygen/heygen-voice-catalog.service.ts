@@ -1013,6 +1013,10 @@ export class HeyGenVoiceCatalogService {
       const providerVoiceId = this.asNonEmptyString(row.providerVoiceId);
       const displayName = this.asNonEmptyString(row.displayName);
       if (voiceKey === null || providerVoiceId === null || displayName === null) {
+        const reparsed = this.parseVoiceRow(row);
+        if (reparsed !== null) {
+          entries.push(reparsed);
+        }
         continue;
       }
       const source = this.normalizeSource(row.source);

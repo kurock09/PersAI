@@ -616,7 +616,7 @@ function AccountFooter({
             animate={{ opacity: 1 }}
             exit={{ opacity: 1 }}
           >
-            <div className="px-2">{renderAccountButton()}</div>
+            <div className="px-2 pt-2.5">{renderAccountButton()}</div>
             <motion.div
               role="menu"
               className="overflow-hidden"

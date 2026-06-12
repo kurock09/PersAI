@@ -50,6 +50,8 @@ import { ResolveActiveAssistantService } from "./resolve-active-assistant.servic
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 import { getAttachmentDerivativeRefs } from "./media/media.types";
 
+type AttachmentDerivativeRefs = ReturnType<typeof getAttachmentDerivativeRefs>;
+
 export interface UpdateWebChatRequest {
   title?: string | null;
   chatMode?: AssistantChatMode;
@@ -339,13 +341,16 @@ export class ManageWebChatListService {
     const allMessages = await this.assistantChatRepository.listMessagesByChatId(chatId);
     const messageIds = allMessages.map((m) => m.id);
     const allAttachments = await this.attachmentRepository.listByMessageIds(messageIds);
+    const fileDerivativeMetadataById =
+      await this.loadAssistantFileDerivativeMetadata(allAttachments);
     const attachmentsByMessageId = new Map<string, AssistantWebChatMessageAttachmentState[]>();
     for (const att of allAttachments) {
       const list = attachmentsByMessageId.get(att.messageId) ?? [];
       const documentLink = readPersistedDocumentLinkMetadata(att.metadata);
-      const derivativeRefs = getAttachmentDerivativeRefs(
-        att.metadata !== null && typeof att.metadata === "object" && !Array.isArray(att.metadata)
-          ? (att.metadata as Record<string, unknown>)
+      const derivativeRefs = this.resolveDerivativeRefs(
+        att.metadata,
+        att.assistantFileId !== null
+          ? (fileDerivativeMetadataById.get(att.assistantFileId) ?? null)
           : null
       );
       list.push({
@@ -430,6 +435,49 @@ export class ManageWebChatListService {
       currentActivity: activeTurn.currentActivity,
       pendingUserMessageId: activeTurn.pendingUserMessageId,
       assistantMessageId: activeTurn.assistantMessageId
+    };
+  }
+
+  private async loadAssistantFileDerivativeMetadata(
+    attachments: Array<{
+      assistantFileId: string | null;
+    }>
+  ): Promise<Map<string, Record<string, unknown> | null>> {
+    const fileIds = Array.from(
+      new Set(
+        attachments
+          .map((attachment) => attachment.assistantFileId)
+          .filter((fileId): fileId is string => typeof fileId === "string" && fileId.length > 0)
+      )
+    );
+    if (fileIds.length === 0) {
+      return new Map();
+    }
+
+    const rows = await this.prisma.assistantFile.findMany({
+      where: { id: { in: fileIds } },
+      select: { id: true, metadata: true }
+    });
+    return new Map(
+      rows.map((row) => [
+        row.id,
+        row.metadata !== null && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+          ? (row.metadata as Record<string, unknown>)
+          : null
+      ])
+    );
+  }
+
+  private resolveDerivativeRefs(
+    attachmentMetadata: Record<string, unknown> | null,
+    assistantFileMetadata: Record<string, unknown> | null
+  ): AttachmentDerivativeRefs {
+    const attachmentRefs = getAttachmentDerivativeRefs(attachmentMetadata);
+    const fileRefs = getAttachmentDerivativeRefs(assistantFileMetadata);
+    return {
+      thumbnailFileRef: attachmentRefs.thumbnailFileRef ?? fileRefs.thumbnailFileRef,
+      posterFileRef: attachmentRefs.posterFileRef ?? fileRefs.posterFileRef,
+      derivativesStatus: attachmentRefs.derivativesStatus ?? fileRefs.derivativesStatus
     };
   }
 

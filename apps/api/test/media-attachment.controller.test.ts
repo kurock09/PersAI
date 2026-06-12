@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { getAttachmentDerivativeRefs } from "../src/modules/workspace-management/application/media/media.types";
 import { MediaAttachmentController } from "../src/modules/workspace-management/interface/http/media-attachment.controller";
 
 class FakeResponse {
@@ -137,6 +138,61 @@ async function run(): Promise<void> {
   assert.equal(
     fallbackNameResponse.headers.get("Content-Disposition"),
     "attachment; filename=\"friendly-name.mp4\"; filename*=UTF-8''friendly-name.mp4"
+  );
+
+  const controllerWithOctetStorageType = new MediaAttachmentController(
+    {} as never,
+    {
+      async execute({ userId }: { userId: string }) {
+        assert.equal(userId, "user-1");
+        return {
+          assistantId: "assistant-1",
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "workspace-1"
+          }
+        };
+      }
+    } as never,
+    {
+      async downloadAssistantFile() {
+        return {
+          file: {
+            displayName: "clip.mp4",
+            relativePath: "assistant-files/generated/clip.mp4",
+            mimeType: "video/mp4"
+          },
+          buffer: Buffer.from([1, 2, 3]),
+          contentType: "application/octet-stream"
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        throw new Error("not used");
+      }
+    } as never
+  );
+  const octetResponse = new FakeResponse();
+  await controllerWithOctetStorageType.downloadAssistantFile(
+    req as never,
+    octetResponse as never,
+    "file-ref-video-octet",
+    "1"
+  );
+  assert.equal(octetResponse.headers.get("Content-Type"), "video/mp4");
+
+  assert.deepEqual(
+    getAttachmentDerivativeRefs({
+      thumbnailFileRef: " thumbnail-ref-1 ",
+      posterFileRef: "poster-ref-1",
+      derivativesStatus: "ready"
+    }),
+    {
+      thumbnailFileRef: "thumbnail-ref-1",
+      posterFileRef: "poster-ref-1",
+      derivativesStatus: "ready"
+    }
   );
 
   assert.deepEqual(

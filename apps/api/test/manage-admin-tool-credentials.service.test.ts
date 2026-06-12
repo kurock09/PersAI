@@ -41,7 +41,19 @@ async function run(): Promise<void> {
           assert.equal(input.where.cacheKey, HEYGEN_VOICE_CACHE_KEY);
           return {
             fetchedAt: new Date("2026-06-12T13:52:14.570Z"),
-            voicesJson: [{ voiceKey: "imported", providerVoiceId: "voice-1" }]
+            voicesJson: [
+              {
+                voice_id: "voice-1",
+                name: "Imported Voice",
+                type: "private",
+                language: "en-US",
+                gender: "female",
+                preview_audio: "https://cdn.example/voice-1.mp3",
+                support_locale: true,
+                support_pause: true,
+                engine: "avatar_v"
+              }
+            ]
           };
         }
       }

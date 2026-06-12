@@ -92,26 +92,75 @@ function makeData(): AppData {
   } as unknown as AppData;
 }
 
+function makeDataWithRecentChats(): AppData {
+  return {
+    ...makeData(),
+    chats: [
+      {
+        chat: {
+          id: "chat-project",
+          surfaceThreadKey: "thread-project",
+          title: "Project plan",
+          chatMode: "project",
+          archivedAt: null,
+          createdAt: "2026-04-01T10:00:00.000Z",
+          lastMessageAt: "2026-04-01T10:05:00.000Z"
+        },
+        messageCount: 2,
+        lastMessagePreview: "Quiet latest message",
+        activeTurn: null,
+        activeMediaJobs: [],
+        activeDocumentJobs: []
+      },
+      {
+        chat: {
+          id: "chat-smart",
+          surfaceThreadKey: "thread-smart",
+          title: "Smart answer",
+          chatMode: "deep",
+          archivedAt: null,
+          createdAt: "2026-04-01T09:00:00.000Z",
+          lastMessageAt: "2026-04-01T09:05:00.000Z"
+        },
+        messageCount: 3,
+        lastMessagePreview: "Thinking in background",
+        activeTurn: { clientTurnId: "turn-1" },
+        activeMediaJobs: [],
+        activeDocumentJobs: []
+      }
+    ]
+  } as unknown as AppData;
+}
+
 describe("HomeDashboard", () => {
   it("keeps quick actions without the old prompt cards", () => {
     render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
-        <HomeDashboard
-          data={makeData()}
-          onSettingsClick={() => undefined}
-          onTelegramClick={() => undefined}
-        />
+        <HomeDashboard data={makeData()} onSettingsClick={() => undefined} />
       </NextIntlClientProvider>
     );
 
     expect(screen.getByRole("button", { name: "New chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect Telegram" })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "What can you help me with?" })
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Tell me something interesting" })
     ).not.toBeInTheDocument();
+  });
+
+  it("renders premium recent-chat mode and activity indicators", () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <HomeDashboard data={makeDataWithRecentChats()} onSettingsClick={() => undefined} />
+      </NextIntlClientProvider>
+    );
+
+    expect(screen.getByRole("button", { name: /Project plan/i })).toBeInTheDocument();
+    expect(screen.getByLabelText("Project")).toBeInTheDocument();
+    expect(screen.getByLabelText("Smarter")).toBeInTheDocument();
+    expect(screen.getByLabelText("Generating reply")).toBeInTheDocument();
+    expect(screen.getByText("Quiet latest message")).toBeInTheDocument();
   });
 });

@@ -252,7 +252,7 @@ export class MediaAttachmentController {
 
     const payload = this.prepareDownloadPayload({
       buffer: result.buffer,
-      contentType: result.contentType,
+      contentType: this.resolveDownloadContentType(result.contentType, result.file.mimeType),
       forceDownload: download === "1"
     });
 
@@ -460,6 +460,24 @@ export class MediaAttachmentController {
       return { buffer: input.buffer, contentType };
     }
     return { buffer: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), input.buffer]), contentType };
+  }
+
+  private resolveDownloadContentType(
+    storageContentType: string,
+    fileMimeType?: string | null
+  ): string {
+    const normalizedStorage = storageContentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+    const normalizedFile = fileMimeType?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+    if (
+      typeof fileMimeType === "string" &&
+      normalizedFile.length > 0 &&
+      (normalizedStorage.length === 0 ||
+        normalizedStorage === "application/octet-stream" ||
+        normalizedStorage === "binary/octet-stream")
+    ) {
+      return fileMimeType;
+    }
+    return storageContentType;
   }
 
   private withUtf8CharsetForText(contentType: string): string {

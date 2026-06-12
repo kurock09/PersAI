@@ -266,6 +266,7 @@ function createService(overrides?: {
   paidLightModeActive?: boolean;
   chats?: ReturnType<typeof createChat>[];
   onResetElevatedWebChatModes?: () => Promise<number>;
+  assistantFileMetadataById?: Record<string, Record<string, unknown> | null>;
 }) {
   const callOrder: string[] = [];
   const releasedBytes: bigint[] = [];
@@ -413,7 +414,8 @@ function createService(overrides?: {
         findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
           where.id.in.map((id) => ({
             id,
-            objectKey: `assistant-files/${id}`
+            objectKey: `assistant-files/${id}`,
+            metadata: overrides?.assistantFileMetadataById?.[id] ?? null
           })),
         deleteMany: async ({ where }: { where: { id: { in: string[] } } }) => {
           callOrder.push(`assistant-files-delete:${where.id.in.join(",")}`);
@@ -591,6 +593,42 @@ describe("ManageWebChatListService", () => {
         updatedAt: "2026-05-05T08:00:05.000Z"
       }
     ]);
+  });
+
+  test("reads thumbnail refs from canonical file metadata when attachment metadata is stale", async () => {
+    const { service } = createService({
+      assistantFileMetadataById: {
+        "file-chat-local-1": {
+          mediaDerivatives: {
+            schemaVersion: "persai.mediaDerivatives.v1",
+            status: "ready",
+            thumbnail: {
+              fileRef: "thumbnail-file-ref-1",
+              objectKey: "assistant-files/thumbnail-file-ref-1",
+              mimeType: "image/jpeg",
+              width: 256,
+              height: 144,
+              sizeBytes: 1234
+            },
+            poster: null,
+            lastError: null,
+            updatedAt: "2026-06-12T18:00:00.000Z"
+          }
+        }
+      }
+    });
+
+    const result = await service.listChatMessages("user-1", "chat-1", {
+      cursor: null,
+      limit: 24
+    });
+    const attachment = result.messages
+      .flatMap((message) => message.attachments)
+      .find((item) => item.fileRef === "file-chat-local-1");
+
+    assert.equal(attachment?.fileRef, "file-chat-local-1");
+    assert.equal(attachment?.thumbnailFileRef, "thumbnail-file-ref-1");
+    assert.equal(attachment?.derivativesStatus, "ready");
   });
 
   test("hard-deletes a chat after removing runtime/media state", async () => {

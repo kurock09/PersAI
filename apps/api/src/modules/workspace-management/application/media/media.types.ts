@@ -252,10 +252,24 @@ export function getAttachmentDerivativeRefs(metadata: Record<string, unknown> | 
   derivativesStatus: AssistantFileMediaDerivativesStatus | null;
 } {
   const derivatives = readAssistantFileMediaDerivatives(metadata);
+  const flatThumbnailFileRef =
+    typeof metadata?.thumbnailFileRef === "string" && metadata.thumbnailFileRef.trim().length > 0
+      ? metadata.thumbnailFileRef.trim()
+      : null;
+  const flatPosterFileRef =
+    typeof metadata?.posterFileRef === "string" && metadata.posterFileRef.trim().length > 0
+      ? metadata.posterFileRef.trim()
+      : null;
+  const flatStatus =
+    metadata?.derivativesStatus === "pending" ||
+    metadata?.derivativesStatus === "ready" ||
+    metadata?.derivativesStatus === "failed"
+      ? metadata.derivativesStatus
+      : null;
   return {
-    thumbnailFileRef: derivatives?.thumbnail?.fileRef ?? null,
-    posterFileRef: derivatives?.poster?.fileRef ?? null,
-    derivativesStatus: derivatives?.status ?? null
+    thumbnailFileRef: derivatives?.thumbnail?.fileRef ?? flatThumbnailFileRef,
+    posterFileRef: derivatives?.poster?.fileRef ?? flatPosterFileRef,
+    derivativesStatus: derivatives?.status ?? flatStatus
   };
 }
 

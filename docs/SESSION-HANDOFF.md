@@ -3,6 +3,42 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-12 - Post-interruption UI/API fixpack
+
+### Baseline
+
+- Starting SHA: `7d75f440` on `main`. Continued on the explicitly dirty founder tree after the interrupted session; scope stayed bounded to finishing the already-started post-feedback web/API fixes and re-verifying the repo state.
+
+### What changed
+
+- Admin HeyGen voice curation routes are now covered by Clerk auth middleware (`GET/PATCH /curation`, `GET /:voiceId/preview`), so the `Edit voices` table no longer reaches the API as `userId:null`. The curation modal now shows load failures explicitly instead of masking them as an empty table.
+- HeyGen cached voice parsing accepts older raw HeyGen rows as well as PersAI-normalized cache rows, with focused coverage in the admin tool credentials test.
+- Home dashboard removed the redundant Telegram quick action, keeps the remaining actions centered, and now renders recent chat mode/activity as a compact premium row: smart/project icon, soft live dot for active stream/media/document work, and quiet last-message preview.
+- Expanded sidebar account menu gained top spacing so the avatar row is not clipped.
+- Assistant-file download responses now prefer the canonical file MIME type when storage returns `application/octet-stream`, improving native open/share handling for media downloads. Attachment derivative reads also tolerate legacy flat `thumbnailFileRef` / `posterFileRef` metadata, and chat history now falls through to canonical `assistant_files.metadata.mediaDerivatives` when attachment metadata is stale so older image/video messages can still render thumbnails/posters instead of full-size media.
+- The Android release artifact was rebuilt from the fixed `persai-mobile` shell and exported back into `apps/web/public/mobile/persai-android-release.apk` plus both Android release metadata files.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/media-attachment.controller.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-credentials.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/home-dashboard.test.tsx`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/image-lightbox.test.tsx app/app/_components/home-dashboard.test.tsx`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm run test`
+
+### Risks / residuals
+
+- The server/web side can now return better MIME and derivative metadata, but an APK-level `cannot open file` defect may still require the separate `persai-mobile` native shell (FileProvider / URI grant / chooser intent) if the installed app has stale native code.
+
+### Next recommended step
+
+- Deploy this API/web fixpack to `persai-dev`, then live-smoke Admin Tools `Edit voices`, home recent-chat activity indicators, chat thumbnail rendering on existing media, and Capacitor media open/share on the rebuilt mobile shell.
+
 ## 2026-06-12 - Full repo verification and contract-alignment fixpack
 
 ### Baseline

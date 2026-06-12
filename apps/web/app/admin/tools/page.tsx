@@ -225,6 +225,7 @@ export default function AdminToolsPage() {
   const [heygenVoiceCurationOpen, setHeygenVoiceCurationOpen] = useState(false);
   const [heygenVoiceCurationLoading, setHeygenVoiceCurationLoading] = useState(false);
   const [heygenVoiceCurationSaving, setHeygenVoiceCurationSaving] = useState(false);
+  const [heygenVoiceCurationError, setHeygenVoiceCurationError] = useState<string | null>(null);
   const [heygenVoiceCurationRows, setHeygenVoiceCurationRows] = useState<
     HeygenVoiceCurationEntry[]
   >([]);
@@ -481,6 +482,7 @@ export default function AdminToolsPage() {
     const token = await getToken();
     if (!token) return;
     setHeygenVoiceCurationLoading(true);
+    setHeygenVoiceCurationError(null);
     setHeygenVoiceCatalogFeedback(null);
     try {
       const res = await fetch(
@@ -497,7 +499,9 @@ export default function AdminToolsPage() {
       setHeygenVoiceCurationRows(data.catalog?.voices ?? []);
       setHeygenVoiceCurationDrafts({});
     } catch (e) {
-      setHeygenVoiceCatalogFeedback(e instanceof Error ? e.message : "Failed to load voices.");
+      setHeygenVoiceCurationRows([]);
+      setHeygenVoiceCurationDrafts({});
+      setHeygenVoiceCurationError(e instanceof Error ? e.message : "Failed to load voices.");
     } finally {
       setHeygenVoiceCurationLoading(false);
     }
@@ -1629,6 +1633,11 @@ export default function AdminToolsPage() {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
+              {heygenVoiceCurationError ? (
+                <div className="border-b border-border px-5 py-3 text-sm text-danger">
+                  {heygenVoiceCurationError}
+                </div>
+              ) : null}
               <table className="w-full min-w-[980px] text-left text-xs">
                 <thead className="sticky top-0 z-10 border-b border-border bg-surface-raised text-[11px] uppercase tracking-wide text-text-subtle">
                   <tr>
@@ -1745,7 +1754,11 @@ export default function AdminToolsPage() {
                   {filteredHeygenVoiceRows.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-4 py-8 text-center text-sm text-text-muted">
-                        {heygenVoiceCurationLoading ? "Loading voices..." : "No voices match."}
+                        {heygenVoiceCurationLoading
+                          ? "Loading voices..."
+                          : heygenVoiceCurationError
+                            ? "Voice catalog failed to load."
+                            : "No voices match."}
                       </td>
                     </tr>
                   ) : null}
