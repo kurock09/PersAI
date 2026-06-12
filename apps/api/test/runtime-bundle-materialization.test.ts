@@ -5,11 +5,9 @@ function createInput(order: "alpha" | "beta") {
   const effectiveCapabilities =
     order === "alpha"
       ? {
-          channels: { telegram: true, web: true },
-          mediaClasses: ["audio", "image"]
+          channels: { telegram: true, web: true }
         }
       : {
-          mediaClasses: ["audio", "image"],
           channels: { web: true, telegram: true }
         };
 

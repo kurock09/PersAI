@@ -163,7 +163,6 @@ type PlanCatalogKnowledgeRow = {
     capabilities: unknown;
     toolClasses: unknown;
     channelsAndSurfaces: unknown;
-    mediaClasses: unknown;
     limitsPermissions: unknown;
   } | null;
   toolActivations: Array<{
@@ -3685,7 +3684,6 @@ export class ReadAssistantKnowledgeService {
               `Capabilities:\n${formatJsonValue(params.plan.entitlement.capabilities)}`,
               `Tool classes:\n${formatJsonValue(params.plan.entitlement.toolClasses)}`,
               `Channels and surfaces:\n${formatJsonValue(params.plan.entitlement.channelsAndSurfaces)}`,
-              `Media classes:\n${formatJsonValue(params.plan.entitlement.mediaClasses)}`,
               `Limits and permissions:\n${formatJsonValue(params.plan.entitlement.limitsPermissions)}`
             ].join("\n\n")
       ]

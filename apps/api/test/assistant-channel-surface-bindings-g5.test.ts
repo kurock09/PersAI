@@ -31,13 +31,6 @@ const effectiveCapabilities = {
     telegram: true,
     whatsapp: true,
     max: true
-  },
-  mediaClasses: {
-    text: true,
-    image: false,
-    audio: false,
-    video: false,
-    file: false
   }
 };
 

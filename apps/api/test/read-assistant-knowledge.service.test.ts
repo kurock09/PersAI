@@ -130,7 +130,6 @@ type PlanCatalogKnowledgeRow = {
     capabilities: unknown;
     toolClasses: unknown;
     channelsAndSurfaces: unknown;
-    mediaClasses: unknown;
     limitsPermissions: unknown;
   } | null;
   toolActivations: Array<{
@@ -520,7 +519,6 @@ const planCatalogRows: PlanCatalogKnowledgeRow[] = [
       capabilities: [{ key: "assistant_memory", allowed: true }],
       toolClasses: [{ key: "utility", allowed: true }],
       channelsAndSurfaces: [{ key: "web_chat", allowed: true }],
-      mediaClasses: [],
       limitsPermissions: [{ key: "knowledge_storage_bytes", limit: 10485760 }]
     },
     toolActivations: [
@@ -559,7 +557,6 @@ const planCatalogRows: PlanCatalogKnowledgeRow[] = [
         { key: "web_chat", allowed: true },
         { key: "telegram", allowed: true }
       ],
-      mediaClasses: [{ key: "image_generation", allowed: true }],
       limitsPermissions: [
         { key: "knowledge_storage_bytes", limit: 1073741824 },
         { key: "active_web_chats", limit: 20 }

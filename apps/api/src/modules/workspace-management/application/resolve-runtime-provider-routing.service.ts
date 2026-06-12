@@ -62,13 +62,8 @@ export class ResolveRuntimeProviderRoutingService {
     const channels = effectiveCapabilities.channelsAndSurfaces;
     const hasInteractiveSurface =
       channels.webChat || channels.telegram || channels.whatsapp || channels.max;
-    const textMediaAllowed = effectiveCapabilities.mediaClasses.text;
-    const primaryActive = hasInteractiveSurface && textMediaAllowed;
-    const inactiveReason = !hasInteractiveSurface
-      ? "no_interactive_surface_allowed"
-      : !textMediaAllowed
-        ? "text_media_not_allowed"
-        : null;
+    const primaryActive = hasInteractiveSurface;
+    const inactiveReason = !hasInteractiveSurface ? "no_interactive_surface_allowed" : null;
 
     const managedPrimary =
       runtimeProviderProfile.mode === "admin_managed" ? runtimeProviderProfile.primary : null;
@@ -115,9 +110,8 @@ export class ResolveRuntimeProviderRoutingService {
       primaryModelKey ??
       (managedPrimary?.model ? normalizeModelKey(managedPrimary.model) : null) ??
       null;
-    const blockedByCommon: Array<
-      "fallback_disabled_by_policy" | "no_interactive_surface_allowed" | "text_media_not_allowed"
-    > = [];
+    const blockedByCommon: Array<"fallback_disabled_by_policy" | "no_interactive_surface_allowed"> =
+      [];
     const fallbackDisabled =
       managedPrimary !== null ? managedFallback === null : override.disableFallback;
     if (fallbackDisabled) {
@@ -125,9 +119,6 @@ export class ResolveRuntimeProviderRoutingService {
     }
     if (!hasInteractiveSurface) {
       blockedByCommon.push("no_interactive_surface_allowed");
-    }
-    if (!textMediaAllowed) {
-      blockedByCommon.push("text_media_not_allowed");
     }
 
     return {
@@ -210,7 +201,6 @@ export class ResolveRuntimeProviderRoutingService {
           whatsapp: channels.whatsapp,
           max: channels.max
         },
-        textMediaAllowed,
         costDrivingAllowed: effectiveCapabilities.toolClasses.costDriving.allowed,
         costDrivingQuotaGoverned: effectiveCapabilities.toolClasses.costDriving.quotaGoverned
       },

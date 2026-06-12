@@ -3,6 +3,44 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-13 - mediaClasses legacy cleanup
+
+### Baseline
+
+- Starting SHA: `da21441d` on `main`; founder explicitly requested a repo-wide cleanup of legacy `mediaClasses` after confirming Capacitor media download/share was fixed.
+
+### What changed
+
+- Removed `mediaClasses` from the active `apps/api` capability/plan truth. `EffectiveCapabilityState` now carries only `toolClasses` and `channelsAndSurfaces`; runtime provider routing and inbound enforcement no longer depend on the stale `mediaClasses.text` branch.
+- Removed `mediaClasses` from admin plan parsing/state, plan catalog domain types, Prisma persistence mapping, and model-visible assistant knowledge. The model no longer sees a false entitlement dump where `image/audio/video/file=false` while tool activations are actually enabled.
+- Dropped the legacy `plan_catalog_entitlements.media_classes` column from the active Prisma schema and added migration `20260613014500_drop_plan_entitlement_media_classes`.
+- Updated focused API tests and fixtures so active repo truth no longer round-trips `mediaClasses`. Remaining references live only in historical/archive docs and the old ADR-059 history context.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/api exec tsx test/capability-resolution.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-provider-routing.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-capability-envelope.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-channel-surface-bindings.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/enforcement-points.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-activation.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-integration.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-assistant-plan-catalog.repository.test.ts`
+
+### Risks / residuals
+
+- Historical documents still mention `mediaClasses` intentionally (`docs/ADR/059-systemic-media-attachments-voice-m-series.md` and archived changelog/handoff sections). Those are now history only and should not be reused as active implementation truth.
+- Full-repo verification still needs to be rerun after this slice because the cleanup touches Prisma schema/migration plus shared API plan contracts.
+
+### Next recommended step
+
+- Run the full AGENTS verification gate and, if green, continue with any remaining founder-directed plan/runtime truth cleanup from the same active pricing/capability surfaces.
+
 ## 2026-06-13 - Mobile bridge binding fix + exported APK refresh
 
 ### Baseline

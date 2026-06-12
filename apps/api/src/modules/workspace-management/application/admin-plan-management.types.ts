@@ -19,12 +19,6 @@ export type AdminPlanEntitlementControls = {
     whatsapp: boolean;
     max: boolean;
   };
-  mediaClasses: {
-    image: boolean;
-    audio: boolean;
-    video: boolean;
-    file: boolean;
-  };
 };
 
 export type AdminPlanToolActivation = {

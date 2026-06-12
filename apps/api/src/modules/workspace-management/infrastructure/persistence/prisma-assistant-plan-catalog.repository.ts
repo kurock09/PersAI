@@ -116,7 +116,6 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
               toolClasses: input.entitlementModel.toolClasses as Prisma.InputJsonValue,
               channelsAndSurfaces: input.entitlementModel
                 .channelsAndSurfaces as Prisma.InputJsonValue,
-              mediaClasses: (input.entitlementModel.mediaClasses ?? []) as Prisma.InputJsonValue,
               limitsPermissions: input.entitlementModel.limitsPermissions as Prisma.InputJsonValue
             }
           }
@@ -178,7 +177,6 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
                 toolClasses: input.entitlementModel.toolClasses as Prisma.InputJsonValue,
                 channelsAndSurfaces: input.entitlementModel
                   .channelsAndSurfaces as Prisma.InputJsonValue,
-                mediaClasses: (input.entitlementModel.mediaClasses ?? []) as Prisma.InputJsonValue,
                 limitsPermissions: input.entitlementModel.limitsPermissions as Prisma.InputJsonValue
               },
               update: {
@@ -187,7 +185,6 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
                 toolClasses: input.entitlementModel.toolClasses as Prisma.InputJsonValue,
                 channelsAndSurfaces: input.entitlementModel
                   .channelsAndSurfaces as Prisma.InputJsonValue,
-                mediaClasses: (input.entitlementModel.mediaClasses ?? []) as Prisma.InputJsonValue,
                 limitsPermissions: input.entitlementModel.limitsPermissions as Prisma.InputJsonValue
               }
             }
@@ -247,7 +244,6 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
               capabilities: this.toArray(plan.entitlement.capabilities),
               toolClasses: this.toArray(plan.entitlement.toolClasses),
               channelsAndSurfaces: this.toArray(plan.entitlement.channelsAndSurfaces),
-              mediaClasses: this.toArray(plan.entitlement.mediaClasses),
               limitsPermissions: this.toArray(plan.entitlement.limitsPermissions)
             },
       toolActivations: plan.toolActivations
@@ -335,11 +331,6 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
           channelsAndSurfaces: entitlement
             ? Array.isArray(entitlement.channelsAndSurfaces)
               ? entitlement.channelsAndSurfaces
-              : []
-            : [],
-          mediaClasses: entitlement
-            ? Array.isArray(entitlement.mediaClasses)
-              ? entitlement.mediaClasses
               : []
             : [],
           limitsPermissions: entitlement

@@ -34,13 +34,6 @@ async function run(): Promise<void> {
         telegram: true,
         whatsapp: false,
         max: false
-      },
-      mediaClasses: {
-        text: true,
-        image: false,
-        audio: false,
-        video: false,
-        file: false
       }
     },
     effectiveToolAvailability: {
@@ -161,7 +154,6 @@ async function run(): Promise<void> {
           whatsapp: false,
           max: false
         },
-        textMediaAllowed: true,
         costDrivingAllowed: false,
         costDrivingQuotaGoverned: true
       },

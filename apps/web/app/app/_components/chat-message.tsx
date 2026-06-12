@@ -793,10 +793,10 @@ function WorkingTextBlocks({ blocks, isStreaming }: { blocks: string[]; isStream
     </div>
   );
   if (isStreaming) {
-    return <div className="mb-2.5">{notes}</div>;
+    return <div className="mb-4">{notes}</div>;
   }
   return (
-    <div className="mb-2.5">
+    <div className="mb-4">
       <div className="border-l border-text-subtle/18 pl-3">
         <button
           type="button"
@@ -812,7 +812,7 @@ function WorkingTextBlocks({ blocks, isStreaming }: { blocks: string[]; isStream
           <span>{t("workingNotesDone")}</span>
         </button>
       </div>
-      {expanded ? <div className="mt-2">{notes}</div> : null}
+      {expanded ? <div className="mt-2.5">{notes}</div> : null}
     </div>
   );
 }
@@ -1660,7 +1660,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
           "min-w-0",
           isUser
             ? cn(
-                "flex max-w-[92%] flex-col items-end gap-1 sm:max-w-[85%] md:max-w-[75%]",
+                "flex max-w-[92%] flex-col items-end gap-2 sm:max-w-[85%] md:max-w-[75%]",
                 hideUserVoiceTranscript && "w-[min(100%,320px)] max-w-[min(100%,320px)]"
               )
             : "w-full flex-1"

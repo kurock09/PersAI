@@ -12,11 +12,9 @@ type GovernanceCapabilityEnvelope = {
   schema?: string;
   toolClasses?: Record<string, unknown>;
   channelsAndSurfaces?: Record<string, unknown>;
-  mediaClasses?: Record<string, unknown>;
   deny?: {
     toolClasses?: string[];
     channelsAndSurfaces?: string[];
-    mediaClasses?: string[];
   };
 };
 
@@ -58,10 +56,7 @@ function asDenyList(value: unknown): string[] {
 
 function toGovernanceFlag(
   envelope: GovernanceCapabilityEnvelope | null,
-  section: keyof Pick<
-    GovernanceCapabilityEnvelope,
-    "toolClasses" | "channelsAndSurfaces" | "mediaClasses"
-  >,
+  section: keyof Pick<GovernanceCapabilityEnvelope, "toolClasses" | "channelsAndSurfaces">,
   key: string
 ): boolean | null {
   const sectionObject = asObject(envelope?.[section] ?? null);
@@ -84,7 +79,7 @@ function shouldDeny(
 function applyGovernance(
   planAllowed: boolean,
   envelope: GovernanceCapabilityEnvelope | null,
-  section: "toolClasses" | "channelsAndSurfaces" | "mediaClasses",
+  section: "toolClasses" | "channelsAndSurfaces",
   key: string
 ): boolean {
   if (shouldDeny(envelope, section, key)) {
@@ -128,7 +123,6 @@ export class ResolveEffectiveCapabilityStateService {
     const entitlements = plan?.entitlementModel;
     const toolClasses = entitlements?.toolClasses ?? [];
     const channels = entitlements?.channelsAndSurfaces ?? [];
-    const mediaClasses = entitlements?.mediaClasses ?? [];
 
     const governanceEnvelope = asGovernanceEnvelope(params.governance.capabilityEnvelope);
 
@@ -156,8 +150,6 @@ export class ResolveEffectiveCapabilityStateService {
       "channelsAndSurfaces",
       "max"
     );
-
-    const textMediaBaseline = channelWebChat || channelTelegram || channelWhatsapp || channelMax;
 
     return {
       schema: "persai.effectiveCapabilities.v1",
@@ -193,33 +185,6 @@ export class ResolveEffectiveCapabilityStateService {
         telegram: channelTelegram,
         whatsapp: channelWhatsapp,
         max: channelMax
-      },
-      mediaClasses: {
-        text: applyGovernance(textMediaBaseline, governanceEnvelope, "mediaClasses", "text"),
-        image: applyGovernance(
-          hasAllowed(mediaClasses, "image"),
-          governanceEnvelope,
-          "mediaClasses",
-          "image"
-        ),
-        audio: applyGovernance(
-          hasAllowed(mediaClasses, "audio"),
-          governanceEnvelope,
-          "mediaClasses",
-          "audio"
-        ),
-        video: applyGovernance(
-          hasAllowed(mediaClasses, "video"),
-          governanceEnvelope,
-          "mediaClasses",
-          "video"
-        ),
-        file: applyGovernance(
-          hasAllowed(mediaClasses, "file"),
-          governanceEnvelope,
-          "mediaClasses",
-          "file"
-        )
       }
     };
   }

@@ -681,7 +681,7 @@ function AccountFooter({
                   className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-surface-hover/70"
                 >
                   <img
-                    src="/integrations/telegram-logo.svg"
+                    src="/integrations/telegram-logo.png"
                     alt=""
                     className="h-4 w-4 shrink-0 rounded-full object-contain"
                   />

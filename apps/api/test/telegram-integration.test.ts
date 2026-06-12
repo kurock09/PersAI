@@ -104,8 +104,7 @@ async function run(): Promise<void> {
         telegram: true,
         whatsapp: false,
         max: false
-      },
-      mediaClasses: { text: true, image: false, audio: false, video: false, file: false }
+      }
     })
   };
   const bindingRepository = {

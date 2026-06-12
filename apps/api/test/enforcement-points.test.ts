@@ -99,8 +99,7 @@ async function run(): Promise<void> {
           utility: { allowed: true, quotaGoverned: true },
           costDriving: { allowed: true, quotaGoverned: true }
         },
-        channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false },
-        mediaClasses: { text: true, image: false, audio: false, video: false, file: false }
+        channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false }
       };
     }
   };

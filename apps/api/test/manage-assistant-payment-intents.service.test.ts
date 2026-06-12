@@ -193,12 +193,6 @@ async function run(): Promise<void> {
                 telegram: true,
                 whatsapp: false,
                 max: false
-              },
-              mediaClasses: {
-                image: true,
-                audio: true,
-                video: true,
-                file: true
               }
             },
             quotaLimits: {
@@ -250,12 +244,6 @@ async function run(): Promise<void> {
                 telegram: true,
                 whatsapp: false,
                 max: false
-              },
-              mediaClasses: {
-                image: true,
-                audio: true,
-                video: true,
-                file: true
               }
             },
             quotaLimits: {
@@ -544,12 +532,6 @@ async function run(): Promise<void> {
                 telegram: true,
                 whatsapp: false,
                 max: false
-              },
-              mediaClasses: {
-                image: true,
-                audio: true,
-                video: true,
-                file: true
               }
             },
             quotaLimits: {
@@ -948,12 +930,6 @@ async function run(): Promise<void> {
                 telegram: true,
                 whatsapp: false,
                 max: false
-              },
-              mediaClasses: {
-                image: true,
-                audio: true,
-                video: true,
-                file: true
               }
             },
             quotaLimits: {

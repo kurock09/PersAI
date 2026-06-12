@@ -4611,7 +4611,7 @@ export function AssistantSettings({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <IntegrationCard
               name="Telegram"
-              logoSrc="/integrations/telegram-logo.svg"
+              logoSrc="/integrations/telegram-logo.png"
               statusLabel={
                 data.telegram?.connectionStatus === "connected" ||
                 data.telegram?.connectionStatus === "claim_required"
@@ -4623,13 +4623,13 @@ export function AssistantSettings({
             />
             <IntegrationCard
               name="WhatsApp"
-              logoSrc="/integrations/whatsapp-logo.svg"
+              logoSrc="/integrations/whatsapp-logo.png"
               statusLabel={t("channelComingSoon")}
               comingSoon
             />
             <IntegrationCard
               name="MAX"
-              logoSrc="/integrations/max-logo.svg"
+              logoSrc="/integrations/max-logo.png"
               statusLabel={t("channelComingSoon")}
               comingSoon
             />
@@ -6301,7 +6301,7 @@ function IntegrationCard({
       className={cn(
         "group flex min-h-[132px] flex-col items-start rounded-2xl border px-4 py-4 text-left transition-all",
         active
-          ? "border-accent/25 bg-accent/[0.07] shadow-[0_16px_32px_-24px_rgba(29,161,242,0.55)] hover:border-accent/40 hover:bg-accent/[0.1]"
+          ? "border-accent/25 bg-accent/[0.07] shadow-[0_12px_24px_-20px_rgba(29,161,242,0.28)] hover:border-accent/40 hover:bg-accent/[0.1]"
           : "border-border/60 bg-background/50",
         comingSoon && "opacity-55",
         interactive && "cursor-pointer hover:-translate-y-[1px]"

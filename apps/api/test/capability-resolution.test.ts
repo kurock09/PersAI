@@ -99,8 +99,7 @@ async function run(): Promise<void> {
       capabilityEnvelope: {
         schema: "persai.capabilityEnvelope.v1",
         deny: {
-          channelsAndSurfaces: ["max"],
-          mediaClasses: ["video"]
+          channelsAndSurfaces: ["max"]
         }
       },
       secretRefs: null,
@@ -120,7 +119,6 @@ async function run(): Promise<void> {
   assert.equal(resolved.derivedFrom.planCode, "pro");
   assert.equal(resolved.toolClasses.costDriving.allowed, true);
   assert.equal(resolved.channelsAndSurfaces.max, false);
-  assert.equal(resolved.mediaClasses.video, false);
 }
 
 void run();

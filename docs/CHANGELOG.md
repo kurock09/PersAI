@@ -3,6 +3,10 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-06-13
+
+- Legacy `mediaClasses` cleanup: removed the dead plan-entitlement `mediaClasses` dimension from the active API/domain/persistence path and dropped `plan_catalog_entitlements.media_classes` via Prisma migration. Effective capability/routing/enforcement truth now derives from `toolClasses`, `channelsAndSurfaces`, tool activations, and quota state instead of a stale parallel media-class layer. Admin plan parsing/state, plan catalog persistence, and model-visible assistant knowledge no longer round-trip or expose `mediaClasses`, which removes the false "image/audio/video/file disabled" signal the model previously saw even when media tools were active.
+
 ## 2026-06-12
 
 - Mobile bridge binding fix + APK refresh: `ImageLightbox` native save/share now invokes `window.PersaiNative` methods with the native bridge object as the call context instead of detaching the function first, which keeps Android `addJavascriptInterface` calls on the real native object and stops the WebView from falling through to the dead `blob:` browser path. Added focused regression coverage for the binding contract, rebuilt/exported the Android APK again, and re-ran the full AGENTS verification gate plus full monorepo tests before push.

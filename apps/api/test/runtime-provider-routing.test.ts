@@ -34,13 +34,6 @@ async function run(): Promise<void> {
         telegram: true,
         whatsapp: false,
         max: false
-      },
-      mediaClasses: {
-        text: true,
-        image: false,
-        audio: false,
-        video: false,
-        file: false
       }
     },
     secretRefs: null,
@@ -118,13 +111,6 @@ async function run(): Promise<void> {
         telegram: false,
         whatsapp: false,
         max: false
-      },
-      mediaClasses: {
-        text: true,
-        image: false,
-        audio: false,
-        video: false,
-        file: false
       }
     },
     secretRefs: {

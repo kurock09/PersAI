@@ -71,7 +71,6 @@ async function run(): Promise<void> {
         { key: "cost_driving", allowed: false }
       ],
       channelsAndSurfaces: [],
-      mediaClasses: [],
       limitsPermissions: []
     },
     toolActivationOverrides: [

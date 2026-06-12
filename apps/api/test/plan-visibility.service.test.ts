@@ -88,7 +88,6 @@ async function run(): Promise<void> {
             capabilities: [],
             toolClasses: [],
             channelsAndSurfaces: [],
-            mediaClasses: [],
             limitsPermissions: []
           },
           toolActivations: [
@@ -161,7 +160,6 @@ async function run(): Promise<void> {
               capabilities: [],
               toolClasses: [],
               channelsAndSurfaces: [],
-              mediaClasses: [],
               limitsPermissions: []
             },
             toolActivations: [
@@ -232,13 +230,6 @@ async function run(): Promise<void> {
             telegram: true,
             whatsapp: false,
             max: false
-          },
-          mediaClasses: {
-            text: true,
-            image: true,
-            audio: false,
-            video: false,
-            file: true
           }
         };
       }

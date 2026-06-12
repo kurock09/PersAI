@@ -23,11 +23,4 @@ export type EffectiveCapabilityState = {
     whatsapp: boolean;
     max: boolean;
   };
-  mediaClasses: {
-    text: boolean;
-    image: boolean;
-    audio: boolean;
-    video: boolean;
-    file: boolean;
-  };
 };

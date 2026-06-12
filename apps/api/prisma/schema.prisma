@@ -1249,7 +1249,6 @@ model PlanCatalogEntitlement {
   capabilities        Json            @default("[]") @db.JsonB
   toolClasses         Json            @default("[]") @map("tool_classes") @db.JsonB
   channelsAndSurfaces Json            @default("[]") @map("channels_and_surfaces") @db.JsonB
-  mediaClasses        Json            @default("[]") @map("media_classes") @db.JsonB
   limitsPermissions   Json            @default("[]") @map("limits_permissions") @db.JsonB
   createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)

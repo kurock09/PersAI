@@ -118,12 +118,6 @@ async function run(): Promise<void> {
         telegram: true,
         whatsapp: false,
         max: false
-      },
-      mediaClasses: {
-        image: false,
-        audio: false,
-        video: false,
-        file: false
       }
     },
     quotaLimits: {
@@ -590,12 +584,6 @@ async function run(): Promise<void> {
         telegram: true,
         whatsapp: false,
         max: false
-      },
-      mediaClasses: {
-        image: false,
-        audio: false,
-        video: false,
-        file: false
       }
     },
     quotaLimits: {
@@ -719,12 +707,6 @@ async function run(): Promise<void> {
               { key: "telegram", allowed: true },
               { key: "whatsapp", allowed: false },
               { key: "max", allowed: false }
-            ],
-            mediaClasses: [
-              { key: "image", allowed: false },
-              { key: "audio", allowed: false },
-              { key: "video", allowed: false },
-              { key: "file", allowed: false }
             ],
             limitsPermissions: []
           },
@@ -1190,12 +1172,6 @@ async function run(): Promise<void> {
             telegram: true,
             whatsapp: false,
             max: false
-          },
-          mediaClasses: {
-            image: false,
-            audio: false,
-            video: false,
-            file: false
           }
         },
         quotaLimits: {
@@ -1241,12 +1217,6 @@ async function run(): Promise<void> {
             telegram: true,
             whatsapp: false,
             max: false
-          },
-          mediaClasses: {
-            image: false,
-            audio: false,
-            video: false,
-            file: false
           }
         },
         quotaLimits: {
@@ -1289,12 +1259,6 @@ async function run(): Promise<void> {
             telegram: true,
             whatsapp: false,
             max: false
-          },
-          mediaClasses: {
-            image: false,
-            audio: false,
-            video: false,
-            file: false
           }
         },
         quotaLimits: {
@@ -1343,12 +1307,6 @@ async function run(): Promise<void> {
             telegram: true,
             whatsapp: false,
             max: false
-          },
-          mediaClasses: {
-            image: false,
-            audio: false,
-            video: false,
-            file: false
           }
         },
         quotaLimits: {
@@ -1472,12 +1430,6 @@ async function run(): Promise<void> {
         telegram: true,
         whatsapp: false,
         max: false
-      },
-      mediaClasses: {
-        image: false,
-        audio: false,
-        video: false,
-        file: false
       }
     },
     quotaLimits: {
@@ -1550,8 +1502,7 @@ async function run(): Promise<void> {
         costDrivingQuotaGoverned: true,
         utilityQuotaGoverned: true
       },
-      channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false },
-      mediaClasses: { image: false, audio: false, video: false, file: false }
+      channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
     },
     quotaLimits: { tokenBudgetLimit: 1000 },
     contextPolicy,
@@ -1590,8 +1541,7 @@ async function run(): Promise<void> {
             costDrivingQuotaGoverned: true,
             utilityQuotaGoverned: true
           },
-          channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false },
-          mediaClasses: { image: false, audio: false, video: false, file: false }
+          channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
         },
         quotaLimits: { tokenBudgetLimit: 1000 },
         contextPolicy,
@@ -1628,8 +1578,7 @@ async function run(): Promise<void> {
             costDrivingQuotaGoverned: true,
             utilityQuotaGoverned: true
           },
-          channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false },
-          mediaClasses: { image: false, audio: false, video: false, file: false }
+          channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
         },
         quotaLimits: { tokenBudgetLimit: 1000 },
         contextPolicy,
@@ -1957,8 +1906,7 @@ async function run(): Promise<void> {
         costDrivingQuotaGoverned: false,
         utilityQuotaGoverned: false
       },
-      channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false },
-      mediaClasses: { image: false, audio: false, video: true, file: false }
+      channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false }
     },
     quotaLimits: {},
     contextPolicy,
@@ -2000,8 +1948,7 @@ async function run(): Promise<void> {
         costDrivingQuotaGoverned: false,
         utilityQuotaGoverned: false
       },
-      channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false },
-      mediaClasses: { image: false, audio: false, video: true, file: false }
+      channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false }
     },
     quotaLimits: {},
     contextPolicy,
@@ -2043,8 +1990,7 @@ async function run(): Promise<void> {
         costDrivingQuotaGoverned: false,
         utilityQuotaGoverned: false
       },
-      channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false },
-      mediaClasses: { image: false, audio: false, video: true, file: false }
+      channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false }
     },
     quotaLimits: {},
     contextPolicy,
@@ -2078,8 +2024,7 @@ async function run(): Promise<void> {
             costDrivingQuotaGoverned: false,
             utilityQuotaGoverned: false
           },
-          channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false },
-          mediaClasses: { image: false, audio: false, video: true, file: false }
+          channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false }
         },
         quotaLimits: {},
         contextPolicy,

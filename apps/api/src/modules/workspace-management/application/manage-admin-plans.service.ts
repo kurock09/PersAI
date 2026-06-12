@@ -850,9 +850,6 @@ export class ManageAdminPlansService {
       entitlements.channelsAndSurfaces,
       "entitlements.channelsAndSurfaces"
     );
-    const mediaClassesRaw = entitlements.mediaClasses
-      ? parseObject(entitlements.mediaClasses, "entitlements.mediaClasses")
-      : {};
     const metadata = parseObject(parsed.metadata, "metadata");
     const presentation = parsePlanPresentation(parsed.presentation);
     const lifecyclePolicyRaw =
@@ -918,12 +915,6 @@ export class ManageAdminPlansService {
           telegram: toBoolean(channelsAndSurfaces.telegram),
           whatsapp: toBoolean(channelsAndSurfaces.whatsapp),
           max: toBoolean(channelsAndSurfaces.max)
-        },
-        mediaClasses: {
-          image: toBoolean(mediaClassesRaw.image),
-          audio: toBoolean(mediaClassesRaw.audio),
-          video: toBoolean(mediaClassesRaw.video),
-          file: toBoolean(mediaClassesRaw.file)
         }
       },
       quotaLimits: {
@@ -1183,12 +1174,6 @@ export class ManageAdminPlansService {
           { key: "telegram", allowed: input.entitlements.channelsAndSurfaces.telegram },
           { key: "whatsapp", allowed: input.entitlements.channelsAndSurfaces.whatsapp },
           { key: "max", allowed: input.entitlements.channelsAndSurfaces.max }
-        ],
-        mediaClasses: [
-          { key: "image", allowed: input.entitlements.mediaClasses.image },
-          { key: "audio", allowed: input.entitlements.mediaClasses.audio },
-          { key: "video", allowed: input.entitlements.mediaClasses.video },
-          { key: "file", allowed: input.entitlements.mediaClasses.file }
         ],
         limitsPermissions:
           input.skillPolicy.maxEnabledSkills === null
@@ -1460,7 +1445,6 @@ export class ManageAdminPlansService {
     const entitlement = plan.entitlementModel;
     const toolClasses = entitlement?.toolClasses ?? [];
     const channelsAndSurfaces = entitlement?.channelsAndSurfaces ?? [];
-    const mediaClasses = entitlement?.mediaClasses ?? [];
     const contextPolicy = resolveStoredPlanContextHydrationPolicy(billingHints.contextPolicy);
     const retrievalPolicy = parseAdminPlanRetrievalPolicy(billingHints.retrievalPolicy);
     const sandboxPolicy = resolveStoredPlanSandboxPolicy(billingHints.sandboxPolicy);
@@ -1524,12 +1508,6 @@ export class ManageAdminPlansService {
           telegram: hasAllowedFlag(channelsAndSurfaces, "telegram"),
           whatsapp: hasAllowedFlag(channelsAndSurfaces, "whatsapp"),
           max: hasAllowedFlag(channelsAndSurfaces, "max")
-        },
-        mediaClasses: {
-          image: hasAllowedFlag(mediaClasses, "image"),
-          audio: hasAllowedFlag(mediaClasses, "audio"),
-          video: hasAllowedFlag(mediaClasses, "video"),
-          file: hasAllowedFlag(mediaClasses, "file")
         }
       },
       quotaLimits: {

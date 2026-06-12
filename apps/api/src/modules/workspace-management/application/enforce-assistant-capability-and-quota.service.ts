@@ -111,12 +111,6 @@ export class EnforceAssistantCapabilityAndQuotaService {
         `Inbound surface "${params.surface}" is unavailable for this assistant under current plan/governance capabilities.`
       );
     }
-    if (!effectiveCapabilities.mediaClasses.text) {
-      throw createAssistantInboundConflict(
-        "plan_feature_unavailable",
-        "Text media class is unavailable for this assistant under current plan/governance capabilities."
-      );
-    }
     if (!effectiveCapabilities.toolClasses.utility.allowed) {
       throw createAssistantInboundConflict(
         "plan_feature_unavailable",
