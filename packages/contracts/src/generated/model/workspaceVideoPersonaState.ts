@@ -4,6 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { WorkspaceVideoPersonaStateVideoFormat } from "./workspaceVideoPersonaStateVideoFormat";
 
 /**
  * User-facing persona shape. Provider-internal fields (avatar ID, voice ID raw key) are intentionally absent — they must never appear on the public wire contract.
@@ -13,7 +14,7 @@ export interface WorkspaceVideoPersonaState {
   /** @maxLength 80 */
   displayName: string;
   portraitImageUrl: string;
-  videoFormat: "16:9" | "9:16" | "1:1";
+  videoFormat: WorkspaceVideoPersonaStateVideoFormat;
   heygenVoiceId: string;
   heygenVoiceLabel: string;
   createdAt: string;

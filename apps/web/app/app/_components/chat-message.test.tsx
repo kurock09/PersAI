@@ -55,6 +55,20 @@ vi.mock("../assistant-api-client", () => ({
     `/api/assistant-document/${docId}/prepare-pptx${
       options?.versionId ? `?versionId=${options.versionId}` : ""
     }`,
+  getAssistantAttachmentPreviewUrl: (input: {
+    fileRef: string | null;
+    thumbnailFileRef?: string | null;
+    posterFileRef?: string | null;
+    attachmentType?: string | null;
+  }) => {
+    if (input.attachmentType === "image" && input.thumbnailFileRef) {
+      return `/api/assistant-file/${input.thumbnailFileRef}`;
+    }
+    if (input.attachmentType === "video" && input.posterFileRef) {
+      return `/api/assistant-file/${input.posterFileRef}`;
+    }
+    return input.fileRef ? `/api/assistant-file/${input.fileRef}` : null;
+  },
   getAssistantFileDownloadUrl: (fileRef: string, options?: { download?: boolean }) =>
     `/api/assistant-file/${fileRef}${options?.download ? "?download=1" : ""}`
 }));
@@ -772,7 +786,7 @@ describe("ChatMessageBubble — video attachment preview", () => {
     expect(video).toHaveAttribute("data-inline-frame-surface", "enabled");
     expect(screen.getByTestId("chat-video-preview-placeholder")).toHaveAttribute(
       "data-thumbnail-ready",
-      "false"
+      "true"
     );
     fireEvent.loadedData(video);
     expect(video).toHaveAttribute("data-preview-frame-ready", "true");

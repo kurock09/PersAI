@@ -223,8 +223,10 @@ import { AssistantDocumentJobSchedulerService } from "./application/assistant-do
 import { AssistantMediaJobSchedulerService } from "./application/assistant-media-job-scheduler.service";
 import { AssistantUploadMicroDescriptionJobService } from "./application/assistant-upload-micro-description-job.service";
 import { AssistantUploadMicroDescriptionSchedulerService } from "./application/assistant-upload-micro-description-scheduler.service";
+import { AssistantFileMediaDerivativeSchedulerService } from "./application/assistant-file-media-derivative-scheduler.service";
 import { AssistantFileCleanupReaperService } from "./application/assistant-file-cleanup-reaper.service";
 import { AssistantUploadMicroDescriptionService } from "./application/assistant-upload-micro-description.service";
+import { AssistantFileMediaDerivativeService } from "./application/media/assistant-file-media-derivative.service";
 import { AssistantDocumentJobService } from "./application/assistant-document-job.service";
 import { AssistantDocumentJobReadService } from "./application/assistant-document-job-read.service";
 import { AssistantMediaJobService } from "./application/assistant-media-job.service";
@@ -650,6 +652,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     PrepareAssistantDocumentPptxService,
     AssistantMediaJobSchedulerService,
     AssistantUploadMicroDescriptionSchedulerService,
+    AssistantFileMediaDerivativeSchedulerService,
     AssistantFileCleanupReaperService,
     TelegramAlbumCollectorService,
     TelegramAlbumFinalizerSchedulerService,
@@ -751,6 +754,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     },
     ManageChatMediaService,
     AssistantFileRegistryService,
+    AssistantFileMediaDerivativeService,
     AssistantUploadMicroDescriptionService,
     AssistantUploadMicroDescriptionJobService,
     MediaPreprocessorService,

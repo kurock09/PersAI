@@ -11300,6 +11300,19 @@ components:
         fileRef:
           type: string
           nullable: true
+        thumbnailFileRef:
+          type: string
+          nullable: true
+        posterFileRef:
+          type: string
+          nullable: true
+        derivativesStatus:
+          type: string
+          nullable: true
+          enum:
+            - pending
+            - ready
+            - failed
         attachmentType:
           type: string
         originalFilename:

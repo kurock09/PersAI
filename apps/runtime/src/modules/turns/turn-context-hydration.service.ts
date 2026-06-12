@@ -41,6 +41,7 @@ import { parseStoredReusableCompactionState } from "./shared-compaction-state";
 
 const MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const MAX_DIRECT_PROVIDER_ATTACHMENT_TOTAL_BYTES = 12 * 1024 * 1024;
+const ORDINARY_VISION_MAX_IMAGE_DIMENSION = 2048;
 const MIN_HYDRATED_MEMORY_ITEMS = 3;
 const MAX_HYDRATED_MEMORY_ITEMS = 10;
 const MIN_HYDRATED_MEMORY_TOTAL_CHARS = 400;
@@ -267,6 +268,11 @@ type DirectInputAttachmentCandidate = {
 
 type DirectInputSelection = {
   blocks: DirectProviderContentBlock[];
+};
+
+type PreparedDirectProviderAttachmentPayload = {
+  buffer: Buffer;
+  mimeType: string;
 };
 
 type ReusableCompactionSummary = {
@@ -1593,8 +1599,9 @@ export class TurnContextHydrationService {
     for (const candidate of candidates) {
       if (
         candidate.sizeBytes <= 0 ||
-        candidate.sizeBytes > MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES ||
-        totalBytes + candidate.sizeBytes > MAX_DIRECT_PROVIDER_ATTACHMENT_TOTAL_BYTES
+        (candidate.kind !== "image" &&
+          (candidate.sizeBytes > MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES ||
+            totalBytes + candidate.sizeBytes > MAX_DIRECT_PROVIDER_ATTACHMENT_TOTAL_BYTES))
       ) {
         continue;
       }
@@ -1609,9 +1616,19 @@ export class TurnContextHydrationService {
       ) {
         continue;
       }
+      const prepared = await this.prepareDirectProviderAttachmentPayload(candidate, buffer);
+      if (prepared === null) {
+        continue;
+      }
+      if (
+        prepared.buffer.length > MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES ||
+        totalBytes + prepared.buffer.length > MAX_DIRECT_PROVIDER_ATTACHMENT_TOTAL_BYTES
+      ) {
+        continue;
+      }
 
-      selection.blocks.push(this.toDirectProviderContentBlock(candidate, buffer));
-      totalBytes += buffer.length;
+      selection.blocks.push(this.toDirectProviderContentBlock(candidate, prepared));
+      totalBytes += prepared.buffer.length;
     }
 
     return selection;
@@ -1675,13 +1692,13 @@ export class TurnContextHydrationService {
 
   private toDirectProviderContentBlock(
     candidate: DirectInputAttachmentCandidate,
-    buffer: Buffer
+    payload: PreparedDirectProviderAttachmentPayload
   ): DirectProviderContentBlock {
     if (candidate.kind === "image") {
       return {
         type: "image",
-        mimeType: candidate.mimeType,
-        dataBase64: buffer.toString("base64"),
+        mimeType: payload.mimeType,
+        dataBase64: payload.buffer.toString("base64"),
         filename: candidate.filename
       };
     }
@@ -1689,9 +1706,59 @@ export class TurnContextHydrationService {
     return {
       type: "pdf",
       mimeType: "application/pdf",
-      dataBase64: buffer.toString("base64"),
+      dataBase64: payload.buffer.toString("base64"),
       filename: candidate.filename
     };
+  }
+
+  private async prepareDirectProviderAttachmentPayload(
+    candidate: DirectInputAttachmentCandidate,
+    buffer: Buffer
+  ): Promise<PreparedDirectProviderAttachmentPayload | null> {
+    if (candidate.kind !== "image") {
+      return {
+        buffer,
+        mimeType: candidate.mimeType
+      };
+    }
+    try {
+      const sharpModule = await import("sharp");
+      const sharp = sharpModule.default;
+      const metadata = await sharp(buffer).metadata();
+      const width = typeof metadata.width === "number" ? metadata.width : null;
+      const height = typeof metadata.height === "number" ? metadata.height : null;
+      if (
+        width === null ||
+        height === null ||
+        (width <= ORDINARY_VISION_MAX_IMAGE_DIMENSION &&
+          height <= ORDINARY_VISION_MAX_IMAGE_DIMENSION)
+      ) {
+        return {
+          buffer,
+          mimeType: candidate.mimeType
+        };
+      }
+      const resized = await sharp(buffer)
+        .rotate()
+        .resize(ORDINARY_VISION_MAX_IMAGE_DIMENSION, ORDINARY_VISION_MAX_IMAGE_DIMENSION, {
+          fit: "inside",
+          withoutEnlargement: true
+        })
+        .jpeg({ quality: 85 })
+        .toBuffer();
+      return {
+        buffer: resized,
+        mimeType: "image/jpeg"
+      };
+    } catch (error) {
+      this.logger.warn(
+        `ordinary_vision_resize_failed reference=${candidate.referenceKey} message=${error instanceof Error ? error.message : String(error)}`
+      );
+      return {
+        buffer,
+        mimeType: candidate.mimeType
+      };
+    }
   }
 
   private createEmptyDirectInputSelection(): DirectInputSelection {

@@ -4,20 +4,21 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { CreateWorkspaceVideoPersonaBodyVideoFormat } from "./createWorkspaceVideoPersonaBodyVideoFormat";
 
 export type CreateWorkspaceVideoPersonaBody = {
-  /** Portrait image file (JPEG, PNG, or WebP). Normalized and center-cropped server-side to the selected persona video format before avatar creation. */
+  /** Portrait image file (JPEG, PNG, or WebP). Normalized to 1024×1024 JPEG server-side. */
   portrait: Blob;
   /**
    * Display name for the persona. Must be unique within the workspace (case-insensitive).
    * @maxLength 80
    */
   displayName: string;
+  /** Stored persona video format. Determines portrait normalization/cropping before HeyGen avatar creation and acts as the default talking-avatar aspect ratio when the request does not explicitly choose one. */
+  videoFormat?: CreateWorkspaceVideoPersonaBodyVideoFormat;
   /**
    * HeyGen voice ID. Must exist in the cached HeyGen voice shortlist.
    * @maxLength 128
    */
   heygenVoiceId: string;
-  /** Stored persona video format used for portrait cropping and default talking-avatar aspect ratio. */
-  videoFormat: "16:9" | "9:16" | "1:1";
 };

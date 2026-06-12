@@ -591,6 +591,13 @@ export class ManageChatMediaService {
         semanticSummarySource: readStoredAttachmentSemanticSummarySource(attachmentMetadata)
       })
     ).fileRef;
+    if (input.attachment.assistantFileId !== null) {
+      await this.assistantFileRegistryService.ensureMediaDerivativeTracking({
+        assistantId: input.attachment.assistantId,
+        workspaceId: input.attachment.workspaceId,
+        fileRef: input.attachment.assistantFileId
+      });
+    }
   }
 
   private async rollbackFailedStagedUpload(input: {

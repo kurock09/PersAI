@@ -165,6 +165,13 @@ export class InboundMediaService {
             semanticSummarySource: readStoredAttachmentSemanticSummarySource(attachmentMetadata)
           })
         ).fileRef;
+        if (attachment.assistantFileId !== null) {
+          await this.assistantFileRegistryService.ensureMediaDerivativeTracking({
+            assistantId: params.assistantId,
+            workspaceId: params.workspaceId,
+            fileRef: attachment.assistantFileId
+          });
+        }
 
         attachments.push(attachment);
 

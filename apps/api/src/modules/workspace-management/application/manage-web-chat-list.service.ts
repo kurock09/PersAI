@@ -48,6 +48,7 @@ import {
 } from "./compaction-advisory-state";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
+import { getAttachmentDerivativeRefs } from "./media/media.types";
 
 export interface UpdateWebChatRequest {
   title?: string | null;
@@ -342,9 +343,23 @@ export class ManageWebChatListService {
     for (const att of allAttachments) {
       const list = attachmentsByMessageId.get(att.messageId) ?? [];
       const documentLink = readPersistedDocumentLinkMetadata(att.metadata);
+      const derivativeRefs = getAttachmentDerivativeRefs(
+        att.metadata !== null && typeof att.metadata === "object" && !Array.isArray(att.metadata)
+          ? (att.metadata as Record<string, unknown>)
+          : null
+      );
       list.push({
         id: att.id,
         fileRef: att.assistantFileId,
+        ...(derivativeRefs.thumbnailFileRef !== null
+          ? { thumbnailFileRef: derivativeRefs.thumbnailFileRef }
+          : {}),
+        ...(derivativeRefs.posterFileRef !== null
+          ? { posterFileRef: derivativeRefs.posterFileRef }
+          : {}),
+        ...(derivativeRefs.derivativesStatus !== null
+          ? { derivativesStatus: derivativeRefs.derivativesStatus }
+          : {}),
         attachmentType: att.attachmentType,
         originalFilename: att.originalFilename,
         mimeType: att.mimeType,

@@ -30,6 +30,7 @@ import {
 import { PrepareAssistantDocumentPptxService } from "../../application/prepare-assistant-document-pptx.service";
 import { ResolveActiveAssistantService } from "../../application/resolve-active-assistant.service";
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
+import { getAttachmentDerivativeRefs } from "../../application/media/media.types";
 
 @Controller("api/v1")
 export class MediaAttachmentController {
@@ -71,6 +72,13 @@ export class MediaAttachmentController {
           : null,
       file
     });
+    const stagedDerivativeRefs = getAttachmentDerivativeRefs(
+      result.attachment.metadata !== null &&
+        typeof result.attachment.metadata === "object" &&
+        !Array.isArray(result.attachment.metadata)
+        ? (result.attachment.metadata as Record<string, unknown>)
+        : null
+    );
 
     return {
       requestId: req.requestId ?? null,
@@ -79,6 +87,15 @@ export class MediaAttachmentController {
       attachment: {
         id: result.attachment.id,
         fileRef: result.attachment.assistantFileId,
+        ...(stagedDerivativeRefs.thumbnailFileRef !== null
+          ? { thumbnailFileRef: stagedDerivativeRefs.thumbnailFileRef }
+          : {}),
+        ...(stagedDerivativeRefs.posterFileRef !== null
+          ? { posterFileRef: stagedDerivativeRefs.posterFileRef }
+          : {}),
+        ...(stagedDerivativeRefs.derivativesStatus !== null
+          ? { derivativesStatus: stagedDerivativeRefs.derivativesStatus }
+          : {}),
         messageId: result.attachment.messageId,
         chatId: result.attachment.chatId,
         attachmentType: result.attachment.attachmentType,
@@ -110,12 +127,28 @@ export class MediaAttachmentController {
       messageId,
       file
     });
+    const attachmentDerivativeRefs = getAttachmentDerivativeRefs(
+      attachment.metadata !== null &&
+        typeof attachment.metadata === "object" &&
+        !Array.isArray(attachment.metadata)
+        ? (attachment.metadata as Record<string, unknown>)
+        : null
+    );
 
     return {
       requestId: req.requestId ?? null,
       attachment: {
         id: attachment.id,
         fileRef: attachment.assistantFileId,
+        ...(attachmentDerivativeRefs.thumbnailFileRef !== null
+          ? { thumbnailFileRef: attachmentDerivativeRefs.thumbnailFileRef }
+          : {}),
+        ...(attachmentDerivativeRefs.posterFileRef !== null
+          ? { posterFileRef: attachmentDerivativeRefs.posterFileRef }
+          : {}),
+        ...(attachmentDerivativeRefs.derivativesStatus !== null
+          ? { derivativesStatus: attachmentDerivativeRefs.derivativesStatus }
+          : {}),
         messageId: attachment.messageId,
         chatId: attachment.chatId,
         attachmentType: attachment.attachmentType,

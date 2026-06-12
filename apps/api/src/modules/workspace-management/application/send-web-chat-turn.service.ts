@@ -29,7 +29,11 @@ import {
   toAssistantInboundHttpException
 } from "./assistant-inbound-error";
 import { MediaDeliveryService } from "./media/media-delivery.service";
-import { toRuntimeAttachmentRef, type MediaArtifact } from "./media/media.types";
+import {
+  getAttachmentDerivativeRefs,
+  toRuntimeAttachmentRef,
+  type MediaArtifact
+} from "./media/media.types";
 import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
@@ -120,9 +124,19 @@ function toAttachmentState(attachment: {
   metadata: Record<string, unknown> | null;
   createdAt: Date;
 }) {
+  const derivativeRefs = getAttachmentDerivativeRefs(attachment.metadata);
   return {
     id: attachment.id,
     fileRef: attachment.assistantFileId,
+    ...(derivativeRefs.thumbnailFileRef !== null
+      ? { thumbnailFileRef: derivativeRefs.thumbnailFileRef }
+      : {}),
+    ...(derivativeRefs.posterFileRef !== null
+      ? { posterFileRef: derivativeRefs.posterFileRef }
+      : {}),
+    ...(derivativeRefs.derivativesStatus !== null
+      ? { derivativesStatus: derivativeRefs.derivativesStatus }
+      : {}),
     attachmentType: attachment.attachmentType,
     originalFilename: attachment.originalFilename,
     mimeType: attachment.mimeType,

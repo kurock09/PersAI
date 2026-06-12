@@ -4115,6 +4115,24 @@ export function getAssistantFileDownloadUrl(
   return `${url.pathname}${url.search}`;
 }
 
+export function getAssistantAttachmentPreviewUrl(input: {
+  fileRef: string | null;
+  thumbnailFileRef?: string | null | undefined;
+  posterFileRef?: string | null | undefined;
+  attachmentType?: string | null | undefined;
+}): string | null {
+  if (input.attachmentType === "image" && typeof input.thumbnailFileRef === "string") {
+    return getAssistantFileDownloadUrl(input.thumbnailFileRef);
+  }
+  if (input.attachmentType === "video" && typeof input.posterFileRef === "string") {
+    return getAssistantFileDownloadUrl(input.posterFileRef);
+  }
+  if (typeof input.fileRef === "string") {
+    return getAssistantFileDownloadUrl(input.fileRef);
+  }
+  return null;
+}
+
 export function getAssistantDocumentPptxPrepareUrl(
   docId: string,
   options: { versionId?: string | null }
@@ -4132,17 +4150,9 @@ export function getAssistantDocumentPptxPrepareUrl(
   return `${url.pathname}${url.search}`;
 }
 
-export type UploadedAttachment = {
-  id: string;
-  fileRef: string | null;
+export type UploadedAttachment = AssistantWebChatMessageAttachmentState & {
   messageId: string;
   chatId: string;
-  attachmentType: string;
-  originalFilename: string | null;
-  mimeType: string;
-  sizeBytes: number;
-  processingStatus: string;
-  createdAt: string;
 };
 
 export type StagedAttachmentResult = {

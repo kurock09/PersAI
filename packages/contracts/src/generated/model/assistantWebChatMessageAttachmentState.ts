@@ -4,12 +4,19 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AssistantWebChatMessageAttachmentStateDerivativesStatus } from "./assistantWebChatMessageAttachmentStateDerivativesStatus";
 import type { AssistantWebChatMessageAttachmentStateDocumentLink } from "./assistantWebChatMessageAttachmentStateDocumentLink";
 
 export interface AssistantWebChatMessageAttachmentState {
   id: string;
   /** @nullable */
   fileRef: string | null;
+  /** @nullable */
+  thumbnailFileRef?: string | null;
+  /** @nullable */
+  posterFileRef?: string | null;
+  /** @nullable */
+  derivativesStatus?: AssistantWebChatMessageAttachmentStateDerivativesStatus;
   attachmentType: string;
   /** @nullable */
   originalFilename: string | null;

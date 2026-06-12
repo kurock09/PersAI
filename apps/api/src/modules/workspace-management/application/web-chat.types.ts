@@ -45,6 +45,9 @@ export interface AssistantWebChatMessageAttachmentDocumentLink {
 export interface AssistantWebChatMessageAttachmentState {
   id: string;
   fileRef: string | null;
+  thumbnailFileRef?: string | null;
+  posterFileRef?: string | null;
+  derivativesStatus?: "pending" | "ready" | "failed" | null;
   attachmentType: string;
   originalFilename: string | null;
   mimeType: string;

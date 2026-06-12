@@ -315,8 +315,8 @@ async function runImageProcessingTests(): Promise<void> {
   const oversizedResult = await imageService.process(oversizedJpeg, "image/jpeg", "big.jpg");
   assert.equal(oversizedResult.normalizedMime, "image/jpeg");
   assert.equal(oversizedResult.normalizedExtension, "jpg");
-  assert.equal(oversizedResult.width, 2048);
-  assert.equal(oversizedResult.height, 1536);
+  assert.equal(oversizedResult.width, 4000);
+  assert.equal(oversizedResult.height, 3000);
   assert.ok(
     oversizedResult.normalizedBuffer.length < oversizedJpeg.length,
     "oversized JPEG should be smaller after normalization"

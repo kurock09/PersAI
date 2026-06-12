@@ -14,6 +14,7 @@ import type {
   AdminDocumentProcessingTestConnectionRequest,
   AdminKnowledgeEmbeddingChangePreviewRequest,
   AdminKnowledgeRetrievalPolicyState,
+  AdminMemoryBackfillRequest,
   AdminPlanCreateRequest,
   AdminPlanUpdateRequest,
   AdminRuntimeProviderSettingsRequest,
@@ -137,6 +138,8 @@ import type {
   PostAdminKnowledgeEmbeddingChangePreviewResponse,
   PostAdminKnowledgeRetrievalPolicyResponse,
   PostAdminKnowledgeSourceUploadBody,
+  PostAdminMemoryBackfillApplyResponse,
+  PostAdminMemoryBackfillPreviewResponse,
   PostAdminOpsUserBillingSupportActionRequest,
   PostAdminOpsUserBillingSupportActionResponse,
   PostAdminOpsUserPlanOverrideParams,
@@ -5685,6 +5688,131 @@ export const postAdminKnowledgeRetrievalPolicyEmbeddingChangePreview = async (
 };
 
 /**
+ * @summary Preview assistant-scoped legacy memory backfill impact
+ */
+export type postAdminMemoryBackfillPreviewResponse200 = {
+  data: PostAdminMemoryBackfillPreviewResponse;
+  status: 200;
+};
+
+export type postAdminMemoryBackfillPreviewResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminMemoryBackfillPreviewResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminMemoryBackfillPreviewResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminMemoryBackfillPreviewResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminMemoryBackfillPreviewResponseSuccess =
+  postAdminMemoryBackfillPreviewResponse200 & {
+    headers: Headers;
+  };
+export type postAdminMemoryBackfillPreviewResponseError = (
+  | postAdminMemoryBackfillPreviewResponse400
+  | postAdminMemoryBackfillPreviewResponse401
+  | postAdminMemoryBackfillPreviewResponse403
+  | postAdminMemoryBackfillPreviewResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminMemoryBackfillPreviewResponse =
+  | postAdminMemoryBackfillPreviewResponseSuccess
+  | postAdminMemoryBackfillPreviewResponseError;
+
+export const getPostAdminMemoryBackfillPreviewUrl = () => {
+  return `/admin/memory-backfill/preview`;
+};
+
+export const postAdminMemoryBackfillPreview = async (
+  adminMemoryBackfillRequest: AdminMemoryBackfillRequest,
+  options?: RequestInit
+): Promise<postAdminMemoryBackfillPreviewResponse> => {
+  return customFetch<postAdminMemoryBackfillPreviewResponse>(
+    getPostAdminMemoryBackfillPreviewUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminMemoryBackfillRequest)
+    }
+  );
+};
+
+/**
+ * @summary Apply assistant-scoped legacy memory backfill
+ */
+export type postAdminMemoryBackfillApplyResponse200 = {
+  data: PostAdminMemoryBackfillApplyResponse;
+  status: 200;
+};
+
+export type postAdminMemoryBackfillApplyResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminMemoryBackfillApplyResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminMemoryBackfillApplyResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminMemoryBackfillApplyResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminMemoryBackfillApplyResponseSuccess =
+  postAdminMemoryBackfillApplyResponse200 & {
+    headers: Headers;
+  };
+export type postAdminMemoryBackfillApplyResponseError = (
+  | postAdminMemoryBackfillApplyResponse400
+  | postAdminMemoryBackfillApplyResponse401
+  | postAdminMemoryBackfillApplyResponse403
+  | postAdminMemoryBackfillApplyResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminMemoryBackfillApplyResponse =
+  | postAdminMemoryBackfillApplyResponseSuccess
+  | postAdminMemoryBackfillApplyResponseError;
+
+export const getPostAdminMemoryBackfillApplyUrl = () => {
+  return `/admin/memory-backfill/apply`;
+};
+
+export const postAdminMemoryBackfillApply = async (
+  adminMemoryBackfillRequest: AdminMemoryBackfillRequest,
+  options?: RequestInit
+): Promise<postAdminMemoryBackfillApplyResponse> => {
+  return customFetch<postAdminMemoryBackfillApplyResponse>(getPostAdminMemoryBackfillApplyUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminMemoryBackfillRequest)
+  });
+};
+
+/**
  * @summary Read tool-path economics catalog for non-model paid tools
  */
 export type getAdminToolPathPricingCatalogResponse200 = {
@@ -8876,7 +9004,7 @@ export const getWorkspaceHeygenVoiceCatalog = async (
 };
 
 /**
- * Creates a new workspace-scoped video persona. Persona creation is REST-only (ADR-109 cross-slice invariant #14). Debits `heygenPersonaCreationVcoin` VC from the workspace wallet when the platform cost > 0. Portrait image is normalized to JPEG 1024×1024. Validates the provided `heygenVoiceId` against the cached HeyGen voice shortlist.
+ * Creates a new workspace-scoped video persona. Persona creation is REST-only (ADR-109 cross-slice invariant #14). Debits `heygenPersonaCreationVcoin` VC from the workspace wallet when the platform cost > 0. Portrait image is normalized and center-cropped server-side to the selected persona video format before the HeyGen avatar is created. Validates the provided `heygenVoiceId` against the cached HeyGen voice shortlist.
  * @summary Create a workspace video persona (ADR-109 Slice 5)
  */
 export type createWorkspaceVideoPersonaResponse201 = {
@@ -8926,6 +9054,9 @@ export const createWorkspaceVideoPersona = async (
   const formData = new FormData();
   formData.append(`portrait`, createWorkspaceVideoPersonaBody.portrait);
   formData.append(`displayName`, createWorkspaceVideoPersonaBody.displayName);
+  if (createWorkspaceVideoPersonaBody.videoFormat !== undefined) {
+    formData.append(`videoFormat`, createWorkspaceVideoPersonaBody.videoFormat);
+  }
   formData.append(`heygenVoiceId`, createWorkspaceVideoPersonaBody.heygenVoiceId);
 
   return customFetch<createWorkspaceVideoPersonaResponse>(

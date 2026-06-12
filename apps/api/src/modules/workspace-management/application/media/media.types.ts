@@ -149,6 +149,116 @@ export const ATTACHMENT_SEMANTIC_SUMMARY_SOURCES = [
 
 export type AttachmentSemanticSummarySource = (typeof ATTACHMENT_SEMANTIC_SUMMARY_SOURCES)[number];
 
+export const ASSISTANT_FILE_MEDIA_DERIVATIVES_SCHEMA = "persai.mediaDerivatives.v1";
+
+export type AssistantFileMediaDerivativeKind = "thumbnail" | "poster";
+export type AssistantFileMediaDerivativesStatus = "pending" | "ready" | "failed";
+
+export type AssistantFileMediaDerivativeDescriptor = {
+  fileRef: string;
+  objectKey: string;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  sizeBytes: number;
+};
+
+export type AssistantFileMediaDerivativesMetadata = {
+  schemaVersion: typeof ASSISTANT_FILE_MEDIA_DERIVATIVES_SCHEMA;
+  status: AssistantFileMediaDerivativesStatus;
+  thumbnail: AssistantFileMediaDerivativeDescriptor | null;
+  poster: AssistantFileMediaDerivativeDescriptor | null;
+  lastError: string | null;
+  updatedAt: string | null;
+};
+
+function asMetadataObject(
+  metadata: Record<string, unknown> | null | undefined
+): Record<string, unknown> | null {
+  return metadata !== null &&
+    metadata !== undefined &&
+    typeof metadata === "object" &&
+    !Array.isArray(metadata)
+    ? metadata
+    : null;
+}
+
+function readDerivativeDescriptor(value: unknown): AssistantFileMediaDerivativeDescriptor | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.fileRef !== "string" ||
+    typeof row.objectKey !== "string" ||
+    typeof row.mimeType !== "string" ||
+    typeof row.sizeBytes !== "number"
+  ) {
+    return null;
+  }
+  return {
+    fileRef: row.fileRef,
+    objectKey: row.objectKey,
+    mimeType: row.mimeType,
+    width: typeof row.width === "number" ? row.width : null,
+    height: typeof row.height === "number" ? row.height : null,
+    sizeBytes: row.sizeBytes
+  };
+}
+
+export function readAssistantFileMediaDerivatives(
+  metadata: Record<string, unknown> | null | undefined
+): AssistantFileMediaDerivativesMetadata | null {
+  const base = asMetadataObject(metadata);
+  const raw = base?.mediaDerivatives;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const row = raw as Record<string, unknown>;
+  if (
+    row.schemaVersion !== ASSISTANT_FILE_MEDIA_DERIVATIVES_SCHEMA ||
+    (row.status !== "pending" && row.status !== "ready" && row.status !== "failed")
+  ) {
+    return null;
+  }
+  return {
+    schemaVersion: ASSISTANT_FILE_MEDIA_DERIVATIVES_SCHEMA,
+    status: row.status,
+    thumbnail: row.thumbnail === undefined ? null : readDerivativeDescriptor(row.thumbnail),
+    poster: row.poster === undefined ? null : readDerivativeDescriptor(row.poster),
+    lastError: typeof row.lastError === "string" ? row.lastError : null,
+    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : null
+  };
+}
+
+export function withAssistantFileMediaDerivatives(input: {
+  metadata: Record<string, unknown> | null | undefined;
+  derivatives: AssistantFileMediaDerivativesMetadata | null;
+}): Record<string, unknown> | null {
+  const base = asMetadataObject(input.metadata) ?? {};
+  if (input.derivatives === null) {
+    const { mediaDerivatives: _removed, ...rest } = base;
+    return Object.keys(rest).length > 0 ? rest : null;
+  }
+  return {
+    ...base,
+    mediaDerivatives: input.derivatives
+  };
+}
+
+export function getAttachmentDerivativeRefs(metadata: Record<string, unknown> | null | undefined): {
+  thumbnailFileRef: string | null;
+  posterFileRef: string | null;
+  derivativesStatus: AssistantFileMediaDerivativesStatus | null;
+} {
+  const derivatives = readAssistantFileMediaDerivatives(metadata);
+  return {
+    thumbnailFileRef: derivatives?.thumbnail?.fileRef ?? null,
+    posterFileRef: derivatives?.poster?.fileRef ?? null,
+    derivativesStatus: derivatives?.status ?? null
+  };
+}
+
 export function buildStoredAttachmentMetadata(input: {
   source?: string;
   textExtract?: string | null;

@@ -52,6 +52,7 @@ import { ImageLightbox } from "./image-lightbox";
 import { PresentationPptxPrepareAction } from "./presentation-pptx-prepare-action";
 import {
   getAssistantDocumentPptxPrepareUrl,
+  getAssistantAttachmentPreviewUrl,
   getAssistantFileDownloadUrl
 } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
@@ -1064,6 +1065,7 @@ function resolveVideoPreviewFrame(aspectRatio: number | null): {
 function VideoAttachmentPreview({
   variant,
   fullUrl,
+  previewUrl,
   downloadUrl,
   filename,
   isPending,
@@ -1074,6 +1076,7 @@ function VideoAttachmentPreview({
 }: {
   variant: "default" | "user-media";
   fullUrl: string | null;
+  previewUrl: string | null;
   downloadUrl: string | undefined;
   filename: string | undefined;
   isPending: boolean;
@@ -1110,8 +1113,8 @@ function VideoAttachmentPreview({
     setDurationSec(null);
     setVideoAspectRatio(null);
     setPreviewFrameReady(false);
-    setPreviewThumbnailUrl(null);
-  }, [fullUrl]);
+    setPreviewThumbnailUrl(previewUrl);
+  }, [fullUrl, previewUrl]);
 
   useEffect(() => {
     setShowInlineVideoFrameSurface(canShowInlineVideoFrameSurface());
@@ -1247,21 +1250,31 @@ function AttachmentStrip({
   // Lightbox state is keyed by attachment id so we can open/close
   // independently per image without lifting the state to the message bubble.
   const [openImageId, setOpenImageId] = useState<string | null>(null);
+  const resolveInlinePreviewUrl = useCallback((att: ChatAttachment) => {
+    if (att.fileDeleted === true || att.id.startsWith("local-")) {
+      return null;
+    }
+    return getAssistantAttachmentPreviewUrl({
+      fileRef: att.fileRef,
+      thumbnailFileRef: att.thumbnailFileRef,
+      posterFileRef: att.posterFileRef,
+      attachmentType: att.attachmentType
+    });
+  }, []);
   const galleryImages = useMemo(
     () =>
       attachments
         .filter((att) => att.attachmentType === "image")
         .map((att) => {
           const isDeleted = att.fileDeleted === true;
-          const inlineUrl =
-            isDeleted || att.id.startsWith("local-") || !att.fileRef
-              ? undefined
-              : getAssistantFileDownloadUrl(att.fileRef);
           const downloadUrl =
             isDeleted || att.id.startsWith("local-") || !att.fileRef
               ? undefined
               : getAssistantFileDownloadUrl(att.fileRef, { download: true });
-          const fullUrl = inlineUrl ?? att.localPreviewUrl;
+          const fullUrl =
+            isDeleted || att.id.startsWith("local-") || !att.fileRef
+              ? att.localPreviewUrl
+              : getAssistantFileDownloadUrl(att.fileRef);
           return fullUrl
             ? {
                 id: att.id,
@@ -1273,7 +1286,7 @@ function AttachmentStrip({
             : null;
         })
         .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
-    [attachments]
+    [attachments, resolveInlinePreviewUrl]
   );
   if (attachments.length === 0) return null;
 
@@ -1293,10 +1306,7 @@ function AttachmentStrip({
           isPending && typeof att.uploadProgressPercent === "number"
             ? `${String(att.uploadProgressPercent)}%`
             : null;
-        const inlineUrl =
-          isDeleted || att.id.startsWith("local-") || !att.fileRef
-            ? undefined
-            : getAssistantFileDownloadUrl(att.fileRef);
+        const inlineUrl = resolveInlinePreviewUrl(att) ?? undefined;
         const downloadUrl =
           isDeleted || att.id.startsWith("local-") || !att.fileRef
             ? undefined
@@ -1309,7 +1319,10 @@ function AttachmentStrip({
         })();
 
         if (att.attachmentType === "image") {
-          const fullUrl = inlineUrl ?? previewUrl;
+          const fullUrl =
+            isDeleted || att.id.startsWith("local-") || !att.fileRef
+              ? previewUrl
+              : getAssistantFileDownloadUrl(att.fileRef);
           return (
             <div key={att.id} className="relative">
               {previewUrl ? (
@@ -1410,12 +1423,16 @@ function AttachmentStrip({
         }
 
         if (att.attachmentType === "video") {
-          const fullUrl = inlineUrl ?? previewUrl;
+          const fullUrl =
+            isDeleted || att.id.startsWith("local-") || !att.fileRef
+              ? null
+              : getAssistantFileDownloadUrl(att.fileRef);
           return (
             <VideoAttachmentPreview
               key={att.id}
               variant={variant}
               fullUrl={fullUrl ?? null}
+              previewUrl={previewUrl ?? null}
               downloadUrl={downloadUrl ?? fullUrl ?? undefined}
               filename={att.originalFilename ?? undefined}
               isPending={isPending}

@@ -29,7 +29,7 @@ import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
 import { MediaDeliveryService } from "./media/media-delivery.service";
-import { toRuntimeAttachmentRef } from "./media/media.types";
+import { getAttachmentDerivativeRefs, toRuntimeAttachmentRef } from "./media/media.types";
 import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 import { resolveWelcomeTurnInstruction } from "./send-web-chat-turn.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
@@ -142,9 +142,19 @@ function toAttachmentState(attachment: {
   metadata: Record<string, unknown> | null;
   createdAt: Date;
 }) {
+  const derivativeRefs = getAttachmentDerivativeRefs(attachment.metadata);
   return {
     id: attachment.id,
     fileRef: attachment.assistantFileId,
+    ...(derivativeRefs.thumbnailFileRef !== null
+      ? { thumbnailFileRef: derivativeRefs.thumbnailFileRef }
+      : {}),
+    ...(derivativeRefs.posterFileRef !== null
+      ? { posterFileRef: derivativeRefs.posterFileRef }
+      : {}),
+    ...(derivativeRefs.derivativesStatus !== null
+      ? { derivativesStatus: derivativeRefs.derivativesStatus }
+      : {}),
     attachmentType: attachment.attachmentType,
     originalFilename: attachment.originalFilename,
     mimeType: attachment.mimeType,

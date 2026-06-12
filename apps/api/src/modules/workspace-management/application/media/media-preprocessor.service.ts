@@ -45,7 +45,9 @@ const DOCUMENT_MIMES_WITH_EXTRACTION = new Set([
   ...SPREADSHEET_MIMES
 ]);
 
-const MAX_IMAGE_DIMENSION = 2048;
+const MAX_IMAGE_DIMENSION = 4096;
+const MAX_VISION_IMAGE_DIMENSION = 2048;
+const IMAGE_THUMBNAIL_MAX_EDGE = 256;
 const MAX_TEXT_EXTRACT_CHARS = 50_000;
 
 type MediaPreprocessOptions = {
@@ -170,9 +172,9 @@ export class MediaPreprocessorService {
         // otherwise display rotated 90° in browsers) and strips the tag from
         // the output so the rendered bytes always match their pixel order.
         // `.resize(..., { fit: inside, withoutEnlargement: true })` caps the
-        // long side to MAX_IMAGE_DIMENSION (2048 px) — OpenAI vision rescales
-        // anything larger internally and `gpt-image-1` edits cap output at
-        // 1536×1024, so larger source pixels are pure upload cost.
+        // long side to MAX_IMAGE_DIMENSION (4096 px). Runtime cost control for
+        // ordinary vision happens later via transient resize on the explicit
+        // ordinary-vision path; stored canonical truth stays richer.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let pipeline: any = sharpFn(buffer)
           .rotate()
@@ -245,6 +247,146 @@ export class MediaPreprocessorService {
       width: null,
       height: null
     };
+  }
+
+  async createImageThumbnail(buffer: Buffer): Promise<{
+    buffer: Buffer;
+    mimeType: "image/webp";
+    width: number | null;
+    height: number | null;
+  } | null> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sharpFn = (await this.loadSharp()) as any;
+      if (!sharpFn) {
+        return null;
+      }
+      const result = await sharpFn(buffer)
+        .rotate()
+        .resize(IMAGE_THUMBNAIL_MAX_EDGE, IMAGE_THUMBNAIL_MAX_EDGE, {
+          fit: "inside",
+          withoutEnlargement: true
+        })
+        .webp({ quality: 78 })
+        .toBuffer({ resolveWithObject: true });
+      return {
+        buffer: result.data as Buffer,
+        mimeType: "image/webp",
+        width: (result.info.width as number) ?? null,
+        height: (result.info.height as number) ?? null
+      };
+    } catch (error) {
+      this.logger.warn(`Image thumbnail generation failed: ${String(error)}`);
+      return null;
+    }
+  }
+
+  async createVideoPoster(buffer: Buffer): Promise<{
+    buffer: Buffer;
+    mimeType: "image/jpeg";
+    width: number | null;
+    height: number | null;
+  } | null> {
+    try {
+      const { execFile } = await import("child_process");
+      const { writeFile, readFile, unlink, access } = await import("fs/promises");
+      const { tmpdir } = await import("os");
+      const { join } = await import("path");
+      const { randomUUID } = await import("crypto");
+
+      const id = randomUUID();
+      const inputPath = join(tmpdir(), `persai-video-poster-in-${id}.mp4`);
+      const outputPath = join(tmpdir(), `persai-video-poster-out-${id}.jpg`);
+
+      await writeFile(inputPath, buffer);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          execFile(
+            "ffmpeg",
+            [
+              "-ss",
+              "0.2",
+              "-i",
+              inputPath,
+              "-frames:v",
+              "1",
+              "-vf",
+              `scale='min(${IMAGE_THUMBNAIL_MAX_EDGE},iw)':'min(${IMAGE_THUMBNAIL_MAX_EDGE},ih)':force_original_aspect_ratio=decrease`,
+              outputPath,
+              "-y"
+            ],
+            { timeout: 30_000 },
+            (err) => (err ? reject(err) : resolve())
+          );
+        });
+        await access(outputPath);
+        const posterBuffer = await readFile(outputPath);
+        const thumb = await this.createImageThumbnail(posterBuffer);
+        if (thumb !== null) {
+          return {
+            buffer: thumb.buffer,
+            mimeType: "image/jpeg",
+            width: thumb.width,
+            height: thumb.height
+          };
+        }
+        return {
+          buffer: posterBuffer,
+          mimeType: "image/jpeg",
+          width: null,
+          height: null
+        };
+      } finally {
+        await unlink(inputPath).catch(() => {});
+        await unlink(outputPath).catch(() => {});
+      }
+    } catch (error) {
+      this.logger.warn(`Video poster generation failed: ${String(error)}`);
+      return null;
+    }
+  }
+
+  async resizeImageForOrdinaryVision(buffer: Buffer): Promise<{
+    buffer: Buffer;
+    width: number | null;
+    height: number | null;
+  } | null> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sharpFn = (await this.loadSharp()) as any;
+      if (!sharpFn) {
+        return null;
+      }
+      const metadata = await sharpFn(buffer).metadata();
+      const width = typeof metadata.width === "number" ? metadata.width : null;
+      const height = typeof metadata.height === "number" ? metadata.height : null;
+      if (
+        width === null ||
+        height === null ||
+        (width <= MAX_VISION_IMAGE_DIMENSION && height <= MAX_VISION_IMAGE_DIMENSION)
+      ) {
+        return {
+          buffer,
+          width,
+          height
+        };
+      }
+      const result = await sharpFn(buffer)
+        .rotate()
+        .resize(MAX_VISION_IMAGE_DIMENSION, MAX_VISION_IMAGE_DIMENSION, {
+          fit: "inside",
+          withoutEnlargement: true
+        })
+        .toBuffer({ resolveWithObject: true });
+      return {
+        buffer: result.data as Buffer,
+        width: (result.info.width as number) ?? null,
+        height: (result.info.height as number) ?? null
+      };
+    } catch (error) {
+      this.logger.warn(`Ordinary vision resize failed: ${String(error)}`);
+      return null;
+    }
   }
 
   private async processDocument(

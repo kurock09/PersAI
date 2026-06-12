@@ -588,6 +588,13 @@ export class MediaDeliveryService {
         })
       ).fileRef;
     }
+    if (attachment.assistantFileId !== null) {
+      await this.assistantFileRegistryService.ensureMediaDerivativeTracking({
+        assistantId: attachment.assistantId,
+        workspaceId: attachment.workspaceId,
+        fileRef: attachment.assistantFileId
+      });
+    }
     if (
       artifact.source === "persai_object_storage" &&
       typeof artifact.fileRef !== "string" &&

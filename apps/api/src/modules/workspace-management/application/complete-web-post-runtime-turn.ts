@@ -27,6 +27,7 @@ import type { MediaDeliveryService } from "./media/media-delivery.service";
 import type { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import type { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
+import { getAttachmentDerivativeRefs } from "./media/media.types";
 import type { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AssistantWebChatMessageState } from "./web-chat.types";
 import type { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
@@ -42,9 +43,19 @@ type PersistedSkillState = Awaited<
 type TraceStageRecorder = (stage: string) => void;
 
 function toAttachmentState(attachment: PersistedAttachment) {
+  const derivativeRefs = getAttachmentDerivativeRefs(attachment.metadata);
   return {
     id: attachment.id,
     fileRef: attachment.assistantFileId,
+    ...(derivativeRefs.thumbnailFileRef !== null
+      ? { thumbnailFileRef: derivativeRefs.thumbnailFileRef }
+      : {}),
+    ...(derivativeRefs.posterFileRef !== null
+      ? { posterFileRef: derivativeRefs.posterFileRef }
+      : {}),
+    ...(derivativeRefs.derivativesStatus !== null
+      ? { derivativesStatus: derivativeRefs.derivativesStatus }
+      : {}),
     attachmentType: attachment.attachmentType,
     originalFilename: attachment.originalFilename,
     mimeType: attachment.mimeType,

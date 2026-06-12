@@ -71,6 +71,26 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
+When a change touches chat attachment derivatives, thumbnail/poster selection, or ordinary multimodal image-input resizing, add these focused checks before broad verification:
+
+```bash
+corepack pnpm contracts:generate
+corepack pnpm --filter @persai/api exec tsx test/media-preprocessor.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/assistant-file-registry.cleanup.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx app/app/_components/use-chat.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+```
+
+Interpretation rules:
+
+1. `fileRef` remains canonical full/master truth for runtime, lightbox/playback, and download even when thumbnail/poster refs are present.
+2. Web chat bubbles may prefer `thumbnailFileRef` / `posterFileRef`, but legacy attachments with no derivatives must render correctly through `fileRef` fallback.
+3. Derivative artifacts must not count toward user/workspace storage usage and must be removed together with the parent file.
+4. Ordinary multimodal model-input resizing must be path-based only: ordinary analysis/chat image blocks may transiently shrink, while `image_edit` source/reference inputs keep full/master bytes.
+
 When a change touches Admin Knowledge embedding-model truth, assistant knowledge indexing/search model resolution, or plan removal of `embeddingModelKey`, add these focused checks before broad verification:
 
 ```bash

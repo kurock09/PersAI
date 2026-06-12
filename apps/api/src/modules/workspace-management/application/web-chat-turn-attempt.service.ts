@@ -16,6 +16,7 @@ import type {
   AssistantChatSkillDecisionState
 } from "../domain/assistant-chat.entity";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
+import { getAttachmentDerivativeRefs } from "./media/media.types";
 
 export type WebChatTurnAttemptStatus =
   | "unknown"
@@ -116,9 +117,19 @@ function toAttachmentState(input: {
     input.metadata !== null && typeof input.metadata === "object" && !Array.isArray(input.metadata)
       ? (input.metadata as Record<string, unknown>)
       : null;
+  const derivativeRefs = getAttachmentDerivativeRefs(metadata);
   return {
     id: input.id,
     fileRef: input.assistantFileId,
+    ...(derivativeRefs.thumbnailFileRef !== null
+      ? { thumbnailFileRef: derivativeRefs.thumbnailFileRef }
+      : {}),
+    ...(derivativeRefs.posterFileRef !== null
+      ? { posterFileRef: derivativeRefs.posterFileRef }
+      : {}),
+    ...(derivativeRefs.derivativesStatus !== null
+      ? { derivativesStatus: derivativeRefs.derivativesStatus }
+      : {}),
     attachmentType: input.attachmentType,
     originalFilename: input.originalFilename,
     mimeType: input.mimeType,

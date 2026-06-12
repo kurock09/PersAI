@@ -3,6 +3,47 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-12 - Chat media derivatives
+
+### Baseline
+
+- Starting SHA: `2ef3754d5726ff9f08d4585f282953464123896d` on `main`. This session continued on the already-open founder UI working tree instead of a clean tree because the user explicitly asked to continue implementing the approved attached plan in-place. Scope stayed bounded to the three execution slices of chat media derivatives: canonical storage/contract truth, derivative-first web consumption with legacy fallback, and explicit runtime image-input routing.
+
+### What changed
+
+- `apps/api` now treats chat media derivatives as additive canonical-file metadata instead of a new top-level product service. `AssistantFile.metadata` can carry versioned `mediaDerivatives` truth (`status`, `thumbnail`, `poster`, error/timestamp fields), while hidden derivative `assistant_files` rows are used only as system-owned storage artifacts. Those variant rows are filtered out of user-facing Files reads, carry `logicalSizeBytes = 0` so they do not count toward user/workspace storage usage, and are deleted together with the parent canonical file.
+- Web/media attachment contracts now additively expose `thumbnailFileRef`, `posterFileRef`, and `derivativesStatus` across staged uploads, sync turns, stream turns, completion payloads, and history/list reads. Old attachments with no derivative refs remain valid and automatically fall back to the existing `fileRef` behavior.
+- New image/video files now enter derivative tracking as soon as canonical file truth exists (staged upload, inbound media, or runtime-delivered artifact). A new background `AssistantFileMediaDerivativeSchedulerService` leases pending parent files and uses `AssistantFileMediaDerivativeService` plus the media preprocessor stack to generate image thumbnails and video posters asynchronously instead of blocking upload/delivery completion.
+- Stored image masters are now normalized to the agreed `4K` cap instead of the old `2K` cap. Thumbnail generation is a separate lightweight derivative (`~256px` max edge) rather than overloading the canonical stored image.
+- `apps/web` chat attachment rendering now explicitly prefers derivative refs for inline UI surfaces: image bubbles use `localPreviewUrl -> thumbnailFileRef -> fileRef`, video preview cards use `localPreviewUrl/posterFileRef` for the visible surface, while image lightbox, video playback, and download continue to use canonical `fileRef`. `use-chat` staging/reconciliation was updated so these new derivative fields survive optimistic upload, stream completion, and authoritative history refreshes.
+- `apps/runtime` now applies the image-economics policy on an explicit consumption path instead of by storage mutation or heuristics: ordinary multimodal direct-provider image blocks may be transiently resized to about `2048px` max edge only when the source is larger, while `image_edit` source/reference images still use canonical full/master bytes directly.
+- Docs truth was updated in `API-BOUNDARY.md`, `DATA-MODEL.md`, `TEST-PLAN.md`, and `CHANGELOG.md` to record derivative refs, hidden non-billable system variants, and the explicit ordinary-vision transient resize rule.
+
+### Verification
+
+- `corepack pnpm contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/media-preprocessor.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-file-registry.cleanup.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx app/app/_components/use-chat.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm run test:ci-detect-affected`
+- `corepack pnpm run test:step2`
+
+### Risks / residuals
+
+- The derivative scheduler is intentionally additive and non-blocking. Legacy files without generated variants still work through `fileRef`, so the main residual is performance/UX variance between historical and newly processed media until or unless an optional backfill is added later.
+- Video poster generation depends on the existing ffmpeg-backed media toolchain being available in the API runtime environment. On environments where poster extraction fails, the file stays usable through canonical `fileRef` fallback and records derivative failure state instead of blocking chat media delivery.
+- Runtime ordinary-vision transient resize currently covers the direct-provider multimodal attachment hydration path. If future image-analysis entrypoints are introduced outside that path, they must opt in explicitly rather than assuming derivative/file storage truth changed for them automatically.
+
+### Next recommended step
+
+- Live-check one chat with multiple large image attachments and one video attachment on a slow connection, then decide whether the next bounded follow-up should add optional historical backfill for recent/high-value media or stop at the current fallback-first rollout.
+
 ## 2026-06-12 - HeyGen voice catalog quality hardening + chat media gallery
 
 ### Baseline

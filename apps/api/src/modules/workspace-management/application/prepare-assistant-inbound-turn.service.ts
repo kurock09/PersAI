@@ -28,6 +28,7 @@ import {
 } from "../domain/assistant-chat-message-attachment.repository";
 import type { RuntimeTier } from "./runtime-assignment";
 import type { AssistantChatMode } from "../domain/assistant-chat.entity";
+import { getAttachmentDerivativeRefs } from "./media/media.types";
 import {
   chatModeToDeepModeEnabled,
   isElevatedAssistantChatMode,
@@ -197,6 +198,18 @@ export class PrepareAssistantInboundTurnService {
       )
     );
     const attachmentStates: AssistantWebChatMessageAttachmentState[] = userAttachments.map((a) => ({
+      ...(() => {
+        const refs = getAttachmentDerivativeRefs(
+          a.metadata !== null && typeof a.metadata === "object" && !Array.isArray(a.metadata)
+            ? (a.metadata as Record<string, unknown>)
+            : null
+        );
+        return {
+          ...(refs.thumbnailFileRef !== null ? { thumbnailFileRef: refs.thumbnailFileRef } : {}),
+          ...(refs.posterFileRef !== null ? { posterFileRef: refs.posterFileRef } : {}),
+          ...(refs.derivativesStatus !== null ? { derivativesStatus: refs.derivativesStatus } : {})
+        };
+      })(),
       id: a.id,
       fileRef: a.assistantFileId,
       attachmentType: a.attachmentType,

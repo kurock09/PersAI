@@ -3,7 +3,15 @@ import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { Prisma, type SandboxFileOrigin } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
-import type { AttachmentSemanticSummarySource } from "./media/media.types";
+import {
+  ASSISTANT_FILE_MEDIA_DERIVATIVES_SCHEMA,
+  readAssistantFileMediaDerivatives,
+  withAssistantFileMediaDerivatives,
+  type AssistantFileMediaDerivativeDescriptor,
+  type AssistantFileMediaDerivativesMetadata,
+  type AssistantFileMediaDerivativesStatus,
+  type AttachmentSemanticSummarySource
+} from "./media/media.types";
 import type {
   KnowledgeExtractionQuality,
   KnowledgeProcessingProviderTrace
@@ -19,6 +27,7 @@ const INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_SCHEMA =
   "persai.internalRuntimeFileExtractionCache.v1";
 const INTERNAL_RUNTIME_FILE_EXTRACTION_TEXT_MAX_CHARS = 12_000;
 const INTERNAL_RUNTIME_FILE_EXTRACTION_MARKDOWN_MAX_CHARS = 12_000;
+const ASSISTANT_FILE_SYSTEM_VARIANT_SCHEMA = "persai.mediaDerivativeFile.v1";
 
 export type AssistantFileBucket =
   | "user_files"
@@ -80,6 +89,13 @@ export type AssistantFileCleanupResult = AssistantFileCleanupSummary & {
   deletedCount: number;
   deletedBytes: number;
   skippedPinnedCount: number;
+};
+
+type AssistantFileSystemVariantMetadata = {
+  schema: typeof ASSISTANT_FILE_SYSTEM_VARIANT_SCHEMA;
+  role: "media_derivative";
+  parentFileRef: string;
+  derivativeKind: "thumbnail" | "poster";
 };
 
 export function readAssistantFileInternalRuntimeExtractionCache(
@@ -148,7 +164,9 @@ export class AssistantFileRegistryService {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: input.limit
     });
-    const files = await this.attachDocumentLinks(rows.map((row) => this.mapRow(row)));
+    const files = await this.attachDocumentLinks(
+      rows.filter((row) => !this.isHiddenSystemVariant(row.metadata)).map((row) => this.mapRow(row))
+    );
     return files.filter((file) => file.documentLink?.documentStatus !== "archived");
   }
 
@@ -177,6 +195,9 @@ export class AssistantFileRegistryService {
       }
     });
     if (row === null) {
+      return null;
+    }
+    if (this.isHiddenSystemVariant(row.metadata)) {
       return null;
     }
     const [mapped] = await this.attachDocumentLinks([this.mapRow(row)]);
@@ -231,6 +252,11 @@ export class AssistantFileRegistryService {
     if (existing === null) {
       throw new NotFoundException("File not found.");
     }
+    const derivativeFiles = await this.listMediaDerivativeFiles({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      parentFileRef: input.fileRef
+    });
     const deletedAt = new Date().toISOString();
     const linkedAttachments = await this.prisma.assistantChatMessageAttachment.findMany({
       where: {
@@ -281,10 +307,22 @@ export class AssistantFileRegistryService {
           }
         })
       ),
+      ...(derivativeFiles.length > 0
+        ? [
+            this.prisma.assistantFile.deleteMany({
+              where: { id: { in: derivativeFiles.map((file) => file.fileRef) } }
+            })
+          ]
+        : []),
       this.prisma.assistantFile.delete({
         where: { id: input.fileRef }
       })
     ]);
+    await Promise.all(
+      [existing.objectKey, ...derivativeFiles.map((file) => file.objectKey)].map((objectKey) =>
+        this.mediaObjectStorage.deleteObject(objectKey).catch(() => {})
+      )
+    );
   }
 
   private async archiveDeliveredDocumentFromFilesSurface(input: {
@@ -386,7 +424,6 @@ export class AssistantFileRegistryService {
         workspaceId: input.workspaceId,
         fileRef: file.fileRef
       });
-      await this.mediaObjectStorage.deleteObject(file.objectKey).catch(() => {});
       deletedCount += 1;
       deletedBytes += file.sizeBytes;
     }
@@ -421,6 +458,193 @@ export class AssistantFileRegistryService {
       },
       data: { assistantFileId: input.fileRef }
     });
+    await this.ensureMediaDerivativeTracking({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      fileRef: input.fileRef
+    });
+  }
+
+  async ensureMediaDerivativeTracking(input: {
+    assistantId: string;
+    workspaceId: string;
+    fileRef: string;
+  }): Promise<void> {
+    const existing = await this.prisma.assistantFile.findFirst({
+      where: {
+        id: input.fileRef,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId
+      },
+      select: {
+        id: true,
+        mimeType: true,
+        metadata: true
+      }
+    });
+    if (existing === null || this.isHiddenSystemVariant(existing.metadata)) {
+      return;
+    }
+    const nextMetadata = this.withPendingMediaDerivativesIfNeeded({
+      metadata: this.asMetadataRecord(existing.metadata),
+      mimeType: existing.mimeType
+    });
+    const currentJson = JSON.stringify(this.asMetadataRecord(existing.metadata) ?? {});
+    const nextJson = JSON.stringify(nextMetadata);
+    if (currentJson === nextJson) {
+      return;
+    }
+    await this.prisma.assistantFile.update({
+      where: { id: existing.id },
+      data: {
+        metadata: nextMetadata as Prisma.InputJsonValue
+      }
+    });
+  }
+
+  async listPendingMediaDerivativeParents(limit: number): Promise<AssistantFileRegistryRecord[]> {
+    const rows = await this.prisma.assistantFile.findMany({
+      where: {
+        metadata: {
+          path: ["mediaDerivatives", "status"],
+          equals: "pending"
+        }
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: limit
+    });
+    return rows
+      .filter((row) => !this.isHiddenSystemVariant(row.metadata))
+      .map((row) => this.mapRow(row));
+  }
+
+  async markMediaDerivativesStatus(input: {
+    assistantId: string;
+    workspaceId: string;
+    fileRef: string;
+    status: AssistantFileMediaDerivativesStatus;
+    thumbnail?: AssistantFileMediaDerivativeDescriptor | null | undefined;
+    poster?: AssistantFileMediaDerivativeDescriptor | null | undefined;
+    lastError?: string | null | undefined;
+  }): Promise<AssistantFileRegistryRecord> {
+    const existing = await this.findAssistantFile(input);
+    if (existing === null) {
+      throw new NotFoundException("File not found.");
+    }
+    const current = readAssistantFileMediaDerivatives(existing.metadata);
+    const next: AssistantFileMediaDerivativesMetadata = {
+      schemaVersion: ASSISTANT_FILE_MEDIA_DERIVATIVES_SCHEMA,
+      status: input.status,
+      thumbnail: input.thumbnail !== undefined ? input.thumbnail : (current?.thumbnail ?? null),
+      poster: input.poster !== undefined ? input.poster : (current?.poster ?? null),
+      lastError: input.lastError ?? null,
+      updatedAt: new Date().toISOString()
+    };
+    const metadata = withAssistantFileMediaDerivatives({
+      metadata: existing.metadata,
+      derivatives: next
+    });
+    const row = await this.prisma.assistantFile.update({
+      where: { id: input.fileRef },
+      data: {
+        metadata: (metadata ?? Prisma.DbNull) as Prisma.InputJsonValue
+      }
+    });
+    const derivativeRefs = readAssistantFileMediaDerivatives(
+      metadata as Record<string, unknown> | null
+    );
+    await this.prisma.assistantChatMessageAttachment.updateMany({
+      where: {
+        assistantFileId: input.fileRef,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId
+      },
+      data: {
+        metadata: {
+          ...(derivativeRefs?.thumbnail?.fileRef !== undefined
+            ? { thumbnailFileRef: derivativeRefs.thumbnail.fileRef }
+            : {}),
+          ...(derivativeRefs?.poster?.fileRef !== undefined
+            ? { posterFileRef: derivativeRefs.poster.fileRef }
+            : {}),
+          ...(derivativeRefs?.status !== undefined
+            ? { derivativesStatus: derivativeRefs.status }
+            : {}),
+          ...(input.lastError !== undefined && input.lastError !== null
+            ? { derivativesLastError: input.lastError }
+            : {})
+        } as Prisma.InputJsonValue
+      }
+    });
+    return this.mapRow(row);
+  }
+
+  async upsertMediaDerivativeFile(input: {
+    assistantId: string;
+    workspaceId: string;
+    parentFileRef: string;
+    parentOrigin: SandboxFileOrigin;
+    derivativeKind: "thumbnail" | "poster";
+    objectKey: string;
+    filename: string | null;
+    mimeType: string;
+    sizeBytes: bigint;
+    width: number | null;
+    height: number | null;
+  }): Promise<AssistantFileMediaDerivativeDescriptor> {
+    const relativePath = this.buildDerivativeRelativePath({
+      parentFileRef: input.parentFileRef,
+      derivativeKind: input.derivativeKind,
+      filename: input.filename,
+      mimeType: input.mimeType
+    });
+    const metadata: AssistantFileSystemVariantMetadata = {
+      schema: ASSISTANT_FILE_SYSTEM_VARIANT_SCHEMA,
+      role: "media_derivative",
+      parentFileRef: input.parentFileRef,
+      derivativeKind: input.derivativeKind
+    };
+    const row = await this.prisma.assistantFile.upsert({
+      where: {
+        assistantId_workspaceId_origin_objectKey: {
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          origin: input.parentOrigin,
+          objectKey: input.objectKey
+        }
+      },
+      update: {
+        relativePath,
+        displayName: input.filename,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
+        logicalSizeBytes: BigInt(0),
+        metadata: metadata as unknown as Prisma.InputJsonValue
+      },
+      create: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        sandboxJobId: null,
+        origin: input.parentOrigin,
+        sourceToolCode: null,
+        objectKey: input.objectKey,
+        relativePath,
+        displayName: input.filename,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
+        logicalSizeBytes: BigInt(0),
+        sha256: null,
+        metadata: metadata as unknown as Prisma.InputJsonValue
+      }
+    });
+    return {
+      fileRef: row.id,
+      objectKey: input.objectKey,
+      mimeType: input.mimeType,
+      width: input.width,
+      height: input.height,
+      sizeBytes: Number(input.sizeBytes)
+    };
   }
 
   async ensureAttachmentFile(input: {
@@ -457,6 +681,10 @@ export class AssistantFileRegistryService {
             semanticSummarySource: input.semanticSummarySource ?? null
           })
     };
+    const metadataWithDerivativeTracking = this.withPendingMediaDerivativesIfNeeded({
+      metadata,
+      mimeType: input.mimeType
+    });
     const sha256 =
       input.contentBuffer === undefined
         ? null
@@ -477,7 +705,7 @@ export class AssistantFileRegistryService {
         sizeBytes: input.sizeBytes,
         logicalSizeBytes: input.sizeBytes,
         ...(sha256 === null ? {} : { sha256 }),
-        metadata: metadata as Prisma.InputJsonValue
+        metadata: metadataWithDerivativeTracking as Prisma.InputJsonValue
       },
       create: {
         assistantId: input.assistantId,
@@ -492,7 +720,7 @@ export class AssistantFileRegistryService {
         sizeBytes: input.sizeBytes,
         logicalSizeBytes: input.sizeBytes,
         sha256,
-        metadata: metadata as Prisma.InputJsonValue
+        metadata: metadataWithDerivativeTracking as Prisma.InputJsonValue
       }
     });
 
@@ -578,6 +806,12 @@ export class AssistantFileRegistryService {
       : {};
   }
 
+  private asMetadataRecord(metadata: unknown): Record<string, unknown> | null {
+    return metadata !== null && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, unknown>)
+      : null;
+  }
+
   private serializeJsonObject(value: Record<string, unknown>): Prisma.InputJsonObject {
     return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonObject;
   }
@@ -605,6 +839,18 @@ export class AssistantFileRegistryService {
       return `${referenceId}.${subtype || "video"}`;
     }
     return `${referenceId}.bin`;
+  }
+
+  private buildDerivativeRelativePath(input: {
+    parentFileRef: string;
+    derivativeKind: "thumbnail" | "poster";
+    filename: string | null;
+    mimeType: string;
+  }): string {
+    const basename = this.sanitizeAttachmentFilename(
+      input.filename ?? this.deriveFilenameFromMime(input.derivativeKind, input.mimeType)
+    );
+    return `system/derivatives/${input.parentFileRef}/${input.derivativeKind}/${basename}`;
   }
 
   private summarizeCleanupFromFiles(
@@ -754,6 +1000,73 @@ export class AssistantFileRegistryService {
       documentLink: null,
       createdAt: row.createdAt
     };
+  }
+
+  private readSystemVariantMetadata(metadata: unknown): AssistantFileSystemVariantMetadata | null {
+    const row = this.asMetadataRecord(metadata);
+    if (
+      row?.schema !== ASSISTANT_FILE_SYSTEM_VARIANT_SCHEMA ||
+      row.role !== "media_derivative" ||
+      typeof row.parentFileRef !== "string" ||
+      (row.derivativeKind !== "thumbnail" && row.derivativeKind !== "poster")
+    ) {
+      return null;
+    }
+    return {
+      schema: ASSISTANT_FILE_SYSTEM_VARIANT_SCHEMA,
+      role: "media_derivative",
+      parentFileRef: row.parentFileRef,
+      derivativeKind: row.derivativeKind
+    };
+  }
+
+  private isHiddenSystemVariant(metadata: unknown): boolean {
+    return this.readSystemVariantMetadata(metadata) !== null;
+  }
+
+  private withPendingMediaDerivativesIfNeeded(input: {
+    metadata: Record<string, unknown> | null | undefined;
+    mimeType: string;
+  }): Record<string, unknown> {
+    const current = readAssistantFileMediaDerivatives(input.metadata);
+    if (!input.mimeType.startsWith("image/") && !input.mimeType.startsWith("video/")) {
+      return { ...(input.metadata ?? {}) };
+    }
+    if (current?.status === "ready") {
+      return { ...(input.metadata ?? {}) };
+    }
+    const next: AssistantFileMediaDerivativesMetadata = {
+      schemaVersion: ASSISTANT_FILE_MEDIA_DERIVATIVES_SCHEMA,
+      status: "pending",
+      thumbnail: current?.thumbnail ?? null,
+      poster: current?.poster ?? null,
+      lastError: current?.lastError ?? null,
+      updatedAt: new Date().toISOString()
+    };
+    return (
+      withAssistantFileMediaDerivatives({
+        metadata: input.metadata,
+        derivatives: next
+      }) ?? {}
+    );
+  }
+
+  private async listMediaDerivativeFiles(input: {
+    assistantId: string;
+    workspaceId: string;
+    parentFileRef: string;
+  }): Promise<AssistantFileRegistryRecord[]> {
+    const rows = await this.prisma.assistantFile.findMany({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId
+      }
+    });
+    return rows
+      .filter(
+        (row) => this.readSystemVariantMetadata(row.metadata)?.parentFileRef === input.parentFileRef
+      )
+      .map((row) => this.mapRow(row));
   }
 
   private truncateExtractionCacheValue(value: string, maxChars: number): string {

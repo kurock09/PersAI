@@ -600,6 +600,19 @@ function reconcileAuthoritativeAssistantContent(
   );
   return `${workingPrefix}${authoritativeContent}`;
 }
+
+function toChatAttachment(
+  attachment: ChatHistoryAttachment,
+  options?: { localPreviewUrl?: string | undefined; uploadProgressPercent?: number | undefined }
+): ChatAttachment {
+  return {
+    ...attachment,
+    ...(options?.localPreviewUrl !== undefined ? { localPreviewUrl: options.localPreviewUrl } : {}),
+    ...(options?.uploadProgressPercent !== undefined
+      ? { uploadProgressPercent: options.uploadProgressPercent }
+      : {})
+  };
+}
 function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null | undefined): {
   messages: ChatMessage[];
   liveActivitiesByMessageId: Record<string, LiveActivityEvent>;
@@ -2651,14 +2664,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   URL.revokeObjectURL(prevEntry.localPreviewUrl);
                 }
                 next[i] = {
-                  id: u.id,
-                  fileRef: u.fileRef,
-                  attachmentType: u.attachmentType,
-                  originalFilename: u.originalFilename ?? file.name,
-                  mimeType: u.mimeType,
-                  sizeBytes: u.sizeBytes,
-                  processingStatus: u.processingStatus as ChatAttachment["processingStatus"],
-                  createdAt: u.createdAt,
+                  ...toChatAttachment({
+                    ...u,
+                    originalFilename: u.originalFilename ?? file.name,
+                    processingStatus: u.processingStatus as ChatAttachment["processingStatus"]
+                  }),
                   uploadProgressPercent: undefined,
                   localPreviewUrl: undefined
                 };
@@ -3045,7 +3055,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const assistantAttachments =
             Array.isArray(t?.assistantMessage?.attachments) &&
             t.assistantMessage.attachments.length > 0
-              ? (t.assistantMessage.attachments as ChatAttachment[])
+              ? t.assistantMessage.attachments.map((attachment) => toChatAttachment(attachment))
               : undefined;
           const followUpAssistantMessage =
             typeof t?.followUpAssistantMessage?.id === "string" &&
@@ -3058,7 +3068,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   attachments:
                     Array.isArray(t.followUpAssistantMessage.attachments) &&
                     t.followUpAssistantMessage.attachments.length > 0
-                      ? (t.followUpAssistantMessage.attachments as ChatAttachment[])
+                      ? t.followUpAssistantMessage.attachments.map((attachment) =>
+                          toChatAttachment(attachment)
+                        )
                       : undefined
                 } satisfies ChatMessage)
               : null;
@@ -3091,16 +3103,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 }
                 const nextUserAtts =
                   userServerAttachments !== undefined && userServerAttachments.length > 0
-                    ? userServerAttachments.map((a) => ({
-                        id: a.id,
-                        fileRef: a.fileRef,
-                        attachmentType: a.attachmentType,
-                        originalFilename: a.originalFilename,
-                        mimeType: a.mimeType,
-                        sizeBytes: a.sizeBytes,
-                        processingStatus: a.processingStatus,
-                        createdAt: a.createdAt
-                      }))
+                    ? userServerAttachments.map((a) => toChatAttachment(a))
                     : (m.attachments ?? []).map((a) => {
                         const next = { ...a };
                         delete next.localPreviewUrl;
@@ -3641,7 +3644,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               const assistantAttachments =
                 Array.isArray(t?.assistantMessage?.attachments) &&
                 t.assistantMessage.attachments.length > 0
-                  ? (t.assistantMessage.attachments as ChatAttachment[])
+                  ? t.assistantMessage.attachments.map((attachment) => toChatAttachment(attachment))
                   : undefined;
               setMessages((prev) =>
                 prev.map((m) =>
