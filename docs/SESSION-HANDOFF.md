@@ -3,6 +3,37 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-12 - Chat working-text stream cleanup
+
+### Baseline
+
+- Starting SHA: `5e4cfcd747866d2e95a00a3af825909ec64e66a5` on `main`. Continued on the current working tree with accepted parallel founder UI WIP in `apps/web/app/app/_components/sidebar.tsx`. Scope stayed bounded to chat streaming UX/runtime prompt hygiene: remove the old progress-text parsing heuristic, split pre-tool live working notes from the final answer cleanly, and keep inline cursor status visible across later tool passes in both normal and project chat modes.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts` now wraps already-streamed assistant prefixes into persisted `:::working` markdown blocks when the live turn enters a tool/retrieval/project follow-up pass. This preserves immediate streaming while cleanly separating "working text" from the final answer without delaying first-token rendering or needing a parallel `workingBlocks` state.
+- `apps/web/app/app/_components/chat-message.tsx` now parses those persisted `:::working` blocks and renders them as compact quieter assistant blocks above the final/live answer, and the inline status beside the cursor no longer disappears just because the assistant has already started visible reply text.
+- `apps/web/app/app/_components/chat-area.tsx` now keeps passing the active inline status into the streaming assistant bubble even after content has started, which closes the second-pass tool-loop gap where `Ищу в интернете`-style status used to vanish.
+- `apps/web/app/app/_components/chat-message-streaming.ts` no longer contains the old regex-based progress splitting/line-break heuristic. Markdown rendering now receives the assistant text as-is; structured demotion owns the separation instead of text parsing.
+- `apps/runtime/src/modules/turns/turn-execution.service.ts` no longer tries to trim already-streamed pre-tool prefixes out of the finalized assistant text. Persisted chat truth now stays in markdown, with the working-note separation owned by explicit `:::working` blocks instead of brittle post-hoc cleanup.
+- `apps/runtime/src/modules/turns/project-execution-profile.ts` no longer instructs the model to emit UI-parseable bullet/newline progress formatting; project guidance now tells the model to keep working notes short/natural instead.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx app/app/_components/chat-area.test.tsx app/app/_components/chat-message-streaming.test.ts app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / residuals
+
+- This slice intentionally changes live chat rendering semantics. The main residual risk is visual tuning rather than protocol correctness: if founder review wants the working blocks even quieter/lighter or wants a different custom marker than `:::working`, that is now a bounded style/format follow-up on top of the cleaned structure.
+- The accepted parallel `sidebar.tsx` founder WIP remains in the working tree and was intentionally left untouched by this slice.
+
+### Next recommended step
+
+- Live-review one normal tool-loop turn and one project-mode multi-pass turn, then decide only on final visual tuning of the persisted `:::working` block styling/marker.
+
 ## 2026-06-12 - Setup recreate UX quiet cleanup
 
 ### Baseline

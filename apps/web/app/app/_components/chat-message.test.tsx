@@ -812,7 +812,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByText("activityKnowledgeSearchDone")).toBeInTheDocument();
   });
 
-  it("hides pre-response status after text starts streaming", () => {
+  it("keeps pre-response status visible after text starts streaming", () => {
     render(
       <ChatMessageBubble
         message={makeAssistantMessage({ content: "Hello" })}
@@ -820,8 +820,31 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.queryByText("preResponseThinking")).toBeNull();
+    expect(screen.getByText("preResponseThinking")).toBeInTheDocument();
     expect(screen.getByText("Hello")).toBeInTheDocument();
+  });
+
+  it("renders prior working blocks separately from the live answer", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          content: `:::working
+Смотрю документацию HeyGen.
+:::
+
+:::working
+Открываю точную страницу API.
+:::
+
+Да. Вот итог.`
+        })}
+        preResponseStatus={{ kind: "thinking" }}
+      />
+    );
+
+    expect(screen.getByText("Смотрю документацию HeyGen.")).toBeInTheDocument();
+    expect(screen.getByText("Открываю точную страницу API.")).toBeInTheDocument();
+    expect(screen.getByText("Да. Вот итог.")).toBeInTheDocument();
   });
 });
 

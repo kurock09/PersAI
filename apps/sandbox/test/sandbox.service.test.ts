@@ -78,17 +78,18 @@ type SandboxServiceTestAccess = {
 const RETRYABLE_WINDOWS_RM_CODES = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
 
 async function removePathWithRetries(path: string): Promise<void> {
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
     try {
       await fs.rm(path, { recursive: true, force: true });
       return;
     } catch (error) {
       const code = error instanceof Error && "code" in error ? String(error.code) : null;
-      if (!code || !RETRYABLE_WINDOWS_RM_CODES.has(code) || attempt === 5) {
+      if (!code || !RETRYABLE_WINDOWS_RM_CODES.has(code) || attempt === 20) {
         throw error;
       }
-      // Windows can keep a just-killed child process directory briefly locked.
-      await new Promise((resolve) => setTimeout(resolve, attempt * 100));
+      // Windows can keep a just-killed child process directory briefly locked,
+      // especially under the shared tmpdir sandbox root used across this suite.
+      await new Promise((resolve) => setTimeout(resolve, Math.min(2_000, attempt * 150)));
     }
   }
 }

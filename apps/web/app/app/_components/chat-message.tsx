@@ -44,8 +44,8 @@ import { AssistantAvatar } from "./assistant-avatar";
 import { getActivityDisplayParts, type ActivityEvent } from "./activity-badge";
 import {
   buildStreamingMarkdownTailPreview,
-  normalizeAssistantVisibleProgress,
-  splitStreamingMarkdownContent
+  splitStreamingMarkdownContent,
+  splitWorkingMarkdownContent
 } from "./chat-message-streaming";
 import { VoiceMessagePlayer } from "./voice-message-player";
 import { ImageLightbox } from "./image-lightbox";
@@ -754,16 +754,33 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 function MarkdownFragment({ content }: { content: string }) {
-  const normalizedContent = useMemo(() => normalizeAssistantVisibleProgress(content), [content]);
-
   return (
     <ReactMarkdown
       remarkPlugins={MARKDOWN_REMARK_PLUGINS}
       rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
       components={markdownComponents}
     >
-      {normalizedContent}
+      {content}
     </ReactMarkdown>
+  );
+}
+
+function WorkingTextBlocks({ blocks }: { blocks: string[] }) {
+  const visibleBlocks = blocks.filter((block) => block.trim().length > 0);
+  if (visibleBlocks.length === 0) {
+    return null;
+  }
+  return (
+    <div className="mb-2.5 space-y-1.5">
+      {visibleBlocks.map((block, index) => (
+        <div
+          key={`${index}-${block}`}
+          className="rounded-2xl border border-border/55 bg-surface-raised/35 px-3 py-2 text-[13px] leading-relaxed text-text-muted/90"
+        >
+          <MarkdownFragment content={block} />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1481,8 +1498,15 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const tSend = useTranslations("send");
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming" && message.role === "assistant";
-  const showPreResponseStatus =
-    isStreaming && message.content.trim().length === 0 && preResponseStatus !== undefined;
+  const assistantSegments = useMemo(
+    () =>
+      message.role === "assistant"
+        ? splitWorkingMarkdownContent(message.content)
+        : { workingBlocks: [], answerText: message.content },
+    [message.content, message.role]
+  );
+  const hasWorkingBlocks = assistantSegments.workingBlocks.length > 0;
+  const showPreResponseStatus = isStreaming && preResponseStatus !== undefined;
   const isUserSending =
     isUser && (message.status === "sending" || message.status === "reconciling");
   const isUserSendFailed = isUser && message.status.startsWith("send_failed");
@@ -1666,27 +1690,34 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         ) : (
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
-            {showPreResponseStatus ? (
-              <InlineStreamingStatus
-                preResponseStatus={preResponseStatus}
-                showShadowRoutingLabel={showShadowRoutingLabel}
-              />
-            ) : (
+            <WorkingTextBlocks blocks={assistantSegments.workingBlocks} />
+            {isStreaming ? (
               <>
-                {isStreaming ? (
+                {assistantSegments.answerText.trim().length > 0 ? (
                   <StreamingMarkdownMessageContent
-                    content={message.content}
+                    content={assistantSegments.answerText}
                     onAction={onAssistantAction}
                   />
-                ) : (
-                  <MarkdownMessageContent content={message.content} onAction={onAssistantAction} />
-                )}
-
-                {/* Streaming cursor */}
-                {isStreaming && (
-                  <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
+                ) : null}
+                {(showPreResponseStatus ||
+                  assistantSegments.answerText.trim().length > 0 ||
+                  hasWorkingBlocks) && (
+                  <span className="inline-flex items-center gap-2 align-middle">
+                    {showPreResponseStatus ? (
+                      <InlineStreamingStatus
+                        preResponseStatus={preResponseStatus}
+                        showShadowRoutingLabel={showShadowRoutingLabel}
+                      />
+                    ) : null}
+                    <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
+                  </span>
                 )}
               </>
+            ) : (
+              <MarkdownMessageContent
+                content={assistantSegments.answerText}
+                onAction={onAssistantAction}
+              />
             )}
             {message.attachments && message.attachments.length > 0 && (
               <AttachmentStrip

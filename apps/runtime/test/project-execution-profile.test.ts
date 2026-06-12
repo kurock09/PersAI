@@ -121,7 +121,13 @@ describe("project-execution-profile", () => {
     assert.match(PROJECT_EXECUTION_DEVELOPER_CONTRACT, /synthesize/);
     assert.match(PROJECT_EXECUTION_DEVELOPER_CONTRACT, /not proof of sufficiency/);
     assert.match(PROJECT_EXECUTION_DEVELOPER_CONTRACT, /external verification/);
-    assert.match(PROJECT_EXECUTION_DEVELOPER_CONTRACT, /one short line on its own line/);
-    assert.match(PROJECT_EXECUTION_DEVELOPER_CONTRACT, /Status 2\/6/);
+    assert.match(
+      PROJECT_EXECUTION_DEVELOPER_CONTRACT,
+      /keep any visible working text short and concrete/
+    );
+    assert.match(
+      PROJECT_EXECUTION_DEVELOPER_CONTRACT,
+      /Do not format progress as long paragraphs, numbered status ladders, or repeated bullet prefixes/
+    );
   });
 });

@@ -575,7 +575,6 @@ export function ChatArea({
                 entry.kind === "message" &&
                 entry.message.role === "assistant" &&
                 entry.message.status === "streaming" &&
-                entry.message.content.trim().length === 0 &&
                 !previousUserIsSending
                   ? nextEntry?.kind === "activity"
                     ? { kind: "activity" as const, event: nextEntry.event }

@@ -241,7 +241,11 @@ describe("useChat", () => {
           kind: "message",
           message: expect.objectContaining({
             role: "assistant",
-            content: "Preface "
+            content: `:::working
+Preface
+:::
+
+`
           })
         }),
         expect.objectContaining({

@@ -1,36 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildStreamingMarkdownTailPreview,
-  normalizeAssistantVisibleProgress,
-  splitStreamingMarkdownContent
+  splitStreamingMarkdownContent,
+  splitWorkingMarkdownContent,
+  appendWorkingMarkdownBlock
 } from "./chat-message-streaming";
-
-describe("normalizeAssistantVisibleProgress", () => {
-  it("splits inline progress markers onto separate lines", () => {
-    expect(
-      normalizeAssistantVisibleProgress(
-        "· Проверю список файлов в проекте. · Проверяю вложения точнее. · Проверяю вложения ещё раз."
-      )
-    ).toBe(
-      "· Проверю список файлов в проекте.\n· Проверяю вложения точнее.\n· Проверяю вложения ещё раз."
-    );
-  });
-
-  it("separates the final answer from the last progress line", () => {
-    expect(
-      normalizeAssistantVisibleProgress(
-        "· Проверяю вложения точнее, чтобы назвать доступный файл без путаницы. Да. Сейчас вижу один файл:"
-      )
-    ).toBe(
-      "· Проверяю вложения точнее, чтобы назвать доступный файл без путаницы.\n\nДа. Сейчас вижу один файл:"
-    );
-  });
-
-  it("leaves already well-formatted progress blocks unchanged", () => {
-    const content = "· Проверяю локальные файлы\n· Сверяю внешний реф\n· Собираю итог";
-    expect(normalizeAssistantVisibleProgress(content)).toBe(content);
-  });
-});
 
 describe("splitStreamingMarkdownContent", () => {
   it("keeps completed heading blocks stable while the next block streams", () => {
@@ -77,5 +51,50 @@ describe("splitStreamingMarkdownContent", () => {
     expect(buildStreamingMarkdownTailPreview("$$\na^2 + b^2 = c^2")).toBe(
       "$$\na^2 + b^2 = c^2\n$$"
     );
+  });
+});
+
+describe("working markdown helpers", () => {
+  it("splits persisted working blocks from the final answer", () => {
+    expect(
+      splitWorkingMarkdownContent(`:::working
+Смотрю файлы.
+:::
+
+:::working
+Сверяю контракт.
+:::
+
+Готово.`)
+    ).toEqual({
+      workingBlocks: ["Смотрю файлы.", "Сверяю контракт."],
+      answerText: "Готово."
+    });
+  });
+
+  it("wraps the current answer tail into a working block", () => {
+    expect(appendWorkingMarkdownBlock("Проверяю локальные файлы.")).toBe(`:::working
+Проверяю локальные файлы.
+:::
+
+`);
+  });
+
+  it("appends a later working block after existing ones", () => {
+    expect(
+      appendWorkingMarkdownBlock(`:::working
+Проверяю локальные файлы.
+:::
+
+Сверяю контракт.`)
+    ).toBe(`:::working
+Проверяю локальные файлы.
+:::
+
+:::working
+Сверяю контракт.
+:::
+
+`);
   });
 });

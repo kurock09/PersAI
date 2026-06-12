@@ -152,7 +152,7 @@ describe("assistant response blocks", () => {
     expect(paragraph?.textContent).toContain("· Проверяю локальные файлы\n· Сверяю внешний реф");
   });
 
-  it("normalizes inline progress markers into separate lines during render", () => {
+  it("keeps inline progress markers untouched inside the final assistant content", () => {
     const { container } = render(
       <ChatMessageBubble
         message={assistantMessage(
@@ -163,7 +163,7 @@ describe("assistant response blocks", () => {
 
     const paragraph = container.querySelector("p.whitespace-pre-wrap");
     expect(paragraph?.textContent).toContain(
-      "· Проверю список файлов.\n· Проверяю вложения точнее."
+      "· Проверю список файлов. · Проверяю вложения точнее. · Проверяю вложения ещё раз."
     );
   });
 

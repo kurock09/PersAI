@@ -448,6 +448,48 @@ describe("ChatArea", () => {
     });
   });
 
+  it("keeps the next activity attached after assistant text already started streaming", () => {
+    const assistantMessage: ChatMessage = {
+      id: "local-assistant-1",
+      role: "assistant",
+      content: "Hi",
+      status: "streaming"
+    };
+    const baseChat = createChat("", { isStreaming: true });
+
+    render(
+      <ChatArea
+        chat={{
+          ...baseChat,
+          entries: [
+            { kind: "message", message: assistantMessage },
+            {
+              kind: "activity",
+              event: {
+                id: "activity-1",
+                type: "tool_use",
+                label: "knowledge_search_finished"
+              }
+            }
+          ],
+          messages: [assistantMessage]
+        }}
+      />
+    );
+
+    const assistantProps = chatMessageBubbleMock.mock.calls.find(
+      ([props]) => props.message.id === "local-assistant-1"
+    )?.[0];
+    expect(assistantProps?.preResponseStatus).toEqual({
+      kind: "activity",
+      event: {
+        id: "activity-1",
+        type: "tool_use",
+        label: "knowledge_search_finished"
+      }
+    });
+  });
+
   it("renders media-package billing return copy instead of subscription copy", () => {
     render(
       <ChatArea

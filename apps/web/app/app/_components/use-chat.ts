@@ -34,6 +34,7 @@ import {
 } from "../assistant-api-client";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
+import { appendWorkingMarkdownBlock } from "./chat-message-streaming";
 import { dispatchProjectFilesChanged } from "./project-files-events";
 import { scopeThreadKey, useStreamingThreadsRegistry } from "./streaming-threads";
 /** * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server * does not return 2xx headers within this window, the request is aborted * and the user bubble flips to "send_failed". 10s is well above normal * server response time but short enough to feel responsive on flaky * mobile networks. (ADR-075 T� "Single-slot pending send".) */ const HEADERS_TIMEOUT_MS = 10_000;
@@ -547,6 +548,25 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
     attachments:
       message.attachments.length > 0 ? (message.attachments as ChatAttachment[]) : undefined
   };
+}
+
+function demoteStreamingAssistantPrefix(
+  messages: ChatMessage[],
+  assistantMessageId: string
+): ChatMessage[] {
+  return messages.map((message) => {
+    if (message.id !== assistantMessageId || message.role !== "assistant") {
+      return message;
+    }
+    const nextContent = appendWorkingMarkdownBlock(message.content);
+    if (nextContent === message.content) {
+      return message;
+    }
+    return {
+      ...message,
+      content: nextContent
+    };
+  });
 }
 function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null | undefined): {
   messages: ChatMessage[];
@@ -1957,6 +1977,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 if (assistantMessageId === null) {
                   return;
                 }
+                if (phase === "start") {
+                  applyThreadMessages(targetThreadKey, (prev) =>
+                    demoteStreamingAssistantPrefix(prev, assistantMessageId)
+                  );
+                }
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
                   [assistantMessageId]: mergeLiveActivity(
@@ -1976,6 +2001,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 if (assistantMessageId === null) {
                   return;
                 }
+                applyThreadMessages(targetThreadKey, (prev) =>
+                  demoteStreamingAssistantPrefix(prev, assistantMessageId)
+                );
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
                   [assistantMessageId]: mergeLiveActivity(
@@ -1994,6 +2022,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 if (assistantMessageId === null) {
                   return;
                 }
+                applyThreadMessages(targetThreadKey, (prev) =>
+                  demoteStreamingAssistantPrefix(prev, assistantMessageId)
+                );
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
                   [assistantMessageId]: mergeLiveActivity(
@@ -2012,6 +2043,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 if (assistantMessageId === null) {
                   return;
                 }
+                applyThreadMessages(targetThreadKey, (prev) =>
+                  demoteStreamingAssistantPrefix(prev, assistantMessageId)
+                );
                 applyThreadLiveActivities(targetThreadKey, (prev) => {
                   const nextActivity = buildRetrievalLiveActivity(
                     {
@@ -2808,6 +2842,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           isError: boolean;
         }) => {
           flushBufferedAssistantState(true);
+          if (phase === "start") {
+            applyThreadMessages(sendThreadKey, (prev) =>
+              demoteStreamingAssistantPrefix(prev, assistantMsgId)
+            );
+          }
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
             [assistantMsgId]: mergeLiveActivity(
@@ -2831,6 +2870,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           detail?: string | null;
         }) => {
           flushBufferedAssistantState(true);
+          applyThreadMessages(sendThreadKey, (prev) =>
+            demoteStreamingAssistantPrefix(prev, assistantMsgId)
+          );
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
             [assistantMsgId]: mergeLiveActivity(
@@ -2852,6 +2894,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           detail?: string | null;
         }) => {
           flushBufferedAssistantState(true);
+          applyThreadMessages(sendThreadKey, (prev) =>
+            demoteStreamingAssistantPrefix(prev, assistantMsgId)
+          );
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
             [assistantMsgId]: mergeLiveActivity(
@@ -2965,8 +3010,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const realUserMsgId = typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
           const newAssistantId =
             typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
-          const authoritativeAssistantContent =
-            typeof t?.assistantMessage?.content === "string" ? t.assistantMessage.content : null;
           const assistantAttachments =
             Array.isArray(t?.assistantMessage?.attachments) &&
             t.assistantMessage.attachments.length > 0
@@ -2996,6 +3039,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           applyThreadMessages(sendThreadKey, (prev) => {
             const mapped = prev.map((m) => {
               if (m.id === assistantMsgId) {
+                const authoritativeAssistantContent =
+                  typeof t?.assistantMessage?.content === "string"
+                    ? t.assistantMessage.content
+                    : null;
                 return {
                   ...m,
                   ...(newAssistantId ? { id: newAssistantId } : {}),
@@ -3169,8 +3216,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           } | null;
           const newAssistantId =
             typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
-          const authoritativeAssistantContent =
-            typeof t?.assistantMessage?.content === "string" ? t.assistantMessage.content : null;
           applyThreadMessages(sendThreadKey, (prev) =>
             prev.flatMap((m) => {
               if (
@@ -3185,6 +3230,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               if (m.id !== assistantMsgId) {
                 return [m];
               }
+              const authoritativeAssistantContent =
+                typeof t?.assistantMessage?.content === "string"
+                  ? t.assistantMessage.content
+                  : null;
               const nextContent = authoritativeAssistantContent ?? m.content;
               return [
                 {
@@ -3228,8 +3277,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           } | null;
           const newAssistantId =
             typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
-          const authoritativeAssistantContent =
-            typeof t?.assistantMessage?.content === "string" ? t.assistantMessage.content : null;
           applyThreadMessages(sendThreadKey, (prev) =>
             prev.flatMap((m) => {
               if (
@@ -3244,6 +3291,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               if (m.id !== assistantMsgId) {
                 return [m];
               }
+              const authoritativeAssistantContent =
+                typeof t?.assistantMessage?.content === "string"
+                  ? t.assistantMessage.content
+                  : null;
               return [
                 {
                   ...m,

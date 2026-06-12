@@ -3,31 +3,13 @@ export interface StreamingMarkdownSegments {
   liveTail: string;
 }
 
-const INLINE_PROGRESS_STATUS =
-  /(?<=\S)\s+·\s+(?=(?:Провер|Свер|Собир|Ищу|Чита|Смотр|Уточн|Gather|Check|Read|Look|Scan|Review))/giu;
-
-const PROGRESS_LINE_WITH_ANSWER =
-  /^(·[^\n]+?\.\s+)(?!(?:Провер|Свер|Собир|Ищу|Чита|Смотр|Уточн|Gather|Check|Read|Look|Scan|Review))([А-ЯA-ZЁ][^\n]*)$/u;
-
-/**
- * Models are instructed to emit each visible progress line on its own line with a
- * leading "· ", but often concatenate them inline as "… · Проверяю …". Markdown
- * paragraphs only preserve breaks when "\n" is present, so normalize before render.
- */
-export function normalizeAssistantVisibleProgress(content: string): string {
-  const normalized = content.replace(/\r\n/g, "\n").replace(INLINE_PROGRESS_STATUS, "\n· ");
-
-  return normalized
-    .split("\n")
-    .map((line) => {
-      const match = line.match(PROGRESS_LINE_WITH_ANSWER);
-      if (!match) {
-        return line;
-      }
-      return `${match[1]!.trimEnd()}\n\n${match[2]!.trimStart()}`;
-    })
-    .join("\n");
+export interface WorkingMarkdownSegments {
+  workingBlocks: string[];
+  answerText: string;
 }
+
+const WORKING_BLOCK_OPEN = ":::working\n";
+const WORKING_BLOCK_CLOSE = "\n:::";
 
 interface StreamingMarkdownScanState {
   lastStableOffset: number;
@@ -151,4 +133,46 @@ export function buildStreamingMarkdownTailPreview(content: string): string {
   }
 
   return preview;
+}
+
+function formatWorkingMarkdownBlock(content: string): string {
+  return `${WORKING_BLOCK_OPEN}${content.trim()}\n:::`;
+}
+
+export function splitWorkingMarkdownContent(content: string): WorkingMarkdownSegments {
+  const normalized = content.replace(/\r\n/g, "\n");
+  const workingBlocks: string[] = [];
+  let cursor = 0;
+
+  while (normalized.startsWith(WORKING_BLOCK_OPEN, cursor)) {
+    const blockStart = cursor + WORKING_BLOCK_OPEN.length;
+    const blockEnd = normalized.indexOf(WORKING_BLOCK_CLOSE, blockStart);
+    if (blockEnd === -1) {
+      break;
+    }
+    const blockContent = normalized.slice(blockStart, blockEnd).trim();
+    if (blockContent.length > 0) {
+      workingBlocks.push(blockContent);
+    }
+    cursor = blockEnd + WORKING_BLOCK_CLOSE.length;
+    while (normalized[cursor] === "\n") {
+      cursor += 1;
+    }
+  }
+
+  return {
+    workingBlocks,
+    answerText: normalized.slice(cursor)
+  };
+}
+
+export function appendWorkingMarkdownBlock(content: string): string {
+  const normalized = content.replace(/\r\n/g, "\n");
+  const { workingBlocks, answerText } = splitWorkingMarkdownContent(normalized);
+  const nextBlock = answerText.trim();
+  if (nextBlock.length === 0) {
+    return normalized;
+  }
+  const blocks = [...workingBlocks, nextBlock].map((block) => formatWorkingMarkdownBlock(block));
+  return `${blocks.join("\n\n")}\n\n`;
 }

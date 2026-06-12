@@ -3538,9 +3538,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     projectGroundedFinalCall?.developerInstructions ?? "",
-    /one short line on its own line/
+    /keep any visible working text short and concrete/
   );
-  assert.match(projectGroundedFinalCall?.developerInstructions ?? "", /Status 2\/6/);
+  assert.match(
+    projectGroundedFinalCall?.developerInstructions ?? "",
+    /Do not format progress as long paragraphs, numbered status ladders, or repeated bullet prefixes/
+  );
   const sourceProgressionDeveloperInstructions = (
     service as unknown as {
       buildToolLoopDeveloperInstructions: (
