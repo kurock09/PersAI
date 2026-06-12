@@ -605,13 +605,13 @@ function AccountFooter({
         {open && (
           <motion.div
             role="menu"
-            className="absolute inset-x-0 bottom-full z-30 mb-1.5"
+            className="absolute inset-x-0 bottom-full z-30"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 6 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
-            <div className="rounded-t-2xl border-t border-border/60 bg-surface px-0 pb-1 pt-2.5 shadow-[0_-18px_34px_-28px_rgba(24,22,17,0.62)]">
+            <div className="border-t border-border/60 bg-surface px-0 pb-1 pt-2.5 shadow-[0_-8px_14px_-13px_rgba(24,22,17,0.5)]">
               <button
                 type="button"
                 onClick={() => {
