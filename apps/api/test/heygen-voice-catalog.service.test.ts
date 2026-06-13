@@ -579,6 +579,113 @@ async function run(): Promise<void> {
       );
     }
 
+    // ── Test 3e3: Private ElevenLabs-backed voices fall back to ElevenLabs preview by name ──
+    {
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v2/voices")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                voices: []
+              }
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        const isPrivate = url.includes("type=private");
+        return new Response(
+          JSON.stringify({
+            data: isPrivate
+              ? [
+                  {
+                    voice_id: "private-elevenlabs-missing-preview",
+                    name: "Adam - Dominant, Firm",
+                    language: "unknown",
+                    gender: "unknown",
+                    type: "private",
+                    support_pause: true
+                  }
+                ]
+              : []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }) as typeof fetch;
+
+      const service = new HeyGenVoiceCatalogService(
+        {
+          platformHeygenVoiceCatalogCache: {
+            async findUnique() {
+              return null;
+            },
+            async upsert(input: Record<string, unknown>) {
+              const create = input.create as { voicesJson?: unknown };
+              const voices = create.voicesJson as Array<{
+                providerVoiceId: string;
+                locale: string;
+                source: string;
+                previewAudioUrl: string | null;
+                previewAvailable?: boolean;
+              }>;
+              assert.deepEqual(
+                voices
+                  .map(
+                    (entry) =>
+                      `${entry.providerVoiceId}:${entry.locale}:${entry.source}:${entry.previewAudioUrl}`
+                  )
+                  .sort(),
+                [
+                  "private-elevenlabs-missing-preview:en:elevenlabs:https://cdn.elevenlabs.io/preview/adam.mp3",
+                  "private-elevenlabs-missing-preview:ru:elevenlabs:https://cdn.elevenlabs.io/preview/adam.mp3"
+                ]
+              );
+              assert.ok(voices.every((entry) => entry.previewAvailable === true));
+              return input;
+            }
+          },
+          platformElevenlabsVoiceCatalogCache: {
+            async findMany() {
+              return [
+                {
+                  voicesJson: [
+                    {
+                      voiceId: "pNInz6obpgDQGcFmaJgB",
+                      name: "Adam - Dominant, Firm",
+                      previewUrl: "https://cdn.elevenlabs.io/preview/adam.mp3"
+                    }
+                  ],
+                  fetchedAt: new Date("2026-06-13T00:00:00.000Z")
+                }
+              ];
+            }
+          }
+        } as never,
+        {
+          async resolveSecretValueById() {
+            return "heygen-test-api-key";
+          }
+        } as never
+      );
+
+      const fullCatalogEntries = await service.getFullVoiceCatalogEntries();
+      assert.deepEqual(
+        fullCatalogEntries
+          .map(
+            (entry) =>
+              `${entry.providerVoiceId}:${entry.locale}:${entry.source}:${entry.previewAudioUrl}`
+          )
+          .sort(),
+        [
+          "private-elevenlabs-missing-preview:en:elevenlabs:https://cdn.elevenlabs.io/preview/adam.mp3",
+          "private-elevenlabs-missing-preview:ru:elevenlabs:https://cdn.elevenlabs.io/preview/adam.mp3"
+        ]
+      );
+      console.log(
+        "PASS: private ElevenLabs-backed HeyGen voices fall back to ElevenLabs preview URLs by name"
+      );
+    }
+
     // ── Test 3f: Multilingual voices project into both RU and EN ─────────────
     {
       globalThis.fetch = (async () =>

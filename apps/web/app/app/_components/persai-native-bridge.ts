@@ -15,13 +15,40 @@ export interface PersaiNativeBridge {
   saveMedia?: (payloadJson: string) => boolean | void;
 }
 
+export const NATIVE_MEDIA_TRANSFER_EVENT = "persai:native-media-transfer";
+
+export type NativeMediaTransferAction = "share" | "save";
+
+export type NativeMediaTransferMode = "remote" | "inline";
+
+export type NativeMediaTransferStage =
+  | "started"
+  | "downloading"
+  | "processing"
+  | "completed"
+  | "failed";
+
 export interface NativeMediaTransferRequest {
-  url: string;
+  requestId: string;
+  mode: NativeMediaTransferMode;
+  mediaType: "image" | "video";
+  url?: string | undefined;
+  inlineBase64?: string | undefined;
   filename: string;
   title: string;
   userAgent: string;
   mimeType?: string | undefined;
   sessionToken?: string | undefined;
+}
+
+export interface NativeMediaTransferEventDetail {
+  requestId: string;
+  action: NativeMediaTransferAction;
+  mode: NativeMediaTransferMode;
+  stage: NativeMediaTransferStage;
+  bytesDownloaded?: number | undefined;
+  totalBytes?: number | undefined;
+  error?: string | undefined;
 }
 
 function getNativeBridge(): PersaiNativeBridge | undefined {
@@ -52,6 +79,11 @@ function tryNativeMediaAction(
   } catch {
     return false;
   }
+}
+
+export function canNativeMediaAction(action: "shareMedia" | "saveMedia"): boolean {
+  const native = getNativeBridge();
+  return typeof native?.[action] === "function";
 }
 
 export function tryNativeMediaShare(request: NativeMediaTransferRequest): boolean {

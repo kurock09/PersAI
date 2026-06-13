@@ -6299,7 +6299,7 @@ function IntegrationCard({
       type={interactive ? "button" : undefined}
       onClick={interactive ? onClick : undefined}
       className={cn(
-        "group flex min-h-[132px] flex-col items-start rounded-2xl border px-4 py-4 text-left transition-all",
+        "group flex min-h-[96px] flex-col rounded-2xl border px-4 py-4 text-left transition-all xl:min-h-[132px] xl:items-start",
         active
           ? "border-accent/25 bg-accent/[0.07] shadow-[0_12px_24px_-20px_rgba(29,161,242,0.28)] hover:border-accent/40 hover:bg-accent/[0.1]"
           : "border-border/60 bg-background/50",
@@ -6307,23 +6307,27 @@ function IntegrationCard({
         interactive && "cursor-pointer hover:-translate-y-[1px]"
       )}
     >
-      <div className="flex w-full items-start justify-between gap-3">
-        <img src={logoSrc} alt="" className="h-10 w-10 rounded-xl object-contain" />
+      <div className="flex w-full items-start justify-between gap-3 xl:flex-col xl:items-start xl:justify-start">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <img src={logoSrc} alt="" className="h-10 w-10 rounded-xl object-contain" />
+          <div className="min-w-0 xl:mt-4">
+            <p className="truncate text-sm font-medium text-text">{name}</p>
+            <p
+              className={cn("mt-1 truncate text-xs", active ? "text-success" : "text-text-subtle")}
+            >
+              {comingSoon ? t("channelComingSoon") : statusLabel}
+            </p>
+          </div>
+        </div>
         <span
           className={cn(
-            "inline-block h-2.5 w-2.5 rounded-full",
+            "mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full xl:mt-0",
             active ? "bg-success" : "bg-text-subtle/55"
           )}
         />
       </div>
-      <div className="mt-4 min-w-0">
-        <p className="text-sm font-medium text-text">{name}</p>
-        <p className={cn("mt-1 text-xs", active ? "text-success" : "text-text-subtle")}>
-          {comingSoon ? t("channelComingSoon") : statusLabel}
-        </p>
-      </div>
       {interactive ? (
-        <span className="mt-auto inline-flex items-center gap-1 pt-4 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text">
+        <span className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text xl:mt-auto xl:pt-4">
           {t("openIntegration")}
           <ChevronRight className="h-3.5 w-3.5" />
         </span>

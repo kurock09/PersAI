@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ImageLightbox } from "./image-lightbox";
+import { NATIVE_MEDIA_TRANSFER_EVENT } from "./persai-native-bridge";
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -168,8 +169,10 @@ describe("ImageLightbox", () => {
     ).PersaiNative = {
       shareMedia: nativeShare
     };
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(new Blob(["image"], { type: "image/png" })))
+    );
 
     render(
       <ImageLightbox
@@ -185,18 +188,23 @@ describe("ImageLightbox", () => {
     fireEvent.click(screen.getByRole("button", { name: "lightboxShare" }));
 
     await waitFor(() => {
-      expect(nativeShare).toHaveBeenCalledWith(
-        JSON.stringify({
-          url: "http://localhost:3000/api/assistant-file/file-ref-image-1?download=1",
-          filename: "image.png",
-          title: "image.png",
-          userAgent: navigator.userAgent,
-          mimeType: "image/png",
-          sessionToken: "fresh-client-token"
-        })
-      );
+      expect(nativeShare).toHaveBeenCalledTimes(1);
     });
-    expect(fetchSpy).not.toHaveBeenCalled();
+    const request = JSON.parse(nativeShare.mock.calls[0]?.[0] ?? "{}");
+    expect(request).toMatchObject({
+      mode: "inline",
+      mediaType: "image",
+      filename: "image.png",
+      title: "image.png",
+      userAgent: navigator.userAgent,
+      mimeType: "image/png",
+      sessionToken: "fresh-client-token"
+    });
+    expect(typeof request.requestId).toBe("string");
+    expect(request.requestId.length).toBeGreaterThan(0);
+    expect(typeof request.inlineBase64).toBe("string");
+    expect(request.inlineBase64.length).toBeGreaterThan(0);
+    expect(request.url).toBeUndefined();
   });
 
   it("prefers the native mobile save bridge when available", async () => {
@@ -206,8 +214,10 @@ describe("ImageLightbox", () => {
     ).PersaiNative = {
       saveMedia: nativeSave
     };
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(new Blob(["image"], { type: "image/png" })))
+    );
 
     render(
       <ImageLightbox
@@ -223,18 +233,23 @@ describe("ImageLightbox", () => {
     fireEvent.click(screen.getByRole("button", { name: "lightboxSave" }));
 
     await waitFor(() => {
-      expect(nativeSave).toHaveBeenCalledWith(
-        JSON.stringify({
-          url: "http://localhost:3000/api/assistant-file/file-ref-image-1?download=1",
-          filename: "image.png",
-          title: "image.png",
-          userAgent: navigator.userAgent,
-          mimeType: "image/png",
-          sessionToken: "fresh-client-token"
-        })
-      );
+      expect(nativeSave).toHaveBeenCalledTimes(1);
     });
-    expect(fetchSpy).not.toHaveBeenCalled();
+    const request = JSON.parse(nativeSave.mock.calls[0]?.[0] ?? "{}");
+    expect(request).toMatchObject({
+      mode: "inline",
+      mediaType: "image",
+      filename: "image.png",
+      title: "image.png",
+      userAgent: navigator.userAgent,
+      mimeType: "image/png",
+      sessionToken: "fresh-client-token"
+    });
+    expect(typeof request.requestId).toBe("string");
+    expect(request.requestId.length).toBeGreaterThan(0);
+    expect(typeof request.inlineBase64).toBe("string");
+    expect(request.inlineBase64.length).toBeGreaterThan(0);
+    expect(request.url).toBeUndefined();
   });
 
   it("calls native bridge methods with the native object context", async () => {
@@ -260,6 +275,55 @@ describe("ImageLightbox", () => {
 
     await waitFor(() => {
       expect(nativeBridge.saveMedia).toHaveReturnedWith(true);
+    });
+  });
+
+  it("shows native transfer progress for remote video saves", async () => {
+    const nativeSave = vi.fn().mockImplementation((payloadJson: string) => {
+      const payload = JSON.parse(payloadJson);
+      window.dispatchEvent(
+        new CustomEvent(NATIVE_MEDIA_TRANSFER_EVENT, {
+          detail: {
+            requestId: payload.requestId,
+            action: "save",
+            mode: "remote",
+            stage: "downloading",
+            bytesDownloaded: 50,
+            totalBytes: 100
+          }
+        })
+      );
+      return true;
+    });
+    (
+      window as unknown as { PersaiNative?: { saveMedia?: (payloadJson: string) => boolean } }
+    ).PersaiNative = {
+      saveMedia: nativeSave
+    };
+
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-video-1"
+        downloadUrl="/api/assistant-file/file-ref-video-1?download=1"
+        filename="video.mp4"
+        alt="Generated video"
+        mediaType="video"
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "lightboxSave" }));
+
+    expect(await screen.findByText("lightboxTransferDownloadingSave")).toBeInTheDocument();
+    expect(screen.getByText("50%")).toBeInTheDocument();
+    expect(nativeSave).toHaveBeenCalledTimes(1);
+    const request = JSON.parse(nativeSave.mock.calls[0]?.[0] ?? "{}");
+    expect(request).toMatchObject({
+      mode: "remote",
+      mediaType: "video",
+      url: "http://localhost:3000/api/assistant-file/file-ref-video-1?download=1",
+      filename: "video.mp4"
     });
   });
 

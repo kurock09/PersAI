@@ -72,6 +72,11 @@ type HeygenVoiceCurationRow = {
   updatedAt: Date;
 };
 
+type ElevenLabsVoiceCatalogCacheRow = {
+  voicesJson: unknown;
+  fetchedAt: Date;
+};
+
 @Injectable()
 export class HeyGenVoiceCatalogService {
   private readonly logger = new Logger(HeyGenVoiceCatalogService.name);
@@ -265,14 +270,44 @@ export class HeyGenVoiceCatalogService {
         return new Map<string, string>();
       }
     );
-    if (previewUrlsByVoiceId.size === 0) {
+    const legacyEnriched = previewUrlsByVoiceId.size
+      ? entries.map((entry) => {
+          if (
+            typeof entry.previewAudioUrl === "string" &&
+            entry.previewAudioUrl.trim().length > 0
+          ) {
+            return entry;
+          }
+          const previewAudioUrl = previewUrlsByVoiceId.get(entry.providerVoiceId);
+          if (previewAudioUrl === undefined) {
+            return entry;
+          }
+          return {
+            ...entry,
+            previewAudioUrl,
+            previewAvailable: this.isPreviewLikelyAvailable(previewAudioUrl)
+          };
+        })
+      : entries;
+    return await this.enrichMissingPrivateElevenLabsPreviewUrls(legacyEnriched);
+  }
+
+  private async enrichMissingPrivateElevenLabsPreviewUrls(
+    entries: RuntimeVideoVoiceCatalogEntry[]
+  ): Promise<RuntimeVideoVoiceCatalogEntry[]> {
+    const previewUrlsByName = await this.readElevenLabsPreviewUrlsByNormalizedName();
+    if (previewUrlsByName.size === 0) {
       return entries;
     }
     return entries.map((entry) => {
-      if (typeof entry.previewAudioUrl === "string" && entry.previewAudioUrl.trim().length > 0) {
+      if (
+        entry.source !== "elevenlabs" ||
+        entry.providerVoiceType !== "private" ||
+        entry.previewAudioUrl !== null
+      ) {
         return entry;
       }
-      const previewAudioUrl = previewUrlsByVoiceId.get(entry.providerVoiceId);
+      const previewAudioUrl = previewUrlsByName.get(this.normalizeVoiceName(entry.displayName));
       if (previewAudioUrl === undefined) {
         return entry;
       }
@@ -479,6 +514,65 @@ export class HeyGenVoiceCatalogService {
       return null;
     }
     return delegate as ReturnType<HeyGenVoiceCatalogService["getVoiceCurationDelegate"]>;
+  }
+
+  private async readElevenLabsPreviewUrlsByNormalizedName(): Promise<Map<string, string>> {
+    const delegate = this.getElevenLabsVoiceCatalogCacheDelegate();
+    if (delegate === null) {
+      return new Map();
+    }
+    const rows = await delegate.findMany({
+      select: { voicesJson: true, fetchedAt: true },
+      orderBy: { fetchedAt: "desc" }
+    });
+    const previewUrlsByName = new Map<string, string>();
+    for (const row of rows) {
+      if (!Array.isArray(row.voicesJson)) {
+        continue;
+      }
+      for (const candidate of row.voicesJson) {
+        if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) {
+          continue;
+        }
+        const entry = candidate as Record<string, unknown>;
+        const name = this.asNonEmptyString(entry.name);
+        const previewUrl =
+          this.asNonEmptyString(entry.previewUrl) ?? this.asNonEmptyString(entry.previewAudioUrl);
+        if (name === null || previewUrl === null) {
+          continue;
+        }
+        const key = this.normalizeVoiceName(name);
+        if (!previewUrlsByName.has(key)) {
+          previewUrlsByName.set(key, previewUrl);
+        }
+      }
+    }
+    return previewUrlsByName;
+  }
+
+  private getElevenLabsVoiceCatalogCacheDelegate(): {
+    findMany: (args?: {
+      select?: {
+        voicesJson?: boolean;
+        fetchedAt?: boolean;
+      };
+      orderBy?: {
+        fetchedAt?: "asc" | "desc";
+      };
+    }) => Promise<ElevenLabsVoiceCatalogCacheRow[]>;
+  } | null {
+    const prisma = this.prisma as unknown as {
+      platformElevenlabsVoiceCatalogCache?: {
+        findMany?: unknown;
+      };
+    };
+    const delegate = prisma.platformElevenlabsVoiceCatalogCache;
+    if (delegate === undefined || typeof delegate.findMany !== "function") {
+      return null;
+    }
+    return delegate as ReturnType<
+      HeyGenVoiceCatalogService["getElevenLabsVoiceCatalogCacheDelegate"]
+    >;
   }
 
   private applyCuratedLanguageAndGender(
@@ -1035,6 +1129,10 @@ export class HeyGenVoiceCatalogService {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
     return normalized.length > 0 ? normalized : providerVoiceId.toLowerCase();
+  }
+
+  private normalizeVoiceName(value: string): string {
+    return value.trim().toLowerCase().replace(/\s+/g, " ");
   }
 
   private normalizeGender(value: unknown): RuntimeVideoVoiceGender {

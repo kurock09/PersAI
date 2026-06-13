@@ -23,8 +23,11 @@ import {
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import {
+  canNativeMediaAction,
+  NATIVE_MEDIA_TRANSFER_EVENT,
   tryNativeMediaSave,
   tryNativeMediaShare,
+  type NativeMediaTransferEventDetail,
   type NativeMediaTransferRequest
 } from "./persai-native-bridge";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
@@ -110,22 +113,80 @@ type ResolvedLightboxAsset = {
 };
 
 function buildNativeTransferRequest(input: {
+  requestId: string;
+  mode: "remote" | "inline";
+  mediaType: "image" | "video";
   assetUrl: string;
   assetFilename: string;
   assetMimeType: string | null;
   sessionToken: string | null;
+  inlineBase64?: string | undefined;
 }): NativeMediaTransferRequest | null {
   if (typeof window === "undefined" || typeof navigator === "undefined") {
     return null;
   }
   return {
-    url: new URL(input.assetUrl, window.location.href).href,
+    requestId: input.requestId,
+    mode: input.mode,
+    mediaType: input.mediaType,
+    ...(input.mode === "remote" ? { url: new URL(input.assetUrl, window.location.href).href } : {}),
+    ...(input.mode === "inline" && input.inlineBase64 ? { inlineBase64: input.inlineBase64 } : {}),
     filename: input.assetFilename,
     title: input.assetFilename,
     userAgent: navigator.userAgent,
     mimeType: input.assetMimeType ?? undefined,
     sessionToken: input.sessionToken ?? undefined
   };
+}
+
+type LightboxTransferStage =
+  | "preparing"
+  | "started"
+  | "downloading"
+  | "processing"
+  | "completed"
+  | "failed";
+
+type LightboxNativeTransferState = {
+  requestId: string;
+  action: "save" | "share";
+  stage: LightboxTransferStage;
+  progress: number | null;
+  bytesDownloaded: number | null;
+  totalBytes: number | null;
+};
+
+function createTransferRequestId(action: "save" | "share"): string {
+  return `lightbox-${action}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read blob"));
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const separator = result.indexOf(",");
+      resolve(separator >= 0 ? result.slice(separator + 1) : result);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+function resolveTransferProgress(detail: {
+  bytesDownloaded?: number | undefined;
+  totalBytes?: number | undefined;
+}): number | null {
+  if (
+    typeof detail.bytesDownloaded !== "number" ||
+    typeof detail.totalBytes !== "number" ||
+    !Number.isFinite(detail.bytesDownloaded) ||
+    !Number.isFinite(detail.totalBytes) ||
+    detail.totalBytes <= 0
+  ) {
+    return null;
+  }
+  return Math.max(0, Math.min(1, detail.bytesDownloaded / detail.totalBytes));
 }
 
 /**
@@ -171,11 +232,15 @@ export function ImageLightbox({
   const [videoCurrentTimeSec, setVideoCurrentTimeSec] = useState(0);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [swipeDismissOffsetY, setSwipeDismissOffsetY] = useState(0);
+  const [nativeTransfer, setNativeTransfer] = useState<LightboxNativeTransferState | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const assetFetchRef = useRef<Promise<ResolvedLightboxAsset> | null>(null);
   const assetCacheRef = useRef<ResolvedLightboxAsset | null>(null);
   const videoChromeHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nativeTransferClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeNativeTransferRequestIdRef = useRef<string | null>(null);
   // Active pointer tracking for pinch + drag.
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchRef = useRef<{
@@ -231,10 +296,16 @@ export function ImageLightbox({
       setVideoCurrentTimeSec(0);
       setChromeVisible(true);
       setSwipeDismissOffsetY(0);
+      setNativeTransfer(null);
       if (videoChromeHideTimeoutRef.current !== null) {
         clearTimeout(videoChromeHideTimeoutRef.current);
         videoChromeHideTimeoutRef.current = null;
       }
+      if (nativeTransferClearTimeoutRef.current !== null) {
+        clearTimeout(nativeTransferClearTimeoutRef.current);
+        nativeTransferClearTimeoutRef.current = null;
+      }
+      activeNativeTransferRequestIdRef.current = null;
       if (
         assetCacheRef.current?.objectUrl !== null &&
         assetCacheRef.current?.objectUrl !== undefined
@@ -255,11 +326,17 @@ export function ImageLightbox({
     setScale(1);
     setPan({ x: 0, y: 0 });
     setSwipeDismissOffsetY(0);
+    setNativeTransfer(null);
     pointersRef.current.clear();
     pinchRef.current = null;
     dragRef.current = null;
     swipeDismissRef.current = null;
     gallerySwipeRef.current = null;
+    activeNativeTransferRequestIdRef.current = null;
+    if (nativeTransferClearTimeoutRef.current !== null) {
+      clearTimeout(nativeTransferClearTimeoutRef.current);
+      nativeTransferClearTimeoutRef.current = null;
+    }
     if (
       assetCacheRef.current?.objectUrl !== null &&
       assetCacheRef.current?.objectUrl !== undefined
@@ -273,6 +350,61 @@ export function ImageLightbox({
   useEffect(() => {
     swipeDismissOffsetYRef.current = swipeDismissOffsetY;
   }, [swipeDismissOffsetY]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleNativeTransferEvent = (event: Event) => {
+      const detail = (event as CustomEvent<NativeMediaTransferEventDetail>).detail;
+      if (!detail || detail.requestId !== activeNativeTransferRequestIdRef.current) {
+        return;
+      }
+      const nextState: LightboxNativeTransferState = {
+        requestId: detail.requestId,
+        action: detail.action,
+        stage: detail.stage,
+        progress: resolveTransferProgress(detail),
+        bytesDownloaded:
+          typeof detail.bytesDownloaded === "number" && Number.isFinite(detail.bytesDownloaded)
+            ? detail.bytesDownloaded
+            : null,
+        totalBytes:
+          typeof detail.totalBytes === "number" && Number.isFinite(detail.totalBytes)
+            ? detail.totalBytes
+            : null
+      };
+      setNativeTransfer(nextState);
+      if (nativeTransferClearTimeoutRef.current !== null) {
+        clearTimeout(nativeTransferClearTimeoutRef.current);
+        nativeTransferClearTimeoutRef.current = null;
+      }
+      if (detail.stage === "completed" || detail.stage === "failed") {
+        nativeTransferClearTimeoutRef.current = setTimeout(
+          () => {
+            setNativeTransfer((current) =>
+              current?.requestId === detail.requestId ? null : current
+            );
+            if (activeNativeTransferRequestIdRef.current === detail.requestId) {
+              activeNativeTransferRequestIdRef.current = null;
+            }
+            nativeTransferClearTimeoutRef.current = null;
+          },
+          detail.stage === "completed" ? 900 : 2400
+        );
+      }
+    };
+    window.addEventListener(
+      NATIVE_MEDIA_TRANSFER_EVENT,
+      handleNativeTransferEvent as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        NATIVE_MEDIA_TRANSFER_EVENT,
+        handleNativeTransferEvent as EventListener
+      );
+    };
+  }, []);
 
   useEffect(() => {
     if (videoChromeHideTimeoutRef.current !== null) {
@@ -669,16 +801,94 @@ export function ImageLightbox({
     return fetchPromise;
   }, [assetUrl, getToken]);
 
+  const resolveInlineImageAsset = useCallback(async (): Promise<ResolvedLightboxAsset> => {
+    const image = imageRef.current;
+    if (
+      image &&
+      image.complete &&
+      image.naturalWidth > 0 &&
+      image.naturalHeight > 0 &&
+      typeof document !== "undefined"
+    ) {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d");
+      if (context !== null) {
+        context.drawImage(image, 0, 0);
+        const preferredType =
+          assetMimeType && assetMimeType.startsWith("image/") ? assetMimeType : "image/png";
+        const blob = await new Promise<Blob | null>((resolve) => {
+          canvas.toBlob((nextBlob) => resolve(nextBlob), preferredType);
+        });
+        if (blob !== null) {
+          return {
+            blob,
+            objectUrl: null
+          };
+        }
+      }
+    }
+    return resolveTransferAsset();
+  }, [assetMimeType, resolveTransferAsset]);
+
   const handleSave = useCallback(async () => {
     const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
-    const nativeTransferRequest = buildNativeTransferRequest({
-      assetUrl,
-      assetFilename,
-      assetMimeType,
-      sessionToken: token
-    });
-    if (nativeTransferRequest && tryNativeMediaSave(nativeTransferRequest)) {
-      return;
+    if (canNativeMediaAction("saveMedia")) {
+      const requestId = createTransferRequestId("save");
+      activeNativeTransferRequestIdRef.current = requestId;
+      if (mediaType === "image") {
+        setNativeTransfer({
+          requestId,
+          action: "save",
+          stage: "preparing",
+          progress: null,
+          bytesDownloaded: null,
+          totalBytes: null
+        });
+        try {
+          const resolved = await resolveInlineImageAsset();
+          const inlineBase64 = await blobToBase64(resolved.blob);
+          const inlineRequest = buildNativeTransferRequest({
+            requestId,
+            mode: "inline",
+            mediaType,
+            assetUrl,
+            assetFilename,
+            assetMimeType,
+            sessionToken: token,
+            inlineBase64
+          });
+          if (inlineRequest && tryNativeMediaSave(inlineRequest)) {
+            return;
+          }
+        } catch {
+          // Fall through to the remote native path below.
+        }
+      } else {
+        setNativeTransfer({
+          requestId,
+          action: "save",
+          stage: "started",
+          progress: null,
+          bytesDownloaded: null,
+          totalBytes: null
+        });
+      }
+      const remoteRequest = buildNativeTransferRequest({
+        requestId,
+        mode: "remote",
+        mediaType,
+        assetUrl,
+        assetFilename,
+        assetMimeType,
+        sessionToken: token
+      });
+      if (remoteRequest && tryNativeMediaSave(remoteRequest)) {
+        return;
+      }
+      activeNativeTransferRequestIdRef.current = null;
+      setNativeTransfer(null);
     }
     try {
       const resolved = await resolveTransferAsset();
@@ -699,14 +909,61 @@ export function ImageLightbox({
 
   const handleShare = useCallback(async () => {
     const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
-    const nativeTransferRequest = buildNativeTransferRequest({
-      assetUrl,
-      assetFilename,
-      assetMimeType,
-      sessionToken: token
-    });
-    if (nativeTransferRequest && tryNativeMediaShare(nativeTransferRequest)) {
-      return;
+    if (canNativeMediaAction("shareMedia")) {
+      const requestId = createTransferRequestId("share");
+      activeNativeTransferRequestIdRef.current = requestId;
+      if (mediaType === "image") {
+        setNativeTransfer({
+          requestId,
+          action: "share",
+          stage: "preparing",
+          progress: null,
+          bytesDownloaded: null,
+          totalBytes: null
+        });
+        try {
+          const resolved = await resolveInlineImageAsset();
+          const inlineBase64 = await blobToBase64(resolved.blob);
+          const inlineRequest = buildNativeTransferRequest({
+            requestId,
+            mode: "inline",
+            mediaType,
+            assetUrl,
+            assetFilename,
+            assetMimeType,
+            sessionToken: token,
+            inlineBase64
+          });
+          if (inlineRequest && tryNativeMediaShare(inlineRequest)) {
+            return;
+          }
+        } catch {
+          // Fall through to the remote native path below.
+        }
+      } else {
+        setNativeTransfer({
+          requestId,
+          action: "share",
+          stage: "started",
+          progress: null,
+          bytesDownloaded: null,
+          totalBytes: null
+        });
+      }
+      const remoteRequest = buildNativeTransferRequest({
+        requestId,
+        mode: "remote",
+        mediaType,
+        assetUrl,
+        assetFilename,
+        assetMimeType,
+        sessionToken: token
+      });
+      if (remoteRequest && tryNativeMediaShare(remoteRequest)) {
+        return;
+      }
+      activeNativeTransferRequestIdRef.current = null;
+      setNativeTransfer(null);
     }
 
     if (typeof navigator === "undefined" || typeof navigator.share !== "function") {
@@ -734,7 +991,9 @@ export function ImageLightbox({
       await navigator.share({
         title: assetFilename,
         url:
-          nativeTransferRequest?.url ??
+          (typeof window !== "undefined"
+            ? new URL(assetUrl, window.location.href).href
+            : assetUrl) ??
           (typeof window !== "undefined" ? new URL(assetUrl, window.location.href).href : assetUrl)
       });
     } catch (error) {
@@ -803,6 +1062,52 @@ export function ImageLightbox({
   const showTopChrome = chromeVisible;
   const showVideoTransportChrome = mediaType !== "video" || chromeVisible;
   const showVideoHeroPlay = mediaType === "video" && !videoPlaying;
+  const nativeTransferBusy =
+    nativeTransfer !== null &&
+    nativeTransfer.stage !== "completed" &&
+    nativeTransfer.stage !== "failed";
+  const nativeTransferLabel =
+    nativeTransfer === null
+      ? null
+      : nativeTransfer.stage === "preparing"
+        ? t(
+            nativeTransfer.action === "save"
+              ? "lightboxTransferPreparingSave"
+              : "lightboxTransferPreparingShare"
+          )
+        : nativeTransfer.stage === "downloading"
+          ? t(
+              nativeTransfer.action === "save"
+                ? "lightboxTransferDownloadingSave"
+                : "lightboxTransferDownloadingShare"
+            )
+          : nativeTransfer.stage === "processing"
+            ? t(
+                nativeTransfer.action === "save"
+                  ? "lightboxTransferProcessingSave"
+                  : "lightboxTransferProcessingShare"
+              )
+            : nativeTransfer.stage === "completed"
+              ? t(
+                  nativeTransfer.action === "save"
+                    ? "lightboxTransferCompletedSave"
+                    : "lightboxTransferCompletedShare"
+                )
+              : nativeTransfer.stage === "failed"
+                ? t(
+                    nativeTransfer.action === "save"
+                      ? "lightboxTransferFailedSave"
+                      : "lightboxTransferFailedShare"
+                  )
+                : t(
+                    nativeTransfer.action === "save"
+                      ? "lightboxTransferStartingSave"
+                      : "lightboxTransferStartingShare"
+                  );
+  const nativeTransferProgressPercent =
+    nativeTransfer?.progress !== null && nativeTransfer?.progress !== undefined
+      ? Math.round(nativeTransfer.progress * 100)
+      : null;
   const mediaSurfaceTransform =
     mediaType === "image"
       ? `translate3d(${pan.x}px, ${pan.y + swipeDismissOffsetY}px, 0) scale(${scale})`
@@ -846,9 +1151,10 @@ export function ImageLightbox({
                 e.stopPropagation();
                 void handleSave();
               }}
+              disabled={nativeTransferBusy}
               aria-label={saveLabel}
               title={saveLabel}
-              className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-medium transition hover:bg-white/10 hover:text-white"
+              className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-medium transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-60"
             >
               <Download className="h-4 w-4" />
               <span className="hidden sm:inline">{saveLabel}</span>
@@ -879,6 +1185,36 @@ export function ImageLightbox({
             >
               <X className="h-5 w-5" />
             </button>
+          </div>
+        </div>
+      ) : null}
+      {nativeTransfer && nativeTransferLabel ? (
+        <div className="pointer-events-none absolute inset-x-3 bottom-4 z-20 flex justify-center">
+          <div className="w-[min(24rem,calc(100vw-1.5rem))] rounded-2xl border border-white/10 bg-black/55 px-3 py-3 text-white shadow-xl shadow-black/25 backdrop-blur-md">
+            <div className="flex items-center justify-between gap-3 text-[12px] font-medium">
+              <span>{nativeTransferLabel}</span>
+              {nativeTransferProgressPercent !== null ? (
+                <span className="shrink-0 text-white/65">{nativeTransferProgressPercent}%</span>
+              ) : null}
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/12">
+              <div
+                className={cn(
+                  "h-full rounded-full bg-white/85 transition-all duration-200",
+                  nativeTransferProgressPercent === null && nativeTransferBusy && "animate-pulse"
+                )}
+                style={{
+                  width:
+                    nativeTransferProgressPercent !== null
+                      ? `${Math.max(6, nativeTransferProgressPercent)}%`
+                      : nativeTransferBusy
+                        ? "36%"
+                        : nativeTransfer.stage === "completed"
+                          ? "100%"
+                          : "100%"
+                }}
+              />
+            </div>
           </div>
         </div>
       ) : null}
@@ -1053,6 +1389,7 @@ export function ImageLightbox({
             </>
           ) : null}
           <img
+            ref={imageRef}
             data-testid="media-lightbox-image-surface"
             src={src}
             alt={alt ?? ""}
