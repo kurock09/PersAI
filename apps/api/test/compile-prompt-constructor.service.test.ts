@@ -329,13 +329,23 @@ async function runDefaultPromptTemplateCompile(): Promise<void> {
   );
   assert.match(
     welcomePrompt,
-    /Telegram, PDF\/PPT creation, image creation\/editing, Skills, knowledge base, reminders, memory/,
+    /first conversation together/i,
+    "default welcome prompt should frame an explicit first meeting"
+  );
+  assert.match(
+    welcomePrompt,
+    /## Что я умею/,
+    "default welcome prompt should require a structured capabilities section"
+  );
+  assert.match(
+    welcomePrompt,
+    /Telegram, PDF\/PPT documents, image create\/edit, Skills, knowledge base, reminders, memory/,
     "default welcome prompt should surface standout PersAI capabilities"
   );
   assert.match(
     welcomePrompt,
-    /Do not produce a long wall of text, checklist, or FAQ/,
-    "default welcome prompt should stay concise and avoid outdated long-form onboarding"
+    /do not use distant metaphors like "слышу тебя"/i,
+    "default welcome prompt should forbid distant hello substitutes"
   );
 }
 

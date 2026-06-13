@@ -264,7 +264,7 @@ const PRESET_META: Record<
   welcome_bootstrap: {
     label: "Welcome / First Chat Greeting",
     description:
-      "Hidden prompt used for the real first greeting after publish or recreate. Keep it short, stylish, and product-aware.",
+      "Hidden prompt for the real first greeting after publish or recreate. Structured Markdown intro: hello, first-meeting warmth, 4 feature bullets with emoji, light closing invite.",
     variables: [
       { key: "assistant_name", hint: "Assistant display name" },
       { key: "human_name", hint: "Human display name" },

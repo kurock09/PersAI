@@ -14,8 +14,11 @@ import {
   buildPartialDeliveryShortfallLine
 } from "./final-delivery-honesty";
 import { MediaDeliveryService } from "./media/media-delivery.service";
-import { TelegramBotClientService } from "./telegram-bot.client.service";
 import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-channel-runtime-config.service";
+import {
+  parseTelegramChatIdFromSurfaceThreadKey,
+  TelegramAssistantChatOutboundService
+} from "./telegram-assistant-chat-outbound.service";
 import { AssistantMediaJobCompletionTurnService } from "./assistant-media-job-completion-turn.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
@@ -59,12 +62,6 @@ type CompletionAssistantTextResolution = {
   shouldUpdateExistingMessage: boolean;
 };
 
-function parseTelegramChatIdFromSurfaceThreadKey(value: string): string {
-  const trimmed = value.trim();
-  const match = trimmed.match(/^telegram:(.+):session:[^:]+$/);
-  return match?.[1]?.trim() || trimmed;
-}
-
 function truncateLastError(message: string): string {
   if (message.length <= COMPLETION_DELIVERY_LAST_ERROR_MAX_CHARS) {
     return message;
@@ -89,7 +86,7 @@ export class AssistantMediaJobCompletionDeliveryService {
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
     private readonly mediaDeliveryService: MediaDeliveryService,
-    private readonly telegramBotClientService: TelegramBotClientService,
+    private readonly telegramAssistantChatOutboundService: TelegramAssistantChatOutboundService,
     private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
     private readonly assistantMediaJobCompletionTurnService: AssistantMediaJobCompletionTurnService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
@@ -515,6 +512,16 @@ export class AssistantMediaJobCompletionDeliveryService {
         ...(completionAssistantMessageId === null ? {} : { completionAssistantMessageId })
       }
     });
+
+    if (job.surface === "telegram" && completionAssistantMessageId !== null) {
+      await this.telegramAssistantChatOutboundService.deliverPersistedAssistantMessageBestEffort({
+        assistantId: job.assistantId,
+        chatId: job.chatId,
+        workspaceId: job.workspaceId,
+        assistantMessageId: completionAssistantMessageId,
+        text: failureMessage
+      });
+    }
   }
 
   /**
@@ -749,19 +756,12 @@ export class AssistantMediaJobCompletionDeliveryService {
     }
 
     if (delivered.attachments.length === 0) {
-      await this.telegramBotClientService.sendAssistantTurnReply({
-        botToken: deliveryContext.botToken,
-        chatId: deliveryContext.chatId,
+      await this.telegramAssistantChatOutboundService.deliverPersistedAssistantMessageBestEffort({
         assistantId: params.job.assistantId,
-        parseMode: deliveryContext.parseMode,
-        turnResult: {
-          assistantMessage: finalText,
-          respondedAt: new Date().toISOString(),
-          media: [],
-          assistantMessageId: params.messageId,
-          chatId: params.job.chatId,
-          workspaceId: params.job.workspaceId
-        },
+        chatId: params.job.chatId,
+        workspaceId: params.job.workspaceId,
+        assistantMessageId: params.messageId,
+        text: finalText,
         mediaAlreadyDelivered: false
       });
       await this.finalizeJob(params.job, {
@@ -772,29 +772,14 @@ export class AssistantMediaJobCompletionDeliveryService {
       return;
     }
 
-    try {
-      await this.telegramBotClientService.sendAssistantTurnReply({
-        botToken: deliveryContext.botToken,
-        chatId: deliveryContext.chatId,
-        assistantId: params.job.assistantId,
-        parseMode: deliveryContext.parseMode,
-        turnResult: {
-          assistantMessage: finalText,
-          respondedAt: new Date().toISOString(),
-          media: [],
-          assistantMessageId: params.messageId,
-          chatId: params.job.chatId,
-          workspaceId: params.job.workspaceId
-        },
-        mediaAlreadyDelivered: true
-      });
-    } catch (error) {
-      this.logger.warn(
-        `Telegram completion follow-up text failed for media job ${params.job.id}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
+    await this.telegramAssistantChatOutboundService.deliverPersistedAssistantMessageBestEffort({
+      assistantId: params.job.assistantId,
+      chatId: params.job.chatId,
+      workspaceId: params.job.workspaceId,
+      assistantMessageId: params.messageId,
+      text: finalText,
+      mediaAlreadyDelivered: true
+    });
 
     await this.finalizeJob(params.job, {
       status: "delivered",

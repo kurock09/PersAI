@@ -83,6 +83,7 @@ function createService(overrides?: {
   const finalUpdates: Array<Record<string, unknown>> = [];
   const createdMessages: Array<Record<string, unknown>> = [];
   const releaseCalls: Array<Record<string, unknown>> = [];
+  const outboundCalls: Array<Record<string, unknown>> = [];
   const prisma = {
     $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
       callback({
@@ -218,10 +219,16 @@ function createService(overrides?: {
       async releaseAssistantMonthlyMediaQuota(input: Record<string, unknown>) {
         releaseCalls.push(input);
       }
+    } as never,
+    {
+      async deliverPersistedAssistantMessageBestEffort(input: Record<string, unknown>) {
+        outboundCalls.push(input);
+        return undefined;
+      }
     } as never
   );
 
-  return { service, txUpdates, finalUpdates, createdMessages, releaseCalls };
+  return { service, txUpdates, finalUpdates, createdMessages, releaseCalls, outboundCalls };
 }
 
 describe("AssistantMediaJobSchedulerService", () => {
@@ -947,5 +954,54 @@ describe("AssistantMediaJobSchedulerService", () => {
     assert.deepEqual(metricsService.leaseLost, ["media_job"]);
     assert.equal(metricsService.tickAcquired[0]?.candidatesProcessed, 4);
     assert.deepEqual(leaseService.releaseCalls, [{ key: "media_job", token: "lease-media-1" }]);
+  });
+
+  test("pushes telegram failure notice when scheduler failJob runs on telegram surface", async () => {
+    const { service, finalUpdates, outboundCalls } = createService({
+      queryRows: [
+        {
+          id: "job-tg-fail-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-telegram-fail-1",
+          surface: "telegram",
+          kind: "video",
+          sourceUserMessageId: "user-message-tg-fail-1",
+          requestJson: {
+            attachments: [],
+            sourceUserMessageText: "сделай talking avatar",
+            sourceUserMessageCreatedAt: "2026-06-13T09:00:00.000Z",
+            directToolExecution: {
+              toolCode: "video_generate",
+              request: {
+                toolCode: "video_generate",
+                prompt: "сделай talking avatar",
+                provider: "heygen",
+                durationSeconds: 8
+              }
+            }
+          },
+          attemptCount: 0,
+          maxAttempts: 5
+        }
+      ],
+      runtimeOutcome: {
+        ok: false,
+        retryable: false,
+        status: 500,
+        code: "heygen_job_failed",
+        message: "Avatar generation failed."
+      }
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates[0]?.data?.status, "failed");
+    assert.equal(outboundCalls.length, 1);
+    assert.equal(outboundCalls[0]?.assistantMessageId, "assistant-message-1");
+    assert.equal(outboundCalls[0]?.chatId, "chat-telegram-fail-1");
+    assert.match(String(outboundCalls[0]?.text), /видео|video|couldn't|не удалось/i);
   });
 });

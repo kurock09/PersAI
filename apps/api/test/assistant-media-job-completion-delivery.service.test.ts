@@ -99,7 +99,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         })
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run for web jobs");
         }
       } as never,
@@ -215,7 +215,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         })
       } as never,
       {
-        async sendAssistantTurnReply(input: Record<string, unknown>) {
+        async deliverPersistedAssistantMessageBestEffort(input: Record<string, unknown>) {
           sendReplyCalls.push(input);
         }
       } as never,
@@ -260,9 +260,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(processed, 1);
     assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
     assert.equal(sendReplyCalls.length, 1);
-    assert.equal(sendReplyCalls[0]?.chatId, "telegram-chat-42");
+    assert.equal(sendReplyCalls[0]?.assistantMessageId, "assistant-message-2");
     assert.equal(sendReplyCalls[0]?.mediaAlreadyDelivered, true);
-    assert.equal(sendReplyCalls[0]?.turnResult?.assistantMessage, "Fresh Telegram framing.");
+    assert.equal(sendReplyCalls[0]?.text, "Fresh Telegram framing.");
   });
 
   test("refreshes completion framing even when an acknowledgement message already exists", async () => {
@@ -335,7 +335,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         })
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run for web jobs");
         }
       } as never,
@@ -435,7 +435,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         }
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run for web jobs");
         }
       } as never,
@@ -530,7 +530,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         }
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run for web jobs");
         }
       } as never,
@@ -633,7 +633,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         }
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run for web jobs");
         }
       } as never,
@@ -729,7 +729,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         }
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run for web jobs");
         }
       } as never,
@@ -842,7 +842,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         })
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run for web jobs");
         }
       } as never,
@@ -954,7 +954,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         })
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run for web jobs");
         }
       } as never,
@@ -1038,7 +1038,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         }
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run");
         }
       } as never,
@@ -1154,7 +1154,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         })
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run for web jobs");
         }
       } as never,
@@ -1286,7 +1286,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         })
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           return undefined;
         }
       } as never,
@@ -1420,7 +1420,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         })
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run for web jobs");
         }
       } as never,
@@ -1502,7 +1502,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         }
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run");
         }
       } as never,
@@ -1603,7 +1603,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         deliver: async () => ({ attachments: [] })
       } as never,
       {
-        async sendAssistantTurnReply() {
+        async deliverPersistedAssistantMessageBestEffort() {
           throw new Error("telegram reply should not run for web jobs");
         }
       } as never,
@@ -1640,5 +1640,82 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     // ADR-105 §5: the delivery loop already resolved all N units per-artifact;
     // the completion service must NOT double-count by reconciling again.
     assert.equal(reconcileCalls.length, 0);
+  });
+
+  test("pushes telegram failure notice when pre-delivery failDelivery runs on telegram surface", async () => {
+    const outboundCalls: Array<Record<string, unknown>> = [];
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-tg-predelivery-fail-1",
+                assistantId: "assistant-1",
+                userId: "user-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-tg-predelivery-fail-1",
+                surface: "telegram",
+                kind: "video",
+                sourceUserMessageId: "user-message-tg-predelivery-fail-1",
+                requestJson: null,
+                resultText: null,
+                artifactsJson: [{ artifactId: "artifact-tg-fail-1", kind: "video" }],
+                completionAssistantMessageId: null,
+                attemptCount: 1,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: { update: async () => undefined }
+          }),
+        assistantMediaJob: {
+          updateMany: async () => ({ count: 1 })
+        }
+      } as never,
+      {
+        createMessage: async () => ({
+          id: "assistant-message-tg-predelivery-fail-1",
+          chatId: "chat-tg-predelivery-fail-1",
+          assistantId: "assistant-1",
+          content: "failed",
+          createdAt: new Date("2026-06-13T09:10:00.000Z")
+        }),
+        updateMessageContent: async () => null
+      } as never,
+      {
+        deliver: async () => {
+          throw new Error("deliver should not be called for pre-delivery failure");
+        }
+      } as never,
+      {
+        async deliverPersistedAssistantMessageBestEffort(input: Record<string, unknown>) {
+          outboundCalls.push(input);
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for outbound mock");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return { text: null, usage: null };
+        },
+        async maybeFrameFailure() {
+          return null;
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAssistantRepository,
+      noopTrackWorkspaceQuotaUsageService
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(outboundCalls.length, 1);
+    assert.equal(outboundCalls[0]?.assistantMessageId, "assistant-message-tg-predelivery-fail-1");
+    assert.equal(outboundCalls[0]?.chatId, "chat-tg-predelivery-fail-1");
+    assert.match(String(outboundCalls[0]?.text), /видео|video|couldn't|не удалось/i);
   });
 });

@@ -362,6 +362,7 @@ import { PrismaAssistantRepository } from "./infrastructure/persistence/prisma-a
 import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/workspace-management-prisma.service";
 import { ResolveTelegramChannelRuntimeConfigService } from "./application/resolve-telegram-channel-runtime-config.service";
 import { TelegramBotClientService } from "./application/telegram-bot.client.service";
+import { TelegramAssistantChatOutboundService } from "./application/telegram-assistant-chat-outbound.service";
 import { TelegramChannelAdapterService } from "./application/telegram-channel-adapter.service";
 import { TelegramAlbumCollectorService } from "./application/telegram-album-collector.service";
 import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-album-finalizer-scheduler.service";
@@ -673,6 +674,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     SwitchActiveAssistantService,
     ResolveTelegramChannelRuntimeConfigService,
     TelegramBotClientService,
+    TelegramAssistantChatOutboundService,
     TelegramChannelAdapterService,
     {
       provide: ASSISTANT_REPOSITORY,

@@ -4923,6 +4923,132 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     assert.equal(streamToolLoopCompletedEvent.result.assistantText, "reply after summary");
   }
 
+  providerGatewayClient.streamEventsQueue = [
+    [
+      {
+        type: "text_delta",
+        delta: "First plan.",
+        accumulatedText: "First plan."
+      },
+      {
+        type: "tool_calls",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "First plan.",
+          respondedAt: "2026-04-11T12:00:04.000Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 12,
+            outputTokens: 0,
+            totalTokens: 12
+          },
+          stopReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "tool-stream-dedupe-1",
+              name: "summarize_context",
+              arguments: {
+                instructions: "Keep the first plan."
+              }
+            }
+          ]
+        }
+      }
+    ],
+    [
+      {
+        type: "text_delta",
+        delta: "Second plan.",
+        accumulatedText: "Second plan."
+      },
+      {
+        type: "tool_calls",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "Second plan.",
+          respondedAt: "2026-04-11T12:00:05.000Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 14,
+            outputTokens: 0,
+            totalTokens: 14
+          },
+          stopReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "tool-stream-dedupe-2",
+              name: "summarize_context",
+              arguments: {
+                instructions: "Keep the second plan."
+              }
+            }
+          ]
+        }
+      }
+    ],
+    [
+      {
+        type: "text_delta",
+        delta: "Final answer.",
+        accumulatedText: "Final answer."
+      },
+      {
+        type: "completed",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "Final answer.",
+          respondedAt: "2026-04-11T12:00:06.000Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 18,
+            outputTokens: 8,
+            totalTokens: 26
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      }
+    ]
+  ];
+  const streamCallCountBeforeDedupeToolLoop = providerGatewayClient.streamCalls.length;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const dedupeToolLoopStream = await service.streamTurn(request);
+  const dedupeToolLoopStreamEvents = await collectStreamEvents(dedupeToolLoopStream);
+  assert.equal(providerGatewayClient.streamCalls.length, streamCallCountBeforeDedupeToolLoop + 3);
+  const dedupeTextDeltaEvents = dedupeToolLoopStreamEvents.filter(
+    (event): event is Extract<RuntimeTurnStreamEvent, { type: "text_delta" }> =>
+      event.type === "text_delta"
+  );
+  assert.equal(
+    dedupeTextDeltaEvents.some(
+      (event) =>
+        event.source === "provider_tool_calls_result_text" && event.delta.trim() === "Second plan."
+    ),
+    false
+  );
+  assert.equal(
+    dedupeTextDeltaEvents.every(
+      (event) => !event.accumulatedText.includes("Second plan. Second plan.")
+    ),
+    true
+  );
+  const dedupeToolLoopCompletedEvent = dedupeToolLoopStreamEvents.at(-1);
+  assert.equal(dedupeToolLoopCompletedEvent?.type, "completed");
+  if (dedupeToolLoopCompletedEvent?.type === "completed") {
+    assert.equal(
+      dedupeToolLoopCompletedEvent.result.assistantText,
+      "First plan. Second plan. Final answer."
+    );
+  }
+
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.web_fetch = {
       refKey: "tool_web_fetch",

@@ -32,6 +32,7 @@ import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import { TelegramAssistantChatOutboundService } from "./telegram-assistant-chat-outbound.service";
 
 type FailJobContext = {
   sourceUserMessageText: string;
@@ -143,7 +144,8 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     private readonly schedulerLeaseService: SchedulerLeaseService,
     private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly telegramAssistantChatOutboundService: TelegramAssistantChatOutboundService
   ) {}
 
   onModuleInit(): void {
@@ -862,6 +864,16 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         ...(completionAssistantMessageId === null ? {} : { completionAssistantMessageId })
       }
     });
+
+    if (job.surface === "telegram" && completionAssistantMessageId !== null) {
+      await this.telegramAssistantChatOutboundService.deliverPersistedAssistantMessageBestEffort({
+        assistantId: job.assistantId,
+        chatId: job.chatId,
+        workspaceId: job.workspaceId,
+        assistantMessageId: completionAssistantMessageId,
+        text: failureMessage
+      });
+    }
   }
 
   /**

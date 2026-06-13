@@ -1196,7 +1196,11 @@ export class TurnExecutionService {
                 modelRole: execution.selectedModelRole,
                 usage: event.result.usage
               });
-              assembledText = this.mergeAssistantTurnText(assembledText, event.result.text);
+              assembledText = this.resolveCompletedStreamAssistantText(
+                iterationBaseText,
+                assembledText,
+                event.result.text
+              );
               forceFinalTextOnly = false;
               if (event.result.toolCalls.length === 0) {
                 throw new TurnExecutionError(
