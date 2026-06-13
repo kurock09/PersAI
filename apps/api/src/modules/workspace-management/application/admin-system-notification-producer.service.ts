@@ -12,7 +12,8 @@ import {
   type AdminSystemEventCode,
   type AdminSystemPolicyConfig,
   getAdminSystemEventDefinition,
-  parseAdminSystemPolicyConfig
+  parseAdminSystemPolicyConfig,
+  enrichAdminSystemSummaryWithUser
 } from "./notifications/admin-system-config";
 import { readPlatformSucceededPaymentsAllTime } from "./admin-ops-period-economics";
 
@@ -86,6 +87,8 @@ export class AdminSystemNotificationProducerService {
       (scheduledAt !== null && scheduledAt.getTime() > Date.now()
         ? NotificationPriority.scheduled
         : NotificationPriority.immediate);
+    const details = input.details ?? {};
+    const message = enrichAdminSystemSummaryWithUser(input.eventCode, input.summary, details);
     for (const recipient of recipients) {
       try {
         await this.notificationIntentService.createIntent({
@@ -97,9 +100,9 @@ export class AdminSystemNotificationProducerService {
           priority,
           renderStrategy: NotificationRenderStrategy.static_fallback,
           factPayload: {
-            message: input.summary,
+            message,
             eventCode: input.eventCode,
-            details: input.details ?? {},
+            details,
             occurredAt: input.occurredAt ?? new Date().toISOString()
           },
           allowedChannels: ["user_preferred"],

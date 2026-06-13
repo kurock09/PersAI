@@ -86,6 +86,74 @@ async function run(): Promise<void> {
   }
 
   {
+    const { service, calls } = makeRealtimeService({
+      eventCodes: ["grace_expired"],
+      recipientAssistantIds: ["assistant-1"]
+    });
+    const emitted = await service.emitEvent({
+      eventCode: "grace_expired",
+      summary: "Grace period expired for FREE.",
+      details: {
+        sourceWorkspaceId: "ws-src",
+        sourceUserId: "user-src-1",
+        recipientEmail: "alex@agse.ru",
+        planDisplayName: "FREE"
+      },
+      traceId: "lifecycle-grace-1"
+    });
+
+    assert.equal(emitted, 1);
+    assert.equal(
+      (calls[0]?.["factPayload"] as Record<string, unknown>)?.["message"],
+      "Grace period expired for FREE. - user: alex@agse.ru"
+    );
+    console.log("✓ user-scoped admin_system events append user label to summary");
+  }
+
+  {
+    const { service, calls } = makeRealtimeService({
+      eventCodes: ["new_user_registered"],
+      recipientAssistantIds: ["assistant-1"]
+    });
+    await service.emitEvent({
+      eventCode: "new_user_registered",
+      summary: "New user registered: alex@agse.ru",
+      details: {
+        sourceUserId: "user-src-1",
+        email: "alex@agse.ru"
+      },
+      traceId: "assistant-created:1"
+    });
+
+    assert.equal(
+      (calls[0]?.["factPayload"] as Record<string, unknown>)?.["message"],
+      "New user registered: alex@agse.ru"
+    );
+    console.log("✓ user-scoped admin_system events do not duplicate user label");
+  }
+
+  {
+    const { service, calls } = makeRealtimeService({
+      eventCodes: ["runtime_apply_failed"],
+      recipientAssistantIds: ["assistant-1"]
+    });
+    await service.emitEvent({
+      eventCode: "runtime_apply_failed",
+      summary: "Runtime apply failed for assistant X.",
+      details: {
+        recipientEmail: "alex@agse.ru"
+      },
+      traceId: "audit-runtime-1"
+    });
+
+    assert.equal(
+      (calls[0]?.["factPayload"] as Record<string, unknown>)?.["message"],
+      "Runtime apply failed for assistant X."
+    );
+    console.log("✓ non-user-scoped admin_system events keep summary unchanged");
+  }
+
+  {
     const createIntentCalls: IntentInput[] = [];
     let aggregateCall = 0;
     let auditCountCall = 0;

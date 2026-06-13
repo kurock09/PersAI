@@ -208,3 +208,57 @@ export function isAdminSystemEventCode(value: string): value is AdminSystemEvent
 export function getAdminSystemEventDefinition(code: AdminSystemEventCode) {
   return ADMIN_SYSTEM_EVENT_DEFINITIONS.find((entry) => entry.code === code) ?? null;
 }
+
+/** Admin realtime events that describe a specific end-user workspace action. */
+export const USER_SCOPED_ADMIN_SYSTEM_EVENT_CODES = new Set<AdminSystemEventCode>([
+  "new_user_registered",
+  "trial_ending",
+  "trial_expired",
+  "payment_activated",
+  "renewal_succeeded",
+  "renewal_failed",
+  "payment_recovered",
+  "grace_ending",
+  "grace_expired",
+  "support_ticket_opened"
+]);
+
+export function resolveAdminSystemUserLabel(details: Record<string, unknown>): string | null {
+  for (const key of ["recipientEmail", "userEmail", "email"] as const) {
+    const value = details[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  for (const key of ["sourceUserId", "userId"] as const) {
+    const value = details[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+export function enrichAdminSystemSummaryWithUser(
+  eventCode: AdminSystemEventCode,
+  summary: string,
+  details: Record<string, unknown>
+): string {
+  if (!USER_SCOPED_ADMIN_SYSTEM_EVENT_CODES.has(eventCode)) {
+    return summary;
+  }
+
+  const userLabel = resolveAdminSystemUserLabel(details);
+  if (userLabel === null) {
+    return summary;
+  }
+
+  const trimmed = summary.trim();
+  if (trimmed.includes(userLabel) || /\buser:\s*/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return `${trimmed} - user: ${userLabel}`;
+}
