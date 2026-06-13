@@ -1441,7 +1441,8 @@ async function run(): Promise<void> {
     } else {
       // On some Windows / Node 24 runs the busy loop can finish between sampler
       // ticks; accept that fast-exit path as long as the process actually completed.
-      assert.equal(cpuLimitOutcome.result.exitCode, 0);
+      const result = cpuLimitOutcome.result as { exitCode: number | null };
+      assert.equal(result.exitCode, 0);
     }
 
     await assert.rejects(
