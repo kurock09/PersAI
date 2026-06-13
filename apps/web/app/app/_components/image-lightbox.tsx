@@ -160,6 +160,17 @@ function createTransferRequestId(action: "save" | "share"): string {
   return `lightbox-${action}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/** Touch / mobile WebView: user taps the hero play button instead of autoplay. */
+function prefersManualVideoPlayback(): boolean {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  if (typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches) {
+    return true;
+  }
+  return typeof navigator !== "undefined" && (navigator.maxTouchPoints ?? 0) > 0;
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -484,6 +495,9 @@ export function ImageLightbox({
       return;
     }
     video.muted = videoMuted;
+    if (prefersManualVideoPlayback()) {
+      return;
+    }
     const playPromise = video.play();
     if (playPromise && typeof playPromise.then === "function") {
       void playPromise.then(
@@ -831,27 +845,40 @@ export function ImageLightbox({
           image.naturalHeight > 0 &&
           typeof document !== "undefined"
         ) {
-          const canvas = document.createElement("canvas");
-          canvas.width = image.naturalWidth;
-          canvas.height = image.naturalHeight;
-          const context = canvas.getContext("2d");
-          if (context !== null) {
+          if (assetFetchRef.current !== null) {
+            return assetFetchRef.current;
+          }
+          const canvasPromise = (async () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            const context = canvas.getContext("2d");
+            if (context === null) {
+              throw new Error("Failed to acquire canvas context");
+            }
             context.drawImage(image, 0, 0);
             const preferredType =
               assetMimeType && assetMimeType.startsWith("image/") ? assetMimeType : "image/png";
             const blob = await new Promise<Blob | null>((resolve) => {
               canvas.toBlob((nextBlob) => resolve(nextBlob), preferredType);
             });
-            if (blob !== null) {
-              const resolved: ResolvedLightboxAsset = {
-                blob,
-                objectUrl: null
-              };
-              assetCacheRef.current = resolved;
-              onProgress?.(blob.size, blob.size);
-              return resolved;
+            if (blob === null) {
+              throw new Error("Failed to encode image blob");
             }
-          }
+            const resolved: ResolvedLightboxAsset = {
+              blob,
+              objectUrl: null
+            };
+            assetCacheRef.current = resolved;
+            assetFetchRef.current = null;
+            onProgress?.(blob.size, blob.size);
+            return resolved;
+          })().catch((error) => {
+            assetFetchRef.current = null;
+            throw error;
+          });
+          assetFetchRef.current = canvasPromise;
+          return canvasPromise;
         }
       }
 
@@ -929,6 +956,19 @@ export function ImageLightbox({
     []
   );
 
+  const pauseVideoPlayback = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) {
+      setVideoPlaying(false);
+      return;
+    }
+    if (!video.paused && !video.ended) {
+      video.pause();
+    }
+    setVideoPlaying(false);
+    setChromeVisible(true);
+  }, []);
+
   const executeNativeMediaTransfer = useCallback(
     async (action: "save" | "share"): Promise<boolean> => {
       const nativeAction = action === "save" ? "saveMedia" : "shareMedia";
@@ -937,10 +977,16 @@ export function ImageLightbox({
         return false;
       }
 
-      const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
       const requestId = createTransferRequestId(action);
       activeNativeTransferRequestIdRef.current = requestId;
-      publishNativeTransfer(action, requestId, "preparing", null, null);
+      if (mediaType === "video") {
+        pauseVideoPlayback();
+        publishNativeTransfer(action, requestId, "started", 0, null);
+      } else {
+        publishNativeTransfer(action, requestId, "preparing", null, null);
+      }
+
+      const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
 
       try {
         if (mediaType === "image") {
@@ -971,7 +1017,9 @@ export function ImageLightbox({
           }
         }
 
-        publishNativeTransfer(action, requestId, "started", null, null);
+        if (mediaType !== "video") {
+          publishNativeTransfer(action, requestId, "started", null, null);
+        }
         const remoteRequest = buildNativeTransferRequest({
           requestId,
           mode: "remote",
@@ -1009,6 +1057,7 @@ export function ImageLightbox({
       assetUrl,
       getToken,
       mediaType,
+      pauseVideoPlayback,
       publishNativeTransfer,
       resolveTransferAsset
     ]
@@ -1232,7 +1281,7 @@ export function ImageLightbox({
                 e.stopPropagation();
                 void handleShare();
               }}
-              disabled={sharing}
+              disabled={sharing || nativeTransferBusy}
               aria-label={shareLabel}
               title={shareLabel}
               className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-medium transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-60"

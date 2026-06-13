@@ -45,12 +45,15 @@ const MAX_FILES = 5;
 const VOICE_GESTURE_SLOP_PX = 12;
 /** Mic action column width in the composer (`w-10`). */
 const VOICE_MIC_COLUMN_PX = 40;
+/** Trash target diameter (`h-8 w-8`). */
+const VOICE_TRASH_SIZE_PX = 32;
 /** Keep trash left of the mic so a holding thumb does not cover it. */
-const VOICE_THUMB_CLEARANCE_PX = 52;
+const VOICE_THUMB_CLEARANCE_PX = Math.round(52 * 1.5);
 /** Trash anchor from the composer's right edge (mic column + clearance). */
 const VOICE_TRASH_OFFSET_FROM_RIGHT_PX = VOICE_MIC_COLUMN_PX + VOICE_THUMB_CLEARANCE_PX;
-/** Extra pill width beyond the mic column when swiping toward trash. */
-const VOICE_PILL_MAX_STRETCH_PX = VOICE_THUMB_CLEARANCE_PX - 8;
+/** Pill stretch so the left edge fully wraps the trash target, not just touches it. */
+const VOICE_PILL_MAX_STRETCH_PX =
+  VOICE_TRASH_OFFSET_FROM_RIGHT_PX + VOICE_TRASH_SIZE_PX - VOICE_MIC_COLUMN_PX;
 /** Finger within this distance of the trash center arms cancel. */
 const VOICE_TRASH_ARM_TOLERANCE_PX = 36;
 const VOICE_HOLD_MIN_MS = 280;
@@ -831,6 +834,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const cancelArmedRef = useRef(false);
   const [cancelArmed, setCancelArmed] = useState(false);
   const [voicePillWidthPx, setVoicePillWidthPx] = useState(0);
+  const voicePillEngulfsTrash =
+    isRecording && (cancelArmed || voicePillWidthPx >= VOICE_PILL_MAX_STRETCH_PX - 6);
   const swipeLeftPxRef = useRef(0);
 
   const safeVibrate = useCallback((pattern: number | number[]) => {
@@ -856,16 +861,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     (clientX: number) => {
       const rawSwipeLeftPx = Math.max(0, holdStartXRef.current - clientX);
       const swipeLeft = Math.max(0, rawSwipeLeftPx - VOICE_GESTURE_SLOP_PX);
-      if (swipeLeft !== swipeLeftPxRef.current) {
-        swipeLeftPxRef.current = swipeLeft;
-        setVoicePillWidthPx(Math.min(swipeLeft, maxVoicePillWidthRef.current));
-      }
-
       const armed = clientX <= trashTargetXRef.current + VOICE_TRASH_ARM_TOLERANCE_PX;
       if (armed !== cancelArmedRef.current) {
         cancelArmedRef.current = armed;
         setCancelArmed(armed);
         if (armed) safeVibrate(12);
+      }
+
+      const targetPillStretch = armed
+        ? maxVoicePillWidthRef.current
+        : Math.min(swipeLeft, maxVoicePillWidthRef.current);
+      if (targetPillStretch !== swipeLeftPxRef.current) {
+        swipeLeftPxRef.current = targetPillStretch;
+        setVoicePillWidthPx(targetPillStretch);
       }
     },
     [safeVibrate]
@@ -940,8 +948,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       const composerRect = composerShellRef.current?.getBoundingClientRect();
       trashTargetXRef.current =
         composerRect !== undefined
-          ? composerRect.right - VOICE_TRASH_OFFSET_FROM_RIGHT_PX - 16
-          : e.clientX - VOICE_TRASH_OFFSET_FROM_RIGHT_PX;
+          ? composerRect.right - VOICE_TRASH_OFFSET_FROM_RIGHT_PX - VOICE_TRASH_SIZE_PX / 2
+          : e.clientX - VOICE_TRASH_OFFSET_FROM_RIGHT_PX - VOICE_TRASH_SIZE_PX / 2;
       maxVoicePillWidthRef.current = VOICE_PILL_MAX_STRETCH_PX;
       cancelArmedRef.current = false;
       swipeLeftPxRef.current = 0;
@@ -1342,21 +1350,43 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             <AnimatePresence>
               {isTouchDevice && isRecording && (
                 <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.12 }}
-                  className="pointer-events-none absolute top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center"
+                  initial={{ opacity: 0, scale: 0.82, x: 8 }}
+                  animate={{
+                    opacity: 1,
+                    scale: cancelArmed ? 1.06 : 1,
+                    x: 0
+                  }}
+                  exit={{ opacity: 0, scale: 0.9, x: 6 }}
+                  transition={{
+                    opacity: { duration: 0.18, ease: [0.22, 1, 0.36, 1] },
+                    scale: { type: "spring", stiffness: 460, damping: 26 },
+                    x: { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
+                  }}
+                  className="pointer-events-none absolute top-1/2 z-20 flex -translate-y-1/2 items-center justify-center"
                   style={{ right: `${VOICE_TRASH_OFFSET_FROM_RIGHT_PX}px` }}
                 >
                   <div
                     data-testid="voice-cancel-trash"
                     className={cn(
-                      "flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-100",
-                      cancelArmed ? "bg-destructive/15 text-destructive" : "text-text-subtle/55"
+                      "relative flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-150",
+                      voicePillEngulfsTrash
+                        ? cancelArmed
+                          ? "bg-transparent text-destructive"
+                          : "bg-transparent text-text-subtle/70"
+                        : cancelArmed
+                          ? "bg-destructive/15 text-destructive"
+                          : "text-text-subtle/55"
                     )}
                   >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    {!voicePillEngulfsTrash && !cancelArmed ? (
+                      <motion.span
+                        aria-hidden="true"
+                        className="absolute inset-0 rounded-full border border-text-subtle/20"
+                        animate={{ opacity: [0.25, 0.55, 0.25], scale: [0.94, 1.04, 0.94] }}
+                        transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
+                      />
+                    ) : null}
+                    <Trash2 className="relative h-4 w-4" aria-hidden="true" />
                   </div>
                 </motion.div>
               )}
@@ -1385,18 +1415,23 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               <AnimatePresence>
                 {isTouchDevice && isRecording && (
                   <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.08 }}
+                    initial={{ width: VOICE_MIC_COLUMN_PX, opacity: 0 }}
+                    animate={{
+                      width: VOICE_MIC_COLUMN_PX + voicePillWidthPx,
+                      opacity: 1
+                    }}
+                    exit={{ width: VOICE_MIC_COLUMN_PX, opacity: 0 }}
+                    transition={{
+                      width: { type: "spring", stiffness: 420, damping: 32, mass: 0.75 },
+                      opacity: { duration: 0.14, ease: [0.22, 1, 0.36, 1] }
+                    }}
                     data-testid="voice-stretch-pill"
                     className={cn(
-                      "pointer-events-none absolute top-1/2 right-0 h-9 -translate-y-1/2 rounded-full border transition-[width,background-color,border-color] duration-75",
+                      "pointer-events-none absolute top-1/2 right-0 z-[5] h-9 -translate-y-1/2 rounded-full border",
                       cancelArmed
-                        ? "border-destructive/35 bg-destructive/10"
+                        ? "border-destructive/40 bg-destructive/12"
                         : "border-accent/25 bg-accent/10"
                     )}
-                    style={{ width: `${VOICE_MIC_COLUMN_PX + voicePillWidthPx}px` }}
                   />
                 )}
               </AnimatePresence>

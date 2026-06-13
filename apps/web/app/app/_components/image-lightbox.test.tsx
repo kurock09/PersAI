@@ -382,6 +382,101 @@ describe("ImageLightbox", () => {
     });
   });
 
+  it("shows the transfer plaque immediately when saving video", () => {
+    (
+      window as unknown as { PersaiNative?: { saveMedia?: (payloadJson: string) => boolean } }
+    ).PersaiNative = {
+      saveMedia: vi.fn().mockReturnValue(true)
+    };
+
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-video-1"
+        downloadUrl="/api/assistant-file/file-ref-video-1?download=1"
+        filename="video.mp4"
+        alt="Generated video"
+        mediaType="video"
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "lightboxSave" }));
+
+    expect(screen.getByText("lightboxTransferStartingSave")).toBeInTheDocument();
+  });
+
+  it("pauses playing video when save starts", () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function (
+      this: HTMLMediaElement
+    ) {
+      Object.defineProperty(this, "paused", { configurable: true, value: false });
+      return Promise.resolve();
+    });
+    const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(function (
+      this: HTMLMediaElement
+    ) {
+      Object.defineProperty(this, "paused", { configurable: true, value: true });
+    });
+    (
+      window as unknown as { PersaiNative?: { saveMedia?: (payloadJson: string) => boolean } }
+    ).PersaiNative = {
+      saveMedia: vi.fn().mockReturnValue(true)
+    };
+
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-video-1"
+        downloadUrl="/api/assistant-file/file-ref-video-1?download=1"
+        filename="video.mp4"
+        alt="Generated video"
+        mediaType="video"
+        onClose={() => undefined}
+      />
+    );
+
+    const video = screen.getByTestId("media-lightbox-video-surface").querySelector("video");
+    expect(video).not.toBeNull();
+    fireEvent.play(video!);
+    fireEvent.click(screen.getByRole("button", { name: "lightboxSave" }));
+
+    expect(pauseSpy).toHaveBeenCalled();
+    expect(screen.getByLabelText("lightboxPlayHero")).toBeInTheDocument();
+  });
+
+  it("does not autoplay video on touch devices", () => {
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        mediaQuery: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      }))
+    );
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 2
+    });
+
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-video-1"
+        downloadUrl="/api/assistant-file/file-ref-video-1?download=1"
+        filename="video.mp4"
+        alt="Generated video"
+        mediaType="video"
+        onClose={() => undefined}
+      />
+    );
+
+    expect(playSpy).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("lightboxPlayHero")).toBeInTheDocument();
+  });
+
   it("reuses one fetched blob across share and save fallback actions", async () => {
     const share = vi.fn().mockResolvedValue(undefined);
     const canShare = vi.fn().mockReturnValue(true);
