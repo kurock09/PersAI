@@ -848,6 +848,12 @@ export class HandleCloudpaymentsWebhookService {
       currentPeriodEndsAt,
       metadata: {
         ...this.buildLifecycleMetadata(notificationType, payload),
+        ...(payload.amountMinor !== null && payload.currency !== null
+          ? {
+              amountMinor: payload.amountMinor,
+              currency: payload.currency
+            }
+          : {}),
         ...(paymentIntentPurpose === "managed_recurring_upgrade"
           ? {
               managedRecurringSubscriptionUpdate: {

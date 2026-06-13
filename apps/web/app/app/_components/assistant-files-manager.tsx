@@ -495,7 +495,7 @@ export function AssistantFilesManager() {
                                         if (event.key === "Enter") void handleRename(file.fileRef);
                                         if (event.key === "Escape") setEditingRef(null);
                                       }}
-                                      className="h-8 min-w-0 flex-1 rounded-xl border border-border/55 bg-background/55 px-2 text-sm text-text outline-none focus:border-border-strong"
+                                      className="h-8 min-w-0 flex-1 rounded-xl border border-border/55 bg-background/55 px-2 text-sm text-text outline-none focus:border-border-strong dark:border-white/14 dark:bg-surface-raised/55 dark:focus:border-white/24"
                                       autoFocus
                                     />
                                   ) : (

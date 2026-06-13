@@ -443,6 +443,8 @@ async function run(): Promise<void> {
   assert.equal(appliedBillingEvents.at(-1)?.eventCode, "payment_recovered");
   assert.equal(appliedBillingEvents.at(-1)?.providerSubscriptionRef, "sub-provider-1");
   assert.equal(appliedBillingEvents.at(-1)?.workspaceId, "ws-1");
+  assert.equal(appliedBillingEvents.at(-1)?.metadata?.amountMinor, 99_00);
+  assert.equal(appliedBillingEvents.at(-1)?.metadata?.currency, "RUB");
 
   subscriptionStatus = "active";
   subscriptionPlanCode = "pro";
@@ -481,6 +483,8 @@ async function run(): Promise<void> {
   assert.deepEqual(scheduledDowngradeResult, { status: "processed" });
   assert.equal(appliedBillingEvents.at(-1)?.eventCode, "renewal_succeeded");
   assert.equal(appliedBillingEvents.at(-1)?.paidPlanCode, "starter");
+  assert.equal(appliedBillingEvents.at(-1)?.metadata?.amountMinor, 49_00);
+  assert.equal(appliedBillingEvents.at(-1)?.metadata?.currency, "RUB");
 
   const staleScheduledDowngradeBody = {
     TransactionId: 1234602,
@@ -508,6 +512,8 @@ async function run(): Promise<void> {
   assert.deepEqual(staleScheduledDowngradeResult, { status: "processed" });
   assert.equal(appliedBillingEvents.at(-1)?.eventCode, "renewal_succeeded");
   assert.equal(appliedBillingEvents.at(-1)?.paidPlanCode, "pro");
+  assert.equal(appliedBillingEvents.at(-1)?.metadata?.amountMinor, 99_00);
+  assert.equal(appliedBillingEvents.at(-1)?.metadata?.currency, "RUB");
   subscriptionMetadata = null;
   subscriptionPlanCode = "starter";
 

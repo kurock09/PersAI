@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { FileText, Loader2, Plus, Trash2 } from "lucide-react";
+import { FileText, ChevronDown, Loader2, Plus, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import {
@@ -97,8 +97,10 @@ export function ProjectFilesPanel({ chatId, threadKey }: { chatId: string; threa
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [hintActive, setHintActive] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const runProjectFilesHint = useCallback(() => {
+    setExpanded(true);
     panelRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
     setHintActive(true);
   }, []);
@@ -143,7 +145,10 @@ export function ProjectFilesPanel({ chatId, threadKey }: { chatId: string; threa
     if (!hintActive) {
       return;
     }
-    const timer = window.setTimeout(() => setHintActive(false), PROJECT_FILES_HINT_MS);
+    const timer = window.setTimeout(() => {
+      setHintActive(false);
+      setExpanded(false);
+    }, PROJECT_FILES_HINT_MS);
     return () => window.clearTimeout(timer);
   }, [hintActive]);
 
@@ -181,6 +186,7 @@ export function ProjectFilesPanel({ chatId, threadKey }: { chatId: string; threa
       }
       setUploading(true);
       setFeedback(null);
+      setExpanded(true);
       const batchClientTurnId = createClientTurnId();
       try {
         let resolvedChatId = chatId;
@@ -234,18 +240,37 @@ export function ProjectFilesPanel({ chatId, threadKey }: { chatId: string; threa
     <div
       ref={panelRef}
       className={cn(
-        "shrink-0 border-t border-border px-3 py-2.5",
+        "shrink-0 border-t border-border px-3 py-2",
         hintActive && "project-files-hint"
       )}
       data-testid="project-files-panel"
     >
-      <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
-        <p className="text-[11px] font-medium text-text-subtle">{t("projectFilesTitle")}</p>
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-0.5 py-1 text-left transition-colors hover:bg-surface-hover/60"
+          aria-expanded={expanded}
+          data-testid="project-files-toggle"
+        >
+          <ChevronDown
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-text-subtle transition-transform duration-200",
+              expanded ? "rotate-180" : "rotate-0"
+            )}
+          />
+          <span className="truncate text-[11px] font-medium text-text-subtle">
+            {t("projectFilesTitle")}
+          </span>
+          {!loading && files.length > 0 ? (
+            <span className="text-[10px] tabular-nums text-text-muted">{files.length}</span>
+          ) : null}
+        </button>
         <button
           type="button"
           onClick={() => uploadInputRef.current?.click()}
           disabled={loading || uploading || busyDeleteRef !== null}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/70 bg-surface-raised text-text-subtle transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-default disabled:opacity-60"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border/70 bg-surface-raised text-text-subtle transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-default disabled:opacity-60"
           aria-label={t("projectFilesAdd")}
           title={t("projectFilesAdd")}
         >
@@ -265,66 +290,81 @@ export function ProjectFilesPanel({ chatId, threadKey }: { chatId: string; threa
           }}
         />
       </div>
-      {feedback ? (
-        <p
-          className="mb-1.5 px-0.5 text-[11px] text-text-subtle"
-          data-testid="project-files-feedback"
-        >
-          {feedback}
-        </p>
-      ) : null}
-      {loading ? (
-        <div
-          className="flex items-center gap-2 px-0.5 py-2 text-xs text-text-muted"
-          data-testid="project-files-loading"
-        >
-          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-          {t("projectFilesLoading")}
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-80"
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          {feedback ? (
+            <p
+              className="mt-1.5 px-0.5 text-[11px] text-text-subtle"
+              data-testid="project-files-feedback"
+            >
+              {feedback}
+            </p>
+          ) : null}
+          {loading ? (
+            <div
+              className="mt-1.5 flex items-center gap-2 px-0.5 py-2 text-xs text-text-muted"
+              data-testid="project-files-loading"
+            >
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+              {t("projectFilesLoading")}
+            </div>
+          ) : loadError ? (
+            <p className="mt-1.5 px-0.5 py-2 text-xs text-text-subtle">{t("projectFilesEmpty")}</p>
+          ) : files.length === 0 ? (
+            <p
+              className="mt-1.5 px-0.5 py-2 text-xs text-text-subtle"
+              data-testid="project-files-empty"
+            >
+              {t("projectFilesEmpty")}
+            </p>
+          ) : (
+            <ul
+              className="mt-1 max-h-36 space-y-0.5 overflow-y-auto"
+              data-testid="project-files-list"
+            >
+              {files.map((file) => {
+                const label = file.originalFilename ?? file.fileRef;
+                const href = getAssistantFileDownloadUrl(file.fileRef);
+                return (
+                  <li key={file.fileRef}>
+                    <div className="flex items-center gap-1 rounded-lg px-1 py-1">
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                        title={label}
+                      >
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-text-subtle" />
+                        <span className="min-w-0 truncate">{label}</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete(file.fileRef)}
+                        disabled={uploading || busyDeleteRef === file.fileRef}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-default disabled:opacity-60"
+                        aria-label={t("delete")}
+                        title={t("delete")}
+                      >
+                        {busyDeleteRef === file.fileRef ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
-      ) : loadError ? (
-        <p className="px-0.5 py-2 text-xs text-text-subtle">{t("projectFilesEmpty")}</p>
-      ) : files.length === 0 ? (
-        <p className="px-0.5 py-2 text-xs text-text-subtle" data-testid="project-files-empty">
-          {t("projectFilesEmpty")}
-        </p>
-      ) : (
-        <ul className="max-h-36 space-y-0.5 overflow-y-auto" data-testid="project-files-list">
-          {files.map((file) => {
-            const label = file.originalFilename ?? file.fileRef;
-            const href = getAssistantFileDownloadUrl(file.fileRef);
-            return (
-              <li key={file.fileRef}>
-                <div className="flex items-center gap-1 rounded-lg px-1 py-1">
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                    title={label}
-                  >
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-text-subtle" />
-                    <span className="min-w-0 truncate">{label}</span>
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete(file.fileRef)}
-                    disabled={uploading || busyDeleteRef === file.fileRef}
-                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-default disabled:opacity-60"
-                    aria-label={t("delete")}
-                    title={t("delete")}
-                  >
-                    {busyDeleteRef === file.fileRef ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      </div>
     </div>
   );
 }

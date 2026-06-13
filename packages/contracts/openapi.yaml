@@ -11326,6 +11326,10 @@ components:
           type: string
         fileDeleted:
           type: boolean
+        externalDownloadUrl:
+          type: string
+          nullable: true
+          description: Provider-hosted download URL when the video is too large to persist inline in PersAI storage.
         documentLink:
           allOf:
             - $ref: "#/components/schemas/AssistantWebChatMessageAttachmentDocumentLink"

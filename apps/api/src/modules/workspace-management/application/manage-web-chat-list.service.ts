@@ -48,7 +48,10 @@ import {
 } from "./compaction-advisory-state";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
-import { getAttachmentDerivativeRefs } from "./media/media.types";
+import {
+  getAttachmentDerivativeRefs,
+  toAssistantWebChatMessageAttachmentState
+} from "./media/media.types";
 
 type AttachmentDerivativeRefs = ReturnType<typeof getAttachmentDerivativeRefs>;
 
@@ -353,27 +356,28 @@ export class ManageWebChatListService {
           ? (fileDerivativeMetadataById.get(att.assistantFileId) ?? null)
           : null
       );
-      list.push({
-        id: att.id,
-        fileRef: att.assistantFileId,
-        ...(derivativeRefs.thumbnailFileRef !== null
-          ? { thumbnailFileRef: derivativeRefs.thumbnailFileRef }
-          : {}),
-        ...(derivativeRefs.posterFileRef !== null
-          ? { posterFileRef: derivativeRefs.posterFileRef }
-          : {}),
-        ...(derivativeRefs.derivativesStatus !== null
-          ? { derivativesStatus: derivativeRefs.derivativesStatus }
-          : {}),
-        attachmentType: att.attachmentType,
-        originalFilename: att.originalFilename,
-        mimeType: att.mimeType,
-        sizeBytes: Number(att.sizeBytes),
-        processingStatus: att.processingStatus,
-        ...(att.metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
-        ...(documentLink === null ? {} : { documentLink }),
-        createdAt: att.createdAt.toISOString()
-      });
+      list.push(
+        toAssistantWebChatMessageAttachmentState({
+          id: att.id,
+          assistantFileId: att.assistantFileId,
+          attachmentType: att.attachmentType,
+          originalFilename: att.originalFilename,
+          mimeType: att.mimeType,
+          sizeBytes: att.sizeBytes,
+          processingStatus: att.processingStatus,
+          metadata:
+            att.metadata !== null &&
+            typeof att.metadata === "object" &&
+            !Array.isArray(att.metadata)
+              ? (att.metadata as Record<string, unknown>)
+              : null,
+          createdAt: att.createdAt,
+          documentLink,
+          thumbnailFileRef: derivativeRefs.thumbnailFileRef,
+          posterFileRef: derivativeRefs.posterFileRef,
+          derivativesStatus: derivativeRefs.derivativesStatus
+        })
+      );
       attachmentsByMessageId.set(att.messageId, list);
     }
 

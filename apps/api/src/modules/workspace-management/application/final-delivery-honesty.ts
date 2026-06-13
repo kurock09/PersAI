@@ -55,6 +55,24 @@ function buildUndeliveredAttachmentNotice(
  * artifacts than requested (1 ≤ produced < requested). Returns null otherwise
  * (full delivery, or zero produced — full-failure paths handle the latter).
  */
+export function buildExternalMediaDownloadLines(input: {
+  items: ReadonlyArray<{ url: string; filename: string | null }>;
+  locale?: string | null;
+}): string[] {
+  const ru = input.locale?.toLowerCase().startsWith("ru") ?? false;
+  return input.items.map((item) => {
+    const label =
+      typeof item.filename === "string" && item.filename.trim().length > 0
+        ? item.filename.trim()
+        : ru
+          ? "видео"
+          : "video";
+    return ru
+      ? `Файл слишком большой для отправки прямо в чат. Скачать: [${label}](${item.url})`
+      : `The file is too large to send directly in chat. Download: [${label}](${item.url})`;
+  });
+}
+
 export function buildPartialDeliveryShortfallLine(
   produced: number,
   requested: number,

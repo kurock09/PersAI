@@ -178,6 +178,10 @@ class FakeHeyGenProviderClient {
 class FakePersaiInternalApiClientService {
   secretIds: string[] = [];
 
+  isConfigured(): boolean {
+    return false;
+  }
+
   async resolveSecretValue(secretId: string): Promise<string> {
     this.secretIds.push(secretId);
     return "resolved-tool-secret";
@@ -207,6 +211,7 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
     input: {
       ...createRequest({ includeReference: true, model: "sora-2-pro" }),
       acceptedTask: null,
+      mediaJobId: null,
       referenceTailImage: null,
       voiceIds: null
     },

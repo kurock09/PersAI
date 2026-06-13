@@ -24,6 +24,11 @@ export interface AssistantWebChatMessageAttachmentState {
   sizeBytes: number;
   processingStatus: string;
   fileDeleted?: boolean;
+  /**
+   * Provider-hosted download URL when the video is too large to persist inline in PersAI storage.
+   * @nullable
+   */
+  externalDownloadUrl?: string | null;
   /** @nullable */
   documentLink?: AssistantWebChatMessageAttachmentStateDocumentLink;
   createdAt: string;

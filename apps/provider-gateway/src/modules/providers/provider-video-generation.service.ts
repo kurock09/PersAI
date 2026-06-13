@@ -9,6 +9,7 @@ import {
   type PersaiRuntimeVideoGenerateProviderId,
   type ProviderGatewayVideoGenerateRequest,
   type ProviderGatewayVideoGenerateResult,
+  type RuntimeAcceptedVideoProviderTask,
   type RuntimeVideoGenerateMode
 } from "@persai/runtime-contract";
 import { HeyGenProviderClient } from "./heygen/heygen-provider.client";
@@ -43,8 +44,17 @@ export class ProviderVideoGenerationService {
           return this.runwayProviderClient.generateVideo(normalized, { apiKey: credentialValue });
         case "kling":
           return this.klingProviderClient.generateVideo(normalized, { credentialValue });
-        case "heygen":
-          return this.heyGenProviderClient.generateVideo(normalized, { credentialValue });
+        case "heygen": {
+          const heygenOptions: {
+            credentialValue: string;
+            onAcceptedTaskCheckpoint?: (task: RuntimeAcceptedVideoProviderTask) => Promise<void>;
+          } = { credentialValue };
+          const checkpoint = this.buildHeygenAcceptedTaskCheckpoint(normalized.mediaJobId);
+          if (checkpoint !== undefined) {
+            heygenOptions.onAcceptedTaskCheckpoint = checkpoint;
+          }
+          return this.heyGenProviderClient.generateVideo(normalized, heygenOptions);
+        }
       }
     } catch (error) {
       const pollingLoss = this.readAcceptedPrimaryUnconfirmedError(error);
@@ -79,6 +89,7 @@ export class ProviderVideoGenerationService {
     } | null;
     voiceIds: string[] | null;
     acceptedTask: ProviderGatewayVideoGenerateRequest["acceptedTask"];
+    mediaJobId: string | null;
     credential: ProviderGatewayVideoGenerateRequest["credential"] & {
       providerId: PersaiRuntimeVideoGenerateProviderId | null;
     };
@@ -134,6 +145,7 @@ export class ProviderVideoGenerationService {
       voiceIds,
       providerParameters: input.providerParameters ?? null,
       acceptedTask: input.acceptedTask ?? null,
+      mediaJobId: this.normalizeMediaJobId(input.mediaJobId),
       credential: {
         toolCode: "video_generate",
         secretId: input.credential.secretId.trim(),
@@ -328,6 +340,32 @@ export class ProviderVideoGenerationService {
       )
     );
     return normalized.length > 0 ? normalized : null;
+  }
+
+  private normalizeMediaJobId(
+    input: ProviderGatewayVideoGenerateRequest["mediaJobId"]
+  ): string | null {
+    if (input === null || input === undefined) {
+      return null;
+    }
+    if (typeof input !== "string" || input.trim().length === 0) {
+      throw new BadRequestException("mediaJobId must be a non-empty string or null");
+    }
+    return input.trim();
+  }
+
+  private buildHeygenAcceptedTaskCheckpoint(
+    mediaJobId: string | null
+  ): ((task: RuntimeAcceptedVideoProviderTask) => Promise<void>) | undefined {
+    if (mediaJobId === null || !this.persaiInternalApiClientService.isConfigured()) {
+      return undefined;
+    }
+    return async (acceptedProviderTask) => {
+      await this.persaiInternalApiClientService.checkpointMediaJobAcceptedProviderTask({
+        mediaJobId,
+        acceptedProviderTask
+      });
+    };
   }
 
   private readAcceptedPrimaryUnconfirmedError(error: unknown): Record<string, unknown> | null {

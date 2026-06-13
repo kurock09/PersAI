@@ -16,7 +16,10 @@ import type {
   AssistantChatSkillDecisionState
 } from "../domain/assistant-chat.entity";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
-import { getAttachmentDerivativeRefs } from "./media/media.types";
+import {
+  getAttachmentDerivativeRefs,
+  toAssistantWebChatMessageAttachmentState
+} from "./media/media.types";
 
 export type WebChatTurnAttemptStatus =
   | "unknown"
@@ -118,29 +121,21 @@ function toAttachmentState(input: {
       ? (input.metadata as Record<string, unknown>)
       : null;
   const derivativeRefs = getAttachmentDerivativeRefs(metadata);
-  return {
+  return toAssistantWebChatMessageAttachmentState({
     id: input.id,
-    fileRef: input.assistantFileId,
-    ...(derivativeRefs.thumbnailFileRef !== null
-      ? { thumbnailFileRef: derivativeRefs.thumbnailFileRef }
-      : {}),
-    ...(derivativeRefs.posterFileRef !== null
-      ? { posterFileRef: derivativeRefs.posterFileRef }
-      : {}),
-    ...(derivativeRefs.derivativesStatus !== null
-      ? { derivativesStatus: derivativeRefs.derivativesStatus }
-      : {}),
+    assistantFileId: input.assistantFileId,
     attachmentType: input.attachmentType,
     originalFilename: input.originalFilename,
     mimeType: input.mimeType,
-    sizeBytes: Number(input.sizeBytes),
+    sizeBytes: input.sizeBytes,
     processingStatus: input.processingStatus,
-    ...(metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
-    ...(readPersistedDocumentLinkMetadata(metadata) === null
-      ? {}
-      : { documentLink: readPersistedDocumentLinkMetadata(metadata) }),
-    createdAt: input.createdAt.toISOString()
-  };
+    metadata,
+    createdAt: input.createdAt,
+    documentLink: readPersistedDocumentLinkMetadata(metadata),
+    thumbnailFileRef: derivativeRefs.thumbnailFileRef,
+    posterFileRef: derivativeRefs.posterFileRef,
+    derivativesStatus: derivativeRefs.derivativesStatus
+  });
 }
 
 function readTerminalPayload(value: Prisma.JsonValue | null): CompletedWebTurnReplayState | null {

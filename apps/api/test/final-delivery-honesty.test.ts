@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { applyFinalDeliveryHonestyCorrection } from "../src/modules/workspace-management/application/final-delivery-honesty";
+import {
+  applyFinalDeliveryHonestyCorrection,
+  buildExternalMediaDownloadLines
+} from "../src/modules/workspace-management/application/final-delivery-honesty";
 
 async function run(): Promise<void> {
   // Delivered-attachment link on a standalone line is stripped entirely; remaining body returned
@@ -240,6 +243,29 @@ async function run(): Promise<void> {
       locale: "en"
     }),
     "Here is your file."
+  );
+
+  // External download-only delivery counts as delivered (no correction)
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: "Your video is ready.",
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 1,
+      deliveredAttachmentFilenames: [],
+      attemptedArtifactKind: "media",
+      locale: "ru"
+    }),
+    "Your video is ready."
+  );
+
+  assert.deepEqual(
+    buildExternalMediaDownloadLines({
+      items: [{ url: "https://files.heygen.ai/video/promo.mp4", filename: "promo.mp4" }],
+      locale: "ru"
+    }),
+    [
+      "Файл слишком большой для отправки прямо в чат. Скачать: [promo.mp4](https://files.heygen.ai/video/promo.mp4)"
+    ]
   );
 }
 

@@ -545,6 +545,8 @@
     "lines": "{count} строк",
     "uploadFailed": "Не удалось загрузить",
     "fileDeleted": "файл удалён",
+    "externalVideoDownload": "Скачать",
+    "externalVideoDefaultName": "видео",
     "presentationDownloadPptxAction": "Скачать PPTX",
     "presentationDownloadPptxStarting": "Запускаем PPTX…",
     "presentationDownloadPptxConfirmTitle": "Подготовить PPTX-копию",

@@ -27,7 +27,10 @@ import type { MediaDeliveryService } from "./media/media-delivery.service";
 import type { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import type { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
-import { getAttachmentDerivativeRefs } from "./media/media.types";
+import {
+  getAttachmentDerivativeRefs,
+  toAssistantWebChatMessageAttachmentState
+} from "./media/media.types";
 import type { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AssistantWebChatMessageState } from "./web-chat.types";
 import type { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
@@ -43,30 +46,28 @@ type PersistedSkillState = Awaited<
 type TraceStageRecorder = (stage: string) => void;
 
 function toAttachmentState(attachment: PersistedAttachment) {
-  const derivativeRefs = getAttachmentDerivativeRefs(attachment.metadata);
-  return {
+  const metadata =
+    attachment.metadata !== null &&
+    typeof attachment.metadata === "object" &&
+    !Array.isArray(attachment.metadata)
+      ? (attachment.metadata as Record<string, unknown>)
+      : null;
+  const derivativeRefs = getAttachmentDerivativeRefs(metadata);
+  return toAssistantWebChatMessageAttachmentState({
     id: attachment.id,
-    fileRef: attachment.assistantFileId,
-    ...(derivativeRefs.thumbnailFileRef !== null
-      ? { thumbnailFileRef: derivativeRefs.thumbnailFileRef }
-      : {}),
-    ...(derivativeRefs.posterFileRef !== null
-      ? { posterFileRef: derivativeRefs.posterFileRef }
-      : {}),
-    ...(derivativeRefs.derivativesStatus !== null
-      ? { derivativesStatus: derivativeRefs.derivativesStatus }
-      : {}),
+    assistantFileId: attachment.assistantFileId,
     attachmentType: attachment.attachmentType,
     originalFilename: attachment.originalFilename,
     mimeType: attachment.mimeType,
-    sizeBytes: Number(attachment.sizeBytes),
+    sizeBytes: attachment.sizeBytes,
     processingStatus: attachment.processingStatus,
-    ...(attachment.metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
-    ...(readPersistedDocumentLinkMetadata(attachment.metadata) === null
-      ? {}
-      : { documentLink: readPersistedDocumentLinkMetadata(attachment.metadata) }),
-    createdAt: attachment.createdAt.toISOString()
-  };
+    metadata,
+    createdAt: attachment.createdAt,
+    documentLink: readPersistedDocumentLinkMetadata(metadata),
+    thumbnailFileRef: derivativeRefs.thumbnailFileRef,
+    posterFileRef: derivativeRefs.posterFileRef,
+    derivativesStatus: derivativeRefs.derivativesStatus
+  });
 }
 
 function parseWebThreadProviderMessageId(providerRef: string | null): string | null {
@@ -84,7 +85,6 @@ async function persistFinalAssistantContentIfNeeded(input: {
   assistantId: string;
   assistantText: string;
   deliveredAttachments: Awaited<ReturnType<MediaDeliveryService["deliver"]>>["attachments"];
-  externalDeliveryCount: number;
   attemptedArtifactCount: number;
   attemptedArtifactKind: ReturnType<typeof resolveUndeliveredArtifactKind>;
   locale: string | null;
@@ -92,7 +92,7 @@ async function persistFinalAssistantContentIfNeeded(input: {
   const finalAssistantContent = applyFinalDeliveryHonestyCorrection({
     assistantText: input.assistantText,
     attemptedArtifactCount: input.attemptedArtifactCount,
-    deliveredAttachmentCount: input.deliveredAttachments.length + input.externalDeliveryCount,
+    deliveredAttachmentCount: input.deliveredAttachments.length,
     deliveredAttachmentFilenames: input.deliveredAttachments
       .map((attachment) => attachment.originalFilename)
       .filter((filename): filename is string => typeof filename === "string"),
@@ -309,8 +309,7 @@ export async function finalizePersistedWebTurn(input: {
     deliveredAttachments: delivered.attachments,
     attemptedArtifactCount: input.mediaArtifacts.length,
     attemptedArtifactKind: resolveUndeliveredArtifactKind(input.mediaArtifacts),
-    locale: input.locale,
-    externalDeliveryCount: delivered.externalDeliveries?.length ?? 0
+    locale: input.locale
   });
 
   await input.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({

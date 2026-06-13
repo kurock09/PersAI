@@ -5,6 +5,7 @@ import type {
 import type { RuntimeAttachmentRef, RuntimeBillingFacts } from "@persai/runtime-contract";
 import type { AssistantWebChatMessageAttachmentState } from "../web-chat.types";
 import type { RuntimeMediaArtifact } from "../assistant-runtime.facade";
+import { readPersistedDocumentLinkMetadata } from "../read-attachment-document-link";
 
 export type MediaChannel = "web" | "telegram" | "whatsapp" | "vk";
 
@@ -273,11 +274,80 @@ export function getAttachmentDerivativeRefs(metadata: Record<string, unknown> | 
   };
 }
 
+export const EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX = "external-download/" as const;
+
+export function readExternalDownloadUrl(
+  metadata: Record<string, unknown> | null | undefined
+): string | null {
+  const value = metadata?.externalDownloadUrl;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+export function toAssistantWebChatMessageAttachmentState(input: {
+  id: string;
+  assistantFileId: string | null;
+  attachmentType: string;
+  originalFilename: string | null;
+  mimeType: string;
+  sizeBytes: bigint | number;
+  processingStatus: string;
+  metadata: Record<string, unknown> | null | undefined;
+  createdAt: Date | string;
+  documentLink?: AssistantWebChatMessageAttachmentState["documentLink"];
+  thumbnailFileRef?: string | null;
+  posterFileRef?: string | null;
+  derivativesStatus?: AssistantWebChatMessageAttachmentState["derivativesStatus"];
+}): AssistantWebChatMessageAttachmentState {
+  const metadata =
+    input.metadata !== null && typeof input.metadata === "object" && !Array.isArray(input.metadata)
+      ? input.metadata
+      : null;
+  const derivativeRefs =
+    input.thumbnailFileRef !== undefined ||
+    input.posterFileRef !== undefined ||
+    input.derivativesStatus !== undefined
+      ? {
+          thumbnailFileRef: input.thumbnailFileRef ?? null,
+          posterFileRef: input.posterFileRef ?? null,
+          derivativesStatus: input.derivativesStatus ?? null
+        }
+      : getAttachmentDerivativeRefs(metadata);
+  const externalDownloadUrl = readExternalDownloadUrl(metadata);
+  const documentLink =
+    input.documentLink === undefined
+      ? readPersistedDocumentLinkMetadata(metadata)
+      : input.documentLink;
+  return {
+    id: input.id,
+    fileRef: input.assistantFileId,
+    ...(derivativeRefs.thumbnailFileRef !== null
+      ? { thumbnailFileRef: derivativeRefs.thumbnailFileRef }
+      : {}),
+    ...(derivativeRefs.posterFileRef !== null
+      ? { posterFileRef: derivativeRefs.posterFileRef }
+      : {}),
+    ...(derivativeRefs.derivativesStatus !== null
+      ? { derivativesStatus: derivativeRefs.derivativesStatus }
+      : {}),
+    attachmentType: input.attachmentType,
+    originalFilename: input.originalFilename,
+    mimeType: input.mimeType,
+    sizeBytes: Number(input.sizeBytes),
+    processingStatus: input.processingStatus,
+    ...(metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
+    ...(externalDownloadUrl !== null ? { externalDownloadUrl } : {}),
+    ...(documentLink === null ? {} : { documentLink }),
+    createdAt: typeof input.createdAt === "string" ? input.createdAt : input.createdAt.toISOString()
+  };
+}
+
 export function buildStoredAttachmentMetadata(input: {
   source?: string;
   textExtract?: string | null;
   transcription?: string | null;
   originalUrl?: string;
+  deliveryMode?: "external_download";
+  externalDownloadUrl?: string;
 }): Record<string, unknown> | null {
   const metadata: Record<string, unknown> = {};
 
@@ -301,6 +371,17 @@ export function buildStoredAttachmentMetadata(input: {
 
   if (typeof input.originalUrl === "string" && input.originalUrl.trim().length > 0) {
     metadata.originalUrl = input.originalUrl;
+  }
+
+  if (input.deliveryMode === "external_download") {
+    metadata.deliveryMode = input.deliveryMode;
+  }
+
+  if (
+    typeof input.externalDownloadUrl === "string" &&
+    input.externalDownloadUrl.trim().length > 0
+  ) {
+    metadata.externalDownloadUrl = input.externalDownloadUrl.trim();
   }
 
   return Object.keys(metadata).length > 0 ? metadata : null;

@@ -477,6 +477,19 @@ async function run(): Promise<void> {
           return [{ currency: "RUB", _sum: { amountMinor: 199000 } }];
         }
       },
+      workspaceSubscriptionBillingEvent: {
+        async findMany() {
+          return [
+            {
+              planCode: "pro",
+              metadata: {
+                amountMinor: 9800,
+                currency: "RUB"
+              }
+            }
+          ];
+        }
+      },
       modelCostLedgerEvent: {
         async aggregate(args: { where?: { workspaceId?: string; currency?: string } }) {
           assert.equal(args.where?.workspaceId, "ws-1");
@@ -672,7 +685,7 @@ async function run(): Promise<void> {
     assert.match(result.modelCostLedger?.coverageNote ?? "", /background-task evaluator/i);
     assert.equal(result.modelCostLedger?.totalEvents, 5);
     assert.equal(result.modelCostLedger?.currencyTotals[0]?.totalCostMicros, 8450000);
-    assert.equal(result.periodEconomics?.paidTotalMinor, 199000);
+    assert.equal(result.periodEconomics?.paidTotalMinor, 208800);
     assert.equal(result.periodEconomics?.paidCurrency, "RUB");
     assert.equal(result.periodEconomics?.modelCostUsdMicros, 5000000);
     assert.equal(result.periodEconomics?.periodStartedAt, "2026-05-01T00:00:00.000Z");

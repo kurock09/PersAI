@@ -1020,7 +1020,7 @@ export class TelegramChannelAdapterService {
         });
         mediaDeliveryCompleted = true;
         deliveredAttachmentCount = deliveredMedia.attachments.length;
-        externalDeliveryCount = deliveredMedia.externalDeliveries?.length ?? 0;
+        externalDeliveryCount = 0;
         deliveredAttachmentFilenames = deliveredMedia.attachments
           .map((attachment) => attachment.originalFilename)
           .filter(

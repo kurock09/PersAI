@@ -54,6 +54,8 @@ export interface AssistantWebChatMessageAttachmentState {
   sizeBytes: number;
   processingStatus: string;
   fileDeleted?: boolean;
+  /** Provider-hosted download URL when the file is too large to persist inline. */
+  externalDownloadUrl?: string | null;
   documentLink?: AssistantWebChatMessageAttachmentDocumentLink | null;
   createdAt: string;
 }

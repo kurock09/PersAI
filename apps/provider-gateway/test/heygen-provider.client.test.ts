@@ -548,6 +548,101 @@ export async function runHeyGenProviderClientTest(): Promise<void> {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Test 6b: Completed poll but download transport loss → PERSAI_VIDEO_POLLING_LOST
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
+
+      if (url === "https://api.heygen.com/v3/videos") return makeSubmitResponse("vid-dl-loss-1");
+      if (url === "https://api.heygen.com/v3/videos/vid-dl-loss-1") {
+        return makeCompletedPollResponse("https://cdn.heygen.com/vid-dl-loss-1.mp4", 12);
+      }
+      if (url === "https://cdn.heygen.com/vid-dl-loss-1.mp4") {
+        throw new Error("fetch failed");
+      }
+      throw new Error(`Unexpected fetch in download-loss test: ${url}`);
+    }) as typeof fetch;
+
+    try {
+      await assert.rejects(
+        () =>
+          client.generateVideo(
+            createBaseRequest({ cachedHeygenAvatarId: "ava-dl-loss", personaId: null }),
+            { credentialValue: MOCK_HEYGEN_API_KEY }
+          ),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.match(error.message, /PERSAI_VIDEO_POLLING_LOST::/);
+          const marker = "PERSAI_VIDEO_POLLING_LOST::";
+          const payload = JSON.parse(
+            error.message.slice(error.message.indexOf(marker) + marker.length)
+          ) as Record<string, unknown>;
+          assert.equal(payload["providerTaskId"], "vid-dl-loss-1");
+          assert.equal(payload["reason"], "provider completed but download transport lost");
+          return true;
+        }
+      );
+      console.log(
+        "✓ Test 6b: Download transport loss throws recoverable PERSAI_VIDEO_POLLING_LOST"
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Test 6c: Accepted-task checkpoint fires immediately after submit
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    const checkpointCalls: Array<Record<string, unknown>> = [];
+
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
+
+      if (url === "https://api.heygen.com/v3/videos") return makeSubmitResponse("vid-checkpoint-1");
+      if (url === "https://api.heygen.com/v3/videos/vid-checkpoint-1") {
+        return makeCompletedPollResponse("https://cdn.heygen.com/vid-checkpoint-1.mp4", 12);
+      }
+      if (url === "https://cdn.heygen.com/vid-checkpoint-1.mp4") {
+        return new Response(MOCK_VIDEO_BYTES, {
+          status: 200,
+          headers: { "Content-Type": "video/mp4" }
+        });
+      }
+      throw new Error(`Unexpected fetch in checkpoint test: ${url}`);
+    }) as typeof fetch;
+
+    try {
+      await client.generateVideo(
+        createBaseRequest({ cachedHeygenAvatarId: "ava-checkpoint", personaId: null }),
+        {
+          credentialValue: MOCK_HEYGEN_API_KEY,
+          onAcceptedTaskCheckpoint: async (task) => {
+            checkpointCalls.push(task as unknown as Record<string, unknown>);
+          }
+        }
+      );
+      assert.equal(checkpointCalls.length, 1);
+      assert.equal(checkpointCalls[0]?.["providerTaskId"], "vid-checkpoint-1");
+      assert.equal(checkpointCalls[0]?.["provider"], "heygen");
+      console.log("✓ Test 6c: Accepted-task checkpoint fires after submit");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Test 7: 4xx submit error — no retry, honest error message
   // ──────────────────────────────────────────────────────────────────────────
   {

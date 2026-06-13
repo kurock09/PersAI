@@ -1016,6 +1016,7 @@ function attachmentTypeBadge(attachment: ChatAttachment): string {
   if (mimeType.includes("markdown") || filename.endsWith(".md")) return "MD";
   if (mimeType.startsWith("text/") || filename.endsWith(".txt")) return "TXT";
   if (mimeType.includes("zip") || filename.endsWith(".zip")) return "ZIP";
+  if (mimeType.startsWith("video/") || attachment.attachmentType === "video") return "VIDEO";
   return "FILE";
 }
 
@@ -1374,10 +1375,15 @@ function AttachmentStrip({
             ? `${String(att.uploadProgressPercent)}%`
             : null;
         const inlineUrl = resolveInlinePreviewUrl(att) ?? undefined;
+        const externalDownloadUrl =
+          typeof att.externalDownloadUrl === "string" && att.externalDownloadUrl.trim().length > 0
+            ? att.externalDownloadUrl.trim()
+            : null;
         const downloadUrl =
-          isDeleted || att.id.startsWith("local-") || !att.fileRef
+          externalDownloadUrl ??
+          (isDeleted || att.id.startsWith("local-") || !att.fileRef
             ? undefined
-            : getAssistantFileDownloadUrl(att.fileRef, { download: true });
+            : getAssistantFileDownloadUrl(att.fileRef, { download: true }));
         const previewUrl = att.localPreviewUrl ?? inlineUrl;
         const link = att.documentLink;
         const documentLabel = (() => {
@@ -1490,6 +1496,26 @@ function AttachmentStrip({
         }
 
         if (att.attachmentType === "video") {
+          if (!att.fileRef && externalDownloadUrl) {
+            return (
+              <a
+                key={att.id}
+                href={externalDownloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(CHAT_FILE_PILL_SURFACE_CLASS, CHAT_FILE_PILL_SURFACE_HOVER_CLASS)}
+              >
+                <span className={CHAT_FILE_PILL_BADGE_CLASS}>VIDEO</span>
+                <span className={CHAT_FILE_PILL_FILENAME_CLASS}>
+                  {att.originalFilename ?? t("externalVideoDefaultName")}
+                </span>
+                <span className={CHAT_FILE_PILL_META_CLASS}>
+                  {formatBytes(att.sizeBytes)} · {t("externalVideoDownload")}
+                </span>
+              </a>
+            );
+          }
+
           const fullUrl =
             isDeleted || att.id.startsWith("local-") || !att.fileRef
               ? null

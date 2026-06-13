@@ -893,6 +893,88 @@ async function run(): Promise<void> {
     { operation: "reconcile", toolCode: "image_edit" },
     { operation: "reconcile", toolCode: "image_generate" }
   ]);
+
+  let oversizedVideoAttachmentCreates = 0;
+  const oversizedVideoService = new MediaDeliveryService(
+    {
+      async create(input: {
+        attachmentType: string;
+        originalFilename: string | null;
+        mimeType: string;
+        sizeBytes: bigint;
+        metadata: Record<string, unknown> | null;
+      }) {
+        oversizedVideoAttachmentCreates += 1;
+        return createAttachment({
+          id: "att-external-video-1",
+          attachmentType: input.attachmentType as "video",
+          originalFilename: input.originalFilename,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes,
+          metadata: input.metadata
+        });
+      }
+    } as never,
+    noopAssistantRepository as never,
+    [],
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/promo.mp4";
+      },
+      async saveObject() {
+        oversizedVideoUploadCalls += 1;
+        return {
+          objectKey: "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/promo.mp4",
+          sizeBytes: 0,
+          mimeType: "video/mp4"
+        };
+      }
+    } as never,
+    fakeAssistantFileRegistry as never,
+    fakeUploadMicroDescriptionJobService as never,
+    noopQuotaUsageService as never,
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService
+  );
+  const oversizedVideoBuffer = Buffer.alloc(51 * 1024 * 1024, 0);
+  globalThis.fetch = async () =>
+    new Response(oversizedVideoBuffer, {
+      status: 200,
+      headers: { "Content-Type": "video/mp4" }
+    });
+  const oversizedVideoDelivered = await oversizedVideoService.deliver({
+    artifacts: [
+      {
+        source: "runtime_url",
+        url: "https://files.heygen.ai/video/promo.mp4",
+        type: "video",
+        downloadUrl: "https://files.heygen.ai/video/promo.mp4",
+        filename: "promo.mp4"
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-oversized-video",
+    workspaceId: "workspace-1"
+  });
+  assert.equal(oversizedVideoAttachmentCreates, 1);
+  assert.equal(oversizedVideoDelivered.attachments.length, 1);
+  assert.equal(oversizedVideoDelivered.attachments[0]?.attachmentType, "video");
+  assert.equal(
+    oversizedVideoDelivered.attachments[0]?.externalDownloadUrl,
+    "https://files.heygen.ai/video/promo.mp4"
+  );
+  assert.equal(oversizedVideoDelivered.externalDeliveries?.length, 1);
+  assert.equal(
+    oversizedVideoDelivered.externalDeliveries?.[0]?.reason,
+    "file_too_large_for_inline_delivery"
+  );
+  assert.equal(
+    oversizedVideoDelivered.externalDeliveries?.[0]?.url,
+    "https://files.heygen.ai/video/promo.mp4"
+  );
+
   globalThis.fetch = originalFetch;
 }
 

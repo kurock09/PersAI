@@ -792,6 +792,7 @@ export class RuntimeVideoGenerateToolService {
                 : null,
             voiceIds: resolvedVoiceIds.length > 0 ? resolvedVoiceIds : null,
             acceptedTask: this.readAcceptedTaskHint(request, attempt),
+            mediaJobId: this.resolveMediaJobIdFromSession(params.sessionId),
             credential: {
               toolCode: VIDEO_GENERATE_TOOL_CODE,
               secretId: attempt.credential.secretRef.id,
@@ -1047,7 +1048,8 @@ export class RuntimeVideoGenerateToolService {
     const providerFromStatus =
       providerStatus.provider === "openai" ||
       providerStatus.provider === "runway" ||
-      providerStatus.provider === "kling"
+      providerStatus.provider === "kling" ||
+      providerStatus.provider === "heygen"
         ? (providerStatus.provider as PersaiRuntimeVideoGenerateProviderId)
         : attempt.providerId;
     return {
@@ -1076,6 +1078,15 @@ export class RuntimeVideoGenerateToolService {
           ? providerStatus.taskKind
           : null
     };
+  }
+
+  private resolveMediaJobIdFromSession(sessionId: string): string | null {
+    const prefix = "media-job:";
+    if (!sessionId.startsWith(prefix)) {
+      return null;
+    }
+    const mediaJobId = sessionId.slice(prefix.length).trim();
+    return mediaJobId.length > 0 ? mediaJobId : null;
   }
 
   private readAcceptedTaskHint(
@@ -2685,6 +2696,11 @@ export class RuntimeVideoGenerateToolService {
     this.logger.log(
       `[talking-avatar] dispatch requestId=${requestId} personaId=${personaId ?? "ad-hoc"} voiceId=${resolvedVoiceId}`
     );
+    const credentialAttempt: ResolvedVideoCredentialAttempt = {
+      credential,
+      providerId,
+      model
+    };
     try {
       const providerResult = await this.providerGatewayClientService.generateVideo(
         {
@@ -2695,7 +2711,8 @@ export class RuntimeVideoGenerateToolService {
           referenceImage: null,
           referenceTailImage: null,
           voiceIds: null,
-          acceptedTask: null,
+          acceptedTask: this.readAcceptedTaskHint(request, credentialAttempt),
+          mediaJobId: this.resolveMediaJobIdFromSession(sessionId),
           providerParameters: this.resolveProviderVideoParameters({
             providerId,
             audioMode: normalizedRequest.request.audioMode,
@@ -2759,6 +2776,40 @@ export class RuntimeVideoGenerateToolService {
     } catch (dispatchError) {
       const failureMessage =
         dispatchError instanceof Error ? dispatchError.message : "HeyGen video generation failed.";
+      const acceptedPrimaryUnconfirmed = this.parseAcceptedPrimaryUnconfirmed(
+        dispatchError,
+        credentialAttempt
+      );
+      if (acceptedPrimaryUnconfirmed !== null) {
+        const recoveryMarker = `PERSAI_VIDEO_ACCEPTED_PRIMARY_UNCONFIRMED::${JSON.stringify(acceptedPrimaryUnconfirmed)}`;
+        this.logger.warn(
+          `[talking-avatar] recovery started requestId=${requestId} providerTaskId=${acceptedPrimaryUnconfirmed.providerTaskId}: ${failureMessage}`
+        );
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: acceptedPrimaryUnconfirmed.model ?? model,
+            prompt: request.prompt,
+            requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
+            ...this.buildRequestedTalkingAvatarEchoes(request),
+            size: normalizedRequest.request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "accepted_primary_unconfirmed",
+            warning: `Provider accepted the video task, but continuity was lost before delivery completed. ${recoveryMarker}`,
+            providerStatus: acceptedPrimaryUnconfirmed
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
       this.logger.warn(
         `[talking-avatar] dispatch failed requestId=${requestId} personaId=${personaId ?? "ad-hoc"}: ${failureMessage}`
       );

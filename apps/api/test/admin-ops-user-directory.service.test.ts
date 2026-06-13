@@ -69,6 +69,24 @@ async function run(): Promise<void> {
           return [{ currency: "RUB", _sum: { amountMinor: 99000 } }];
         }
       },
+      workspaceSubscriptionBillingEvent: {
+        async findMany() {
+          return [
+            {
+              planCode: "pro",
+              metadata: {
+                amountMinor: 9800,
+                currency: "RUB"
+              }
+            }
+          ];
+        }
+      },
+      planCatalogPlan: {
+        async findMany() {
+          return [];
+        }
+      },
       modelCostLedgerEvent: {
         async aggregate() {
           return { _sum: { actualCostMicros: BigInt(1250000) } };
@@ -115,7 +133,7 @@ async function run(): Promise<void> {
   assert.equal(result.users[0]?.assistantCount, 2);
   assert.equal(result.users[0]?.billing.planCode, "pro");
   assert.equal(result.users[0]?.billing.usageRisk, "elevated");
-  assert.equal(result.users[0]?.periodEconomics?.paidTotalMinor, 99000);
+  assert.equal(result.users[0]?.periodEconomics?.paidTotalMinor, 108800);
   assert.equal(result.users[0]?.periodEconomics?.paidCurrency, "RUB");
   assert.equal(result.users[0]?.periodEconomics?.modelCostUsdMicros, 1250000);
 }

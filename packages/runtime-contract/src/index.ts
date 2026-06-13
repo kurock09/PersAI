@@ -3428,6 +3428,8 @@ export interface ProviderGatewayVideoGenerateRequest {
   portraitImageBytesBase64?: string | null;
   /** @adr109-slice6 MIME type companion to portraitImageBytesBase64 (e.g. "image/jpeg"). */
   portraitImageMimeType?: string | null;
+  /** When set, provider-gateway checkpoints acceptedProviderTask to this media job immediately after submit. */
+  mediaJobId?: string | null;
 }
 
 export interface RuntimeAcceptedVideoProviderTask {

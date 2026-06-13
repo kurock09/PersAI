@@ -3,6 +3,7 @@ import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayVideoGenerateRequest,
   ProviderGatewayVideoGenerateResult,
+  RuntimeAcceptedVideoProviderTask,
   RuntimeBillingFacts
 } from "@persai/runtime-contract";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
@@ -61,7 +62,10 @@ export class HeyGenProviderClient {
 
   async generateVideo(
     input: ProviderGatewayVideoGenerateRequest,
-    options?: { credentialValue?: string }
+    options?: {
+      credentialValue?: string;
+      onAcceptedTaskCheckpoint?: (task: RuntimeAcceptedVideoProviderTask) => Promise<void>;
+    }
   ): Promise<ProviderGatewayVideoGenerateResult> {
     const apiKey = this.resolveApiKey(options?.credentialValue);
     const model = input.model ?? HEYGEN_DEFAULT_VIDEO_MODEL;
@@ -70,11 +74,30 @@ export class HeyGenProviderClient {
     );
 
     try {
+      const resumedFromAcceptedTask =
+        this.normalizeAcceptedTask(input.acceptedTask, model) !== null;
       const acceptedTask = await this.resolveAcceptedTask(input, model, apiKey, signal);
+      if (!resumedFromAcceptedTask && options?.onAcceptedTaskCheckpoint !== undefined) {
+        await options.onAcceptedTaskCheckpoint({
+          provider: "heygen",
+          model: acceptedTask.model,
+          providerTaskId: acceptedTask.videoId,
+          acceptedAt: acceptedTask.acceptedAt,
+          providerStage: "accepted",
+          taskKind: input.mode === "talking_avatar" ? "talking_avatar" : null
+        });
+      }
       const completedBody = await this.pollTask(acceptedTask, apiKey, signal);
       const videoUrl = this.readVideoUrl(completedBody);
       const durationSeconds = this.readRequiredDuration(completedBody);
-      const video = await this.downloadVideo(videoUrl, signal);
+      let video: ProviderGatewayVideoGenerateResult["video"];
+      try {
+        video = await this.downloadVideo(videoUrl, signal);
+      } catch (downloadError) {
+        throw this.buildPollingLossError(acceptedTask, downloadError, {
+          reason: "provider completed but download transport lost"
+        });
+      }
 
       return {
         provider: "heygen",
@@ -792,7 +815,11 @@ export class HeyGenProviderClient {
 
   // ── Error helpers ─────────────────────────────────────────────────────────
 
-  private buildPollingLossError(acceptedTask: HeyGenAcceptedTask, error: unknown): Error {
+  private buildPollingLossError(
+    acceptedTask: HeyGenAcceptedTask,
+    error: unknown,
+    options?: { reason?: string }
+  ): Error {
     const message = error instanceof Error ? error.message : String(error);
     const payload = {
       providerTaskId: acceptedTask.videoId,
@@ -801,7 +828,7 @@ export class HeyGenProviderClient {
       providerStage: "accepted",
       acceptedAt: acceptedTask.acceptedAt,
       code: "accepted_primary_unconfirmed",
-      reason: "provider accepted but polling transport lost",
+      reason: options?.reason ?? "provider accepted but polling transport lost",
       message
     };
     return new Error(`PERSAI_VIDEO_POLLING_LOST::${JSON.stringify(payload)}`);

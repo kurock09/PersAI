@@ -3,6 +3,8 @@ import { BadRequestException } from "@nestjs/common";
 import { fileTypeFromBuffer } from "file-type";
 
 export const MAX_MEDIA_FILE_BYTES = 25 * 1024 * 1024;
+/** Tool-generated media (e.g. HeyGen video) may be persisted inline up to 50MB. */
+export const MAX_TOOL_OUTPUT_MEDIA_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_TOOL_OUTPUT_PRESENTATION_FILE_BYTES = 100 * 1024 * 1024;
 
 type MediaValidationSurface =
@@ -206,8 +208,11 @@ function resolveMaxAllowedBytes(input: {
       "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
     input.extensionMime ===
       "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-  if (input.surface === "tool_output_persist" && looksLikePresentation) {
-    return MAX_TOOL_OUTPUT_PRESENTATION_FILE_BYTES;
+  if (input.surface === "tool_output_persist") {
+    if (looksLikePresentation) {
+      return MAX_TOOL_OUTPUT_PRESENTATION_FILE_BYTES;
+    }
+    return MAX_TOOL_OUTPUT_MEDIA_FILE_BYTES;
   }
   return MAX_MEDIA_FILE_BYTES;
 }

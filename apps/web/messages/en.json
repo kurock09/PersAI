@@ -545,6 +545,8 @@
     "lines": "{count} lines",
     "uploadFailed": "Upload failed",
     "fileDeleted": "file deleted",
+    "externalVideoDownload": "Download",
+    "externalVideoDefaultName": "video",
     "presentationDownloadPptxAction": "Download PPTX",
     "presentationDownloadPptxStarting": "Starting PPTX…",
     "presentationDownloadPptxConfirmTitle": "Prepare a PPTX copy",

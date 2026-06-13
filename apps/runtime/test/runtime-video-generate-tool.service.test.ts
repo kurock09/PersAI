@@ -816,6 +816,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: null,
       credential: {
         toolCode: "video_generate",
@@ -837,6 +838,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: null,
       credential: {
         toolCode: "video_generate",
@@ -913,6 +915,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: null,
       credential: {
         toolCode: "video_generate",
@@ -949,6 +952,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: {
         mode: "pro",
         sound: "off"
@@ -989,6 +993,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: {
         mode: "pro",
         sound: "on"
@@ -1035,6 +1040,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: null,
       credential: {
         toolCode: "video_generate",
@@ -1056,6 +1062,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: {
         mode: "pro",
         sound: "off"
@@ -1102,6 +1109,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: {
         mode: "pro",
         sound: "off"
@@ -1126,6 +1134,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: null,
       credential: {
         toolCode: "video_generate",
@@ -1170,6 +1179,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: ["voice-owen"],
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: {
         mode: "pro",
         sound: "off"
@@ -1194,6 +1204,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: null,
       credential: {
         toolCode: "video_generate",
@@ -1322,6 +1333,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: {
         audio: true
       },
@@ -1360,6 +1372,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: {
         audio: true
       },
@@ -1443,6 +1456,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceTailImage: null,
       voiceIds: ["voice-1"],
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: {
         mode: "pro",
         sound: "off"
@@ -1534,6 +1548,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       },
       voiceIds: null,
       acceptedTask: null,
+      mediaJobId: null,
       providerParameters: {
         mode: "pro",
         sound: "off"

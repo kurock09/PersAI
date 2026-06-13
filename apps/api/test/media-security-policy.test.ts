@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   MAX_MEDIA_FILE_BYTES,
+  MAX_TOOL_OUTPUT_MEDIA_FILE_BYTES,
   validatePersaiMediaFile
 } from "../src/modules/workspace-management/application/media/media-security-policy";
 
@@ -46,6 +47,25 @@ async function run(): Promise<void> {
   assert.equal(
     oversizedPresentation.effectiveMimeType,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  );
+
+  const toolOutputVideo = await validatePersaiMediaFile({
+    buffer: Buffer.alloc(MAX_TOOL_OUTPUT_MEDIA_FILE_BYTES),
+    mimeType: "video/mp4",
+    originalFilename: "promo.mp4",
+    surface: "tool_output_persist"
+  });
+  assert.equal(toolOutputVideo.effectiveMimeType, "video/mp4");
+
+  await assert.rejects(
+    () =>
+      validatePersaiMediaFile({
+        buffer: Buffer.alloc(MAX_TOOL_OUTPUT_MEDIA_FILE_BYTES + 1024),
+        mimeType: "video/mp4",
+        originalFilename: "promo.mp4",
+        surface: "tool_output_persist"
+      }),
+    /File exceeds maximum size of 50MB/
   );
 
   await assert.rejects(

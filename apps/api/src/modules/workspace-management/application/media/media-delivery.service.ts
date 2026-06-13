@@ -24,15 +24,14 @@ import {
 } from "./channel-adapters/channel-media-adapter.interface";
 import {
   buildStoredAttachmentMetadata,
+  EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX,
   inferMimeFromUrlAndType,
+  toAssistantWebChatMessageAttachmentState,
   type DeliveredMedia,
   type MediaArtifact,
   type OutboundMediaDeliverParams
 } from "./media.types";
-import {
-  MAX_TOOL_OUTPUT_PRESENTATION_FILE_BYTES,
-  validatePersaiMediaFile
-} from "./media-security-policy";
+import { MAX_TOOL_OUTPUT_MEDIA_FILE_BYTES, validatePersaiMediaFile } from "./media-security-policy";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { downloadRuntimeMediaUrl } from "./runtime-media-download";
 import { AssistantFileRegistryService } from "../assistant-file-registry.service";
@@ -109,6 +108,7 @@ export class MediaDeliveryService {
         const persisted = await this.persistArtifact(artifact, params);
         if ("externalDelivery" in persisted) {
           externalDeliveries.push(persisted.externalDelivery);
+          results.push(persisted.state);
           if (isVcoinPricedArtifact) {
             await this.settleVideoGenerateWithVcoinDebit({
               assistant,
@@ -449,6 +449,7 @@ export class MediaDeliveryService {
         filename: string;
       }
     | {
+        state: AssistantWebChatMessageAttachmentState;
         externalDelivery: {
           type: MediaArtifact["type"];
           url: string;
@@ -462,17 +463,61 @@ export class MediaDeliveryService {
       throw new Error(`Media file not found on storage: ${describeRuntimeMediaArtifact(artifact)}`);
     }
 
+    const externalDownloadUrl = this.resolveExternalVideoDownloadUrl(artifact);
     if (
       artifact.type === "video" &&
-      downloadResult.buffer.length > MAX_TOOL_OUTPUT_PRESENTATION_FILE_BYTES &&
-      typeof artifact.downloadUrl === "string" &&
-      artifact.downloadUrl.trim().length > 0
+      downloadResult.buffer.length > MAX_TOOL_OUTPUT_MEDIA_FILE_BYTES &&
+      externalDownloadUrl !== null
     ) {
+      const filename = readRuntimeMediaArtifactFilename(artifact) ?? "video.mp4";
+      const mimeType =
+        downloadResult.contentType !== "application/octet-stream"
+          ? downloadResult.contentType
+          : inferMimeFromUrlAndType(externalDownloadUrl, "video");
+      const attachment = await this.attachmentRepository.create({
+        messageId: params.messageId,
+        chatId: params.chatId,
+        assistantId: params.assistantId,
+        workspaceId: params.workspaceId,
+        attachmentType: "video",
+        storagePath: `${EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX}messages/${params.messageId}`,
+        originalFilename: filename,
+        mimeType,
+        sizeBytes: BigInt(downloadResult.buffer.length),
+        durationMs: null,
+        width: null,
+        height: null,
+        processingStatus: "ready",
+        transcription: null,
+        billingFacts: null,
+        metadata: buildStoredAttachmentMetadata({
+          source: "tool_output",
+          deliveryMode: "external_download",
+          externalDownloadUrl,
+          ...(artifact.source === "runtime_url" ? { originalUrl: artifact.url } : {})
+        })
+      });
       return {
+        state: toAssistantWebChatMessageAttachmentState({
+          id: attachment.id,
+          assistantFileId: attachment.assistantFileId,
+          attachmentType: attachment.attachmentType,
+          originalFilename: attachment.originalFilename,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          processingStatus: attachment.processingStatus,
+          metadata:
+            attachment.metadata !== null &&
+            typeof attachment.metadata === "object" &&
+            !Array.isArray(attachment.metadata)
+              ? (attachment.metadata as Record<string, unknown>)
+              : null,
+          createdAt: attachment.createdAt
+        }),
         externalDelivery: {
           type: artifact.type,
-          url: artifact.downloadUrl.trim(),
-          filename: readRuntimeMediaArtifactFilename(artifact),
+          url: externalDownloadUrl,
+          filename,
           reason: "file_too_large_for_inline_delivery"
         }
       };
@@ -613,19 +658,39 @@ export class MediaDeliveryService {
     }
 
     return {
-      state: {
+      state: toAssistantWebChatMessageAttachmentState({
         id: attachment.id,
-        fileRef: attachment.assistantFileId,
+        assistantFileId: attachment.assistantFileId,
         attachmentType: attachment.attachmentType,
         originalFilename: attachment.originalFilename,
         mimeType: attachment.mimeType,
-        sizeBytes: Number(attachment.sizeBytes),
+        sizeBytes: attachment.sizeBytes,
         processingStatus: attachment.processingStatus,
-        createdAt: attachment.createdAt.toISOString()
-      },
+        metadata:
+          attachment.metadata !== null &&
+          typeof attachment.metadata === "object" &&
+          !Array.isArray(attachment.metadata)
+            ? (attachment.metadata as Record<string, unknown>)
+            : null,
+        createdAt: attachment.createdAt
+      }),
       buffer: downloadResult.buffer,
       filename
     };
+  }
+
+  private resolveExternalVideoDownloadUrl(artifact: MediaArtifact): string | null {
+    if (typeof artifact.downloadUrl === "string" && artifact.downloadUrl.trim().length > 0) {
+      return artifact.downloadUrl.trim();
+    }
+    if (
+      artifact.source === "runtime_url" &&
+      typeof artifact.url === "string" &&
+      artifact.url.trim().length > 0
+    ) {
+      return artifact.url.trim();
+    }
+    return null;
   }
 
   private async downloadArtifactSource(

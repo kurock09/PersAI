@@ -29,7 +29,11 @@ import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
 import { MediaDeliveryService } from "./media/media-delivery.service";
-import { getAttachmentDerivativeRefs, toRuntimeAttachmentRef } from "./media/media.types";
+import {
+  getAttachmentDerivativeRefs,
+  toAssistantWebChatMessageAttachmentState,
+  toRuntimeAttachmentRef
+} from "./media/media.types";
 import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 import { resolveWelcomeTurnInstruction } from "./send-web-chat-turn.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
@@ -44,6 +48,7 @@ import {
   finalizePersistedWebTurn,
   persistWebTurnSkillStateAndQueueBackgroundCheck
 } from "./complete-web-post-runtime-turn";
+import { inferAssistantMediaJobFailureLocale } from "./assistant-media-job-failure-copy.service";
 import {
   WebRuntimeStreamClientService,
   type WebRuntimeStreamClientInput
@@ -165,29 +170,21 @@ function toAttachmentState(attachment: {
   createdAt: Date;
 }) {
   const derivativeRefs = getAttachmentDerivativeRefs(attachment.metadata);
-  return {
+  return toAssistantWebChatMessageAttachmentState({
     id: attachment.id,
-    fileRef: attachment.assistantFileId,
-    ...(derivativeRefs.thumbnailFileRef !== null
-      ? { thumbnailFileRef: derivativeRefs.thumbnailFileRef }
-      : {}),
-    ...(derivativeRefs.posterFileRef !== null
-      ? { posterFileRef: derivativeRefs.posterFileRef }
-      : {}),
-    ...(derivativeRefs.derivativesStatus !== null
-      ? { derivativesStatus: derivativeRefs.derivativesStatus }
-      : {}),
+    assistantFileId: attachment.assistantFileId,
     attachmentType: attachment.attachmentType,
     originalFilename: attachment.originalFilename,
     mimeType: attachment.mimeType,
-    sizeBytes: Number(attachment.sizeBytes),
+    sizeBytes: attachment.sizeBytes,
     processingStatus: attachment.processingStatus,
-    ...(attachment.metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
-    ...(readPersistedDocumentLinkMetadata(attachment.metadata) === null
-      ? {}
-      : { documentLink: readPersistedDocumentLinkMetadata(attachment.metadata) }),
-    createdAt: attachment.createdAt.toISOString()
-  };
+    metadata: attachment.metadata,
+    createdAt: attachment.createdAt,
+    documentLink: readPersistedDocumentLinkMetadata(attachment.metadata),
+    thumbnailFileRef: derivativeRefs.thumbnailFileRef,
+    posterFileRef: derivativeRefs.posterFileRef,
+    derivativesStatus: derivativeRefs.derivativesStatus
+  });
 }
 
 function delay(ms: number): Promise<void> {
@@ -739,7 +736,10 @@ export class StreamWebChatTurnService {
         ...(usageAccounting === undefined ? {} : { usageAccounting }),
         traceId: trace.getTraceId(),
         quotaSource: "web_chat_turn_stream_completed",
-        locale: prepared.welcomeLocale ?? null,
+        locale: inferAssistantMediaJobFailureLocale({
+          preferredLocale: prepared.welcomeLocale ?? null,
+          sourceText: baseMessage
+        }),
         markTraceStage: (stage) => trace.stage(stage)
       });
       mediaDeliveryCompleted = true;

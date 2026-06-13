@@ -5,6 +5,7 @@ import {
   ServiceUnavailableException
 } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
+import type { RuntimeAcceptedVideoProviderTask } from "@persai/runtime-contract";
 import { PROVIDER_GATEWAY_CONFIG } from "../../provider-gateway-config";
 
 const INTERNAL_API_TIMEOUT_MS = 10_000;
@@ -172,6 +173,37 @@ export class PersaiInternalApiClientService {
       }
       throw new BadGatewayException(
         message ?? "PersAI internal API rejected the audit event append request."
+      );
+    }
+  }
+
+  async checkpointMediaJobAcceptedProviderTask(input: {
+    mediaJobId: string;
+    acceptedProviderTask: RuntimeAcceptedVideoProviderTask;
+  }): Promise<void> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson(
+      "/api/v1/internal/runtime/media-jobs/checkpoint-accepted-provider-task",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      }
+    );
+    if (!response.ok) {
+      const message = this.extractErrorMessage(response.body);
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException(
+          message ?? "PersAI internal API media-job checkpoint failed."
+        );
+      }
+      throw new BadGatewayException(
+        message ?? "PersAI internal API rejected the media-job checkpoint request."
       );
     }
   }

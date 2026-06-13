@@ -69,4 +69,29 @@ describe("ProjectFilesPanel — project mode hint", () => {
       expect(screen.getByTestId("project-files-panel")).toHaveClass("project-files-hint");
     });
   });
+
+  it("collapses after the hint pulse finishes", async () => {
+    render(<ProjectFilesPanel chatId="chat-1" threadKey="thread-1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("project-files-empty")).toBeInTheDocument();
+    });
+
+    dispatchProjectModeActivated("chat-1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("project-files-toggle")).toHaveAttribute("aria-expanded", "true");
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("project-files-toggle")).toHaveAttribute(
+          "aria-expanded",
+          "false"
+        );
+        expect(screen.getByTestId("project-files-panel")).not.toHaveClass("project-files-hint");
+      },
+      { timeout: 3000 }
+    );
+  });
 });

@@ -129,6 +129,24 @@ async function run(): Promise<void> {
           throw new Error(`Unexpected workspacePaymentIntent groupBy: ${args.by.join(",")}`);
         }
       },
+      workspaceSubscriptionBillingEvent: {
+        async findMany() {
+          return [
+            {
+              planCode: "pro",
+              metadata: {
+                amountMinor: 9800,
+                currency: "RUB"
+              }
+            }
+          ];
+        }
+      },
+      planCatalogPlan: {
+        async findMany() {
+          return [];
+        }
+      },
       modelCostLedgerEvent: {
         async groupBy(args: { by: string[]; where?: { occurredAt?: { gte?: Date; lt?: Date } } }) {
           assert.ok(args.where?.occurredAt?.gte instanceof Date);
@@ -313,8 +331,8 @@ async function run(): Promise<void> {
   assert.equal(result.publishApplyHealth.applySuccessPercent, 63);
   assert.equal(result.ledgerBackedModelCost.windowLabel, "all_time");
   assert.equal(result.ledgerBackedModelCost.periodSource, "all_time");
-  assert.equal(result.platformPaymentRevenueAllTime.rubTotalMinor, 56100);
-  assert.equal(result.platformPaymentRevenueAllTime.rubSucceededPayments, 3);
+  assert.equal(result.platformPaymentRevenueAllTime.rubTotalMinor, 65900);
+  assert.equal(result.platformPaymentRevenueAllTime.rubSucceededPayments, 4);
   assert.equal(result.platformPaymentRevenueAllTime.usdTotalMinor, 0);
   assert.equal(result.ledgerBackedModelCost.coverageScope, "adr099_block1_model_priced_paths");
   assert.match(result.ledgerBackedModelCost.coverageNote, /background-task evaluator/i);
