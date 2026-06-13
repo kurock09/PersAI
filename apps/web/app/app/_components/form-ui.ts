@@ -20,10 +20,10 @@ export function userPillButtonClassName(
   return cn(
     "inline-flex min-h-9 items-center justify-center gap-2 rounded-full px-4 text-[13px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50",
     variant === "primary"
-      ? "bg-accent text-white shadow-[0_5px_12px_rgba(0,0,0,0.08)] hover:bg-accent-hover"
+      ? "bg-accent text-white shadow-[0_2px_5px_rgba(0,0,0,0.035)] hover:bg-accent-hover"
       : variant === "danger"
         ? "border border-destructive/20 bg-destructive/10 text-destructive hover:bg-destructive/15"
-        : "border border-border/45 bg-surface-raised/72 text-text shadow-[0_3px_9px_rgba(0,0,0,0.03)] hover:border-border/60 hover:bg-surface-hover/92",
+        : "border border-border/45 bg-surface-raised/72 text-text shadow-[0_1px_4px_rgba(0,0,0,0.015)] hover:border-border/60 hover:bg-surface-hover/92",
     className
   );
 }

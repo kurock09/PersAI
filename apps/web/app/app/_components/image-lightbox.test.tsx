@@ -23,6 +23,47 @@ function blockVideoAutoplay() {
   );
 }
 
+function mockInlineImageCanvas() {
+  const drawImage = vi.fn();
+  const toBlob = vi.fn((callback: BlobCallback, type?: string) => {
+    callback(new Blob(["inline-image"], { type: type ?? "image/png" }));
+  });
+  const createElement = vi.spyOn(document, "createElement");
+  createElement.mockImplementation(((tagName: string, options?: ElementCreationOptions) => {
+    const element = document.createElementNS("http://www.w3.org/1999/xhtml", tagName, options);
+    if (tagName.toLowerCase() === "canvas") {
+      Object.defineProperty(element, "getContext", {
+        configurable: true,
+        value: vi.fn(() => ({ drawImage }))
+      });
+      Object.defineProperty(element, "toBlob", {
+        configurable: true,
+        value: toBlob
+      });
+    }
+    return element;
+  }) as typeof document.createElement);
+
+  return {
+    attachToImage(image: HTMLElement) {
+      Object.defineProperty(image, "complete", {
+        configurable: true,
+        value: true
+      });
+      Object.defineProperty(image, "naturalWidth", {
+        configurable: true,
+        value: 320
+      });
+      Object.defineProperty(image, "naturalHeight", {
+        configurable: true,
+        value: 180
+      });
+    },
+    drawImage,
+    toBlob
+  };
+}
+
 describe("ImageLightbox", () => {
   afterEach(() => {
     cleanup();
@@ -163,6 +204,7 @@ describe("ImageLightbox", () => {
   });
 
   it("prefers the native mobile bridge when available", async () => {
+    const inlineCanvas = mockInlineImageCanvas();
     const nativeShare = vi.fn().mockReturnValue(true);
     (
       window as unknown as { PersaiNative?: { shareMedia?: (payloadJson: string) => boolean } }
@@ -185,6 +227,7 @@ describe("ImageLightbox", () => {
       />
     );
 
+    inlineCanvas.attachToImage(screen.getByTestId("media-lightbox-image-surface"));
     fireEvent.click(screen.getByRole("button", { name: "lightboxShare" }));
 
     await waitFor(() => {
@@ -205,9 +248,12 @@ describe("ImageLightbox", () => {
     expect(typeof request.inlineBase64).toBe("string");
     expect(request.inlineBase64.length).toBeGreaterThan(0);
     expect(request.url).toBeUndefined();
+    expect(inlineCanvas.drawImage).toHaveBeenCalledTimes(1);
+    expect(inlineCanvas.toBlob).toHaveBeenCalledTimes(1);
   });
 
   it("prefers the native mobile save bridge when available", async () => {
+    const inlineCanvas = mockInlineImageCanvas();
     const nativeSave = vi.fn().mockReturnValue(true);
     (
       window as unknown as { PersaiNative?: { saveMedia?: (payloadJson: string) => boolean } }
@@ -230,6 +276,7 @@ describe("ImageLightbox", () => {
       />
     );
 
+    inlineCanvas.attachToImage(screen.getByTestId("media-lightbox-image-surface"));
     fireEvent.click(screen.getByRole("button", { name: "lightboxSave" }));
 
     await waitFor(() => {
@@ -250,6 +297,8 @@ describe("ImageLightbox", () => {
     expect(typeof request.inlineBase64).toBe("string");
     expect(request.inlineBase64.length).toBeGreaterThan(0);
     expect(request.url).toBeUndefined();
+    expect(inlineCanvas.drawImage).toHaveBeenCalledTimes(1);
+    expect(inlineCanvas.toBlob).toHaveBeenCalledTimes(1);
   });
 
   it("calls native bridge methods with the native object context", async () => {

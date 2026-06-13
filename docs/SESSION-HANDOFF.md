@@ -3,6 +3,36 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-13 - CI test fix + final UI polish follow-up
+
+### Baseline
+
+- Starting SHA: `f72e9cf2` on `main`; founder reported that GitHub Actions `CI` failed after the previous push and explicitly requested a `gh` log check, full local gate rerun, any necessary fixes, and a new commit/push together with the pending UI polish edits already left in the tree.
+
+### What changed
+
+- Investigated failed GitHub Actions run `27464212181` and confirmed the only red step was `full-checks -> Test`, specifically two `ImageLightbox` expectations in `apps/web/app/app/_components/image-lightbox.test.tsx`.
+- Hardened the native-inline lightbox tests so jsdom now explicitly simulates a loaded image plus canvas extraction path before asserting `mode: "inline"`. This keeps the coverage on the intended product behavior instead of accidentally falling back to the `remote` path when DOM image dimensions are absent in CI.
+- Landed the remaining founder-requested UI polish that was still uncommitted in this repo: the integrations cards now use the tighter responsive composition for 2-column / 1-column states in `assistant-settings.tsx`, and the shared pill-button shadows remain reduced in `form-ui.ts`.
+
+### Verification
+
+- `gh run view 27464212181 --log-failed`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/image-lightbox.test.tsx --config vitest.config.ts`
+- `corepack pnpm run test`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- The CI failure was test-environment-specific rather than a production lightbox regression; the product path is unchanged, but final confidence on the UX tweaks still depends on founder visual review in the real app and on a fresh GitHub Actions rerun after push.
+
+### Next recommended step
+
+- After this push lands, confirm the rerun `CI` workflow is green on GitHub and visually review the integrations card layout plus calmer shared button shadows in the deployed web UI.
+
 ## 2026-06-13 - mediaClasses legacy cleanup
 
 ### Baseline

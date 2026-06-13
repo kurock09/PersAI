@@ -5,6 +5,7 @@
 
 ## 2026-06-13
 
+- CI test fix + final UI polish follow-up: investigated the failed post-push GitHub Actions `CI` run and traced it to two brittle `ImageLightbox` native-inline expectations that depended on jsdom image/canvas behavior rather than the intended product contract. The lightbox tests now explicitly simulate a loaded image + canvas extraction path before asserting inline native transfer, which restores deterministic full-suite CI coverage without changing runtime behavior. The same commit also includes the remaining founder-requested web polish still pending in the tree: tighter responsive integrations cards and calmer shared pill-button shadows.
 - Legacy `mediaClasses` cleanup: removed the dead plan-entitlement `mediaClasses` dimension from the active API/domain/persistence path and dropped `plan_catalog_entitlements.media_classes` via Prisma migration. Effective capability/routing/enforcement truth now derives from `toolClasses`, `channelsAndSurfaces`, tool activations, and quota state instead of a stale parallel media-class layer. Admin plan parsing/state, plan catalog persistence, and model-visible assistant knowledge no longer round-trip or expose `mediaClasses`, which removes the false "image/audio/video/file disabled" signal the model previously saw even when media tools were active.
 
 ## 2026-06-12

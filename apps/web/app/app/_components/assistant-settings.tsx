@@ -386,18 +386,18 @@ function CharacterCreateCard({
       title={title}
       onClick={onClick}
       className={cn(
-        "flex min-h-[84px] w-full items-center gap-3 rounded-[22px] border border-border/55 bg-background/80 p-3 text-left shadow-[0_6px_18px_rgba(0,0,0,0.05)] transition-all",
+        "flex min-h-[84px] w-full items-center gap-3 rounded-xl border border-border/45 bg-background/35 p-3 text-left transition-colors",
         disabled
           ? "cursor-not-allowed opacity-60"
-          : "hover:border-border/70 hover:bg-background focus:outline-none focus:ring-2 focus:ring-accent/20"
+          : "cursor-pointer hover:bg-surface-raised/45 focus:outline-none focus:ring-2 focus:ring-accent/20"
       )}
     >
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-border/45 bg-background text-text-subtle">
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-accent/10 text-text-subtle">
         <Plus className="h-4 w-4" />
       </div>
       <div className="min-w-0">
         <p className="text-sm font-medium text-text">{label}</p>
-        <p className="mt-1 text-xs text-text-muted">{helperText}</p>
+        <p className="mt-1 truncate text-xs text-text-muted">{helperText}</p>
       </div>
     </button>
   );
