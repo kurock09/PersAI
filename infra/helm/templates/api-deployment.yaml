@@ -7,8 +7,6 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     app.kubernetes.io/name: api
-  annotations:
-    argocd.argoproj.io/sync-wave: "10"
 spec:
   revisionHistoryLimit: {{ default 2 .Values.api.revisionHistoryLimit }}
   minReadySeconds: {{ default 0 .Values.api.minReadySeconds }}

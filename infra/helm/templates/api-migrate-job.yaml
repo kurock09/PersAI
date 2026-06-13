@@ -10,8 +10,11 @@ metadata:
   annotations:
     argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   backoffLimit: {{ .Values.api.migrations.backoffLimit }}
+  ttlSecondsAfterFinished: {{ default 120 .Values.api.migrations.ttlSecondsAfterFinished }}
+  activeDeadlineSeconds: {{ default 900 .Values.api.migrations.activeDeadlineSeconds }}
   template:
     metadata:
       labels:

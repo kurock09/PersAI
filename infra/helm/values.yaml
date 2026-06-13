@@ -28,6 +28,8 @@ api:
   migrations:
     enabled: true
     backoffLimit: 1
+    ttlSecondsAfterFinished: 120
+    activeDeadlineSeconds: 900
   serviceAccount:
     create: true
     name: api-sa
