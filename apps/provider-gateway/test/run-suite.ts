@@ -13,6 +13,10 @@ import { runProviderTextGenerationServiceTest } from "./provider-text-generation
 import { runProviderWebFetchServiceTest } from "./provider-web-fetch.service.test";
 import { runProviderWebSearchServiceTest } from "./provider-web-search.service.test";
 import { runProviderWarmupServiceTest } from "./provider-warmup.service.test";
+import {
+  runProviderWarmupBootRecoveryTest,
+  runProviderWarmupBootRecoveryLoopTest
+} from "./provider-warmup-boot-recovery.test";
 import { runHeyGenProviderClientTest } from "./heygen-provider.client.test";
 import { runKlingProviderClientTest } from "./kling-provider.client.test";
 import { runPdfMonkeyProviderClientTest } from "./pdfmonkey-provider.client.test";
@@ -40,6 +44,8 @@ async function run(): Promise<void> {
   await runProviderVideoGenerationServiceTest();
   await runProviderSpeechGenerationServiceTest();
   await runProviderWarmupServiceTest();
+  await runProviderWarmupBootRecoveryTest();
+  await runProviderWarmupBootRecoveryLoopTest();
   await runProviderTextGenerationControllerTest();
   await runProviderTextGenerationServiceTest();
   await runProviderWebSearchServiceTest();

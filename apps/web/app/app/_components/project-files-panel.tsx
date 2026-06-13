@@ -256,7 +256,7 @@ export function ProjectFilesPanel({ chatId, threadKey }: { chatId: string; threa
           <ChevronDown
             className={cn(
               "h-3.5 w-3.5 shrink-0 text-text-subtle transition-transform duration-200",
-              expanded ? "rotate-180" : "rotate-0"
+              expanded ? "rotate-0" : "-rotate-180"
             )}
           />
           <span className="truncate text-[11px] font-medium text-text-subtle">

@@ -20,6 +20,10 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/app/lib/utils";
 import { AssistantAvatar } from "@/app/app/_components/assistant-avatar";
+import {
+  SIDEBAR_CARD_SETTINGS_AFFORDANCE_CLASS,
+  SIDEBAR_CARD_SETTINGS_ICON_CLASS
+} from "@/app/app/_components/sidebar-card-settings-affordance";
 import { DEMO_ASSISTANT_AVATAR_URL } from "./chat-atoms";
 
 /* ------------------------------------------------------------------ */
@@ -444,8 +448,8 @@ export function DemoSidebar({
               <span className="text-xs text-text-muted">{assistantStatusLabel}</span>
             </span>
           </div>
-          <span aria-hidden="true" className="ml-1 shrink-0 rounded-full p-1.5 text-text-subtle/40">
-            <Settings className="h-3.5 w-3.5" />
+          <span aria-hidden="true" className={cn("ml-1", SIDEBAR_CARD_SETTINGS_AFFORDANCE_CLASS)}>
+            <Settings className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
           </span>
         </div>
       </div>
@@ -513,7 +517,7 @@ export function DemoSidebar({
       {/* 4. Account footer — initials circle + name + plan · % + cog */}
       {(userName != null || userPlanLabel != null) && (
         <div className="shrink-0 border-t border-border p-2">
-          <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-2.5">
+          <div className="group flex items-center gap-2.5 rounded-lg px-2.5 py-2.5">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-surface-raised text-[13px] font-semibold text-text-subtle shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
               {userName?.charAt(0)?.toUpperCase() ?? "U"}
             </span>
@@ -527,7 +531,9 @@ export function DemoSidebar({
                 </span>
               )}
             </span>
-            <Settings className="h-4 w-4 shrink-0 text-text-subtle" aria-hidden="true" />
+            <span aria-hidden="true" className={SIDEBAR_CARD_SETTINGS_AFFORDANCE_CLASS}>
+              <Settings className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} aria-hidden="true" />
+            </span>
           </div>
         </div>
       )}

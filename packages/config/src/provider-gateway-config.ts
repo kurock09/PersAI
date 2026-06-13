@@ -53,6 +53,13 @@ const baseProviderGatewayConfigSchema = z.object({
   LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
   PROVIDER_GATEWAY_WARM_ON_BOOT: envBoolean.default(true),
   PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
+  PROVIDER_GATEWAY_BOOT_WARMUP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  PROVIDER_GATEWAY_BOOT_WARMUP_RETRY_DELAY_MS: z.coerce.number().int().positive().default(2_000),
+  PROVIDER_GATEWAY_BOOT_WARMUP_RECOVERY_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(10_000),
   PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   PERSAI_API_BASE_URL: optionalString,

@@ -48,6 +48,10 @@ import {
 } from "./streaming-threads";
 import { PullToRefresh } from "./pull-to-refresh";
 import { ProjectFilesPanel } from "./project-files-panel";
+import {
+  SIDEBAR_CARD_SETTINGS_AFFORDANCE_CLASS,
+  SIDEBAR_CARD_SETTINGS_ICON_CLASS
+} from "./sidebar-card-settings-affordance";
 
 interface SidebarProps {
   onClose?: () => void;
@@ -290,16 +294,11 @@ export function Sidebar({
           </div>
           {/*
            * Quiet premium affordance: the cog is the only visible cue that
-           * the whole card is clickable. Default state stays barely-visible
-           * (subtle/40) so the card remains calm; on hover it warms up via
-           * accent-premium to match the rest of the premium signals
-           * (Sparkles in chat list, deep-mode subtitle in chat header).
+           * the whole card is clickable. Default state stays subtle (/55)
+           * so the card remains calm; on hover it warms up via accent-premium.
            */}
-          <span
-            aria-hidden="true"
-            className="ml-1 shrink-0 rounded-full p-1.5 text-text-subtle/40 transition-colors group-hover:bg-surface group-hover:text-accent-premium"
-          >
-            <Settings className="h-3.5 w-3.5" />
+          <span aria-hidden="true" className={cn("ml-1", SIDEBAR_CARD_SETTINGS_AFFORDANCE_CLASS)}>
+            <Settings className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
           </span>
         </button>
       </div>
@@ -573,7 +572,7 @@ function AccountFooter({
       aria-hidden={options?.placeholder === true && open ? true : undefined}
       tabIndex={options?.placeholder === true && open ? -1 : undefined}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors",
+        "group flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors",
         open ? "bg-transparent" : "hover:bg-surface-hover"
       )}
       animate={{ y: open ? -4 : 0 }}
@@ -598,7 +597,9 @@ function AccountFooter({
               }`}
         </span>
       </span>
-      <Settings className="h-4 w-4 shrink-0 text-text-subtle" />
+      <span aria-hidden="true" className={SIDEBAR_CARD_SETTINGS_AFFORDANCE_CLASS}>
+        <Settings className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
+      </span>
     </motion.button>
   );
 

@@ -41,17 +41,10 @@ import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
 
 const MAX_FILES = 5;
 
-/** Reveal the trash affordance after a small but intentional left drag (~1.5 cm total). */
-const VOICE_TRASH_REVEAL_LEFT_PX = 44;
-/** Touch hold-to-record: require a deeper left swipe before arming cancel. */
-const VOICE_CANCEL_ARM_LEFT_PX = 92;
-/** Hysteresis: once armed, don't immediately disarm on tiny rebound. */
-const VOICE_CANCEL_DISARM_LEFT_PX = 68;
-/** Ignore thumb jitter / small accidental drift before computing swipe distance. */
+/** Ignore thumb jitter before computing swipe distance. */
 const VOICE_GESTURE_SLOP_PX = 12;
-/** Only mostly-horizontal swipes should arm cancel on mobile. */
-const VOICE_CANCEL_MAX_VERTICAL_DRIFT_PX = 96;
-const VOICE_CANCEL_HORIZONTAL_LEAD_PX = 28;
+/** Minimum cancel-arm distance when composer width is not measured yet. */
+const VOICE_CANCEL_ARM_MIN_PX = 72;
 const VOICE_HOLD_MIN_MS = 280;
 /** Above one line of text (leading-5 + py-2.5×2) the composer uses a fixed radius, not a pill. */
 const COMPOSER_SINGLE_LINE_HEIGHT_PX = 40;
@@ -276,6 +269,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const cameraPreviewStreamRef = useRef<MediaStream | null>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const attachTriggerRef = useRef<HTMLButtonElement>(null);
+  const composerShellRef = useRef<HTMLDivElement>(null);
   const dragDepthRef = useRef(0);
   const isTouchDevice = useTouchDevice();
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -657,9 +651,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       const attemptId = recordingAttemptIdRef.current + 1;
       recordingAttemptIdRef.current = attemptId;
       try {
-        // 2026-04-25 diagnostic — see [mic] in logcat to trace where startRecording fails on Samsung Z Fold.
-        // eslint-disable-next-line no-console
-        console.log("[mic] startRecording: requesting getUserMedia");
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         if (
           attemptId !== recordingAttemptIdRef.current ||
@@ -673,14 +664,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           return;
         }
         streamRef.current = stream;
-        // eslint-disable-next-line no-console
-        console.log("[mic] startRecording: getUserMedia OK, picking mimeType");
 
         const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
           ? "audio/webm;codecs=opus"
           : "audio/webm";
-        // eslint-disable-next-line no-console
-        console.log(`[mic] startRecording: mimeType=${mimeType}`);
         const recorder = new MediaRecorder(stream, { mimeType });
         mediaRecorderRef.current = recorder;
         chunksRef.current = [];
@@ -745,8 +732,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         recordingStartTimeRef.current = Date.now();
         setRecordingState("recording");
         setRecordingSeconds(0);
-        // eslint-disable-next-line no-console
-        console.log("[mic] startRecording: recorder.start() OK, state=recording");
         timerRef.current = setInterval(() => {
           setRecordingSeconds((prev) => prev + 1);
         }, 1000);
@@ -793,13 +778,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   // swipe left into the cancel zone then release to discard. Desktop keeps
   // click-to-toggle.
   const holdActiveRef = useRef(false);
+  const holdPointerIdRef = useRef<number | null>(null);
   const holdStartTimeRef = useRef(0);
   const holdStartXRef = useRef(0);
-  const holdStartYRef = useRef(0);
+  const trashTargetXRef = useRef(0);
+  const maxVoicePillWidthRef = useRef(120);
   const cancelArmedRef = useRef(false);
   const [cancelArmed, setCancelArmed] = useState(false);
-  const trashRevealRef = useRef(false);
-  const [trashRevealed, setTrashRevealed] = useState(false);
+  const [voicePillWidthPx, setVoicePillWidthPx] = useState(76);
+  const swipeLeftPxRef = useRef(0);
 
   const safeVibrate = useCallback((pattern: number | number[]) => {
     if (typeof navigator === "undefined") return;
@@ -813,39 +800,23 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const resetHoldGesture = useCallback(() => {
     holdActiveRef.current = false;
+    holdPointerIdRef.current = null;
     cancelArmedRef.current = false;
-    trashRevealRef.current = false;
+    swipeLeftPxRef.current = 0;
     setCancelArmed(false);
-    setTrashRevealed(false);
+    setVoicePillWidthPx(76);
   }, []);
 
   const updateCancelFromPointer = useCallback(
-    (clientX: number, clientY: number) => {
+    (clientX: number) => {
       const rawSwipeLeftPx = Math.max(0, holdStartXRef.current - clientX);
-      const swipeLeftPx = Math.max(0, rawSwipeLeftPx - VOICE_GESTURE_SLOP_PX);
-      const verticalDriftPx = Math.abs(clientY - holdStartYRef.current);
-      const maxVerticalDrift = cancelArmedRef.current
-        ? VOICE_CANCEL_MAX_VERTICAL_DRIFT_PX + 24
-        : VOICE_CANCEL_MAX_VERTICAL_DRIFT_PX;
-      const requiredLead = cancelArmedRef.current
-        ? VOICE_CANCEL_HORIZONTAL_LEAD_PX - 20
-        : VOICE_CANCEL_HORIZONTAL_LEAD_PX;
-
-      const armed = cancelArmedRef.current
-        ? verticalDriftPx <= maxVerticalDrift &&
-          swipeLeftPx >= Math.max(VOICE_CANCEL_DISARM_LEFT_PX, verticalDriftPx + requiredLead)
-        : verticalDriftPx <= maxVerticalDrift &&
-          swipeLeftPx >= Math.max(VOICE_CANCEL_ARM_LEFT_PX, verticalDriftPx + requiredLead);
-      const revealThreshold = cancelArmedRef.current
-        ? Math.max(VOICE_TRASH_REVEAL_LEFT_PX - 12, 24)
-        : VOICE_TRASH_REVEAL_LEFT_PX;
-      const revealed =
-        verticalDriftPx <= maxVerticalDrift &&
-        rawSwipeLeftPx >= Math.max(revealThreshold, VOICE_GESTURE_SLOP_PX + 8);
-      if (revealed !== trashRevealRef.current) {
-        trashRevealRef.current = revealed;
-        setTrashRevealed(revealed);
+      const swipeLeft = Math.max(0, rawSwipeLeftPx - VOICE_GESTURE_SLOP_PX);
+      if (swipeLeft !== swipeLeftPxRef.current) {
+        swipeLeftPxRef.current = swipeLeft;
+        setVoicePillWidthPx(Math.min(76 + swipeLeft, maxVoicePillWidthRef.current));
       }
+
+      const armed = clientX <= trashTargetXRef.current + 16;
       if (armed !== cancelArmedRef.current) {
         cancelArmedRef.current = armed;
         setCancelArmed(armed);
@@ -867,23 +838,43 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         opts.cancelOnShortHold && heldMs < VOICE_HOLD_MIN_MS && !recorderStarted;
       if (cancelArmedRef.current || shortHoldShouldCancel) {
         cancelRecording();
-      } else {
+      } else if (recorderStarted) {
         stopRecording();
+      } else {
+        recordingAttemptIdRef.current += 1;
+        stopRecordingCleanup();
+        setRecordingState("idle");
+        setRecordingSeconds(0);
       }
       resetHoldGesture();
     },
-    [cancelRecording, recordingState, resetHoldGesture, stopRecording]
+    [cancelRecording, recordingState, resetHoldGesture, stopRecording, stopRecordingCleanup]
+  );
+
+  const handleHoldPointerEnd = useCallback(
+    (pointerId: number, source: "up" | "cancel") => {
+      if (!holdActiveRef.current) return;
+      if (holdPointerIdRef.current !== null && pointerId !== holdPointerIdRef.current) {
+        return;
+      }
+      if (source === "cancel" && !cancelArmedRef.current) {
+        const recorderStarted =
+          mediaRecorderRef.current?.state === "recording" || recordingState === "recording";
+        if (recorderStarted) {
+          return;
+        }
+        touchRecordingIntentActiveRef.current = false;
+        recordingAttemptIdRef.current += 1;
+        resetHoldGesture();
+        return;
+      }
+      finishHoldGesture({ cancelOnShortHold: source === "up" });
+    },
+    [finishHoldGesture, recordingState, resetHoldGesture]
   );
 
   const handleMicPointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
-      // 2026-04-25 diagnostic: surface the exit reason via Capacitor/Console
-      // so logcat shows why the recorder didn't start on a real device.
-      // Cheap, single-line, removed once the Samsung Z Fold flow is verified.
-      // eslint-disable-next-line no-console
-      console.log(
-        `[mic] pointerdown type=${e.pointerType} touch=${isTouchDevice} disabled=${disabled} streaming=${isStreaming}`
-      );
       if (!isTouchDevice) return;
       // Accept touch + pen + unknown ("" on older WebViews). Reject only mouse,
       // because the desktop branch already handles click-to-toggle for mice.
@@ -891,13 +882,20 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       if (disabled || isStreaming || sendBlockedByFailedSlot) return;
       e.preventDefault();
       holdActiveRef.current = true;
+      holdPointerIdRef.current = e.pointerId;
       holdStartTimeRef.current = Date.now();
       holdStartXRef.current = e.clientX;
-      holdStartYRef.current = e.clientY;
+      const composerRect = composerShellRef.current?.getBoundingClientRect();
+      const composerWidth = composerRect?.width ?? 0;
+      trashTargetXRef.current =
+        composerRect !== undefined
+          ? composerRect.left + composerWidth / 3
+          : e.clientX - VOICE_CANCEL_ARM_MIN_PX;
+      maxVoicePillWidthRef.current = Math.max(76, Math.floor((composerWidth * 2) / 3) - 12);
       cancelArmedRef.current = false;
-      trashRevealRef.current = false;
+      swipeLeftPxRef.current = 0;
       setCancelArmed(false);
-      setTrashRevealed(false);
+      setVoicePillWidthPx(76);
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
@@ -912,8 +910,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const handleMicPointerMove = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (!holdActiveRef.current) return;
-      updateCancelFromPointer(e.clientX, e.clientY);
+      if (!holdActiveRef.current || e.pointerId !== holdPointerIdRef.current) return;
+      updateCancelFromPointer(e.clientX);
     },
     [updateCancelFromPointer]
   );
@@ -927,35 +925,43 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         /* best-effort */
       }
       e.currentTarget.blur();
-      finishHoldGesture({ cancelOnShortHold: true });
+      handleHoldPointerEnd(e.pointerId, "up");
     },
-    [finishHoldGesture]
+    [handleHoldPointerEnd]
   );
 
   const handleMicPointerCancel = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       e.currentTarget.blur();
       if (!holdActiveRef.current) return;
-      // Browsers fire pointercancel on tiny moves / scroll takeover — only
-      // discard when the user clearly swiped into the cancel zone.
-      finishHoldGesture({ cancelOnShortHold: false });
+      handleHoldPointerEnd(e.pointerId, "cancel");
     },
-    [finishHoldGesture]
+    [handleHoldPointerEnd]
   );
+
+  useEffect(() => {
+    if (!isTouchDevice || !holdActiveRef.current) return;
+    const previousTouchAction = document.body.style.touchAction;
+    document.body.style.touchAction = "none";
+    return () => {
+      document.body.style.touchAction = previousTouchAction;
+    };
+  }, [isTouchDevice, isRecording]);
 
   useEffect(() => {
     if (!isTouchDevice) return;
     const onWindowPointerMove = (e: PointerEvent) => {
       if (!holdActiveRef.current || e.pointerType === "mouse") return;
-      updateCancelFromPointer(e.clientX, e.clientY);
+      if (holdPointerIdRef.current !== null && e.pointerId !== holdPointerIdRef.current) return;
+      updateCancelFromPointer(e.clientX);
     };
     const onWindowPointerUp = (e: PointerEvent) => {
       if (!holdActiveRef.current || e.pointerType === "mouse") return;
-      finishHoldGesture({ cancelOnShortHold: true });
+      handleHoldPointerEnd(e.pointerId, "up");
     };
     const onWindowPointerCancel = (e: PointerEvent) => {
       if (!holdActiveRef.current || e.pointerType === "mouse") return;
-      finishHoldGesture({ cancelOnShortHold: false });
+      handleHoldPointerEnd(e.pointerId, "cancel");
     };
     window.addEventListener("pointermove", onWindowPointerMove);
     window.addEventListener("pointerup", onWindowPointerUp);
@@ -965,7 +971,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       window.removeEventListener("pointerup", onWindowPointerUp);
       window.removeEventListener("pointercancel", onWindowPointerCancel);
     };
-  }, [finishHoldGesture, isTouchDevice, updateCancelFromPointer]);
+  }, [handleHoldPointerEnd, isTouchDevice, updateCancelFromPointer]);
 
   return (
     <div className="border-t border-border bg-bg px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:border-t-0 md:px-4 md:py-3">
@@ -1118,11 +1124,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           )}
 
           <div
+            ref={composerShellRef}
+            data-testid="chat-composer-shell"
             className={cn(
               "relative flex min-h-12 items-end gap-0.5 border border-border/80 bg-surface-raised py-1 pl-1 pr-1.5 shadow-sm transition-[border-color,box-shadow,border-radius] focus-within:border-border-strong focus-within:shadow-md",
               isComposerMultiline ? "rounded-[22px]" : "rounded-full",
               dragActive && "border-accent bg-accent/5",
-              sendBlockedByFailedSlot && "opacity-90"
+              sendBlockedByFailedSlot && "opacity-90",
+              isTouchDevice && isRecording && "touch-none"
             )}
             onDragEnter={handleDragEnter}
             onDragOver={handleDragOver}
@@ -1234,9 +1243,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             </AnimatePresence>
 
             {/*
-             * Hold-to-record overlay (touch only). Telegram-style: timer in the
-             * center, explicit swipe-left cancel rail on the left. Pointer
-             * events stay on the mic via capture + window listeners.
+             * Hold-to-record (touch): quiet banner with mic + timer; fixed trash
+             * at ⅓ width; pill stretches left on swipe until trash = cancel.
              */}
             <AnimatePresence>
               {isTouchDevice && isRecording && (
@@ -1244,84 +1252,60 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   role="status"
                   aria-live="polite"
                   aria-label={t("recording", { duration: formatDuration(recordingSeconds) })}
-                  initial={{ opacity: 0, y: 12, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 12, scale: 0.96 }}
-                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                  className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-3 flex w-auto max-w-[15rem] -translate-x-1/2 flex-col items-stretch"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                  className="pointer-events-none absolute inset-y-1 right-12 left-11 z-20"
                 >
-                  <div className="flex items-center gap-2">
-                    <AnimatePresence>
-                      {trashRevealed ? (
-                        <motion.div
-                          key="trash-hint"
-                          initial={{ opacity: 0, x: 10, scale: 0.92 }}
-                          animate={{ opacity: 1, x: 0, scale: 1 }}
-                          exit={{ opacity: 0, x: 10, scale: 0.92 }}
-                          transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                          className={cn(
-                            "flex h-10 w-10 items-center justify-center rounded-full border shadow-lg backdrop-blur-sm transition-colors",
-                            cancelArmed
-                              ? "border-destructive/50 bg-destructive/15 text-destructive"
-                              : "border-border bg-surface-raised/92 text-text-subtle"
-                          )}
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        </motion.div>
-                      ) : null}
-                    </AnimatePresence>
-                    <div
+                  <div
+                    data-testid="voice-cancel-trash"
+                    className={cn(
+                      "absolute top-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full transition-colors duration-75",
+                      cancelArmed ? "bg-destructive/15 text-destructive" : "text-text-subtle/50"
+                    )}
+                    style={{ left: "33.333%" }}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </div>
+                  <div
+                    data-testid="voice-recording-banner"
+                    data-cancel-armed={cancelArmed ? "true" : "false"}
+                    className={cn(
+                      "absolute top-1/2 right-0 flex h-9 -translate-y-1/2 items-center gap-2 overflow-hidden rounded-full border px-2.5 shadow-sm backdrop-blur-sm transition-[width,border-color,background-color] duration-75",
+                      cancelArmed
+                        ? "border-destructive/40 bg-destructive/10"
+                        : "border-border/70 bg-surface/95"
+                    )}
+                    style={{ width: `${voicePillWidthPx}px` }}
+                  >
+                    <span className="relative flex h-7 w-7 shrink-0 items-center justify-center">
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "absolute inset-0 animate-ping rounded-full",
+                          cancelArmed ? "bg-destructive/20" : "bg-accent/20"
+                        )}
+                      />
+                      <span
+                        className={cn(
+                          "relative flex h-full w-full items-center justify-center rounded-full",
+                          cancelArmed
+                            ? "bg-destructive/12 text-destructive"
+                            : "bg-accent/12 text-accent"
+                        )}
+                      >
+                        <Mic className="h-3.5 w-3.5" aria-hidden="true" />
+                      </span>
+                    </span>
+                    <span
                       className={cn(
-                        "flex items-center gap-3 rounded-[1.25rem] border bg-surface-raised/95 px-3.5 py-2.5 shadow-xl backdrop-blur-sm transition-colors",
-                        cancelArmed ? "border-destructive/50" : "border-border"
+                        "pr-0.5 font-mono text-sm font-medium tabular-nums",
+                        cancelArmed ? "text-destructive" : "text-text"
                       )}
                     >
-                      <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
-                        <span
-                          aria-hidden="true"
-                          className={cn(
-                            "absolute inset-0 animate-ping rounded-full",
-                            cancelArmed ? "bg-destructive/30" : "bg-accent/30"
-                          )}
-                        />
-                        <span
-                          className={cn(
-                            "relative flex h-full w-full items-center justify-center rounded-full transition-colors",
-                            cancelArmed
-                              ? "bg-destructive/15 text-destructive"
-                              : "bg-accent/15 text-accent"
-                          )}
-                        >
-                          {cancelArmed ? (
-                            <Trash2 className="h-5 w-5" aria-hidden="true" />
-                          ) : (
-                            <Mic className="h-5 w-5" aria-hidden="true" />
-                          )}
-                        </span>
-                      </span>
-                      <span className="min-w-0">
-                        <span
-                          className={cn(
-                            "block font-mono text-sm font-medium tabular-nums transition-colors",
-                            cancelArmed ? "text-destructive" : "text-text"
-                          )}
-                        >
-                          {formatDuration(recordingSeconds)}
-                        </span>
-                        <span
-                          className={cn(
-                            "block text-[11px] leading-tight transition-colors",
-                            cancelArmed ? "text-destructive" : "text-text-subtle"
-                          )}
-                        >
-                          {cancelArmed
-                            ? t("voiceCancelArmed")
-                            : trashRevealed
-                              ? t("voiceHoldRelease")
-                              : t("voiceSwipeLeftToCancel")}
-                        </span>
-                      </span>
-                    </div>
+                      {formatDuration(recordingSeconds)}
+                    </span>
                   </div>
                 </motion.div>
               )}
@@ -1341,7 +1325,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               className={cn(
                 "flex-1 resize-none bg-transparent text-sm leading-5 text-text placeholder:text-text-subtle",
                 "outline-none",
-                "max-h-[200px] py-2.5 pl-0.5 pr-1"
+                "max-h-[200px] py-2.5 pl-0.5 pr-1",
+                isTouchDevice && isRecording && "opacity-0"
               )}
             />
 
@@ -1393,14 +1378,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                       : cn(
                           "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted",
                           "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted",
-                          isTouchDevice &&
-                            isRecording &&
-                            !cancelArmed &&
-                            "bg-accent/15 text-accent",
-                          isTouchDevice &&
-                            isRecording &&
-                            cancelArmed &&
-                            "bg-destructive/15 text-destructive"
+                          isTouchDevice && isRecording && "bg-accent/10 text-accent/80"
                         )
                   )}
                   title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
@@ -1408,11 +1386,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   aria-hidden={!showMic}
                   tabIndex={showMic ? 0 : -1}
                 >
-                  {isTouchDevice && isRecording && cancelArmed ? (
-                    <Trash2 className="h-5 w-5 md:h-4 md:w-4" aria-hidden="true" />
-                  ) : (
-                    <Mic className="h-5 w-5 md:h-4 md:w-4" />
-                  )}
+                  <Mic className="h-5 w-5 md:h-4 md:w-4" />
                 </button>
               ) : null}
               <button

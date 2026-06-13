@@ -4378,44 +4378,6 @@ export function AssistantSettings({
               </div>
 
               <div className="rounded-xl bg-surface-raised/[0.18] p-3.5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-text">{t("reminderDelivery")}</p>
-                    <p className="mt-1 text-[11px] text-text-subtle">{t("reminderDescription")}</p>
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {(data.notificationPreference?.availableChannels ?? ["web"]).map((channel) => {
-                    const active = notificationChannel === channel;
-                    return (
-                      <button
-                        key={channel}
-                        type="button"
-                        disabled={notificationSaving}
-                        onClick={() => void handleNotificationPreferenceChange(channel)}
-                        className={cn(
-                          "rounded-full border px-3 py-1.5 text-xs transition-colors disabled:opacity-50",
-                          active
-                            ? "border-accent/45 bg-accent/10 text-accent"
-                            : "border-border/50 bg-background/45 text-text-muted hover:bg-surface-hover"
-                        )}
-                      >
-                        {t(
-                          (
-                            {
-                              telegram: "channelTelegram",
-                              web: "channelWeb"
-                            } as Record<string, string>
-                          )[channel] ?? "channelWeb"
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-                <FeedbackLine fb={notificationFb} />
-              </div>
-
-              <div className="rounded-xl bg-surface-raised/[0.18] p-3.5">
                 <button
                   type="button"
                   onClick={() => setShowAssistantActions((open) => !open)}
@@ -4596,6 +4558,44 @@ export function AssistantSettings({
                   </>
                 )}
               </div>
+
+              <div className="rounded-xl bg-surface-raised/[0.18] p-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-text">{t("reminderDelivery")}</p>
+                    <p className="mt-1 text-[11px] text-text-subtle">{t("reminderDescription")}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(data.notificationPreference?.availableChannels ?? ["web"]).map((channel) => {
+                    const active = notificationChannel === channel;
+                    return (
+                      <button
+                        key={channel}
+                        type="button"
+                        disabled={notificationSaving}
+                        onClick={() => void handleNotificationPreferenceChange(channel)}
+                        className={cn(
+                          "rounded-full border px-3 py-1.5 text-xs transition-colors disabled:opacity-50",
+                          active
+                            ? "border-accent/45 bg-accent/10 text-accent"
+                            : "border-border/50 bg-background/45 text-text-muted hover:bg-surface-hover"
+                        )}
+                      >
+                        {t(
+                          (
+                            {
+                              telegram: "channelTelegram",
+                              web: "channelWeb"
+                            } as Record<string, string>
+                          )[channel] ?? "channelWeb"
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <FeedbackLine fb={notificationFb} />
+              </div>
             </div>
           )}
         </Section>
@@ -4608,7 +4608,7 @@ export function AssistantSettings({
           onToggle={() => setOpenSection((current) => (current === "channels" ? null : "channels"))}
           className="order-8"
         >
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <IntegrationCard
               name="Telegram"
               logoSrc="/integrations/telegram-logo.png"
@@ -6299,7 +6299,7 @@ function IntegrationCard({
       type={interactive ? "button" : undefined}
       onClick={interactive ? onClick : undefined}
       className={cn(
-        "group flex min-h-[96px] flex-col rounded-2xl border px-4 py-4 text-left transition-all xl:min-h-[132px] xl:items-start",
+        "group flex flex-col rounded-2xl border px-3.5 py-3 text-left transition-all",
         active
           ? "border-accent/25 bg-accent/[0.07] shadow-[0_12px_24px_-20px_rgba(29,161,242,0.28)] hover:border-accent/40 hover:bg-accent/[0.1]"
           : "border-border/60 bg-background/50",
@@ -6307,40 +6307,25 @@ function IntegrationCard({
         interactive && "cursor-pointer hover:-translate-y-[1px]"
       )}
     >
-      <div className="flex w-full items-start justify-between gap-3 xl:flex-col xl:items-start xl:justify-start">
-        <div className="flex min-w-0 flex-1 items-start gap-3 xl:w-full">
-          <img src={logoSrc} alt="" className="h-10 w-10 rounded-xl object-contain" />
-          <div className="min-w-0 xl:mt-4">
-            <p className="truncate text-sm font-medium text-text">{name}</p>
-            <div className="mt-1 flex items-center justify-between gap-3 xl:block">
-              <p
-                className={cn(
-                  "min-w-0 truncate text-xs",
-                  active ? "text-success" : "text-text-subtle"
-                )}
-              >
-                {comingSoon ? t("channelComingSoon") : statusLabel}
-              </p>
-              {interactive ? (
-                <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text xl:hidden">
-                  {t("openIntegration")}
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </span>
-              ) : null}
-            </div>
-          </div>
+      <div className="flex items-start gap-3">
+        <img src={logoSrc} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-text">{name}</p>
+          <p
+            className={cn("mt-0.5 truncate text-xs", active ? "text-success" : "text-text-subtle")}
+          >
+            {comingSoon ? t("channelComingSoon") : statusLabel}
+          </p>
         </div>
-        <div className="flex shrink-0 flex-col items-end xl:w-full xl:flex-row xl:items-start xl:justify-between">
-          <span
-            className={cn(
-              "mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full xl:mt-0",
-              active ? "bg-success" : "bg-text-subtle/55"
-            )}
-          />
-        </div>
+        <span
+          className={cn(
+            "mt-0.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full",
+            active ? "bg-success" : "bg-text-subtle/55"
+          )}
+        />
       </div>
       {interactive ? (
-        <span className="mt-3 hidden items-center gap-1 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text xl:mt-auto xl:inline-flex xl:pt-4">
+        <span className="mt-2 inline-flex items-center justify-end gap-1 self-end text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text">
           {t("openIntegration")}
           <ChevronRight className="h-3.5 w-3.5" />
         </span>

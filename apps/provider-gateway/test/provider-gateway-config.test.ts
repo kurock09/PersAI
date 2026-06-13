@@ -13,6 +13,9 @@ export async function runProviderGatewayConfigTest(): Promise<void> {
   assert.equal(config.PORT, 3011);
   assert.equal(config.LOG_LEVEL, "info");
   assert.equal(config.PROVIDER_GATEWAY_WARM_ON_BOOT, false);
+  assert.equal(config.PROVIDER_GATEWAY_BOOT_WARMUP_MAX_ATTEMPTS, 5);
+  assert.equal(config.PROVIDER_GATEWAY_BOOT_WARMUP_RETRY_DELAY_MS, 2000);
+  assert.equal(config.PROVIDER_GATEWAY_BOOT_WARMUP_RECOVERY_INTERVAL_MS, 10000);
   assert.equal(config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS, 90000);
   assert.equal(config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS, 90000);
   assert.equal(

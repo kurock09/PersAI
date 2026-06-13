@@ -31,6 +31,24 @@ function enableTouchDevice() {
   });
 }
 
+function mockComposerShell(width = 360, left = 0) {
+  const shell = screen.getByTestId("chat-composer-shell");
+  Object.defineProperty(shell, "offsetWidth", { configurable: true, value: width });
+  shell.getBoundingClientRect = () =>
+    ({
+      left,
+      top: 0,
+      width,
+      height: 48,
+      right: left + width,
+      bottom: 48,
+      x: left,
+      y: 0,
+      toJSON: () => ({})
+    }) as DOMRect;
+  return shell;
+}
+
 /** React controlled textarea: set native value then dispatch input. */
 function fillComposer(textarea: HTMLElement, value: string) {
   const el = textarea as HTMLTextAreaElement;
@@ -637,6 +655,7 @@ describe("ChatInput", () => {
     );
 
     const mic = await screen.findByTitle("voiceHoldToRecord");
+    mockComposerShell();
     fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 200, clientY: 100 });
     await waitFor(() => {
       expect(mediaRecorder).toHaveBeenCalled();
@@ -647,7 +666,7 @@ describe("ChatInput", () => {
       clientX: 198,
       clientY: 102
     });
-    expect(recorderStop).toHaveBeenCalled();
+    expect(recorderStop).not.toHaveBeenCalled();
     expect(stop).not.toHaveBeenCalled();
   });
 
@@ -685,18 +704,21 @@ describe("ChatInput", () => {
     );
 
     const mic = await screen.findByTitle("voiceHoldToRecord");
+    mockComposerShell();
     fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 320, clientY: 100 });
     await waitFor(() => {
-      expect(mic).toHaveClass("bg-accent/15");
+      expect(mic).toHaveClass("bg-accent/10");
     });
+    const banner = () => screen.getByTestId("voice-recording-banner");
     fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 240, clientY: 108 });
     await waitFor(() => {
-      expect(screen.getByText("voiceHoldRelease")).toBeInTheDocument();
+      expect(banner()).toBeInTheDocument();
     });
-    expect(mic).not.toHaveClass("text-destructive");
-    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 20, clientY: 112 });
+    expect(banner()).toHaveAttribute("data-cancel-armed", "false");
+    expect(screen.queryByText("voiceHoldRelease")).toBeNull();
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 110, clientY: 112 });
     await waitFor(() => {
-      expect(mic).toHaveClass("text-destructive");
+      expect(banner()).toHaveAttribute("data-cancel-armed", "true");
     });
   });
 
@@ -734,12 +756,16 @@ describe("ChatInput", () => {
     );
 
     const mic = await screen.findByTitle("voiceHoldToRecord");
+    mockComposerShell();
     fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 320, clientY: 100 });
     await waitFor(() => {
-      expect(mic).toHaveClass("bg-accent/15");
+      expect(mic).toHaveClass("bg-accent/10");
     });
     fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 240, clientY: 230 });
-    expect(mic).not.toHaveClass("text-destructive");
+    expect(screen.getByTestId("voice-recording-banner")).toHaveAttribute(
+      "data-cancel-armed",
+      "false"
+    );
   });
 
   it("reports empty voice transcription with a dedicated issue code", async () => {
@@ -794,6 +820,7 @@ describe("ChatInput", () => {
     );
 
     const mic = await screen.findByTitle("voiceHoldToRecord");
+    mockComposerShell();
     fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 320, clientY: 100 });
     await waitFor(() => {
       expect(mediaRecorderMock).toHaveBeenCalled();

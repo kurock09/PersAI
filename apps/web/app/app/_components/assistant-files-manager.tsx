@@ -12,8 +12,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
-  Trash2,
-  X
+  Trash2
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
@@ -28,7 +27,6 @@ import {
   type AssistantFileState
 } from "../assistant-api-client";
 import { ImageLightbox } from "./image-lightbox";
-import { useHistoryBackToClose } from "./use-history-back-to-close";
 
 type FileBucket = AssistantFileState["fileBucket"];
 
@@ -124,78 +122,6 @@ function isVisibleInMainFilesList(file: AssistantFileState): boolean {
   );
 }
 
-function VideoPreviewModal({
-  file,
-  src,
-  downloadUrl,
-  onClose
-}: {
-  file: AssistantFileState;
-  src: string;
-  downloadUrl: string;
-  onClose: () => void;
-}) {
-  const t = useTranslations("settings");
-  const name = fileDisplayName(file);
-  useHistoryBackToClose(true, onClose);
-
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-3"
-      role="dialog"
-      aria-modal="true"
-      aria-label={name}
-      onClick={onClose}
-    >
-      <div className="absolute top-3 right-3 left-3 z-10 flex items-center justify-end gap-2">
-        <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/45 p-1 text-white/90 shadow-lg shadow-black/20 backdrop-blur-md">
-          <a
-            href={downloadUrl}
-            download={name}
-            onClick={(event) => event.stopPropagation()}
-            aria-label={t("filesDownload")}
-            title={t("filesDownload")}
-            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-medium transition hover:bg-white/10 hover:text-white"
-          >
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">{t("filesDownload")}</span>
-          </a>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onClose();
-            }}
-            aria-label={t("filesPreviewClose")}
-            title={t("filesPreviewClose")}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-white/10 hover:text-white"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-      <video
-        controls
-        playsInline
-        preload="metadata"
-        src={src}
-        className="max-h-full max-w-full rounded-2xl border border-white/10 bg-black"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <track kind="captions" />
-      </video>
-    </div>
-  );
-}
-
 export function AssistantFilesManager() {
   const t = useTranslations("settings");
   const { getToken } = useAuth();
@@ -232,6 +158,25 @@ export function AssistantFilesManager() {
   const previewFile = useMemo(
     () => files.find((file) => file.fileRef === previewFileRef) ?? null,
     [files, previewFileRef]
+  );
+  const previewableImageFiles = useMemo(
+    () =>
+      files.filter(isVisibleInMainFilesList).filter((file) => file.mimeType.startsWith("image/")),
+    [files]
+  );
+  const previewGalleryItems = useMemo(
+    () =>
+      previewableImageFiles.map((file) => ({
+        src: getAssistantFileDownloadUrl(file.fileRef),
+        downloadUrl: getAssistantFileDownloadUrl(file.fileRef, { download: true }),
+        filename: fileDisplayName(file),
+        alt: fileDisplayName(file)
+      })),
+    [previewableImageFiles]
+  );
+  const previewImageIndex = useMemo(
+    () => previewableImageFiles.findIndex((file) => file.fileRef === previewFileRef),
+    [previewableImageFiles, previewFileRef]
   );
 
   const loadFiles = useCallback(
@@ -603,21 +548,26 @@ export function AssistantFilesManager() {
           {feedback.text}
         </p>
       )}
-      {previewFile?.mimeType.startsWith("image/") ? (
+      {previewFile && isPreviewableMedia(previewFile) ? (
         <ImageLightbox
           open
           src={getAssistantFileDownloadUrl(previewFile.fileRef)}
           downloadUrl={getAssistantFileDownloadUrl(previewFile.fileRef, { download: true })}
           filename={fileDisplayName(previewFile)}
           alt={fileDisplayName(previewFile)}
-          onClose={() => setPreviewFileRef(null)}
-        />
-      ) : null}
-      {previewFile?.mimeType.startsWith("video/") ? (
-        <VideoPreviewModal
-          file={previewFile}
-          src={getAssistantFileDownloadUrl(previewFile.fileRef)}
-          downloadUrl={getAssistantFileDownloadUrl(previewFile.fileRef, { download: true })}
+          mediaType={previewFile.mimeType.startsWith("video/") ? "video" : "image"}
+          {...(previewFile.mimeType.startsWith("image/")
+            ? {
+                galleryItems: previewGalleryItems,
+                currentIndex: previewImageIndex >= 0 ? previewImageIndex : 0,
+                onNavigate: (nextIndex: number) => {
+                  const nextFile = previewableImageFiles[nextIndex];
+                  if (nextFile) {
+                    setPreviewFileRef(nextFile.fileRef);
+                  }
+                }
+              }
+            : {})}
           onClose={() => setPreviewFileRef(null)}
         />
       ) : null}

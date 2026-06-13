@@ -1124,7 +1124,7 @@ export function ImageLightbox({
   return createPortal(
     <div
       ref={containerRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 select-none"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 select-none"
       role="dialog"
       aria-modal="true"
       aria-label={alt ?? closeLabel}

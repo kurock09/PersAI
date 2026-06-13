@@ -3,6 +3,7 @@ import {
   Inject,
   Injectable,
   ServiceUnavailableException,
+  type OnModuleDestroy,
   type OnModuleInit
 } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
@@ -20,6 +21,11 @@ import type {
   ProviderWarmupSnapshot
 } from "./provider-client.types";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
+import {
+  hasRetryableWarmupFailures,
+  isProviderGatewayWarmupReady,
+  sleep
+} from "./provider-warmup-boot-recovery";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -58,7 +64,7 @@ const MANAGED_PROVIDER_SECRET_IDS: Record<ProviderGatewayProvider, string> = {
 };
 
 @Injectable()
-export class ProviderWarmupService implements OnModuleInit {
+export class ProviderWarmupService implements OnModuleInit, OnModuleDestroy {
   private readonly clients: ProviderWarmableClient[];
   private runs = 0;
   private failures = 0;
@@ -66,6 +72,8 @@ export class ProviderWarmupService implements OnModuleInit {
   private lastCompletedAt: string | null = null;
   private lastDurationMs: number | null = null;
   private readonly providerState = new Map<ProviderGatewayProvider, ProviderWarmStatus>();
+  private bootWarmupRecoveryTimer: NodeJS.Timeout | null = null;
+  private bootWarmupRecoveryInFlight = false;
 
   constructor(
     @Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig,
@@ -93,7 +101,87 @@ export class ProviderWarmupService implements OnModuleInit {
     if (!this.config.PROVIDER_GATEWAY_WARM_ON_BOOT) {
       return;
     }
-    await this.warmProviders();
+    await this.runBootWarmupWithRetry();
+    this.scheduleBootWarmupRecoveryIfNeeded();
+  }
+
+  onModuleDestroy(): void {
+    this.clearBootWarmupRecoveryTimer();
+  }
+
+  private async runBootWarmupWithRetry(): Promise<void> {
+    const maxAttempts = this.config.PROVIDER_GATEWAY_BOOT_WARMUP_MAX_ATTEMPTS;
+    const baseDelayMs = this.config.PROVIDER_GATEWAY_BOOT_WARMUP_RETRY_DELAY_MS;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const snapshot = await this.warmProviders();
+      if (isProviderGatewayWarmupReady(snapshot)) {
+        return;
+      }
+      if (!hasRetryableWarmupFailures(snapshot) || attempt >= maxAttempts) {
+        return;
+      }
+      await sleep(baseDelayMs * 2 ** (attempt - 1));
+    }
+  }
+
+  private scheduleBootWarmupRecoveryIfNeeded(): void {
+    if (!this.config.PROVIDER_GATEWAY_WARM_ON_BOOT) {
+      return;
+    }
+    if (isProviderGatewayWarmupReady(this.getSnapshot())) {
+      return;
+    }
+    if (!hasRetryableWarmupFailures(this.getSnapshot())) {
+      return;
+    }
+    if (this.bootWarmupRecoveryTimer !== null) {
+      return;
+    }
+
+    const intervalMs = this.config.PROVIDER_GATEWAY_BOOT_WARMUP_RECOVERY_INTERVAL_MS;
+    this.bootWarmupRecoveryTimer = setInterval(() => {
+      void this.runBootWarmupRecoveryTick();
+    }, intervalMs);
+    this.bootWarmupRecoveryTimer.unref?.();
+  }
+
+  private async runBootWarmupRecoveryTick(): Promise<void> {
+    if (this.bootWarmupRecoveryInFlight) {
+      return;
+    }
+
+    const snapshot = this.getSnapshot();
+    if (isProviderGatewayWarmupReady(snapshot)) {
+      this.clearBootWarmupRecoveryTimer();
+      return;
+    }
+    if (!hasRetryableWarmupFailures(snapshot)) {
+      this.clearBootWarmupRecoveryTimer();
+      return;
+    }
+
+    this.bootWarmupRecoveryInFlight = true;
+    try {
+      const nextSnapshot = await this.warmProviders();
+      if (isProviderGatewayWarmupReady(nextSnapshot)) {
+        this.clearBootWarmupRecoveryTimer();
+        return;
+      }
+      if (!hasRetryableWarmupFailures(nextSnapshot)) {
+        this.clearBootWarmupRecoveryTimer();
+      }
+    } finally {
+      this.bootWarmupRecoveryInFlight = false;
+    }
+  }
+
+  private clearBootWarmupRecoveryTimer(): void {
+    if (this.bootWarmupRecoveryTimer === null) {
+      return;
+    }
+    clearInterval(this.bootWarmupRecoveryTimer);
+    this.bootWarmupRecoveryTimer = null;
   }
 
   async warmProviders(input?: unknown): Promise<ProviderWarmupSnapshot> {

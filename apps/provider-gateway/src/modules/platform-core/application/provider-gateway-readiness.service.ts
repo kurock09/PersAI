@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { ProviderWarmupService } from "../../providers/provider-warmup.service";
 import type { ProviderReadinessSnapshot } from "../../providers/provider-client.types";
+import { isProviderGatewayWarmupReady } from "../../providers/provider-warmup-boot-recovery";
 
 @Injectable()
 export class ProviderGatewayReadinessService {
@@ -14,7 +15,7 @@ export class ProviderGatewayReadinessService {
 
     return {
       checkedAt: new Date().toISOString(),
-      ready: warmup.runs > 0 && providerCacheReady,
+      ready: isProviderGatewayWarmupReady(warmup),
       providerCacheReady,
       providers: warmup.providers
     };

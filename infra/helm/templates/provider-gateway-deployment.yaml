@@ -7,6 +7,8 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     app.kubernetes.io/name: provider-gateway
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
 spec:
   revisionHistoryLimit: {{ default 2 .Values.providerGateway.revisionHistoryLimit }}
   minReadySeconds: {{ default 0 .Values.providerGateway.minReadySeconds }}
