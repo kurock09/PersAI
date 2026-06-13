@@ -302,12 +302,17 @@ describe("ImageLightbox", () => {
   });
 
   it("calls native bridge methods with the native object context", async () => {
+    const inlineCanvas = mockInlineImageCanvas();
     const nativeBridge = {
       saveMedia: vi.fn(function (this: unknown) {
         return this === nativeBridge;
       })
     };
     (window as unknown as { PersaiNative?: typeof nativeBridge }).PersaiNative = nativeBridge;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(new Blob(["image"], { type: "image/png" })))
+    );
 
     render(
       <ImageLightbox
@@ -320,6 +325,7 @@ describe("ImageLightbox", () => {
       />
     );
 
+    inlineCanvas.attachToImage(screen.getByTestId("media-lightbox-image-surface"));
     fireEvent.click(screen.getByRole("button", { name: "lightboxSave" }));
 
     await waitFor(() => {

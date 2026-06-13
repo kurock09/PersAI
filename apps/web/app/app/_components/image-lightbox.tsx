@@ -189,6 +189,48 @@ function resolveTransferProgress(detail: {
   return Math.max(0, Math.min(1, detail.bytesDownloaded / detail.totalBytes));
 }
 
+async function fetchAssetBlobWithProgress(
+  url: string,
+  headers: HeadersInit | undefined,
+  onProgress?: (downloaded: number, totalBytes: number | null) => void
+): Promise<Blob> {
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    ...(headers === undefined ? {} : { headers })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch media asset: ${response.status}`);
+  }
+  const contentType = response.headers.get("Content-Type") ?? undefined;
+  const totalHeader = response.headers.get("Content-Length");
+  const parsedTotal = totalHeader ? Number(totalHeader) : Number.NaN;
+  const totalBytes = Number.isFinite(parsedTotal) && parsedTotal > 0 ? parsedTotal : null;
+  if (response.body === null) {
+    const blob = await response.blob();
+    onProgress?.(blob.size, blob.size);
+    return blob;
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let downloaded = 0;
+  onProgress?.(0, totalBytes);
+  let readResult = await reader.read();
+  while (!readResult.done) {
+    if (readResult.value) {
+      chunks.push(readResult.value);
+      downloaded += readResult.value.length;
+      onProgress?.(downloaded, totalBytes ?? downloaded);
+    }
+    readResult = await reader.read();
+  }
+  const blob = new Blob(
+    chunks as BlobPart[],
+    contentType !== undefined ? { type: contentType } : undefined
+  );
+  onProgress?.(blob.size, blob.size);
+  return blob;
+}
+
 /**
  * Full-screen image viewer used in chat for tapping image attachments.
  *
@@ -767,87 +809,152 @@ export function ImageLightbox({
     return asset.objectUrl;
   }, []);
 
-  const resolveTransferAsset = useCallback(async (): Promise<ResolvedLightboxAsset> => {
-    if (assetCacheRef.current !== null) {
-      return assetCacheRef.current;
-    }
-    if (assetFetchRef.current !== null) {
-      return assetFetchRef.current;
-    }
-    const fetchPromise = (async () => {
-      const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
-      const headers: HeadersInit | undefined =
-        token !== null && assetUrl.startsWith("/") ? { [SESSION_TOKEN_HEADER]: token } : undefined;
-      const response = await fetch(assetUrl, {
-        credentials: "same-origin",
-        ...(headers === undefined ? {} : { headers })
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to fetch media asset: ${response.status}`);
+  const resolveTransferAsset = useCallback(
+    async (
+      onProgress?: (downloaded: number, totalBytes: number | null) => void
+    ): Promise<ResolvedLightboxAsset> => {
+      if (assetCacheRef.current !== null) {
+        const cached = assetCacheRef.current;
+        onProgress?.(cached.blob.size, cached.blob.size);
+        return cached;
       }
-      const blob = await response.blob();
-      const resolved: ResolvedLightboxAsset = {
-        blob,
-        objectUrl: null
-      };
-      assetCacheRef.current = resolved;
-      assetFetchRef.current = null;
-      return resolved;
-    })().catch((error) => {
-      assetFetchRef.current = null;
-      throw error;
-    });
-    assetFetchRef.current = fetchPromise;
-    return fetchPromise;
-  }, [assetUrl, getToken]);
+      if (assetFetchRef.current !== null) {
+        return assetFetchRef.current;
+      }
 
-  const resolveInlineImageAsset = useCallback(async (): Promise<ResolvedLightboxAsset> => {
-    const image = imageRef.current;
-    if (
-      image &&
-      image.complete &&
-      image.naturalWidth > 0 &&
-      image.naturalHeight > 0 &&
-      typeof document !== "undefined"
-    ) {
-      const canvas = document.createElement("canvas");
-      canvas.width = image.naturalWidth;
-      canvas.height = image.naturalHeight;
-      const context = canvas.getContext("2d");
-      if (context !== null) {
-        context.drawImage(image, 0, 0);
-        const preferredType =
-          assetMimeType && assetMimeType.startsWith("image/") ? assetMimeType : "image/png";
-        const blob = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob((nextBlob) => resolve(nextBlob), preferredType);
-        });
-        if (blob !== null) {
-          return {
-            blob,
-            objectUrl: null
-          };
+      if (mediaType === "image") {
+        const image = imageRef.current;
+        if (
+          image &&
+          image.complete &&
+          image.naturalWidth > 0 &&
+          image.naturalHeight > 0 &&
+          typeof document !== "undefined"
+        ) {
+          const canvas = document.createElement("canvas");
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          const context = canvas.getContext("2d");
+          if (context !== null) {
+            context.drawImage(image, 0, 0);
+            const preferredType =
+              assetMimeType && assetMimeType.startsWith("image/") ? assetMimeType : "image/png";
+            const blob = await new Promise<Blob | null>((resolve) => {
+              canvas.toBlob((nextBlob) => resolve(nextBlob), preferredType);
+            });
+            if (blob !== null) {
+              const resolved: ResolvedLightboxAsset = {
+                blob,
+                objectUrl: null
+              };
+              assetCacheRef.current = resolved;
+              onProgress?.(blob.size, blob.size);
+              return resolved;
+            }
+          }
         }
       }
-    }
-    return resolveTransferAsset();
-  }, [assetMimeType, resolveTransferAsset]);
 
-  const handleSave = useCallback(async () => {
-    const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
-    if (canNativeMediaAction("saveMedia")) {
-      const requestId = createTransferRequestId("save");
+      const fetchPromise = (async () => {
+        const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
+        const headers: HeadersInit | undefined =
+          token !== null && assetUrl.startsWith("/")
+            ? { [SESSION_TOKEN_HEADER]: token }
+            : undefined;
+        const blob = await fetchAssetBlobWithProgress(assetUrl, headers, onProgress);
+        const resolved: ResolvedLightboxAsset = {
+          blob,
+          objectUrl: null
+        };
+        assetCacheRef.current = resolved;
+        assetFetchRef.current = null;
+        return resolved;
+      })().catch((error) => {
+        assetFetchRef.current = null;
+        throw error;
+      });
+      assetFetchRef.current = fetchPromise;
+      return fetchPromise;
+    },
+    [assetMimeType, assetUrl, getToken, mediaType]
+  );
+
+  useEffect(() => {
+    if (!open || mediaType !== "image") {
+      return;
+    }
+    let cancelled = false;
+    const warmCache = () => {
+      if (cancelled || assetCacheRef.current !== null) {
+        return;
+      }
+      void resolveTransferAsset().catch(() => {
+        /* Prefetch is best-effort; share/save will retry with visible progress. */
+      });
+    };
+    const image = imageRef.current;
+    if (image !== null && image.complete && image.naturalWidth > 0) {
+      warmCache();
+      return () => {
+        cancelled = true;
+      };
+    }
+    image?.addEventListener("load", warmCache, { once: true });
+    return () => {
+      cancelled = true;
+      image?.removeEventListener("load", warmCache);
+    };
+  }, [mediaType, open, resolveTransferAsset, src]);
+
+  const publishNativeTransfer = useCallback(
+    (
+      action: "save" | "share",
+      requestId: string,
+      stage: LightboxTransferStage,
+      bytesDownloaded: number | null,
+      totalBytes: number | null
+    ) => {
+      setNativeTransfer({
+        requestId,
+        action,
+        stage,
+        progress: resolveTransferProgress({
+          bytesDownloaded: bytesDownloaded ?? undefined,
+          totalBytes: totalBytes ?? undefined
+        }),
+        bytesDownloaded,
+        totalBytes
+      });
+    },
+    []
+  );
+
+  const executeNativeMediaTransfer = useCallback(
+    async (action: "save" | "share"): Promise<boolean> => {
+      const nativeAction = action === "save" ? "saveMedia" : "shareMedia";
+      const tryNative = action === "save" ? tryNativeMediaSave : tryNativeMediaShare;
+      if (!canNativeMediaAction(nativeAction)) {
+        return false;
+      }
+
+      const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
+      const requestId = createTransferRequestId(action);
       activeNativeTransferRequestIdRef.current = requestId;
-      if (mediaType === "image") {
-        setNativeTransfer({
-          requestId,
-          action: "save",
-          stage: "preparing",
-          progress: null,
-          bytesDownloaded: null,
-          totalBytes: null
-        });
-        try {
-          const resolved = await resolveInlineImageAsset();
+      publishNativeTransfer(action, requestId, "preparing", null, null);
+
+      try {
+        if (mediaType === "image") {
+          const resolved = await resolveTransferAsset((downloaded, totalBytes) => {
+            publishNativeTransfer(action, requestId, "downloading", downloaded, totalBytes);
+          });
+          publishNativeTransfer(
+            action,
+            requestId,
+            "processing",
+            resolved.blob.size,
+            resolved.blob.size
+          );
+
           const inlineBase64 = await blobToBase64(resolved.blob);
           const inlineRequest = buildNativeTransferRequest({
             requestId,
@@ -859,36 +966,57 @@ export function ImageLightbox({
             sessionToken: token,
             inlineBase64
           });
-          if (inlineRequest && tryNativeMediaSave(inlineRequest)) {
-            return;
+          if (inlineRequest && tryNative(inlineRequest)) {
+            return true;
           }
-        } catch {
-          // Fall through to the remote native path below.
         }
-      } else {
-        setNativeTransfer({
+
+        publishNativeTransfer(action, requestId, "started", null, null);
+        const remoteRequest = buildNativeTransferRequest({
           requestId,
-          action: "save",
-          stage: "started",
-          progress: null,
-          bytesDownloaded: null,
-          totalBytes: null
+          mode: "remote",
+          mediaType,
+          assetUrl,
+          assetFilename,
+          assetMimeType,
+          sessionToken: token
         });
+        if (remoteRequest && tryNative(remoteRequest)) {
+          return true;
+        }
+      } catch {
+        publishNativeTransfer(action, requestId, "failed", null, null);
+        if (nativeTransferClearTimeoutRef.current !== null) {
+          clearTimeout(nativeTransferClearTimeoutRef.current);
+        }
+        nativeTransferClearTimeoutRef.current = setTimeout(() => {
+          setNativeTransfer((current) => (current?.requestId === requestId ? null : current));
+          if (activeNativeTransferRequestIdRef.current === requestId) {
+            activeNativeTransferRequestIdRef.current = null;
+          }
+          nativeTransferClearTimeoutRef.current = null;
+        }, 2400);
+        return false;
       }
-      const remoteRequest = buildNativeTransferRequest({
-        requestId,
-        mode: "remote",
-        mediaType,
-        assetUrl,
-        assetFilename,
-        assetMimeType,
-        sessionToken: token
-      });
-      if (remoteRequest && tryNativeMediaSave(remoteRequest)) {
-        return;
-      }
+
       activeNativeTransferRequestIdRef.current = null;
       setNativeTransfer(null);
+      return false;
+    },
+    [
+      assetFilename,
+      assetMimeType,
+      assetUrl,
+      getToken,
+      mediaType,
+      publishNativeTransfer,
+      resolveTransferAsset
+    ]
+  );
+
+  const handleSave = useCallback(async () => {
+    if (await executeNativeMediaTransfer("save")) {
+      return;
     }
     try {
       const resolved = await resolveTransferAsset();
@@ -897,73 +1025,11 @@ export function ImageLightbox({
     } catch {
       triggerDownload();
     }
-  }, [
-    assetFilename,
-    assetMimeType,
-    assetUrl,
-    ensureDownloadObjectUrl,
-    getToken,
-    resolveTransferAsset,
-    triggerDownload
-  ]);
+  }, [ensureDownloadObjectUrl, executeNativeMediaTransfer, resolveTransferAsset, triggerDownload]);
 
   const handleShare = useCallback(async () => {
-    const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
-    if (canNativeMediaAction("shareMedia")) {
-      const requestId = createTransferRequestId("share");
-      activeNativeTransferRequestIdRef.current = requestId;
-      if (mediaType === "image") {
-        setNativeTransfer({
-          requestId,
-          action: "share",
-          stage: "preparing",
-          progress: null,
-          bytesDownloaded: null,
-          totalBytes: null
-        });
-        try {
-          const resolved = await resolveInlineImageAsset();
-          const inlineBase64 = await blobToBase64(resolved.blob);
-          const inlineRequest = buildNativeTransferRequest({
-            requestId,
-            mode: "inline",
-            mediaType,
-            assetUrl,
-            assetFilename,
-            assetMimeType,
-            sessionToken: token,
-            inlineBase64
-          });
-          if (inlineRequest && tryNativeMediaShare(inlineRequest)) {
-            return;
-          }
-        } catch {
-          // Fall through to the remote native path below.
-        }
-      } else {
-        setNativeTransfer({
-          requestId,
-          action: "share",
-          stage: "started",
-          progress: null,
-          bytesDownloaded: null,
-          totalBytes: null
-        });
-      }
-      const remoteRequest = buildNativeTransferRequest({
-        requestId,
-        mode: "remote",
-        mediaType,
-        assetUrl,
-        assetFilename,
-        assetMimeType,
-        sessionToken: token
-      });
-      if (remoteRequest && tryNativeMediaShare(remoteRequest)) {
-        return;
-      }
-      activeNativeTransferRequestIdRef.current = null;
-      setNativeTransfer(null);
+    if (await executeNativeMediaTransfer("share")) {
+      return;
     }
 
     if (typeof navigator === "undefined" || typeof navigator.share !== "function") {
@@ -1007,7 +1073,7 @@ export function ImageLightbox({
     assetFilename,
     assetMimeType,
     assetUrl,
-    getToken,
+    executeNativeMediaTransfer,
     handleSave,
     mediaType,
     resolveTransferAsset
@@ -1108,6 +1174,7 @@ export function ImageLightbox({
     nativeTransfer?.progress !== null && nativeTransfer?.progress !== undefined
       ? Math.round(nativeTransfer.progress * 100)
       : null;
+  const nativeTransferIndeterminate = nativeTransferBusy && nativeTransferProgressPercent === null;
   const mediaSurfaceTransform =
     mediaType === "image"
       ? `translate3d(${pan.x}px, ${pan.y + swipeDismissOffsetY}px, 0) scale(${scale})`
@@ -1197,21 +1264,25 @@ export function ImageLightbox({
                 <span className="shrink-0 text-white/65">{nativeTransferProgressPercent}%</span>
               ) : null}
             </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/12">
+            <div
+              className={cn(
+                "mt-2 h-1.5 overflow-hidden rounded-full bg-white/12",
+                nativeTransferIndeterminate && "animate-pulse"
+              )}
+            >
               <div
                 className={cn(
-                  "h-full rounded-full bg-white/85 transition-all duration-200",
-                  nativeTransferProgressPercent === null && nativeTransferBusy && "animate-pulse"
+                  "h-full rounded-full bg-white/85",
+                  nativeTransferProgressPercent !== null &&
+                    "transition-[width] duration-100 ease-linear"
                 )}
                 style={{
                   width:
                     nativeTransferProgressPercent !== null
-                      ? `${Math.max(6, nativeTransferProgressPercent)}%`
-                      : nativeTransferBusy
-                        ? "36%"
-                        : nativeTransfer.stage === "completed"
-                          ? "100%"
-                          : "100%"
+                      ? `${Math.max(8, nativeTransferProgressPercent)}%`
+                      : nativeTransferIndeterminate
+                        ? "100%"
+                        : "100%"
                 }}
               />
             </div>
@@ -1394,6 +1465,7 @@ export function ImageLightbox({
             src={src}
             alt={alt ?? ""}
             draggable={false}
+            crossOrigin={src.startsWith("/") ? "anonymous" : undefined}
             onClick={handleImageClick}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}

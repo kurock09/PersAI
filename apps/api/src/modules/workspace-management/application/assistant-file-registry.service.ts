@@ -179,7 +179,43 @@ export class AssistantFileRegistryService {
       workspaceId: input.workspaceId,
       limit: 1000
     });
-    return this.summarizeCleanupFromFiles(files);
+    return this.summarizeDeletableCleanupFromFiles(files);
+  }
+
+  /** Files that manual cleanup and the reaper may actually delete (24h TTL + not chat-pinned). */
+  async summarizeDeletableCleanupFromFiles(
+    files: AssistantFileRegistryRecord[],
+    now: Date = new Date()
+  ): Promise<AssistantFileCleanupSummary> {
+    const ttlEligible = files.filter(
+      (file) =>
+        file.cleanupEligible && file.cleanupEligibleAt !== null && file.cleanupEligibleAt <= now
+    );
+    if (ttlEligible.length === 0) {
+      return { eligibleCount: 0, eligibleBytes: 0 };
+    }
+    const pinnedRows = await this.prisma.assistantChatMessageAttachment.findMany({
+      where: {
+        assistantFileId: { in: ttlEligible.map((file) => file.fileRef) }
+      },
+      distinct: ["assistantFileId"],
+      select: { assistantFileId: true }
+    });
+    const pinned = new Set(
+      pinnedRows
+        .map((row) => row.assistantFileId)
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+    );
+    return ttlEligible.reduce(
+      (summary, file) =>
+        pinned.has(file.fileRef)
+          ? summary
+          : {
+              eligibleCount: summary.eligibleCount + 1,
+              eligibleBytes: summary.eligibleBytes + file.sizeBytes
+            },
+      { eligibleCount: 0, eligibleBytes: 0 }
+    );
   }
 
   async findAssistantFile(input: {
@@ -413,7 +449,7 @@ export class AssistantFileRegistryService {
       workspaceId: input.workspaceId,
       limit: 1000
     });
-    const eligible = this.summarizeCleanupFromFiles(files, now);
+    const eligible = await this.summarizeDeletableCleanupFromFiles(files, now);
     let deletedCount = 0;
     let deletedBytes = 0;
     let skippedPinnedCount = 0;
@@ -866,22 +902,6 @@ export class AssistantFileRegistryService {
       input.filename ?? this.deriveFilenameFromMime(input.derivativeKind, input.mimeType)
     );
     return `system/derivatives/${input.parentFileRef}/${input.derivativeKind}/${basename}`;
-  }
-
-  private summarizeCleanupFromFiles(
-    files: AssistantFileRegistryRecord[],
-    now: Date = new Date()
-  ): AssistantFileCleanupSummary {
-    return files.reduce(
-      (summary, file) =>
-        file.cleanupEligible && file.cleanupEligibleAt !== null && file.cleanupEligibleAt <= now
-          ? {
-              eligibleCount: summary.eligibleCount + 1,
-              eligibleBytes: summary.eligibleBytes + file.sizeBytes
-            }
-          : summary,
-      { eligibleCount: 0, eligibleBytes: 0 }
-    );
   }
 
   private classifyFile(input: {

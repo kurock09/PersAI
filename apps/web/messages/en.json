@@ -1242,6 +1242,7 @@
     "charactersFormName": "Name",
     "charactersFormPortrait": "Portrait photo",
     "charactersFormVoice": "Voice",
+    "charactersFormVoiceLanguage": "Language",
     "charactersFormCost": "Cost: {n} VC. Balance: {m} VC. After: {remaining} VC",
     "charactersFormInsufficient": "Insufficient balance — top up",
     "charactersFormLimitReached": "Character limit reached ({n})",

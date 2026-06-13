@@ -49,8 +49,8 @@ const VOICE_MIC_COLUMN_PX = 40;
 const VOICE_THUMB_CLEARANCE_PX = 52;
 /** Trash anchor from the composer's right edge (mic column + clearance). */
 const VOICE_TRASH_OFFSET_FROM_RIGHT_PX = VOICE_MIC_COLUMN_PX + VOICE_THUMB_CLEARANCE_PX;
-/** Stretch pill anchors flush to the mic column. */
-const VOICE_PILL_OFFSET_FROM_RIGHT_PX = 44;
+/** Extra pill width beyond the mic column when swiping toward trash. */
+const VOICE_PILL_MAX_STRETCH_PX = VOICE_THUMB_CLEARANCE_PX - 8;
 /** Finger within this distance of the trash center arms cancel. */
 const VOICE_TRASH_ARM_TOLERANCE_PX = 36;
 const VOICE_HOLD_MIN_MS = 280;
@@ -942,10 +942,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         composerRect !== undefined
           ? composerRect.right - VOICE_TRASH_OFFSET_FROM_RIGHT_PX - 16
           : e.clientX - VOICE_TRASH_OFFSET_FROM_RIGHT_PX;
-      maxVoicePillWidthRef.current = Math.max(
-        0,
-        VOICE_TRASH_OFFSET_FROM_RIGHT_PX - VOICE_PILL_OFFSET_FROM_RIGHT_PX - 4
-      );
+      maxVoicePillWidthRef.current = VOICE_PILL_MAX_STRETCH_PX;
       cancelArmedRef.current = false;
       swipeLeftPxRef.current = 0;
       setCancelArmed(false);
@@ -1231,7 +1228,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               isComposerMultiline ? "rounded-[22px]" : "rounded-full",
               dragActive && "border-accent bg-accent/5",
               sendBlockedByFailedSlot && "opacity-90",
-              isTouchDevice && isRecording && "touch-none"
+              isTouchDevice && isRecording && "touch-none overflow-visible"
             )}
             onDragEnter={handleDragEnter}
             onDragOver={handleDragOver}
@@ -1342,10 +1339,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               )}
             </AnimatePresence>
 
-            {/*
-             * In-field gesture layer: trash sits left of the mic (thumb clearance);
-             * swipe-left stretches a pill from the mic toward the trash.
-             */}
             <AnimatePresence>
               {isTouchDevice && isRecording && (
                 <motion.div
@@ -1353,30 +1346,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.12 }}
-                  className="pointer-events-none absolute inset-y-1 right-12 left-11 z-20"
+                  className="pointer-events-none absolute top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center"
+                  style={{ right: `${VOICE_TRASH_OFFSET_FROM_RIGHT_PX}px` }}
                 >
-                  {voicePillWidthPx > 0 ? (
-                    <div
-                      data-testid="voice-stretch-pill"
-                      className={cn(
-                        "absolute top-1/2 h-9 -translate-y-1/2 rounded-full border transition-[width,background-color,border-color] duration-75",
-                        cancelArmed
-                          ? "border-destructive/35 bg-destructive/10"
-                          : "border-accent/25 bg-accent/10"
-                      )}
-                      style={{
-                        right: `${VOICE_PILL_OFFSET_FROM_RIGHT_PX}px`,
-                        width: `${voicePillWidthPx}px`
-                      }}
-                    />
-                  ) : null}
                   <div
                     data-testid="voice-cancel-trash"
                     className={cn(
-                      "absolute top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full transition-colors duration-100",
+                      "flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-100",
                       cancelArmed ? "bg-destructive/15 text-destructive" : "text-text-subtle/55"
                     )}
-                    style={{ right: `${VOICE_TRASH_OFFSET_FROM_RIGHT_PX}px` }}
                   >
                     <Trash2 className="h-4 w-4" aria-hidden="true" />
                   </div>
@@ -1403,7 +1381,25 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               )}
             />
 
-            <div className="relative mb-0.5 h-10 w-10 shrink-0 self-end">
+            <div className="relative z-30 mb-0.5 h-10 w-10 shrink-0 self-end overflow-visible">
+              <AnimatePresence>
+                {isTouchDevice && isRecording && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.08 }}
+                    data-testid="voice-stretch-pill"
+                    className={cn(
+                      "pointer-events-none absolute top-1/2 right-0 h-9 -translate-y-1/2 rounded-full border transition-[width,background-color,border-color] duration-75",
+                      cancelArmed
+                        ? "border-destructive/35 bg-destructive/10"
+                        : "border-accent/25 bg-accent/10"
+                    )}
+                    style={{ width: `${VOICE_MIC_COLUMN_PX + voicePillWidthPx}px` }}
+                  />
+                )}
+              </AnimatePresence>
               <button
                 type="button"
                 onMouseDown={(e) => {
@@ -1444,7 +1440,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     : { onClick: () => void startRecording() })}
                   className={cn(
                     composerActionSlotClass,
-                    "rounded-full touch-none",
+                    "relative z-10 rounded-full touch-none",
                     composerActionSwapClass(showMic),
                     disabled || isStreaming || sendBlockedByFailedSlot
                       ? "cursor-default text-text-subtle/40"
@@ -1454,11 +1450,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                           isTouchDevice &&
                             isRecording &&
                             !cancelArmed &&
-                            "bg-accent/10 text-accent",
+                            "bg-transparent text-accent",
                           isTouchDevice &&
                             isRecording &&
                             cancelArmed &&
-                            "bg-destructive/15 text-destructive"
+                            "bg-transparent text-destructive"
                         )
                   )}
                   title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}

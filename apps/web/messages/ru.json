@@ -1242,6 +1242,7 @@
     "charactersFormName": "Имя",
     "charactersFormPortrait": "Фото",
     "charactersFormVoice": "Голос",
+    "charactersFormVoiceLanguage": "Язык",
     "charactersFormCost": "Стоимость: {n} VC. На балансе: {m} VC. После создания останется: {remaining} VC",
     "charactersFormInsufficient": "Недостаточно средств — пополнить",
     "charactersFormLimitReached": "Достигнут лимит персонажей ({n})",

@@ -5248,7 +5248,7 @@ export function AssistantSettings({
 
                     {/* Voice picker */}
                     <div className="mb-3">
-                      <p className="mb-1 text-xs font-semibold text-text">
+                      <p className="mb-1.5 text-xs font-semibold text-text">
                         {t("charactersFormVoice")}
                       </p>
                       <SegmentedChoice
@@ -5261,169 +5261,176 @@ export function AssistantSettings({
                         onChange={(value) =>
                           setVoiceGenderFilter(value as PersonaVoiceGenderFilter)
                         }
-                        className="mb-2 grid-cols-3"
+                        className="grid-cols-3"
                       />
-                      <SegmentedChoice
-                        options={[
-                          { value: "ru", label: "RU" },
-                          { value: "en", label: "EN" },
-                          { value: "other", label: t("charactersFormVoiceFilterOther") },
-                          { value: "mine", label: t("charactersFormVoiceFilterMine") }
-                        ]}
-                        value={voiceLanguageFilter}
-                        onChange={(value) => {
-                          const next = value as PersonaVoiceLanguageFilter;
-                          setVoiceLanguageFilter(next);
-                          if (next !== "other") {
-                            setOtherVoiceLanguageSearch("");
-                          }
-                        }}
-                        className="mb-2 grid-cols-4"
-                      />
-                      {voiceLanguageFilter === "other" ? (
-                        <div className="mb-2 flex items-center gap-2">
-                          <input
-                            type="text"
-                            value={otherVoiceLanguageSearch}
-                            onChange={(event) => setOtherVoiceLanguageSearch(event.target.value)}
-                            placeholder={t("charactersFormVoiceLanguageSearchPlaceholder")}
-                            className={userFieldClassName("text-xs")}
-                          />
-                        </div>
-                      ) : null}
-                      {voiceLanguageFilter === "mine" ? (
-                        <div className="space-y-2">
-                          {readyClonedVoices.length === 0 ? (
-                            <p className="py-2 text-xs text-text-muted">
-                              {t("charactersFormNoClonedVoices")}
-                            </p>
-                          ) : (
-                            <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
-                              {readyClonedVoices.map((voice) => (
+                      <div className="mt-3">
+                        <p className="mb-1.5 text-[11px] font-medium text-text-muted">
+                          {t("charactersFormVoiceLanguage")}
+                        </p>
+                        <SegmentedChoice
+                          options={[
+                            { value: "ru", label: "RU" },
+                            { value: "en", label: "EN" },
+                            { value: "other", label: t("charactersFormVoiceFilterOther") },
+                            { value: "mine", label: t("charactersFormVoiceFilterMine") }
+                          ]}
+                          value={voiceLanguageFilter}
+                          onChange={(value) => {
+                            const next = value as PersonaVoiceLanguageFilter;
+                            setVoiceLanguageFilter(next);
+                            if (next !== "other") {
+                              setOtherVoiceLanguageSearch("");
+                            }
+                          }}
+                          className="grid-cols-4"
+                        />
+                        {voiceLanguageFilter === "other" ? (
+                          <div className="mt-2">
+                            <input
+                              type="text"
+                              value={otherVoiceLanguageSearch}
+                              onChange={(event) => setOtherVoiceLanguageSearch(event.target.value)}
+                              placeholder={t("charactersFormVoiceLanguageSearchPlaceholder")}
+                              className={userFieldClassName("text-xs")}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="mt-3">
+                        {voiceLanguageFilter === "mine" ? (
+                          <div className="space-y-2">
+                            {readyClonedVoices.length === 0 ? (
+                              <p className="py-2 text-xs text-text-muted">
+                                {t("charactersFormNoClonedVoices")}
+                              </p>
+                            ) : (
+                              <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
+                                {readyClonedVoices.map((voice) => (
+                                  <div
+                                    key={voice.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-pressed={createPersonaClonedVoiceId === voice.id}
+                                    onClick={() => setCreatePersonaClonedVoiceId(voice.id)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        setCreatePersonaClonedVoiceId(voice.id);
+                                      }
+                                    }}
+                                    className={cn(
+                                      "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-accent/20",
+                                      createPersonaClonedVoiceId === voice.id && "bg-accent/10"
+                                    )}
+                                  >
+                                    <span className="flex-1 truncate font-medium text-text">
+                                      {voice.displayName}
+                                    </span>
+                                    <span className="shrink-0 text-text-subtle">
+                                      {voice.languageHint || t("voicesLanguageAuto")}
+                                      {voice.isDefault ? ` · ${t("voicesDefault")}` : ""}
+                                    </span>
+                                    <VoicePreviewButton
+                                      previewAudioUrl={resolveClonedVoicePreviewUrl(
+                                        assistant?.workspaceId,
+                                        voice
+                                      )}
+                                      voiceLabel={voice.displayName}
+                                      previewUnavailableLabel={t("charactersPreviewUnavailable")}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => resetClonedVoiceModal(true)}
+                              className="text-[11px] font-medium text-accent transition-opacity hover:opacity-80"
+                            >
+                              {t("voicesCreateInline")}
+                            </button>
+                            {activePersonaVoiceOption ? (
+                              <p className="text-[11px] text-accent">
+                                {t("charactersFormClonedVoiceSelected", {
+                                  name: activePersonaVoiceOption.displayName
+                                })}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : voiceCatalogLoading ? (
+                          <div className="flex items-center gap-2 py-2 text-xs text-text-subtle">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span>{t("charactersLoading")}</span>
+                          </div>
+                        ) : voiceCatalogUnavailable || voiceCatalog.length === 0 ? (
+                          <p className="py-2 text-xs text-text-muted">
+                            {t("charactersFormVoiceUnavailable")}
+                          </p>
+                        ) : filteredVoiceCatalog.length === 0 ? (
+                          <p className="py-2 text-xs text-text-muted">
+                            {voiceLanguageFilter === "other" &&
+                            otherVoiceLanguageSearch.trim().length > 0
+                              ? t("charactersFormVoiceEmptyForLanguageSearch")
+                              : t("charactersFormVoiceEmptyForFilter")}
+                          </p>
+                        ) : (
+                          <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
+                            {filteredVoiceCatalog.map((voice) => {
+                              const qualityBadges = voiceQualityBadgeLabels(voice);
+                              return (
                                 <div
-                                  key={voice.id}
+                                  key={voiceCatalogRowKey(voice)}
                                   role="button"
                                   tabIndex={0}
-                                  aria-pressed={createPersonaClonedVoiceId === voice.id}
-                                  onClick={() => setCreatePersonaClonedVoiceId(voice.id)}
+                                  aria-pressed={createPersonaVoiceId === voice.voiceId}
+                                  onClick={() => {
+                                    setCreatePersonaVoiceId(voice.voiceId);
+                                    setCreatePersonaClonedVoiceId(null);
+                                  }}
                                   onKeyDown={(event) => {
                                     if (event.key === "Enter" || event.key === " ") {
                                       event.preventDefault();
-                                      setCreatePersonaClonedVoiceId(voice.id);
+                                      setCreatePersonaVoiceId(voice.voiceId);
+                                      setCreatePersonaClonedVoiceId(null);
                                     }
                                   }}
                                   className={cn(
                                     "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-accent/20",
-                                    createPersonaClonedVoiceId === voice.id && "bg-accent/10"
+                                    createPersonaVoiceId === voice.voiceId && "bg-accent/10"
                                   )}
                                 >
-                                  <span className="flex-1 truncate font-medium text-text">
-                                    {voice.displayName}
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block truncate font-medium text-text">
+                                      {voice.name}
+                                    </span>
+                                    {qualityBadges.length > 0 ? (
+                                      <span className="mt-0.5 block truncate text-[10px] font-medium text-accent/80">
+                                        {qualityBadges.join(" · ")}
+                                      </span>
+                                    ) : null}
                                   </span>
                                   <span className="shrink-0 text-text-subtle">
-                                    {voice.languageHint || t("voicesLanguageAuto")}
-                                    {voice.isDefault ? ` · ${t("voicesDefault")}` : ""}
+                                    {multilingualVoiceSignatures.has(
+                                      voiceMultilingualSignature(voice)
+                                    )
+                                      ? t("charactersFormVoiceLanguageMulti")
+                                      : formatVoiceLanguageLabel(voice)}{" "}
+                                    · {voice.gender}
                                   </span>
                                   <VoicePreviewButton
-                                    previewAudioUrl={resolveClonedVoicePreviewUrl(
+                                    previewAudioUrl={resolveCatalogPreviewUrl(
                                       assistant?.workspaceId,
                                       voice
                                     )}
-                                    voiceLabel={voice.displayName}
+                                    voiceLabel={voice.name}
                                     previewUnavailableLabel={t("charactersPreviewUnavailable")}
                                   />
                                 </div>
-                              ))}
-                            </div>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => resetClonedVoiceModal(true)}
-                            className="text-[11px] font-medium text-accent transition-opacity hover:opacity-80"
-                          >
-                            {t("voicesCreateInline")}
-                          </button>
-                          {activePersonaVoiceOption ? (
-                            <p className="text-[11px] text-accent">
-                              {t("charactersFormClonedVoiceSelected", {
-                                name: activePersonaVoiceOption.displayName
-                              })}
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : voiceCatalogLoading ? (
-                        <div className="flex items-center gap-2 py-2 text-xs text-text-subtle">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          <span>{t("charactersLoading")}</span>
-                        </div>
-                      ) : voiceCatalogUnavailable || voiceCatalog.length === 0 ? (
-                        <p className="py-2 text-xs text-text-muted">
-                          {t("charactersFormVoiceUnavailable")}
-                        </p>
-                      ) : filteredVoiceCatalog.length === 0 ? (
-                        <p className="py-2 text-xs text-text-muted">
-                          {voiceLanguageFilter === "other" &&
-                          otherVoiceLanguageSearch.trim().length > 0
-                            ? t("charactersFormVoiceEmptyForLanguageSearch")
-                            : t("charactersFormVoiceEmptyForFilter")}
-                        </p>
-                      ) : (
-                        <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-surface-raised/20">
-                          {filteredVoiceCatalog.map((voice) => {
-                            const qualityBadges = voiceQualityBadgeLabels(voice);
-                            return (
-                              <div
-                                key={voiceCatalogRowKey(voice)}
-                                role="button"
-                                tabIndex={0}
-                                aria-pressed={createPersonaVoiceId === voice.voiceId}
-                                onClick={() => {
-                                  setCreatePersonaVoiceId(voice.voiceId);
-                                  setCreatePersonaClonedVoiceId(null);
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter" || event.key === " ") {
-                                    event.preventDefault();
-                                    setCreatePersonaVoiceId(voice.voiceId);
-                                    setCreatePersonaClonedVoiceId(null);
-                                  }
-                                }}
-                                className={cn(
-                                  "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-accent/20",
-                                  createPersonaVoiceId === voice.voiceId && "bg-accent/10"
-                                )}
-                              >
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate font-medium text-text">
-                                    {voice.name}
-                                  </span>
-                                  {qualityBadges.length > 0 ? (
-                                    <span className="mt-0.5 block truncate text-[10px] font-medium text-accent/80">
-                                      {qualityBadges.join(" · ")}
-                                    </span>
-                                  ) : null}
-                                </span>
-                                <span className="shrink-0 text-text-subtle">
-                                  {multilingualVoiceSignatures.has(
-                                    voiceMultilingualSignature(voice)
-                                  )
-                                    ? t("charactersFormVoiceLanguageMulti")
-                                    : formatVoiceLanguageLabel(voice)}{" "}
-                                  · {voice.gender}
-                                </span>
-                                <VoicePreviewButton
-                                  previewAudioUrl={resolveCatalogPreviewUrl(
-                                    assistant?.workspaceId,
-                                    voice
-                                  )}
-                                  voiceLabel={voice.name}
-                                  previewUnavailableLabel={t("charactersPreviewUnavailable")}
-                                />
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* VC cost line */}

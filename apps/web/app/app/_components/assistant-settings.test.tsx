@@ -746,37 +746,56 @@ describe("AssistantSettings Files", () => {
   });
 
   it("keeps cache files out of the main groups and cleans only eligible cache files", async () => {
-    assistantApiMocks.getAssistantFiles.mockResolvedValue({
-      files: [
-        {
-          fileRef: "file-user-1",
-          origin: "uploaded_attachment",
-          displayName: "notes.md",
-          filename: "notes.md",
-          mimeType: "text/markdown",
-          sizeBytes: 512,
-          logicalSizeBytes: 512,
-          fileBucket: "user_files",
-          cleanupEligible: false,
-          cleanupReason: null,
-          createdAt: "2026-05-02T00:00:00.000Z"
-        },
-        {
-          fileRef: "file-cache-1",
-          origin: "uploaded_attachment",
-          displayName: "voice-1.webm",
-          filename: "voice-1.webm",
-          mimeType: "audio/webm",
-          sizeBytes: 64,
-          logicalSizeBytes: 64,
-          fileBucket: "cache_history",
-          cleanupEligible: true,
-          cleanupReason: "voice_upload_cache",
-          createdAt: "2026-05-02T00:00:00.000Z"
-        }
-      ],
-      cleanup: { eligibleCount: 1, eligibleBytes: 64 }
-    });
+    assistantApiMocks.getAssistantFiles
+      .mockResolvedValueOnce({
+        files: [
+          {
+            fileRef: "file-user-1",
+            origin: "uploaded_attachment",
+            displayName: "notes.md",
+            filename: "notes.md",
+            mimeType: "text/markdown",
+            sizeBytes: 512,
+            logicalSizeBytes: 512,
+            fileBucket: "user_files",
+            cleanupEligible: false,
+            cleanupReason: null,
+            createdAt: "2026-05-02T00:00:00.000Z"
+          },
+          {
+            fileRef: "file-cache-1",
+            origin: "uploaded_attachment",
+            displayName: "voice-1.webm",
+            filename: "voice-1.webm",
+            mimeType: "audio/webm",
+            sizeBytes: 64,
+            logicalSizeBytes: 64,
+            fileBucket: "cache_history",
+            cleanupEligible: true,
+            cleanupReason: "voice_upload_cache",
+            createdAt: "2026-05-02T00:00:00.000Z"
+          }
+        ],
+        cleanup: { eligibleCount: 1, eligibleBytes: 64 }
+      })
+      .mockResolvedValueOnce({
+        files: [
+          {
+            fileRef: "file-user-1",
+            origin: "uploaded_attachment",
+            displayName: "notes.md",
+            filename: "notes.md",
+            mimeType: "text/markdown",
+            sizeBytes: 512,
+            logicalSizeBytes: 512,
+            fileBucket: "user_files",
+            cleanupEligible: false,
+            cleanupReason: null,
+            createdAt: "2026-05-02T00:00:00.000Z"
+          }
+        ],
+        cleanup: { eligibleCount: 0, eligibleBytes: 0 }
+      });
     assistantApiMocks.cleanupAssistantFilesCache.mockResolvedValue({
       eligibleCount: 1,
       eligibleBytes: 64,

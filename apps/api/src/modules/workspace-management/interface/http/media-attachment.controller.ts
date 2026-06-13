@@ -199,7 +199,7 @@ export class MediaAttachmentController {
     return {
       requestId: req.requestId ?? null,
       files: files.map((file) => this.toFileState(file)),
-      cleanup: this.toCleanupSummary(files)
+      cleanup: await this.assistantFileRegistryService.summarizeDeletableCleanupFromFiles(files)
     };
   }
 
@@ -546,19 +546,6 @@ export class MediaAttachmentController {
       documentLink: file.documentLink,
       createdAt: file.createdAt.toISOString()
     };
-  }
-
-  private toCleanupSummary(files: AssistantFileRegistryRecord[]) {
-    return files.reduce(
-      (summary, file) =>
-        file.cleanupEligible
-          ? {
-              eligibleCount: summary.eligibleCount + 1,
-              eligibleBytes: summary.eligibleBytes + file.sizeBytes
-            }
-          : summary,
-      { eligibleCount: 0, eligibleBytes: 0 }
-    );
   }
 
   private basename(relativePath: string): string {

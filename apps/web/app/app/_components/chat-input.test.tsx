@@ -756,7 +756,7 @@ describe("ChatInput", () => {
     mockComposerShell();
     fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 320, clientY: 100 });
     await waitFor(() => {
-      expect(mic).toHaveClass("bg-accent/10");
+      expect(mic).toHaveClass("text-accent");
     });
     const banner = () => screen.getByTestId("voice-recording-banner");
     const trash = () => screen.getByTestId("voice-cancel-trash");
@@ -811,7 +811,7 @@ describe("ChatInput", () => {
     mockComposerShell();
     fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 320, clientY: 100 });
     await waitFor(() => {
-      expect(mic).toHaveClass("bg-accent/10");
+      expect(mic).toHaveClass("text-accent");
     });
     fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 310, clientY: 230 });
     expect(screen.getByTestId("voice-recording-banner")).toHaveAttribute(

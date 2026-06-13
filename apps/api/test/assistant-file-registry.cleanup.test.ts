@@ -439,7 +439,14 @@ async function runPinningProtection(): Promise<void> {
       }
     },
     assistantChatMessageAttachment: {
-      findMany: async () => [],
+      findMany: async ({ where }: { where?: { assistantFileId?: string | { in: string[] } } }) => {
+        const ids =
+          typeof where?.assistantFileId === "object" ? (where.assistantFileId.in ?? []) : [];
+        if (ids.includes("voice-pinned")) {
+          return [{ assistantFileId: "voice-pinned" }];
+        }
+        return [];
+      },
       update: async () => ({}),
       updateMany: async () => ({ count: 0 }),
       count: async ({ where }: { where: { assistantFileId: string } }) =>
@@ -466,6 +473,7 @@ async function runPinningProtection(): Promise<void> {
     now
   );
 
+  assert.equal(result.eligibleCount, 0, "pinned file must not appear in cleanup banner");
   assert.equal(result.deletedCount, 0, "pinned file must not be deleted");
   assert.equal(result.skippedPinnedCount, 1, "pinned file should be counted as skipped");
   assert.deepEqual(deletedIds, [], "no DB deletion should occur");
@@ -473,3 +481,94 @@ async function runPinningProtection(): Promise<void> {
 }
 
 void runPinningProtection();
+
+async function runCleanupBannerSummary(): Promise<void> {
+  const createdRecently = new Date(now.getTime() - 60 * 60 * 1000);
+  const createdOld = new Date(now.getTime() - TWENTY_FOUR_HOURS_MS - 60 * 1000);
+  const rows = [
+    {
+      id: "voice-fresh",
+      assistantId: "assistant-banner",
+      workspaceId: "workspace-banner",
+      sandboxJobId: null,
+      sourceToolCode: null,
+      origin: "uploaded_attachment" as const,
+      objectKey: "objects/fresh.webm",
+      relativePath: "uploads/fresh/recording.webm",
+      displayName: "recording.webm",
+      mimeType: "audio/webm",
+      sizeBytes: BigInt(40),
+      logicalSizeBytes: BigInt(40),
+      sha256: null,
+      metadata: { source: "web_staged_upload" },
+      createdAt: createdRecently,
+      updatedAt: createdRecently
+    },
+    {
+      id: "voice-old",
+      assistantId: "assistant-banner",
+      workspaceId: "workspace-banner",
+      sandboxJobId: null,
+      sourceToolCode: null,
+      origin: "uploaded_attachment" as const,
+      objectKey: "objects/old.webm",
+      relativePath: "uploads/old/recording.webm",
+      displayName: "recording.webm",
+      mimeType: "audio/webm",
+      sizeBytes: BigInt(60),
+      logicalSizeBytes: BigInt(60),
+      sha256: null,
+      metadata: { source: "web_staged_upload" },
+      createdAt: createdOld,
+      updatedAt: createdOld
+    }
+  ];
+  const prisma = {
+    assistantFile: {
+      findMany: async () => rows
+    },
+    assistantChatMessageAttachment: {
+      findMany: async () => []
+    },
+    assistantDocumentDeliveredFile: {
+      findMany: async () => [],
+      findFirst: async () => null
+    }
+  };
+  const service = new AssistantFileRegistryService(prisma as never, {} as never);
+
+  const summary = await service.summarizeDeletableCleanupFromFiles(
+    rows.map((row) => {
+      const classification = {
+        fileBucket: "cache_history" as const,
+        cleanupEligible: true,
+        cleanupReason: "voice_upload_cache" as const
+      };
+      return {
+        fileRef: row.id,
+        assistantId: row.assistantId,
+        workspaceId: row.workspaceId,
+        origin: row.origin,
+        objectKey: row.objectKey,
+        relativePath: row.relativePath,
+        displayName: row.displayName,
+        mimeType: row.mimeType,
+        sizeBytes: Number(row.sizeBytes),
+        logicalSizeBytes: Number(row.logicalSizeBytes),
+        sha256: row.sha256,
+        metadata: row.metadata,
+        fileBucket: classification.fileBucket,
+        cleanupEligible: classification.cleanupEligible,
+        cleanupReason: classification.cleanupReason,
+        cleanupEligibleAt: new Date(row.createdAt.getTime() + TWENTY_FOUR_HOURS_MS),
+        documentLink: null,
+        createdAt: row.createdAt
+      };
+    }),
+    now
+  );
+
+  assert.deepEqual(summary, { eligibleCount: 1, eligibleBytes: 60 });
+}
+
+void runCleanupBannerSummary();

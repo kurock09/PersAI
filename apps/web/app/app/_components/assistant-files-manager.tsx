@@ -268,9 +268,7 @@ export function AssistantFilesManager() {
     setFeedback(null);
     try {
       const cleanup = await cleanupAssistantFilesCache(token);
-      setFiles((current) => current.filter((file) => !file.cleanupEligible));
-      setCleanupSummary({ eligibleCount: 0, eligibleBytes: 0 });
-      setCleanupConfirmOpen(false);
+      await loadFiles(query);
       setFeedback({
         type: "ok",
         text: t("filesCleanupDone", {
@@ -286,7 +284,7 @@ export function AssistantFilesManager() {
     } finally {
       setCleanupBusy(false);
     }
-  }, [getToken, t]);
+  }, [getToken, loadFiles, query, t]);
 
   return (
     <div className="px-1 py-1">
