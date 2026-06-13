@@ -1615,6 +1615,20 @@ describe("toWebChatUxIssue", () => {
     });
   });
 
+  it("maps provider-shaped voice transcription failures before generic provider issues", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "provider_timeout",
+        message: "Voice transcription provider did not respond."
+      })
+    ).toEqual({
+      classId: "voice_transcription_empty",
+      message: "No speech was detected in your recording.",
+      guidance:
+        "Check that the correct microphone is selected in your browser settings and that it is not muted."
+    });
+  });
+
   it("maps monthly media quota errors to billing-period guidance", () => {
     expect(
       toWebChatUxIssue({

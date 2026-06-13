@@ -756,9 +756,15 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
 
   if (
     code === "voice_transcription_empty" ||
+    code === "voice_transcription_failed" ||
     normalized.includes("no_audio_detected") ||
     normalized.includes("voice transcription returned empty") ||
-    normalized.includes("voice transcription failed")
+    normalized.includes("voice transcription failed") ||
+    (normalized.includes("voice") &&
+      (normalized.includes("transcri") ||
+        normalized.includes("speech") ||
+        normalized.includes("stt") ||
+        normalized.includes("audio")))
   ) {
     return {
       classId: "voice_transcription_empty",

@@ -43,8 +43,16 @@ const MAX_FILES = 5;
 
 /** Ignore thumb jitter before computing swipe distance. */
 const VOICE_GESTURE_SLOP_PX = 12;
-/** Minimum cancel-arm distance when composer width is not measured yet. */
-const VOICE_CANCEL_ARM_MIN_PX = 72;
+/** Mic action column width in the composer (`w-10`). */
+const VOICE_MIC_COLUMN_PX = 40;
+/** Keep trash left of the mic so a holding thumb does not cover it. */
+const VOICE_THUMB_CLEARANCE_PX = 52;
+/** Trash anchor from the composer's right edge (mic column + clearance). */
+const VOICE_TRASH_OFFSET_FROM_RIGHT_PX = VOICE_MIC_COLUMN_PX + VOICE_THUMB_CLEARANCE_PX;
+/** Stretch pill anchors flush to the mic column. */
+const VOICE_PILL_OFFSET_FROM_RIGHT_PX = 44;
+/** Finger within this distance of the trash center arms cancel. */
+const VOICE_TRASH_ARM_TOLERANCE_PX = 36;
 const VOICE_HOLD_MIN_MS = 280;
 /** Above one line of text (leading-5 + py-2.5×2) the composer uses a fixed radius, not a pill. */
 const COMPOSER_SINGLE_LINE_HEIGHT_PX = 40;
@@ -118,6 +126,34 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${String(m)}:${String(s).padStart(2, "0")}`;
+}
+
+function pickVoiceRecordingMimeType(): string {
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/aac",
+    "audio/ogg;codecs=opus",
+    "audio/ogg"
+  ];
+  for (const candidate of candidates) {
+    if (MediaRecorder.isTypeSupported(candidate)) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
+function voiceFilenameForMime(mimeType: string): string {
+  const base = (mimeType.split(";")[0] ?? mimeType).trim().toLowerCase();
+  if (base.includes("mp4") || base.includes("aac")) {
+    return `voice-${Date.now()}.m4a`;
+  }
+  if (base.includes("ogg")) {
+    return `voice-${Date.now()}.ogg`;
+  }
+  return `voice-${Date.now()}.webm`;
 }
 
 function isAcceptedFile(file: File): boolean {
@@ -665,10 +701,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         }
         streamRef.current = stream;
 
-        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : "audio/webm";
-        const recorder = new MediaRecorder(stream, { mimeType });
+        const mimeType = pickVoiceRecordingMimeType();
+        const recorder = mimeType
+          ? new MediaRecorder(stream, { mimeType })
+          : new MediaRecorder(stream);
+        const resolvedMimeType = recorder.mimeType || mimeType || "audio/webm";
         mediaRecorderRef.current = recorder;
         chunksRef.current = [];
 
@@ -684,7 +721,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             setRecordingSeconds(0);
             return;
           }
-          const blob = new Blob(chunksRef.current, { type: mimeType });
+          const blob = new Blob(chunksRef.current, { type: resolvedMimeType });
           const elapsedSec = (Date.now() - recordingStartTimeRef.current) / 1000;
           chunksRef.current = [];
           stopRecordingCleanup();
@@ -699,14 +736,17 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           if (elapsedSec >= 2 && bytesPerSec < 1000) {
             setRecordingState("idle");
             setRecordingSeconds(0);
-            onVoiceTranscriptionError?.(new Error("NO_AUDIO_DETECTED"));
+            onVoiceTranscriptionError?.({
+              code: "voice_transcription_empty",
+              message: "No speech was detected in your recording."
+            });
             return;
           }
 
           setRecordingState("transcribing");
 
-          const filename = `voice-${Date.now()}.webm`;
-          const voiceFile = new File([blob], filename, { type: mimeType });
+          const filename = voiceFilenameForMime(resolvedMimeType);
+          const voiceFile = new File([blob], filename, { type: resolvedMimeType });
 
           void (async () => {
             try {
@@ -750,6 +790,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const stopRecording = useCallback(() => {
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== "inactive") {
+      try {
+        recorder.requestData();
+      } catch {
+        /* requestData is best-effort across browsers */
+      }
       recorder.stop();
     } else {
       recordingAttemptIdRef.current += 1;
@@ -782,10 +827,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const holdStartTimeRef = useRef(0);
   const holdStartXRef = useRef(0);
   const trashTargetXRef = useRef(0);
-  const maxVoicePillWidthRef = useRef(120);
+  const maxVoicePillWidthRef = useRef(48);
   const cancelArmedRef = useRef(false);
   const [cancelArmed, setCancelArmed] = useState(false);
-  const [voicePillWidthPx, setVoicePillWidthPx] = useState(76);
+  const [voicePillWidthPx, setVoicePillWidthPx] = useState(0);
   const swipeLeftPxRef = useRef(0);
 
   const safeVibrate = useCallback((pattern: number | number[]) => {
@@ -804,7 +849,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     cancelArmedRef.current = false;
     swipeLeftPxRef.current = 0;
     setCancelArmed(false);
-    setVoicePillWidthPx(76);
+    setVoicePillWidthPx(0);
   }, []);
 
   const updateCancelFromPointer = useCallback(
@@ -813,10 +858,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       const swipeLeft = Math.max(0, rawSwipeLeftPx - VOICE_GESTURE_SLOP_PX);
       if (swipeLeft !== swipeLeftPxRef.current) {
         swipeLeftPxRef.current = swipeLeft;
-        setVoicePillWidthPx(Math.min(76 + swipeLeft, maxVoicePillWidthRef.current));
+        setVoicePillWidthPx(Math.min(swipeLeft, maxVoicePillWidthRef.current));
       }
 
-      const armed = clientX <= trashTargetXRef.current + 16;
+      const armed = clientX <= trashTargetXRef.current + VOICE_TRASH_ARM_TOLERANCE_PX;
       if (armed !== cancelArmedRef.current) {
         cancelArmedRef.current = armed;
         setCancelArmed(armed);
@@ -826,14 +871,18 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     [safeVibrate]
   );
 
+  const isRecorderCapturing = useCallback(() => {
+    const state = mediaRecorderRef.current?.state;
+    return state === "recording" || state === "paused";
+  }, []);
+
   const finishHoldGesture = useCallback(
     (opts: { cancelOnShortHold: boolean }) => {
       if (!holdActiveRef.current) return;
       holdActiveRef.current = false;
       touchRecordingIntentActiveRef.current = false;
       const heldMs = Date.now() - holdStartTimeRef.current;
-      const recorderStarted =
-        mediaRecorderRef.current?.state === "recording" || recordingState === "recording";
+      const recorderStarted = isRecorderCapturing() || recordingState === "recording";
       const shortHoldShouldCancel =
         opts.cancelOnShortHold && heldMs < VOICE_HOLD_MIN_MS && !recorderStarted;
       if (cancelArmedRef.current || shortHoldShouldCancel) {
@@ -848,7 +897,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       }
       resetHoldGesture();
     },
-    [cancelRecording, recordingState, resetHoldGesture, stopRecording, stopRecordingCleanup]
+    [
+      cancelRecording,
+      isRecorderCapturing,
+      recordingState,
+      resetHoldGesture,
+      stopRecording,
+      stopRecordingCleanup
+    ]
   );
 
   const handleHoldPointerEnd = useCallback(
@@ -857,12 +913,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       if (holdPointerIdRef.current !== null && pointerId !== holdPointerIdRef.current) {
         return;
       }
-      if (source === "cancel" && !cancelArmedRef.current) {
-        const recorderStarted =
-          mediaRecorderRef.current?.state === "recording" || recordingState === "recording";
-        if (recorderStarted) {
-          return;
-        }
+      const recorderStarted = isRecorderCapturing() || recordingState === "recording";
+      if (source === "cancel" && !cancelArmedRef.current && !recorderStarted) {
         touchRecordingIntentActiveRef.current = false;
         recordingAttemptIdRef.current += 1;
         resetHoldGesture();
@@ -870,7 +922,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       }
       finishHoldGesture({ cancelOnShortHold: source === "up" });
     },
-    [finishHoldGesture, recordingState, resetHoldGesture]
+    [finishHoldGesture, isRecorderCapturing, recordingState, resetHoldGesture]
   );
 
   const handleMicPointerDown = useCallback(
@@ -886,16 +938,18 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       holdStartTimeRef.current = Date.now();
       holdStartXRef.current = e.clientX;
       const composerRect = composerShellRef.current?.getBoundingClientRect();
-      const composerWidth = composerRect?.width ?? 0;
       trashTargetXRef.current =
         composerRect !== undefined
-          ? composerRect.left + composerWidth / 3
-          : e.clientX - VOICE_CANCEL_ARM_MIN_PX;
-      maxVoicePillWidthRef.current = Math.max(76, Math.floor((composerWidth * 2) / 3) - 12);
+          ? composerRect.right - VOICE_TRASH_OFFSET_FROM_RIGHT_PX - 16
+          : e.clientX - VOICE_TRASH_OFFSET_FROM_RIGHT_PX;
+      maxVoicePillWidthRef.current = Math.max(
+        0,
+        VOICE_TRASH_OFFSET_FROM_RIGHT_PX - VOICE_PILL_OFFSET_FROM_RIGHT_PX - 4
+      );
       cancelArmedRef.current = false;
       swipeLeftPxRef.current = 0;
       setCancelArmed(false);
-      setVoicePillWidthPx(76);
+      setVoicePillWidthPx(0);
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
@@ -1123,6 +1177,52 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             </div>
           )}
 
+          <AnimatePresence>
+            {isTouchDevice && isRecording && (
+              <motion.div
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+                className="pointer-events-none mb-2 flex justify-center"
+              >
+                <div
+                  data-testid="voice-recording-banner"
+                  data-cancel-armed={cancelArmed ? "true" : "false"}
+                  role="status"
+                  aria-live="polite"
+                  aria-label={t("recording", { duration: formatDuration(recordingSeconds) })}
+                  className={cn(
+                    "inline-flex items-center gap-2.5 rounded-full border px-3.5 py-1.5 shadow-sm backdrop-blur-sm transition-colors duration-150",
+                    cancelArmed
+                      ? "border-destructive/35 bg-destructive/10 text-destructive"
+                      : "border-border/60 bg-surface/95 text-text"
+                  )}
+                >
+                  <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "absolute inset-0 animate-ping rounded-full",
+                        cancelArmed ? "bg-destructive/20" : "bg-accent/20"
+                      )}
+                    />
+                    <Mic
+                      className={cn(
+                        "relative h-3.5 w-3.5",
+                        cancelArmed ? "text-destructive" : "text-accent"
+                      )}
+                      aria-hidden="true"
+                    />
+                  </span>
+                  <span className="font-mono text-sm font-medium tabular-nums">
+                    {formatDuration(recordingSeconds)}
+                  </span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <div
             ref={composerShellRef}
             data-testid="chat-composer-shell"
@@ -1243,69 +1343,42 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             </AnimatePresence>
 
             {/*
-             * Hold-to-record (touch): quiet banner with mic + timer; fixed trash
-             * at ⅓ width; pill stretches left on swipe until trash = cancel.
+             * In-field gesture layer: trash sits left of the mic (thumb clearance);
+             * swipe-left stretches a pill from the mic toward the trash.
              */}
             <AnimatePresence>
               {isTouchDevice && isRecording && (
                 <motion.div
-                  role="status"
-                  aria-live="polite"
-                  aria-label={t("recording", { duration: formatDuration(recordingSeconds) })}
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.12 }}
                   className="pointer-events-none absolute inset-y-1 right-12 left-11 z-20"
                 >
+                  {voicePillWidthPx > 0 ? (
+                    <div
+                      data-testid="voice-stretch-pill"
+                      className={cn(
+                        "absolute top-1/2 h-9 -translate-y-1/2 rounded-full border transition-[width,background-color,border-color] duration-75",
+                        cancelArmed
+                          ? "border-destructive/35 bg-destructive/10"
+                          : "border-accent/25 bg-accent/10"
+                      )}
+                      style={{
+                        right: `${VOICE_PILL_OFFSET_FROM_RIGHT_PX}px`,
+                        width: `${voicePillWidthPx}px`
+                      }}
+                    />
+                  ) : null}
                   <div
                     data-testid="voice-cancel-trash"
                     className={cn(
-                      "absolute top-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full transition-colors duration-75",
-                      cancelArmed ? "bg-destructive/15 text-destructive" : "text-text-subtle/50"
+                      "absolute top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full transition-colors duration-100",
+                      cancelArmed ? "bg-destructive/15 text-destructive" : "text-text-subtle/55"
                     )}
-                    style={{ left: "33.333%" }}
+                    style={{ right: `${VOICE_TRASH_OFFSET_FROM_RIGHT_PX}px` }}
                   >
                     <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  </div>
-                  <div
-                    data-testid="voice-recording-banner"
-                    data-cancel-armed={cancelArmed ? "true" : "false"}
-                    className={cn(
-                      "absolute top-1/2 right-0 flex h-9 -translate-y-1/2 items-center gap-2 overflow-hidden rounded-full border px-2.5 shadow-sm backdrop-blur-sm transition-[width,border-color,background-color] duration-75",
-                      cancelArmed
-                        ? "border-destructive/40 bg-destructive/10"
-                        : "border-border/70 bg-surface/95"
-                    )}
-                    style={{ width: `${voicePillWidthPx}px` }}
-                  >
-                    <span className="relative flex h-7 w-7 shrink-0 items-center justify-center">
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          "absolute inset-0 animate-ping rounded-full",
-                          cancelArmed ? "bg-destructive/20" : "bg-accent/20"
-                        )}
-                      />
-                      <span
-                        className={cn(
-                          "relative flex h-full w-full items-center justify-center rounded-full",
-                          cancelArmed
-                            ? "bg-destructive/12 text-destructive"
-                            : "bg-accent/12 text-accent"
-                        )}
-                      >
-                        <Mic className="h-3.5 w-3.5" aria-hidden="true" />
-                      </span>
-                    </span>
-                    <span
-                      className={cn(
-                        "pr-0.5 font-mono text-sm font-medium tabular-nums",
-                        cancelArmed ? "text-destructive" : "text-text"
-                      )}
-                    >
-                      {formatDuration(recordingSeconds)}
-                    </span>
                   </div>
                 </motion.div>
               )}
@@ -1371,14 +1444,21 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     : { onClick: () => void startRecording() })}
                   className={cn(
                     composerActionSlotClass,
-                    "rounded-full",
+                    "rounded-full touch-none",
                     composerActionSwapClass(showMic),
                     disabled || isStreaming || sendBlockedByFailedSlot
                       ? "cursor-default text-text-subtle/40"
                       : cn(
                           "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted",
                           "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted",
-                          isTouchDevice && isRecording && "bg-accent/10 text-accent/80"
+                          isTouchDevice &&
+                            isRecording &&
+                            !cancelArmed &&
+                            "bg-accent/10 text-accent",
+                          isTouchDevice &&
+                            isRecording &&
+                            cancelArmed &&
+                            "bg-destructive/15 text-destructive"
                         )
                   )}
                   title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}

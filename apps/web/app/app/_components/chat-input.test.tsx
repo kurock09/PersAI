@@ -618,7 +618,7 @@ describe("ChatInput", () => {
     expect(mic).toHaveClass("rounded-full");
   });
 
-  it("does not cancel recording on pointercancel without a left swipe", async () => {
+  it("stops recording on pointercancel after capture starts (mobile release path)", async () => {
     enableTouchDevice();
     const stop = vi.fn();
     const stream = {
@@ -634,6 +634,7 @@ describe("ChatInput", () => {
       mimeType: "audio/webm",
       state: "recording",
       start: vi.fn(),
+      requestData: vi.fn(),
       stop: recorderStop,
       ondataavailable: null,
       onstop: null
@@ -666,8 +667,56 @@ describe("ChatInput", () => {
       clientX: 198,
       clientY: 102
     });
-    expect(recorderStop).not.toHaveBeenCalled();
-    expect(stop).not.toHaveBeenCalled();
+    expect(recorderStop).toHaveBeenCalled();
+  });
+
+  it("ignores pointercancel before capture starts", async () => {
+    enableTouchDevice();
+    const stop = vi.fn();
+    const stream = {
+      getTracks: () => [{ stop }]
+    } as unknown as MediaStream;
+    let resolveGetUserMedia: (value: MediaStream) => void = () => undefined;
+    const getUserMedia = vi.fn(
+      () =>
+        new Promise<MediaStream>((resolve) => {
+          resolveGetUserMedia = resolve;
+        })
+    );
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    const mediaRecorder = vi.fn();
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: Object.assign(mediaRecorder, {
+        isTypeSupported: vi.fn(() => true)
+      })
+    });
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    const mic = await screen.findByTitle("voiceHoldToRecord");
+    fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 200, clientY: 100 });
+    fireEvent.pointerCancel(mic, {
+      pointerType: "touch",
+      pointerId: 1,
+      clientX: 198,
+      clientY: 102
+    });
+    resolveGetUserMedia(stream);
+    await waitFor(() => {
+      expect(stop).toHaveBeenCalled();
+    });
+    expect(mediaRecorder).not.toHaveBeenCalled();
   });
 
   it("arms cancel only after a deliberate left swipe", async () => {
@@ -710,13 +759,16 @@ describe("ChatInput", () => {
       expect(mic).toHaveClass("bg-accent/10");
     });
     const banner = () => screen.getByTestId("voice-recording-banner");
-    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 240, clientY: 108 });
+    const trash = () => screen.getByTestId("voice-cancel-trash");
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 310, clientY: 108 });
     await waitFor(() => {
       expect(banner()).toBeInTheDocument();
     });
     expect(banner()).toHaveAttribute("data-cancel-armed", "false");
-    expect(screen.queryByText("voiceHoldRelease")).toBeNull();
-    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 110, clientY: 112 });
+    expect(trash()).toBeInTheDocument();
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 300, clientY: 108 });
+    expect(banner()).toHaveAttribute("data-cancel-armed", "false");
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 240, clientY: 112 });
     await waitFor(() => {
       expect(banner()).toHaveAttribute("data-cancel-armed", "true");
     });
@@ -761,7 +813,7 @@ describe("ChatInput", () => {
     await waitFor(() => {
       expect(mic).toHaveClass("bg-accent/10");
     });
-    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 240, clientY: 230 });
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 310, clientY: 230 });
     expect(screen.getByTestId("voice-recording-banner")).toHaveAttribute(
       "data-cancel-armed",
       "false"

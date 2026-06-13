@@ -6299,7 +6299,7 @@ function IntegrationCard({
       type={interactive ? "button" : undefined}
       onClick={interactive ? onClick : undefined}
       className={cn(
-        "group flex flex-col rounded-2xl border px-3.5 py-3 text-left transition-all",
+        "group flex rounded-2xl border px-3.5 py-3 text-left transition-all",
         active
           ? "border-accent/25 bg-accent/[0.07] shadow-[0_12px_24px_-20px_rgba(29,161,242,0.28)] hover:border-accent/40 hover:bg-accent/[0.1]"
           : "border-border/60 bg-background/50",
@@ -6307,29 +6307,36 @@ function IntegrationCard({
         interactive && "cursor-pointer hover:-translate-y-[1px]"
       )}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex min-w-0 flex-1 items-start gap-3">
         <img src={logoSrc} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-text">{name}</p>
-          <p
-            className={cn("mt-0.5 truncate text-xs", active ? "text-success" : "text-text-subtle")}
-          >
-            {comingSoon ? t("channelComingSoon") : statusLabel}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-text">{name}</p>
+            <span
+              className={cn(
+                "inline-block h-2.5 w-2.5 shrink-0 rounded-full",
+                active ? "bg-success" : "bg-text-subtle/55"
+              )}
+            />
+          </div>
+          <div className="mt-0.5 flex items-center gap-2">
+            <p
+              className={cn(
+                "min-w-0 flex-1 truncate text-xs",
+                active ? "text-success" : "text-text-subtle"
+              )}
+            >
+              {comingSoon ? t("channelComingSoon") : statusLabel}
+            </p>
+            {interactive ? (
+              <span className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text">
+                {t("openIntegration")}
+                <ChevronRight className="h-3.5 w-3.5" />
+              </span>
+            ) : null}
+          </div>
         </div>
-        <span
-          className={cn(
-            "mt-0.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full",
-            active ? "bg-success" : "bg-text-subtle/55"
-          )}
-        />
       </div>
-      {interactive ? (
-        <span className="mt-2 inline-flex items-center justify-end gap-1 self-end text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text">
-          {t("openIntegration")}
-          <ChevronRight className="h-3.5 w-3.5" />
-        </span>
-      ) : null}
     </Comp>
   );
 }

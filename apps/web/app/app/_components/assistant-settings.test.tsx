@@ -299,6 +299,8 @@ describe("integrations section", () => {
     expect(screen.getByText("WhatsApp")).toBeInTheDocument();
     expect(screen.getByText("MAX")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
+    const openLink = screen.getByText("Open");
+    expect(openLink.parentElement).toBe(screen.getByText("Connected").parentElement);
     expect(screen.queryByText("Reminder delivery")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Telegram/i }));
