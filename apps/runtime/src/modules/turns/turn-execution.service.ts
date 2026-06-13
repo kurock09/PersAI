@@ -147,6 +147,15 @@ const MAX_MODEL_VISIBLE_WORKING_FILES = 20;
 const MAX_WORKING_FILE_MICRO_DESCRIPTION_CHARS = 120;
 const WORKING_FILE_REF_SUFFIX_HEX_LENGTH = 8;
 
+const VISIBLE_WORKING_NOTES_DEVELOPER_CONTRACT = [
+  "## Visible working notes",
+  "Before each real tool call, add one short natural-language working note that says what you are checking, reading, or gathering next.",
+  "Write the note as a brief user-visible transition, not as hidden chain-of-thought, and keep it directly tied to the immediate next tool call.",
+  "Do not skip these short pre-tool notes in ordinary chat, project chat, or any other user-visible turn that is about to call a tool.",
+  "Keep each working note short and concrete. Do not format progress as long paragraphs, numbered status ladders, or repeated bullet prefixes.",
+  "Avoid generic filler like 'continuing analysis' or 'doing another pass'; say the specific next action instead."
+].join("\n");
+
 type PreparedTurnExecution = {
   bundle: AssistantRuntimeBundle;
   projectedTools: RuntimeNativeToolProjection;
@@ -337,6 +346,7 @@ const LEGACY_TECHNICAL_ATTACHMENT_SUMMARY_PATTERNS = [
 
 type DeveloperInstructionSectionKey =
   | "project_execution_contract"
+  | "visible_working_notes"
   | "channel_context"
   | "routing_hints"
   | "source_progression"
@@ -1943,6 +1953,7 @@ export class TurnExecutionService {
     const channelContextSection = this.buildChannelContextDeveloperSection(input.request);
     return this.createDeveloperInstructionSections([
       { key: "project_execution_contract", content: projectExecutionSection },
+      { key: "visible_working_notes", content: VISIBLE_WORKING_NOTES_DEVELOPER_CONTRACT },
       { key: "channel_context", content: channelContextSection },
       { key: "routing_hints", content: routingGuidance },
       { key: "open_loop_refs", content: openLoopRefsSection },

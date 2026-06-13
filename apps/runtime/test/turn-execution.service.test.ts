@@ -3538,7 +3538,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     projectGroundedFinalCall?.developerInstructions ?? "",
-    /keep any visible working text short and concrete/
+    /Before each real tool call, add one short natural-language working note/
   );
   assert.match(
     projectGroundedFinalCall?.developerInstructions ?? "",

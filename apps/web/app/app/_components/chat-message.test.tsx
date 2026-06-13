@@ -919,6 +919,8 @@ describe("ChatMessageBubble — pre-response status", () => {
       <ChatMessageBubble
         message={makeAssistantMessage({
           status: "committed",
+          thoughtStartedAt: "2026-05-02T10:00:00.000Z",
+          thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
           content: `:::working
 Проверяю сайт.
 :::
@@ -928,20 +930,39 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "workingNotesDone" })).toHaveAttribute(
-      "aria-expanded",
-      "false"
-    );
+    expect(
+      screen.getByRole("button", { name: "workingNotesDone workingNotesDuration" })
+    ).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("Проверяю сайт.")).not.toBeInTheDocument();
     expect(screen.getByText("Готово.")).toBeInTheDocument();
+    expect(screen.getByText("workingNotesDone workingNotesDuration")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "workingNotesDone" }));
+    fireEvent.click(screen.getByRole("button", { name: "workingNotesDone workingNotesDuration" }));
 
-    expect(screen.getByRole("button", { name: "workingNotesDone" })).toHaveAttribute(
-      "aria-expanded",
-      "true"
-    );
+    expect(
+      screen.getByRole("button", { name: "workingNotesDone workingNotesDuration" })
+    ).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Проверяю сайт.")).toBeInTheDocument();
+  });
+
+  it("shows no working duration when timestamps are not reliable", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          thoughtStartedAt: "2026-05-02T10:00:20.000Z",
+          thoughtFinishedAt: "2026-05-02T10:00:00.000Z",
+          content: `:::working
+Проверяю сайт.
+::::
+
+Готово.`
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "workingNotesDone" })).toBeInTheDocument();
+    expect(screen.queryByText("workingNotesDuration")).not.toBeInTheDocument();
   });
 });
 

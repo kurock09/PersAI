@@ -767,11 +767,38 @@ function MarkdownFragment({ content }: { content: string }) {
   );
 }
 
-function WorkingTextBlocks({ blocks, isStreaming }: { blocks: string[]; isStreaming: boolean }) {
+function resolveWorkingDurationSeconds(
+  startedAt: string | null | undefined,
+  finishedAt: string | null | undefined
+): number | null {
+  if (!startedAt || !finishedAt) {
+    return null;
+  }
+  const startedAtMs = Date.parse(startedAt);
+  const finishedAtMs = Date.parse(finishedAt);
+  if (Number.isNaN(startedAtMs) || Number.isNaN(finishedAtMs) || finishedAtMs <= startedAtMs) {
+    return null;
+  }
+  const durationSec = Math.max(1, Math.round((finishedAtMs - startedAtMs) / 1000));
+  return durationSec <= 60 * 60 ? durationSec : null;
+}
+
+function WorkingTextBlocks({
+  blocks,
+  isStreaming,
+  startedAt,
+  finishedAt
+}: {
+  blocks: string[];
+  isStreaming: boolean;
+  startedAt?: string | null | undefined;
+  finishedAt?: string | null | undefined;
+}) {
   const visibleBlocks = blocks.filter((block) => block.trim().length > 0);
   const [expanded, setExpanded] = useState(isStreaming);
   const blockKey = visibleBlocks.join("\n\n");
   const t = useTranslations("chat");
+  const durationSec = resolveWorkingDurationSeconds(startedAt, finishedAt);
   useEffect(() => {
     setExpanded(isStreaming);
   }, [blockKey, isStreaming]);
@@ -779,12 +806,12 @@ function WorkingTextBlocks({ blocks, isStreaming }: { blocks: string[]; isStream
     return null;
   }
   const notes = (
-    <div className="border-l border-text-subtle/18 pl-3">
+    <div>
       <div className="space-y-1.5">
         {visibleBlocks.map((block, index) => (
           <div
             key={`${index}-${block}`}
-            className="text-[13px] leading-6 text-text-muted/65 italic dark:text-text-subtle/68"
+            className="text-sm leading-relaxed text-text-muted/72 italic dark:text-text-subtle/72"
           >
             <MarkdownFragment content={block} />
           </div>
@@ -796,23 +823,31 @@ function WorkingTextBlocks({ blocks, isStreaming }: { blocks: string[]; isStream
     return <div className="mb-4">{notes}</div>;
   }
   return (
-    <div className="mb-4">
-      <div className="border-l border-text-subtle/18 pl-3">
+    <div className="mb-5">
+      <div>
         <button
           type="button"
           onClick={() => setExpanded((current) => !current)}
-          className="group inline-flex items-center gap-1.5 text-[13px] font-medium text-text-muted/70 transition-colors hover:text-text-muted"
+          className="group inline-flex items-center gap-1.5 text-sm leading-relaxed text-text-muted/72 transition-colors hover:text-text-muted"
           aria-expanded={expanded}
         >
+          <span>
+            {t("workingNotesDone")}
+            {durationSec !== null ? ` ${t("workingNotesDuration", { seconds: durationSec })}` : ""}
+          </span>
           {expanded ? (
             <ChevronUp className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
           ) : (
             <ChevronDown className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
           )}
-          <span>{t("workingNotesDone")}</span>
         </button>
       </div>
-      {expanded ? <div className="mt-2.5">{notes}</div> : null}
+      {expanded ? (
+        <div className="mt-3">
+          {notes}
+          <div className="mt-4 h-px bg-border/70" />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1643,7 +1678,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     <div
       className={cn(
         "group relative flex py-2 md:py-3",
-        isUser ? "items-center justify-end" : "justify-start"
+        isUser ? "items-center justify-end pb-4 md:pb-5" : "justify-start"
       )}
     >
       {!isUser && (
@@ -1776,7 +1811,12 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         ) : (
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
-            <WorkingTextBlocks blocks={assistantSegments.workingBlocks} isStreaming={isStreaming} />
+            <WorkingTextBlocks
+              blocks={assistantSegments.workingBlocks}
+              isStreaming={isStreaming}
+              startedAt={message.thoughtStartedAt}
+              finishedAt={message.thoughtFinishedAt}
+            />
             {isStreaming ? (
               <>
                 {hasVisibleAnswerText ? (

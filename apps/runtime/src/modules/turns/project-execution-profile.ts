@@ -44,9 +44,7 @@ export const PROJECT_EXECUTION_DEVELOPER_CONTRACT = [
   "4. replan — only when material gaps remain; gather missing sources or narrower file sections within the plan tool budgets.",
   "5. synthesize — deliver the final user-facing answer with sources cited, confidence stated, and residual gaps called out.",
   "Do not expose raw hidden chain-of-thought. Prefer orchestrated retrieval context when present, then tools for follow-up lookup. Respect per-turn tool caps and loop limits from the effective plan.",
-  "One local file or one retrieved excerpt is not proof of sufficiency. If the current context is procedural, partial, outdated, or off-target for the actual engineering/business question, continue with narrower follow-up lookup or external verification instead of synthesizing early.",
-  "When you continue, keep any visible working text short and concrete: say what you are checking or gathering now, not generic phrases about another pass.",
-  "Do not format progress as long paragraphs, numbered status ladders, or repeated bullet prefixes. Keep each working note brief and natural so the UI can separate it cleanly from the final answer."
+  "One local file or one retrieved excerpt is not proof of sufficiency. If the current context is procedural, partial, outdated, or off-target for the actual engineering/business question, continue with narrower follow-up lookup or external verification instead of synthesizing early."
 ].join("\n");
 
 export function buildProjectModePrecheckDecision(input: ProjectPrecheckInput): TurnRouteDecision {

@@ -6308,26 +6308,39 @@ function IntegrationCard({
       )}
     >
       <div className="flex w-full items-start justify-between gap-3 xl:flex-col xl:items-start xl:justify-start">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3 xl:w-full">
           <img src={logoSrc} alt="" className="h-10 w-10 rounded-xl object-contain" />
           <div className="min-w-0 xl:mt-4">
             <p className="truncate text-sm font-medium text-text">{name}</p>
-            <p
-              className={cn("mt-1 truncate text-xs", active ? "text-success" : "text-text-subtle")}
-            >
-              {comingSoon ? t("channelComingSoon") : statusLabel}
-            </p>
+            <div className="mt-1 flex items-center justify-between gap-3 xl:block">
+              <p
+                className={cn(
+                  "min-w-0 truncate text-xs",
+                  active ? "text-success" : "text-text-subtle"
+                )}
+              >
+                {comingSoon ? t("channelComingSoon") : statusLabel}
+              </p>
+              {interactive ? (
+                <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text xl:hidden">
+                  {t("openIntegration")}
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
-        <span
-          className={cn(
-            "mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full xl:mt-0",
-            active ? "bg-success" : "bg-text-subtle/55"
-          )}
-        />
+        <div className="flex shrink-0 flex-col items-end xl:w-full xl:flex-row xl:items-start xl:justify-between">
+          <span
+            className={cn(
+              "mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full xl:mt-0",
+              active ? "bg-success" : "bg-text-subtle/55"
+            )}
+          />
+        </div>
       </div>
       {interactive ? (
-        <span className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text xl:mt-auto xl:pt-4">
+        <span className="mt-3 hidden items-center gap-1 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text xl:mt-auto xl:inline-flex xl:pt-4">
           {t("openIntegration")}
           <ChevronRight className="h-3.5 w-3.5" />
         </span>

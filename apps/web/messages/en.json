@@ -577,6 +577,7 @@
     "lightboxPrevious": "Previous image",
     "lightboxNext": "Next image",
     "workingNotesDone": "Done",
+    "workingNotesDuration": "in {seconds}s",
     "defaultAssistant": "Your assistant",
     "greeting1": "Hey! What's on your mind?",
     "greeting2": "I'm here whenever you need me.",
