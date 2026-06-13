@@ -52,6 +52,13 @@ export function createAssistantInboundRateLimitError(
   return createApiError(HttpStatus.TOO_MANY_REQUESTS, "rate_limited", "conflict", message, details);
 }
 
+export function createAssistantInboundSafetyRestrictedError(
+  message: string,
+  details?: Record<string, unknown>
+): ApiErrorHttpException {
+  return createApiError(HttpStatus.FORBIDDEN, "safety_restricted", "forbidden", message, details);
+}
+
 export function createAssistantInboundInfraError(
   code: string,
   message: string,

@@ -3,6 +3,108 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-14 - ADR-115 Slice 2 contour-2 async moderation worker
+
+### Baseline
+
+- Continuing from slices 115.0 + 115.1 working tree on `main` (all ADR-115 work still uncommitted).
+
+### What changed
+
+- Landed ADR-115 Slice **115.2**: `ProcessSafetyModerationReviewService` + `SafetyModerationReviewSchedulerService`, OpenAI Moderation API client (`omni-moderation-latest` via `SAFETY_MODERATION_*` config with platform OpenAI key fallback), thread snapshot load (10–20 recent user/assistant messages), `moderation_cases` writes, auto `user_restrictions` on `block_user`, and `safety.moderation_case_decided` audit events.
+- Enqueue snapshot now stores `triggerText` for telegram/no-chat paths.
+- Added focused tests for moderation decision logic and process/idempotency path.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/enforce-inbound-safety-gate.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-user-restriction.repository.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/evaluate-inbound-safety-precheck.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/enqueue-safety-moderation-review.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/safety-moderation-decision.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/process-safety-moderation-review.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run test` (full monorepo)
+
+### Risks / residuals
+
+- Admin `safety_user_restricted` notification remains **115.5**; inbound sync-hold deny + user copy remain **115.3**; ops unblock UI remains **115.4**.
+- Worker uses platform `openai` secret from `platform_runtime_provider_secrets` (same as runtime); missing key marks jobs `failed` without creating restrictions.
+- `warn` decisions persist cases but do not restrict users.
+
+### Next recommended step
+
+- **115.3** — sync hold + unified inbound `safety_restricted` deny path for contour-1 defer/block routes.
+
+## 2026-06-14 - ADR-115 Slice 1 contour-1 heuristics + safety-policy API
+
+### Baseline
+
+- Continuing from slice 115.0 working tree on `main` (115.0 + 115.1 uncommitted together).
+
+### What changed
+
+- Landed ADR-115 Slice **115.1**: `safety_heuristic_rules`, `safety_policy_settings`, `safety_moderation_review_jobs`, seeded contour-1 packs, `EvaluateInboundSafetyPrecheckService`, async contour-2 enqueue hook, and `/api/v1/admin/safety-policy/*` admin API.
+- Wired contour-1 into inbound after abuse and before quota in web prepare + Telegram.
+- Added focused tests for precheck routing, moderation job enqueue, and updated prepare order stubs.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate`
+- `corepack pnpm --filter @persai/api exec tsx test/evaluate-inbound-safety-precheck.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/enqueue-safety-moderation-review.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / residuals
+
+- Contour-1 matches enqueue jobs but **115.2 worker** does not process them yet.
+- C1 does not deny inbound (except existing active `user_restrictions`); user copy + sync hold path remain **115.3**.
+- Runtime admin UI for policy editing remains **115.6**.
+
+### Next recommended step
+
+- **115.2** — `ProcessSafetyModerationReviewJob` + OpenAI Moderation API + `moderation_cases` writes + auto `user_restrictions`.
+
+## 2026-06-14 - ADR-115 Slice 0 inbound safety gate skeleton
+
+### Baseline
+
+- Starting SHA: `aa0d69fb` on `main`. Only untracked ADR-115 doc at session start (included in slice output, no separate ADR-only commit).
+
+### What changed
+
+- Landed ADR-115 Slice **115.0**: `user_restrictions` + `moderation_cases` schema/migration, `EnforceInboundSafetyGateService`, `safety_restricted` inbound error family, and canonical inbound order **`safety -> abuse -> quota`** in `PrepareAssistantInboundTurnService` and `HandleInternalTelegramTurnService`.
+- Added focused tests for the safety gate, user-restriction repository read path, and prepare inbound order/safety deny stubs.
+- Updated `API-BOUNDARY.md`, `DATA-MODEL.md`, `TEST-PLAN.md`, `CHANGELOG.md`, and ADR-115 execution ledger.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate`
+- `corepack pnpm --filter @persai/api exec tsx test/enforce-inbound-safety-gate.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-user-restriction.repository.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Migration deploy required before PROD gate is live; empty `user_restrictions` means no safety denies yet.
+- Abuse-before-quota reorder intentionally registers abuse attempts even when quota later denies.
+- Contour-1 heuristics, Moderation API, user copy, and admin ops UI remain **115.1+**.
+
+### Next recommended step
+
+- **115.1** — `safety_heuristic_rules` + `EvaluateInboundSafetyPrecheckService` + safety-policy API.
+
 ## 2026-06-13 - CI test fix + final UI polish follow-up
 
 ### Baseline

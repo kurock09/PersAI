@@ -5,6 +5,9 @@ import {
 } from "../domain/assistant-chat.repository";
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 import { EnforceAbuseRateLimitService } from "./enforce-abuse-rate-limit.service";
+import { EnforceInboundSafetyGateService } from "./enforce-inbound-safety-gate.service";
+import { EvaluateInboundSafetyPrecheckService } from "./evaluate-inbound-safety-precheck.service";
+import { EnqueueSafetyModerationReviewService } from "./enqueue-safety-moderation-review.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { Assistant } from "../domain/assistant.entity";
 import type {
@@ -68,6 +71,9 @@ export class PrepareAssistantInboundTurnService {
     private readonly assistantChatRepository: AssistantChatRepository,
     private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
     private readonly enforceAbuseRateLimitService: EnforceAbuseRateLimitService,
+    private readonly enforceInboundSafetyGateService: EnforceInboundSafetyGateService,
+    private readonly evaluateInboundSafetyPrecheckService: EvaluateInboundSafetyPrecheckService,
+    private readonly enqueueSafetyModerationReviewService: EnqueueSafetyModerationReviewService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
@@ -83,6 +89,8 @@ export class PrepareAssistantInboundTurnService {
     );
     const assistant = resolved.assistant;
 
+    await this.enforceInboundSafetyGateService.enforceActiveSafetyRestriction(assistant.userId);
+
     const existingChat = await this.assistantChatRepository.findChatBySurfaceThread(
       assistant.id,
       "web",
@@ -94,12 +102,6 @@ export class PrepareAssistantInboundTurnService {
         "web"
       );
 
-    const quotaDecision = await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn({
-      assistant,
-      surface: input.surface,
-      isNewThread: existingChat === null,
-      activeSurfaceChatsCount: activeChatsCount
-    });
     const abuseSurface = toAssistantInboundAbuseSurface(input.surface);
     if (abuseSurface !== null) {
       await this.enforceAbuseRateLimitService.enforceAndRegisterAttempt({
@@ -107,6 +109,23 @@ export class PrepareAssistantInboundTurnService {
         surface: abuseSurface
       });
     }
+
+    await this.runInboundSafetyPrecheck({
+      userId: assistant.userId,
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      surface: input.surface,
+      surfaceThreadKey: input.surfaceThreadKey,
+      message: input.message,
+      chatId: existingChat?.id ?? null
+    });
+
+    const quotaDecision = await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn({
+      assistant,
+      surface: input.surface,
+      isNewThread: existingChat === null,
+      activeSurfaceChatsCount: activeChatsCount
+    });
 
     const requestedMode: AssistantChatMode | undefined =
       input.chatMode ??
@@ -276,6 +295,38 @@ export class PrepareAssistantInboundTurnService {
       workspaceId: assistant.workspaceId,
       workspaceTimezone: workspace.timezone
     };
+  }
+
+  private async runInboundSafetyPrecheck(params: {
+    userId: string;
+    assistantId: string;
+    workspaceId: string;
+    surface: AssistantInboundSurface;
+    surfaceThreadKey: string;
+    message: string;
+    chatId: string | null;
+  }): Promise<void> {
+    const precheck = await this.evaluateInboundSafetyPrecheckService.evaluate({
+      userId: params.userId,
+      assistantId: params.assistantId,
+      workspaceId: params.workspaceId,
+      surface: params.surface,
+      message: params.message
+    });
+    const settings = this.evaluateInboundSafetyPrecheckService.getCachedSettings();
+    if (settings?.contour2Enabled === false) {
+      return;
+    }
+    await this.enqueueSafetyModerationReviewService.enqueueIfDeferred({
+      userId: params.userId,
+      assistantId: params.assistantId,
+      workspaceId: params.workspaceId,
+      chatId: params.chatId,
+      surface: params.surface,
+      surfaceThreadKey: params.surfaceThreadKey,
+      message: params.message,
+      precheck
+    });
   }
 
   private async reserveWebChatUnderCap(params: {

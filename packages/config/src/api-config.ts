@@ -88,7 +88,16 @@ const baseApiConfigSchema = z.object({
   ABUSE_TEMP_BLOCK_SECONDS: z.coerce.number().int().positive().default(300),
   ABUSE_ADMIN_OVERRIDE_MINUTES_DEFAULT: z.coerce.number().int().positive().default(30),
   /** Comma-separated emails (case-insensitive). When non-empty, only these accounts may use admin APIs (after role checks). */
-  PERSAI_ADMIN_ALLOWLIST_EMAILS: z.string().optional()
+  PERSAI_ADMIN_ALLOWLIST_EMAILS: z.string().optional(),
+  /** ADR-115 contour-2 async moderation worker controls. */
+  SAFETY_MODERATION_ENABLED: envBoolean.default(true),
+  SAFETY_MODERATION_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5_000),
+  SAFETY_MODERATION_BATCH_SIZE: z.coerce.number().int().positive().default(4),
+  SAFETY_MODERATION_THREAD_MESSAGE_LIMIT: z.coerce.number().int().min(10).max(20).default(15),
+  SAFETY_MODERATION_BLOCK_SCORE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
+  SAFETY_MODERATION_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  SAFETY_MODERATION_STUCK_PROCESSING_MS: z.coerce.number().int().positive().default(600_000),
+  SAFETY_MODERATION_OPENAI_API_KEY: optionalNonEmptyString
 });
 
 const localApiConfigSchema = baseApiConfigSchema.extend({

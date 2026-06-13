@@ -2,6 +2,39 @@ import assert from "node:assert/strict";
 import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { PrepareAssistantInboundTurnService } from "../src/modules/workspace-management/application/prepare-assistant-inbound-turn.service";
 
+function createNoopSafetyGate() {
+  return {
+    async enforceActiveSafetyRestriction() {
+      return;
+    }
+  } as never;
+}
+
+function createNoopSafetyPrecheck() {
+  return {
+    async evaluate() {
+      return {
+        route: "allow" as const,
+        confidence: "none" as const,
+        reasonCode: "none",
+        rulePack: null,
+        matchedSignals: []
+      };
+    },
+    getCachedSettings() {
+      return { contour2Enabled: true };
+    }
+  } as never;
+}
+
+function createNoopSafetyEnqueue() {
+  return {
+    async enqueueIfDeferred() {
+      return;
+    }
+  } as never;
+}
+
 async function run(): Promise<void> {
   process.env.APP_ENV = "local";
   process.env.DATABASE_URL =
@@ -97,6 +130,9 @@ async function run(): Promise<void> {
         return;
       }
     } as never,
+    createNoopSafetyGate(),
+    createNoopSafetyPrecheck(),
+    createNoopSafetyEnqueue(),
     {
       async resolveActiveWebChatsLimit() {
         return 20;
@@ -238,6 +274,9 @@ async function run(): Promise<void> {
             return;
           }
         } as never,
+        createNoopSafetyGate(),
+        createNoopSafetyPrecheck(),
+        createNoopSafetyEnqueue(),
         {
           async resolveActiveWebChatsLimit() {
             return 20;
@@ -314,6 +353,9 @@ async function run(): Promise<void> {
             return;
           }
         } as never,
+        createNoopSafetyGate(),
+        createNoopSafetyPrecheck(),
+        createNoopSafetyEnqueue(),
         {
           async resolveMessagesPerChatLimit() {
             return 12;
@@ -374,6 +416,9 @@ async function run(): Promise<void> {
         {} as never,
         {} as never,
         {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
         {
           async resolveByUserId() {
             throw new ApiErrorHttpException(409, {
@@ -396,6 +441,140 @@ async function run(): Promise<void> {
       error instanceof ApiErrorHttpException &&
       error.errorObject.code === "assistant_activating" &&
       error.errorObject.message === "Assistant settings are still activating."
+  );
+
+  const inboundOrder: string[] = [];
+  await assert.rejects(
+    () =>
+      new PrepareAssistantInboundTurnService(
+        {
+          async findChatBySurfaceThread() {
+            return null;
+          },
+          async countActiveChatsByAssistantIdAndSurface() {
+            return 0;
+          },
+          async getOrCreateWebChatBySurfaceThreadUnderCap() {
+            throw new Error("should not reach chat reservation");
+          }
+        } as never,
+        {
+          async enforceInboundTurn() {
+            inboundOrder.push("quota");
+            throw new ApiErrorHttpException(409, {
+              code: "quota_blocked",
+              category: "conflict",
+              message: "quota blocked"
+            });
+          }
+        } as never,
+        {
+          async enforceAndRegisterAttempt() {
+            inboundOrder.push("abuse");
+          }
+        } as never,
+        {
+          async enforceActiveSafetyRestriction() {
+            inboundOrder.push("safety");
+          }
+        } as never,
+        {
+          async evaluate() {
+            inboundOrder.push("precheck");
+            return {
+              route: "allow" as const,
+              confidence: "none" as const,
+              reasonCode: "none",
+              rulePack: null,
+              matchedSignals: []
+            };
+          },
+          getCachedSettings() {
+            return { contour2Enabled: false };
+          }
+        } as never,
+        {
+          async enqueueIfDeferred() {
+            inboundOrder.push("enqueue");
+          }
+        } as never,
+        {} as never,
+        {} as never,
+        {
+          async resolveByUserId() {
+            return {
+              assistant,
+              publishedVersionId: "version-1",
+              runtimeTier: "free_shared_restricted",
+              quotaDegradeModelOverride: null
+            };
+          }
+        } as never,
+        {} as never,
+        {} as never,
+        {} as never
+      ).execute({
+        userId: "user-1",
+        surface: "web_chat",
+        surfaceThreadKey: "thread-order",
+        message: "order check"
+      }),
+    (error: unknown) =>
+      error instanceof ApiErrorHttpException && error.errorObject.code === "quota_blocked"
+  );
+  assert.deepEqual(inboundOrder, ["safety", "abuse", "precheck", "quota"]);
+
+  await assert.rejects(
+    () =>
+      new PrepareAssistantInboundTurnService(
+        {} as never,
+        {
+          async enforceInboundTurn() {
+            throw new Error("quota should not run when safety blocks");
+          }
+        } as never,
+        {
+          async enforceAndRegisterAttempt() {
+            throw new Error("abuse should not run when safety blocks");
+          }
+        } as never,
+        {
+          async enforceActiveSafetyRestriction() {
+            throw new ApiErrorHttpException(403, {
+              code: "safety_restricted",
+              category: "forbidden",
+              message: "Inbound access is restricted due to platform safety policy.",
+              details: { reasonCode: "violence_extremism" }
+            });
+          }
+        } as never,
+        createNoopSafetyPrecheck(),
+        createNoopSafetyEnqueue(),
+        {} as never,
+        {} as never,
+        {
+          async resolveByUserId() {
+            return {
+              assistant,
+              publishedVersionId: "version-1",
+              runtimeTier: "free_shared_restricted",
+              quotaDegradeModelOverride: null
+            };
+          }
+        } as never,
+        {} as never,
+        {} as never,
+        {} as never
+      ).execute({
+        userId: "user-1",
+        surface: "web_chat",
+        surfaceThreadKey: "thread-safety",
+        message: "blocked by safety"
+      }),
+    (error: unknown) =>
+      error instanceof ApiErrorHttpException &&
+      error.errorObject.code === "safety_restricted" &&
+      error.errorObject.details?.reasonCode === "violence_extremism"
   );
 }
 

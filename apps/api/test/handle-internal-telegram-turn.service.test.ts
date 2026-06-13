@@ -224,6 +224,24 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async enforceActiveSafetyRestriction() {
+        return;
+      }
+    } as never,
+    {
+      async evaluate() {
+        return;
+      },
+      getCachedSettings() {
+        return { contour2Enabled: true };
+      }
+    } as never,
+    {
+      async enqueueIfDeferred() {
+        return;
+      }
+    } as never,
+    {
       async resolveByAssistantId() {
         return createResolvedAssistant();
       }
@@ -318,6 +336,24 @@ async function run(): Promise<void> {
     {
       async enforceAndRegisterAttempt() {
         return undefined;
+      }
+    } as never,
+    {
+      async enforceActiveSafetyRestriction() {
+        return;
+      }
+    } as never,
+    {
+      async evaluate() {
+        return;
+      },
+      getCachedSettings() {
+        return { contour2Enabled: true };
+      }
+    } as never,
+    {
+      async enqueueIfDeferred() {
+        return;
       }
     } as never,
     {
@@ -425,6 +461,24 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async enforceActiveSafetyRestriction() {
+        return;
+      }
+    } as never,
+    {
+      async evaluate() {
+        return;
+      },
+      getCachedSettings() {
+        return { contour2Enabled: true };
+      }
+    } as never,
+    {
+      async enqueueIfDeferred() {
+        return;
+      }
+    } as never,
+    {
       async resolveByAssistantId() {
         return createResolvedAssistant();
       }
@@ -496,6 +550,24 @@ async function run(): Promise<void> {
     {
       async enforceAndRegisterAttempt() {
         return undefined;
+      }
+    } as never,
+    {
+      async enforceActiveSafetyRestriction() {
+        return;
+      }
+    } as never,
+    {
+      async evaluate() {
+        return;
+      },
+      getCachedSettings() {
+        return { contour2Enabled: true };
+      }
+    } as never,
+    {
+      async enqueueIfDeferred() {
+        return;
       }
     } as never,
     {
@@ -605,6 +677,24 @@ async function run(): Promise<void> {
     {
       async enforceAndRegisterAttempt() {
         return undefined;
+      }
+    } as never,
+    {
+      async enforceActiveSafetyRestriction() {
+        return;
+      }
+    } as never,
+    {
+      async evaluate() {
+        return;
+      },
+      getCachedSettings() {
+        return { contour2Enabled: true };
+      }
+    } as never,
+    {
+      async enqueueIfDeferred() {
+        return;
       }
     } as never,
     {
@@ -746,6 +836,24 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async enforceActiveSafetyRestriction() {
+        return;
+      }
+    } as never,
+    {
+      async evaluate() {
+        return;
+      },
+      getCachedSettings() {
+        return { contour2Enabled: true };
+      }
+    } as never,
+    {
+      async enqueueIfDeferred() {
+        return;
+      }
+    } as never,
+    {
       async resolveByAssistantId() {
         return createResolvedAssistant();
       }
@@ -828,6 +936,24 @@ async function run(): Promise<void> {
     {
       async enforceAndRegisterAttempt() {
         return undefined;
+      }
+    } as never,
+    {
+      async enforceActiveSafetyRestriction() {
+        return;
+      }
+    } as never,
+    {
+      async evaluate() {
+        return;
+      },
+      getCachedSettings() {
+        return { contour2Enabled: true };
+      }
+    } as never,
+    {
+      async enqueueIfDeferred() {
+        return;
       }
     } as never,
     {
@@ -952,6 +1078,24 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async enforceActiveSafetyRestriction() {
+        return;
+      }
+    } as never,
+    {
+      async evaluate() {
+        return;
+      },
+      getCachedSettings() {
+        return { contour2Enabled: true };
+      }
+    } as never,
+    {
+      async enqueueIfDeferred() {
+        return;
+      }
+    } as never,
+    {
       async resolveByAssistantId() {
         return createResolvedAssistant();
       }
@@ -1060,6 +1204,24 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async enforceActiveSafetyRestriction() {
+        return;
+      }
+    } as never,
+    {
+      async evaluate() {
+        return;
+      },
+      getCachedSettings() {
+        return { contour2Enabled: true };
+      }
+    } as never,
+    {
+      async enqueueIfDeferred() {
+        return;
+      }
+    } as never,
+    {
       async resolveByAssistantId() {
         return createResolvedAssistant();
       }
@@ -1138,6 +1300,24 @@ async function run(): Promise<void> {
     {
       async enforceAndRegisterAttempt() {
         return undefined;
+      }
+    } as never,
+    {
+      async enforceActiveSafetyRestriction() {
+        return;
+      }
+    } as never,
+    {
+      async evaluate() {
+        return;
+      },
+      getCachedSettings() {
+        return { contour2Enabled: true };
+      }
+    } as never,
+    {
+      async enqueueIfDeferred() {
+        return;
       }
     } as never,
     {

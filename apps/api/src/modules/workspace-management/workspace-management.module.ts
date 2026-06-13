@@ -12,6 +12,7 @@ import { PublicGeoHintController } from "./interface/http/public-geo-hint.contro
 import { AdminBillingLifecycleSettingsController } from "./interface/http/admin-billing-lifecycle-settings.controller";
 import { AdminSecurityController } from "./interface/http/admin-security.controller";
 import { AdminAbuseControlsController } from "./interface/http/admin-abuse-controls.controller";
+import { AdminSafetyPolicyController } from "./interface/http/admin-safety-policy.controller";
 import { AdminAssistantOwnershipController } from "./interface/http/admin-assistant-ownership.controller";
 import { AdminOpsController } from "./interface/http/admin-ops.controller";
 import { AdminBusinessController } from "./interface/http/admin-business.controller";
@@ -144,6 +145,14 @@ import {
 import { PlatformRuntimeProviderSecretStoreService } from "./application/platform-runtime-provider-secret-store.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./application/resolve-platform-runtime-provider-settings.service";
 import { EnforceAbuseRateLimitService } from "./application/enforce-abuse-rate-limit.service";
+import { EnforceInboundSafetyGateService } from "./application/enforce-inbound-safety-gate.service";
+import { EvaluateInboundSafetyPrecheckService } from "./application/evaluate-inbound-safety-precheck.service";
+import { EnqueueSafetyModerationReviewService } from "./application/enqueue-safety-moderation-review.service";
+import { OpenAiModerationClientService } from "./application/openai-moderation-client.service";
+import { ProcessSafetyModerationReviewService } from "./application/process-safety-moderation-review.service";
+import { SafetyModerationReviewSchedulerService } from "./application/safety-moderation-review-scheduler.service";
+import { ManageAdminSafetyPolicyService } from "./application/manage-admin-safety-policy.service";
+import { SeedSafetyHeuristicRulesService } from "./application/seed-safety-heuristic-rules.service";
 import { ManageAdminAbuseControlsService } from "./application/manage-admin-abuse-controls.service";
 import { ManageAdminAssistantOwnershipService } from "./application/manage-admin-assistant-ownership.service";
 import { ManageAdminAssistantPlanOverrideService } from "./application/manage-admin-assistant-plan-override.service";
@@ -294,6 +303,11 @@ import { UpdateAssistantDraftService } from "./application/update-assistant-draf
 import { ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY } from "./domain/assistant-chat-message-attachment.repository";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
 import { ASSISTANT_ABUSE_GUARD_REPOSITORY } from "./domain/assistant-abuse-guard.repository";
+import { USER_RESTRICTION_REPOSITORY } from "./domain/user-restriction.repository";
+import {
+  SAFETY_HEURISTIC_RULE_REPOSITORY,
+  SAFETY_POLICY_SETTINGS_REPOSITORY
+} from "./domain/safety-policy.repository";
 import { ASSISTANT_PLAN_CATALOG_REPOSITORY } from "./domain/assistant-plan-catalog.repository";
 import { TOOL_CATALOG_REPOSITORY } from "./domain/tool-catalog.repository";
 import { WORKSPACE_SUBSCRIPTION_REPOSITORY } from "./domain/workspace-subscription.repository";
@@ -323,6 +337,11 @@ import { BILLING_PROVIDER_PORT } from "./application/billing-provider.port";
 import { PrismaAssistantChatMessageAttachmentRepository } from "./infrastructure/persistence/prisma-assistant-chat-message-attachment.repository";
 import { PrismaAssistantChatRepository } from "./infrastructure/persistence/prisma-assistant-chat.repository";
 import { PrismaAssistantAbuseGuardRepository } from "./infrastructure/persistence/prisma-assistant-abuse-guard.repository";
+import { PrismaUserRestrictionRepository } from "./infrastructure/persistence/prisma-user-restriction.repository";
+import {
+  PrismaSafetyHeuristicRuleRepository,
+  PrismaSafetyPolicySettingsRepository
+} from "./infrastructure/persistence/prisma-safety-policy.repository";
 import { PrismaAssistantMemoryRegistryRepository } from "./infrastructure/persistence/prisma-assistant-memory-registry.repository";
 import { PrismaAssistantTaskRegistryRepository } from "./infrastructure/persistence/prisma-assistant-task-registry.repository";
 import { PROMPT_TEMPLATE_REPOSITORY } from "./domain/bootstrap-document-preset.repository";
@@ -383,6 +402,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AdminBillingLifecycleSettingsController,
     AdminSecurityController,
     AdminAbuseControlsController,
+    AdminSafetyPolicyController,
     AdminAssistantOwnershipController,
     AdminOpsController,
     AdminSupportController,
@@ -525,6 +545,14 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     PlatformRuntimeProviderSecretStoreService,
     ResolvePlatformRuntimeProviderSettingsService,
     EnforceAbuseRateLimitService,
+    EnforceInboundSafetyGateService,
+    EvaluateInboundSafetyPrecheckService,
+    EnqueueSafetyModerationReviewService,
+    OpenAiModerationClientService,
+    ProcessSafetyModerationReviewService,
+    SafetyModerationReviewSchedulerService,
+    ManageAdminSafetyPolicyService,
+    SeedSafetyHeuristicRulesService,
     ManageAdminAbuseControlsService,
     ManageAdminAssistantOwnershipService,
     ManageAdminAssistantPlanOverrideService,
@@ -733,6 +761,18 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     {
       provide: ASSISTANT_ABUSE_GUARD_REPOSITORY,
       useClass: PrismaAssistantAbuseGuardRepository
+    },
+    {
+      provide: USER_RESTRICTION_REPOSITORY,
+      useClass: PrismaUserRestrictionRepository
+    },
+    {
+      provide: SAFETY_HEURISTIC_RULE_REPOSITORY,
+      useClass: PrismaSafetyHeuristicRuleRepository
+    },
+    {
+      provide: SAFETY_POLICY_SETTINGS_REPOSITORY,
+      useClass: PrismaSafetyPolicySettingsRepository
     },
     {
       provide: ASSISTANT_MEMORY_REGISTRY_REPOSITORY,

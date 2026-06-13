@@ -551,6 +551,69 @@ enum AbuseSurface {
   @@map("abuse_surface")
 }
 
+enum UserRestrictionKind {
+  safety
+  spam_global
+
+  @@map("user_restriction_kind")
+}
+
+enum UserRestrictionStatus {
+  active
+  cleared
+
+  @@map("user_restriction_status")
+}
+
+enum UserRestrictionSource {
+  moderation_auto
+  admin
+
+  @@map("user_restriction_source")
+}
+
+enum ModerationCaseDecision {
+  pending
+  allow
+  warn
+  block_user
+
+  @@map("moderation_case_decision")
+}
+
+enum SafetyHeuristicPack {
+  violence_extremism_explicit
+  hack_abuse_request
+  unsolicited_adult_spam
+  structural_abuse_signal
+
+  @@map("safety_heuristic_pack")
+}
+
+enum SafetyHeuristicLocale {
+  any
+  ru
+  en
+
+  @@map("safety_heuristic_locale")
+}
+
+enum SafetyHeuristicPatternType {
+  literal
+  regex
+
+  @@map("safety_heuristic_pattern_type")
+}
+
+enum SafetyModerationReviewJobStatus {
+  pending
+  processing
+  completed
+  failed
+
+  @@map("safety_moderation_review_job_status")
+}
+
 enum RuntimeTier {
   free_shared_restricted
   paid_shared_restricted
@@ -600,6 +663,10 @@ model AppUser {
   createdPlatformRollouts                AssistantPlatformRollout[]
   platformRolloutItems                   AssistantPlatformRolloutItem[]
   abuseGuardStates                       AssistantAbuseGuardState[]
+  userRestrictions                       UserRestriction[]
+  clearedUserRestrictions                UserRestriction[]                     @relation("UserRestrictionClearedBy")
+  moderationCases                        ModerationCase[]
+  safetyModerationReviewJobs             SafetyModerationReviewJob[]
   createdGlobalKnowledgeSources          GlobalKnowledgeSource[]
   createdProductKnowledgeTextEntries     ProductKnowledgeTextEntry[]           @relation("ProductKnowledgeTextEntryCreatedByUser")
   updatedProductKnowledgeTextEntries     ProductKnowledgeTextEntry[]           @relation("ProductKnowledgeTextEntryUpdatedByUser")
@@ -701,6 +768,7 @@ model Workspace {
   workspaceVcoinLedgerEvents        WorkspaceVcoinLedgerEvent[]
   workspaceVideoPersonas            WorkspaceVideoPersona[]
   workspaceVideoClonedVoices        WorkspaceVideoClonedVoice[]
+  safetyModerationReviewJobs        SafetyModerationReviewJob[]
 
   @@map("workspaces")
 }
@@ -788,6 +856,9 @@ model Assistant {
   abuseGuardStates                     AssistantAbuseGuardState[]
   abuseAssistantStates                 AssistantAbuseAssistantState[]
   abusePeerStates                      AssistantAbusePeerState[]
+  sourceUserRestrictions               UserRestriction[]                     @relation("UserRestrictionSourceAssistant")
+  moderationCases                      ModerationCase[]
+  safetyModerationReviewJobs           SafetyModerationReviewJob[]
   telegramGroups                       AssistantTelegramGroup[]
   chatMessageAttachments               AssistantChatMessageAttachment[]
   knowledgeRetrievalEvents             KnowledgeRetrievalEvent[]
@@ -1222,6 +1293,105 @@ model AssistantAbusePeerState {
   @@unique([assistantId, surface, peerKey])
   @@index([assistantId, surface, lastSeenAt])
   @@map("assistant_abuse_peer_states")
+}
+
+model UserRestriction {
+  id                     String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                 String                @map("user_id") @db.Uuid
+  kind                   UserRestrictionKind
+  status                 UserRestrictionStatus @default(active)
+  blockedUntil           DateTime?             @map("blocked_until") @db.Timestamptz(6)
+  reasonCode             String                @map("reason_code") @db.VarChar(128)
+  source                 UserRestrictionSource
+  sourceAssistantId      String?               @map("source_assistant_id") @db.Uuid
+  sourceModerationCaseId String?               @map("source_moderation_case_id") @db.Uuid
+  clearedAt              DateTime?             @map("cleared_at") @db.Timestamptz(6)
+  clearedByUserId        String?               @map("cleared_by_user_id") @db.Uuid
+  createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user                   AppUser               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sourceAssistant        Assistant?            @relation("UserRestrictionSourceAssistant", fields: [sourceAssistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  sourceModerationCase   ModerationCase?       @relation(fields: [sourceModerationCaseId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  clearedByUser          AppUser?              @relation("UserRestrictionClearedBy", fields: [clearedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([userId, kind])
+  @@index([status, kind, blockedUntil])
+  @@map("user_restrictions")
+}
+
+model ModerationCase {
+  id               String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String                 @map("user_id") @db.Uuid
+  assistantId      String?                @map("assistant_id") @db.Uuid
+  chatId           String?                @map("chat_id") @db.Uuid
+  surface          String?                @db.VarChar(64)
+  triggerSnapshot  Json                   @default("{}") @map("trigger_snapshot") @db.JsonB
+  threadSnapshot   Json?                  @map("thread_snapshot") @db.JsonB
+  scores           Json?                  @db.JsonB
+  decision         ModerationCaseDecision @default(pending)
+  reasonCode       String?                @map("reason_code") @db.VarChar(128)
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user             AppUser                @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant        Assistant?             @relation(fields: [assistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  chat             AssistantChat?         @relation(fields: [chatId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  userRestrictions UserRestriction[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("moderation_cases")
+}
+
+model SafetyHeuristicRule {
+  id          String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  signalId    String                     @unique @map("signal_id") @db.VarChar(128)
+  pack        SafetyHeuristicPack
+  locale      SafetyHeuristicLocale      @default(any)
+  patternType SafetyHeuristicPatternType @default(literal) @map("pattern_type")
+  pattern     String                     @db.Text
+  weight      Int                        @default(3)
+  enabled     Boolean                    @default(true)
+  createdAt   DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([pack, enabled])
+  @@index([locale, enabled])
+  @@map("safety_heuristic_rules")
+}
+
+model SafetyPolicySettings {
+  id                       String   @id @db.VarChar(64)
+  syncHoldTimeoutMs        Int      @default(500) @map("sync_hold_timeout_ms")
+  instantBlockPackAllowlist  Json     @default("[]") @map("instant_block_pack_allowlist") @db.JsonB
+  moderationModelId          String   @default("omni-moderation-latest") @map("moderation_model_id") @db.VarChar(128)
+  contour2Enabled            Boolean  @default(true) @map("contour2_enabled")
+  createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("safety_policy_settings")
+}
+
+model SafetyModerationReviewJob {
+  id              String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  triggerKey      String                          @unique @map("trigger_key") @db.VarChar(255)
+  userId          String                          @map("user_id") @db.Uuid
+  assistantId     String                          @map("assistant_id") @db.Uuid
+  workspaceId     String                          @map("workspace_id") @db.Uuid
+  chatId          String?                         @map("chat_id") @db.Uuid
+  surface         String                          @db.VarChar(64)
+  surfaceThreadKey String?                        @map("surface_thread_key") @db.VarChar(255)
+  messageSnapshot Json                            @default("{}") @map("message_snapshot") @db.JsonB
+  precheckOutcome Json                            @default("{}") @map("precheck_outcome") @db.JsonB
+  status          SafetyModerationReviewJobStatus @default(pending)
+  createdAt       DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user            AppUser                         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant       Assistant                       @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace       Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chat            AssistantChat?                  @relation(fields: [chatId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([status, createdAt(sort: Asc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("safety_moderation_review_jobs")
 }
 
 model PlanCatalogPlan {
@@ -1918,6 +2088,8 @@ model AssistantChat {
   telegramAlbumCollectors     AssistantTelegramAlbumCollector[]
   documents                   AssistantDocument[]
   documentRenderJobs          AssistantDocumentRenderJob[]
+  moderationCases             ModerationCase[]
+  safetyModerationReviewJobs  SafetyModerationReviewJob[]
 
   @@unique([assistantId, surface, surfaceThreadKey])
   @@unique([id, assistantId])

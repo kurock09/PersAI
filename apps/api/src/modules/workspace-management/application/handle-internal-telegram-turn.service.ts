@@ -13,6 +13,9 @@ import {
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import { EnforceAbuseRateLimitService } from "./enforce-abuse-rate-limit.service";
+import { EnforceInboundSafetyGateService } from "./enforce-inbound-safety-gate.service";
+import { EvaluateInboundSafetyPrecheckService } from "./evaluate-inbound-safety-precheck.service";
+import { EnqueueSafetyModerationReviewService } from "./enqueue-safety-moderation-review.service";
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
@@ -88,6 +91,9 @@ export class HandleInternalTelegramTurnService {
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
     private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
     private readonly enforceAbuseRateLimitService: EnforceAbuseRateLimitService,
+    private readonly enforceInboundSafetyGateService: EnforceInboundSafetyGateService,
+    private readonly evaluateInboundSafetyPrecheckService: EvaluateInboundSafetyPrecheckService,
+    private readonly enqueueSafetyModerationReviewService: EnqueueSafetyModerationReviewService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly prisma: WorkspaceManagementPrismaService,
@@ -177,6 +183,25 @@ export class HandleInternalTelegramTurnService {
     input.onProcessingStarted?.();
 
     try {
+      await this.enforceInboundSafetyGateService.enforceActiveSafetyRestriction(
+        resolved.assistant.userId
+      );
+      trace.stage("safety_checked");
+      await this.enforceAbuseRateLimitService.enforceAndRegisterAttempt({
+        assistant: resolved.assistant,
+        surface: "telegram",
+        peerKey: input.threadId
+      });
+      trace.stage("abuse_checked");
+      await this.runInboundSafetyPrecheck({
+        userId: resolved.assistant.userId,
+        assistantId: resolved.assistantId,
+        workspaceId: resolved.workspaceId,
+        surface: "telegram",
+        surfaceThreadKey: input.threadId,
+        message: input.message
+      });
+      trace.stage("safety_precheck_checked");
       const quotaDecision = await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn(
         {
           assistant: resolved.assistant,
@@ -186,12 +211,6 @@ export class HandleInternalTelegramTurnService {
         }
       );
       trace.stage("quota_checked");
-      await this.enforceAbuseRateLimitService.enforceAndRegisterAttempt({
-        assistant: resolved.assistant,
-        surface: "telegram",
-        peerKey: input.threadId
-      });
-      trace.stage("abuse_checked");
 
       const workspace = await this.prisma.workspace.findUnique({
         where: { id: resolved.workspaceId },
@@ -534,6 +553,37 @@ export class HandleInternalTelegramTurnService {
         }
       })
     );
+  }
+
+  private async runInboundSafetyPrecheck(params: {
+    userId: string;
+    assistantId: string;
+    workspaceId: string;
+    surface: "telegram";
+    surfaceThreadKey: string;
+    message: string;
+  }): Promise<void> {
+    const precheck = await this.evaluateInboundSafetyPrecheckService.evaluate({
+      userId: params.userId,
+      assistantId: params.assistantId,
+      workspaceId: params.workspaceId,
+      surface: params.surface,
+      message: params.message
+    });
+    const settings = this.evaluateInboundSafetyPrecheckService.getCachedSettings();
+    if (settings?.contour2Enabled === false) {
+      return;
+    }
+    await this.enqueueSafetyModerationReviewService.enqueueIfDeferred({
+      userId: params.userId,
+      assistantId: params.assistantId,
+      workspaceId: params.workspaceId,
+      chatId: null,
+      surface: params.surface,
+      surfaceThreadKey: params.surfaceThreadKey,
+      message: params.message,
+      precheck
+    });
   }
 
   private async claimTelegramUpdateIfNeeded(

@@ -538,6 +538,30 @@ For production slices that touch API contracts, runtime behavior, or shared cont
 corepack pnpm run test
 ```
 
+## ADR-115 inbound safety program focused checks
+
+When a change touches inbound safety restrictions, the safety gate, or canonical inbound layer order, run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/enforce-inbound-safety-gate.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/prisma-user-restriction.repository.test.ts
+corepack pnpm --filter @persai/api exec tsx test/evaluate-inbound-safety-precheck.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/enqueue-safety-moderation-review.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/safety-moderation-decision.test.ts
+corepack pnpm --filter @persai/api exec tsx test/process-safety-moderation-review.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/assistant-inbound-error.test.ts
+corepack pnpm --filter @persai/api run typecheck
+```
+
+Interpretation rules:
+
+1. Active `user_restrictions` with `kind=safety` must deny inbound before abuse, quota, and runtime with `safety_restricted` (not `rate_limited`).
+2. Canonical inbound order is `safety -> abuse -> contour-1 precheck -> quota`; abuse attempt registration must still run before a quota deny.
+3. Contour-1 `low`/`medium`/`high` matches must not create `user_restrictions` in slice 115.1; defer/block routes enqueue `safety_moderation_review_jobs` only.
+4. Slice 115.2 worker must persist `moderation_cases`, upsert active `user_restrictions` only on `block_user`, and treat OpenAI Moderation `flagged`/score threshold as the block decision (not C1 alone).
+5. Empty `user_restrictions` must not change safety-deny behavior; abuse-before-quota reorder remains intentional from slice 115.0.
+
 ## ADR-088 unified notification platform focused checks
 
 When a change touches notification intent modeling, channel routing, delivery backbones, admin notification governance, billing/email notification migration, or active-thread conversational notification unification, add checks that cover both the newly touched domain and the shared delivery backbone before broad verification:
