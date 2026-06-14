@@ -72,6 +72,21 @@ function isMediaPackageBillingReturn(planCode: string | undefined): boolean {
   return planCode === "__media_package__";
 }
 
+function resolveSafetyRestrictedBodyKey(reasonCode: string | undefined): string {
+  switch (reasonCode) {
+    case "hack_abuse":
+      return "safetyRestrictedBodyHackAbuse";
+    case "violence_extremism":
+      return "safetyRestrictedBodyViolence";
+    case "unsolicited_adult_spam":
+      return "safetyRestrictedBodyAdultSpam";
+    case "structural_abuse_signal":
+      return "safetyRestrictedBodyStructural";
+    default:
+      return "safetyRestrictedBodyDefault";
+  }
+}
+
 export function ChatArea({
   chat,
   title,
@@ -93,7 +108,7 @@ export function ChatArea({
 }: ChatAreaProps) {
   const { getToken } = useAuth();
   const t = useTranslations("chat");
-  const { openSidebar } = useShellActions();
+  const { openSidebar, openSettings } = useShellActions();
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -310,6 +325,11 @@ export function ChatArea({
     chat.issue?.classId === "voice_transcription_empty";
   const showChatLimitBanner =
     chat.issue?.classId === "active_chat_cap" || chat.issue?.classId === "chat_message_limit";
+  const showSafetyRestrictedBanner = chat.issue?.classId === "safety_restricted";
+  const safetyRestrictedReasonCode =
+    showSafetyRestrictedBanner && typeof chat.issue?.data?.reasonCode === "string"
+      ? chat.issue.data.reasonCode
+      : undefined;
   const issueContainerClass = issueIsWarning
     ? "border-amber-200 bg-amber-50"
     : "border-destructive/20 bg-destructive/5";
@@ -634,7 +654,7 @@ export function ChatArea({
       )}
 
       {/* Issue banner */}
-      {chat.issue && !showChatLimitBanner && (
+      {chat.issue && !showChatLimitBanner && !showSafetyRestrictedBanner && (
         <div
           className={`mx-4 mb-2 flex items-start gap-3 rounded-lg border px-4 py-3 ${issueContainerClass}`}
         >
@@ -855,6 +875,44 @@ export function ChatArea({
                   >
                     {t("chatLimitOpenPricing")}
                   </Link>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={chat.clearIssue}
+                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {showSafetyRestrictedBanner ? (
+        <div className="px-3 md:px-4">
+          <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-destructive/25 bg-destructive/10 text-destructive">
+                <AlertCircle className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-destructive">
+                  {t("safetyRestrictedTitle")}
+                </p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
+                  {t(resolveSafetyRestrictedBodyKey(safetyRestrictedReasonCode))}
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
+                  {t("safetyRestrictedDetail")}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openSettings("support")}
+                    className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                  >
+                    {t("safetyRestrictedOpenSupport")}
+                  </button>
                 </div>
               </div>
               <button

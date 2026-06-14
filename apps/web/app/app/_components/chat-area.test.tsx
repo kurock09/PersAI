@@ -8,6 +8,7 @@ import * as projectFilesEvents from "./project-files-events";
 const chatMessageBubbleMock = vi.hoisted(() => vi.fn());
 const getTokenMock = vi.hoisted(() => vi.fn(async (): Promise<string | null> => null));
 const openSidebarMock = vi.hoisted(() => vi.fn());
+const openSettingsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -21,7 +22,8 @@ vi.mock("next-intl", () => ({
 
 vi.mock("./app-shell", () => ({
   useShellActions: () => ({
-    openSidebar: openSidebarMock
+    openSidebar: openSidebarMock,
+    openSettings: openSettingsMock
   })
 }));
 
@@ -346,6 +348,29 @@ describe("ChatArea", () => {
 
     expect(screen.getByText("issueProviderFailure")).toBeInTheDocument();
     expect(screen.getByText("issueProviderFailureGuidance")).toBeInTheDocument();
+  });
+
+  it("shows localized safety restriction banner with support action", () => {
+    openSettingsMock.mockReset();
+    render(
+      <ChatArea
+        chat={createChat("Hello", {
+          isStreaming: false,
+          issue: {
+            classId: "safety_restricted",
+            message: "",
+            guidance: "",
+            data: { reasonCode: "hack_abuse" }
+          }
+        })}
+      />
+    );
+
+    expect(screen.getByText("safetyRestrictedTitle")).toBeInTheDocument();
+    expect(screen.getByText("safetyRestrictedBodyHackAbuse")).toBeInTheDocument();
+    expect(screen.getByText("safetyRestrictedDetail")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "safetyRestrictedOpenSupport" }));
+    expect(openSettingsMock).toHaveBeenCalledWith("support");
   });
 
   it("renders server-provided storage issue copy without replacing it locally", () => {

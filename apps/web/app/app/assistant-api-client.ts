@@ -222,6 +222,9 @@ function toErrorMessage(error: unknown): string {
     if (error.status === 401) {
       return "Session expired. Sign in again and refresh the page.";
     }
+    if (error.status === 403) {
+      return error.message || "Admin access denied.";
+    }
     return error.message;
   }
 
@@ -737,8 +740,8 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   if (code === "safety_restricted") {
     return {
       classId: "safety_restricted",
-      message: rawMessage,
-      guidance: "This account cannot send new messages until the safety restriction is cleared.",
+      message: "",
+      guidance: "",
       ...(typeof details?.reasonCode === "string"
         ? { data: { reasonCode: details.reasonCode } }
         : {})

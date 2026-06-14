@@ -1666,9 +1666,8 @@ describe("toWebChatUxIssue", () => {
       })
     ).toEqual({
       classId: "safety_restricted",
-      message:
-        "This message could not be processed because inbound access is restricted by platform safety policy.",
-      guidance: "This account cannot send new messages until the safety restriction is cleared.",
+      message: "",
+      guidance: "",
       data: { reasonCode: "violence_extremism" }
     });
   });

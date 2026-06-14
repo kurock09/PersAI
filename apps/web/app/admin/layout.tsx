@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { getAdminPlanVisibility } from "@/app/app/assistant-api-client";
+import { getAdminSessionToken } from "@/app/admin/admin-session";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "System Overview", icon: Shield },
@@ -122,7 +123,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     void (async () => {
       try {
-        const token = await getToken();
+        const token = await getAdminSessionToken(getToken);
         if (!token) {
           setAuthState("denied");
           return;

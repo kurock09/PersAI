@@ -68,6 +68,13 @@ async function run(): Promise<void> {
     billingCredentialsResponse.challenge.action,
     "admin.billing_provider_credentials.update"
   );
+
+  const safetyRestrictResponse = await controller.createStepUpChallenge(req, {
+    action: "admin.safety_user.restrict"
+  });
+
+  assert.equal(issuedActions[4], "admin.safety_user.restrict");
+  assert.equal(safetyRestrictResponse.challenge.action, "admin.safety_user.restrict");
 }
 
 run().catch((error) => {

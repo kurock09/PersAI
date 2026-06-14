@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { ChevronDown, Loader2, Save, Server } from "lucide-react";
+import { Loader2, Save, Server } from "lucide-react";
 import type {
   AdminRuntimeProviderSettingsRequest,
   AdminRuntimeProviderSettingsState,
@@ -20,7 +20,11 @@ import {
   putAdminRuntimeProviderSettings
 } from "@/app/app/assistant-api-client";
 import { InboundSafetyPolicyPanel } from "./inbound-safety-policy-panel";
+import { RuntimeCard, RuntimeFold } from "./runtime-layout";
 import { cn } from "@/app/lib/utils";
+
+const Fold = RuntimeFold;
+const Card = RuntimeCard;
 
 type RuntimeProviderBillingModeState = RuntimeProviderModelProfileState["billingMode"];
 type RuntimeProviderPriceMetadataState = RuntimeProviderModelProfileState["providerPriceMetadata"];
@@ -1834,8 +1838,6 @@ export default function AdminRuntimePage() {
         </div>
       </Fold>
 
-      <InboundSafetyPolicyPanel getToken={getToken} />
-
       <Fold t="API Keys">
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           <Card title="OpenAI">
@@ -1918,6 +1920,8 @@ export default function AdminRuntimePage() {
         </div>
       </Fold>
 
+      <InboundSafetyPolicyPanel />
+
       <div className="sticky bottom-0 z-10 -mx-2 rounded-xl border border-border/70 bg-surface/95 px-3 py-2.5 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[10px] text-text-subtle">
@@ -1938,53 +1942,6 @@ export default function AdminRuntimePage() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Fold({
-  t,
-  open: init = false,
-  children
-}: {
-  t: string;
-  open?: boolean;
-  children: React.ReactNode;
-}) {
-  const [o, setO] = useState(init);
-  return (
-    <section>
-      <button
-        type="button"
-        onClick={() => setO((value) => !value)}
-        className="flex w-full cursor-pointer items-center gap-1.5 py-0.5"
-      >
-        <ChevronDown
-          className={cn("h-3 w-3 text-text-subtle transition-transform", !o && "-rotate-90")}
-        />
-        <span className="text-[9px] font-bold uppercase tracking-widest text-text-muted">{t}</span>
-      </button>
-      {o && <div className="mt-1">{children}</div>}
-    </section>
-  );
-}
-
-function Card({
-  title,
-  trailing,
-  children
-}: {
-  title: string;
-  trailing?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-2 rounded border border-border/40 bg-surface px-2.5 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">{title}</h3>
-        {trailing}
-      </div>
-      {children}
     </div>
   );
 }

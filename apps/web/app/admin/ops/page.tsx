@@ -48,6 +48,7 @@ import {
   postAdminSafetyUnblock,
   postAssistantReapply
 } from "@/app/app/assistant-api-client";
+import { getAdminSessionToken } from "@/app/admin/admin-session";
 import { cn } from "@/app/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -938,8 +939,14 @@ function UsersDirectory({
                     key={u.userId}
                     onClick={() => onSelectUser(u.userId, u.email)}
                     className={cn(
-                      "cursor-pointer border-b border-border/50 transition-colors hover:bg-surface-hover/50",
-                      selectedUserId === u.userId && "bg-accent/10 hover:bg-accent/15"
+                      "cursor-pointer border-b border-border/50 transition-colors",
+                      u.safetyStatus === "safety_restricted"
+                        ? "bg-warning/8 hover:bg-warning/12"
+                        : "hover:bg-surface-hover/50",
+                      selectedUserId === u.userId &&
+                        (u.safetyStatus === "safety_restricted"
+                          ? "bg-warning/14 hover:bg-warning/18 ring-1 ring-inset ring-warning/20"
+                          : "bg-accent/10 hover:bg-accent/15")
                     )}
                   >
                     <td className="max-w-[250px] truncate py-1.5 pr-2 text-text">
@@ -953,7 +960,7 @@ function UsersDirectory({
                         />
                         <span className="min-w-0 truncate font-mono">{u.email}</span>
                         {u.safetyStatus === "safety_restricted" ? (
-                          <span className="shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-destructive">
+                          <span className="shrink-0 rounded border border-warning/25 bg-warning/10 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-warning">
                             safety
                           </span>
                         ) : null}
@@ -1150,6 +1157,7 @@ export default function AdminOpsPage() {
   const [planOverrideBusy, setPlanOverrideBusy] = useState(false);
   const [billingSupportBusy, setBillingSupportBusy] = useState<BillingSupportAction | null>(null);
   const [safetyBusy, setSafetyBusy] = useState<"unblock" | "restrict" | null>(null);
+  const [safetyFeedback, setSafetyFeedback] = useState<string | null>(null);
   const [manualSafetyReasonCode, setManualSafetyReasonCode] = useState("admin_manual");
   const [pendingBillingSupportAction, setPendingBillingSupportAction] =
     useState<BillingSupportActionConfig | null>(null);
@@ -1450,22 +1458,27 @@ export default function AdminOpsPage() {
     if (!selectedUserId || !cockpit?.controls.safetyUnblockSupported) {
       return;
     }
-    const token = await getToken();
+    const token = await getAdminSessionToken(getToken);
     if (!token) {
       setActionMessage("Not signed in.");
       return;
     }
     setSafetyBusy("unblock");
     setActionMessage(null);
+    setSafetyFeedback(null);
     try {
       const result = await postAdminSafetyUnblock(token, { userId: selectedUserId });
-      setActionMessage(
-        result.cleared ? "Safety restriction cleared." : "No active safety restriction was present."
-      );
+      const message = result.cleared
+        ? "Safety restriction cleared."
+        : "No active safety restriction was present.";
+      setActionMessage(message);
+      setSafetyFeedback(message);
       setUsersReloadNonce((value) => value + 1);
       await load(selectedUserId);
     } catch (e) {
-      setActionMessage(e instanceof Error ? e.message : "Failed to clear safety restriction.");
+      const message = e instanceof Error ? e.message : "Failed to clear safety restriction.";
+      setActionMessage(message);
+      setSafetyFeedback(message);
     } finally {
       setSafetyBusy(null);
     }
@@ -1475,7 +1488,7 @@ export default function AdminOpsPage() {
     if (!selectedUserId || !cockpit?.controls.safetyManualRestrictSupported) {
       return;
     }
-    const token = await getToken();
+    const token = await getAdminSessionToken(getToken);
     if (!token) {
       setActionMessage("Not signed in.");
       return;
@@ -1487,6 +1500,7 @@ export default function AdminOpsPage() {
     }
     setSafetyBusy("restrict");
     setActionMessage(null);
+    setSafetyFeedback(null);
     try {
       await postAdminSafetyRestrict(token, {
         userId: selectedUserId,
@@ -1495,11 +1509,15 @@ export default function AdminOpsPage() {
           ? { sourceAssistantId: cockpit.assistant.assistantId }
           : {})
       });
-      setActionMessage("Manual safety restriction applied.");
+      const message = "Manual safety restriction applied.";
+      setActionMessage(message);
+      setSafetyFeedback(message);
       setUsersReloadNonce((value) => value + 1);
       await load(selectedUserId);
     } catch (e) {
-      setActionMessage(e instanceof Error ? e.message : "Failed to apply safety restriction.");
+      const message = e instanceof Error ? e.message : "Failed to apply safety restriction.";
+      setActionMessage(message);
+      setSafetyFeedback(message);
     } finally {
       setSafetyBusy(null);
     }
@@ -2340,6 +2358,9 @@ export default function AdminOpsPage() {
                   Requires security/super-admin step-up. This is separate from abuse rate-limit
                   unblock.
                 </p>
+                {safetyFeedback ? (
+                  <p className="text-[10px] text-text-muted">{safetyFeedback}</p>
+                ) : null}
               </div>
             </CardShell>
             <CardShell

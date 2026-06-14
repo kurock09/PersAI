@@ -3,6 +3,37 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-14 - ADR-115 safety UX polish + step-up restrict fix
+
+### Baseline
+
+- Starting SHA: `113eefc2` on `main`.
+
+### What changed
+
+- **API:** whitelisted `admin.safety_user.restrict` and `admin.knowledge_retrieval_policy.update` in step-up challenge parsing (fixes silent 400 on Ops “Apply safety restrict”).
+- **Web admin:** `getAdminSessionToken` for fresher Clerk JWT on admin fetches; inbound safety runtime panel fold/single-save polish; ops safety panel inline feedback; user-directory row uses subtle warning tint for `safety_restricted`.
+- **Web chat:** localized `safety_restricted` banner (RU/EN) with reason-specific copy and **Contact support** button opening settings → support.
+- **Ops scripts:** `apps/api/scripts/live-moderation-smoke.mjs` + `query-recent-moderation.mjs` for GKE live moderation checks.
+
+### Verification (AGENTS gate)
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run test`
+- `corepack pnpm --filter @persai/web run test`
+
+### Risks / residuals
+
+- Deploy **api** required for step-up restrict fix; deploy **web** for chat/admin UX.
+- **115.5** (admin notifications + E2E) still open.
+
+### Next recommended step
+
+- **115.5** — admin notifications + focused E2E hardening; then verify restrict/unblock + chat safety banner on live after deploy.
+
 ## 2026-06-14 - ADR-115 Slices 3-4-6 committed and pushed
 
 ### Baseline
