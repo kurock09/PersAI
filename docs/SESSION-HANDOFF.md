@@ -7,7 +7,7 @@
 
 ### Baseline
 
-- `main` @ `fb2d2415` after doc cleanup commit (pending push in this session).
+- `main` @ `4b63f2ef` (program closure doc hygiene).
 
 ### Platform program status
 
