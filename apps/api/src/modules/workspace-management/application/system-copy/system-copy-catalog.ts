@@ -100,24 +100,24 @@ const SAFETY_RESTRICTED_MESSENGER_TITLE_COPY = copy(
 
 const SAFETY_INBOUND_WARN_MESSENGER_BODY_COPY: Record<string, LocalizedCopy> = {
   default: copy(
-    "Мы заметили рискованный запрос при автоматической проверке безопасности.",
-    "We noticed a risky request during an automatic safety review."
+    "В этой переписке было сообщение, которое вызвало срабатывание проверки безопасности.",
+    "A message in this conversation triggered an automatic safety review."
   ),
   hack_abuse: copy(
-    "Запрос похож на попытку злоупотребления: взлом, кража данных или другое злоупотребление.",
-    "This request looked like hacking, credential theft, or another abuse attempt."
+    "В этой переписке было сообщение, похожее на попытку злоупотребления: взлом, кража данных или другое злоупотребление.",
+    "A message in this conversation looked like hacking, credential theft, or another abuse attempt."
   ),
   violence_extremism: copy(
-    "Запрос связан с насилием или экстремизмом.",
-    "This request involved violence or extremism."
+    "В этой переписке было сообщение, связанное с насилием или экстремизмом.",
+    "A message in this conversation involved violence or extremism."
   ),
   unsolicited_adult_spam: copy(
-    "Запрос связан с нежелательным взрослым или спам-контентом.",
-    "This request involved unwanted adult or spam content."
+    "В этой переписке было сообщение с нежелательным взрослым или спам-контентом.",
+    "A message in this conversation involved unwanted adult or spam content."
   ),
   structural_abuse_signal: copy(
-    "Сообщение выглядело как злоупотребление форматом (пустое, только ссылка и т.п.).",
-    "This message looked like format abuse (empty, link-only, and similar)."
+    "В этой переписке было сообщение, похожее на злоупотребление форматом (пустое, только ссылка и т.п.).",
+    "A message in this conversation looked like format abuse (empty, link-only, and similar)."
   )
 };
 

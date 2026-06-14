@@ -4,6 +4,8 @@ import {
   GetAssistantAppBootstrapService,
   type AppBootstrapSectionsState
 } from "../../application/get-assistant-app-bootstrap.service";
+import { ResolveUserSafetyStandingService } from "../../application/resolve-user-safety-standing.service";
+import type { UserSafetyStandingState } from "../../application/user-safety-standing.types";
 
 /**
  * ADR-076 Slice 3 — single bootstrap surface for the web shell.
@@ -15,7 +17,23 @@ import {
  */
 @Controller("api/v1/app")
 export class AppBootstrapController {
-  constructor(private readonly getAssistantAppBootstrapService: GetAssistantAppBootstrapService) {}
+  constructor(
+    private readonly getAssistantAppBootstrapService: GetAssistantAppBootstrapService,
+    private readonly resolveUserSafetyStandingService: ResolveUserSafetyStandingService
+  ) {}
+
+  @Get("user-safety-standing")
+  async getUserSafetyStanding(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    standing: UserSafetyStandingState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const standing = await this.resolveUserSafetyStandingService.execute(userId);
+    return {
+      requestId: req.requestId ?? null,
+      standing
+    };
+  }
 
   @Get("bootstrap")
   async getBootstrap(@Req() req: RequestWithPlatformContext): Promise<{

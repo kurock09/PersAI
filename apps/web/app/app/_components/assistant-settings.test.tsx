@@ -227,6 +227,12 @@ function makeAppData(overrides: Partial<AppData> = {}): AppData {
     notificationPreference: { selectedChannel: "web", availableChannels: ["web"] },
     plan: null,
     billingSubscription: null,
+    userSafetyStanding: {
+      standing: "none",
+      observationEndsAt: null,
+      daysRemaining: null,
+      reasonCode: null
+    },
     isAdmin: false,
     isLoading: false,
     isReloading: false,

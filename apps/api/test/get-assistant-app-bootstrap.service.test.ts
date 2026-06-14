@@ -57,6 +57,17 @@ async function run(): Promise<void> {
         assert.equal(id, userId);
         return { sentinel: "billing-subscription" } as never;
       }
+    } as never,
+    {
+      async execute(id: string) {
+        assert.equal(id, userId);
+        return {
+          standing: "none",
+          observationEndsAt: null,
+          daysRemaining: null,
+          reasonCode: null
+        };
+      }
     } as never
   );
 
@@ -76,6 +87,7 @@ async function run(): Promise<void> {
   assert.equal(happy.plan.ok, true);
   assert.equal(happy.billingSubscription.ok, true);
   assert.equal(happy.admin.ok, true);
+  assert.equal(happy.userSafety.ok, true);
 
   const partialService = new GetAssistantAppBootstrapService(
     {
@@ -110,6 +122,16 @@ async function run(): Promise<void> {
       async getState() {
         return { sentinel: "billing-subscription" } as never;
       }
+    } as never,
+    {
+      async execute() {
+        return {
+          standing: "none",
+          observationEndsAt: null,
+          daysRemaining: null,
+          reasonCode: null
+        };
+      }
     } as never
   );
 
@@ -125,6 +147,7 @@ async function run(): Promise<void> {
   assert.equal(partial.plan.ok, true);
   assert.equal(partial.billingSubscription.ok, true);
   assert.equal(partial.admin.ok, false);
+  assert.equal(partial.userSafety.ok, true);
   if (!partial.admin.ok) {
     assert.equal(partial.admin.error.category, "auth");
     assert.equal(partial.admin.error.code, "auth_required");
@@ -162,6 +185,16 @@ async function run(): Promise<void> {
     {
       async getState() {
         return { sentinel: "billing-subscription" } as never;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          standing: "none",
+          observationEndsAt: null,
+          daysRemaining: null,
+          reasonCode: null
+        };
       }
     } as never
   );

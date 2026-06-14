@@ -19,12 +19,21 @@ import {
   getAssistantTelegramIntegration,
   getAssistantPlanVisibility,
   getAdminPlanVisibility,
+  getUserSafetyStanding,
   postAssistantCreateLifecycleView,
   postAssistantSwitch,
   type AssistantLifecycleViewState,
-  type AssistantNotificationPreferenceState
+  type AssistantNotificationPreferenceState,
+  type UserSafetyStandingState
 } from "../assistant-api-client";
 import type { AppBootstrapInitialData } from "../_server/fetch-app-bootstrap";
+
+const DEFAULT_USER_SAFETY_STANDING: UserSafetyStandingState = {
+  standing: "none",
+  observationEndsAt: null,
+  daysRemaining: null,
+  reasonCode: null
+};
 
 export type AssistantStatus = "live" | "applying" | "draft" | "failed" | "degraded" | "none";
 
@@ -52,6 +61,7 @@ export interface AppData {
   notificationPreference: AssistantNotificationPreferenceState | null;
   plan: UserPlanVisibilityState | null;
   billingSubscription: AssistantBillingSubscriptionManagementState | null;
+  userSafetyStanding: UserSafetyStandingState;
   isAdmin: boolean;
   /**
    * ADR-076 Slice 5 — true only during the cold-start fan-out (when the SSR
@@ -94,6 +104,7 @@ interface SeededState {
   notificationPreference: AssistantNotificationPreferenceState | null;
   plan: UserPlanVisibilityState | null;
   billingSubscription: AssistantBillingSubscriptionManagementState | null;
+  userSafetyStanding: UserSafetyStandingState;
   isAdmin: boolean;
   assistantResolved: boolean;
   isLoading: boolean;
@@ -119,6 +130,7 @@ function seedFromInitialData(initialData: AppBootstrapInitialData | null): Seede
       notificationPreference: null,
       plan: null,
       billingSubscription: null,
+      userSafetyStanding: DEFAULT_USER_SAFETY_STANDING,
       isAdmin: false,
       assistantResolved: false,
       isLoading: true,
@@ -134,6 +146,7 @@ function seedFromInitialData(initialData: AppBootstrapInitialData | null): Seede
   const planSection = initialData.plan;
   const adminSection = initialData.admin;
   const billingSubscriptionSection = initialData.billingSubscription;
+  const userSafetySection = initialData.userSafety;
 
   return {
     assistant: assistantSection.ok ? assistantSection.data.assistant : null,
@@ -145,6 +158,9 @@ function seedFromInitialData(initialData: AppBootstrapInitialData | null): Seede
     notificationPreference: preferenceSection.ok ? preferenceSection.data : null,
     plan: planSection.ok ? planSection.data : null,
     billingSubscription: billingSubscriptionSection.ok ? billingSubscriptionSection.data : null,
+    userSafetyStanding: userSafetySection.ok
+      ? userSafetySection.data
+      : DEFAULT_USER_SAFETY_STANDING,
     isAdmin: adminSection.ok,
     assistantResolved: assistantSection.ok,
     isLoading: !assistantSection.ok,
@@ -180,6 +196,9 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
   const [plan, setPlan] = useState<UserPlanVisibilityState | null>(seed.current.plan);
   const [billingSubscription, setBillingSubscription] =
     useState<AssistantBillingSubscriptionManagementState | null>(seed.current.billingSubscription);
+  const [userSafetyStanding, setUserSafetyStanding] = useState<UserSafetyStandingState>(
+    seed.current.userSafetyStanding
+  );
   const [isAdmin, setIsAdmin] = useState(seed.current.isAdmin);
   const [isLoading, setIsLoading] = useState(seed.current.isLoading);
   const [isReloading, setIsReloading] = useState(false);
@@ -197,13 +216,14 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
 
   const refreshAssistantScopedSlices = useCallback(
     async (token: string) => {
-      const [chatsRes, telegramRes, preferenceRes, planRes, billingSubscriptionRes] =
+      const [chatsRes, telegramRes, preferenceRes, planRes, billingSubscriptionRes, userSafetyRes] =
         await Promise.allSettled([
           getAssistantWebChats(token),
           getAssistantTelegramIntegration(token),
           getAssistantNotificationPreference(token),
           getAssistantPlanVisibility(token),
-          getAssistantBillingSubscription(token)
+          getAssistantBillingSubscription(token),
+          getUserSafetyStanding(token)
         ]);
 
       if (chatsRes.status === "fulfilled") {
@@ -220,6 +240,9 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
       }
       if (billingSubscriptionRes.status === "fulfilled") {
         setBillingSubscription(billingSubscriptionRes.value);
+      }
+      if (userSafetyRes.status === "fulfilled") {
+        setUserSafetyStanding(userSafetyRes.value);
       }
     },
     [setBillingSubscription, setChats, setNotificationPreference, setTelegram, setPlan]
@@ -272,15 +295,23 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
     setError(null);
 
     try {
-      const [assistantRes, chatsRes, telegramRes, preferenceRes, planRes, adminProbe] =
-        await Promise.allSettled([
-          getAssistantLifecycleView(token),
-          getAssistantWebChats(token),
-          getAssistantTelegramIntegration(token),
-          getAssistantNotificationPreference(token),
-          getAssistantPlanVisibility(token),
-          getAdminPlanVisibility(token)
-        ]);
+      const [
+        assistantRes,
+        chatsRes,
+        telegramRes,
+        preferenceRes,
+        planRes,
+        adminProbe,
+        userSafetyRes
+      ] = await Promise.allSettled([
+        getAssistantLifecycleView(token),
+        getAssistantWebChats(token),
+        getAssistantTelegramIntegration(token),
+        getAssistantNotificationPreference(token),
+        getAssistantPlanVisibility(token),
+        getAdminPlanVisibility(token),
+        getUserSafetyStanding(token)
+      ]);
 
       if (assistantRes.status === "fulfilled") {
         applyAssistantLifecycleView(assistantRes.value);
@@ -295,6 +326,7 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
       if (telegramRes.status === "fulfilled") setTelegram(telegramRes.value);
       if (preferenceRes.status === "fulfilled") setNotificationPreference(preferenceRes.value);
       if (planRes.status === "fulfilled") setPlan(planRes.value);
+      if (userSafetyRes.status === "fulfilled") setUserSafetyStanding(userSafetyRes.value);
       setIsAdmin(adminProbe.status === "fulfilled");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load app data.");
@@ -368,6 +400,7 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
     notificationPreference,
     plan,
     billingSubscription,
+    userSafetyStanding,
     isAdmin,
     isLoading,
     isReloading,

@@ -6,6 +6,8 @@ import { useUser, useClerk } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
 import type { Route } from "next";
 import {
+  AlertTriangle,
+  OctagonX,
   MessageSquarePlus,
   MessageCircle,
   X,
@@ -50,14 +52,18 @@ import { PullToRefresh } from "./pull-to-refresh";
 import { ProjectFilesPanel } from "./project-files-panel";
 import {
   SIDEBAR_CARD_SETTINGS_AFFORDANCE_CLASS,
-  SIDEBAR_CARD_SETTINGS_ICON_CLASS
+  SIDEBAR_CARD_SETTINGS_ICON_CLASS,
+  SIDEBAR_CARD_SAFETY_RESTRICTED_AFFORDANCE_CLASS,
+  SIDEBAR_CARD_SAFETY_WARN_AFFORDANCE_CLASS
 } from "./sidebar-card-settings-affordance";
+import { AssistantSafetyStandingModal } from "./assistant-safety-standing-modal";
 
 interface SidebarProps {
   onClose?: () => void;
   onAssistantCardClick?: () => void;
   onTelegramClick?: () => void;
   onLimitsClick?: () => void;
+  onOpenSupportClick?: () => void;
   data: AppData;
   supportUnreadCount?: number;
   /**
@@ -167,6 +173,7 @@ export function Sidebar({
   onAssistantCardClick,
   onTelegramClick,
   onLimitsClick,
+  onOpenSupportClick,
   data,
   supportUnreadCount = 0,
   onPullToRefresh
@@ -197,6 +204,9 @@ export function Sidebar({
   const assistantName = data.assistant?.draft.displayName ?? t("defaultAssistant");
   const hasUnreadSupport = supportUnreadCount > 0;
   const hasMultiAssistantAccess = (data.assistantLimit?.maxAssistants ?? 1) > 1;
+  const [safetyModalKind, setSafetyModalKind] = useState<"warn" | "restricted" | null>(null);
+  const userSafetyStanding = data.userSafetyStanding?.standing ?? "none";
+  const safetyDaysRemaining = data.userSafetyStanding?.daysRemaining ?? null;
   /*
    * Hydration safety: groupChatsByDate / formatChatRowTimestamp depend on
    * `new Date()` and the device timezone. On the server (UTC pod) and on
@@ -254,14 +264,8 @@ export function Sidebar({
       )}
 
       {/* 1. Assistant card */}
-      <div className={cn("px-3", onClose ? "pt-1 pb-3" : "pt-4 pb-3")}>
-        <button
-          type="button"
-          onClick={onAssistantCardClick}
-          aria-label={t("assistantSettingsHint")}
-          title={t("assistantSettingsHint")}
-          className="group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-xl bg-surface-raised p-3 transition-colors hover:bg-surface-hover"
-        >
+      <div className={cn("relative px-3", onClose ? "pt-1 pb-3" : "pt-4 pb-3")}>
+        <div className="group relative flex w-full items-center gap-0 overflow-hidden rounded-xl bg-surface-raised p-3 transition-colors hover:bg-surface-hover">
           {hasMultiAssistantAccess ? (
             <span
               data-testid="assistant-card-premium-strip"
@@ -269,38 +273,76 @@ export function Sidebar({
               className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-gradient-to-b from-[#b9c9a8]/90 via-[#d7c48d]/85 to-[#c29d62]/85"
             />
           ) : null}
-          <AssistantAvatar
-            avatarUrl={data.assistant?.draft.avatarUrl ?? undefined}
-            avatarEmoji={data.assistant?.draft.avatarEmoji ?? undefined}
-            size="md"
-          />
-          <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-sm font-semibold text-text">{assistantName}</p>
-            {hasUnreadSupport ? (
-              <span className="flex items-center gap-1.5 text-xs text-accent">
-                <MessageCircle className="h-3 w-3 shrink-0" />
-                <span className="truncate">
-                  {t("supportUnreadStatus", { count: supportUnreadCount })}
+          <button
+            type="button"
+            onClick={onAssistantCardClick}
+            aria-label={t("assistantSettingsHint")}
+            title={t("assistantSettingsHint")}
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 bg-transparent text-left"
+          >
+            <AssistantAvatar
+              avatarUrl={data.assistant?.draft.avatarUrl ?? undefined}
+              avatarEmoji={data.assistant?.draft.avatarEmoji ?? undefined}
+              size="md"
+            />
+            <div className="min-w-0 flex-1 text-left">
+              <p className="truncate text-sm font-semibold text-text">{assistantName}</p>
+              {hasUnreadSupport ? (
+                <span className="flex items-center gap-1.5 text-xs text-accent">
+                  <MessageCircle className="h-3 w-3 shrink-0" />
+                  <span className="truncate">
+                    {t("supportUnreadStatus", { count: supportUnreadCount })}
+                  </span>
                 </span>
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5">
-                <span className={cn("inline-block h-2 w-2 rounded-full", statusCfg.dot)} />
-                <span className="text-xs text-text-muted">
-                  {statusLabelMap[data.assistantStatus] ?? statusCfg.label}
+              ) : (
+                <span className="flex items-center gap-1.5">
+                  <span className={cn("inline-block h-2 w-2 rounded-full", statusCfg.dot)} />
+                  <span className="text-xs text-text-muted">
+                    {statusLabelMap[data.assistantStatus] ?? statusCfg.label}
+                  </span>
                 </span>
-              </span>
-            )}
+              )}
+            </div>
+          </button>
+          <div className="ml-1 flex shrink-0 items-center gap-0.5">
+            {userSafetyStanding === "restricted" ? (
+              <button
+                type="button"
+                aria-label={t("safetyRestrictedIconAria")}
+                className={SIDEBAR_CARD_SAFETY_RESTRICTED_AFFORDANCE_CLASS}
+                onClick={() => setSafetyModalKind("restricted")}
+              >
+                <OctagonX className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
+              </button>
+            ) : userSafetyStanding === "warn" ? (
+              <button
+                type="button"
+                aria-label={t("safetyWarnIconAria")}
+                className={SIDEBAR_CARD_SAFETY_WARN_AFFORDANCE_CLASS}
+                onClick={() => setSafetyModalKind("warn")}
+              >
+                <AlertTriangle className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onAssistantCardClick}
+              aria-hidden="true"
+              tabIndex={-1}
+              className={SIDEBAR_CARD_SETTINGS_AFFORDANCE_CLASS}
+            >
+              <Settings className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
+            </button>
           </div>
-          {/*
-           * Quiet premium affordance: the cog is the only visible cue that
-           * the whole card is clickable. Default state stays subtle (/55)
-           * so the card remains calm; on hover it warms up via accent-premium.
-           */}
-          <span aria-hidden="true" className={cn("ml-1", SIDEBAR_CARD_SETTINGS_AFFORDANCE_CLASS)}>
-            <Settings className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
-          </span>
-        </button>
+        </div>
+        {safetyModalKind !== null ? (
+          <AssistantSafetyStandingModal
+            kind={safetyModalKind}
+            daysRemaining={safetyDaysRemaining}
+            onClose={() => setSafetyModalKind(null)}
+            onOpenSupport={() => onOpenSupportClick?.()}
+          />
+        ) : null}
       </div>
 
       {/* 2. New chat button — ghost so it doesn't outweigh the active chat */}

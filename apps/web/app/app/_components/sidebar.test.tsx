@@ -128,6 +128,12 @@ function makeAppData(overrides: Partial<AppData>): AppData {
     notificationPreference: null,
     plan: null,
     billingSubscription: null,
+    userSafetyStanding: {
+      standing: "none",
+      observationEndsAt: null,
+      daysRemaining: null,
+      reasonCode: null
+    },
     isAdmin: false,
     isLoading: false,
     isReloading: false,
@@ -227,6 +233,45 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     );
 
     expect(screen.getByTestId("assistant-card-premium-strip")).toBeInTheDocument();
+  });
+
+  it("opens the warn safety modal from the assistant card icon without opening settings", () => {
+    const onAssistantCardClick = vi.fn();
+    render(
+      <Sidebar
+        data={makeAppData({
+          userSafetyStanding: {
+            standing: "warn",
+            observationEndsAt: "2026-07-01T00:00:00.000Z",
+            daysRemaining: 4,
+            reasonCode: "hack_abuse"
+          }
+        })}
+        onAssistantCardClick={onAssistantCardClick}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "safetyWarnIconAria" }));
+    expect(screen.getByText("safetyWarnModalTitle")).toBeInTheDocument();
+    expect(onAssistantCardClick).not.toHaveBeenCalled();
+  });
+
+  it("opens the restricted safety modal from the assistant card icon", () => {
+    render(
+      <Sidebar
+        data={makeAppData({
+          userSafetyStanding: {
+            standing: "restricted",
+            observationEndsAt: null,
+            daysRemaining: null,
+            reasonCode: "hack_abuse"
+          }
+        })}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "safetyRestrictedIconAria" }));
+    expect(screen.getByText("safetyRestrictedModalTitle")).toBeInTheDocument();
   });
 
   it("switches chats with local history so uploads do not wait for app-router navigation", async () => {

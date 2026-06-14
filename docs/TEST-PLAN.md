@@ -572,6 +572,8 @@ Interpretation rules:
 8. Empty `user_restrictions` must not change safety-deny behavior; abuse-before-quota reorder remains intentional from slice 115.0.
 9. Slice 115.7 warn path must persist `moderation_cases` with `decision: warn` without `user_restrictions`; repeat warn for same `reasonCode` in strike window must escalate to `block_user` at inbound; web must render `platformNotice.kind = safety_inbound_warn`.
 10. Slice 115.5 admin_system must emit `safety_user_restricted` on auto `block_user` and admin manual restrict; notification message must include user email (not bare UUID). User-scoped admin_system events (`billing_*`, `support_ticket_opened`, `runtime_apply_*`, `safety_user_restricted`) must resolve `userEmail`/`recipientEmail` before label enrichment.
+11. Follow-through: web warn banner above composer (not in-thread); TG warn via `DeliverSafetyInboundWarnNoticeService` once per `triggerKey`; `GET /app/user-safety-standing` + bootstrap `userSafety` for sidebar icons.
+12. `apps/api/test/resolve-user-safety-standing.service.test.ts`, `safety-moderation-review-core.service.test.ts` (warn delivery idempotency), `apps/web/app/app/_components/sidebar.test.tsx` (safety icon modals).
 
 ```bash
 corepack pnpm --filter @persai/api exec tsx test/append-assistant-audit-event.service.test.ts

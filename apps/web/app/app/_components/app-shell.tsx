@@ -248,6 +248,10 @@ export function AppShell({
                       setSettingsInitialSection("limits");
                       setSettingsOpen(true);
                     }}
+                    onOpenSupportClick={() => {
+                      setSettingsInitialSection("support");
+                      setSettingsOpen(true);
+                    }}
                   />
                 </div>
               </Suspense>
@@ -288,6 +292,11 @@ export function AppShell({
                           onLimitsClick={() => {
                             setSidebarOpen(false);
                             setSettingsInitialSection("limits");
+                            setSettingsOpen(true);
+                          }}
+                          onOpenSupportClick={() => {
+                            setSidebarOpen(false);
+                            setSettingsInitialSection("support");
                             setSettingsOpen(true);
                           }}
                           onPullToRefresh={appData.reloadChats}

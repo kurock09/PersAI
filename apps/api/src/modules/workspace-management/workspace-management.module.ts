@@ -193,6 +193,7 @@ import { DisableAssistantTaskRegistryItemService } from "./application/disable-a
 import { EnableAssistantTaskRegistryItemService } from "./application/enable-assistant-task-registry-item.service";
 import { CancelAssistantTaskRegistryItemService } from "./application/cancel-assistant-task-registry-item.service";
 import { GetAssistantAppBootstrapService } from "./application/get-assistant-app-bootstrap.service";
+import { ResolveUserSafetyStandingService } from "./application/resolve-user-safety-standing.service";
 import { ManageAssistantKnowledgeSourcesService } from "./application/manage-assistant-knowledge-sources.service";
 import { ManageAssistantSkillsService } from "./application/manage-assistant-skills.service";
 import { ManageAssistantAvatarService } from "./application/manage-assistant-avatar.service";
@@ -612,6 +613,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     EnsureAssistantMaterializedSpecCurrentService,
     RenderAssistantInboundSurfaceMessageService,
     GetAssistantAppBootstrapService,
+    ResolveUserSafetyStandingService,
     ManageAssistantAvatarService,
     ManageAssistantKnowledgeSourcesService,
     ManageAssistantSkillsService,

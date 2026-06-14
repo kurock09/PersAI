@@ -45,7 +45,17 @@ export interface AppBootstrapInitialData {
   plan: BootstrapSection<UserPlanVisibilityState>;
   billingSubscription: BootstrapSection<AssistantBillingSubscriptionManagementState>;
   admin: BootstrapSection<AdminPlanVisibilityState>;
+  userSafety: BootstrapSection<UserSafetyStandingState>;
 }
+
+export type UserSafetyStanding = "none" | "warn" | "restricted";
+
+export type UserSafetyStandingState = {
+  standing: UserSafetyStanding;
+  observationEndsAt: string | null;
+  daysRemaining: number | null;
+  reasonCode: string | null;
+};
 
 const FALLBACK_INFRA_ERROR: BootstrapErrorState = {
   code: "bootstrap_unreachable",
@@ -61,7 +71,8 @@ function emptyInitialData(error: BootstrapErrorState): AppBootstrapInitialData {
     notificationPreference: { ok: false, error },
     plan: { ok: false, error },
     billingSubscription: { ok: false, error },
-    admin: { ok: false, error }
+    admin: { ok: false, error },
+    userSafety: { ok: false, error }
   };
 }
 

@@ -17,6 +17,8 @@ import { ResolveAssistantLifecycleViewService } from "./resolve-assistant-lifecy
 import { ResolveAssistantNotificationPreferenceService } from "./resolve-assistant-notification-preference.service";
 import { ResolvePlanVisibilityService } from "./resolve-plan-visibility.service";
 import { ResolveTelegramIntegrationStateService } from "./resolve-telegram-integration-state.service";
+import { ResolveUserSafetyStandingService } from "./resolve-user-safety-standing.service";
+import type { UserSafetyStandingState } from "./user-safety-standing.types";
 
 /**
  * ADR-076 Slice 3 — single bootstrap surface.
@@ -46,6 +48,7 @@ export interface AppBootstrapSectionsState {
   plan: BootstrapSection<UserPlanVisibilityState>;
   billingSubscription: BootstrapSection<AssistantBillingSubscriptionManagementState>;
   admin: BootstrapSection<AdminPlanVisibilityState>;
+  userSafety: BootstrapSection<UserSafetyStandingState>;
 }
 
 function classifyError(error: unknown): BootstrapErrorState {
@@ -106,7 +109,8 @@ export class GetAssistantAppBootstrapService {
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
     private readonly resolveAssistantNotificationPreferenceService: ResolveAssistantNotificationPreferenceService,
     private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService,
-    private readonly manageAssistantBillingSubscriptionService: ManageAssistantBillingSubscriptionService
+    private readonly manageAssistantBillingSubscriptionService: ManageAssistantBillingSubscriptionService,
+    private readonly resolveUserSafetyStandingService: ResolveUserSafetyStandingService
   ) {}
 
   async execute(userId: string): Promise<AppBootstrapSectionsState> {
@@ -117,7 +121,8 @@ export class GetAssistantAppBootstrapService {
       notificationResult,
       planResult,
       billingSubscriptionResult,
-      adminResult
+      adminResult,
+      userSafetyResult
     ] = await Promise.allSettled([
       this.resolveAssistantLifecycleViewService.execute(userId),
       this.manageWebChatListService.listChats(userId),
@@ -125,7 +130,8 @@ export class GetAssistantAppBootstrapService {
       this.resolveAssistantNotificationPreferenceService.execute(userId),
       this.resolvePlanVisibilityService.getUserVisibility(userId),
       this.manageAssistantBillingSubscriptionService.getState(userId),
-      this.resolvePlanVisibilityService.getAdminVisibility(userId)
+      this.resolvePlanVisibilityService.getAdminVisibility(userId),
+      this.resolveUserSafetyStandingService.execute(userId)
     ]);
 
     return {
@@ -135,7 +141,8 @@ export class GetAssistantAppBootstrapService {
       notificationPreference: toSection(notificationResult),
       plan: toSection(planResult),
       billingSubscription: toSection(billingSubscriptionResult),
-      admin: toSection(adminResult)
+      admin: toSection(adminResult),
+      userSafety: toSection(userSafetyResult)
     };
   }
 }

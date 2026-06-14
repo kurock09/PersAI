@@ -1560,6 +1560,28 @@ export interface AssistantLifecycleViewState extends AssistantDirectoryState {
   assistant: AssistantLifecycleState | null;
 }
 
+export type UserSafetyStandingState = {
+  standing: "none" | "warn" | "restricted";
+  observationEndsAt: string | null;
+  daysRemaining: number | null;
+  reasonCode: string | null;
+};
+
+export async function getUserSafetyStanding(token: string): Promise<UserSafetyStandingState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/app/user-safety-standing`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error("Unexpected non-success response for GET /app/user-safety-standing.");
+  }
+  const payload = (await res.json()) as { standing?: UserSafetyStandingState };
+  if (payload.standing === undefined) {
+    throw new Error("User safety standing returned an unexpected response.");
+  }
+  return payload.standing;
+}
+
 export async function getAssistantList(token: string): Promise<AssistantDirectoryState> {
   try {
     const response = await getAssistantListContract({

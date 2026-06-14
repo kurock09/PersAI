@@ -14,6 +14,7 @@ const apiMocks = vi.hoisted(() => ({
   getAssistantPlanVisibility: vi.fn(),
   getAssistantBillingSubscription: vi.fn(),
   getAdminPlanVisibility: vi.fn(),
+  getUserSafetyStanding: vi.fn(),
   postAssistantCreateLifecycleView: vi.fn(),
   postAssistantSwitch: vi.fn()
 }));
@@ -32,6 +33,7 @@ vi.mock("../assistant-api-client", () => ({
   getAssistantPlanVisibility: apiMocks.getAssistantPlanVisibility,
   getAssistantBillingSubscription: apiMocks.getAssistantBillingSubscription,
   getAdminPlanVisibility: apiMocks.getAdminPlanVisibility,
+  getUserSafetyStanding: apiMocks.getUserSafetyStanding,
   postAssistantCreateLifecycleView: apiMocks.postAssistantCreateLifecycleView,
   postAssistantSwitch: apiMocks.postAssistantSwitch
 }));
@@ -52,6 +54,12 @@ describe("useAppData", () => {
     apiMocks.getAssistantPlanVisibility.mockResolvedValue(null);
     apiMocks.getAssistantBillingSubscription.mockResolvedValue(null);
     apiMocks.getAdminPlanVisibility.mockRejectedValue(new Error("not admin"));
+    apiMocks.getUserSafetyStanding.mockResolvedValue({
+      standing: "none",
+      observationEndsAt: null,
+      daysRemaining: null,
+      reasonCode: null
+    });
     apiMocks.postAssistantCreateLifecycleView.mockResolvedValue({
       assistant: {
         id: "assistant-2",

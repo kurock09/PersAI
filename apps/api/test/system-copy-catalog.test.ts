@@ -6,7 +6,7 @@ describe("resolveSafetyInboundWarnMessengerCopy", () => {
   it("localizes warn copy with reason-specific body", () => {
     const copy = resolveSafetyInboundWarnMessengerCopy("hack_abuse", "ru", "fallback");
     assert.match(copy, /Внимание/);
-    assert.match(copy, /взлом/);
+    assert.match(copy, /В этой переписке было сообщение/);
     assert.match(copy, /Пока можно продолжать чат/);
   });
 });

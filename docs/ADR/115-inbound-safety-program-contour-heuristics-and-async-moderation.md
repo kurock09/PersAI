@@ -1,6 +1,6 @@
 # ADR-115: Inbound safety program — contour-1 heuristics and contour-2 async moderation
 
-**Status:** Accepted (115.0–115.7 complete)  
+**Status:** Closed (program complete 2026-06-14; slices 115.0–115.7 + follow-through polish)  
 **Date:** 2026-06-13  
 **Relates to:** [ADR-044](044-abuse-and-rate-limit-enforcement-g2.md) (spam throttle — complementary, not replaced), [ADR-067](067-application-layer-security-hardening.md), [ADR-088](088-unified-notification-platform-control-plane-and-delivery.md) (ops alerts), [ADR-102](102-pre-prod-architectural-cleanup-and-truth-hardening.md) (slice discipline), [API-BOUNDARY.md](../API-BOUNDARY.md), [DATA-MODEL.md](../DATA-MODEL.md), [TEST-PLAN.md](../TEST-PLAN.md), [AGENTS.md](../../AGENTS.md)
 
@@ -38,7 +38,7 @@ ADR-044 explicitly placed content moderation out of scope. This ADR closes that 
 - Full semantic moderation on every token or every short message in contour 1.
 - Replacing or refactoring ADR-044 abuse tables in this program (**deferred follow-up**).
 - Quota-pressure coupling inside abuse/restriction code (remove only in the deferred abuse cleanup).
-- User-facing copy tone and localization polish (**deferred**; ADR-115 defines reason codes and notice channel only).
+- User-facing copy tone and localization polish (**in scope for inbound warn/restrict paths; outbound moderation not planned**).
 - Appeal workflow, legal export beyond audit log.
 - WhatsApp/MAX safety enforcement until those inbound paths are active (schema may reserve surfaces).
 - Building a large open-source profanity dictionary.
@@ -446,3 +446,18 @@ Focused tests per slice as listed in `TEST-PLAN.md` § ADR-115 (to be added in s
 | 115.5 | complete | `c36208e4` | safety_user_restricted admin_system + user email labels |
 | 115.6 | complete | `e797a172` | runtime inbound-safety policy UI |
 | 115.7 | complete | `a35d17c3` | warn UX, strikes, pack thresholds, platformNotice |
+
+## Program closure (2026-06-14)
+
+All core slices shipped. Follow-through polish (not new slice numbers):
+
+| Item | Status | Baseline SHA | Notes |
+| ---- | ------ | ------------ | ----- |
+| Warn banner above composer (web) | complete | `989fc2b8` | Matches restrict-banner layout; no in-thread card |
+| TG warn in-chat + restrict i18n | complete | `989fc2b8` | `DeliverSafetyInboundWarnNoticeService`; `reasonCode` copy |
+| Admin `safety_user_restricted` notifications | complete | `989fc2b8` | Slice 115.5 follow-through |
+| Sidebar safety standing icons + modal | complete | `80c9a89a` | `userSafety` bootstrap; warn/block affordance on assistant card |
+| Warn copy chat-context framing | complete | `80c9a89a` | Web/TG/sidebar text references prior messages in thread |
+| Outbound message moderation | **not planned** | — | Explicitly out of program scope |
+
+**Residual / ops:** live validation on dev after deploy; strike window remains config (`SAFETY_MODERATION_STRIKE_WINDOW_DAYS`, default 30).
