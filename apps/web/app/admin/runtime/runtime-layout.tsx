@@ -7,10 +7,12 @@ import { cn } from "@/app/lib/utils";
 export function RuntimeFold({
   t,
   open: init = false,
+  onOpenChange,
   children
 }: {
   t: string;
   open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(init);
@@ -18,7 +20,13 @@ export function RuntimeFold({
     <section>
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          setOpen((value) => {
+            const next = !value;
+            onOpenChange?.(next);
+            return next;
+          });
+        }}
         className="flex w-full cursor-pointer items-center gap-1.5 py-0.5"
       >
         <ChevronDown

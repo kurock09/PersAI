@@ -44,7 +44,7 @@ export class ManageAdminSafetyPolicyService {
     actorUserId: string,
     filter?: { pack?: string; locale?: string; enabled?: string }
   ): Promise<SafetyHeuristicRule[]> {
-    await this.adminAuthorizationService.assertCanManageAbuseControls(actorUserId);
+    await this.adminAuthorizationService.assertCanReadAdminSurface(actorUserId);
     return this.safetyHeuristicRuleRepository.listRules({
       ...(filter?.pack !== undefined && PACKS.has(filter.pack as SafetyHeuristicPack)
         ? { pack: filter.pack as SafetyHeuristicPack }
@@ -80,7 +80,7 @@ export class ManageAdminSafetyPolicyService {
   }
 
   async getSettings(actorUserId: string): Promise<SafetyPolicySettings> {
-    await this.adminAuthorizationService.assertCanManageAbuseControls(actorUserId);
+    await this.adminAuthorizationService.assertCanReadAdminSurface(actorUserId);
     return this.safetyPolicySettingsRepository.getSettings();
   }
 
