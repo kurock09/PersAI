@@ -853,7 +853,7 @@ function createImageGenerateToolDefinition(
             policy
           )
         ),
-        "count=N means N separate final images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one single-image instruction per item in seriesItems. If the current turn already includes a reusable product/source image and the outputs should stay tied to that same image across slides, do not use image_generate; use image_edit with sourceImageAlias instead."
+        "count=N means N separate final images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items. If the current turn already includes a reusable product/source image and the outputs should stay tied to that same image across slides, do not use image_generate; use image_edit with sourceImageAlias instead."
       ),
       buildPendingDeliveryHint({
         subject: "the images are being prepared",
@@ -885,7 +885,7 @@ function createImageGenerateToolDefinition(
           type: "array",
           items: { type: "string" },
           description:
-            "Required when outputMode='series'. Provide exactly one single-image instruction per requested output, in order. Each item must describe only one final frame/item, not the whole series."
+            "Required when outputMode='series'. Provide exactly one single-image instruction per requested output, in order. Each item must describe only one final frame/item, be clearly distinct from the others, and never repeat the same instruction."
         },
         filename: {
           type: "string",
@@ -923,7 +923,7 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
               policy
             )
           ),
-          "count=N means N separate final edited images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one single-image instruction per item in seriesItems. In series mode, keep the same source product/object identity across slides unless the user explicitly asked to change products."
+          "count=N means N separate final edited images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items. In series mode, keep the same source product/object identity across slides unless the user explicitly asked to change products."
         ),
         buildPendingDeliveryHint({
           subject: "the edit is being prepared",
@@ -957,7 +957,7 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           type: "array",
           items: { type: "string" },
           description:
-            "Required when outputMode='series'. Provide exactly one single-image edit instruction per requested output, in order. Each item must describe only one final frame/item, not the whole series."
+            "Required when outputMode='series'. Provide exactly one single-image edit instruction per requested output, in order. Each item must describe only one final frame/item, be clearly distinct from the others, and never repeat the same instruction."
         },
         sourceImageAlias: {
           type: "string",
