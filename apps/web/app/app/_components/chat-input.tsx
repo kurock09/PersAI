@@ -125,6 +125,64 @@ function fileIcon(mime: string) {
   return <FileText className="h-5 w-5 text-text-subtle" />;
 }
 
+function PendingFilePreview({
+  file,
+  ordinal,
+  showOrdinal
+}: {
+  file: File;
+  ordinal: number;
+  showOrdinal: boolean;
+}) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!file.type.startsWith("image/")) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  if (file.type.startsWith("image/")) {
+    return (
+      <span className="relative h-8 w-8 shrink-0 overflow-hidden rounded">
+        {previewUrl !== null ? (
+          <img src={previewUrl} alt={file.name} className="h-full w-full object-cover" />
+        ) : (
+          <span className="flex h-full w-full items-center justify-center bg-surface-hover">
+            <ImageIcon className="h-4 w-4 text-text-subtle" />
+          </span>
+        )}
+        {showOrdinal ? (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 flex items-center justify-center text-xl font-semibold leading-none text-white/25"
+          >
+            {ordinal}
+          </span>
+        ) : null}
+      </span>
+    );
+  }
+
+  return (
+    <span className="relative flex h-8 w-8 shrink-0 items-center justify-center">
+      {fileIcon(file.type)}
+      {showOrdinal ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm font-semibold text-text-muted/25"
+        >
+          {ordinal}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -591,6 +649,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const visibleDocumentJobs = activeDocumentJobs.slice(0, 2);
   const showCollapsedDocumentJobs = activeDocumentJobs.length > 2;
   const composerCanSend = draftText.trim().length > 0 || pendingFiles.length > 0;
+  const showAttachmentOrdinals = pendingFiles.length > 1;
   const showComposerMicSlot = !isRecording || isTouchDevice;
   const showStop = isStreaming;
   const showTranscribing = isTranscribing && !isStreaming;
@@ -1042,15 +1101,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 key={`${file.name}-${String(idx)}`}
                 className="group/file relative flex items-center gap-1.5 rounded-lg border border-border bg-surface-raised px-2.5 py-1.5"
               >
-                {file.type.startsWith("image/") ? (
-                  <img
-                    src={URL.createObjectURL(file)}
-                    alt={file.name}
-                    className="h-8 w-8 rounded object-cover"
-                  />
-                ) : (
-                  fileIcon(file.type)
-                )}
+                <PendingFilePreview
+                  file={file}
+                  ordinal={idx + 1}
+                  showOrdinal={showAttachmentOrdinals}
+                />
                 <span className="max-w-[120px] truncate text-xs text-text-muted">{file.name}</span>
                 <button
                   type="button"

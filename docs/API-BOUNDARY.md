@@ -291,6 +291,8 @@ ADR-081 follow-up (2026-05-07) keeps `fileRef` as the canonical runtime/API file
 
 ADR-116 extends the runtime `files` tool with `inspect` (metadata + `capabilities` + effective preview byte limits), `files.preview` (visual re-view for images and native PDF with ephemeral provider injection), and plan-owned preview limits on the `files` tool activation (`maxFilePreviewBytes`, `maxFilePreviewEdgePx`). `get` remains a compatibility alias with the same inspect payload shape.
 
+`files.read` on PDF/DOCX returns model-visible text plus additive metadata: `charCount`, `truncated`, `readNote`, `extractionQuality`, and `extractionCached` (true when internal extract served from durable `assistant_files.metadata` cache). Tool-result JSON never contains raw binary or `%PDF-` prefixes. `files.preview` returns a short JSON ack (`action: "previewed"`, `alias`, `mimeType`, `visualKind`); pixels/PDF bytes are injected only via ephemeral `toolFollowUpUserContent` on the next provider call inside the tool loop, not persisted as a user chat message.
+
 ADR-081 Slice 4 adds the first visible product Files surface inside Assistant Settings. The web UI consumes the assistant-scoped Files API by `fileRef` and uses a Clerk-authenticated web proxy for open/download links. Chat attachment cards prefer the same canonical file route when `fileRef` exists, so attachment cards and settings rows are projections of the same File instead of separate storage concepts.
 
 ADR-081 Slice 5 removes the old attachment-download fallback from the active product/API path. Product open/download links are now canonical `fileRef` links only, and assistant Files API state exposes product metadata without storage-derived `relativePath`, `sha256`, `objectKey`, or raw path fields.

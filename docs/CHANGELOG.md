@@ -5,6 +5,8 @@
 
 ## 2026-06-14
 
+- **Current-message attachment ordinals:** multi-attach composer shows ephemeral 1/2/3 watermarks on pending thumbnails; runtime labels direct-input image/PDF blocks as `Current message attachment N of M` (separate from Working Files `image #N` aliases).
+- **ADR-116 closed:** runtime file re-view program complete (116.0–116.3). `files.inspect` / `files.read` / `files.preview` with plan-owned preview limits, ephemeral provider injection, and unified hydration limits; live acceptance PASS on `persai-dev` (`ff9e4cbb`).
 - **ADR-116 Slice 116.2 (preview + injection):** `files.preview` for `image/*` and native PDF with plan-owned byte/edge limits; tool JSON ack only, ephemeral multimodal via `toolFollowUpUserContent` after tool history; `turn-context-hydration` uses bundle effective preview limits for current-turn attachments.
 - **ADR-116 Slice 116.0 (file re-view foundation):** added `files.inspect` / contract `files.preview`, plan-owned `maxFilePreviewBytes` + `maxFilePreviewEdgePx` on `files` tool activation (Prisma + Admin Plans UI + materialized `RuntimeToolPolicy`), `@persai/config` preview defaults/ceiling helpers, and `files.inspect`/`get` metadata responses with `capabilities` + effective preview limits.
 - **ADR-116 Slice 116.1 (read hardening):** `files.read` on PDF/DOCX now surfaces `charCount`, `extractionQuality`, `readNote`, `extractionCached`; sanitizer sets `truncated` + `charCount` when clipping to 16k; internal extract API returns `cached: true` on metadata cache hits.

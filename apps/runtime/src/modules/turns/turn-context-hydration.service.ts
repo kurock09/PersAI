@@ -3,6 +3,7 @@ import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayImageContentBlock,
   ProviderGatewayMessageContent,
+  ProviderGatewayMessageContentBlock,
   ProviderGatewayPdfContentBlock,
   ProviderGatewayTextMessage,
   RuntimeAttachmentRef,
@@ -38,6 +39,10 @@ import {
   type RuntimeAssistantFileRecord
 } from "./runtime-assistant-file-registry.service";
 import { parseStoredReusableCompactionState } from "./shared-compaction-state";
+import {
+  formatCurrentMessageAttachmentLabel,
+  shouldLabelCurrentMessageAttachments
+} from "./current-message-attachment-labels";
 import { readFilesToolEffectivePreviewLimits } from "./runtime-file-capabilities";
 
 const MAX_DIRECT_PROVIDER_ATTACHMENT_TOTAL_BYTES = 12 * 1024 * 1024;
@@ -266,7 +271,7 @@ type DirectInputAttachmentCandidate = {
 };
 
 type DirectInputSelection = {
-  blocks: DirectProviderContentBlock[];
+  blocks: ProviderGatewayMessageContentBlock[];
 };
 
 type PreparedDirectProviderAttachmentPayload = {
@@ -1619,8 +1624,17 @@ export class TurnContextHydrationService {
             .map((attachment) => this.toRuntimeDirectInputCandidate(attachment))
             .filter((candidate): candidate is DirectInputAttachmentCandidate => candidate !== null);
 
+    const visualCandidates = candidates.filter(
+      (candidate) => candidate.kind === "image" || candidate.kind === "pdf"
+    );
+    const labelDirectAttachments = shouldLabelCurrentMessageAttachments(visualCandidates.length);
+    let visualCandidateOrdinal = 0;
     let totalBytes = 0;
     for (const candidate of candidates) {
+      const isVisualCandidate = candidate.kind === "image" || candidate.kind === "pdf";
+      if (isVisualCandidate) {
+        visualCandidateOrdinal += 1;
+      }
       if (
         candidate.sizeBytes <= 0 ||
         (candidate.kind !== "image" &&
@@ -1655,6 +1669,12 @@ export class TurnContextHydrationService {
         continue;
       }
 
+      if (labelDirectAttachments && isVisualCandidate) {
+        selection.blocks.push({
+          type: "text",
+          text: formatCurrentMessageAttachmentLabel(visualCandidateOrdinal, visualCandidates.length)
+        });
+      }
       selection.blocks.push(this.toDirectProviderContentBlock(candidate, prepared));
       totalBytes += prepared.buffer.length;
     }

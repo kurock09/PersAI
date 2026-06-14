@@ -3,50 +3,24 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
-## 2026-06-14 — ADR-116 Slice 116.2 landed (preview + injection)
+## 2026-06-14 — ADR-116 closed (file re-view: inspect, read, preview)
 
 ### Baseline
 
-- Slices 116.0 + 116.1 in tree; 116.2 implementation uncommitted at session end.
+- `ff9e4cbb` on `main`; deployed to `persai-dev` (`runtime`, `provider-gateway`, `api`, `web`).
 
-### What landed (116.2)
+### What landed (116.0–116.3)
 
-- **`files.preview`:** image/\* and native PDF under plan `effectiveMaxPreviewBytes`; oversize → `preview_size_limit`; unsupported mime → `preview_unsupported`.
-- **Ephemeral injection:** tool result is JSON ack only; pixels/PDF via turn-local `pendingFilePreviewBlocks` → `toolFollowUpUserContent` on next provider call (after `toolHistory`).
-- **Unified hydration:** current-turn attachment direct-input uses bundle `effectiveMaxPreviewBytes` / `effectiveMaxPreviewEdgePx` instead of hardcoded 8 MB / 2048 px.
-- **New modules:** `runtime-file-preview-hydration.ts`; provider-gateway OpenAI + Anthropic append ephemeral user multimodal after tool history.
-
-### Verification
-
-- `runtime-files-tool.service.test.ts` (preview success / size limit / unsupported)
-- `@persai/runtime` / `@persai/provider-gateway` typecheck; lint + format gate
-
-### Next recommended slice
-
-- **ADR-116.3** — live acceptance, any remaining focused tests/docs.
-- **Deploy:** `runtime` + `provider-gateway` for 116.2; `api` + `web` if 116.0 migration/UI not yet deployed.
-
----
-
-## 2026-06-14 — ADR-116 Slice 116.1 landed (read hardening)
-
-### Baseline
-
-- Slice 116.0 landed in tree; 116.1 implementation uncommitted at session end.
-
-### What landed (116.1)
-
-- **`files.read` document path:** `charCount`, `extractionQuality`, `readNote`, `extractionCached` on tool result; operational `warning` stays separate from `readNote`.
-- **Sanitizer:** when clipping `content` to 16k, model JSON gets `truncated: true` and `charCount` of the full text.
-- **Internal extract API:** `cached: true` on durable `assistant_files.metadata` cache hits (second read skips download/OCR).
+- **116.0:** `files.inspect` / contract `files.preview`; plan `maxFilePreviewBytes` + `maxFilePreviewEdgePx`; Admin Plans UI; materialized `RuntimeToolPolicy`; capability matrix.
+- **116.1:** `files.read` metadata (`charCount`, `truncated`, `readNote`, `extractionCached`, `extractionQuality`); sanitizer clip truth; extract API `cached: true` on hits.
+- **116.2:** `files.preview` for `image/*` + native PDF; ephemeral `toolFollowUpUserContent` injection; unified hydration byte/edge limits from bundle.
+- **116.3:** focused unit tests, doc truth (`API-BOUNDARY`, `TEST-PLAN`, `DATA-MODEL`), live acceptance on `persai-dev` — all four checklist items PASS (see ADR-116 closure table).
 
 ### Verification
 
-- `runtime-files-read-metadata.test.ts`, `runtime-files-tool.service.test.ts`, `sanitize-tool-result-for-model.test.ts`, `extract-internal-runtime-assistant-file.service.test.ts`
-- `@persai/api` / `@persai/runtime` typecheck
+- Repo gate at `ff9e4cbb`: lint, format:check, typecheck, test, test:step2.
+- Live: `files.preview` on historical images; `preview_size_limit` at plan limit 25 bytes; success at 8 MB with `file_preview` runtime log.
 
-### Next recommended slice
+### Next recommended step
 
-- **ADR-116.2** — `files.preview` + ephemeral multimodal injection + unified hydration byte limit.
-- Then **116.3** live acceptance.
-- **Deploy:** `api` + `runtime` for 116.0 + 116.1; migration from 116.0 if not yet applied.
+- No open ADR-116 work. Await explicit user priority for the next program (e.g. skill scenarios consumer of `files.preview`, or unrelated slice).

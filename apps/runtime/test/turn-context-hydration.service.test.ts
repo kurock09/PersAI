@@ -802,6 +802,10 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   assert.equal(Array.isArray(multiImage[1]?.content), true);
   const multiImageBlocks = multiImage[1]?.content as Array<{ type: string; text?: string }>;
   assert.equal(multiImageBlocks[0]?.text, "edit both images");
+  assert.match(multiImageBlocks[1]?.text ?? "", /Current message attachment 1 of 2/i);
+  assert.equal(multiImageBlocks[2]?.type, "image");
+  assert.match(multiImageBlocks[3]?.text ?? "", /Current message attachment 2 of 2/i);
+  assert.equal(multiImageBlocks[4]?.type, "image");
   assert.doesNotMatch(
     multiImageBlocks[0]?.text ?? "",
     /fileRef|Working files from user attachments/i

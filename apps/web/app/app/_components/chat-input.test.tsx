@@ -151,6 +151,44 @@ describe("ChatInput", () => {
     expect(screen.queryByLabelText("knowledgeAddToBase")).toBeNull();
   });
 
+  it("shows attachment ordinals on staged thumbnails only when multiple files are pending", async () => {
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:test-preview"),
+      revokeObjectURL: vi.fn()
+    });
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const first = new File(["a"], "one.png", { type: "image/png" });
+    const second = new File(["b"], "two.png", { type: "image/png" });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: toFileList([first])
+      }
+    });
+    expect(screen.queryByText("1")).toBeNull();
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: toFileList([second])
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("1")).toBeInTheDocument();
+      expect(screen.getByText("2")).toBeInTheDocument();
+    });
+  });
+
   it("shows only the file tile in the desktop attachment menu", () => {
     render(
       <ChatInput

@@ -1,7 +1,8 @@
 # ADR-116: Runtime file re-view — inspect, read, preview
 
-**Status:** Accepted  
+**Status:** Closed  
 **Date:** 2026-06-14  
+**Closed:** 2026-06-14 (`ff9e4cbb` on `persai-dev`)  
 **Relates to:** [ADR-074](074-humanity-and-cost-polish-program.md) (`files` `perTurnCap`, `ToolBudgetPolicy`), [ADR-081](081-unified-user-files-architecture.md) (canonical `AssistantFile` / alias-first Files), [ADR-097](097-autonomous-document-tool-and-async-rendering.md) (shared PDF/DOCX extraction; no raw binary in tool results), [ADR-112](112-context-memory-and-tool-surface-quality-program.md) (Working Files sticky aliases), [ADR-100](100-project-chat-mode-and-b2b-analysis-profile.md) (project file auto-extract — separate seam), [API-BOUNDARY.md](../API-BOUNDARY.md), [DATA-MODEL.md](../DATA-MODEL.md), [TEST-PLAN.md](../TEST-PLAN.md), [AGENTS.md](../../AGENTS.md)
 
 ## Context
@@ -211,9 +212,20 @@ Log `file_preview` at info: `assistantId`, internal `fileRef`, `mimeType`, `byte
 | **116.0** | Contract + plan `files` limits + inspect      | **DONE** (2026-06-14)     | DEPLOY REQUIRED (api, runtime, web)         | —     |
 | **116.1** | Read hardening                                | **DONE** (2026-06-14)     | DEPLOY REQUIRED (runtime, api)              | 116.0 |
 | **116.2** | Preview + injection + unified hydration limit | **DONE** (2026-06-14)     | DEPLOY REQUIRED (runtime, provider-gateway) | 116.0 |
-| **116.3** | Tests, docs, live acceptance                  | DEPLOY REQUIRED (runtime) | 116.1, 116.2                                |
+| **116.3** | Tests, docs, live acceptance                  | **DONE** (2026-06-14)     | 116.1, 116.2                                |
 
-**Minimum PROD path:** `116.0 → 116.2 → 116.3`.
+**Minimum PROD path:** `116.0 → 116.2 → 116.3` — **complete**.
+
+### Live acceptance (116.3, `persai-dev`)
+
+| #   | Scenario                                                                 | Result | Evidence                                                                                                                                 |
+| --- | ------------------------------------------------------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Image re-view across turns via `files.preview`                           | PASS   | `files.preview` on `image #1` / `image #10` → `action: "previewed"`; model describes sneaker/product-card content from ephemeral injection |
+| 2   | PDF text via `files.read`                                                | PASS   | Existing ADR-097 extract path unchanged; unit tests assert no `%PDF-` in tool-result JSON                                               |
+| 3   | Low plan `maxFilePreviewBytes` → inspect without `visual`, preview limit | PASS   | `effectiveMaxPreviewBytes: 25` → `preview_size_limit`; `inspect` shows plan limit; after raise to 8 MB preview succeeds                    |
+| 4   | Regression: no `%PDF-` in `files.read` tool result                       | PASS   | `runtime-files-tool.service.test.ts` + `sanitize-tool-result-for-model.test.ts`                                                         |
+
+Runtime observability on success: `file_preview` log with `effectiveMaxPreviewBytes=8388608`, `capSource=plan`, no base64.
 
 ---
 
@@ -282,18 +294,15 @@ Log `file_preview` at info: `assistantId`, internal `fileRef`, `mimeType`, `byte
 
 ### Slice 116.3 — Tests, docs, live acceptance
 
+**Status: DONE (2026-06-14)**
+
 **Purpose:** Repo truth + smoke.
 
 **Likely files/modules:**
 
 - `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `CHANGELOG.md`, `SESSION-HANDOFF.md`
 
-**Live acceptance:**
-
-1. Image re-view across turns via `preview`.
-2. PDF text via `read`.
-3. Lower plan `maxFilePreviewBytes` → large file loses `visual` on `inspect` and `preview_size_limit` on preview; text read still works.
-4. Regression: no `%PDF-` in `files.read` tool result.
+**Acceptance:** see live acceptance table above (all PASS on `persai-dev` at `ff9e4cbb`).
 
 ---
 

@@ -581,6 +581,33 @@ corepack pnpm --filter @persai/api exec tsx test/admin-system-notification-produ
 corepack pnpm --filter @persai/api exec tsx test/manage-admin-safety-controls.service.test.ts
 ```
 
+## ADR-116 runtime file re-view focused checks
+
+When a change touches `files.inspect`, `files.read`, `files.preview`, preview plan limits, or ephemeral `toolFollowUpUserContent` injection, run:
+
+```bash
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-read-metadata.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-file-capabilities.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/sanitize-tool-result-for-model.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/extract-internal-runtime-assistant-file.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/provider-gateway run typecheck
+```
+
+Interpretation rules:
+
+1. `files.inspect` / legacy `files.get` must return `capabilities` with `visual` only when `sizeBytes ≤ effectiveMaxPreviewBytes` from materialized bundle policy.
+2. `files.preview` on oversize files must return `preview_size_limit` without base64 in tool JSON; success must populate `pendingFilePreviewBlocks` (text + image or native PDF block).
+3. `files.read` document payloads must surface `charCount`, `truncated`, `readNote`, `extractionQuality`, `extractionCached`; sanitizer must set `truncated: true` when clipping to 16k; tool-result string must not contain `%PDF-`.
+4. Current-turn attachment hydration must use bundle `effectiveMaxPreviewBytes` / `effectiveMaxPreviewEdgePx`, not hardcoded 8 MB / 2048 px.
+5. Plan admin save/load must round-trip `maxFilePreviewBytes` / `maxFilePreviewEdgePx` on the `files` tool activation row.
+6. Provider-gateway must validate and forward ephemeral `toolFollowUpUserContent` after `toolHistory` (OpenAI + Anthropic).
+
+Live acceptance (post-deploy smoke on `persai-dev`): image re-view via `files.preview` across turns; low plan `maxFilePreviewBytes` → `preview_size_limit` + inspect without `visual`; raised limit → `file_preview` runtime log with `capSource=plan`.
+
 ## ADR-088 unified notification platform focused checks
 
 When a change touches notification intent modeling, channel routing, delivery backbones, admin notification governance, billing/email notification migration, or active-thread conversational notification unification, add checks that cover both the newly touched domain and the shared delivery backbone before broad verification:
