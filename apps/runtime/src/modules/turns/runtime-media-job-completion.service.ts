@@ -34,7 +34,7 @@ type NativeManagedProvider = "openai" | "anthropic";
 type ProviderSelection = { provider: NativeManagedProvider; model: string };
 
 const MEDIA_JOB_COMPLETION_KEY_PREFIX = "media-job-completion";
-const COMPLETION_MAX_OUTPUT_TOKENS = 300;
+const COMPLETION_MAX_OUTPUT_TOKENS = 1000;
 const MAX_HISTORY_MESSAGES = 12;
 const MAX_HISTORY_CHARS = 500;
 
@@ -240,9 +240,6 @@ export class RuntimeMediaJobCompletionService {
       if (framingMode === "image_vision") {
         userPayload.visionReview = {
           enabled: true,
-          sourceReferenceImageCount: input.workerResult.artifacts.filter(
-            (artifact) => artifact.role === "source_reference"
-          ).length,
           outputImageCount: input.workerResult.artifacts.filter(
             (artifact) => (artifact.role ?? "output") === "output"
           ).length
@@ -327,13 +324,9 @@ export class RuntimeMediaJobCompletionService {
     input: RuntimeMediaJobCompletionRequest
   ): MediaJobCompletionVisionArtifactRef[] {
     const workerArtifacts = input.workerResult?.artifacts ?? [];
-    const sourceRefs = workerArtifacts
-      .filter((artifact) => artifact.role === "source_reference")
-      .flatMap((artifact) => this.toVisionArtifactRef(artifact, "source_reference"));
-    const outputRefs = workerArtifacts
+    return workerArtifacts
       .filter((artifact) => (artifact.role ?? "output") === "output")
       .flatMap((artifact) => this.toVisionArtifactRef(artifact, "output"));
-    return [...sourceRefs, ...outputRefs];
   }
 
   private toVisionArtifactRef(
@@ -409,9 +402,10 @@ export class RuntimeMediaJobCompletionService {
     return [
       "You are framing the completion of a finished PersAI async media job.",
       "Backend state already owns the job, artifacts, delivery idempotency, and quota truth.",
-      `You MUST return a non-empty assistantText string (1-3 short sentences) about ${subject}.`,
-      "Write in the user's language when possible, stay calm, and reflect the latest chat context.",
-      "Describe what the job attempted to do for the user based on sourceUserMessageText and artifact metadata.",
+      `You MUST return a non-empty assistantText string about ${subject}.`,
+      "Write in the user's language when possible, in a warm natural voice — not dry system copy.",
+      "Use a short friendly paragraph (about 2-4 sentences). Plain text is fine; light emphasis with *asterisks* is allowed when it helps readability.",
+      "Reflect the latest chat context and describe what the job did for the user based on sourceUserMessageText and artifact metadata.",
       "Do not claim that media was already sent, attached, uploaded, or delivered to the chat.",
       "Do not generate more media, do not call tools, and do not reopen the old user turn."
     ].join("\n");
@@ -424,14 +418,15 @@ export class RuntimeMediaJobCompletionService {
       toolCode === "image_edit" ? "the edited image result" : "the generated image result";
     return [
       "You are reviewing the completion of a finished PersAI async image job.",
-      "The attached images are authoritative visual evidence. Source reference images (if any) show the input; produced output images show the result.",
-      `You MUST return a non-empty assistantText string (1-3 short sentences) about ${subject}.`,
-      "Briefly describe what you see in the output image(s) relative to sourceUserMessageText.",
+      "The attached images are the job outputs only — authoritative visual evidence of what this job produced.",
+      `You MUST return a non-empty assistantText string about ${subject}.`,
+      "Write in the user's language when possible, in a warm natural voice — not dry system copy.",
+      "Use a short friendly paragraph (about 2-5 sentences). Plain text is fine; light emphasis with *asterisks* is allowed when it helps readability.",
+      "Describe what you see in the output image(s) relative to sourceUserMessageText.",
       "If the visual result clearly misses the request, say so honestly and calmly offer to redo or refine it.",
-      "If the result is acceptable, confirm what was done without overstating perfection.",
+      "If the result is acceptable, confirm what was done in an inviting way without overstating perfection.",
       "Do not claim that media was already sent, attached, uploaded, or delivered to the chat.",
-      "Do not generate more media, do not call tools, and do not reopen the old user turn.",
-      "Write in the user's language when possible."
+      "Do not generate more media, do not call tools, and do not reopen the old user turn."
     ].join("\n");
   }
 

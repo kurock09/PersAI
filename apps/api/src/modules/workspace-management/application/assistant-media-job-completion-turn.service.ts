@@ -73,9 +73,7 @@ export class AssistantMediaJobCompletionTurnService {
 
     const toolCode = resolveMediaJobCompletionToolCode(input.requestJson);
     const completionArtifacts = buildMediaJobCompletionArtifacts({
-      toolCode,
-      outputArtifacts: input.artifacts,
-      requestAttachments: this.readRequestAttachments(input.requestJson)
+      outputArtifacts: input.artifacts
     });
 
     const outcome = await this.internalRuntimeMediaJobClientService.complete({
@@ -154,14 +152,6 @@ export class AssistantMediaJobCompletionTurnService {
     }
     const text = outcome.result.assistantText?.trim() ?? "";
     return text.length === 0 ? null : text;
-  }
-
-  private readRequestAttachments(requestJson: unknown): unknown[] {
-    if (requestJson === null || typeof requestJson !== "object" || Array.isArray(requestJson)) {
-      return [];
-    }
-    const attachments = (requestJson as Record<string, unknown>).attachments;
-    return Array.isArray(attachments) ? attachments : [];
   }
 
   private async loadFramingContext(

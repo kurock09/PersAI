@@ -524,9 +524,7 @@ describe("RuntimeMediaJobCompletionService", () => {
     );
     const serializedMessages = JSON.stringify(recordedProviderRequest.messages);
     assert.match(serializedMessages, /"type":"image"/);
-    assert.match(
-      String(recordedProviderRequest.developerInstructions ?? ""),
-      /attached images are authoritative visual evidence/
-    );
+    assert.match(String(recordedProviderRequest.developerInstructions ?? ""), /job outputs only/);
+    assert.equal(recordedProviderRequest.maxOutputTokens, 1000);
   });
 });
