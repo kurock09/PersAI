@@ -1,4 +1,7 @@
-import type { InboundSafetyPrecheckOutcome } from "../domain/safety-policy.types";
+import type {
+  InboundSafetyPrecheckOutcome,
+  SafetyHeuristicPack
+} from "../domain/safety-policy.types";
 import { PACK_REASON_CODES } from "../domain/safety-policy.types";
 
 export type ModerationCategoryScores = Record<string, number>;
@@ -15,6 +18,8 @@ export type SafetyModerationDecisionInput = {
   moderation: OpenAiModerationResult;
   precheck: InboundSafetyPrecheckOutcome;
   blockScoreThreshold: number;
+  warnScoreThreshold: number;
+  warnFirstBlockScoreThreshold: number;
 };
 
 export type SafetyModerationDecisionOutcome = {
@@ -23,6 +28,14 @@ export type SafetyModerationDecisionOutcome = {
   maxCategoryScore: number;
   topCategory: string | null;
 };
+
+const WARN_FIRST_PACKS = new Set<SafetyHeuristicPack>([
+  "hack_abuse_request",
+  "structural_abuse_signal",
+  "unsolicited_adult_spam"
+]);
+
+const IMMEDIATE_BLOCK_CATEGORIES = new Set(["sexual/minors"]);
 
 const MODERATION_CATEGORY_REASON_CODES: Record<string, string> = {
   harassment: "structural_abuse_signal",
@@ -39,6 +52,10 @@ const MODERATION_CATEGORY_REASON_CODES: Record<string, string> = {
   violence: "violence_extremism",
   "violence/graphic": "violence_extremism"
 };
+
+export function isWarnFirstSafetyPack(pack: SafetyHeuristicPack | null): boolean {
+  return pack !== null && WARN_FIRST_PACKS.has(pack);
+}
 
 export function resolveTopModerationCategory(
   categoryScores: ModerationCategoryScores
@@ -76,6 +93,36 @@ export function resolveModerationReasonCode(input: {
   return "structural_abuse_signal";
 }
 
+function shouldImmediateBlock(input: {
+  moderation: OpenAiModerationResult;
+  precheck: InboundSafetyPrecheckOutcome;
+  topCategory: string | null;
+  maxCategoryScore: number;
+  blockScoreThreshold: number;
+}): boolean {
+  if (input.topCategory !== null && IMMEDIATE_BLOCK_CATEGORIES.has(input.topCategory)) {
+    return true;
+  }
+  if (input.precheck.rulePack === "violence_extremism_explicit") {
+    return (
+      input.moderation.flagged === true ||
+      input.maxCategoryScore >= input.blockScoreThreshold ||
+      input.precheck.confidence === "high"
+    );
+  }
+  if (input.precheck.route === "block_obvious") {
+    return true;
+  }
+  return false;
+}
+
+function shouldWarnOnDeferredPrecheck(precheck: InboundSafetyPrecheckOutcome): boolean {
+  return (
+    precheck.route === "defer_contour_2" &&
+    (precheck.confidence === "medium" || precheck.confidence === "high")
+  );
+}
+
 export function decideSafetyModerationOutcome(
   input: SafetyModerationDecisionInput
 ): SafetyModerationDecisionOutcome {
@@ -86,9 +133,16 @@ export function decideSafetyModerationOutcome(
     precheck: input.precheck,
     topCategory
   });
-  const shouldBlock =
-    input.moderation.flagged === true || maxCategoryScore >= input.blockScoreThreshold;
-  if (shouldBlock) {
+
+  if (
+    shouldImmediateBlock({
+      moderation: input.moderation,
+      precheck: input.precheck,
+      topCategory,
+      maxCategoryScore,
+      blockScoreThreshold: input.blockScoreThreshold
+    })
+  ) {
     return {
       decision: "block_user",
       reasonCode,
@@ -96,10 +150,45 @@ export function decideSafetyModerationOutcome(
       topCategory
     };
   }
-  if (
-    input.precheck.route === "defer_contour_2" &&
-    (input.precheck.confidence === "medium" || input.precheck.confidence === "high")
-  ) {
+
+  if (isWarnFirstSafetyPack(input.precheck.rulePack)) {
+    if (maxCategoryScore >= input.warnFirstBlockScoreThreshold) {
+      return {
+        decision: "block_user",
+        reasonCode,
+        maxCategoryScore,
+        topCategory
+      };
+    }
+    if (
+      input.moderation.flagged === true ||
+      maxCategoryScore >= input.warnScoreThreshold ||
+      shouldWarnOnDeferredPrecheck(input.precheck)
+    ) {
+      return {
+        decision: "warn",
+        reasonCode,
+        maxCategoryScore,
+        topCategory
+      };
+    }
+    return {
+      decision: "allow",
+      reasonCode,
+      maxCategoryScore,
+      topCategory
+    };
+  }
+
+  if (input.moderation.flagged === true || maxCategoryScore >= input.blockScoreThreshold) {
+    return {
+      decision: "block_user",
+      reasonCode,
+      maxCategoryScore,
+      topCategory
+    };
+  }
+  if (shouldWarnOnDeferredPrecheck(input.precheck)) {
     return {
       decision: "warn",
       reasonCode,

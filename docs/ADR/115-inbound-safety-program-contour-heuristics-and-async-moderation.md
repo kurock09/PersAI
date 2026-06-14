@@ -1,6 +1,6 @@
 # ADR-115: Inbound safety program — contour-1 heuristics and contour-2 async moderation
 
-**Status:** Accepted (115.0–115.4, 115.6 complete; 115.5 pending)  
+**Status:** Accepted (115.0–115.4, 115.6–115.7 complete; 115.5 pending)  
 **Date:** 2026-06-13  
 **Relates to:** [ADR-044](044-abuse-and-rate-limit-enforcement-g2.md) (spam throttle — complementary, not replaced), [ADR-067](067-application-layer-security-hardening.md), [ADR-088](088-unified-notification-platform-control-plane-and-delivery.md) (ops alerts), [ADR-102](102-pre-prod-architectural-cleanup-and-truth-hardening.md) (slice discipline), [API-BOUNDARY.md](../API-BOUNDARY.md), [DATA-MODEL.md](../DATA-MODEL.md), [TEST-PLAN.md](../TEST-PLAN.md), [AGENTS.md](../../AGENTS.md)
 
@@ -255,6 +255,7 @@ On safety deny at inbound:
 | **115.4** | Safety controls API + Ops user-level UI | DEPLOY REQUIRED (api, web) | 115.0, 115.2 |
 | **115.5** | Admin notifications + focused tests | DEPLOY REQUIRED (api) | 115.2, 115.4 |
 | **115.6** | Runtime inbound-safety policy UI | DEPLOY REQUIRED (web) | 115.1 |
+| **115.7** | User warn UX + strike escalation | DEPLOY REQUIRED (api, web) | 115.2, 115.3 |
 | **—** | Abuse cleanup (ADR-044 hygiene) | separate program | **not part of 115** |
 | **—** | User notice tone/i18n | separate program | after 115.3 |
 
@@ -382,6 +383,40 @@ On safety deny at inbound:
 
 ---
 
+### Slice 115.7 — User warn UX + strike escalation (PROD)
+
+**Purpose:** Make contour-2 `warn` user-visible and operationally meaningful: pack-aware moderation thresholds, rolling strike window, system thread notice, and repeat-offense block before runtime.
+
+**Policy (canonical):**
+
+| Pack / class | First incident | Repeat within strike window |
+| --- | --- | --- |
+| `violence_extremism_explicit`, `sexual/minors` | Block (sync hold or immediate) | Block |
+| `hack_abuse_request`, `structural_abuse_signal`, `unsolicited_adult_spam` | **Warn** (no `user_restrictions`) | Block at inbound (sync review) |
+| Other deferred medium/high | Warn when below block threshold | Block when prior warn exists for same `reasonCode` |
+
+**Strike truth:** count `moderation_cases` with `decision = warn` for `userId + reasonCode` in rolling window (`SAFETY_MODERATION_STRIKE_WINDOW_DAYS`, default 30). Second qualifying incident escalates to `block_user` + `user_restrictions`.
+
+**User UX:**
+
+- System chat message: `author: system`, `metadata.kind: safety_inbound_warn`, localized web render (amber notice + support CTA).
+- Restrict path unchanged (`safety_restricted` banner + `safety_inbound_restricted` notice).
+
+**Config:**
+
+- `SAFETY_MODERATION_WARN_SCORE_THRESHOLD` (default 0.5)
+- `SAFETY_MODERATION_WARN_FIRST_BLOCK_SCORE_THRESHOLD` (default 0.92 for warn-first packs)
+- `SAFETY_MODERATION_STRIKE_WINDOW_DAYS` (default 30)
+
+**Acceptance:**
+
+- Hack/structural flagged below 0.92 → `warn` case, thread notice, chat still works.
+- Prior warn + same `reasonCode` → inbound deny before user message on repeat.
+- Violence / minors → block without warn.
+- Web history exposes `platformNotice` on messages API.
+
+---
+
 ## Verification (all slices)
 
 ```bash
@@ -410,3 +445,4 @@ Focused tests per slice as listed in `TEST-PLAN.md` § ADR-115 (to be added in s
 | 115.4 | complete | `e797a172` | safety controls API + ops UI |
 | 115.5 | pending | — | |
 | 115.6 | complete | `e797a172` | runtime inbound-safety policy UI |
+| 115.7 | complete | `a35d17c3` | warn UX, strikes, pack thresholds, platformNotice |

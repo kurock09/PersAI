@@ -570,6 +570,7 @@ Interpretation rules:
 6. Slice 115.4 ops must show `safety_restricted` on user directory rows, expose restriction details on ops cockpit, allow admin unblock without abuse-controls, and require step-up for manual restrict.
 7. Slice 115.6 runtime UI must round-trip heuristic rules and routing knobs via safety-policy API without mixing router `precheckRuleOverrides`.
 8. Empty `user_restrictions` must not change safety-deny behavior; abuse-before-quota reorder remains intentional from slice 115.0.
+9. Slice 115.7 warn path must persist `moderation_cases` with `decision: warn` without `user_restrictions`; repeat warn for same `reasonCode` in strike window must escalate to `block_user` at inbound; web must render `platformNotice.kind = safety_inbound_warn`.
 
 ## ADR-088 unified notification platform focused checks
 

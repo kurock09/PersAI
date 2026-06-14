@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
 import {
   decideSafetyModerationOutcome,
+  isWarnFirstSafetyPack,
   resolveModerationReasonCode,
   resolveTopModerationCategory
 } from "../src/modules/workspace-management/application/safety-moderation-decision";
+
+const THRESHOLDS = {
+  blockScoreThreshold: 0.85,
+  warnScoreThreshold: 0.5,
+  warnFirstBlockScoreThreshold: 0.92
+};
 
 function runDecisionTests(): void {
   const blocked = decideSafetyModerationOutcome({
@@ -19,7 +26,7 @@ function runDecisionTests(): void {
       rulePack: "violence_extremism_explicit",
       matchedSignals: ["violence.mass_attack_instruction_en"]
     },
-    blockScoreThreshold: 0.85
+    ...THRESHOLDS
   });
   assert.equal(blocked.decision, "block_user");
   assert.equal(blocked.reasonCode, "violence_extremism");
@@ -37,7 +44,7 @@ function runDecisionTests(): void {
       rulePack: null,
       matchedSignals: []
     },
-    blockScoreThreshold: 0.85
+    ...THRESHOLDS
   });
   assert.equal(allowed.decision, "allow");
 
@@ -54,9 +61,63 @@ function runDecisionTests(): void {
       rulePack: "structural_abuse_signal",
       matchedSignals: ["structural.repeated_caps_ru"]
     },
-    blockScoreThreshold: 0.85
+    ...THRESHOLDS
   });
   assert.equal(warned.decision, "warn");
+
+  const hackWarn = decideSafetyModerationOutcome({
+    moderation: {
+      flagged: true,
+      categories: { illicit: true },
+      categoryScores: { illicit: 0.72 }
+    },
+    precheck: {
+      route: "defer_contour_2",
+      confidence: "medium",
+      reasonCode: "hack_abuse",
+      rulePack: "hack_abuse_request",
+      matchedSignals: ["hack.credential_theft_en"]
+    },
+    ...THRESHOLDS
+  });
+  assert.equal(hackWarn.decision, "warn");
+
+  const hackBlock = decideSafetyModerationOutcome({
+    moderation: {
+      flagged: true,
+      categories: { illicit: true },
+      categoryScores: { illicit: 0.94 }
+    },
+    precheck: {
+      route: "defer_contour_2",
+      confidence: "medium",
+      reasonCode: "hack_abuse",
+      rulePack: "hack_abuse_request",
+      matchedSignals: ["hack.credential_theft_en"]
+    },
+    ...THRESHOLDS
+  });
+  assert.equal(hackBlock.decision, "block_user");
+
+  const csamBlock = decideSafetyModerationOutcome({
+    moderation: {
+      flagged: true,
+      categories: { "sexual/minors": true },
+      categoryScores: { "sexual/minors": 0.55 }
+    },
+    precheck: {
+      route: "defer_contour_2",
+      confidence: "medium",
+      reasonCode: "unsolicited_adult_spam",
+      rulePack: "unsolicited_adult_spam",
+      matchedSignals: []
+    },
+    ...THRESHOLDS
+  });
+  assert.equal(csamBlock.decision, "block_user");
+
+  assert.equal(isWarnFirstSafetyPack("hack_abuse_request"), true);
+  assert.equal(isWarnFirstSafetyPack("violence_extremism_explicit"), false);
 
   const top = resolveTopModerationCategory({
     harassment: 0.2,

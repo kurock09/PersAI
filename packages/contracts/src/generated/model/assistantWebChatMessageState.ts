@@ -6,6 +6,7 @@
  */
 import type { AssistantChatMessageAuthor } from "./assistantChatMessageAuthor";
 import type { AssistantWebChatMessageAttachmentState } from "./assistantWebChatMessageAttachmentState";
+import type { AssistantWebChatMessageStatePlatformNotice } from "./assistantWebChatMessageStatePlatformNotice";
 
 export interface AssistantWebChatMessageState {
   id: string;
@@ -15,4 +16,6 @@ export interface AssistantWebChatMessageState {
   content: string;
   attachments: AssistantWebChatMessageAttachmentState[];
   createdAt: string;
+  /** @nullable */
+  platformNotice?: AssistantWebChatMessageStatePlatformNotice;
 }

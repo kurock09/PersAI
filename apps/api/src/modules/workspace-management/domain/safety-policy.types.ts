@@ -52,6 +52,9 @@ export const SAFETY_POLICY_SETTINGS_ID = "platform";
 export const SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE =
   "This message could not be processed because inbound access is restricted by platform safety policy.";
 
+export const SAFETY_INBOUND_WARN_PLACEHOLDER_MESSAGE =
+  "This chat received a platform safety warning after an automatic review.";
+
 export const PACK_REASON_CODES: Record<SafetyHeuristicPack, string> = {
   violence_extremism_explicit: "violence_extremism",
   hack_abuse_request: "hack_abuse",

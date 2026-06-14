@@ -75,12 +75,18 @@ export type ChatAttachment = ChatHistoryAttachment & {
   localPreviewUrl?: string | undefined;
   uploadProgressPercent?: number | undefined;
 };
+export type ChatPlatformNotice = {
+  kind: "safety_inbound_warn" | "safety_inbound_restricted";
+  reasonCode: string;
+};
+
 export interface ChatMessage {
   id: string;
   role: ChatMessageRole;
   content: string;
   status: ChatMessageStatus;
   attachments?: ChatAttachment[] | undefined;
+  platformNotice?: ChatPlatformNotice | undefined;
   thought?: string;
   thoughtStartedAt?: string | null;
   thoughtFinishedAt?: string | null;
@@ -545,6 +551,7 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
     role: message.author === "system" ? "assistant" : message.author,
     content: message.content,
     status: "committed",
+    ...(message.platformNotice ? { platformNotice: message.platformNotice } : {}),
     attachments:
       message.attachments.length > 0 ? (message.attachments as ChatAttachment[]) : undefined
   };

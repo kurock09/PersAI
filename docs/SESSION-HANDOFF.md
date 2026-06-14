@@ -3,6 +3,37 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-14 - ADR-115 slice 115.7 user warn UX + strike escalation
+
+### Baseline
+
+- Starting SHA: `a35d17c3` on `main`.
+
+### What changed
+
+- **ADR-115.7:** pack-aware moderation (`warn` vs `block_user`), rolling strike window (30d `moderation_cases` warns per `reasonCode`), inbound repeat-offense sync block before runtime, system thread `safety_inbound_warn` notice.
+- **API:** `decideSafetyModerationOutcome` thresholds (`WARN` 0.5, hack block 0.92), `countRecentSafetyWarnCases`, `platformNotice` on web chat messages, config keys `SAFETY_MODERATION_WARN_*` + `STRIKE_WINDOW_DAYS`.
+- **Web:** amber in-thread safety warn card (RU/EN) + support CTA; `platformNotice` plumbed through chat history.
+
+### Verification (AGENTS gate)
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check` (+ Prettier on generated contracts)
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/safety-moderation-decision.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/web-chat-message-state.mapper.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/enforce-inbound-safety-precheck-follow-through.service.test.ts`
+
+### Risks / residuals
+
+- Async warn notice appears after history reload (no live push yet); deploy **api + web** required.
+- **115.5** (admin notifications + E2E) still open.
+
+### Next recommended step
+
+- Live test: hack message → warn in thread + chat works; repeat → `safety_restricted`; violence → immediate block. Then **115.5**.
+
 ## 2026-06-14 - ADR-115 admin BFF session auth fix
 
 ### Baseline

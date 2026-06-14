@@ -5,6 +5,7 @@
 
 ## 2026-06-14
 
+- ADR-115 slice 115.7: user-visible safety warn (system thread notice + localized web card), pack-aware moderation thresholds, rolling warn strikes per `reasonCode`, repeat offense blocks at inbound; OpenAPI `platformNotice` on chat messages.
 - ADR-115 follow-up BFF auth: admin ops and inbound-safety UI now route through Clerk cookie session on `/api/v1` (`buildAdminFetchOptions`) instead of stale client Bearer tokens, fixing “Session expired” on safety unblock/restrict and policy panel loads; safety-policy GET uses `assertCanReadAdminSurface`.
 - ADR-115 follow-up UX + ops fix: step-up challenge now accepts `admin.safety_user.restrict` (fixes Ops manual safety restrict 400), web chat shows localized `safety_restricted` banner with support CTA, ops user directory highlights safety-restricted rows in warning tone, inbound safety admin panel polish + `getAdminSessionToken`, and GKE live-moderation smoke scripts under `apps/api/scripts/`.
 - ADR-115 Slices 3–4 and 6 landed on `main` at `e797a172` (full repo gate: lint, typecheck, test, test:step2, build).

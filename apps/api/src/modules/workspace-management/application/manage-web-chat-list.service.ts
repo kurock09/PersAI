@@ -52,6 +52,7 @@ import {
   getAttachmentDerivativeRefs,
   toAssistantWebChatMessageAttachmentState
 } from "./media/media.types";
+import { mapAssistantChatMessageToWebState } from "./web-chat-message-state.mapper";
 
 type AttachmentDerivativeRefs = ReturnType<typeof getAttachmentDerivativeRefs>;
 
@@ -381,15 +382,12 @@ export class ManageWebChatListService {
       attachmentsByMessageId.set(att.messageId, list);
     }
 
-    const mapped: AssistantWebChatMessageState[] = allMessages.map((m) => ({
-      id: m.id,
-      chatId: m.chatId,
-      assistantId: m.assistantId,
-      author: m.author,
-      content: m.content,
-      attachments: attachmentsByMessageId.get(m.id) ?? [],
-      createdAt: m.createdAt.toISOString()
-    }));
+    const mapped: AssistantWebChatMessageState[] = allMessages.map((m) =>
+      mapAssistantChatMessageToWebState({
+        message: m,
+        attachments: attachmentsByMessageId.get(m.id) ?? []
+      })
+    );
 
     // Reverse pagination: newest first. No cursor = last N; cursor = N older than cursor.
     let endIndex = mapped.length;

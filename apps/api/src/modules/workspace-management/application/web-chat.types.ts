@@ -60,6 +60,11 @@ export interface AssistantWebChatMessageAttachmentState {
   createdAt: string;
 }
 
+export interface AssistantWebChatPlatformNoticeState {
+  kind: "safety_inbound_warn" | "safety_inbound_restricted";
+  reasonCode: string;
+}
+
 export interface AssistantWebChatMessageState {
   id: string;
   chatId: string;
@@ -68,6 +73,7 @@ export interface AssistantWebChatMessageState {
   content: string;
   attachments: AssistantWebChatMessageAttachmentState[];
   createdAt: string;
+  platformNotice?: AssistantWebChatPlatformNoticeState;
 }
 
 export interface AssistantWebChatTurnRoutingState {

@@ -9,7 +9,9 @@ import type {
 } from "../domain/safety-moderation.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { countRecentSafetyWarnCases } from "./count-user-safety-warn-strikes";
 import { OpenAiModerationClientService } from "./openai-moderation-client.service";
+import { PersistSafetyInboundThreadNoticeService } from "./persist-safety-inbound-thread-notice.service";
 import { decideSafetyModerationOutcome } from "./safety-moderation-decision";
 import { previewThreadText } from "./safety-moderation-review.shared";
 
@@ -39,7 +41,8 @@ export class SafetyModerationReviewCoreService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly openAiModerationClientService: OpenAiModerationClientService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly persistSafetyInboundThreadNoticeService: PersistSafetyInboundThreadNoticeService
   ) {}
 
   async findExistingCaseId(userId: string, triggerKey: string): Promise<string | null> {
@@ -103,8 +106,24 @@ export class SafetyModerationReviewCoreService {
     const decisionOutcome = decideSafetyModerationOutcome({
       moderation,
       precheck: input.precheck,
-      blockScoreThreshold: config.SAFETY_MODERATION_BLOCK_SCORE_THRESHOLD
+      blockScoreThreshold: config.SAFETY_MODERATION_BLOCK_SCORE_THRESHOLD,
+      warnScoreThreshold: config.SAFETY_MODERATION_WARN_SCORE_THRESHOLD,
+      warnFirstBlockScoreThreshold: config.SAFETY_MODERATION_WARN_FIRST_BLOCK_SCORE_THRESHOLD
     });
+
+    let finalDecision = decisionOutcome.decision;
+    let escalatedFromWarn = false;
+    if (finalDecision === "warn") {
+      const priorWarnCases = await countRecentSafetyWarnCases(this.prisma, {
+        userId: input.userId,
+        reasonCode: decisionOutcome.reasonCode,
+        windowDays: config.SAFETY_MODERATION_STRIKE_WINDOW_DAYS
+      });
+      if (priorWarnCases >= 1) {
+        finalDecision = "block_user";
+        escalatedFromWarn = true;
+      }
+    }
 
     const triggerSnapshot: SafetyModerationTriggerSnapshot = {
       triggerKey: input.triggerKey,
@@ -130,13 +149,13 @@ export class SafetyModerationReviewCoreService {
         triggerSnapshot: triggerSnapshot as Prisma.InputJsonValue,
         threadSnapshot: threadSnapshot as Prisma.InputJsonValue,
         scores,
-        decision: decisionOutcome.decision,
+        decision: finalDecision,
         reasonCode: decisionOutcome.reasonCode
       }
     });
 
     let restrictionCreated = false;
-    if (decisionOutcome.decision === "block_user") {
+    if (finalDecision === "block_user") {
       await this.upsertActiveSafetyRestriction({
         userId: input.userId,
         reasonCode: decisionOutcome.reasonCode,
@@ -144,6 +163,13 @@ export class SafetyModerationReviewCoreService {
         moderationCaseId: moderationCase.id
       });
       restrictionCreated = true;
+    } else if (finalDecision === "warn") {
+      await this.persistSafetyInboundThreadNoticeService.persistWarnNoticeIfPossible({
+        chatId: input.chatId,
+        assistantId: input.assistantId,
+        reasonCode: decisionOutcome.reasonCode,
+        moderationCaseId: moderationCase.id
+      });
     }
 
     await this.appendAssistantAuditEventService.execute({
@@ -152,24 +178,25 @@ export class SafetyModerationReviewCoreService {
       actorUserId: null,
       eventCategory: "safety",
       eventCode: "safety.moderation_case_decided",
-      summary: `Safety moderation case decided (${decisionOutcome.decision}) for user ${input.userId}.`,
-      outcome: decisionOutcome.decision === "block_user" ? "denied" : "succeeded",
+      summary: `Safety moderation case decided (${finalDecision}) for user ${input.userId}.`,
+      outcome: finalDecision === "block_user" ? "denied" : "succeeded",
       details: {
         moderationCaseId: moderationCase.id,
         triggerKey: input.triggerKey,
         userId: input.userId,
         assistantId: input.assistantId,
         workspaceId: input.workspaceId,
-        decision: decisionOutcome.decision,
+        decision: finalDecision,
         reasonCode: decisionOutcome.reasonCode,
-        surface: input.surface
+        surface: input.surface,
+        ...(escalatedFromWarn ? { escalatedFromWarn: true } : {})
       }
     });
 
     return {
       alreadyExisted: false,
       moderationCaseId: moderationCase.id,
-      decision: decisionOutcome.decision,
+      decision: finalDecision,
       reasonCode: decisionOutcome.reasonCode,
       restrictionCreated
     };

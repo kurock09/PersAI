@@ -25,6 +25,7 @@ import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import "katex/dist/katex.min.css";
 import {
+  ShieldAlert,
   Copy,
   Check,
   ChevronDown,
@@ -40,6 +41,7 @@ import {
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
+import type { Route } from "next";
 import { AssistantAvatar } from "./assistant-avatar";
 import { getActivityDisplayParts, type ActivityEvent } from "./activity-badge";
 import {
@@ -1627,6 +1629,21 @@ function AttachmentStrip({
  */
 const SENDING_INDICATOR_DELAY_MS = 250;
 
+function resolveSafetyInboundWarnBodyKey(reasonCode: string | undefined): string {
+  switch (reasonCode) {
+    case "hack_abuse":
+      return "safetyInboundWarnBodyHackAbuse";
+    case "violence_extremism":
+      return "safetyInboundWarnBodyViolence";
+    case "unsolicited_adult_spam":
+      return "safetyInboundWarnBodyAdultSpam";
+    case "structural_abuse_signal":
+      return "safetyInboundWarnBodyStructural";
+    default:
+      return "safetyInboundWarnBodyDefault";
+  }
+}
+
 export const ChatMessageBubble = memo(function ChatMessageBubble({
   message,
   assistantAvatarUrl,
@@ -1699,6 +1716,34 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     }, SENDING_INDICATOR_DELAY_MS);
     return () => clearTimeout(timer);
   }, [hasUserAttachments, isUserSending]);
+
+  if (message.platformNotice?.kind === "safety_inbound_warn") {
+    const reasonCode = message.platformNotice.reasonCode;
+    return (
+      <div className="mx-auto w-full max-w-3xl px-3 py-2">
+        <div className="rounded-2xl border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 shadow-sm dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-50">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" />
+            <div className="min-w-0 space-y-2">
+              <p className="font-medium">{t("safetyInboundWarnTitle")}</p>
+              <p className="text-[13px] leading-relaxed text-amber-900/90 dark:text-amber-50/90">
+                {t(resolveSafetyInboundWarnBodyKey(reasonCode))}
+              </p>
+              <p className="text-[12px] leading-relaxed text-amber-800/80 dark:text-amber-100/80">
+                {t("safetyInboundWarnDetail")}
+              </p>
+              <Link
+                href={"/app/settings?section=support" as Route}
+                className="inline-flex text-[12px] font-medium text-amber-900 underline underline-offset-2 hover:text-amber-950 dark:text-amber-100"
+              >
+                {t("safetyInboundWarnOpenSupport")}
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

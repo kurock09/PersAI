@@ -4,7 +4,10 @@ import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
-import { SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE } from "../domain/safety-policy.types";
+import {
+  SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE,
+  SAFETY_INBOUND_WARN_PLACEHOLDER_MESSAGE
+} from "../domain/safety-policy.types";
 
 @Injectable()
 export class PersistSafetyInboundThreadNoticeService {
@@ -13,7 +16,7 @@ export class PersistSafetyInboundThreadNoticeService {
     private readonly assistantChatRepository: AssistantChatRepository
   ) {}
 
-  async persistPlaceholderIfPossible(input: {
+  async persistRestrictedPlaceholderIfPossible(input: {
     chatId: string | null;
     assistantId: string;
     reasonCode: string;
@@ -32,5 +35,37 @@ export class PersistSafetyInboundThreadNoticeService {
       }
     });
     return message.id;
+  }
+
+  async persistWarnNoticeIfPossible(input: {
+    chatId: string | null;
+    assistantId: string;
+    reasonCode: string;
+    moderationCaseId: string;
+  }): Promise<string | null> {
+    if (input.chatId === null) {
+      return null;
+    }
+    const message = await this.assistantChatRepository.createMessage({
+      chatId: input.chatId,
+      assistantId: input.assistantId,
+      author: "system",
+      content: SAFETY_INBOUND_WARN_PLACEHOLDER_MESSAGE,
+      metadata: {
+        kind: "safety_inbound_warn",
+        reasonCode: input.reasonCode,
+        moderationCaseId: input.moderationCaseId
+      }
+    });
+    return message.id;
+  }
+
+  /** @deprecated Use persistRestrictedPlaceholderIfPossible */
+  async persistPlaceholderIfPossible(input: {
+    chatId: string | null;
+    assistantId: string;
+    reasonCode: string;
+  }): Promise<string | null> {
+    return this.persistRestrictedPlaceholderIfPossible(input);
   }
 }

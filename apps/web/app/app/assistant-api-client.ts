@@ -2442,6 +2442,10 @@ export type ChatHistoryMessage = {
   content: string;
   attachments: ChatHistoryAttachment[];
   createdAt: string;
+  platformNotice?: {
+    kind: "safety_inbound_warn" | "safety_inbound_restricted";
+    reasonCode: string;
+  } | null;
 };
 
 export type ChatCompactionState = AssistantWebChatCompactionState & {

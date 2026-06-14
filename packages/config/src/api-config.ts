@@ -95,6 +95,9 @@ const baseApiConfigSchema = z.object({
   SAFETY_MODERATION_BATCH_SIZE: z.coerce.number().int().positive().default(4),
   SAFETY_MODERATION_THREAD_MESSAGE_LIMIT: z.coerce.number().int().min(10).max(20).default(15),
   SAFETY_MODERATION_BLOCK_SCORE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
+  SAFETY_MODERATION_WARN_SCORE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.5),
+  SAFETY_MODERATION_WARN_FIRST_BLOCK_SCORE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.92),
+  SAFETY_MODERATION_STRIKE_WINDOW_DAYS: z.coerce.number().int().positive().default(30),
   SAFETY_MODERATION_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   SAFETY_MODERATION_STUCK_PROCESSING_MS: z.coerce.number().int().positive().default(600_000),
   SAFETY_MODERATION_OPENAI_API_KEY: optionalNonEmptyString
