@@ -3,6 +3,34 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-14 - ADR-115 admin BFF session auth fix
+
+### Baseline
+
+- Starting SHA: `472d8227` on `main`; landed and pushed as `87b1f587`.
+
+### What changed
+
+- **Web:** `buildAdminFetchOptions` + `usesAdminBffProxy` — admin API calls on `/api/v1` use Clerk cookie session (`credentials: include`) instead of stale client `Authorization: Bearer`, fixing “Session expired” on Ops safety unblock/restrict and Inbound Safety policy load/save.
+- **Web ops:** user directory, cockpit load, plan override, billing support, reapply, and safety handlers aligned to the same BFF pattern.
+- **API:** safety-policy GET rules/settings now use `assertCanReadAdminSurface` (writes still require abuse-controls manage).
+
+### Verification (AGENTS gate)
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check` (Prettier on `ops/page.tsx`, `assistant-api-client.ts`)
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Deploy **web** required for BFF auth fix on `persai.dev`.
+- **115.5** (admin notifications + E2E) still open.
+
+### Next recommended step
+
+- Live-verify Ops **Unblock user** / **Apply safety restrict** and Runtime **Inbound Safety** after web deploy; then **115.5**.
+
 ## 2026-06-14 - ADR-115 safety UX polish + step-up restrict fix
 
 ### Baseline

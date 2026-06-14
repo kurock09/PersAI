@@ -5,6 +5,7 @@
 
 ## 2026-06-14
 
+- ADR-115 follow-up BFF auth: admin ops and inbound-safety UI now route through Clerk cookie session on `/api/v1` (`buildAdminFetchOptions`) instead of stale client Bearer tokens, fixing “Session expired” on safety unblock/restrict and policy panel loads; safety-policy GET uses `assertCanReadAdminSurface`.
 - ADR-115 follow-up UX + ops fix: step-up challenge now accepts `admin.safety_user.restrict` (fixes Ops manual safety restrict 400), web chat shows localized `safety_restricted` banner with support CTA, ops user directory highlights safety-restricted rows in warning tone, inbound safety admin panel polish + `getAdminSessionToken`, and GKE live-moderation smoke scripts under `apps/api/scripts/`.
 - ADR-115 Slices 3–4 and 6 landed on `main` at `e797a172` (full repo gate: lint, typecheck, test, test:step2, build).
 - ADR-115 Slice 0 (inbound safety gate skeleton): added `user_restrictions` and `moderation_cases` Prisma models + migration, `EnforceInboundSafetyGateService` read-only gate, and canonical inbound reorder to `safety -> abuse -> quota` in web prepare and Telegram inbound paths. Active safety restrictions deny with `403 safety_restricted`; empty table preserves prior behavior aside from the intentional abuse-before-quota reorder.
