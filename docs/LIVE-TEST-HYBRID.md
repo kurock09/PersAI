@@ -160,7 +160,7 @@ pnpm smoke:run --scenario chitchat-short
 pnpm smoke:run-all --update-baseline
 ```
 
-Defaults assume `SMOKE_API_BASE_URL=http://127.0.0.1:3001` (public) and `SMOKE_API_INTERNAL_BASE_URL=http://127.0.0.1:3002` (internal). The harness paces turns at ~5.4/min by default to stay under dev's `ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE=8`. Full operator notes (CLI flags, env vars, scenario catalog, baseline diff semantics, why receipt correlation goes by `externalThreadKey + afterCursor` rather than `requestId`) live in `scripts/smoke/README.md`. The original S0 acceptance/landing context lives in `docs/ADR/074-humanity-and-cost-polish-program.md`; current continuation ownership for deferred smoke-harness follow-through lives in ADR-078.
+Defaults assume `SMOKE_API_BASE_URL=http://127.0.0.1:3001` (public) and `SMOKE_API_INTERNAL_BASE_URL=http://127.0.0.1:3002` (internal). The harness paces turns at ~5.4/min by default to stay under dev's `ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE=8`. Full operator notes (CLI flags, env vars, scenario catalog, baseline diff semantics, why receipt correlation goes by `externalThreadKey + afterCursor` rather than `requestId`) live in `scripts/smoke/README.md`. The original S0 acceptance/landing context lives in `docs/ADR/074-humanity-and-cost-polish-program.md`; deferred smoke-harness follow-through is archive-only (closed programs through ADR-115).
 
 ## Step 20 Sandbox Smoke
 

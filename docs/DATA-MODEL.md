@@ -2,7 +2,7 @@
 
 This document describes the current active PersAI data-model truth at a high level.
 
-ADR-072 remains the historical migration record through the native-path closeout. ADR-078 is completed and archived as the consolidated follow-through program. ADR-080 is the active target-state decision for admin-controlled Knowledge authoring and Skill curation. ADR-081 is the active target-state decision for unified user-visible Files. ADR-087 is the active target-state decision for unified quota advisories and paid light mode. ADR-088 is the active target-state decision for the unified notification platform, control plane, and delivery architecture. ADR-098 adds the active market-aware public site-page model and country-derived legal-market baseline.
+ADR-072 remains the historical migration record through the native-path closeout. ADR-078 is completed and archived as the consolidated follow-through program. ADR-080 is the target-state decision for admin-controlled Knowledge authoring and Skill curation. ADR-081 is the target-state decision for unified user-visible Files. ADR-087 is the target-state decision for unified quota advisories and paid light mode. ADR-088 is the target-state decision for the unified notification platform, control plane, and delivery architecture. ADR-098 adds the market-aware public site-page model and country-derived legal-market baseline. Closed program ADRs (including ADR-102, ADR-105, ADR-115) are archive/target-state only — not active slice backlogs.
 
 ## Control-plane ownership
 

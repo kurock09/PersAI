@@ -1,0 +1,18 @@
+---
+description: PersAI session continuity — handoff, changelog, and bounded slice discipline (no open program ADR)
+alwaysApply: true
+---
+
+# PersAI session continuity
+
+- Read in order before implementing: `AGENTS.md`, `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, then any ADRs referenced by the **user's explicit task** only.
+- **No open orchestration program ADR.** ADR-078, ADR-102, ADR-105–ADR-115, and the other numbered program ADRs in `docs/ADR/` are **closed archive** unless the user explicitly opens a new ADR for new work. Do not reopen closed programs or re-derive scope from them.
+- Treat `docs/SESSION-HANDOFF.md` as the source of truth for the latest completed checkpoint and the user's next stated priority.
+- Treat `docs/CHANGELOG.md` as the source of truth for what has actually landed.
+- If ADR, handoff, changelog, and code disagree, stop and reconcile docs before code changes.
+- One session = one bounded slice unless the user explicitly asks for broader work. New product/architecture waves require an explicit user priority and usually a **new ADR** before implementation.
+- At session start, restate: task scope, purpose, likely affected files/modules, and what is out of scope.
+- Start only from a clean git tree; if dirty, stop and report. Record baseline SHA in the handoff when the slice changes repo truth.
+- Keep the architecture fully PersAI-native. Do not reintroduce OpenClaw runtime/deploy wiring, compatibility shims, filesystem-owned session state, or TODO scaffolding.
+- Touch native OpenClaw only if historical analysis explicitly requires it and a PersAI-side change is insufficient.
+- Before ending the session, update `docs/SESSION-HANDOFF.md`, update `docs/CHANGELOG.md` if repo truth changed, update or add an ADR only when long-term system truth changed, and state the next recommended step.
