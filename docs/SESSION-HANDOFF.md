@@ -7,7 +7,7 @@
 
 ### Baseline
 
-- Working tree from `main` at `b8640f8d` (ADR-115 closed at `4f72286e`).
+- Pushed commit `48bf0023` on `main` (rebased onto `4d9022b4`).
 
 ### What changed
 
