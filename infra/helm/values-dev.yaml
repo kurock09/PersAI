@@ -201,7 +201,7 @@ web:
       maxSurge: 1
   image:
     name: web
-    tag: ff9e4cbbeba1756c72a206437226baa21d3b76c9
+    tag: 37e6ca911af0512faef816c41887244094affc44
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
@@ -345,7 +345,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: ff9e4cbbeba1756c72a206437226baa21d3b76c9
+    tag: 37e6ca911af0512faef816c41887244094affc44
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -495,6 +495,7 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
 
 
 
