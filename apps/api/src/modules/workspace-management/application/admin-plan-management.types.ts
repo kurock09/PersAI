@@ -187,6 +187,11 @@ export type AdminPlanInput = {
    */
   talkingVideoEnabled: boolean;
   /**
+   * When `true`, async image job completion framing may attach produced (and
+   * for edit, source) image bytes for one multimodal review turn before delivery.
+   */
+  mediaCompletionVisionEnabled: boolean;
+  /**
    * ADR-108 Slice 1 — monthly Vcoin grant credited into
    * `WorkspaceVcoinBalance` on subscription period boundary for plans whose
    * users get a recurring `video_generate` Vcoin budget. Stored inside the
@@ -263,6 +268,8 @@ export type AdminPlanState = {
   talkingAvatarFallbackModelKey: string | null;
   /** ADR-109 Slice 8 — see `AdminPlanInput.talkingVideoEnabled`. */
   talkingVideoEnabled: boolean;
+  /** Plan-level toggle for multimodal image completion framing. */
+  mediaCompletionVisionEnabled: boolean;
   /** ADR-108 Slice 1 — see `AdminPlanInput.videoVcoinMonthlyGrant`. */
   videoVcoinMonthlyGrant: number;
   runtimeTierDefault: AdminPlanRuntimeTier | null;

@@ -593,6 +593,9 @@ export class MaterializeAssistantPublishedVersionService {
     const planTalkingVideoEnabled = await this.resolvePlanTalkingVideoEnabled(
       effectiveCapabilities.derivedFrom.planCode
     );
+    const planMediaCompletionVisionEnabled = await this.resolvePlanMediaCompletionVisionEnabled(
+      effectiveCapabilities.derivedFrom.planCode
+    );
     const planVideoGenerateModelKey = resolveAllowedPlanCapabilityModelKey({
       runtimeProviderProfile,
       planModelKey: rawPlanVideoGenerateModelKey,
@@ -781,9 +784,15 @@ export class MaterializeAssistantPublishedVersionService {
     });
     // ADR-109 Slice 8: inject `talkingVideoEnabled` from the plan into the
     // `video_generate` tool policy so the runtime gate in Slice 7 fires correctly.
-    const toolPolicies = rawToolPolicies.map((p) =>
-      p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: planTalkingVideoEnabled } : p
-    );
+    const toolPolicies = rawToolPolicies.map((p) => {
+      if (p.toolCode === "video_generate") {
+        return { ...p, talkingVideoEnabled: planTalkingVideoEnabled };
+      }
+      if (p.toolCode === "image_generate" || p.toolCode === "image_edit") {
+        return { ...p, mediaCompletionVisionEnabled: planMediaCompletionVisionEnabled };
+      }
+      return p;
+    });
     const telegramChannel = await this.resolveTelegramChannelConfig(assistant.id);
     const planContextHydrationPolicy =
       await this.resolvePlanContextHydrationPolicy(effectivePlanCode);
@@ -1506,6 +1515,24 @@ export class MaterializeAssistantPublishedVersionService {
       return false;
     }
     return (hints as Record<string, unknown>).talkingVideoEnabled === true;
+  }
+
+  private async resolvePlanMediaCompletionVisionEnabled(planCode: string | null): Promise<boolean> {
+    if (planCode === null) {
+      return false;
+    }
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) {
+      return false;
+    }
+    const hints = plan.billingProviderHints;
+    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) {
+      return false;
+    }
+    return (hints as Record<string, unknown>).mediaCompletionVisionEnabled === true;
   }
 
   private async resolvePlanRuntimeTierDefault(

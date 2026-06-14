@@ -8,6 +8,10 @@ import {
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
 import { InternalRuntimeMediaJobClientService } from "./internal-runtime-media-job.client.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
+import {
+  buildMediaJobCompletionArtifacts,
+  resolveMediaJobCompletionToolCode
+} from "./assistant-media-job-completion-artifacts";
 
 const MAX_HISTORY_MESSAGES = 12;
 const MAX_HISTORY_CHARS = 500;
@@ -24,6 +28,7 @@ type MediaJobCompletionInput = {
   sourceUserMessageCreatedAt: string;
   resultText: string | null;
   artifacts: RuntimeOutputArtifact[];
+  requestJson: unknown;
 };
 
 type MediaJobFailureFramingInput = {
@@ -66,6 +71,13 @@ export class AssistantMediaJobCompletionTurnService {
   }> {
     const context = await this.loadFramingContext(input.assistantId, input.chatId);
 
+    const toolCode = resolveMediaJobCompletionToolCode(input.requestJson);
+    const completionArtifacts = buildMediaJobCompletionArtifacts({
+      toolCode,
+      outputArtifacts: input.artifacts,
+      requestAttachments: this.readRequestAttachments(input.requestJson)
+    });
+
     const outcome = await this.internalRuntimeMediaJobClientService.complete({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
@@ -78,16 +90,13 @@ export class AssistantMediaJobCompletionTurnService {
         chatId: input.chatId,
         sourceUserMessageId: input.sourceUserMessageId,
         sourceUserMessageText: input.sourceUserMessageText,
-        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
+        toolCode
       },
       currentHistory: context.history,
       workerResult: {
         assistantText: input.resultText,
-        artifacts: input.artifacts.map((artifact) => ({
-          type: artifact.kind,
-          filename: artifact.filename ?? null,
-          fileRef: artifact.fileRef ?? null
-        }))
+        artifacts: completionArtifacts
       }
     });
 
@@ -145,6 +154,14 @@ export class AssistantMediaJobCompletionTurnService {
     }
     const text = outcome.result.assistantText?.trim() ?? "";
     return text.length === 0 ? null : text;
+  }
+
+  private readRequestAttachments(requestJson: unknown): unknown[] {
+    if (requestJson === null || typeof requestJson !== "object" || Array.isArray(requestJson)) {
+      return [];
+    }
+    const attachments = (requestJson as Record<string, unknown>).attachments;
+    return Array.isArray(attachments) ? attachments : [];
   }
 
   private async loadFramingContext(

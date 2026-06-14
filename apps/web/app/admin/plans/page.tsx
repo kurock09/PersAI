@@ -180,6 +180,7 @@ export type PlanDraft = {
   talkingAvatarModelKey: string;
   talkingAvatarFallbackModelKey: string;
   talkingVideoEnabled: boolean;
+  mediaCompletionVisionEnabled: boolean;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
   /**
@@ -794,6 +795,7 @@ function emptyDraft(): PlanDraft {
     talkingAvatarModelKey: "",
     talkingAvatarFallbackModelKey: "",
     talkingVideoEnabled: false,
+    mediaCompletionVisionEnabled: false,
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: [],
     toolLoopLimitNormal: "",
@@ -932,6 +934,7 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     talkingAvatarModelKey: plan.talkingAvatarModelKey ?? "",
     talkingAvatarFallbackModelKey: plan.talkingAvatarFallbackModelKey ?? "",
     talkingVideoEnabled: plan.talkingVideoEnabled ?? false,
+    mediaCompletionVisionEnabled: plan.mediaCompletionVisionEnabled ?? false,
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
     toolActivations: (plan.toolActivations ?? [])
       .filter((ta) => ta.visibleInPlanEditor)
@@ -1338,6 +1341,7 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     talkingAvatarModelKey: toNullable(draft.talkingAvatarModelKey),
     talkingAvatarFallbackModelKey: toNullable(draft.talkingAvatarFallbackModelKey),
     talkingVideoEnabled: draft.talkingVideoEnabled,
+    mediaCompletionVisionEnabled: draft.mediaCompletionVisionEnabled,
     videoVcoinMonthlyGrant,
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
@@ -1710,6 +1714,8 @@ export function ToolActivationsEdit({
   onTalkingAvatarFallbackModelKeyChange,
   talkingVideoEnabled,
   onTalkingVideoEnabledChange,
+  mediaCompletionVisionEnabled,
+  onMediaCompletionVisionEnabledChange,
   availableImageModelKeys,
   availableVideoModelKeys,
   availableTalkingAvatarModelKeys
@@ -1734,6 +1740,8 @@ export function ToolActivationsEdit({
   onTalkingAvatarFallbackModelKeyChange: (value: string) => void;
   talkingVideoEnabled: boolean;
   onTalkingVideoEnabledChange: (value: boolean) => void;
+  mediaCompletionVisionEnabled: boolean;
+  onMediaCompletionVisionEnabledChange: (value: boolean) => void;
   availableImageModelKeys: ModelOption[];
   availableVideoModelKeys: ModelOption[];
   availableTalkingAvatarModelKeys: ModelOption[];
@@ -1843,6 +1851,17 @@ export function ToolActivationsEdit({
                       options={availableImageModelKeys}
                       placeholder="none"
                       className={modelSelectClasses}
+                    />
+                  </FieldRow>
+                  <FieldRow
+                    label="Completion vision"
+                    tip="When on, image generate/edit delivery framing reviews up to 10 attached result images (vision) and must return a non-empty reply. When off, framing is text-only from job metadata but still must return a non-empty reply."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={mediaCompletionVisionEnabled}
+                      onChange={(e) => onMediaCompletionVisionEnabledChange(e.target.checked)}
+                      className="h-4 w-4 rounded border-border accent-accent"
                     />
                   </FieldRow>
                 </>
@@ -3536,6 +3555,10 @@ export function PlanForm({
           }
           talkingVideoEnabled={draft.talkingVideoEnabled}
           onTalkingVideoEnabledChange={(talkingVideoEnabled) => onPatch({ talkingVideoEnabled })}
+          mediaCompletionVisionEnabled={draft.mediaCompletionVisionEnabled}
+          onMediaCompletionVisionEnabledChange={(mediaCompletionVisionEnabled) =>
+            onPatch({ mediaCompletionVisionEnabled })
+          }
           availableImageModelKeys={availableImageModelKeys}
           availableVideoModelKeys={availableVideoModelKeys}
           availableTalkingAvatarModelKeys={availableTalkingAvatarModelKeys}

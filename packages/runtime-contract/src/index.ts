@@ -656,6 +656,12 @@ export interface RuntimeToolPolicy {
    * means cinematic-only (pre-Slice-3 schema surface).
    */
   talkingVideoEnabled?: boolean;
+  /**
+   * When `true`, async `image_generate` / `image_edit` completion framing may
+   * attach produced (and for edit, source) image bytes for one multimodal
+   * review turn before delivery. Plan-gated via bundle materialization.
+   */
+  mediaCompletionVisionEnabled?: boolean;
 }
 
 /**
@@ -2773,6 +2779,7 @@ export interface RuntimeMediaJobCompletionRequest {
     sourceUserMessageId: string;
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
+    toolCode?: "image_generate" | "image_edit" | null;
   };
   currentHistory: Array<{
     author: "user" | "assistant" | "system";
@@ -2785,6 +2792,9 @@ export interface RuntimeMediaJobCompletionRequest {
       type: RuntimeOutputArtifact["kind"];
       filename: string | null;
       fileRef: string | null;
+      objectKey: string | null;
+      mimeType?: string | null;
+      role?: "output" | "source_reference";
     }>;
   };
   failure?: {
@@ -3058,6 +3068,7 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   "document_presentation_theme_picker",
   "document_job_completion",
   "media_job_completion",
+  "media_job_completion_vision",
   "media_job_failure_explanation",
   "admin_authoring"
 ] as const;

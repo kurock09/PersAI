@@ -382,6 +382,8 @@ describe("admin plans page helpers", () => {
         onTalkingAvatarFallbackModelKeyChange={vi.fn()}
         talkingVideoEnabled={false}
         onTalkingVideoEnabledChange={vi.fn()}
+        mediaCompletionVisionEnabled={false}
+        onMediaCompletionVisionEnabledChange={vi.fn()}
         availableImageModelKeys={[
           { provider: "openai", model: "gpt-image-1" },
           { provider: "openai", model: "gpt-image-1.5" },
@@ -557,6 +559,34 @@ describe("admin plans page helpers", () => {
     const snapshot = normalizePlanDraftForCompare(draft);
     expect(isPlanDraftDirty(snapshot, draft)).toBe(false);
     expect(isPlanDraftDirty(snapshot, { ...draft, talkingVideoEnabled: true })).toBe(true);
+  });
+
+  it("mediaCompletionVisionEnabled defaults to false for new plans and legacy plans", () => {
+    const draft = planToDraft(createPlanState());
+    expect(draft.mediaCompletionVisionEnabled).toBe(false);
+    const legacyPlan = { ...createPlanState() } as AdminPlanState;
+    delete (legacyPlan as unknown as Record<string, unknown>).mediaCompletionVisionEnabled;
+    const legacyDraft = planToDraft(legacyPlan);
+    expect(legacyDraft.mediaCompletionVisionEnabled).toBe(false);
+  });
+
+  it("mediaCompletionVisionEnabled round-trips through planToDraft and draftToPayload", () => {
+    const planWithToggle = {
+      ...createPlanState(),
+      mediaCompletionVisionEnabled: true
+    } as AdminPlanState;
+    const draft = planToDraft(planWithToggle);
+    expect(draft.mediaCompletionVisionEnabled).toBe(true);
+    const payload = draftToPayload(draft);
+    expect(payload.mediaCompletionVisionEnabled).toBe(true);
+  });
+
+  it("isPlanDraftDirty detects mediaCompletionVisionEnabled change", () => {
+    const plan = { ...createPlanState(), mediaCompletionVisionEnabled: false } as AdminPlanState;
+    const draft = planToDraft(plan);
+    const snapshot = normalizePlanDraftForCompare(draft);
+    expect(isPlanDraftDirty(snapshot, draft)).toBe(false);
+    expect(isPlanDraftDirty(snapshot, { ...draft, mediaCompletionVisionEnabled: true })).toBe(true);
   });
 
   it("ADR-109 Slice 10c — talkingAvatarModelKey and talkingAvatarFallbackModelKey round-trip through draft and payload", () => {

@@ -432,7 +432,8 @@ export class AssistantMediaJobCompletionDeliveryService {
         sourceUserMessageText: input.sourceUserMessageText,
         sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
         resultText: rawAssistantText,
-        artifacts: input.artifacts
+        artifacts: input.artifacts,
+        requestJson: input.job.requestJson
       });
     } catch (error) {
       this.logger.warn(

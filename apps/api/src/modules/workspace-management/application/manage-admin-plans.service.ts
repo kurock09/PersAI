@@ -976,6 +976,10 @@ export class ManageAdminPlansService {
         "talkingAvatarFallbackModelKey"
       ),
       talkingVideoEnabled: parseBooleanInput(parsed.talkingVideoEnabled, "talkingVideoEnabled"),
+      mediaCompletionVisionEnabled: parseBooleanInput(
+        parsed.mediaCompletionVisionEnabled,
+        "mediaCompletionVisionEnabled"
+      ),
       videoVcoinMonthlyGrant: parseVideoVcoinMonthlyGrant(parsed.videoVcoinMonthlyGrant),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault),
       toolBudgets
@@ -1146,6 +1150,7 @@ export class ManageAdminPlansService {
           ? { talkingAvatarFallbackModelKey: input.talkingAvatarFallbackModelKey }
           : {}),
         talkingVideoEnabled: input.talkingVideoEnabled,
+        mediaCompletionVisionEnabled: input.mediaCompletionVisionEnabled,
         videoVcoinMonthlyGrant: input.videoVcoinMonthlyGrant,
         ...(input.runtimeTierDefault !== null
           ? { runtimeTierDefault: input.runtimeTierDefault }
@@ -1562,6 +1567,7 @@ export class ManageAdminPlansService {
         billingHints.talkingAvatarFallbackModelKey
       ),
       talkingVideoEnabled: toBoolean(billingHints.talkingVideoEnabled),
+      mediaCompletionVisionEnabled: toBoolean(billingHints.mediaCompletionVisionEnabled),
       videoVcoinMonthlyGrant: parseVideoVcoinMonthlyGrant(billingHints.videoVcoinMonthlyGrant),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
       toolActivations: plan.toolActivations.map((ta) => ({

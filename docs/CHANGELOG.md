@@ -5,6 +5,7 @@
 
 ## 2026-06-14
 
+- **Media job completion framing:** plan-level `mediaCompletionVisionEnabled` toggles vision review on the existing `/media-jobs/complete` LLM call for `image_generate` / `image_edit` (up to 10 hydrated images, required non-empty reply). Cheap plans stay text-only but prompts now require a real delivery reply instead of optional silence + hardcoded «Медиафайл отправлен.» / `Media sent.`
 - **ADR-115 closed:** inbound safety program complete (115.0–115.7 + follow-through). Outbound moderation explicitly not planned.
 - ADR-115 polish: sidebar assistant-card safety icons (warn amber / restrict red) with modal + `userSafety` bootstrap; warn copy reframed to prior messages in chat/thread; TG warn delivery idempotent per `triggerKey`.
 - ADR-044 abuse cleanup: removed obsolete quota-pressure coupling from distributed abuse enforcement (`quotaDecision` input, unused quota deps in `EnforceAbuseRateLimitService`); repository now clears legacy `quota_pressure_*` block rows on next attempt. Quota limits stay in `EnforceAssistantCapabilityAndQuotaService` / ADR-087 only. removed obsolete quota-pressure coupling from distributed abuse enforcement (`quotaDecision` input, unused quota deps in `EnforceAbuseRateLimitService`); repository now clears legacy `quota_pressure_*` block rows on next attempt. Quota limits stay in `EnforceAssistantCapabilityAndQuotaService` / ADR-087 only.

@@ -3,7 +3,8 @@ import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
-  Injectable
+  Injectable,
+  Logger
 } from "@nestjs/common";
 import {
   hashAssistantRuntimeBundleDocument,
@@ -11,6 +12,7 @@ import {
 } from "@persai/runtime-bundle";
 import type {
   PersaiRuntimeModelRole,
+  ProviderGatewayMessageContentBlock,
   ProviderGatewayTextGenerateRequest,
   RuntimeFailedEvent,
   RuntimeMediaJobCompletionRequest,
@@ -22,22 +24,30 @@ import { ProviderGatewayClientService } from "./provider-gateway.client.service"
 import { RuntimeExecutionAdmissionService } from "./runtime-execution-admission.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
+import {
+  hydrateMediaJobCompletionVisionContent,
+  type MediaJobCompletionVisionArtifactRef
+} from "./media-job-completion-vision-hydration";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
 type ProviderSelection = { provider: NativeManagedProvider; model: string };
 
 const MEDIA_JOB_COMPLETION_KEY_PREFIX = "media-job-completion";
-const COMPLETION_MAX_OUTPUT_TOKENS = 250;
+const COMPLETION_MAX_OUTPUT_TOKENS = 300;
 const MAX_HISTORY_MESSAGES = 12;
 const MAX_HISTORY_CHARS = 500;
 
 @Injectable()
 export class RuntimeMediaJobCompletionService {
+  private readonly logger = new Logger(RuntimeMediaJobCompletionService.name);
+
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly turnAcceptanceService: TurnAcceptanceService,
     private readonly turnFinalizationService: TurnFinalizationService,
-    private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService
+    private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async complete(
@@ -88,16 +98,25 @@ export class RuntimeMediaJobCompletionService {
     input: RuntimeMediaJobCompletionRequest,
     bundle: AssistantRuntimeBundle
   ): Promise<RuntimeMediaJobCompletionResult> {
+    const framingMode = this.resolveSuccessFramingMode(input, bundle);
     try {
       const providerSelection = this.resolveProviderSelection(bundle, "system_tool");
       const response = await this.providerGatewayClientService.generateText(
-        this.buildProviderRequest(acceptedTurn, input, bundle, providerSelection)
+        await this.buildProviderRequest(acceptedTurn, input, bundle, providerSelection, framingMode)
       );
       const parsed = this.parseCompletionJson(response.text);
+      const assistantText = parsed.assistantText?.trim() ?? "";
+      if (
+        input.failure === undefined &&
+        this.isImageToolJob(input.job.toolCode) &&
+        assistantText.length === 0
+      ) {
+        throw new BadGatewayException("Media-job completion returned empty assistantText.");
+      }
       const turnResult: RuntimeTurnResult = {
         requestId: acceptedTurn.receipt.requestId,
         sessionId: acceptedTurn.session.sessionId,
-        assistantText: parsed.assistantText ?? "",
+        assistantText,
         artifacts: [],
         respondedAt: new Date().toISOString(),
         usage: response.usage,
@@ -105,7 +124,7 @@ export class RuntimeMediaJobCompletionService {
       };
       await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, turnResult);
       return {
-        assistantText: parsed.assistantText,
+        assistantText: assistantText.length > 0 ? assistantText : null,
         usage: response.usage,
         rawText: response.text
       };
@@ -160,16 +179,19 @@ export class RuntimeMediaJobCompletionService {
     };
   }
 
-  private buildProviderRequest(
+  private async buildProviderRequest(
     acceptedTurn: AcceptedRuntimeTurn,
     input: RuntimeMediaJobCompletionRequest,
     bundle: AssistantRuntimeBundle,
-    providerSelection: ProviderSelection
-  ): ProviderGatewayTextGenerateRequest {
-    const isFailure = input.failure !== undefined;
+    providerSelection: ProviderSelection,
+    framingMode: "failure" | "image_text_only" | "image_vision"
+  ): Promise<ProviderGatewayTextGenerateRequest> {
+    const isFailure = framingMode === "failure";
     const explicitRules = isFailure
       ? this.buildFailureExplicitRules()
-      : this.buildSuccessExplicitRules();
+      : framingMode === "image_vision"
+        ? this.buildVisionSuccessExplicitRules(input.job.toolCode)
+        : this.buildTextOnlySuccessExplicitRules(input.job.toolCode);
     const developerInstructions = [explicitRules]
       .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
       .join("\n\n");
@@ -181,6 +203,7 @@ export class RuntimeMediaJobCompletionService {
         id: input.job.id,
         surface: input.job.surface,
         kind: input.job.kind,
+        toolCode: input.job.toolCode ?? null,
         sourceUserMessageText: input.job.sourceUserMessageText,
         sourceUserMessageCreatedAt: input.job.sourceUserMessageCreatedAt
       },
@@ -205,7 +228,47 @@ export class RuntimeMediaJobCompletionService {
         stage: input.failure.stage
       };
     } else if (input.workerResult !== undefined) {
-      userPayload.workerResult = input.workerResult;
+      userPayload.workerResult = {
+        assistantText: input.workerResult.assistantText,
+        artifacts: input.workerResult.artifacts.map((artifact) => ({
+          type: artifact.type,
+          filename: artifact.filename,
+          fileRef: artifact.fileRef,
+          role: artifact.role ?? "output"
+        }))
+      };
+      if (framingMode === "image_vision") {
+        userPayload.visionReview = {
+          enabled: true,
+          sourceReferenceImageCount: input.workerResult.artifacts.filter(
+            (artifact) => artifact.role === "source_reference"
+          ).length,
+          outputImageCount: input.workerResult.artifacts.filter(
+            (artifact) => (artifact.role ?? "output") === "output"
+          ).length
+        };
+      }
+    }
+
+    const contentBlocks: ProviderGatewayMessageContentBlock[] = [
+      {
+        type: "text",
+        text: JSON.stringify(userPayload, null, 2)
+      }
+    ];
+    if (framingMode === "image_vision" && input.workerResult !== undefined) {
+      const visionArtifacts = this.collectVisionArtifactRefs(input);
+      const visionBlocks = await hydrateMediaJobCompletionVisionContent({
+        mediaObjectStorage: this.mediaObjectStorage,
+        artifacts: visionArtifacts
+      });
+      if (visionBlocks.length === 0) {
+        this.logger.warn(
+          `Media-job completion vision hydration produced no image blocks for job ${input.job.id}; continuing text-only.`
+        );
+      } else {
+        contentBlocks.push(...visionBlocks);
+      }
     }
 
     return {
@@ -216,49 +279,159 @@ export class RuntimeMediaJobCompletionService {
       messages: [
         {
           role: "user",
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(userPayload, null, 2)
-            }
-          ]
+          content: contentBlocks
         }
       ],
       maxOutputTokens: COMPLETION_MAX_OUTPUT_TOKENS,
       outputSchema: {
         name: isFailure ? "media_job_failure_explanation" : "media_job_completion",
         strict: true,
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["assistantText"],
-          properties: {
-            assistantText: {
-              type: ["string", "null"]
+        schema: isFailure
+          ? {
+              type: "object",
+              additionalProperties: false,
+              required: ["assistantText"],
+              properties: {
+                assistantText: {
+                  type: ["string", "null"]
+                }
+              }
             }
-          }
-        }
+          : {
+              type: "object",
+              additionalProperties: false,
+              required: ["assistantText"],
+              properties: {
+                assistantText: {
+                  type: "string"
+                }
+              }
+            }
       },
       requestMetadata: {
         runtimeSessionId: acceptedTurn.session.sessionId,
         runtimeRequestId: acceptedTurn.receipt.requestId,
         toolLoopIteration: null,
         compactionToolCode: null,
-        classification: isFailure ? "media_job_failure_explanation" : "media_job_completion"
+        classification:
+          framingMode === "image_vision"
+            ? "media_job_completion_vision"
+            : isFailure
+              ? "media_job_failure_explanation"
+              : "media_job_completion"
       }
     };
   }
 
-  private buildSuccessExplicitRules(): string {
+  private collectVisionArtifactRefs(
+    input: RuntimeMediaJobCompletionRequest
+  ): MediaJobCompletionVisionArtifactRef[] {
+    const workerArtifacts = input.workerResult?.artifacts ?? [];
+    const sourceRefs = workerArtifacts
+      .filter((artifact) => artifact.role === "source_reference")
+      .flatMap((artifact) => this.toVisionArtifactRef(artifact, "source_reference"));
+    const outputRefs = workerArtifacts
+      .filter((artifact) => (artifact.role ?? "output") === "output")
+      .flatMap((artifact) => this.toVisionArtifactRef(artifact, "output"));
+    return [...sourceRefs, ...outputRefs];
+  }
+
+  private toVisionArtifactRef(
+    artifact: NonNullable<RuntimeMediaJobCompletionRequest["workerResult"]>["artifacts"][number],
+    role: "output" | "source_reference"
+  ): MediaJobCompletionVisionArtifactRef[] {
+    if (
+      artifact.type !== "image" ||
+      typeof artifact.objectKey !== "string" ||
+      artifact.objectKey.trim().length === 0
+    ) {
+      return [];
+    }
+    const mimeType =
+      typeof artifact.mimeType === "string" && artifact.mimeType.trim().length > 0
+        ? artifact.mimeType.trim()
+        : "image/png";
+    if (!mimeType.startsWith("image/")) {
+      return [];
+    }
+    return [
+      {
+        objectKey: artifact.objectKey.trim(),
+        mimeType,
+        filename: artifact.filename,
+        role
+      }
+    ];
+  }
+
+  private resolveSuccessFramingMode(
+    input: RuntimeMediaJobCompletionRequest,
+    bundle: AssistantRuntimeBundle
+  ): "failure" | "image_text_only" | "image_vision" {
+    if (input.failure !== undefined) {
+      return "failure";
+    }
+    if (!this.isImageToolJob(input.job.toolCode)) {
+      return "image_text_only";
+    }
+    if (this.resolveMediaCompletionVisionEnabled(bundle, input.job.toolCode)) {
+      return "image_vision";
+    }
+    return "image_text_only";
+  }
+
+  private resolveMediaCompletionVisionEnabled(
+    bundle: AssistantRuntimeBundle,
+    toolCode: "image_generate" | "image_edit" | null | undefined
+  ): boolean {
+    if (toolCode !== "image_generate" && toolCode !== "image_edit") {
+      return false;
+    }
+    const policy = bundle.governance.toolPolicies?.find((entry) => entry.toolCode === toolCode);
+    return policy?.mediaCompletionVisionEnabled === true;
+  }
+
+  private isImageToolJob(
+    toolCode: RuntimeMediaJobCompletionRequest["job"]["toolCode"]
+  ): toolCode is "image_generate" | "image_edit" {
+    return toolCode === "image_generate" || toolCode === "image_edit";
+  }
+
+  private buildTextOnlySuccessExplicitRules(
+    toolCode: RuntimeMediaJobCompletionRequest["job"]["toolCode"]
+  ): string {
+    const subject =
+      toolCode === "image_edit"
+        ? "the finished image edit"
+        : toolCode === "image_generate"
+          ? "the finished image generation"
+          : "the finished media job";
     return [
       "You are framing the completion of a finished PersAI async media job.",
       "Backend state already owns the job, artifacts, delivery idempotency, and quota truth.",
-      "Write only optional user-facing completion text for the finished media job.",
-      "If the stored worker text should be reused unchanged, return assistantText=null.",
-      "If no final text should be sent, return assistantText as an empty string.",
-      "Do not claim that media was already sent, attached, uploaded, or delivered.",
+      `You MUST return a non-empty assistantText string (1-3 short sentences) about ${subject}.`,
+      "Write in the user's language when possible, stay calm, and reflect the latest chat context.",
+      "Describe what the job attempted to do for the user based on sourceUserMessageText and artifact metadata.",
+      "Do not claim that media was already sent, attached, uploaded, or delivered to the chat.",
+      "Do not generate more media, do not call tools, and do not reopen the old user turn."
+    ].join("\n");
+  }
+
+  private buildVisionSuccessExplicitRules(
+    toolCode: RuntimeMediaJobCompletionRequest["job"]["toolCode"]
+  ): string {
+    const subject =
+      toolCode === "image_edit" ? "the edited image result" : "the generated image result";
+    return [
+      "You are reviewing the completion of a finished PersAI async image job.",
+      "The attached images are authoritative visual evidence. Source reference images (if any) show the input; produced output images show the result.",
+      `You MUST return a non-empty assistantText string (1-3 short sentences) about ${subject}.`,
+      "Briefly describe what you see in the output image(s) relative to sourceUserMessageText.",
+      "If the visual result clearly misses the request, say so honestly and calmly offer to redo or refine it.",
+      "If the result is acceptable, confirm what was done without overstating perfection.",
+      "Do not claim that media was already sent, attached, uploaded, or delivered to the chat.",
       "Do not generate more media, do not call tools, and do not reopen the old user turn.",
-      "Keep the text short, calm, and aware of the latest chat context."
+      "Write in the user's language when possible."
     ].join("\n");
   }
 
@@ -423,7 +596,12 @@ export class RuntimeMediaJobCompletionService {
           workspaceId: input.workspaceId,
           jobId: input.job.id,
           mode: isFailure ? "failure" : "success",
+          toolCode: input.job.toolCode ?? null,
           workerText: input.workerResult?.assistantText ?? null,
+          artifactObjectKeys: (input.workerResult?.artifacts ?? []).map((artifact) => ({
+            objectKey: artifact.objectKey,
+            role: artifact.role ?? "output"
+          })),
           failure: input.failure ?? null,
           history: input.currentHistory.map((entry) => ({
             author: entry.author,

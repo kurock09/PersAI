@@ -142,7 +142,10 @@ export class InternalRuntimeMediaJobsController {
         sourceUserMessageCreatedAt: this.requiredString(
           job.sourceUserMessageCreatedAt,
           "job.sourceUserMessageCreatedAt"
-        )
+        ),
+        ...(job.toolCode === undefined
+          ? {}
+          : { toolCode: this.optionalImageToolCode(job.toolCode, "job.toolCode") })
       },
       currentHistory: this.currentHistory(row.currentHistory)
     };
@@ -234,6 +237,28 @@ export class InternalRuntimeMediaJobsController {
     throw new BadRequestException("job.surface must be one of web or telegram.");
   }
 
+  private optionalImageToolCode(
+    value: unknown,
+    fieldName: string
+  ): "image_generate" | "image_edit" | null {
+    if (value === null) {
+      return null;
+    }
+    if (value === "image_generate" || value === "image_edit") {
+      return value;
+    }
+    throw new BadRequestException(`${fieldName} must be image_generate, image_edit, or null.`);
+  }
+
+  private completionArtifactRole(value: unknown, index: number): "output" | "source_reference" {
+    if (value === "output" || value === "source_reference") {
+      return value;
+    }
+    throw new BadRequestException(
+      `workerResult.artifacts[${String(index)}].role must be output or source_reference.`
+    );
+  }
+
   private attachments(value: unknown): RuntimeAttachmentRef[] {
     if (!Array.isArray(value)) {
       throw new BadRequestException("attachments must be an array.");
@@ -323,7 +348,26 @@ export class InternalRuntimeMediaJobsController {
         fileRef:
           row.fileRef === null
             ? null
-            : this.requiredString(row.fileRef, `workerResult.artifacts[${String(index)}].fileRef`)
+            : this.requiredString(row.fileRef, `workerResult.artifacts[${String(index)}].fileRef`),
+        objectKey:
+          row.objectKey === null || row.objectKey === undefined
+            ? null
+            : this.requiredString(
+                row.objectKey,
+                `workerResult.artifacts[${String(index)}].objectKey`
+              ),
+        ...(row.mimeType === undefined
+          ? {}
+          : {
+              mimeType:
+                row.mimeType === null
+                  ? null
+                  : this.requiredString(
+                      row.mimeType,
+                      `workerResult.artifacts[${String(index)}].mimeType`
+                    )
+            }),
+        ...(row.role === undefined ? {} : { role: this.completionArtifactRole(row.role, index) })
       };
     });
   }
