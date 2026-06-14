@@ -33,6 +33,20 @@ import {
   type AdminAbuseUnblockRequest,
   type GetAdminAbuseAssistantsResponse,
   type PostAdminAbuseUnblockResponse,
+  type AdminSafetyRestrictRequest,
+  type AdminSafetyUnblockRequest,
+  type PostAdminSafetyControlsRestrictResponse,
+  type PostAdminSafetyControlsUnblockResponse,
+  type GetAdminSafetyControlsCasesResponse,
+  type GetAdminSafetyPolicyHeuristicRulesParams,
+  type GetAdminSafetyPolicyHeuristicRulesResponse,
+  type GetAdminSafetyPolicySettingsResponse,
+  type PutAdminSafetyPolicyHeuristicRulesRequest,
+  type PutAdminSafetyPolicyHeuristicRulesResponse,
+  type PutAdminSafetyPolicySettingsRequest,
+  type PutAdminSafetyPolicySettingsResponse,
+  type SafetyHeuristicRuleState,
+  type SafetyPolicySettingsState,
   type AssistantTelegramConfigUpdateRequest,
   type TelegramIntegrationState,
   type SkillKnowledgeCardInput,
@@ -115,6 +129,13 @@ import {
   getAdminAbuseControlsAssistants as getAdminAbuseControlsAssistantsContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
   postAdminAbuseControlsUnblock as postAdminAbuseControlsUnblockContract,
+  postAdminSafetyControlsRestrict as postAdminSafetyControlsRestrictContract,
+  postAdminSafetyControlsUnblock as postAdminSafetyControlsUnblockContract,
+  getAdminSafetyControlsCases as getAdminSafetyControlsCasesContract,
+  getAdminSafetyPolicyHeuristicRules as getAdminSafetyPolicyHeuristicRulesContract,
+  getAdminSafetyPolicySettings as getAdminSafetyPolicySettingsContract,
+  putAdminSafetyPolicyHeuristicRules as putAdminSafetyPolicyHeuristicRulesContract,
+  putAdminSafetyPolicySettings as putAdminSafetyPolicySettingsContract,
   putAssistantSkillAssignments as putAssistantSkillAssignmentsContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract,
   postAssistantTelegramRevoke as postAssistantTelegramRevokeContract,
@@ -410,6 +431,7 @@ export type WebChatUxIssueClass =
   | "provider_failure"
   | "tool_failure"
   | "channel_failure"
+  | "safety_restricted"
   | "stream_incomplete"
   | "compaction_unavailable"
   | "unknown";
@@ -524,6 +546,12 @@ function extractStructuredErrorDetails(error: unknown): Record<string, unknown> 
   if (error instanceof ContractsApiError) {
     return parseApiErrorEnvelope(error.payload)?.details ?? null;
   }
+  if (typeof error === "object" && error !== null && "details" in error) {
+    const value = (error as { details?: unknown }).details;
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+  }
   return null;
 }
 
@@ -535,6 +563,7 @@ function extractStructuredGuidance(error: unknown): string | null {
 export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   const rawMessage = extractErrorMessage(error) ?? "Web chat request failed.";
   const structuredGuidance = extractStructuredGuidance(error);
+  const details = extractStructuredErrorDetails(error);
 
   const normalized = normalizeRawErrorMessage(rawMessage);
   const status = error instanceof ContractsApiError ? error.status : null;
@@ -702,6 +731,17 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
       classId: "channel_failure",
       message: rawMessage,
       guidance: "Wait a moment, then retry the same thread."
+    };
+  }
+
+  if (code === "safety_restricted") {
+    return {
+      classId: "safety_restricted",
+      message: rawMessage,
+      guidance: "This account cannot send new messages until the safety restriction is cleared.",
+      ...(typeof details?.reasonCode === "string"
+        ? { data: { reasonCode: details.reasonCode } }
+        : {})
     };
   }
 
@@ -3847,6 +3887,132 @@ export async function postAdminAbuseUnblock(
     }
 
     return (response.data as PostAdminAbuseUnblockResponse).unblock;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminSafetyUnblock(
+  token: string,
+  payload: AdminSafetyUnblockRequest
+): Promise<{ userId: string; cleared: boolean }> {
+  try {
+    const response = await postAdminSafetyControlsUnblockContract(payload, {
+      headers: getAuthHeaders(token)
+    });
+    if (!isSuccessStatus(response.status)) {
+      throw new Error("Unexpected non-success response for POST /admin/safety-controls/unblock.");
+    }
+    return (response.data as PostAdminSafetyControlsUnblockResponse).unblock;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminSafetyRestrict(
+  token: string,
+  payload: AdminSafetyRestrictRequest
+): Promise<{ userId: string; restricted: boolean; reasonCode: string }> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.safety_user.restrict");
+    const response = await postAdminSafetyControlsRestrictContract(payload, {
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
+    });
+    if (!isSuccessStatus(response.status)) {
+      throw new Error("Unexpected non-success response for POST /admin/safety-controls/restrict.");
+    }
+    return (response.data as PostAdminSafetyControlsRestrictResponse).restrict;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAdminSafetyModerationCases(
+  token: string,
+  params: { userId?: string; caseId?: string }
+): Promise<GetAdminSafetyControlsCasesResponse["cases"]> {
+  try {
+    const response = await getAdminSafetyControlsCasesContract(params, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/safety-controls/cases.");
+    }
+    return response.data.cases;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAdminSafetyPolicyHeuristicRules(
+  token: string,
+  params?: GetAdminSafetyPolicyHeuristicRulesParams
+): Promise<SafetyHeuristicRuleState[]> {
+  try {
+    const response = await getAdminSafetyPolicyHeuristicRulesContract(params, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for GET /admin/safety-policy/heuristic-rules."
+      );
+    }
+    return (response.data as GetAdminSafetyPolicyHeuristicRulesResponse).rules;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function putAdminSafetyPolicyHeuristicRules(
+  token: string,
+  payload: PutAdminSafetyPolicyHeuristicRulesRequest
+): Promise<SafetyHeuristicRuleState[]> {
+  try {
+    const response = await putAdminSafetyPolicyHeuristicRulesContract(payload, {
+      headers: getAuthHeaders(token)
+    });
+    if (!isSuccessStatus(response.status)) {
+      throw new Error(
+        "Unexpected non-success response for PUT /admin/safety-policy/heuristic-rules."
+      );
+    }
+    return (response.data as PutAdminSafetyPolicyHeuristicRulesResponse).rules;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAdminSafetyPolicySettings(
+  token: string
+): Promise<SafetyPolicySettingsState> {
+  try {
+    const response = await getAdminSafetyPolicySettingsContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/safety-policy/settings.");
+    }
+    return (response.data as GetAdminSafetyPolicySettingsResponse).settings;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function putAdminSafetyPolicySettings(
+  token: string,
+  payload: PutAdminSafetyPolicySettingsRequest
+): Promise<SafetyPolicySettingsState> {
+  try {
+    const response = await putAdminSafetyPolicySettingsContract(payload, {
+      headers: getAuthHeaders(token)
+    });
+    if (!isSuccessStatus(response.status)) {
+      throw new Error("Unexpected non-success response for PUT /admin/safety-policy/settings.");
+    }
+    return (response.data as PutAdminSafetyPolicySettingsResponse).settings;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

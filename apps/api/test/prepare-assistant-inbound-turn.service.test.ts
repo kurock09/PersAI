@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE } from "../src/modules/workspace-management/domain/safety-policy.types";
 import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { PrepareAssistantInboundTurnService } from "../src/modules/workspace-management/application/prepare-assistant-inbound-turn.service";
 
@@ -10,26 +11,9 @@ function createNoopSafetyGate() {
   } as never;
 }
 
-function createNoopSafetyPrecheck() {
+function createNoopSafetyFollowThrough() {
   return {
-    async evaluate() {
-      return {
-        route: "allow" as const,
-        confidence: "none" as const,
-        reasonCode: "none",
-        rulePack: null,
-        matchedSignals: []
-      };
-    },
-    getCachedSettings() {
-      return { contour2Enabled: true };
-    }
-  } as never;
-}
-
-function createNoopSafetyEnqueue() {
-  return {
-    async enqueueIfDeferred() {
+    async enforce() {
       return;
     }
   } as never;
@@ -131,8 +115,7 @@ async function run(): Promise<void> {
       }
     } as never,
     createNoopSafetyGate(),
-    createNoopSafetyPrecheck(),
-    createNoopSafetyEnqueue(),
+    createNoopSafetyFollowThrough(),
     {
       async resolveActiveWebChatsLimit() {
         return 20;
@@ -275,8 +258,7 @@ async function run(): Promise<void> {
           }
         } as never,
         createNoopSafetyGate(),
-        createNoopSafetyPrecheck(),
-        createNoopSafetyEnqueue(),
+        createNoopSafetyFollowThrough(),
         {
           async resolveActiveWebChatsLimit() {
             return 20;
@@ -354,8 +336,7 @@ async function run(): Promise<void> {
           }
         } as never,
         createNoopSafetyGate(),
-        createNoopSafetyPrecheck(),
-        createNoopSafetyEnqueue(),
+        createNoopSafetyFollowThrough(),
         {
           async resolveMessagesPerChatLimit() {
             return 12;
@@ -411,7 +392,6 @@ async function run(): Promise<void> {
   await assert.rejects(
     () =>
       new PrepareAssistantInboundTurnService(
-        {} as never,
         {} as never,
         {} as never,
         {} as never,
@@ -479,23 +459,8 @@ async function run(): Promise<void> {
           }
         } as never,
         {
-          async evaluate() {
+          async enforce() {
             inboundOrder.push("precheck");
-            return {
-              route: "allow" as const,
-              confidence: "none" as const,
-              reasonCode: "none",
-              rulePack: null,
-              matchedSignals: []
-            };
-          },
-          getCachedSettings() {
-            return { contour2Enabled: false };
-          }
-        } as never,
-        {
-          async enqueueIfDeferred() {
-            inboundOrder.push("enqueue");
           }
         } as never,
         {} as never,
@@ -543,13 +508,12 @@ async function run(): Promise<void> {
             throw new ApiErrorHttpException(403, {
               code: "safety_restricted",
               category: "forbidden",
-              message: "Inbound access is restricted due to platform safety policy.",
+              message: SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE,
               details: { reasonCode: "violence_extremism" }
             });
           }
         } as never,
-        createNoopSafetyPrecheck(),
-        createNoopSafetyEnqueue(),
+        createNoopSafetyFollowThrough(),
         {} as never,
         {} as never,
         {

@@ -32,6 +32,11 @@ import { resolveStoredPlanSandboxPolicy } from "./sandbox-policy";
 import { readWorkspacePeriodEconomics } from "./admin-ops-period-economics";
 import { readAdminModelCostLedgerWindow } from "./model-cost-ledger-read-model";
 import type { Assistant } from "../domain/assistant.entity";
+import {
+  USER_RESTRICTION_REPOSITORY,
+  type UserRestrictionRepository
+} from "../domain/user-restriction.repository";
+import type { AdminOpsSafetyRestrictionSummary } from "./ops-cockpit.types";
 
 function asIso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
@@ -56,6 +61,8 @@ export class ResolveAdminOpsCockpitService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY)
     private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
+    @Inject(USER_RESTRICTION_REPOSITORY)
+    private readonly userRestrictionRepository: UserRestrictionRepository,
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
@@ -78,6 +85,7 @@ export class ResolveAdminOpsCockpitService {
     );
     const assistant = assistantContext.assistant;
     const assistantOptions = assistantContext.assistantOptions;
+    const safetyRestriction = await this.resolveSafetyRestrictionSummary(lookupUserId);
     const governance =
       assistant === null
         ? null
@@ -125,6 +133,7 @@ export class ResolveAdminOpsCockpitService {
           message: "Runtime preflight is not healthy (live/ready check failed)."
         });
       }
+      this.pushSafetyIncidentSignal(incidentSignals, safetyRestriction);
       return {
         quotaUsage: null,
         billingSupport: null,
@@ -161,8 +170,11 @@ export class ResolveAdminOpsCockpitService {
           reapplySupported: false,
           restartSupported: false,
           assistantPlanOverrideSupported: false,
-          assistantPlanResetSupported: false
+          assistantPlanResetSupported: false,
+          safetyUnblockSupported: safetyRestriction !== null,
+          safetyManualRestrictSupported: true
         },
+        safetyRestriction,
         incidentSignals,
         updatedAt: new Date().toISOString()
       };
@@ -222,6 +234,7 @@ export class ResolveAdminOpsCockpitService {
       assistant.workspaceId,
       effectiveSubscription?.planCode ?? null
     );
+    this.pushSafetyIncidentSignal(incidentSignals, safetyRestriction);
 
     return {
       quotaUsage,
@@ -273,8 +286,11 @@ export class ResolveAdminOpsCockpitService {
         reapplySupported: latestPublishedVersion !== null,
         restartSupported: false,
         assistantPlanOverrideSupported: true,
-        assistantPlanResetSupported: governance?.assistantPlanOverrideCode !== null
+        assistantPlanResetSupported: governance?.assistantPlanOverrideCode !== null,
+        safetyUnblockSupported: safetyRestriction !== null,
+        safetyManualRestrictSupported: true
       },
+      safetyRestriction,
       incidentSignals,
       updatedAt: new Date().toISOString()
     };
@@ -786,5 +802,39 @@ export class ResolveAdminOpsCockpitService {
 
   private readNullableNumber(value: unknown): number | null {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+
+  private async resolveSafetyRestrictionSummary(
+    userId: string
+  ): Promise<AdminOpsSafetyRestrictionSummary | null> {
+    const restriction = await this.userRestrictionRepository.findActiveSafetyRestriction(userId);
+    if (restriction === null) {
+      return null;
+    }
+    return {
+      active: true,
+      userId: restriction.userId,
+      reasonCode: restriction.reasonCode,
+      source: restriction.source,
+      sourceAssistantId: restriction.sourceAssistantId,
+      sourceModerationCaseId: restriction.sourceModerationCaseId,
+      blockedUntil: asIso(restriction.blockedUntil),
+      createdAt: restriction.createdAt.toISOString(),
+      updatedAt: restriction.updatedAt.toISOString()
+    };
+  }
+
+  private pushSafetyIncidentSignal(
+    incidentSignals: AdminOpsCockpitState["incidentSignals"],
+    safetyRestriction: AdminOpsSafetyRestrictionSummary | null
+  ): void {
+    if (safetyRestriction === null) {
+      return;
+    }
+    incidentSignals.push({
+      code: "safety_restricted",
+      severity: "high",
+      message: `User has an active platform safety restriction (${safetyRestriction.reasonCode}).`
+    });
   }
 }

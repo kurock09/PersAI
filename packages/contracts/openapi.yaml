@@ -1170,6 +1170,371 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/safety-controls/restrictions:
+    get:
+      operationId: getAdminSafetyControlsRestrictions
+      summary: List active platform safety restrictions for ops drill-down
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: userId
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Active safety restrictions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminSafetyControlsRestrictionsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: User not found in admin workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/safety-controls/cases:
+    get:
+      operationId: getAdminSafetyControlsCases
+      summary: Fetch moderation case summaries by user or case id
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: userId
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: caseId
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Moderation case summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminSafetyControlsCasesResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: User not found in admin workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/safety-controls/unblock:
+    post:
+      operationId: postAdminSafetyControlsUnblock
+      summary: Clear active platform safety restriction for a user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminSafetyUnblockRequest"
+      responses:
+        "200":
+          description: Safety restriction cleared or already absent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminSafetyControlsUnblockResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: User not found in admin workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/safety-controls/restrict:
+    post:
+      operationId: postAdminSafetyControlsRestrict
+      summary: Apply manual platform safety restriction for a user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: false
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.safety_user.restrict.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminSafetyRestrictRequest"
+      responses:
+        "200":
+          description: Safety restriction applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminSafetyControlsRestrictResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (security/super-admin role + step-up required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: User not found in admin workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/safety-policy/heuristic-rules:
+    get:
+      operationId: getAdminSafetyPolicyHeuristicRules
+      summary: List inbound safety contour-1 heuristic rules
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: pack
+          required: false
+          schema:
+            $ref: "#/components/schemas/SafetyHeuristicPack"
+        - in: query
+          name: locale
+          required: false
+          schema:
+            $ref: "#/components/schemas/SafetyHeuristicLocale"
+        - in: query
+          name: enabled
+          required: false
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        "200":
+          description: Heuristic rules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminSafetyPolicyHeuristicRulesResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: putAdminSafetyPolicyHeuristicRules
+      summary: Replace inbound safety contour-1 heuristic rules
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutAdminSafetyPolicyHeuristicRulesRequest"
+      responses:
+        "200":
+          description: Updated heuristic rules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PutAdminSafetyPolicyHeuristicRulesResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/safety-policy/settings:
+    get:
+      operationId: getAdminSafetyPolicySettings
+      summary: Get inbound safety routing and contour-2 display settings
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Safety policy settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminSafetyPolicySettingsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: putAdminSafetyPolicySettings
+      summary: Update inbound safety routing and contour-2 display settings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutAdminSafetyPolicySettingsRequest"
+      responses:
+        "200":
+          description: Updated safety policy settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PutAdminSafetyPolicySettingsResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/assistants/ownership/transfer:
     post:
       operationId: postAdminAssistantOwnershipTransfer
@@ -13237,6 +13602,7 @@ components:
         - assistant
         - runtime
         - controls
+        - safetyRestriction
         - incidentSignals
         - updatedAt
       properties:
@@ -13395,6 +13761,8 @@ components:
             - restartSupported
             - assistantPlanOverrideSupported
             - assistantPlanResetSupported
+            - safetyUnblockSupported
+            - safetyManualRestrictSupported
           properties:
             reapplySupported:
               type: boolean
@@ -13404,6 +13772,14 @@ components:
               type: boolean
             assistantPlanResetSupported:
               type: boolean
+            safetyUnblockSupported:
+              type: boolean
+            safetyManualRestrictSupported:
+              type: boolean
+        safetyRestriction:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AdminOpsSafetyRestrictionSummary"
         incidentSignals:
           type: array
           items:
@@ -13851,6 +14227,7 @@ components:
         - assistantCount
         - billing
         - periodEconomics
+        - safetyStatus
       properties:
         userId:
           type: string
@@ -13937,6 +14314,11 @@ components:
                 - ok
                 - elevated
                 - high
+        safetyStatus:
+          type: string
+          enum:
+            - none
+            - safety_restricted
     GetAdminOpsUsersResponse:
       type: object
       required:
@@ -16194,6 +16576,411 @@ components:
           $ref: "#/components/schemas/MaterializationRolloutView"
         cancelledCount:
           type: integer
+    SafetyHeuristicPack:
+      type: string
+      enum:
+        - violence_extremism_explicit
+        - hack_abuse_request
+        - unsolicited_adult_spam
+        - structural_abuse_signal
+    SafetyHeuristicLocale:
+      type: string
+      enum:
+        - any
+        - ru
+        - en
+    SafetyHeuristicPatternType:
+      type: string
+      enum:
+        - literal
+        - regex
+    SafetyHeuristicRuleState:
+      type: object
+      required:
+        - id
+        - signalId
+        - pack
+        - locale
+        - patternType
+        - pattern
+        - weight
+        - enabled
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        signalId:
+          type: string
+        pack:
+          $ref: "#/components/schemas/SafetyHeuristicPack"
+        locale:
+          $ref: "#/components/schemas/SafetyHeuristicLocale"
+        patternType:
+          $ref: "#/components/schemas/SafetyHeuristicPatternType"
+        pattern:
+          type: string
+        weight:
+          type: integer
+          minimum: 1
+          maximum: 10
+        enabled:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    SafetyHeuristicRuleUpsertInput:
+      type: object
+      required:
+        - signalId
+        - pack
+        - pattern
+        - weight
+      properties:
+        signalId:
+          type: string
+        pack:
+          $ref: "#/components/schemas/SafetyHeuristicPack"
+        locale:
+          $ref: "#/components/schemas/SafetyHeuristicLocale"
+        patternType:
+          $ref: "#/components/schemas/SafetyHeuristicPatternType"
+        pattern:
+          type: string
+        weight:
+          type: integer
+          minimum: 1
+          maximum: 10
+        enabled:
+          type: boolean
+    SafetyPolicySettingsState:
+      type: object
+      required:
+        - id
+        - syncHoldTimeoutMs
+        - instantBlockPackAllowlist
+        - moderationModelId
+        - contour2Enabled
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        syncHoldTimeoutMs:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        instantBlockPackAllowlist:
+          type: array
+          items:
+            $ref: "#/components/schemas/SafetyHeuristicPack"
+        moderationModelId:
+          type: string
+        contour2Enabled:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    GetAdminSafetyPolicyHeuristicRulesResponse:
+      type: object
+      required:
+        - rules
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/SafetyHeuristicRuleState"
+    PutAdminSafetyPolicyHeuristicRulesRequest:
+      type: object
+      required:
+        - rules
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/SafetyHeuristicRuleUpsertInput"
+    PutAdminSafetyPolicyHeuristicRulesResponse:
+      type: object
+      required:
+        - rules
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/SafetyHeuristicRuleState"
+    GetAdminSafetyPolicySettingsResponse:
+      type: object
+      required:
+        - settings
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        settings:
+          $ref: "#/components/schemas/SafetyPolicySettingsState"
+    PutAdminSafetyPolicySettingsRequest:
+      type: object
+      required:
+        - syncHoldTimeoutMs
+        - instantBlockPackAllowlist
+        - moderationModelId
+        - contour2Enabled
+      properties:
+        syncHoldTimeoutMs:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        instantBlockPackAllowlist:
+          type: array
+          items:
+            $ref: "#/components/schemas/SafetyHeuristicPack"
+        moderationModelId:
+          type: string
+        contour2Enabled:
+          type: boolean
+    PutAdminSafetyPolicySettingsResponse:
+      type: object
+      required:
+        - settings
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        settings:
+          $ref: "#/components/schemas/SafetyPolicySettingsState"
+    AdminOpsSafetyRestrictionSummary:
+      type: object
+      required:
+        - active
+        - userId
+        - reasonCode
+        - source
+        - sourceAssistantId
+        - sourceModerationCaseId
+        - blockedUntil
+        - createdAt
+        - updatedAt
+      properties:
+        active:
+          type: boolean
+          enum: [true]
+        userId:
+          type: string
+        reasonCode:
+          type: string
+        source:
+          type: string
+          enum:
+            - moderation_auto
+            - admin
+        sourceAssistantId:
+          type: string
+          nullable: true
+        sourceModerationCaseId:
+          type: string
+          nullable: true
+        blockedUntil:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AdminSafetyRestrictionState:
+      type: object
+      required:
+        - userId
+        - userEmail
+        - userDisplayName
+        - reasonCode
+        - source
+        - sourceAssistantId
+        - sourceModerationCaseId
+        - blockedUntil
+        - createdAt
+        - updatedAt
+      properties:
+        userId:
+          type: string
+        userEmail:
+          type: string
+        userDisplayName:
+          type: string
+          nullable: true
+        reasonCode:
+          type: string
+        source:
+          type: string
+          enum:
+            - moderation_auto
+            - admin
+        sourceAssistantId:
+          type: string
+          nullable: true
+        sourceModerationCaseId:
+          type: string
+          nullable: true
+        blockedUntil:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AdminSafetyModerationCaseSummary:
+      type: object
+      required:
+        - id
+        - userId
+        - assistantId
+        - chatId
+        - surface
+        - decision
+        - reasonCode
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        assistantId:
+          type: string
+          nullable: true
+        chatId:
+          type: string
+          nullable: true
+        surface:
+          type: string
+          nullable: true
+        decision:
+          type: string
+        reasonCode:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    GetAdminSafetyControlsRestrictionsResponse:
+      type: object
+      required:
+        - activeCount
+        - restrictions
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        activeCount:
+          type: integer
+          minimum: 0
+        restrictions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminSafetyRestrictionState"
+    GetAdminSafetyControlsCasesResponse:
+      type: object
+      required:
+        - cases
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        cases:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminSafetyModerationCaseSummary"
+    AdminSafetyUnblockRequest:
+      type: object
+      required:
+        - userId
+      properties:
+        userId:
+          type: string
+          format: uuid
+    AdminSafetyUnblockState:
+      type: object
+      required:
+        - userId
+        - cleared
+      properties:
+        userId:
+          type: string
+        cleared:
+          type: boolean
+    PostAdminSafetyControlsUnblockResponse:
+      type: object
+      required:
+        - unblock
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        unblock:
+          $ref: "#/components/schemas/AdminSafetyUnblockState"
+    AdminSafetyRestrictRequest:
+      type: object
+      required:
+        - userId
+        - reasonCode
+      properties:
+        userId:
+          type: string
+          format: uuid
+        reasonCode:
+          type: string
+        sourceAssistantId:
+          type: string
+          format: uuid
+          nullable: true
+        blockedUntil:
+          type: string
+          format: date-time
+          nullable: true
+    AdminSafetyRestrictState:
+      type: object
+      required:
+        - userId
+        - restricted
+        - reasonCode
+      properties:
+        userId:
+          type: string
+        restricted:
+          type: boolean
+          enum: [true]
+        reasonCode:
+          type: string
+    PostAdminSafetyControlsRestrictResponse:
+      type: object
+      required:
+        - restrict
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        restrict:
+          $ref: "#/components/schemas/AdminSafetyRestrictState"
     AdminAbuseUnblockRequest:
       type: object
       required:
@@ -16430,6 +17217,7 @@ components:
         - admin.assistant.transfer_ownership
         - admin.assistant.recover_ownership
         - admin.force_reapply_all
+        - admin.safety_user.restrict
     AdminStepUpChallengeRequest:
       type: object
       required:

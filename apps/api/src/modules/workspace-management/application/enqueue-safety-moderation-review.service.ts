@@ -3,6 +3,7 @@ import type { AssistantInboundSurface } from "./assistant-inbound.types";
 import type { InboundSafetyPrecheckOutcome } from "../domain/safety-policy.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { buildSafetyModerationTriggerKey } from "./evaluate-inbound-safety-precheck.service";
+import { shouldEnqueueContour2Review } from "./safety-moderation-review.shared";
 
 export type EnqueueSafetyModerationReviewInput = {
   userId: string;
@@ -22,7 +23,7 @@ export class EnqueueSafetyModerationReviewService {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
   async enqueueIfDeferred(input: EnqueueSafetyModerationReviewInput): Promise<void> {
-    if (input.precheck.route !== "defer_contour_2" && input.precheck.route !== "block_obvious") {
+    if (!shouldEnqueueContour2Review(input.precheck.route)) {
       return;
     }
 

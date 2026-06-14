@@ -1656,6 +1656,23 @@ describe("toWebChatUxIssue", () => {
     });
   });
 
+  it("maps safety restrictions separately from rate limiting", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "safety_restricted",
+        message:
+          "This message could not be processed because inbound access is restricted by platform safety policy.",
+        details: { reasonCode: "violence_extremism" }
+      })
+    ).toEqual({
+      classId: "safety_restricted",
+      message:
+        "This message could not be processed because inbound access is restricted by platform safety policy.",
+      guidance: "This account cannot send new messages until the safety restriction is cleared.",
+      data: { reasonCode: "violence_extremism" }
+    });
+  });
+
   it("maps assistant activating to a dedicated activation issue", () => {
     expect(
       toWebChatUxIssue({

@@ -248,6 +248,9 @@ function resolveRoute(
   if (confidence === "high" && settings.instantBlockPackAllowlist.includes(rulePack)) {
     return "block_obvious";
   }
+  if (confidence === "high" && rulePack === "violence_extremism_explicit") {
+    return "hold_and_defer_contour_2_sync";
+  }
   return "defer_contour_2";
 }
 

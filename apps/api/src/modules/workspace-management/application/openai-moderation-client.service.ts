@@ -21,7 +21,11 @@ export class OpenAiModerationClientService {
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService
   ) {}
 
-  async moderateText(input: { model: string; text: string }): Promise<OpenAiModerationResult> {
+  async moderateText(input: {
+    model: string;
+    text: string;
+    timeoutMs?: number;
+  }): Promise<OpenAiModerationResult> {
     const trimmed = input.text.trim();
     if (trimmed.length === 0) {
       return {
@@ -39,11 +43,9 @@ export class OpenAiModerationClientService {
     if (apiKey === null || apiKey.length === 0) {
       throw new Error("OpenAI moderation API key is not configured.");
     }
+    const requestTimeoutMs = input.timeoutMs ?? config.SAFETY_MODERATION_REQUEST_TIMEOUT_MS;
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      config.SAFETY_MODERATION_REQUEST_TIMEOUT_MS
-    );
+    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
     try {
       const response = await fetch(OPENAI_MODERATIONS_URL, {
         method: "POST",

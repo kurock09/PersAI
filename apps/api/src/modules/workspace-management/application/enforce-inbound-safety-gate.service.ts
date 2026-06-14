@@ -3,6 +3,7 @@ import {
   USER_RESTRICTION_REPOSITORY,
   type UserRestrictionRepository
 } from "../domain/user-restriction.repository";
+import { SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE } from "../domain/safety-policy.types";
 import { createAssistantInboundSafetyRestrictedError } from "./assistant-inbound-error";
 
 @Injectable()
@@ -19,8 +20,10 @@ export class EnforceInboundSafetyGateService {
     }
 
     throw createAssistantInboundSafetyRestrictedError(
-      "Inbound access is restricted due to platform safety policy.",
-      { reasonCode: restriction.reasonCode }
+      SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE,
+      {
+        reasonCode: restriction.reasonCode
+      }
     );
   }
 }

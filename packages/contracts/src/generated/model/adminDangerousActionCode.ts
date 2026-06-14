@@ -19,5 +19,6 @@ export const AdminDangerousActionCode = {
   adminruntime_provider_settingsupdate: "admin.runtime_provider_settings.update",
   adminassistanttransfer_ownership: "admin.assistant.transfer_ownership",
   adminassistantrecover_ownership: "admin.assistant.recover_ownership",
-  adminforce_reapply_all: "admin.force_reapply_all"
+  adminforce_reapply_all: "admin.force_reapply_all",
+  adminsafety_userrestrict: "admin.safety_user.restrict"
 } as const;

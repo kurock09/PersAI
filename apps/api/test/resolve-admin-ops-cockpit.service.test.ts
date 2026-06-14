@@ -10,6 +10,7 @@ import type { AssistantGovernanceRepository } from "../src/modules/workspace-man
 import type { AssistantPublishedVersionRepository } from "../src/modules/workspace-management/domain/assistant-published-version.repository";
 import type { WorkspaceQuotaAccountingRepository } from "../src/modules/workspace-management/domain/workspace-quota-accounting.repository";
 import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
+import type { UserRestrictionRepository } from "../src/modules/workspace-management/domain/user-restriction.repository";
 
 function createService(
   prisma: WorkspaceManagementPrismaService,
@@ -55,6 +56,14 @@ function createService(
       WorkspaceQuotaAccountingRepository,
       "findByWorkspaceId"
     > as WorkspaceQuotaAccountingRepository,
+    {
+      async findActiveSafetyRestriction() {
+        return null;
+      }
+    } as Pick<
+      UserRestrictionRepository,
+      "findActiveSafetyRestriction"
+    > as UserRestrictionRepository,
     {
       async assertCanReadAdminSurface(userId: string) {
         assert.equal(userId, "admin-1");

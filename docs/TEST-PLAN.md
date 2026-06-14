@@ -549,6 +549,12 @@ corepack pnpm --filter @persai/api exec tsx test/evaluate-inbound-safety-prechec
 corepack pnpm --filter @persai/api exec tsx test/enqueue-safety-moderation-review.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/safety-moderation-decision.test.ts
 corepack pnpm --filter @persai/api exec tsx test/process-safety-moderation-review.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/enforce-inbound-safety-precheck-follow-through.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-safety-controls.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/ops/page.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/inbound-safety-policy.helpers.test.ts --config vitest.config.ts
+corepack pnpm --filter @persai/api exec tsx test/assistant-inbound-error.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts --config vitest.config.ts
 corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/assistant-inbound-error.test.ts
 corepack pnpm --filter @persai/api run typecheck
@@ -560,7 +566,10 @@ Interpretation rules:
 2. Canonical inbound order is `safety -> abuse -> contour-1 precheck -> quota`; abuse attempt registration must still run before a quota deny.
 3. Contour-1 `low`/`medium`/`high` matches must not create `user_restrictions` in slice 115.1; defer/block routes enqueue `safety_moderation_review_jobs` only.
 4. Slice 115.2 worker must persist `moderation_cases`, upsert active `user_restrictions` only on `block_user`, and treat OpenAI Moderation `flagged`/score threshold as the block decision (not C1 alone).
-5. Empty `user_restrictions` must not change safety-deny behavior; abuse-before-quota reorder remains intentional from slice 115.0.
+5. Slice 115.3 sync hold must deny inbound with `safety_restricted` (not `rate_limited`) when sync moderation returns `block_user`; web client must map `safety_restricted` to a distinct UX class.
+6. Slice 115.4 ops must show `safety_restricted` on user directory rows, expose restriction details on ops cockpit, allow admin unblock without abuse-controls, and require step-up for manual restrict.
+7. Slice 115.6 runtime UI must round-trip heuristic rules and routing knobs via safety-policy API without mixing router `precheckRuleOverrides`.
+8. Empty `user_restrictions` must not change safety-deny behavior; abuse-before-quota reorder remains intentional from slice 115.0.
 
 ## ADR-088 unified notification platform focused checks
 

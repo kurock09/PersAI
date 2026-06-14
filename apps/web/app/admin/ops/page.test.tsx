@@ -156,8 +156,11 @@ function createOpsCockpitState(): AdminOpsCockpitState {
       reapplySupported: true,
       restartSupported: false,
       assistantPlanOverrideSupported: true,
-      assistantPlanResetSupported: false
+      assistantPlanResetSupported: false,
+      safetyUnblockSupported: false,
+      safetyManualRestrictSupported: true
     },
+    safetyRestriction: null,
     incidentSignals: [],
     updatedAt: "2026-05-20T20:00:00.000Z"
   };

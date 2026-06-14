@@ -27,7 +27,8 @@ import {
   ChevronRight,
   Trash2,
   Users,
-  Gauge
+  Gauge,
+  ShieldAlert
 } from "lucide-react";
 import {
   type AdminOpsCockpitState,
@@ -43,6 +44,8 @@ import {
   getAdminPlans,
   postAdminOpsUserBillingSupportAction,
   postAdminOpsUserPlanOverride,
+  postAdminSafetyRestrict,
+  postAdminSafetyUnblock,
   postAssistantReapply
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
@@ -74,6 +77,7 @@ interface OpsUserRow {
     currentPeriodEndsAt: string | null;
     usageRisk: "unknown" | "ok" | "elevated" | "high";
   };
+  safetyStatus: "none" | "safety_restricted";
   periodEconomics: {
     periodStartedAt: string;
     periodEndsAt: string;
@@ -948,6 +952,11 @@ function UsersDirectory({
                           aria-hidden
                         />
                         <span className="min-w-0 truncate font-mono">{u.email}</span>
+                        {u.safetyStatus === "safety_restricted" ? (
+                          <span className="shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-destructive">
+                            safety
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                     <td className="py-1.5 pr-2 font-mono text-text">{u.billing.planCode ?? "—"}</td>
@@ -1140,6 +1149,8 @@ export default function AdminOpsPage() {
   const [reapplyBusy, setReapplyBusy] = useState(false);
   const [planOverrideBusy, setPlanOverrideBusy] = useState(false);
   const [billingSupportBusy, setBillingSupportBusy] = useState<BillingSupportAction | null>(null);
+  const [safetyBusy, setSafetyBusy] = useState<"unblock" | "restrict" | null>(null);
+  const [manualSafetyReasonCode, setManualSafetyReasonCode] = useState("admin_manual");
   const [pendingBillingSupportAction, setPendingBillingSupportAction] =
     useState<BillingSupportActionConfig | null>(null);
   const [selectedPlanCode, setSelectedPlanCode] = useState("");
@@ -1432,6 +1443,72 @@ export default function AdminOpsPage() {
     manualPaymentBillingPeriod,
     manualPaymentPlanCode,
     pendingBillingSupportAction,
+    selectedUserId
+  ]);
+
+  const onSafetyUnblock = useCallback(async () => {
+    if (!selectedUserId || !cockpit?.controls.safetyUnblockSupported) {
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      setActionMessage("Not signed in.");
+      return;
+    }
+    setSafetyBusy("unblock");
+    setActionMessage(null);
+    try {
+      const result = await postAdminSafetyUnblock(token, { userId: selectedUserId });
+      setActionMessage(
+        result.cleared ? "Safety restriction cleared." : "No active safety restriction was present."
+      );
+      setUsersReloadNonce((value) => value + 1);
+      await load(selectedUserId);
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : "Failed to clear safety restriction.");
+    } finally {
+      setSafetyBusy(null);
+    }
+  }, [cockpit?.controls.safetyUnblockSupported, getToken, load, selectedUserId]);
+
+  const onSafetyRestrict = useCallback(async () => {
+    if (!selectedUserId || !cockpit?.controls.safetyManualRestrictSupported) {
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      setActionMessage("Not signed in.");
+      return;
+    }
+    const reasonCode = manualSafetyReasonCode.trim();
+    if (reasonCode.length === 0) {
+      setActionMessage("Reason code is required for manual safety restrict.");
+      return;
+    }
+    setSafetyBusy("restrict");
+    setActionMessage(null);
+    try {
+      await postAdminSafetyRestrict(token, {
+        userId: selectedUserId,
+        reasonCode,
+        ...(cockpit.assistant.assistantId
+          ? { sourceAssistantId: cockpit.assistant.assistantId }
+          : {})
+      });
+      setActionMessage("Manual safety restriction applied.");
+      setUsersReloadNonce((value) => value + 1);
+      await load(selectedUserId);
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : "Failed to apply safety restriction.");
+    } finally {
+      setSafetyBusy(null);
+    }
+  }, [
+    cockpit?.assistant.assistantId,
+    cockpit?.controls.safetyManualRestrictSupported,
+    getToken,
+    load,
+    manualSafetyReasonCode,
     selectedUserId
   ]);
 
@@ -2169,6 +2246,102 @@ export default function AdminOpsPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1fr)]">
+            <CardShell title="Safety restriction" icon={ShieldAlert} tone="muted" compact>
+              {cockpit.safetyRestriction ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-text-muted">Status</span>
+                    <span className="rounded bg-destructive/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive">
+                      safety restricted
+                    </span>
+                  </div>
+                  <DetailRow label="Reason" value={cockpit.safetyRestriction.reasonCode} />
+                  <DetailRow label="Source" value={cockpit.safetyRestriction.source} />
+                  <CopyableDetailRow
+                    label="Source assistant"
+                    value={truncateId(cockpit.safetyRestriction.sourceAssistantId)}
+                    copyValue={cockpit.safetyRestriction.sourceAssistantId}
+                  />
+                  <CopyableDetailRow
+                    label="Moderation case"
+                    value={truncateId(cockpit.safetyRestriction.sourceModerationCaseId)}
+                    copyValue={cockpit.safetyRestriction.sourceModerationCaseId}
+                  />
+                  <DetailRow
+                    label="Blocked until"
+                    value={formatTs(cockpit.safetyRestriction.blockedUntil)}
+                  />
+                  <DetailRow
+                    label="Updated"
+                    value={formatTs(cockpit.safetyRestriction.updatedAt)}
+                  />
+                  <button
+                    type="button"
+                    disabled={!cockpit.controls.safetyUnblockSupported || safetyBusy !== null}
+                    onClick={() => void onSafetyUnblock()}
+                    className={cn(
+                      "mt-1 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                    )}
+                  >
+                    {safetyBusy === "unblock" ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <ShieldAlert className="h-3 w-3" />
+                    )}
+                    Unblock user
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[11px] text-text-muted">
+                  No active platform safety restriction for this user.
+                </p>
+              )}
+              <div className="space-y-1.5 border-t border-border pt-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Manual restrict
+                </p>
+                <label className="flex flex-col gap-1 text-[11px] text-text-muted">
+                  <span>Reason code</span>
+                  <select
+                    value={manualSafetyReasonCode}
+                    onChange={(e) => setManualSafetyReasonCode(e.target.value)}
+                    disabled={!selectedUserId || safetyBusy !== null}
+                    className="h-8 rounded border border-border bg-bg px-2 text-[11px] text-text focus:border-accent/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="admin_manual">admin_manual</option>
+                    <option value="violence_extremism">violence_extremism</option>
+                    <option value="hack_abuse">hack_abuse</option>
+                    <option value="unsolicited_adult_spam">unsolicited_adult_spam</option>
+                    <option value="structural_abuse_signal">structural_abuse_signal</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  disabled={
+                    !selectedUserId ||
+                    !cockpit.controls.safetyManualRestrictSupported ||
+                    safetyBusy !== null
+                  }
+                  onClick={() => void onSafetyRestrict()}
+                  className={cn(
+                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1 text-[11px] font-medium text-destructive transition-colors",
+                    "hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-45"
+                  )}
+                >
+                  {safetyBusy === "restrict" ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <ShieldAlert className="h-3 w-3" />
+                  )}
+                  Apply safety restrict
+                </button>
+                <p className="text-[10px] text-text-subtle">
+                  Requires security/super-admin step-up. This is separate from abuse rate-limit
+                  unblock.
+                </p>
+              </div>
+            </CardShell>
             <CardShell
               title={`Plan Control: ${selectedAssistantLabel}`}
               icon={Users}

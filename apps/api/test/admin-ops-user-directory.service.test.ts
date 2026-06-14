@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { AdminOpsUserDirectoryService } from "../src/modules/workspace-management/application/admin-ops-user-directory.service";
 import type { AdminAuthorizationService } from "../src/modules/workspace-management/application/admin-authorization.service";
 import type { AssistantRepository } from "../src/modules/workspace-management/domain/assistant.repository";
+import type { UserRestrictionRepository } from "../src/modules/workspace-management/domain/user-restriction.repository";
 import type { TrackWorkspaceQuotaUsageService } from "../src/modules/workspace-management/application/track-workspace-quota-usage.service";
 
 async function run(): Promise<void> {
@@ -110,6 +111,14 @@ async function run(): Promise<void> {
       }
     } as Pick<AssistantRepository, "findById"> as AssistantRepository,
     {
+      async findActiveSafetyRestrictionsForUserIds() {
+        return new Set<string>();
+      }
+    } as Pick<
+      UserRestrictionRepository,
+      "findActiveSafetyRestrictionsForUserIds"
+    > as UserRestrictionRepository,
+    {
       async resolveAssistantTokenBudgetQuotaSnapshot() {
         return {
           usedCredits: BigInt(90),
@@ -136,6 +145,7 @@ async function run(): Promise<void> {
   assert.equal(result.users[0]?.periodEconomics?.paidTotalMinor, 108800);
   assert.equal(result.users[0]?.periodEconomics?.paidCurrency, "RUB");
   assert.equal(result.users[0]?.periodEconomics?.modelCostUsdMicros, 1250000);
+  assert.equal(result.users[0]?.safetyStatus, "none");
 }
 
 void run();

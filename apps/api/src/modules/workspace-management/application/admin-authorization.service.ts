@@ -19,7 +19,8 @@ export type DangerousAdminActionCode =
   | "admin.tool_path_pricing.update"
   | "admin.assistant.transfer_ownership"
   | "admin.assistant.recover_ownership"
-  | "admin.force_reapply_all";
+  | "admin.force_reapply_all"
+  | "admin.safety_user.restrict";
 
 export interface AdminAccessContext {
   userId: string;
@@ -71,6 +72,9 @@ function requiredRolesForDangerousAction(action: DangerousAdminActionCode): Supp
   }
   if (action === "admin.force_reapply_all") {
     return ["ops_admin", "business_admin", "super_admin"];
+  }
+  if (action === "admin.safety_user.restrict") {
+    return ["security_admin", "super_admin"];
   }
   return ["business_admin", "super_admin"];
 }
@@ -177,6 +181,17 @@ export class AdminAuthorizationService {
     if (!this.hasAnyRole(context, ["ops_admin", "security_admin", "super_admin"])) {
       throw new ForbiddenException(
         "Abuse/rate-limit admin controls require an explicit ops/security/super-admin role."
+      );
+    }
+    return context;
+  }
+
+  async assertCanManageSafetyControls(userId: string): Promise<AdminAccessContext> {
+    await this.requireAdminEmailAllowlist(userId);
+    const context = await this.resolveAdminAccessContext(userId);
+    if (!this.hasAnyRole(context, ["ops_admin", "security_admin", "super_admin"])) {
+      throw new ForbiddenException(
+        "Safety admin controls require an explicit ops/security/super-admin role."
       );
     }
     return context;

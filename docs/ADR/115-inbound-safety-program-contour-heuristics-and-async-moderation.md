@@ -1,6 +1,6 @@
 # ADR-115: Inbound safety program — contour-1 heuristics and contour-2 async moderation
 
-**Status:** Accepted (115.0–115.2 complete; 115.3–115.6 pending)  
+**Status:** Accepted (115.0–115.4, 115.6 complete; 115.5 pending)  
 **Date:** 2026-06-13  
 **Relates to:** [ADR-044](044-abuse-and-rate-limit-enforcement-g2.md) (spam throttle — complementary, not replaced), [ADR-067](067-application-layer-security-hardening.md), [ADR-088](088-unified-notification-platform-control-plane-and-delivery.md) (ops alerts), [ADR-102](102-pre-prod-architectural-cleanup-and-truth-hardening.md) (slice discipline), [API-BOUNDARY.md](../API-BOUNDARY.md), [DATA-MODEL.md](../DATA-MODEL.md), [TEST-PLAN.md](../TEST-PLAN.md), [AGENTS.md](../../AGENTS.md)
 
@@ -406,7 +406,7 @@ Focused tests per slice as listed in `TEST-PLAN.md` § ADR-115 (to be added in s
 | 115.0 | complete | `aa0d69fb` | schema + read-only gate + inbound order |
 | 115.1 | complete | `aa0d69fb` | contour-1 precheck + policy API + C2 enqueue stub |
 | 115.2 | complete | `aa0d69fb` | contour-2 worker + Moderation API + cases + auto restrict |
-| 115.3 | pending | — | |
-| 115.4 | pending | — | |
+| 115.3 | complete | — | sync hold + safety_restricted deny + web mapping (local, uncommitted) |
+| 115.4 | complete | — | safety controls API + ops UI (local, uncommitted) |
 | 115.5 | pending | — | |
-| 115.6 | pending | — | Runtime policy UI; depends 115.1 |
+| 115.6 | complete | — | runtime inbound-safety policy UI (local, uncommitted) |

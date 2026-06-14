@@ -18,6 +18,8 @@ import type {
   AdminPlanCreateRequest,
   AdminPlanUpdateRequest,
   AdminRuntimeProviderSettingsRequest,
+  AdminSafetyRestrictRequest,
+  AdminSafetyUnblockRequest,
   AdminSkillUpsertRequest,
   AdminStepUpChallengeRequest,
   AdminToolPathPricingCatalogRequest,
@@ -73,6 +75,13 @@ import type {
   GetAdminPlatformRolloutsResponse,
   GetAdminPromptTemplatesResponse,
   GetAdminRuntimeProviderSettingsResponse,
+  GetAdminSafetyControlsCasesParams,
+  GetAdminSafetyControlsCasesResponse,
+  GetAdminSafetyControlsRestrictionsParams,
+  GetAdminSafetyControlsRestrictionsResponse,
+  GetAdminSafetyPolicyHeuristicRulesParams,
+  GetAdminSafetyPolicyHeuristicRulesResponse,
+  GetAdminSafetyPolicySettingsResponse,
   GetAdminSitePagesResponse,
   GetAdminSkillResponse,
   GetAdminSkillsParams,
@@ -146,6 +155,8 @@ import type {
   PostAdminPlanResponse,
   PostAdminPlatformRolloutCancelPendingResponse,
   PostAdminPlatformRolloutRetryFailedResponse,
+  PostAdminSafetyControlsRestrictResponse,
+  PostAdminSafetyControlsUnblockResponse,
   PostAdminSitePagePublishRequest,
   PostAdminSitePagePublishResponse,
   PostAdminSkillAuthoringDraftResponse,
@@ -179,6 +190,10 @@ import type {
   PutAdminBillingProviderCredentialsResponse,
   PutAdminDocumentProcessingSettingsResponse,
   PutAdminRuntimeProviderSettingsResponse,
+  PutAdminSafetyPolicyHeuristicRulesRequest,
+  PutAdminSafetyPolicyHeuristicRulesResponse,
+  PutAdminSafetyPolicySettingsRequest,
+  PutAdminSafetyPolicySettingsResponse,
   PutAdminSitePageRequest,
   PutAdminSitePageResponse,
   PutAdminToolPathPricingCatalogResponse,
@@ -1929,6 +1944,548 @@ export const getAdminAbuseControlsAssistants = async (
       method: "GET"
     }
   );
+};
+
+/**
+ * @summary List active platform safety restrictions for ops drill-down
+ */
+export type getAdminSafetyControlsRestrictionsResponse200 = {
+  data: GetAdminSafetyControlsRestrictionsResponse;
+  status: 200;
+};
+
+export type getAdminSafetyControlsRestrictionsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminSafetyControlsRestrictionsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminSafetyControlsRestrictionsResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAdminSafetyControlsRestrictionsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminSafetyControlsRestrictionsResponseSuccess =
+  getAdminSafetyControlsRestrictionsResponse200 & {
+    headers: Headers;
+  };
+export type getAdminSafetyControlsRestrictionsResponseError = (
+  | getAdminSafetyControlsRestrictionsResponse401
+  | getAdminSafetyControlsRestrictionsResponse403
+  | getAdminSafetyControlsRestrictionsResponse404
+  | getAdminSafetyControlsRestrictionsResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminSafetyControlsRestrictionsResponse =
+  | getAdminSafetyControlsRestrictionsResponseSuccess
+  | getAdminSafetyControlsRestrictionsResponseError;
+
+export const getGetAdminSafetyControlsRestrictionsUrl = (
+  params?: GetAdminSafetyControlsRestrictionsParams
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/safety-controls/restrictions?${stringifiedParams}`
+    : `/admin/safety-controls/restrictions`;
+};
+
+export const getAdminSafetyControlsRestrictions = async (
+  params?: GetAdminSafetyControlsRestrictionsParams,
+  options?: RequestInit
+): Promise<getAdminSafetyControlsRestrictionsResponse> => {
+  return customFetch<getAdminSafetyControlsRestrictionsResponse>(
+    getGetAdminSafetyControlsRestrictionsUrl(params),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Fetch moderation case summaries by user or case id
+ */
+export type getAdminSafetyControlsCasesResponse200 = {
+  data: GetAdminSafetyControlsCasesResponse;
+  status: 200;
+};
+
+export type getAdminSafetyControlsCasesResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type getAdminSafetyControlsCasesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminSafetyControlsCasesResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminSafetyControlsCasesResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAdminSafetyControlsCasesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminSafetyControlsCasesResponseSuccess = getAdminSafetyControlsCasesResponse200 & {
+  headers: Headers;
+};
+export type getAdminSafetyControlsCasesResponseError = (
+  | getAdminSafetyControlsCasesResponse400
+  | getAdminSafetyControlsCasesResponse401
+  | getAdminSafetyControlsCasesResponse403
+  | getAdminSafetyControlsCasesResponse404
+  | getAdminSafetyControlsCasesResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminSafetyControlsCasesResponse =
+  | getAdminSafetyControlsCasesResponseSuccess
+  | getAdminSafetyControlsCasesResponseError;
+
+export const getGetAdminSafetyControlsCasesUrl = (params?: GetAdminSafetyControlsCasesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/safety-controls/cases?${stringifiedParams}`
+    : `/admin/safety-controls/cases`;
+};
+
+export const getAdminSafetyControlsCases = async (
+  params?: GetAdminSafetyControlsCasesParams,
+  options?: RequestInit
+): Promise<getAdminSafetyControlsCasesResponse> => {
+  return customFetch<getAdminSafetyControlsCasesResponse>(
+    getGetAdminSafetyControlsCasesUrl(params),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Clear active platform safety restriction for a user
+ */
+export type postAdminSafetyControlsUnblockResponse200 = {
+  data: PostAdminSafetyControlsUnblockResponse;
+  status: 200;
+};
+
+export type postAdminSafetyControlsUnblockResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminSafetyControlsUnblockResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminSafetyControlsUnblockResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminSafetyControlsUnblockResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminSafetyControlsUnblockResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminSafetyControlsUnblockResponseSuccess =
+  postAdminSafetyControlsUnblockResponse200 & {
+    headers: Headers;
+  };
+export type postAdminSafetyControlsUnblockResponseError = (
+  | postAdminSafetyControlsUnblockResponse400
+  | postAdminSafetyControlsUnblockResponse401
+  | postAdminSafetyControlsUnblockResponse403
+  | postAdminSafetyControlsUnblockResponse404
+  | postAdminSafetyControlsUnblockResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminSafetyControlsUnblockResponse =
+  | postAdminSafetyControlsUnblockResponseSuccess
+  | postAdminSafetyControlsUnblockResponseError;
+
+export const getPostAdminSafetyControlsUnblockUrl = () => {
+  return `/admin/safety-controls/unblock`;
+};
+
+export const postAdminSafetyControlsUnblock = async (
+  adminSafetyUnblockRequest: AdminSafetyUnblockRequest,
+  options?: RequestInit
+): Promise<postAdminSafetyControlsUnblockResponse> => {
+  return customFetch<postAdminSafetyControlsUnblockResponse>(
+    getPostAdminSafetyControlsUnblockUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminSafetyUnblockRequest)
+    }
+  );
+};
+
+/**
+ * @summary Apply manual platform safety restriction for a user
+ */
+export type postAdminSafetyControlsRestrictResponse200 = {
+  data: PostAdminSafetyControlsRestrictResponse;
+  status: 200;
+};
+
+export type postAdminSafetyControlsRestrictResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminSafetyControlsRestrictResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminSafetyControlsRestrictResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminSafetyControlsRestrictResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminSafetyControlsRestrictResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminSafetyControlsRestrictResponseSuccess =
+  postAdminSafetyControlsRestrictResponse200 & {
+    headers: Headers;
+  };
+export type postAdminSafetyControlsRestrictResponseError = (
+  | postAdminSafetyControlsRestrictResponse400
+  | postAdminSafetyControlsRestrictResponse401
+  | postAdminSafetyControlsRestrictResponse403
+  | postAdminSafetyControlsRestrictResponse404
+  | postAdminSafetyControlsRestrictResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminSafetyControlsRestrictResponse =
+  | postAdminSafetyControlsRestrictResponseSuccess
+  | postAdminSafetyControlsRestrictResponseError;
+
+export const getPostAdminSafetyControlsRestrictUrl = () => {
+  return `/admin/safety-controls/restrict`;
+};
+
+export const postAdminSafetyControlsRestrict = async (
+  adminSafetyRestrictRequest: AdminSafetyRestrictRequest,
+  options?: RequestInit
+): Promise<postAdminSafetyControlsRestrictResponse> => {
+  return customFetch<postAdminSafetyControlsRestrictResponse>(
+    getPostAdminSafetyControlsRestrictUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminSafetyRestrictRequest)
+    }
+  );
+};
+
+/**
+ * @summary List inbound safety contour-1 heuristic rules
+ */
+export type getAdminSafetyPolicyHeuristicRulesResponse200 = {
+  data: GetAdminSafetyPolicyHeuristicRulesResponse;
+  status: 200;
+};
+
+export type getAdminSafetyPolicyHeuristicRulesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminSafetyPolicyHeuristicRulesResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminSafetyPolicyHeuristicRulesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminSafetyPolicyHeuristicRulesResponseSuccess =
+  getAdminSafetyPolicyHeuristicRulesResponse200 & {
+    headers: Headers;
+  };
+export type getAdminSafetyPolicyHeuristicRulesResponseError = (
+  | getAdminSafetyPolicyHeuristicRulesResponse401
+  | getAdminSafetyPolicyHeuristicRulesResponse403
+  | getAdminSafetyPolicyHeuristicRulesResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminSafetyPolicyHeuristicRulesResponse =
+  | getAdminSafetyPolicyHeuristicRulesResponseSuccess
+  | getAdminSafetyPolicyHeuristicRulesResponseError;
+
+export const getGetAdminSafetyPolicyHeuristicRulesUrl = (
+  params?: GetAdminSafetyPolicyHeuristicRulesParams
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/safety-policy/heuristic-rules?${stringifiedParams}`
+    : `/admin/safety-policy/heuristic-rules`;
+};
+
+export const getAdminSafetyPolicyHeuristicRules = async (
+  params?: GetAdminSafetyPolicyHeuristicRulesParams,
+  options?: RequestInit
+): Promise<getAdminSafetyPolicyHeuristicRulesResponse> => {
+  return customFetch<getAdminSafetyPolicyHeuristicRulesResponse>(
+    getGetAdminSafetyPolicyHeuristicRulesUrl(params),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Replace inbound safety contour-1 heuristic rules
+ */
+export type putAdminSafetyPolicyHeuristicRulesResponse200 = {
+  data: PutAdminSafetyPolicyHeuristicRulesResponse;
+  status: 200;
+};
+
+export type putAdminSafetyPolicyHeuristicRulesResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAdminSafetyPolicyHeuristicRulesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type putAdminSafetyPolicyHeuristicRulesResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type putAdminSafetyPolicyHeuristicRulesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type putAdminSafetyPolicyHeuristicRulesResponseSuccess =
+  putAdminSafetyPolicyHeuristicRulesResponse200 & {
+    headers: Headers;
+  };
+export type putAdminSafetyPolicyHeuristicRulesResponseError = (
+  | putAdminSafetyPolicyHeuristicRulesResponse400
+  | putAdminSafetyPolicyHeuristicRulesResponse401
+  | putAdminSafetyPolicyHeuristicRulesResponse403
+  | putAdminSafetyPolicyHeuristicRulesResponse500
+) & {
+  headers: Headers;
+};
+
+export type putAdminSafetyPolicyHeuristicRulesResponse =
+  | putAdminSafetyPolicyHeuristicRulesResponseSuccess
+  | putAdminSafetyPolicyHeuristicRulesResponseError;
+
+export const getPutAdminSafetyPolicyHeuristicRulesUrl = () => {
+  return `/admin/safety-policy/heuristic-rules`;
+};
+
+export const putAdminSafetyPolicyHeuristicRules = async (
+  putAdminSafetyPolicyHeuristicRulesRequest: PutAdminSafetyPolicyHeuristicRulesRequest,
+  options?: RequestInit
+): Promise<putAdminSafetyPolicyHeuristicRulesResponse> => {
+  return customFetch<putAdminSafetyPolicyHeuristicRulesResponse>(
+    getPutAdminSafetyPolicyHeuristicRulesUrl(),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(putAdminSafetyPolicyHeuristicRulesRequest)
+    }
+  );
+};
+
+/**
+ * @summary Get inbound safety routing and contour-2 display settings
+ */
+export type getAdminSafetyPolicySettingsResponse200 = {
+  data: GetAdminSafetyPolicySettingsResponse;
+  status: 200;
+};
+
+export type getAdminSafetyPolicySettingsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminSafetyPolicySettingsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminSafetyPolicySettingsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminSafetyPolicySettingsResponseSuccess =
+  getAdminSafetyPolicySettingsResponse200 & {
+    headers: Headers;
+  };
+export type getAdminSafetyPolicySettingsResponseError = (
+  | getAdminSafetyPolicySettingsResponse401
+  | getAdminSafetyPolicySettingsResponse403
+  | getAdminSafetyPolicySettingsResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminSafetyPolicySettingsResponse =
+  | getAdminSafetyPolicySettingsResponseSuccess
+  | getAdminSafetyPolicySettingsResponseError;
+
+export const getGetAdminSafetyPolicySettingsUrl = () => {
+  return `/admin/safety-policy/settings`;
+};
+
+export const getAdminSafetyPolicySettings = async (
+  options?: RequestInit
+): Promise<getAdminSafetyPolicySettingsResponse> => {
+  return customFetch<getAdminSafetyPolicySettingsResponse>(getGetAdminSafetyPolicySettingsUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Update inbound safety routing and contour-2 display settings
+ */
+export type putAdminSafetyPolicySettingsResponse200 = {
+  data: PutAdminSafetyPolicySettingsResponse;
+  status: 200;
+};
+
+export type putAdminSafetyPolicySettingsResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAdminSafetyPolicySettingsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type putAdminSafetyPolicySettingsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type putAdminSafetyPolicySettingsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type putAdminSafetyPolicySettingsResponseSuccess =
+  putAdminSafetyPolicySettingsResponse200 & {
+    headers: Headers;
+  };
+export type putAdminSafetyPolicySettingsResponseError = (
+  | putAdminSafetyPolicySettingsResponse400
+  | putAdminSafetyPolicySettingsResponse401
+  | putAdminSafetyPolicySettingsResponse403
+  | putAdminSafetyPolicySettingsResponse500
+) & {
+  headers: Headers;
+};
+
+export type putAdminSafetyPolicySettingsResponse =
+  | putAdminSafetyPolicySettingsResponseSuccess
+  | putAdminSafetyPolicySettingsResponseError;
+
+export const getPutAdminSafetyPolicySettingsUrl = () => {
+  return `/admin/safety-policy/settings`;
+};
+
+export const putAdminSafetyPolicySettings = async (
+  putAdminSafetyPolicySettingsRequest: PutAdminSafetyPolicySettingsRequest,
+  options?: RequestInit
+): Promise<putAdminSafetyPolicySettingsResponse> => {
+  return customFetch<putAdminSafetyPolicySettingsResponse>(getPutAdminSafetyPolicySettingsUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(putAdminSafetyPolicySettingsRequest)
+  });
 };
 
 /**

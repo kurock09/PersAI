@@ -1,5 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import {
+  USER_RESTRICTION_REPOSITORY,
+  type UserRestrictionRepository
+} from "../domain/user-restriction.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
   readWorkspacePeriodEconomics,
@@ -32,6 +36,7 @@ export interface AdminOpsUserRow {
     usageRisk: "unknown" | "ok" | "elevated" | "high";
   };
   periodEconomics: AdminOpsPeriodEconomicsSnapshot | null;
+  safetyStatus: "none" | "safety_restricted";
 }
 
 export interface AdminOpsUserDirectoryResult {
@@ -46,6 +51,8 @@ export class AdminOpsUserDirectoryService {
     private readonly adminAuthorizationService: AdminAuthorizationService,
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
+    @Inject(USER_RESTRICTION_REPOSITORY)
+    private readonly userRestrictionRepository: UserRestrictionRepository,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
@@ -130,6 +137,10 @@ export class AdminOpsUserDirectoryService {
     ]);
 
     const periodEconomicsByUserId = await this.resolvePeriodEconomicsForUsers(users);
+    const activeSafetyRestrictions =
+      await this.userRestrictionRepository.findActiveSafetyRestrictionsForUserIds(
+        users.map((user) => user.id)
+      );
 
     return {
       total,
@@ -163,7 +174,8 @@ export class AdminOpsUserDirectoryService {
             currentPeriodEndsAt: subscription?.currentPeriodEndsAt?.toISOString() ?? null,
             usageRisk: this.resolveUsageRisk(quota)
           },
-          periodEconomics: periodEconomicsByUserId.get(u.id) ?? null
+          periodEconomics: periodEconomicsByUserId.get(u.id) ?? null,
+          safetyStatus: activeSafetyRestrictions.has(u.id) ? "safety_restricted" : "none"
         };
       })
     };

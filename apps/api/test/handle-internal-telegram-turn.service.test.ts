@@ -229,15 +229,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async evaluate() {
-        return;
-      },
-      getCachedSettings() {
-        return { contour2Enabled: true };
-      }
-    } as never,
-    {
-      async enqueueIfDeferred() {
+      async enforce() {
         return;
       }
     } as never,
@@ -344,15 +336,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async evaluate() {
-        return;
-      },
-      getCachedSettings() {
-        return { contour2Enabled: true };
-      }
-    } as never,
-    {
-      async enqueueIfDeferred() {
+      async enforce() {
         return;
       }
     } as never,
@@ -466,15 +450,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async evaluate() {
-        return;
-      },
-      getCachedSettings() {
-        return { contour2Enabled: true };
-      }
-    } as never,
-    {
-      async enqueueIfDeferred() {
+      async enforce() {
         return;
       }
     } as never,
@@ -558,15 +534,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async evaluate() {
-        return;
-      },
-      getCachedSettings() {
-        return { contour2Enabled: true };
-      }
-    } as never,
-    {
-      async enqueueIfDeferred() {
+      async enforce() {
         return;
       }
     } as never,
@@ -685,15 +653,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async evaluate() {
-        return;
-      },
-      getCachedSettings() {
-        return { contour2Enabled: true };
-      }
-    } as never,
-    {
-      async enqueueIfDeferred() {
+      async enforce() {
         return;
       }
     } as never,
@@ -841,15 +801,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async evaluate() {
-        return;
-      },
-      getCachedSettings() {
-        return { contour2Enabled: true };
-      }
-    } as never,
-    {
-      async enqueueIfDeferred() {
+      async enforce() {
         return;
       }
     } as never,
@@ -944,15 +896,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async evaluate() {
-        return;
-      },
-      getCachedSettings() {
-        return { contour2Enabled: true };
-      }
-    } as never,
-    {
-      async enqueueIfDeferred() {
+      async enforce() {
         return;
       }
     } as never,
@@ -1083,15 +1027,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async evaluate() {
-        return;
-      },
-      getCachedSettings() {
-        return { contour2Enabled: true };
-      }
-    } as never,
-    {
-      async enqueueIfDeferred() {
+      async enforce() {
         return;
       }
     } as never,
@@ -1209,15 +1145,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async evaluate() {
-        return;
-      },
-      getCachedSettings() {
-        return { contour2Enabled: true };
-      }
-    } as never,
-    {
-      async enqueueIfDeferred() {
+      async enforce() {
         return;
       }
     } as never,
@@ -1308,15 +1236,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async evaluate() {
-        return;
-      },
-      getCachedSettings() {
-        return { contour2Enabled: true };
-      }
-    } as never,
-    {
-      async enqueueIfDeferred() {
+      async enforce() {
         return;
       }
     } as never,

@@ -68,4 +68,87 @@ export class PrismaUserRestrictionRepository implements UserRestrictionRepositor
     }
     return mapRow(row);
   }
+
+  async findActiveSafetyRestrictionsForUserIds(
+    userIds: string[],
+    now = new Date()
+  ): Promise<Map<string, UserRestriction>> {
+    if (userIds.length === 0) {
+      return new Map();
+    }
+    const rows = await this.prisma.userRestriction.findMany({
+      where: {
+        userId: { in: userIds },
+        kind: "safety",
+        status: "active",
+        OR: [{ blockedUntil: null }, { blockedUntil: { gt: now } }]
+      }
+    });
+    const result = new Map<string, UserRestriction>();
+    for (const row of rows) {
+      result.set(row.userId, mapRow(row));
+    }
+    return result;
+  }
+
+  async clearActiveSafetyRestriction(
+    userId: string,
+    clearedByUserId: string
+  ): Promise<UserRestriction | null> {
+    const existing = await this.findActiveSafetyRestriction(userId);
+    if (existing === null) {
+      return null;
+    }
+    const row = await this.prisma.userRestriction.update({
+      where: {
+        userId_kind: {
+          userId,
+          kind: "safety"
+        }
+      },
+      data: {
+        status: "cleared",
+        clearedAt: new Date(),
+        clearedByUserId
+      }
+    });
+    return mapRow(row);
+  }
+
+  async upsertAdminSafetyRestriction(input: {
+    userId: string;
+    reasonCode: string;
+    sourceAssistantId: string | null;
+    blockedUntil: Date | null;
+  }): Promise<UserRestriction> {
+    const row = await this.prisma.userRestriction.upsert({
+      where: {
+        userId_kind: {
+          userId: input.userId,
+          kind: "safety"
+        }
+      },
+      create: {
+        userId: input.userId,
+        kind: "safety",
+        status: "active",
+        reasonCode: input.reasonCode,
+        source: "admin",
+        sourceAssistantId: input.sourceAssistantId,
+        sourceModerationCaseId: null,
+        blockedUntil: input.blockedUntil
+      },
+      update: {
+        status: "active",
+        reasonCode: input.reasonCode,
+        source: "admin",
+        sourceAssistantId: input.sourceAssistantId,
+        sourceModerationCaseId: null,
+        blockedUntil: input.blockedUntil,
+        clearedAt: null,
+        clearedByUserId: null
+      }
+    });
+    return mapRow(row);
+  }
 }

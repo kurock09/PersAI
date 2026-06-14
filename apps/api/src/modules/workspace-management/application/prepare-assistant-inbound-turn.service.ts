@@ -6,8 +6,7 @@ import {
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 import { EnforceAbuseRateLimitService } from "./enforce-abuse-rate-limit.service";
 import { EnforceInboundSafetyGateService } from "./enforce-inbound-safety-gate.service";
-import { EvaluateInboundSafetyPrecheckService } from "./evaluate-inbound-safety-precheck.service";
-import { EnqueueSafetyModerationReviewService } from "./enqueue-safety-moderation-review.service";
+import { EnforceInboundSafetyPrecheckFollowThroughService } from "./enforce-inbound-safety-precheck-follow-through.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { Assistant } from "../domain/assistant.entity";
 import type {
@@ -72,8 +71,7 @@ export class PrepareAssistantInboundTurnService {
     private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
     private readonly enforceAbuseRateLimitService: EnforceAbuseRateLimitService,
     private readonly enforceInboundSafetyGateService: EnforceInboundSafetyGateService,
-    private readonly evaluateInboundSafetyPrecheckService: EvaluateInboundSafetyPrecheckService,
-    private readonly enqueueSafetyModerationReviewService: EnqueueSafetyModerationReviewService,
+    private readonly enforceInboundSafetyPrecheckFollowThroughService: EnforceInboundSafetyPrecheckFollowThroughService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
@@ -110,7 +108,7 @@ export class PrepareAssistantInboundTurnService {
       });
     }
 
-    await this.runInboundSafetyPrecheck({
+    await this.enforceInboundSafetyPrecheckFollowThroughService.enforce({
       userId: assistant.userId,
       assistantId: assistant.id,
       workspaceId: assistant.workspaceId,
@@ -295,38 +293,6 @@ export class PrepareAssistantInboundTurnService {
       workspaceId: assistant.workspaceId,
       workspaceTimezone: workspace.timezone
     };
-  }
-
-  private async runInboundSafetyPrecheck(params: {
-    userId: string;
-    assistantId: string;
-    workspaceId: string;
-    surface: AssistantInboundSurface;
-    surfaceThreadKey: string;
-    message: string;
-    chatId: string | null;
-  }): Promise<void> {
-    const precheck = await this.evaluateInboundSafetyPrecheckService.evaluate({
-      userId: params.userId,
-      assistantId: params.assistantId,
-      workspaceId: params.workspaceId,
-      surface: params.surface,
-      message: params.message
-    });
-    const settings = this.evaluateInboundSafetyPrecheckService.getCachedSettings();
-    if (settings?.contour2Enabled === false) {
-      return;
-    }
-    await this.enqueueSafetyModerationReviewService.enqueueIfDeferred({
-      userId: params.userId,
-      assistantId: params.assistantId,
-      workspaceId: params.workspaceId,
-      chatId: params.chatId,
-      surface: params.surface,
-      surfaceThreadKey: params.surfaceThreadKey,
-      message: params.message,
-      precheck
-    });
   }
 
   private async reserveWebChatUnderCap(params: {

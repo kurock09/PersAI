@@ -14,6 +14,7 @@ import type { AdminOpsCockpitStateSandbox } from "./adminOpsCockpitStateSandbox"
 import type { AdminOpsCockpitStateAssistant } from "./adminOpsCockpitStateAssistant";
 import type { AdminOpsCockpitStateRuntime } from "./adminOpsCockpitStateRuntime";
 import type { AdminOpsCockpitStateControls } from "./adminOpsCockpitStateControls";
+import type { AdminOpsCockpitStateSafetyRestriction } from "./adminOpsCockpitStateSafetyRestriction";
 import type { AdminOpsIncidentSignal } from "./adminOpsIncidentSignal";
 
 export interface AdminOpsCockpitState {
@@ -33,6 +34,8 @@ export interface AdminOpsCockpitState {
   assistant: AdminOpsCockpitStateAssistant;
   runtime: AdminOpsCockpitStateRuntime;
   controls: AdminOpsCockpitStateControls;
+  /** @nullable */
+  safetyRestriction: AdminOpsCockpitStateSafetyRestriction;
   incidentSignals: AdminOpsIncidentSignal[];
   updatedAt: string;
 }

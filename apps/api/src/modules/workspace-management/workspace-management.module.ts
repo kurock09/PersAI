@@ -12,6 +12,7 @@ import { PublicGeoHintController } from "./interface/http/public-geo-hint.contro
 import { AdminBillingLifecycleSettingsController } from "./interface/http/admin-billing-lifecycle-settings.controller";
 import { AdminSecurityController } from "./interface/http/admin-security.controller";
 import { AdminAbuseControlsController } from "./interface/http/admin-abuse-controls.controller";
+import { AdminSafetyControlsController } from "./interface/http/admin-safety-controls.controller";
 import { AdminSafetyPolicyController } from "./interface/http/admin-safety-policy.controller";
 import { AdminAssistantOwnershipController } from "./interface/http/admin-assistant-ownership.controller";
 import { AdminOpsController } from "./interface/http/admin-ops.controller";
@@ -146,14 +147,18 @@ import { PlatformRuntimeProviderSecretStoreService } from "./application/platfor
 import { ResolvePlatformRuntimeProviderSettingsService } from "./application/resolve-platform-runtime-provider-settings.service";
 import { EnforceAbuseRateLimitService } from "./application/enforce-abuse-rate-limit.service";
 import { EnforceInboundSafetyGateService } from "./application/enforce-inbound-safety-gate.service";
+import { EnforceInboundSafetyPrecheckFollowThroughService } from "./application/enforce-inbound-safety-precheck-follow-through.service";
 import { EvaluateInboundSafetyPrecheckService } from "./application/evaluate-inbound-safety-precheck.service";
 import { EnqueueSafetyModerationReviewService } from "./application/enqueue-safety-moderation-review.service";
 import { OpenAiModerationClientService } from "./application/openai-moderation-client.service";
+import { PersistSafetyInboundThreadNoticeService } from "./application/persist-safety-inbound-thread-notice.service";
 import { ProcessSafetyModerationReviewService } from "./application/process-safety-moderation-review.service";
+import { SafetyModerationReviewCoreService } from "./application/safety-moderation-review-core.service";
 import { SafetyModerationReviewSchedulerService } from "./application/safety-moderation-review-scheduler.service";
 import { ManageAdminSafetyPolicyService } from "./application/manage-admin-safety-policy.service";
 import { SeedSafetyHeuristicRulesService } from "./application/seed-safety-heuristic-rules.service";
 import { ManageAdminAbuseControlsService } from "./application/manage-admin-abuse-controls.service";
+import { ManageAdminSafetyControlsService } from "./application/manage-admin-safety-controls.service";
 import { ManageAdminAssistantOwnershipService } from "./application/manage-admin-assistant-ownership.service";
 import { ManageAdminAssistantPlanOverrideService } from "./application/manage-admin-assistant-plan-override.service";
 import { ManageAdminWorkspaceSubscriptionService } from "./application/manage-admin-workspace-subscription.service";
@@ -402,6 +407,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AdminBillingLifecycleSettingsController,
     AdminSecurityController,
     AdminAbuseControlsController,
+    AdminSafetyControlsController,
     AdminSafetyPolicyController,
     AdminAssistantOwnershipController,
     AdminOpsController,
@@ -549,11 +555,15 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     EvaluateInboundSafetyPrecheckService,
     EnqueueSafetyModerationReviewService,
     OpenAiModerationClientService,
+    SafetyModerationReviewCoreService,
+    EnforceInboundSafetyPrecheckFollowThroughService,
+    PersistSafetyInboundThreadNoticeService,
     ProcessSafetyModerationReviewService,
     SafetyModerationReviewSchedulerService,
     ManageAdminSafetyPolicyService,
     SeedSafetyHeuristicRulesService,
     ManageAdminAbuseControlsService,
+    ManageAdminSafetyControlsService,
     ManageAdminAssistantOwnershipService,
     ManageAdminAssistantPlanOverrideService,
     ManageAdminWorkspaceSubscriptionService,

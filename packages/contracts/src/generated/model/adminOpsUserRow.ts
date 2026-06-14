@@ -7,6 +7,7 @@
 import type { AdminOpsUserRowAssistant } from "./adminOpsUserRowAssistant";
 import type { AdminOpsUserRowPeriodEconomics } from "./adminOpsUserRowPeriodEconomics";
 import type { AdminOpsUserRowBilling } from "./adminOpsUserRowBilling";
+import type { AdminOpsUserRowSafetyStatus } from "./adminOpsUserRowSafetyStatus";
 
 export interface AdminOpsUserRow {
   userId: string;
@@ -21,4 +22,5 @@ export interface AdminOpsUserRow {
   /** @nullable */
   periodEconomics: AdminOpsUserRowPeriodEconomics;
   billing: AdminOpsUserRowBilling;
+  safetyStatus: AdminOpsUserRowSafetyStatus;
 }

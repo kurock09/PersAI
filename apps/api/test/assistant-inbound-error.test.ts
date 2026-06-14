@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
   createAssistantInboundConflict,
+  createAssistantInboundSafetyRestrictedError,
   toAssistantInboundFailurePayload
 } from "../src/modules/workspace-management/application/assistant-inbound-error";
+import { SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE } from "../src/modules/workspace-management/domain/safety-policy.types";
 
 async function run(): Promise<void> {
   const failure = toAssistantInboundFailurePayload(
@@ -27,6 +29,17 @@ async function run(): Promise<void> {
   );
   assert.equal(localizedFailure.code, "assistant_turn_failed");
   assert.equal(localizedFailure.message, "Не удалось выполнить ход ассистента.");
+
+  const safetyFailure = toAssistantInboundFailurePayload(
+    createAssistantInboundSafetyRestrictedError(SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE, {
+      reasonCode: "violence_extremism"
+    })
+  );
+  assert.deepEqual(safetyFailure, {
+    code: "safety_restricted",
+    message: SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE,
+    guidance: null
+  });
 }
 
 void run();

@@ -10,4 +10,6 @@ export type AdminOpsCockpitStateControls = {
   restartSupported: boolean;
   assistantPlanOverrideSupported: boolean;
   assistantPlanResetSupported: boolean;
+  safetyUnblockSupported: boolean;
+  safetyManualRestrictSupported: boolean;
 };

@@ -137,6 +137,18 @@ export type AdminOpsCockpitAssistantOption = {
   isActive: boolean;
 };
 
+export type AdminOpsSafetyRestrictionSummary = {
+  active: true;
+  userId: string;
+  reasonCode: string;
+  source: "moderation_auto" | "admin";
+  sourceAssistantId: string | null;
+  sourceModerationCaseId: string | null;
+  blockedUntil: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AdminOpsCockpitState = {
   quotaUsage: AdminOpsCockpitQuotaUsage | null;
   billingSupport: AdminOpsCockpitBillingSupport | null;
@@ -196,7 +208,10 @@ export type AdminOpsCockpitState = {
     restartSupported: boolean;
     assistantPlanOverrideSupported: boolean;
     assistantPlanResetSupported: boolean;
+    safetyUnblockSupported: boolean;
+    safetyManualRestrictSupported: boolean;
   };
+  safetyRestriction: AdminOpsSafetyRestrictionSummary | null;
   incidentSignals: Array<{
     code: string;
     severity: OpsIncidentSeverity;

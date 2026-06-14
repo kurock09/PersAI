@@ -19,6 +19,7 @@ import {
   getAdminRuntimeProviderSettings,
   putAdminRuntimeProviderSettings
 } from "@/app/app/assistant-api-client";
+import { InboundSafetyPolicyPanel } from "./inbound-safety-policy-panel";
 import { cn } from "@/app/lib/utils";
 
 type RuntimeProviderBillingModeState = RuntimeProviderModelProfileState["billingMode"];
@@ -1832,6 +1833,8 @@ export default function AdminRuntimePage() {
           </Card>
         </div>
       </Fold>
+
+      <InboundSafetyPolicyPanel getToken={getToken} />
 
       <Fold t="API Keys">
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">

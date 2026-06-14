@@ -8,6 +8,9 @@
 - ADR-115 Slice 0 (inbound safety gate skeleton): added `user_restrictions` and `moderation_cases` Prisma models + migration, `EnforceInboundSafetyGateService` read-only gate, and canonical inbound reorder to `safety -> abuse -> quota` in web prepare and Telegram inbound paths. Active safety restrictions deny with `403 safety_restricted`; empty table preserves prior behavior aside from the intentional abuse-before-quota reorder.
 - ADR-115 Slice 1 (contour-1 heuristics): added `safety_heuristic_rules`, `safety_policy_settings`, and `safety_moderation_review_jobs`; `EvaluateInboundSafetyPrecheckService` with seeded RU/EN packs; async contour-2 enqueue on defer/block; admin safety-policy API at `/api/v1/admin/safety-policy/*`. Inbound order is now `safety -> abuse -> contour-1 -> quota -> runtime`.
 - ADR-115 Slice 2 (contour-2 async moderation): added `ProcessSafetyModerationReviewService` + scheduler worker, OpenAI Moderation API client, `moderation_cases` writes, and auto `user_restrictions` upsert on `block_user`. Config keys `SAFETY_MODERATION_*` live in `packages/config` api config.
+- ADR-115 Slice 3 (inbound safety deny): added `hold_and_defer_contour_2_sync` route, sync moderation hold before runtime for high-risk packs, unified `safety_restricted` inbound error + optional system thread notice stub, and web client mapping distinct from `rate_limited`.
+- ADR-115 Slice 4 (ops safety controls): added `/api/v1/admin/safety-controls/*` (list restrictions/cases, unblock, manual restrict with step-up), ops cockpit `safetyRestriction` summary + user-directory `safetyStatus`, and `/admin/ops` safety panel.
+- ADR-115 Slice 6 (runtime policy UI): added OpenAPI/contracts for `/api/v1/admin/safety-policy/*` and `/admin/runtime` **Inbound Safety** section (heuristic packs + routing knobs).
 
 ## 2026-06-13
 

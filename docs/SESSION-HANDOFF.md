@@ -3,6 +3,98 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-14 - ADR-115 Slice 6 runtime inbound-safety policy UI
+
+### Baseline
+
+- Continuing from local 115.3–115.4 work on top of committed `737b38c7`. Slices **115.3–115.6** are implemented locally and **not yet committed**.
+
+### What changed
+
+- Landed ADR-115 Slice **115.6**: OpenAPI + contracts for `/admin/safety-policy/*`, web client helpers, and **Inbound Safety** section on `/admin/runtime` (pack tabs, heuristic rule table, routing knobs) via `InboundSafetyPolicyPanel`.
+
+### Verification
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/inbound-safety-policy.helpers.test.ts app/admin/runtime/page.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Rule save replaces the full heuristic table (`PUT` bulk replace); UI merges other packs client-side before save.
+- Admin `safety_user_restricted` notification remains **115.5**.
+
+### Next recommended step
+
+- **115.5** — admin notifications + focused E2E test hardening, then commit/deploy 115.3–115.6 bundle.
+
+## 2026-06-14 - ADR-115 Slice 4 safety controls API + ops UI
+
+### Baseline
+
+- Continuing from local 115.3 work on top of committed `737b38c7` (115.0–115.2). Slices **115.3 + 115.4** are implemented locally and **not yet committed**.
+
+### What changed
+
+- Landed ADR-115 Slice **115.4**: `AdminSafetyControlsController` + `ManageAdminSafetyControlsService` (`GET restrictions/cases`, `POST unblock/restrict` with step-up), extended `UserRestrictionRepository` clear/upsert, ops cockpit `safetyRestriction` + incident signal, user directory `safetyStatus` badge, and `/admin/ops` safety panel (unblock + manual restrict).
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-safety-controls.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/ops/page.test.tsx --config vitest.config.ts`
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Manual restrict requires `security_admin`/`super_admin` + step-up; ops-only admins can unblock but not restrict.
+- Moderation case drill-down is summary-only (no global queue UI by design).
+- Admin `safety_user_restricted` notification remains **115.5**.
+
+### Next recommended step
+
+- **115.5** — admin notifications + focused E2E test hardening.
+
+## 2026-06-14 - ADR-115 Slice 3 inbound safety deny + sync hold
+
+### Baseline
+
+- Continuing from committed `737b38c7` (115.0–115.2 on main). Slice 115.3 is implemented locally and **not yet committed**.
+
+### What changed
+
+- Landed ADR-115 Slice **115.3**: `hold_and_defer_contour_2_sync` route for high-confidence violence packs, `EnforceInboundSafetyPrecheckFollowThroughService` sync moderation hold (`syncHoldTimeoutMs`), unified `safety_restricted` deny with `details.reasonCode`, optional system thread notice stub, and web `safety_restricted` UX mapping distinct from `rate_limited`.
+- Refactored moderation review into `SafetyModerationReviewCoreService` shared by async worker and sync hold.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/enforce-inbound-safety-precheck-follow-through.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/process-safety-moderation-review.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/evaluate-inbound-safety-precheck.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-inbound-error.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Placeholder copy only (tone/i18n deferred).
+- Telegram sync deny has no thread notice when chat is not created yet (precheck runs before chat persist).
+- Ops unblock UI remains **115.4**.
+
+### Next recommended step
+
+- **115.4** — safety controls API + ops user-level UI.
+
 ## 2026-06-14 - ADR-115 Slice 2 contour-2 async moderation worker
 
 ### Baseline
