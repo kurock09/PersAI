@@ -3,6 +3,82 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-14 - ADR-115 safety warn UX + commit bundle (115.5, TG i18n, ADR-044)
+
+### Baseline
+
+- Starting SHA: `c36208e4` on `main`.
+
+### What changed
+
+- **Warn UX (web):** `safety_inbound_warn` no longer renders in the message thread; amber banner above composer matches restrict-banner layout (icon, title, body, detail, support button, dismiss).
+- **Warn UX (Telegram):** `DeliverSafetyInboundWarnNoticeService` sends localized warn copy in-chat; web path still persists system message for banner state.
+- **TG restrict i18n:** `resolveSafetyRestrictedMessengerCopy` by `reasonCode` wired through inbound error render path.
+- **ADR-115.5:** `safety_user_restricted` admin_system notifications + user-email enrichment (no UUID fallback).
+- **ADR-044:** abuse enforcement decoupled from quota-pressure; legacy `quota_pressure_*` rows cleared on next attempt.
+
+### Verification
+
+- Full AGENTS gate: lint, format:check, typecheck (api/web), test, test:step2, build — all green.
+
+### Next recommended step
+
+- Deploy `api` + `web`; live-test safety warn/restrict on web and Telegram; close ADR-115 program items still marked optional (outbound moderation = not planned).
+
+## 2026-06-14 - ADR-044 abuse cleanup (quota-pressure decoupling)
+
+### Baseline
+
+- Starting SHA: `c36208e4` on `main` (plus uncommitted 115.5 / TG i18n work in tree).
+
+### What changed
+
+- **Audit finding:** ADR-087 already stopped feeding quota-pressure into abuse (`emptyDecisionSnapshot()`), but `PrismaAssistantAbuseGuardRepository` still carried reconciliation/merge logic and `EnforceAbuseRateLimitService` still injected unused quota deps.
+- **Cleanup:** abuse enforcement is request-rate-only again; legacy DB rows with `quota_pressure_slowdown` / `quota_pressure_temporary_block` are cleared on the next distributed attempt.
+- **Docs:** ADR-044 post-acceptance + TEST-PLAN updated.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/enforce-abuse-rate-limit.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-assistant-abuse-guard.repository.test.ts`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Next recommended step
+
+- Commit 115.5 + TG safety i18n + ADR-044 cleanup together or split; deploy api.
+
+## 2026-06-14 - ADR-115 slice 115.5 admin safety notifications + user email labels
+
+### Baseline
+
+- Starting SHA: `c36208e4` on `main`.
+
+### What changed
+
+- **ADR-115.5:** `safety_user_restricted` admin_system event on auto-moderation `block_user` (`safety.moderation_case_decided` audit mapping) and admin manual restrict (`admin.safety_user_restricted`).
+- **User labels:** `resolveAdminSystemUserLabel` no longer falls back to UUID; audit→admin_system path enriches `userEmail` from `userId`/`actorUserId` for user-scoped events (`runtime_apply_*`, billing, support, safety).
+- **Web:** Admin notifications policy UI includes `safety_user_restricted` toggle.
+
+### Verification (AGENTS gate)
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/append-assistant-audit-event.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-system-notification-producer.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-safety-controls.service.test.ts`
+
+### Risks / residuals
+
+- Deploy **api** required; **web** for notifications policy toggle.
+- Live verify: trigger auto-restrict or manual restrict → admin assistant receives notification with user email.
+
+### Next recommended step
+
+- Live-verify safety admin surfaces (post `c36208e4` api deploy) + notification delivery with user email.
+
 ## 2026-06-14 - ADR-115 fix: ClerkAuthMiddleware registration for safety admin routes
 
 ### Baseline

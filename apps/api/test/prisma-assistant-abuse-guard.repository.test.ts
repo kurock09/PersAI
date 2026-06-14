@@ -46,11 +46,6 @@ async function runRetriesSerializableDistributedAttempt(): Promise<void> {
     surface: "web_chat",
     attemptedAt,
     windowMs: 60_000,
-    quotaDecision: {
-      blockedUntil: null,
-      slowedUntil: null,
-      reason: null
-    },
     userSlowdownRequestsPerMinute: 2,
     userBlockRequestsPerMinute: 10,
     assistantSlowdownRequestsPerMinute: 10,
@@ -135,11 +130,6 @@ async function runCreatesMissingDistributedRowsWithBootstrapWindow(): Promise<vo
     surface: "web_chat",
     attemptedAt,
     windowMs: 60_000,
-    quotaDecision: {
-      blockedUntil: null,
-      slowedUntil: null,
-      reason: null
-    },
     userSlowdownRequestsPerMinute: 2,
     userBlockRequestsPerMinute: 10,
     assistantSlowdownRequestsPerMinute: 10,
@@ -361,7 +351,77 @@ async function runPeerDomainNormalizesUndefinedAdminOverrideToNull(): Promise<vo
   assert.equal(result.adminOverrideUntil, null, "undefined must be normalized to null");
 }
 
+async function runClearsLegacyQuotaPressureBlockReasonOnNextAttempt(): Promise<void> {
+  const future = new Date(attemptedAt.getTime() + 3_600_000);
+  let lockCalls = 0;
+
+  const repository = new PrismaAssistantAbuseGuardRepository({
+    $transaction: async (
+      callback: (tx: {
+        $queryRaw: <T = unknown>() => Promise<T>;
+        assistantAbuseGuardState: {
+          create: typeof assistantAbuseGuardState.create;
+          update: typeof assistantAbuseGuardState.update;
+        };
+        assistantAbuseAssistantState: {
+          create: typeof assistantAbuseAssistantState.create;
+          update: typeof assistantAbuseAssistantState.update;
+        };
+      }) => Promise<unknown>
+    ) =>
+      callback({
+        $queryRaw: async () => {
+          lockCalls += 1;
+          if (lockCalls === 1) {
+            return [
+              {
+                id: "user-state-legacy",
+                assistant_id: "assistant-1",
+                user_id: "user-1",
+                workspace_id: "ws-1",
+                surface: "web_chat",
+                window_started_at: new Date("2026-04-05T23:29:30.000Z"),
+                request_count: 1,
+                slowed_until: null,
+                blocked_until: future,
+                block_reason: "quota_pressure_temporary_block",
+                admin_override_until: null,
+                last_seen_at: new Date("2026-04-05T23:29:30.000Z"),
+                created_at: new Date("2026-04-05T23:29:30.000Z"),
+                updated_at: new Date("2026-04-05T23:29:30.000Z")
+              }
+            ] as never;
+          }
+          return [buildRawAssistantState()] as never;
+        },
+        assistantAbuseGuardState,
+        assistantAbuseAssistantState
+      })
+  } as never);
+
+  const result = await repository.registerDistributedAttempt({
+    assistantId: "assistant-1",
+    userId: "user-1",
+    workspaceId: "ws-1",
+    surface: "web_chat",
+    attemptedAt,
+    windowMs: 60_000,
+    userSlowdownRequestsPerMinute: 10,
+    userBlockRequestsPerMinute: 20,
+    assistantSlowdownRequestsPerMinute: 10,
+    assistantBlockRequestsPerMinute: 20,
+    tempBlockSeconds: 300,
+    slowdownSeconds: 30
+  });
+
+  assert.equal(result.finalBlockedUntil, null);
+  assert.equal(result.finalSlowedUntil, null);
+  assert.equal(result.finalReason, null);
+  assert.equal(result.userState.blockReason, null);
+}
+
 void runRetriesSerializableDistributedAttempt();
 void runCreatesMissingDistributedRowsWithBootstrapWindow();
 void runPeerDomainMapsSnakeCaseRawQueryResult();
 void runPeerDomainNormalizesUndefinedAdminOverrideToNull();
+void runClearsLegacyQuotaPressureBlockReasonOnNextAttempt();

@@ -95,7 +95,21 @@ async function run(): Promise<void> {
         };
       },
       async upsertAdminSafetyRestriction() {
-        throw new Error("not used in unblock test");
+        return {
+          id: "restriction-2",
+          userId: "user-1",
+          kind: "safety" as const,
+          status: "active" as const,
+          blockedUntil: null,
+          reasonCode: "admin_manual",
+          source: "admin" as const,
+          sourceAssistantId: null,
+          sourceModerationCaseId: null,
+          clearedAt: null,
+          clearedByUserId: null,
+          createdAt: new Date("2026-06-14T02:00:00.000Z"),
+          updatedAt: new Date("2026-06-14T02:00:00.000Z")
+        };
       }
     } as never
   );
@@ -118,6 +132,23 @@ async function run(): Promise<void> {
     sourceAssistantId: null,
     blockedUntil: null
   });
+
+  auditEvents.length = 0;
+  const restrict = await service.restrict(
+    "admin-1",
+    { userId: "user-1", reasonCode: "admin_manual", sourceAssistantId: null, blockedUntil: null },
+    "step-up-token"
+  );
+  assert.deepEqual(restrict, { userId: "user-1", restricted: true, reasonCode: "admin_manual" });
+  assert.equal(auditEvents.length, 1);
+  assert.equal(
+    (auditEvents[0] as { eventCode?: string }).eventCode,
+    "admin.safety_user_restricted"
+  );
+  assert.equal(
+    (auditEvents[0] as { details?: { userEmail?: string } }).details?.userEmail,
+    "user@example.com"
+  );
 }
 
 run()

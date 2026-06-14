@@ -11,7 +11,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { countRecentSafetyWarnCases } from "./count-user-safety-warn-strikes";
 import { OpenAiModerationClientService } from "./openai-moderation-client.service";
-import { PersistSafetyInboundThreadNoticeService } from "./persist-safety-inbound-thread-notice.service";
+import { DeliverSafetyInboundWarnNoticeService } from "./deliver-safety-inbound-warn-notice.service";
 import { decideSafetyModerationOutcome } from "./safety-moderation-decision";
 import { previewThreadText } from "./safety-moderation-review.shared";
 
@@ -42,7 +42,7 @@ export class SafetyModerationReviewCoreService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly openAiModerationClientService: OpenAiModerationClientService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
-    private readonly persistSafetyInboundThreadNoticeService: PersistSafetyInboundThreadNoticeService
+    private readonly deliverSafetyInboundWarnNoticeService: DeliverSafetyInboundWarnNoticeService
   ) {}
 
   async findExistingCaseId(userId: string, triggerKey: string): Promise<string | null> {
@@ -164,9 +164,13 @@ export class SafetyModerationReviewCoreService {
       });
       restrictionCreated = true;
     } else if (finalDecision === "warn") {
-      await this.persistSafetyInboundThreadNoticeService.persistWarnNoticeIfPossible({
-        chatId: input.chatId,
+      await this.deliverSafetyInboundWarnNoticeService.deliverWarnNoticeIfPossible({
+        userId: input.userId,
+        workspaceId: input.workspaceId,
         assistantId: input.assistantId,
+        chatId: input.chatId,
+        surface: input.surface,
+        surfaceThreadKey: input.surfaceThreadKey,
         reasonCode: decisionOutcome.reasonCode,
         moderationCaseId: moderationCase.id
       });
@@ -178,7 +182,10 @@ export class SafetyModerationReviewCoreService {
       actorUserId: null,
       eventCategory: "safety",
       eventCode: "safety.moderation_case_decided",
-      summary: `Safety moderation case decided (${finalDecision}) for user ${input.userId}.`,
+      summary:
+        finalDecision === "block_user"
+          ? "Safety auto-restricted user."
+          : `Safety moderation case decided (${finalDecision}).`,
       outcome: finalDecision === "block_user" ? "denied" : "succeeded",
       details: {
         moderationCaseId: moderationCase.id,

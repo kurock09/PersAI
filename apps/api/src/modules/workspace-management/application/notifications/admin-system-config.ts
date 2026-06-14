@@ -97,6 +97,13 @@ export const ADMIN_SYSTEM_EVENT_DEFINITIONS = [
     label: "Support ticket opened",
     description: "A user submitted a new support request.",
     notificationClass: NotificationClass.operational
+  },
+  {
+    code: "safety_user_restricted",
+    label: "Safety user restricted",
+    description:
+      "A platform safety restriction was applied to a user (auto-moderation or admin action).",
+    notificationClass: NotificationClass.operational
   }
 ] as const;
 
@@ -114,7 +121,8 @@ export const DEFAULT_ADMIN_SYSTEM_EVENT_CODES: AdminSystemEventCode[] = [
   "grace_expired",
   "runtime_apply_failed",
   "runtime_apply_degraded",
-  "support_ticket_opened"
+  "support_ticket_opened",
+  "safety_user_restricted"
 ];
 
 export type AdminSystemPolicyConfig = {
@@ -220,18 +228,15 @@ export const USER_SCOPED_ADMIN_SYSTEM_EVENT_CODES = new Set<AdminSystemEventCode
   "payment_recovered",
   "grace_ending",
   "grace_expired",
-  "support_ticket_opened"
+  "support_ticket_opened",
+  "safety_user_restricted",
+  "runtime_apply_succeeded",
+  "runtime_apply_degraded",
+  "runtime_apply_failed"
 ]);
 
 export function resolveAdminSystemUserLabel(details: Record<string, unknown>): string | null {
   for (const key of ["recipientEmail", "userEmail", "email"] as const) {
-    const value = details[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-
-  for (const key of ["sourceUserId", "userId"] as const) {
     const value = details[key];
     if (typeof value === "string" && value.trim().length > 0) {
       return value.trim();

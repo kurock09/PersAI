@@ -20,7 +20,6 @@ export type RegisterDistributedAbuseAttemptInput = {
   surface: AbuseSurface;
   attemptedAt: Date;
   windowMs: number;
-  quotaDecision: AbuseDecisionSnapshot;
   userSlowdownRequestsPerMinute: number;
   userBlockRequestsPerMinute: number;
   assistantSlowdownRequestsPerMinute: number;

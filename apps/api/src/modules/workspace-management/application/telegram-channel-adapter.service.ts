@@ -978,7 +978,8 @@ export class TelegramChannelAdapterService {
         "telegram",
         failure.code,
         failure.guidance !== null ? `${fallbackMessage}\n\n${failure.guidance}` : fallbackMessage,
-        config.locale
+        config.locale,
+        { reasonCode: failure.reasonCode }
       );
       return {
         kind: "failure",

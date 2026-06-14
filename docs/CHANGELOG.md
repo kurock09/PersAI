@@ -5,6 +5,9 @@
 
 ## 2026-06-14
 
+- ADR-115 safety warn UX: web shows `safety_inbound_warn` as an amber banner above the composer (same layout as restrict banner + support CTA); Telegram receives localized warn text in-chat via `DeliverSafetyInboundWarnNoticeService`.
+- ADR-115 TG inbound safety: localized `safety_restricted` messenger copy by `reasonCode` (RU/EN). removed obsolete quota-pressure coupling from distributed abuse enforcement (`quotaDecision` input, unused quota deps in `EnforceAbuseRateLimitService`); repository now clears legacy `quota_pressure_*` block rows on next attempt. Quota limits stay in `EnforceAssistantCapabilityAndQuotaService` / ADR-087 only.
+- ADR-115 slice 115.5: `safety_user_restricted` admin_system notification on auto-moderation `block_user` and admin manual restrict; audit→admin_system mapping with user-email enrichment for all user-scoped events (no UUID fallback label).
 - ADR-115 admin safety auth fix: registered `/api/v1/admin/safety-policy/*` and `/api/v1/admin/safety-controls/*` in API `ClerkAuthMiddleware` (fixes live `401 auth_required` / “Session expired” on Runtime Inbound Safety and Ops safety unblock/restrict). Reverted incorrect web `buildAdminFetchOptions` BFF workaround; admin UI uses standard Bearer + `getAdminSessionToken` again.
 - ADR-115 slice 115.7: user-visible safety warn (system thread notice + localized web card), pack-aware moderation thresholds, rolling warn strikes per `reasonCode`, repeat offense blocks at inbound; OpenAPI `platformNotice` on chat messages.
 - ADR-115 follow-up BFF auth (superseded): web `buildAdminFetchOptions` attempt did not fix live safety admin — root cause was missing API middleware route registration.

@@ -34,30 +34,23 @@ function maxDate(a: Date | null | undefined, b: Date | null | undefined): Date |
   return sa.getTime() >= sb.getTime() ? sa : sb;
 }
 
-function isQuotaPressureApplying(quotaDecision: AbuseDecisionSnapshot): boolean {
-  return quotaDecision.blockedUntil != null || quotaDecision.slowedUntil != null;
-}
+const LEGACY_QUOTA_PRESSURE_BLOCK_REASONS = new Set([
+  "quota_pressure_temporary_block",
+  "quota_pressure_slowdown"
+]);
 
-function abuseDecisionAfterQuotaReconciled(
+function clearLegacyQuotaPressureDecision(
   persisted: {
     blockedUntil: Date | null;
     slowedUntil: Date | null;
     blockReason: string | null;
-  } | null,
-  quotaDecision: AbuseDecisionSnapshot
+  } | null
 ): AbuseDecisionSnapshot {
   if (persisted === null) {
     return { blockedUntil: null, slowedUntil: null, reason: null };
   }
-  if (isQuotaPressureApplying(quotaDecision)) {
-    return {
-      blockedUntil: persisted.blockedUntil,
-      slowedUntil: persisted.slowedUntil,
-      reason: persisted.blockReason
-    };
-  }
   const reason = persisted.blockReason ?? "";
-  if (reason === "quota_pressure_temporary_block" || reason === "quota_pressure_slowdown") {
+  if (LEGACY_QUOTA_PRESSURE_BLOCK_REASONS.has(reason)) {
     return { blockedUntil: null, slowedUntil: null, reason: null };
   }
   return {
@@ -331,11 +324,8 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
   ): Promise<RegisterDistributedAbuseAttemptResult> {
     const userState = await this.lockOrCreateUserStateRow(tx, input);
     const assistantState = await this.lockOrCreateAssistantStateRow(tx, input);
-    const userAfterQuota = abuseDecisionAfterQuotaReconciled(userState, input.quotaDecision);
-    const assistantAfterQuota = abuseDecisionAfterQuotaReconciled(
-      assistantState,
-      input.quotaDecision
-    );
+    const userBaseline = clearLegacyQuotaPressureDecision(userState);
+    const assistantBaseline = clearLegacyQuotaPressureDecision(assistantState);
     const userBypass =
       userState.adminOverrideUntil != null &&
       userState.adminOverrideUntil.getTime() > input.attemptedAt.getTime();
@@ -362,9 +352,9 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
         : assistantState.requestCount + 1;
 
     let userDecision: AbuseDecisionSnapshot = {
-      blockedUntil: userAfterQuota.blockedUntil,
-      slowedUntil: userAfterQuota.slowedUntil,
-      reason: userAfterQuota.reason
+      blockedUntil: userBaseline.blockedUntil,
+      slowedUntil: userBaseline.slowedUntil,
+      reason: userBaseline.reason
     };
     if (!userBypass) {
       if (userCount >= input.userBlockRequestsPerMinute) {
@@ -383,9 +373,9 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
     }
 
     let assistantDecision: AbuseDecisionSnapshot = {
-      blockedUntil: assistantAfterQuota.blockedUntil,
-      slowedUntil: assistantAfterQuota.slowedUntil,
-      reason: assistantAfterQuota.reason
+      blockedUntil: assistantBaseline.blockedUntil,
+      slowedUntil: assistantBaseline.slowedUntil,
+      reason: assistantBaseline.reason
     };
     if (!assistantBypass) {
       if (assistantCount >= input.assistantBlockRequestsPerMinute) {
@@ -403,16 +393,9 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       }
     }
 
-    const finalBlockedUntil = maxDate(
-      maxDate(userDecision.blockedUntil, assistantDecision.blockedUntil),
-      input.quotaDecision.blockedUntil
-    );
-    const finalSlowedUntil = maxDate(
-      maxDate(userDecision.slowedUntil, assistantDecision.slowedUntil),
-      input.quotaDecision.slowedUntil
-    );
-    const finalReason =
-      input.quotaDecision.reason ?? assistantDecision.reason ?? userDecision.reason ?? null;
+    const finalBlockedUntil = maxDate(userDecision.blockedUntil, assistantDecision.blockedUntil);
+    const finalSlowedUntil = maxDate(userDecision.slowedUntil, assistantDecision.slowedUntil);
+    const finalReason = assistantDecision.reason ?? userDecision.reason ?? null;
 
     const savedUserRow = await tx.assistantAbuseGuardState.update({
       where: {

@@ -90,7 +90,8 @@ const ADMIN_SYSTEM_EVENT_OPTIONS = [
   { code: "runtime_apply_failed", label: "Runtime apply failed" },
   { code: "admin_plan_created", label: "Admin plan created" },
   { code: "admin_plan_updated", label: "Admin plan updated" },
-  { code: "support_ticket_opened", label: "Support ticket opened" }
+  { code: "support_ticket_opened", label: "Support ticket opened" },
+  { code: "safety_user_restricted", label: "Safety user restricted" }
 ] as const;
 
 type DraftState = {

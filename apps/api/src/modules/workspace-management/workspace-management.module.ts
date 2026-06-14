@@ -151,6 +151,7 @@ import { EnforceInboundSafetyPrecheckFollowThroughService } from "./application/
 import { EvaluateInboundSafetyPrecheckService } from "./application/evaluate-inbound-safety-precheck.service";
 import { EnqueueSafetyModerationReviewService } from "./application/enqueue-safety-moderation-review.service";
 import { OpenAiModerationClientService } from "./application/openai-moderation-client.service";
+import { DeliverSafetyInboundWarnNoticeService } from "./application/deliver-safety-inbound-warn-notice.service";
 import { PersistSafetyInboundThreadNoticeService } from "./application/persist-safety-inbound-thread-notice.service";
 import { ProcessSafetyModerationReviewService } from "./application/process-safety-moderation-review.service";
 import { SafetyModerationReviewCoreService } from "./application/safety-moderation-review-core.service";
@@ -558,6 +559,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     SafetyModerationReviewCoreService,
     EnforceInboundSafetyPrecheckFollowThroughService,
     PersistSafetyInboundThreadNoticeService,
+    DeliverSafetyInboundWarnNoticeService,
     ProcessSafetyModerationReviewService,
     SafetyModerationReviewSchedulerService,
     ManageAdminSafetyPolicyService,

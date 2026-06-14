@@ -99,16 +99,19 @@ function createChat(
     olderMessagesLoading?: boolean;
     loadOlderMessages?: UseChatReturn["loadOlderMessages"];
     issue?: UseChatReturn["issue"];
+    messages?: ChatMessage[];
   }
 ): UseChatReturn {
   const contents = Array.isArray(messageContent) ? messageContent : [messageContent];
   const isStreaming = options?.isStreaming ?? true;
-  const messages: ChatMessage[] = contents.map((content, index) => ({
-    id: `assistant-${index + 1}`,
-    role: "assistant",
-    content,
-    status: isStreaming && index === contents.length - 1 ? "streaming" : ("committed" as const)
-  }));
+  const messages: ChatMessage[] =
+    options?.messages ??
+    contents.map((content, index) => ({
+      id: `assistant-${index + 1}`,
+      role: "assistant",
+      content,
+      status: isStreaming && index === contents.length - 1 ? "streaming" : ("committed" as const)
+    }));
 
   return {
     entries: messages.map((message) => ({ kind: "message", message })),
@@ -370,6 +373,48 @@ describe("ChatArea", () => {
     expect(screen.getByText("safetyRestrictedBodyHackAbuse")).toBeInTheDocument();
     expect(screen.getByText("safetyRestrictedDetail")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "safetyRestrictedOpenSupport" }));
+    expect(openSettingsMock).toHaveBeenCalledWith("support");
+  });
+
+  it("shows safety inbound warn banner above input with support action", () => {
+    openSettingsMock.mockReset();
+    render(
+      <ChatArea
+        chat={createChat("I cannot help with that.", {
+          isStreaming: false,
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "hack account",
+              status: "committed"
+            },
+            {
+              id: "warn-1",
+              role: "assistant",
+              content: "",
+              status: "committed",
+              platformNotice: {
+                kind: "safety_inbound_warn",
+                reasonCode: "hack_abuse"
+              }
+            },
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "I cannot help with that.",
+              status: "committed"
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByText("safetyInboundWarnTitle")).toBeInTheDocument();
+    expect(screen.getByText("safetyInboundWarnBodyHackAbuse")).toBeInTheDocument();
+    expect(screen.getByText("safetyInboundWarnDetail")).toBeInTheDocument();
+    expect(screen.queryByText("I cannot help with that.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "safetyInboundWarnOpenSupport" }));
     expect(openSettingsMock).toHaveBeenCalledWith("support");
   });
 

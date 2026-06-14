@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { RenderAssistantInboundSurfaceMessageService } from "../src/modules/workspace-management/application/render-assistant-inbound-surface-message.service";
+import { SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE } from "../src/modules/workspace-management/domain/safety-policy.types";
 
 async function run(): Promise<void> {
   const service = new RenderAssistantInboundSurfaceMessageService();
@@ -37,6 +38,37 @@ async function run(): Promise<void> {
   assert.equal(
     service.renderError("telegram", "assistant_activating", "fallback", "ru").text,
     "Настройки ассистента ещё применяются. Подождите немного и попробуйте снова."
+  );
+
+  assert.match(
+    service.renderError(
+      "telegram",
+      "safety_restricted",
+      SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE,
+      "ru",
+      { reasonCode: "hack_abuse" }
+    ).text,
+    /Отправка сообщений временно ограничена/
+  );
+  assert.match(
+    service.renderError(
+      "telegram",
+      "safety_restricted",
+      SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE,
+      "ru",
+      { reasonCode: "hack_abuse" }
+    ).text,
+    /взломом/
+  );
+  assert.doesNotMatch(
+    service.renderError(
+      "telegram",
+      "safety_restricted",
+      SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE,
+      "ru",
+      { reasonCode: "hack_abuse" }
+    ).text,
+    /inbound access is restricted/
   );
 }
 

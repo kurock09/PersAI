@@ -87,6 +87,36 @@ function resolveSafetyRestrictedBodyKey(reasonCode: string | undefined): string 
   }
 }
 
+function resolveSafetyInboundWarnBodyKey(reasonCode: string | undefined): string {
+  switch (reasonCode) {
+    case "hack_abuse":
+      return "safetyInboundWarnBodyHackAbuse";
+    case "violence_extremism":
+      return "safetyInboundWarnBodyViolence";
+    case "unsolicited_adult_spam":
+      return "safetyInboundWarnBodyAdultSpam";
+    case "structural_abuse_signal":
+      return "safetyInboundWarnBodyStructural";
+    default:
+      return "safetyInboundWarnBodyDefault";
+  }
+}
+
+function findLatestSafetyInboundWarn(
+  messages: UseChatReturn["messages"]
+): { messageId: string; reasonCode: string } | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.platformNotice?.kind === "safety_inbound_warn") {
+      return {
+        messageId: message.id,
+        reasonCode: message.platformNotice.reasonCode
+      };
+    }
+  }
+  return null;
+}
+
 export function ChatArea({
   chat,
   title,
@@ -122,6 +152,9 @@ export function ChatArea({
   const [compactionBannerSnoozedUntilCount, setCompactionBannerSnoozedUntilCount] = useState(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [dismissedBillingReturnKey, setDismissedBillingReturnKey] = useState<string | null>(null);
+  const [dismissedSafetyWarnMessageId, setDismissedSafetyWarnMessageId] = useState<string | null>(
+    null
+  );
   const billingReturnKey =
     billingReturnKind !== undefined
       ? `${billingReturnKind}:${billingPlanCode ?? ""}:${billingPaymentIntentId ?? ""}`
@@ -330,6 +363,12 @@ export function ChatArea({
     showSafetyRestrictedBanner && typeof chat.issue?.data?.reasonCode === "string"
       ? chat.issue.data.reasonCode
       : undefined;
+  const latestSafetyInboundWarn = findLatestSafetyInboundWarn(chat.messages);
+  const showSafetyInboundWarnBanner =
+    !showSafetyRestrictedBanner &&
+    latestSafetyInboundWarn !== null &&
+    latestSafetyInboundWarn.messageId !== dismissedSafetyWarnMessageId;
+  const safetyInboundWarnReasonCode = latestSafetyInboundWarn?.reasonCode;
   const issueContainerClass = issueIsWarning
     ? "border-amber-200 bg-amber-50"
     : "border-destructive/20 bg-destructive/5";
@@ -918,6 +957,46 @@ export function ChatArea({
               <button
                 type="button"
                 onClick={chat.clearIssue}
+                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {showSafetyInboundWarnBanner ? (
+        <div className="px-3 md:px-4">
+          <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 dark:border-amber-400/20 dark:bg-amber-500/10">
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-amber-300/80 bg-amber-100/80 text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/15 dark:text-amber-200">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-amber-900 dark:text-amber-100">
+                  {t("safetyInboundWarnTitle")}
+                </p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
+                  {t(resolveSafetyInboundWarnBodyKey(safetyInboundWarnReasonCode))}
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
+                  {t("safetyInboundWarnDetail")}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openSettings("support")}
+                    className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                  >
+                    {t("safetyInboundWarnOpenSupport")}
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setDismissedSafetyWarnMessageId(latestSafetyInboundWarn?.messageId ?? null)
+                }
                 className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
               >
                 <X className="h-3.5 w-3.5" />

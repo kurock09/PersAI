@@ -571,6 +571,13 @@ Interpretation rules:
 7. Slice 115.6 runtime UI must round-trip heuristic rules and routing knobs via safety-policy API without mixing router `precheckRuleOverrides`.
 8. Empty `user_restrictions` must not change safety-deny behavior; abuse-before-quota reorder remains intentional from slice 115.0.
 9. Slice 115.7 warn path must persist `moderation_cases` with `decision: warn` without `user_restrictions`; repeat warn for same `reasonCode` in strike window must escalate to `block_user` at inbound; web must render `platformNotice.kind = safety_inbound_warn`.
+10. Slice 115.5 admin_system must emit `safety_user_restricted` on auto `block_user` and admin manual restrict; notification message must include user email (not bare UUID). User-scoped admin_system events (`billing_*`, `support_ticket_opened`, `runtime_apply_*`, `safety_user_restricted`) must resolve `userEmail`/`recipientEmail` before label enrichment.
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/append-assistant-audit-event.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/admin-system-notification-producer.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-safety-controls.service.test.ts
+```
 
 ## ADR-088 unified notification platform focused checks
 
@@ -693,7 +700,8 @@ Interpretation rules:
 8. Failed renewal must enter `grace_period`, keep the paid plan effective, set explicit grace windows, and append `renewal_failed`/`grace_started`.
 9. Grace expiry must apply plan-level `paidFallbackPlanCode` first, then global fallback, persist `expired_fallback`, and append `grace_expired`/`fallback_applied`.
 10. Payment recovery must restore active paid state with provider/manual period truth and append `payment_recovered`.
-11. Credits/token budget visibility, inbound enforcement, abuse quota-pressure, and admin quota-pressure surfaces must read the current `workspace_token_budget_period_counters` bucket for the effective subscription period, not stale compatibility token totals from a previous period.
+11. Credits/token budget visibility, inbound quota enforcement, and admin quota-pressure surfaces must read the current `workspace_token_budget_period_counters` bucket for the effective subscription period, not stale compatibility token totals from a previous period.
+12. Legacy `assistant_abuse_*` rows with `block_reason` `quota_pressure_*` must be cleared on the next distributed abuse attempt; abuse enforcement must not reintroduce quota-driven slowdown/block (ADR-044 cleanup + ADR-087).
 12. Billing lifecycle notification schedules must come from persisted Billing Settings policy, with email required and assistant push optional.
 13. Lifecycle events must create durable `notification_intents` (class: `transactional`) via `NotificationIntentService` instead of process-local timers; required email jobs stay pending until Slice 3 adds MJML templates and a real Postmark email delivery path.
 14. Ops Cockpit user-directory rows should be billing-support rows: email, plan, lifecycle status, next relevant billing/trial/grace date, usage risk, and actions, not assistant setup trivia.

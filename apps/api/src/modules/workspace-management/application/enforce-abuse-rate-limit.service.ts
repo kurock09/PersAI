@@ -3,16 +3,10 @@ import { loadApiConfig } from "@persai/config";
 import type { Assistant } from "../domain/assistant.entity";
 import {
   ASSISTANT_ABUSE_GUARD_REPOSITORY,
-  type AbuseDecisionSnapshot,
   type AssistantAbuseGuardRepository
 } from "../domain/assistant-abuse-guard.repository";
 import type { AbuseSurface } from "../domain/assistant-abuse-guard.entity";
-import {
-  WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
-  type WorkspaceQuotaAccountingRepository
-} from "../domain/workspace-quota-accounting.repository";
 import { createAssistantInboundRateLimitError } from "./assistant-inbound-error";
-import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
 const WINDOW_MS = 60_000;
 
@@ -26,14 +20,8 @@ export class EnforceAbuseRateLimitService {
 
   constructor(
     @Inject(ASSISTANT_ABUSE_GUARD_REPOSITORY)
-    private readonly assistantAbuseGuardRepository: AssistantAbuseGuardRepository,
-    @Inject(WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY)
-    _workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
-    _trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
-  ) {
-    void _workspaceQuotaAccountingRepository;
-    void _trackWorkspaceQuotaUsageService;
-  }
+    private readonly assistantAbuseGuardRepository: AssistantAbuseGuardRepository
+  ) {}
 
   async enforceAndRegisterAttempt(params: {
     assistant: Assistant;
@@ -54,7 +42,6 @@ export class EnforceAbuseRateLimitService {
       surface: params.surface,
       attemptedAt: now,
       windowMs: WINDOW_MS,
-      quotaDecision: this.emptyDecisionSnapshot(),
       userSlowdownRequestsPerMinute: config.ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE,
       userBlockRequestsPerMinute: config.ABUSE_USER_BLOCK_REQUESTS_PER_MINUTE,
       assistantSlowdownRequestsPerMinute: config.ABUSE_ASSISTANT_SLOWDOWN_REQUESTS_PER_MINUTE,
@@ -116,14 +103,6 @@ export class EnforceAbuseRateLimitService {
         "Requests temporarily slowed for this peer due to rate-limit protection."
       );
     }
-  }
-
-  private emptyDecisionSnapshot(): AbuseDecisionSnapshot {
-    return {
-      blockedUntil: null,
-      slowedUntil: null,
-      reason: null
-    };
   }
 
   private logDistributedDecision(

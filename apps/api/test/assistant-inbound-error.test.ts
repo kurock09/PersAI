@@ -20,7 +20,8 @@ async function run(): Promise<void> {
   assert.deepEqual(failure, {
     code: "tool_daily_limit_reached",
     message: "Browser is exhausted for the current daily limit.",
-    guidance: "Try a request that does not need Browser until the daily limit resets."
+    guidance: "Try a request that does not need Browser until the daily limit resets.",
+    reasonCode: null
   });
 
   const localizedFailure = toAssistantInboundFailurePayload(
@@ -38,7 +39,8 @@ async function run(): Promise<void> {
   assert.deepEqual(safetyFailure, {
     code: "safety_restricted",
     message: SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE,
-    guidance: null
+    guidance: null,
+    reasonCode: "violence_extremism"
   });
 }
 

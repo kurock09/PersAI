@@ -11,18 +11,25 @@ type RenderedSurfaceMessage = {
   code: string;
 };
 
+type RenderAssistantInboundSurfaceMessageOptions = {
+  reasonCode?: string | null;
+};
+
 @Injectable()
 export class RenderAssistantInboundSurfaceMessageService {
   renderError(
     surface: AssistantInboundSurface,
     code: string,
     fallbackMessage: string,
-    locale: SupportedLocale = "en"
+    locale: SupportedLocale = "en",
+    options?: RenderAssistantInboundSurfaceMessageOptions
   ): RenderedSurfaceMessage {
     if (surface === "telegram" || surface === "whatsapp" || surface === "max") {
       return {
         code,
-        text: resolveMessengerSurfaceErrorCopy(code, locale, fallbackMessage)
+        text: resolveMessengerSurfaceErrorCopy(code, locale, fallbackMessage, {
+          reasonCode: options?.reasonCode ?? null
+        })
       };
     }
 

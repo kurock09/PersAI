@@ -141,7 +141,28 @@ async function run(): Promise<void> {
       eventCode: "runtime_apply_failed",
       summary: "Runtime apply failed for assistant X.",
       details: {
-        recipientEmail: "alex@agse.ru"
+        userEmail: "actor@example.com"
+      },
+      traceId: "audit-runtime-2"
+    });
+
+    assert.equal(
+      (calls[0]?.["factPayload"] as Record<string, unknown>)?.["message"],
+      "Runtime apply failed for assistant X. - user: actor@example.com"
+    );
+    console.log("✓ user-scoped runtime_apply events append user email label");
+  }
+
+  {
+    const { service, calls } = makeRealtimeService({
+      eventCodes: ["runtime_apply_failed"],
+      recipientAssistantIds: ["assistant-1"]
+    });
+    await service.emitEvent({
+      eventCode: "runtime_apply_failed",
+      summary: "Runtime apply failed for assistant X.",
+      details: {
+        userId: "user-src-uuid-only"
       },
       traceId: "audit-runtime-1"
     });
@@ -150,7 +171,30 @@ async function run(): Promise<void> {
       (calls[0]?.["factPayload"] as Record<string, unknown>)?.["message"],
       "Runtime apply failed for assistant X."
     );
-    console.log("✓ non-user-scoped admin_system events keep summary unchanged");
+    console.log("✓ user-scoped admin_system events skip label when email is missing");
+  }
+
+  {
+    const { service, calls } = makeRealtimeService({
+      eventCodes: ["safety_user_restricted"],
+      recipientAssistantIds: ["assistant-1"]
+    });
+    await service.emitEvent({
+      eventCode: "safety_user_restricted",
+      summary: "Safety auto-restricted user.",
+      details: {
+        userId: "user-src-1",
+        userEmail: "restricted@example.com",
+        reasonCode: "violence_extremism"
+      },
+      traceId: "safety-restrict-1"
+    });
+
+    assert.equal(
+      (calls[0]?.["factPayload"] as Record<string, unknown>)?.["message"],
+      "Safety auto-restricted user. - user: restricted@example.com"
+    );
+    console.log("✓ safety_user_restricted admin_system events append user email label");
   }
 
   {

@@ -12,6 +12,7 @@ export type AssistantInboundFailurePayload = {
   code: string;
   message: string;
   guidance: string | null;
+  reasonCode: string | null;
 };
 
 function createApiError(
@@ -258,9 +259,16 @@ export function toAssistantInboundFailurePayload(
 ): AssistantInboundFailurePayload {
   const normalized = toAssistantInboundHttpException(error, locale);
   const guidance = normalized.errorObject.details?.userFacingGuidance;
+  const reasonCode =
+    normalized.errorObject.code === "safety_restricted" &&
+    typeof normalized.errorObject.details?.reasonCode === "string" &&
+    normalized.errorObject.details.reasonCode.trim().length > 0
+      ? normalized.errorObject.details.reasonCode.trim()
+      : null;
   return {
     code: normalized.errorObject.code,
     message: normalized.errorObject.message,
-    guidance: typeof guidance === "string" && guidance.trim().length > 0 ? guidance : null
+    guidance: typeof guidance === "string" && guidance.trim().length > 0 ? guidance : null,
+    reasonCode
   };
 }

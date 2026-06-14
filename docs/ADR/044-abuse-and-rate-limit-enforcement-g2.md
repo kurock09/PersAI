@@ -30,7 +30,6 @@ G2 requires explicit layered protection that:
    - layered decisions:
      - per-user-per-assistant request window thresholds
      - per-assistant aggregate request window thresholds
-     - quota-pressure-aware slowdown/temporary block thresholds
    - outcomes:
      - temporary slowdown (429)
      - temporary block (429)
@@ -75,7 +74,7 @@ G2 requires explicit layered protection that:
 
 These behaviors refine G2 without changing the core decision above:
 
-1. **Quota-pressure sticky state:** Persisted slowdown/block rows attributed to `quota_pressure_slowdown` / `quota_pressure_temporary_block` must **not** outlive incorrect quota configuration. When live workspace quota falls **below** abuse slowdown/block thresholds, the enforcement pass **drops** those persisted windows so the next inbound request is evaluated fresh (operators recover by fixing plan limits without waiting `ABUSE_TEMP_BLOCK_SECONDS`).
+1. **Legacy quota-pressure rows:** ADR-087 removed quota-driven slowdown/block from the active abuse enforcement path. Any persisted `assistant_abuse_*` rows with `block_reason` `quota_pressure_slowdown` or `quota_pressure_temporary_block` are cleared on the next distributed abuse attempt; quota limits are enforced only by the dedicated quota layer (`EnforceAssistantCapabilityAndQuotaService` / ADR-087 advisories).
 
 2. **Admin unblock HTTP status:** `POST /api/v1/admin/abuse-controls/unblock` returns **200 OK** explicitly so Nest’s default **201 Created** for `POST` does not break admin clients that only treated 200 as success.
 

@@ -988,8 +988,8 @@ export class TrackWorkspaceQuotaUsageService {
 
   /**
    * Live plan-derived limits (subscription + catalog), same source as increment/refresh paths.
-   * Abuse quota-pressure and UI should use this instead of snapshot columns on
-   * `workspace_quota_accounting_state`, which can lag until a turn passes enforcement.
+   * Quota enforcement, advisories, and admin quota surfaces should use this instead of snapshot
+   * columns on `workspace_quota_accounting_state`, which can lag until a turn passes enforcement.
    */
   async resolveEffectiveLimitsForAssistant(
     assistant: Assistant

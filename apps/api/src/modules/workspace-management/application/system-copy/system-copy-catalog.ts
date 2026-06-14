@@ -58,8 +58,75 @@ const MESSENGER_SURFACE_ERRORS: Record<string, LocalizedCopy> = {
   assistant_turn_failed: copy(
     "Ассистент временно недоступен. Попробуйте ещё раз.",
     "Assistant is temporarily unavailable. Please try again."
+  ),
+  safety_restricted: copy(
+    "Отправка сообщений временно ограничена.\n\nPersAI ограничил доступ к чату после автоматической проверки безопасности.\n\nПока ограничение активно, новые сообщения отправить нельзя. Если считаешь, что это ошибка, напиши в поддержку.",
+    "Sending messages is temporarily restricted.\n\nPersAI restricted chat access after an automatic safety review.\n\nYou cannot send new messages while this restriction is active. If you think this is a mistake, contact support."
   )
 };
+
+const SAFETY_RESTRICTED_MESSENGER_BODY_COPY: Record<string, LocalizedCopy> = {
+  default: copy(
+    "PersAI ограничил доступ к чату после автоматической проверки безопасности.",
+    "PersAI restricted chat access after an automatic safety review."
+  ),
+  hack_abuse: copy(
+    "Доступ ограничен: в сообщении был запрос, связанный со взломом, кражей данных или другим злоупотреблением.",
+    "Access is restricted because a message looked like hacking, credential theft, or another abuse request."
+  ),
+  violence_extremism: copy(
+    "Доступ ограничен: в сообщении был контент, связанный с насилием или экстремизмом.",
+    "Access is restricted because a message involved violence or extremism."
+  ),
+  unsolicited_adult_spam: copy(
+    "Доступ ограничен: в сообщении был нежелательный взрослый или спам-контент.",
+    "Access is restricted because a message involved unwanted adult or spam content."
+  ),
+  structural_abuse_signal: copy(
+    "Доступ ограничен: сообщение выглядело как злоупотребление форматом (пустое, только ссылка и т.п.).",
+    "Access is restricted because the message looked like format abuse (empty, link-only, and similar)."
+  )
+};
+
+const SAFETY_RESTRICTED_MESSENGER_DETAIL_COPY = copy(
+  "Пока ограничение активно, новые сообщения отправить нельзя. Если считаешь, что это ошибка, напиши в поддержку.",
+  "You cannot send new messages while this restriction is active. If you think this is a mistake, contact support."
+);
+
+const SAFETY_RESTRICTED_MESSENGER_TITLE_COPY = copy(
+  "Отправка сообщений временно ограничена.",
+  "Sending messages is temporarily restricted."
+);
+
+const SAFETY_INBOUND_WARN_MESSENGER_BODY_COPY: Record<string, LocalizedCopy> = {
+  default: copy(
+    "Мы заметили рискованный запрос при автоматической проверке безопасности.",
+    "We noticed a risky request during an automatic safety review."
+  ),
+  hack_abuse: copy(
+    "Запрос похож на попытку злоупотребления: взлом, кража данных или другое злоупотребление.",
+    "This request looked like hacking, credential theft, or another abuse attempt."
+  ),
+  violence_extremism: copy(
+    "Запрос связан с насилием или экстремизмом.",
+    "This request involved violence or extremism."
+  ),
+  unsolicited_adult_spam: copy(
+    "Запрос связан с нежелательным взрослым или спам-контентом.",
+    "This request involved unwanted adult or spam content."
+  ),
+  structural_abuse_signal: copy(
+    "Сообщение выглядело как злоупотребление форматом (пустое, только ссылка и т.п.).",
+    "This message looked like format abuse (empty, link-only, and similar)."
+  )
+};
+
+const SAFETY_INBOUND_WARN_MESSENGER_DETAIL_COPY = copy(
+  "Пока можно продолжать чат. Повторные похожие сообщения могут ограничить доступ.",
+  "You can keep chatting for now. Repeated similar messages may restrict access."
+);
+
+const SAFETY_INBOUND_WARN_MESSENGER_TITLE_COPY = copy("Внимание", "Attention");
 
 const REMINDER_SURFACE_ERRORS: Record<string, LocalizedCopy> = {
   assistant_activating: copy(
@@ -141,11 +208,63 @@ export function resolveSystemCopy(
   return entry[locale];
 }
 
-export function resolveMessengerSurfaceErrorCopy(
-  code: string,
+export function resolveSafetyInboundWarnMessengerCopy(
+  reasonCode: string | null | undefined,
   locale: SupportedLocale,
   fallbackMessage: string
 ): string {
+  const normalizedReasonCode = typeof reasonCode === "string" ? reasonCode.trim() : "";
+  const bodyEntry =
+    normalizedReasonCode.length > 0 &&
+    SAFETY_INBOUND_WARN_MESSENGER_BODY_COPY[normalizedReasonCode] !== undefined
+      ? SAFETY_INBOUND_WARN_MESSENGER_BODY_COPY[normalizedReasonCode]
+      : SAFETY_INBOUND_WARN_MESSENGER_BODY_COPY.default;
+  if (bodyEntry === undefined) {
+    return fallbackMessage;
+  }
+
+  return [
+    SAFETY_INBOUND_WARN_MESSENGER_TITLE_COPY[locale],
+    "",
+    bodyEntry[locale],
+    "",
+    SAFETY_INBOUND_WARN_MESSENGER_DETAIL_COPY[locale]
+  ].join("\n");
+}
+
+export function resolveSafetyRestrictedMessengerCopy(
+  reasonCode: string | null | undefined,
+  locale: SupportedLocale,
+  fallbackMessage: string
+): string {
+  const normalizedReasonCode = typeof reasonCode === "string" ? reasonCode.trim() : "";
+  const bodyEntry =
+    normalizedReasonCode.length > 0 &&
+    SAFETY_RESTRICTED_MESSENGER_BODY_COPY[normalizedReasonCode] !== undefined
+      ? SAFETY_RESTRICTED_MESSENGER_BODY_COPY[normalizedReasonCode]
+      : SAFETY_RESTRICTED_MESSENGER_BODY_COPY.default;
+  if (bodyEntry === undefined) {
+    return fallbackMessage;
+  }
+
+  return [
+    SAFETY_RESTRICTED_MESSENGER_TITLE_COPY[locale],
+    "",
+    bodyEntry[locale],
+    "",
+    SAFETY_RESTRICTED_MESSENGER_DETAIL_COPY[locale]
+  ].join("\n");
+}
+
+export function resolveMessengerSurfaceErrorCopy(
+  code: string,
+  locale: SupportedLocale,
+  fallbackMessage: string,
+  options?: { reasonCode?: string | null }
+): string {
+  if (code === "safety_restricted") {
+    return resolveSafetyRestrictedMessengerCopy(options?.reasonCode, locale, fallbackMessage);
+  }
   return resolveSystemCopy(MESSENGER_SURFACE_ERRORS, code, locale, fallbackMessage);
 }
 

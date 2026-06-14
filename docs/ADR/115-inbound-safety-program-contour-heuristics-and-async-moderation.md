@@ -1,6 +1,6 @@
 # ADR-115: Inbound safety program — contour-1 heuristics and contour-2 async moderation
 
-**Status:** Accepted (115.0–115.4, 115.6–115.7 complete; 115.5 pending)  
+**Status:** Accepted (115.0–115.7 complete)  
 **Date:** 2026-06-13  
 **Relates to:** [ADR-044](044-abuse-and-rate-limit-enforcement-g2.md) (spam throttle — complementary, not replaced), [ADR-067](067-application-layer-security-hardening.md), [ADR-088](088-unified-notification-platform-control-plane-and-delivery.md) (ops alerts), [ADR-102](102-pre-prod-architectural-cleanup-and-truth-hardening.md) (slice discipline), [API-BOUNDARY.md](../API-BOUNDARY.md), [DATA-MODEL.md](../DATA-MODEL.md), [TEST-PLAN.md](../TEST-PLAN.md), [AGENTS.md](../../AGENTS.md)
 
@@ -443,6 +443,6 @@ Focused tests per slice as listed in `TEST-PLAN.md` § ADR-115 (to be added in s
 | 115.2 | complete | `aa0d69fb` | contour-2 worker + Moderation API + cases + auto restrict |
 | 115.3 | complete | `e797a172` | sync hold + safety_restricted deny + web mapping |
 | 115.4 | complete | `e797a172` | safety controls API + ops UI |
-| 115.5 | pending | — | |
+| 115.5 | complete | `c36208e4` | safety_user_restricted admin_system + user email labels |
 | 115.6 | complete | `e797a172` | runtime inbound-safety policy UI |
 | 115.7 | complete | `a35d17c3` | warn UX, strikes, pack thresholds, platformNotice |

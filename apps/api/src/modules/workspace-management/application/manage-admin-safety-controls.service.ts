@@ -318,6 +318,7 @@ export class ManageAdminSafetyControlsService {
       sourceAssistantId: input.sourceAssistantId,
       blockedUntil: input.blockedUntil
     });
+    const targetUser = await this.requireUser(input.userId);
     const workspaceId = await this.resolvePrimaryWorkspaceId(input.userId);
     await this.appendAssistantAuditEventService.execute({
       workspaceId,
@@ -328,6 +329,7 @@ export class ManageAdminSafetyControlsService {
       summary: "Admin applied platform safety restriction.",
       details: {
         userId: input.userId,
+        userEmail: targetUser.email,
         reasonCode: restriction.reasonCode,
         source: restriction.source,
         sourceAssistantId: restriction.sourceAssistantId,

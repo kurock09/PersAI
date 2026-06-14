@@ -45,8 +45,10 @@ function ensureApiConfigEnv(): void {
   process.env.ABUSE_PEER_BLOCK_REQUESTS_PER_MINUTE = "4";
   process.env.ABUSE_SLOWDOWN_SECONDS = "30";
   process.env.ABUSE_TEMP_BLOCK_SECONDS = "300";
-  process.env.ABUSE_QUOTA_SLOWDOWN_PERCENT = "90";
-  process.env.ABUSE_QUOTA_BLOCK_PERCENT = "100";
+}
+
+function makeService(repository: unknown): EnforceAbuseRateLimitService {
+  return new EnforceAbuseRateLimitService(repository as never);
 }
 
 function buildPeerState(input: {
@@ -71,149 +73,92 @@ function buildPeerState(input: {
   };
 }
 
-function trackLimitsMatchingQuotaRepo(
-  tokenLimit: bigint,
-  toolLimit: number
-): TrackWorkspaceQuotaUsageStub {
-  return {
-    resolveEffectiveLimitsForAssistant: async () => ({
-      tokenBudgetLimit: tokenLimit,
-      costOrTokenDrivingToolClassUnitsLimit: toolLimit,
-      activeWebChatsLimit: 20,
-      mediaStorageBytesLimit: BigInt(104_857_600)
-    }),
-    resolveAssistantTokenBudgetQuotaSnapshot: async () => ({
-      usedCredits: BigInt(100),
-      limitCredits: tokenLimit,
-      periodStartedAt: "2026-05-01T00:00:00.000Z",
-      periodEndsAt: "2026-06-01T00:00:00.000Z",
-      periodSource: "subscription_period" as const
-    })
-  };
-}
-
-type TrackWorkspaceQuotaUsageStub = {
-  resolveEffectiveLimitsForAssistant: (assistant: Assistant) => Promise<{
-    tokenBudgetLimit: bigint | null;
-    costOrTokenDrivingToolClassUnitsLimit: number | null;
-    activeWebChatsLimit: number | null;
-    mediaStorageBytesLimit: bigint | null;
-  }>;
-  resolveAssistantTokenBudgetQuotaSnapshot: (assistant: Assistant) => Promise<{
-    usedCredits: bigint;
-    limitCredits: bigint | null;
-    periodStartedAt: string;
-    periodEndsAt: string;
-    periodSource: "subscription_period" | "calendar_month_fallback";
-  }>;
-};
-
 async function run(): Promise<void> {
   ensureApiConfigEnv();
   let userState: AssistantAbuseGuardState | null = null;
   let assistantState: AssistantAbuseAssistantState | null = null;
   let distributedAttemptCount = 0;
-  const service = new EnforceAbuseRateLimitService(
-    {
-      findUserState: async () => userState,
-      findAssistantState: async () => assistantState,
-      registerPeerAttempt: async ({ assistantId, surface, peerKey, attemptedAt }) =>
-        buildPeerState({
-          assistantId,
-          surface,
-          peerKey,
-          requestCount: 1,
-          attemptedAt
-        }),
-      registerDistributedAttempt: async (
-        input: RegisterDistributedAbuseAttemptInput
-      ): Promise<RegisterDistributedAbuseAttemptResult> => {
-        distributedAttemptCount += 1;
-        const finalBlockedUntil = null;
-        const finalSlowedUntil =
-          distributedAttemptCount >= input.userSlowdownRequestsPerMinute
-            ? new Date(input.attemptedAt.getTime() + input.slowdownSeconds * 1000)
-            : null;
-        userState = {
-          id: "user-state-1",
-          assistantId: input.assistantId,
-          userId: input.userId,
-          workspaceId: input.workspaceId,
-          surface: input.surface,
-          windowStartedAt: input.attemptedAt,
-          requestCount: distributedAttemptCount,
-          slowedUntil: finalSlowedUntil,
-          blockedUntil: finalBlockedUntil,
-          blockReason: finalSlowedUntil ? "user_request_rate_limit_slowdown" : null,
-          adminOverrideUntil: null,
-          lastSeenAt: input.attemptedAt,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        assistantState = {
-          id: "assistant-state-1",
-          assistantId: input.assistantId,
-          surface: input.surface,
-          windowStartedAt: input.attemptedAt,
-          requestCount: distributedAttemptCount,
-          slowedUntil: finalSlowedUntil,
-          blockedUntil: finalBlockedUntil,
-          blockReason: finalSlowedUntil ? "user_request_rate_limit_slowdown" : null,
-          adminOverrideUntil: null,
-          lastSeenAt: input.attemptedAt,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        return {
-          userState,
-          assistantState,
-          userBypass: false,
-          assistantBypass: false,
-          finalBlockedUntil,
-          finalSlowedUntil,
-          finalReason: finalSlowedUntil ? "user_request_rate_limit_slowdown" : null
-        };
-      },
-      upsertUserState: async (input) => {
-        userState = {
-          id: "user-state-1",
-          ...input,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        return userState;
-      },
-      upsertAssistantState: async (input) => {
-        assistantState = {
-          id: "assistant-state-1",
-          ...input,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        return assistantState;
-      },
-      applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
-      applyPeerAdminUnblock: async () => 0
-    } as never,
-    {
-      findByWorkspaceId: async () => ({
-        id: "quota-1",
-        workspaceId: assistant.workspaceId,
-        tokenBudgetUsed: BigInt(100),
-        tokenBudgetLimit: BigInt(1000),
-        costOrTokenDrivingToolClassUnitsUsed: 10,
-        costOrTokenDrivingToolClassUnitsLimit: 1000,
-        activeWebChatsCurrent: 0,
-        activeWebChatsLimit: 20,
-        mediaStorageBytesUsed: BigInt(0),
-        mediaStorageBytesLimit: BigInt(104_857_600),
-        lastComputedAt: new Date(),
+  const service = makeService({
+    findUserState: async () => userState,
+    findAssistantState: async () => assistantState,
+    registerPeerAttempt: async ({ assistantId, surface, peerKey, attemptedAt }) =>
+      buildPeerState({
+        assistantId,
+        surface,
+        peerKey,
+        requestCount: 1,
+        attemptedAt
+      }),
+    registerDistributedAttempt: async (
+      input: RegisterDistributedAbuseAttemptInput
+    ): Promise<RegisterDistributedAbuseAttemptResult> => {
+      distributedAttemptCount += 1;
+      const finalBlockedUntil = null;
+      const finalSlowedUntil =
+        distributedAttemptCount >= input.userSlowdownRequestsPerMinute
+          ? new Date(input.attemptedAt.getTime() + input.slowdownSeconds * 1000)
+          : null;
+      userState = {
+        id: "user-state-1",
+        assistantId: input.assistantId,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        surface: input.surface,
+        windowStartedAt: input.attemptedAt,
+        requestCount: distributedAttemptCount,
+        slowedUntil: finalSlowedUntil,
+        blockedUntil: finalBlockedUntil,
+        blockReason: finalSlowedUntil ? "user_request_rate_limit_slowdown" : null,
+        adminOverrideUntil: null,
+        lastSeenAt: input.attemptedAt,
         createdAt: new Date(),
         updatedAt: new Date()
-      })
-    } as never,
-    trackLimitsMatchingQuotaRepo(BigInt(1000), 1000) as never
-  );
+      };
+      assistantState = {
+        id: "assistant-state-1",
+        assistantId: input.assistantId,
+        surface: input.surface,
+        windowStartedAt: input.attemptedAt,
+        requestCount: distributedAttemptCount,
+        slowedUntil: finalSlowedUntil,
+        blockedUntil: finalBlockedUntil,
+        blockReason: finalSlowedUntil ? "user_request_rate_limit_slowdown" : null,
+        adminOverrideUntil: null,
+        lastSeenAt: input.attemptedAt,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      return {
+        userState,
+        assistantState,
+        userBypass: false,
+        assistantBypass: false,
+        finalBlockedUntil,
+        finalSlowedUntil,
+        finalReason: finalSlowedUntil ? "user_request_rate_limit_slowdown" : null
+      };
+    },
+    upsertUserState: async (input) => {
+      userState = {
+        id: "user-state-1",
+        ...input,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      return userState;
+    },
+    upsertAssistantState: async (input) => {
+      assistantState = {
+        id: "assistant-state-1",
+        ...input,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      return assistantState;
+    },
+    applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
+    applyPeerAdminUnblock: async () => 0
+  });
 
   await service.enforceAndRegisterAttempt({
     assistant,
@@ -230,252 +175,6 @@ async function run(): Promise<void> {
     threw = true;
   }
   assert.equal(threw, true);
-}
-
-async function runQuotaPressurePersistedClearedWhenHealthy(): Promise<void> {
-  ensureApiConfigEnv();
-  const future = new Date(Date.now() + 3_600_000);
-  let userState: AssistantAbuseGuardState | null = {
-    id: "user-state-quota",
-    assistantId: assistant.id,
-    userId: assistant.userId,
-    workspaceId: assistant.workspaceId,
-    surface: "web_chat",
-    windowStartedAt: new Date(Date.now() - 120_000),
-    requestCount: 1,
-    slowedUntil: null,
-    blockedUntil: future,
-    blockReason: "quota_pressure_temporary_block",
-    adminOverrideUntil: null,
-    lastSeenAt: new Date(),
-    createdAt: new Date(),
-    updatedAt: new Date()
-  };
-  let assistantState: AssistantAbuseAssistantState | null = null;
-  const service = new EnforceAbuseRateLimitService(
-    {
-      findUserState: async () => userState,
-      findAssistantState: async () => assistantState,
-      registerPeerAttempt: async ({ assistantId, surface, peerKey, attemptedAt }) =>
-        buildPeerState({
-          assistantId,
-          surface,
-          peerKey,
-          requestCount: 1,
-          attemptedAt
-        }),
-      registerDistributedAttempt: async (
-        input: RegisterDistributedAbuseAttemptInput
-      ): Promise<RegisterDistributedAbuseAttemptResult> => {
-        userState = {
-          id: "user-state-quota",
-          assistantId: input.assistantId,
-          userId: input.userId,
-          workspaceId: input.workspaceId,
-          surface: input.surface,
-          windowStartedAt: input.attemptedAt,
-          requestCount: 1,
-          slowedUntil: null,
-          blockedUntil: null,
-          blockReason: null,
-          adminOverrideUntil: null,
-          lastSeenAt: input.attemptedAt,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        assistantState = {
-          id: "assistant-state-quota",
-          assistantId: input.assistantId,
-          surface: input.surface,
-          windowStartedAt: input.attemptedAt,
-          requestCount: 1,
-          slowedUntil: null,
-          blockedUntil: null,
-          blockReason: null,
-          adminOverrideUntil: null,
-          lastSeenAt: input.attemptedAt,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        return {
-          userState,
-          assistantState,
-          userBypass: false,
-          assistantBypass: false,
-          finalBlockedUntil: null,
-          finalSlowedUntil: null,
-          finalReason: null
-        };
-      },
-      upsertUserState: async (input) => {
-        userState = {
-          id: "user-state-quota",
-          ...input,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        return userState;
-      },
-      upsertAssistantState: async (input) => {
-        assistantState = {
-          id: "assistant-state-quota",
-          ...input,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        return assistantState;
-      },
-      applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
-      applyPeerAdminUnblock: async () => 0
-    } as never,
-    {
-      findByWorkspaceId: async () => ({
-        id: "quota-healthy",
-        workspaceId: assistant.workspaceId,
-        tokenBudgetUsed: BigInt(1),
-        tokenBudgetLimit: BigInt(1_000_000),
-        costOrTokenDrivingToolClassUnitsUsed: 0,
-        costOrTokenDrivingToolClassUnitsLimit: 1000,
-        activeWebChatsCurrent: 0,
-        activeWebChatsLimit: 20,
-        mediaStorageBytesUsed: BigInt(0),
-        mediaStorageBytesLimit: BigInt(1_000_000),
-        lastComputedAt: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-    } as never,
-    trackLimitsMatchingQuotaRepo(BigInt(1_000_000), 1_000_000) as never
-  );
-
-  await service.enforceAndRegisterAttempt({
-    assistant,
-    surface: "web_chat"
-  });
-
-  assert.equal(userState?.blockedUntil, null);
-  assert.equal(userState?.slowedUntil, null);
-  assert.equal(userState?.blockReason, null);
-}
-
-async function runQuotaPressureUsesEffectivePlanLimitsNotStaleSnapshot(): Promise<void> {
-  ensureApiConfigEnv();
-  let userState: AssistantAbuseGuardState | null = null;
-  let assistantState: AssistantAbuseAssistantState | null = null;
-  const service = new EnforceAbuseRateLimitService(
-    {
-      findUserState: async () => userState,
-      findAssistantState: async () => assistantState,
-      registerPeerAttempt: async ({ assistantId, surface, peerKey, attemptedAt }) =>
-        buildPeerState({
-          assistantId,
-          surface,
-          peerKey,
-          requestCount: 1,
-          attemptedAt
-        }),
-      registerDistributedAttempt: async (
-        input: RegisterDistributedAbuseAttemptInput
-      ): Promise<RegisterDistributedAbuseAttemptResult> => {
-        userState = {
-          id: "user-state-stale",
-          assistantId: input.assistantId,
-          userId: input.userId,
-          workspaceId: input.workspaceId,
-          surface: input.surface,
-          windowStartedAt: input.attemptedAt,
-          requestCount: 1,
-          slowedUntil: null,
-          blockedUntil: null,
-          blockReason: null,
-          adminOverrideUntil: null,
-          lastSeenAt: input.attemptedAt,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        assistantState = {
-          id: "assistant-state-stale",
-          assistantId: input.assistantId,
-          surface: input.surface,
-          windowStartedAt: input.attemptedAt,
-          requestCount: 1,
-          slowedUntil: null,
-          blockedUntil: null,
-          blockReason: null,
-          adminOverrideUntil: null,
-          lastSeenAt: input.attemptedAt,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        return {
-          userState,
-          assistantState,
-          userBypass: false,
-          assistantBypass: false,
-          finalBlockedUntil: null,
-          finalSlowedUntil: null,
-          finalReason: null
-        };
-      },
-      upsertUserState: async (input) => {
-        userState = {
-          id: "user-state-stale",
-          ...input,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        return userState;
-      },
-      upsertAssistantState: async (input) => {
-        assistantState = {
-          id: "assistant-state-stale",
-          ...input,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        return assistantState;
-      },
-      applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
-      applyPeerAdminUnblock: async () => 0
-    } as never,
-    {
-      findByWorkspaceId: async () => ({
-        id: "quota-stale-snapshot",
-        workspaceId: assistant.workspaceId,
-        tokenBudgetUsed: BigInt(500),
-        tokenBudgetLimit: BigInt(1000),
-        costOrTokenDrivingToolClassUnitsUsed: 90,
-        costOrTokenDrivingToolClassUnitsLimit: 100,
-        activeWebChatsCurrent: 0,
-        activeWebChatsLimit: 20,
-        mediaStorageBytesUsed: BigInt(0),
-        mediaStorageBytesLimit: BigInt(104_857_600),
-        lastComputedAt: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-    } as never,
-    {
-      resolveEffectiveLimitsForAssistant: async () => ({
-        tokenBudgetLimit: BigInt(10_000),
-        costOrTokenDrivingToolClassUnitsLimit: 1000,
-        activeWebChatsLimit: 20,
-        mediaStorageBytesLimit: BigInt(104_857_600)
-      }),
-      resolveAssistantTokenBudgetQuotaSnapshot: async () => ({
-        usedCredits: BigInt(500),
-        limitCredits: BigInt(10_000),
-        periodStartedAt: "2026-05-01T00:00:00.000Z",
-        periodEndsAt: "2026-06-01T00:00:00.000Z",
-        periodSource: "subscription_period" as const
-      })
-    } as never
-  );
-
-  await service.enforceAndRegisterAttempt({
-    assistant,
-    surface: "web_chat"
-  });
 }
 
 async function runPeerLimitPersistsAcrossServiceInstances(): Promise<void> {
@@ -592,34 +291,9 @@ async function runPeerLimitPersistsAcrossServiceInstances(): Promise<void> {
     applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
     applyPeerAdminUnblock: async () => 0
   };
-  const quotaRepository = {
-    findByWorkspaceId: async () => ({
-      id: "quota-peer",
-      workspaceId: assistant.workspaceId,
-      tokenBudgetUsed: BigInt(100),
-      tokenBudgetLimit: BigInt(1000),
-      costOrTokenDrivingToolClassUnitsUsed: 10,
-      costOrTokenDrivingToolClassUnitsLimit: 1000,
-      activeWebChatsCurrent: 0,
-      activeWebChatsLimit: 20,
-      mediaStorageBytesUsed: BigInt(0),
-      mediaStorageBytesLimit: BigInt(104_857_600),
-      lastComputedAt: new Date(),
-      createdAt: new Date(),
-      updatedAt: new Date()
-    })
-  };
 
-  const firstService = new EnforceAbuseRateLimitService(
-    repository as never,
-    quotaRepository as never,
-    trackLimitsMatchingQuotaRepo(BigInt(1000), 1000) as never
-  );
-  const secondService = new EnforceAbuseRateLimitService(
-    repository as never,
-    quotaRepository as never,
-    trackLimitsMatchingQuotaRepo(BigInt(1000), 1000) as never
-  );
+  const firstService = makeService(repository);
+  const secondService = makeService(repository);
 
   await firstService.enforceAndRegisterAttempt({
     assistant,
@@ -726,34 +400,9 @@ async function runDistributedAbuseLimitPersistsAcrossServiceInstances(): Promise
     applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
     applyPeerAdminUnblock: async () => 0
   };
-  const quotaRepository = {
-    findByWorkspaceId: async () => ({
-      id: "quota-distributed",
-      workspaceId: assistant.workspaceId,
-      tokenBudgetUsed: BigInt(100),
-      tokenBudgetLimit: BigInt(1000),
-      costOrTokenDrivingToolClassUnitsUsed: 10,
-      costOrTokenDrivingToolClassUnitsLimit: 1000,
-      activeWebChatsCurrent: 0,
-      activeWebChatsLimit: 20,
-      mediaStorageBytesUsed: BigInt(0),
-      mediaStorageBytesLimit: BigInt(104_857_600),
-      lastComputedAt: new Date(),
-      createdAt: new Date(),
-      updatedAt: new Date()
-    })
-  };
 
-  const firstService = new EnforceAbuseRateLimitService(
-    repository as never,
-    quotaRepository as never,
-    trackLimitsMatchingQuotaRepo(BigInt(1000), 1000) as never
-  );
-  const secondService = new EnforceAbuseRateLimitService(
-    repository as never,
-    quotaRepository as never,
-    trackLimitsMatchingQuotaRepo(BigInt(1000), 1000) as never
-  );
+  const firstService = makeService(repository);
+  const secondService = makeService(repository);
 
   await firstService.enforceAndRegisterAttempt({
     assistant,
@@ -776,99 +425,79 @@ async function runDistributedAbuseLimitPersistsAcrossServiceInstances(): Promise
 async function runTelegramPeerPathHandlesUndefinedDateFieldsGracefully(): Promise<void> {
   ensureApiConfigEnv();
 
-  const service = new EnforceAbuseRateLimitService(
-    {
-      findUserState: async () => null,
-      findAssistantState: async () => null,
-      registerPeerAttempt: async ({ assistantId, surface, peerKey, attemptedAt }) => ({
-        id: "peer-undef-1",
-        assistantId,
-        surface,
-        peerKey,
-        windowStartedAt: attemptedAt,
-        requestCount: 1,
-        adminOverrideUntil: undefined as unknown as Date | null,
-        lastSeenAt: attemptedAt,
-        createdAt: attemptedAt,
-        updatedAt: attemptedAt
-      }),
-      registerDistributedAttempt: async (
-        input: RegisterDistributedAbuseAttemptInput
-      ): Promise<RegisterDistributedAbuseAttemptResult> => {
-        const userState: AssistantAbuseGuardState = {
-          id: "user-state-tg",
-          assistantId: input.assistantId,
-          userId: input.userId,
-          workspaceId: input.workspaceId,
-          surface: input.surface,
-          windowStartedAt: input.attemptedAt,
-          requestCount: 1,
-          slowedUntil: null,
-          blockedUntil: null,
-          blockReason: null,
-          adminOverrideUntil: null,
-          lastSeenAt: input.attemptedAt,
-          createdAt: input.attemptedAt,
-          updatedAt: input.attemptedAt
-        };
-        const assistantState: AssistantAbuseAssistantState = {
-          id: "assistant-state-tg",
-          assistantId: input.assistantId,
-          surface: input.surface,
-          windowStartedAt: input.attemptedAt,
-          requestCount: 1,
-          slowedUntil: null,
-          blockedUntil: null,
-          blockReason: null,
-          adminOverrideUntil: null,
-          lastSeenAt: input.attemptedAt,
-          createdAt: input.attemptedAt,
-          updatedAt: input.attemptedAt
-        };
-        return {
-          userState,
-          assistantState,
-          userBypass: false,
-          assistantBypass: false,
-          finalBlockedUntil: null,
-          finalSlowedUntil: null,
-          finalReason: null
-        };
-      },
-      upsertUserState: async (input) => ({
+  const service = makeService({
+    findUserState: async () => null,
+    findAssistantState: async () => null,
+    registerPeerAttempt: async ({ assistantId, surface, peerKey, attemptedAt }) => ({
+      id: "peer-undef-1",
+      assistantId,
+      surface,
+      peerKey,
+      windowStartedAt: attemptedAt,
+      requestCount: 1,
+      adminOverrideUntil: undefined as unknown as Date | null,
+      lastSeenAt: attemptedAt,
+      createdAt: attemptedAt,
+      updatedAt: attemptedAt
+    }),
+    registerDistributedAttempt: async (
+      input: RegisterDistributedAbuseAttemptInput
+    ): Promise<RegisterDistributedAbuseAttemptResult> => {
+      const userState: AssistantAbuseGuardState = {
         id: "user-state-tg",
-        ...input,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }),
-      upsertAssistantState: async (input) => ({
+        assistantId: input.assistantId,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        surface: input.surface,
+        windowStartedAt: input.attemptedAt,
+        requestCount: 1,
+        slowedUntil: null,
+        blockedUntil: null,
+        blockReason: null,
+        adminOverrideUntil: null,
+        lastSeenAt: input.attemptedAt,
+        createdAt: input.attemptedAt,
+        updatedAt: input.attemptedAt
+      };
+      const assistantState: AssistantAbuseAssistantState = {
         id: "assistant-state-tg",
-        ...input,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }),
-      applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
-      applyPeerAdminUnblock: async () => 0
-    } as never,
-    {
-      findByWorkspaceId: async () => ({
-        id: "quota-tg",
-        workspaceId: assistant.workspaceId,
-        tokenBudgetUsed: BigInt(100),
-        tokenBudgetLimit: BigInt(1000),
-        costOrTokenDrivingToolClassUnitsUsed: 10,
-        costOrTokenDrivingToolClassUnitsLimit: 1000,
-        activeWebChatsCurrent: 0,
-        activeWebChatsLimit: 20,
-        mediaStorageBytesUsed: BigInt(0),
-        mediaStorageBytesLimit: BigInt(104_857_600),
-        lastComputedAt: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-    } as never,
-    trackLimitsMatchingQuotaRepo(BigInt(1000), 1000) as never
-  );
+        assistantId: input.assistantId,
+        surface: input.surface,
+        windowStartedAt: input.attemptedAt,
+        requestCount: 1,
+        slowedUntil: null,
+        blockedUntil: null,
+        blockReason: null,
+        adminOverrideUntil: null,
+        lastSeenAt: input.attemptedAt,
+        createdAt: input.attemptedAt,
+        updatedAt: input.attemptedAt
+      };
+      return {
+        userState,
+        assistantState,
+        userBypass: false,
+        assistantBypass: false,
+        finalBlockedUntil: null,
+        finalSlowedUntil: null,
+        finalReason: null
+      };
+    },
+    upsertUserState: async (input) => ({
+      id: "user-state-tg",
+      ...input,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }),
+    upsertAssistantState: async (input) => ({
+      id: "assistant-state-tg",
+      ...input,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }),
+    applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
+    applyPeerAdminUnblock: async () => 0
+  });
 
   await service.enforceAndRegisterAttempt({
     assistant,
@@ -880,89 +509,69 @@ async function runTelegramPeerPathHandlesUndefinedDateFieldsGracefully(): Promis
 async function runTelegramPeerPathWithUndefinedFinalBlockedUntil(): Promise<void> {
   ensureApiConfigEnv();
 
-  const service = new EnforceAbuseRateLimitService(
-    {
-      findUserState: async () => null,
-      findAssistantState: async () => null,
-      registerPeerAttempt: async ({ assistantId, surface, peerKey, attemptedAt }) =>
-        buildPeerState({ assistantId, surface, peerKey, requestCount: 1, attemptedAt }),
-      registerDistributedAttempt: async (
-        input: RegisterDistributedAbuseAttemptInput
-      ): Promise<RegisterDistributedAbuseAttemptResult> => {
-        const userState: AssistantAbuseGuardState = {
-          id: "user-state-tg2",
-          assistantId: input.assistantId,
-          userId: input.userId,
-          workspaceId: input.workspaceId,
-          surface: input.surface,
-          windowStartedAt: input.attemptedAt,
-          requestCount: 1,
-          slowedUntil: null,
-          blockedUntil: null,
-          blockReason: null,
-          adminOverrideUntil: null,
-          lastSeenAt: input.attemptedAt,
-          createdAt: input.attemptedAt,
-          updatedAt: input.attemptedAt
-        };
-        const assistantState: AssistantAbuseAssistantState = {
-          id: "assistant-state-tg2",
-          assistantId: input.assistantId,
-          surface: input.surface,
-          windowStartedAt: input.attemptedAt,
-          requestCount: 1,
-          slowedUntil: null,
-          blockedUntil: null,
-          blockReason: null,
-          adminOverrideUntil: null,
-          lastSeenAt: input.attemptedAt,
-          createdAt: input.attemptedAt,
-          updatedAt: input.attemptedAt
-        };
-        return {
-          userState,
-          assistantState,
-          userBypass: false,
-          assistantBypass: false,
-          finalBlockedUntil: undefined as unknown as Date | null,
-          finalSlowedUntil: undefined as unknown as Date | null,
-          finalReason: null
-        };
-      },
-      upsertUserState: async (input) => ({
+  const service = makeService({
+    findUserState: async () => null,
+    findAssistantState: async () => null,
+    registerPeerAttempt: async ({ assistantId, surface, peerKey, attemptedAt }) =>
+      buildPeerState({ assistantId, surface, peerKey, requestCount: 1, attemptedAt }),
+    registerDistributedAttempt: async (
+      input: RegisterDistributedAbuseAttemptInput
+    ): Promise<RegisterDistributedAbuseAttemptResult> => {
+      const userState: AssistantAbuseGuardState = {
         id: "user-state-tg2",
-        ...input,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }),
-      upsertAssistantState: async (input) => ({
+        assistantId: input.assistantId,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        surface: input.surface,
+        windowStartedAt: input.attemptedAt,
+        requestCount: 1,
+        slowedUntil: null,
+        blockedUntil: null,
+        blockReason: null,
+        adminOverrideUntil: null,
+        lastSeenAt: input.attemptedAt,
+        createdAt: input.attemptedAt,
+        updatedAt: input.attemptedAt
+      };
+      const assistantState: AssistantAbuseAssistantState = {
         id: "assistant-state-tg2",
-        ...input,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }),
-      applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
-      applyPeerAdminUnblock: async () => 0
-    } as never,
-    {
-      findByWorkspaceId: async () => ({
-        id: "quota-tg2",
-        workspaceId: assistant.workspaceId,
-        tokenBudgetUsed: BigInt(100),
-        tokenBudgetLimit: BigInt(1000),
-        costOrTokenDrivingToolClassUnitsUsed: 10,
-        costOrTokenDrivingToolClassUnitsLimit: 1000,
-        activeWebChatsCurrent: 0,
-        activeWebChatsLimit: 20,
-        mediaStorageBytesUsed: BigInt(0),
-        mediaStorageBytesLimit: BigInt(104_857_600),
-        lastComputedAt: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-    } as never,
-    trackLimitsMatchingQuotaRepo(BigInt(1000), 1000) as never
-  );
+        assistantId: input.assistantId,
+        surface: input.surface,
+        windowStartedAt: input.attemptedAt,
+        requestCount: 1,
+        slowedUntil: null,
+        blockedUntil: null,
+        blockReason: null,
+        adminOverrideUntil: null,
+        lastSeenAt: input.attemptedAt,
+        createdAt: input.attemptedAt,
+        updatedAt: input.attemptedAt
+      };
+      return {
+        userState,
+        assistantState,
+        userBypass: false,
+        assistantBypass: false,
+        finalBlockedUntil: undefined as unknown as Date | null,
+        finalSlowedUntil: undefined as unknown as Date | null,
+        finalReason: null
+      };
+    },
+    upsertUserState: async (input) => ({
+      id: "user-state-tg2",
+      ...input,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }),
+    upsertAssistantState: async (input) => ({
+      id: "assistant-state-tg2",
+      ...input,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }),
+    applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
+    applyPeerAdminUnblock: async () => 0
+  });
 
   await service.enforceAndRegisterAttempt({
     assistant,
@@ -972,8 +581,6 @@ async function runTelegramPeerPathWithUndefinedFinalBlockedUntil(): Promise<void
 }
 
 void run();
-void runQuotaPressurePersistedClearedWhenHealthy();
-void runQuotaPressureUsesEffectivePlanLimitsNotStaleSnapshot();
 void runPeerLimitPersistsAcrossServiceInstances();
 void runDistributedAbuseLimitPersistsAcrossServiceInstances();
 void runTelegramPeerPathHandlesUndefinedDateFieldsGracefully();
