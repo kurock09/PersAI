@@ -382,6 +382,24 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     true,
     "POST /api/v1/admin/ops/users/:userId/billing-support-action must be guarded by ClerkAuthMiddleware"
   );
+  // ADR-115 inbound safety admin — Runtime inbound policy editor + Ops safety controls.
+  const adr115SafetyAdminRoutes: Array<{ path: string; method: RequestMethod }> = [
+    { path: "api/v1/admin/safety-policy/heuristic-rules", method: RequestMethod.GET },
+    { path: "api/v1/admin/safety-policy/heuristic-rules", method: RequestMethod.PUT },
+    { path: "api/v1/admin/safety-policy/settings", method: RequestMethod.GET },
+    { path: "api/v1/admin/safety-policy/settings", method: RequestMethod.PUT },
+    { path: "api/v1/admin/safety-controls/restrictions", method: RequestMethod.GET },
+    { path: "api/v1/admin/safety-controls/cases", method: RequestMethod.GET },
+    { path: "api/v1/admin/safety-controls/unblock", method: RequestMethod.POST },
+    { path: "api/v1/admin/safety-controls/restrict", method: RequestMethod.POST }
+  ];
+  for (const route of adr115SafetyAdminRoutes) {
+    assert.equal(
+      hasRoute(consumer.routes, route),
+      true,
+      `${RequestMethod[route.method]} /${route.path} must be guarded by ClerkAuthMiddleware (ADR-115)`
+    );
+  }
   // ADR-076 Slice 4 follow-up (2026-04-25 founder report): GET avatar bytes
   // hit `apps/api` via a parameterized path — `/assistant/avatar/:hash` —
   // but the allowlist initially registered the bare `/assistant/avatar`,

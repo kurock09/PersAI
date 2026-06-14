@@ -12,8 +12,7 @@ import {
   getAdminSafetyPolicyHeuristicRules,
   getAdminSafetyPolicySettings,
   putAdminSafetyPolicyHeuristicRules,
-  putAdminSafetyPolicySettings,
-  usesAdminBffProxy
+  putAdminSafetyPolicySettings
 } from "@/app/app/assistant-api-client";
 import { getAdminSessionToken } from "@/app/admin/admin-session";
 import { cn } from "@/app/lib/utils";
@@ -44,7 +43,6 @@ export function InboundSafetyPolicyPanel() {
     []
   );
   const [saving, setSaving] = useState(false);
-  const [foldOpen, setFoldOpen] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,7 +53,7 @@ export function InboundSafetyPolicyPanel() {
       return;
     }
     const token = await getAdminSessionToken(getToken);
-    if (!usesAdminBffProxy() && !token) {
+    if (!token) {
       setError("Not signed in.");
       setLoading(false);
       setLoaded(false);
@@ -86,11 +84,8 @@ export function InboundSafetyPolicyPanel() {
   }, [getToken, isLoaded]);
 
   useEffect(() => {
-    if (!foldOpen) {
-      return;
-    }
     void load();
-  }, [foldOpen, load]);
+  }, [load]);
 
   const resolveSessionToken = async (): Promise<string | null> => {
     if (!isLoaded) {
@@ -98,7 +93,7 @@ export function InboundSafetyPolicyPanel() {
       return null;
     }
     const token = await getAdminSessionToken(getToken);
-    if (!usesAdminBffProxy() && !token) {
+    if (!token) {
       setError("Not signed in.");
       return null;
     }
@@ -176,7 +171,7 @@ export function InboundSafetyPolicyPanel() {
   };
 
   return (
-    <RuntimeFold t="Inbound Safety" onOpenChange={setFoldOpen}>
+    <RuntimeFold t="Inbound Safety">
       <p className="text-[10px] leading-relaxed text-text-muted">
         Harmful-content checks on inbound user messages (contour 1 heuristics + contour 2
         moderation). Independent from <span className="font-medium text-text">Router Policy</span>{" "}

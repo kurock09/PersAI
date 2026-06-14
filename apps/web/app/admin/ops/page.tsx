@@ -39,7 +39,6 @@ import {
   type AssistantRuntimeApplyStatus as ApplyStatus
 } from "@persai/contracts";
 import {
-  buildAdminFetchOptions,
   deleteAdminOpsUserPlanOverride,
   getAdminOpsCockpit,
   getAdminPlans,
@@ -47,10 +46,9 @@ import {
   postAdminOpsUserPlanOverride,
   postAdminSafetyRestrict,
   postAdminSafetyUnblock,
-  postAssistantReapply,
-  usesAdminBffProxy
+  postAssistantReapply
 } from "@/app/app/assistant-api-client";
-import { getAdminSessionToken, type ClerkGetToken } from "@/app/admin/admin-session";
+import { getAdminSessionToken } from "@/app/admin/admin-session";
 import { cn } from "@/app/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -760,7 +758,7 @@ function UsersDirectory({
   onSelectUser,
   reloadNonce
 }: {
-  getToken: ClerkGetToken;
+  getToken: () => Promise<string | null>;
   selectedUserId: string | null;
   onSelectUser: (userId: string, email: string) => void;
   reloadNonce: number;
@@ -781,13 +779,15 @@ function UsersDirectory({
 
   const load = useCallback(
     async (q: string, off: number) => {
-      const token = await getAdminSessionToken(getToken);
-      if (!usesAdminBffProxy() && !token) return;
+      const token = await getToken();
+      if (!token) return;
       setLoading(true);
       try {
         const params = new URLSearchParams({ offset: String(off), limit: String(PAGE_SIZE) });
         if (q) params.set("q", q);
-        const res = await fetch(`/api/v1/admin/ops/users?${params}`, buildAdminFetchOptions(token));
+        const res = await fetch(`/api/v1/admin/ops/users?${params}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         if (!res.ok) throw new Error(`${res.status}`);
         const data = (await res.json()) as { users: OpsUserRow[]; total: number };
         setUsers(data.users);
@@ -834,14 +834,14 @@ function UsersDirectory({
 
   const onReapply = useCallback(
     async (userId: string) => {
-      const token = await getAdminSessionToken(getToken);
-      if (!usesAdminBffProxy() && !token) return;
+      const token = await getToken();
+      if (!token) return;
       setReapplyingId(userId);
       try {
-        const res = await fetch(
-          `/api/v1/admin/ops/users/${userId}/reapply`,
-          buildAdminFetchOptions(token, { method: "POST" })
-        );
+        const res = await fetch(`/api/v1/admin/ops/users/${userId}/reapply`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        });
         if (!res.ok) {
           throw new Error(`Reapply failed with status ${res.status}.`);
         }
@@ -855,14 +855,14 @@ function UsersDirectory({
 
   const onDelete = useCallback(
     async (userId: string) => {
-      const token = await getAdminSessionToken(getToken);
-      if (!usesAdminBffProxy() && !token) return;
+      const token = await getToken();
+      if (!token) return;
       setDeletingId(userId);
       try {
-        const res = await fetch(
-          `/api/v1/admin/ops/users/${userId}`,
-          buildAdminFetchOptions(token, { method: "DELETE" })
-        );
+        const res = await fetch(`/api/v1/admin/ops/users/${userId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` }
+        });
         if (!res.ok) {
           const body = await res.text().catch(() => "");
           alert(`Delete failed: ${res.status}\n${body}`);
@@ -1133,7 +1133,7 @@ function UsersDirectory({
 /* ------------------------------------------------------------------ */
 
 async function fetchCockpit(
-  token: string | null | undefined,
+  token: string,
   userId?: string,
   assistantId?: string
 ): Promise<AdminOpsCockpitState> {
@@ -1219,8 +1219,8 @@ export default function AdminOpsPage() {
 
   const load = useCallback(
     async (targetUserId?: string, targetAssistantId?: string | null) => {
-      const token = await getAdminSessionToken(getToken);
-      if (!usesAdminBffProxy() && !token) {
+      const token = await getToken();
+      if (!token) {
         setLoadError("Not signed in.");
         setCockpit(null);
         setLoading(false);
@@ -1301,18 +1301,18 @@ export default function AdminOpsPage() {
   const onReapply = useCallback(async () => {
     if (!cockpit?.controls.reapplySupported) return;
     setActionMessage(null);
-    const token = await getAdminSessionToken(getToken);
-    if (!usesAdminBffProxy() && !token) {
+    const token = await getToken();
+    if (!token) {
       setActionMessage("Not signed in.");
       return;
     }
     setReapplyBusy(true);
     try {
       if (selectedUserId) {
-        const res = await fetch(
-          `/api/v1/admin/ops/users/${selectedUserId}/reapply`,
-          buildAdminFetchOptions(token, { method: "POST" })
-        );
+        const res = await fetch(`/api/v1/admin/ops/users/${selectedUserId}/reapply`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        });
         if (!res.ok) {
           throw new Error(`Reapply failed with status ${res.status}.`);
         }
@@ -1341,8 +1341,8 @@ export default function AdminOpsPage() {
       setActionMessage("Choose a target plan first.");
       return;
     }
-    const token = await getAdminSessionToken(getToken);
-    if (!usesAdminBffProxy() && !token) {
+    const token = await getToken();
+    if (!token) {
       setActionMessage("Not signed in.");
       return;
     }
@@ -1374,8 +1374,8 @@ export default function AdminOpsPage() {
       setActionMessage("No assistant plan override is active.");
       return;
     }
-    const token = await getAdminSessionToken(getToken);
-    if (!usesAdminBffProxy() && !token) {
+    const token = await getToken();
+    if (!token) {
       setActionMessage("Not signed in.");
       return;
     }
@@ -1425,8 +1425,8 @@ export default function AdminOpsPage() {
         billingPeriod: manualPaymentBillingPeriod
       };
     }
-    const token = await getAdminSessionToken(getToken);
-    if (!usesAdminBffProxy() && !token) {
+    const token = await getToken();
+    if (!token) {
       setActionMessage("Not signed in.");
       return;
     }
@@ -1459,8 +1459,8 @@ export default function AdminOpsPage() {
       return;
     }
     const token = await getAdminSessionToken(getToken);
-    if (!usesAdminBffProxy() && !token) {
-      setSafetyFeedback("Not signed in.");
+    if (!token) {
+      setActionMessage("Not signed in.");
       return;
     }
     setSafetyBusy("unblock");
@@ -1489,8 +1489,8 @@ export default function AdminOpsPage() {
       return;
     }
     const token = await getAdminSessionToken(getToken);
-    if (!usesAdminBffProxy() && !token) {
-      setSafetyFeedback("Not signed in.");
+    if (!token) {
+      setActionMessage("Not signed in.");
       return;
     }
     const reasonCode = manualSafetyReasonCode.trim();

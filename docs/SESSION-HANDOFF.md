@@ -3,6 +3,38 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-14 - ADR-115 fix: ClerkAuthMiddleware registration for safety admin routes
+
+### Baseline
+
+- Starting SHA: `e1556066` on `main`.
+
+### What changed
+
+- **Root cause (live on persai.dev):** `/api/v1/admin/safety-policy/*` and `/api/v1/admin/safety-controls/*` were missing from `ClerkAuthMiddleware` `forRoutes` in `identity-access.module.ts`, so `req.resolvedAppUser` stayed undefined and controllers returned `401 auth_required` (“Session expired” in web). Ops cockpit and runtime provider-settings worked because those routes were already registered.
+- **API:** registered all ADR-115 safety admin routes in `ClerkAuthMiddleware`; regression assertions in `identity-access.module.test.ts`.
+- **Web cleanup:** reverted the incorrect `buildAdminFetchOptions` / `usesAdminBffProxy` workaround from `87b1f587` (ops page, inbound safety panel, assistant-api-client). Admin calls use the same Bearer + `getAdminSessionToken` pattern as other admin surfaces.
+
+### Verification (full repo gate)
+
+- `corepack pnpm run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm run typecheck`
+- `corepack pnpm run prisma:generate`
+- `corepack pnpm run prisma:migrate:check` — skipped locally (no Postgres on `localhost:5432`; CI/full-verification has postgres service)
+- `corepack pnpm run test`
+- `corepack pnpm run test:step2`
+- `corepack pnpm run build`
+
+### Risks / residuals
+
+- Deploy **api** (required) + **web** (revert deploy) for live fix on `persai.dev`.
+- **115.5** (admin notifications + E2E) still open.
+
+### Next recommended step
+
+- Live-verify Runtime **Inbound Safety** load/save and Ops **Unblock user** / **Apply safety restrict** after api deploy; then **115.5**.
+
 ## 2026-06-14 - ADR-115 slice 115.7 user warn UX + strike escalation
 
 ### Baseline

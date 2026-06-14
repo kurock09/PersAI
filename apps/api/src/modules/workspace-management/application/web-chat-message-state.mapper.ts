@@ -6,9 +6,9 @@ import type {
 } from "./web-chat.types";
 
 export function extractAssistantWebChatPlatformNotice(
-  metadata: Record<string, unknown> | null
+  metadata: Record<string, unknown> | null | undefined
 ): AssistantWebChatPlatformNoticeState | null {
-  if (metadata === null) {
+  if (metadata === null || metadata === undefined) {
     return null;
   }
   const kind = metadata.kind;

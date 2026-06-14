@@ -34,15 +34,7 @@ vi.mock("@/app/app/assistant-api-client", () => ({
   deleteAdminOpsUserPlanOverride: apiMocks.deleteAdminOpsUserPlanOverride,
   postAdminOpsUserBillingSupportAction: apiMocks.postAdminOpsUserBillingSupportAction,
   postAdminOpsUserPlanOverride: apiMocks.postAdminOpsUserPlanOverride,
-  postAssistantReapply: apiMocks.postAssistantReapply,
-  usesAdminBffProxy: () => false,
-  buildAdminFetchOptions: (token: string | null | undefined, init?: RequestInit) => ({
-    ...init,
-    headers: {
-      ...(init?.headers as Record<string, string> | undefined),
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    }
-  })
+  postAssistantReapply: apiMocks.postAssistantReapply
 }));
 
 function createOpsCockpitState(): AdminOpsCockpitState {

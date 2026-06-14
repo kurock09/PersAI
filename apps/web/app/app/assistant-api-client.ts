@@ -192,52 +192,15 @@ function getAuthHeaders(token: string): HeadersInit {
   };
 }
 
-export function usesAdminBffProxy(): boolean {
-  return typeof window !== "undefined" && getApiBaseUrl() === "/api/v1";
-}
-
-type AdminFetchInit = RequestInit & {
-  extraHeaders?: Record<string, string>;
-};
-
-/** Prefer Clerk cookie session via Next `/api/v1` BFF; direct API still needs Bearer token. */
-export function buildAdminFetchOptions(
-  token: string | null | undefined,
-  init?: AdminFetchInit
-): RequestInit {
-  const { extraHeaders, ...requestInit } = init ?? {};
-  const mergedHeaders = {
-    ...(extraHeaders ?? {}),
-    ...(requestInit.headers as Record<string, string> | undefined)
-  };
-  const hasHeaders = Object.keys(mergedHeaders).length > 0;
-
-  if (usesAdminBffProxy()) {
-    return {
-      ...requestInit,
-      credentials: "include",
-      ...(hasHeaders ? { headers: mergedHeaders } : {})
-    };
-  }
-  if (!token) {
-    throw new Error("Not signed in.");
-  }
-  return {
-    ...requestInit,
-    headers: {
-      ...getAuthHeaders(token),
-      ...mergedHeaders
-    }
-  };
-}
-
 export async function issueAdminStepUpToken(
-  token: string | null | undefined,
+  token: string,
   action: AdminDangerousActionCode
 ): Promise<string> {
   const challengeResponse = await postAdminStepUpChallengeContract(
     { action },
-    buildAdminFetchOptions(token, { method: "POST" })
+    {
+      headers: getAuthHeaders(token)
+    }
   );
   if (
     !isSuccessStatus(challengeResponse.status) ||
@@ -2544,10 +2507,10 @@ export type { MaterializationRolloutView, MaterializationRolloutItemView };
 export type { UserPlanVisibilityState, AdminPlanVisibilityState };
 export type { TelegramIntegrationState, AssistantTelegramConfigUpdateRequest };
 
-export async function getAdminPlans(token: string | null | undefined): Promise<AdminPlanState[]> {
+export async function getAdminPlans(token: string): Promise<AdminPlanState[]> {
   try {
     const response = await getAdminPlansContract({
-      ...buildAdminFetchOptions(token)
+      headers: getAuthHeaders(token)
     });
 
     if (response.status !== 200) {
@@ -3504,12 +3467,12 @@ export async function putAdminRuntimeProviderSettings(
 }
 
 export async function getAdminOpsCockpit(
-  token: string | null | undefined,
+  token: string,
   params?: GetAdminOpsCockpitParams
 ): Promise<AdminOpsCockpitState> {
   try {
     const response = await getAdminOpsCockpitContract(params, {
-      ...buildAdminFetchOptions(token)
+      headers: getAuthHeaders(token)
     });
     if (response.status !== 200) {
       throw new Error("Unexpected non-success response for GET /admin/ops/cockpit.");
@@ -3521,17 +3484,17 @@ export async function getAdminOpsCockpit(
 }
 
 export async function postAdminOpsUserPlanOverride(
-  token: string | null | undefined,
+  token: string,
   userId: string,
   params: PostAdminOpsUserPlanOverrideParams
 ): Promise<void> {
   try {
     const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.update");
     const response = await postAdminOpsUserPlanOverrideContract(userId, params, {
-      ...buildAdminFetchOptions(token, {
-        method: "POST",
-        extraHeaders: { "x-persai-step-up-token": stepUpToken }
-      })
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
     });
     if (!isSuccessStatus(response.status)) {
       throw new Error(
@@ -3544,7 +3507,7 @@ export async function postAdminOpsUserPlanOverride(
 }
 
 export async function deleteAdminOpsUserPlanOverride(
-  token: string | null | undefined,
+  token: string,
   userId: string,
   assistantId?: string | null
 ): Promise<void> {
@@ -3554,10 +3517,10 @@ export async function deleteAdminOpsUserPlanOverride(
       userId,
       assistantId ? { assistantId } : undefined,
       {
-        ...buildAdminFetchOptions(token, {
-          method: "DELETE",
-          extraHeaders: { "x-persai-step-up-token": stepUpToken }
-        })
+        headers: {
+          ...getAuthHeaders(token),
+          "x-persai-step-up-token": stepUpToken
+        }
       }
     );
     if (!isSuccessStatus(response.status)) {
@@ -3571,7 +3534,7 @@ export async function deleteAdminOpsUserPlanOverride(
 }
 
 export async function postAdminOpsUserWorkspaceSubscription(
-  token: string | null | undefined,
+  token: string,
   userId: string,
   payload: { planCode: string }
 ): Promise<void> {
@@ -3580,16 +3543,17 @@ export async function postAdminOpsUserWorkspaceSubscription(
     const base = getApiBaseUrl();
     const res = await fetch(
       `${base}/admin/ops/users/${encodeURIComponent(userId)}/workspace-subscription`,
-      buildAdminFetchOptions(token, {
+      {
         method: "POST",
-        extraHeaders: {
+        headers: {
+          ...getAuthHeaders(token),
           "Content-Type": "application/json",
           "x-persai-step-up-token": stepUpToken
         },
         body: JSON.stringify({
           planCode: payload.planCode
         })
-      })
+      }
     );
     if (!res.ok) {
       throw new Error(await readJsonErrorMessage(res, "Failed to apply workspace subscription."));
@@ -3600,7 +3564,7 @@ export async function postAdminOpsUserWorkspaceSubscription(
 }
 
 export async function deleteAdminOpsUserWorkspaceSubscription(
-  token: string | null | undefined,
+  token: string,
   userId: string
 ): Promise<void> {
   try {
@@ -3608,12 +3572,13 @@ export async function deleteAdminOpsUserWorkspaceSubscription(
     const base = getApiBaseUrl();
     const res = await fetch(
       `${base}/admin/ops/users/${encodeURIComponent(userId)}/workspace-subscription`,
-      buildAdminFetchOptions(token, {
+      {
         method: "DELETE",
-        extraHeaders: {
+        headers: {
+          ...getAuthHeaders(token),
           "x-persai-step-up-token": stepUpToken
         }
-      })
+      }
     );
     if (!res.ok) {
       throw new Error(await readJsonErrorMessage(res, "Failed to reset workspace subscription."));
@@ -3624,7 +3589,7 @@ export async function deleteAdminOpsUserWorkspaceSubscription(
 }
 
 export async function postAdminOpsUserBillingSupportAction(
-  token: string | null | undefined,
+  token: string,
   userId: string,
   payload: {
     action:
@@ -3646,14 +3611,15 @@ export async function postAdminOpsUserBillingSupportAction(
     const base = getApiBaseUrl();
     const res = await fetch(
       `${base}/admin/ops/users/${encodeURIComponent(userId)}/billing-support-action`,
-      buildAdminFetchOptions(token, {
+      {
         method: "POST",
-        extraHeaders: {
+        headers: {
+          ...getAuthHeaders(token),
           "Content-Type": "application/json",
           "x-persai-step-up-token": stepUpToken
         },
         body: JSON.stringify(payload)
-      })
+      }
     );
     if (!res.ok) {
       throw new Error(await readJsonErrorMessage(res, "Failed to run billing support action."));
@@ -3845,12 +3811,10 @@ export async function postAdminPlanCreate(
   }
 }
 
-export async function postAssistantReapply(
-  token: string | null | undefined
-): Promise<AssistantLifecycleState> {
+export async function postAssistantReapply(token: string): Promise<AssistantLifecycleState> {
   try {
     const response = await postAssistantReapplyContract({
-      ...buildAdminFetchOptions(token, { method: "POST" })
+      headers: getAuthHeaders(token)
     });
     if (
       !isSuccessStatus(response.status) ||
@@ -3936,12 +3900,12 @@ export async function postAdminAbuseUnblock(
 }
 
 export async function postAdminSafetyUnblock(
-  token: string | null | undefined,
+  token: string,
   payload: AdminSafetyUnblockRequest
 ): Promise<{ userId: string; cleared: boolean }> {
   try {
     const response = await postAdminSafetyControlsUnblockContract(payload, {
-      ...buildAdminFetchOptions(token, { method: "POST" })
+      headers: getAuthHeaders(token)
     });
     if (!isSuccessStatus(response.status)) {
       throw new Error("Unexpected non-success response for POST /admin/safety-controls/unblock.");
@@ -3953,16 +3917,16 @@ export async function postAdminSafetyUnblock(
 }
 
 export async function postAdminSafetyRestrict(
-  token: string | null | undefined,
+  token: string,
   payload: AdminSafetyRestrictRequest
 ): Promise<{ userId: string; restricted: boolean; reasonCode: string }> {
   try {
     const stepUpToken = await issueAdminStepUpToken(token, "admin.safety_user.restrict");
     const response = await postAdminSafetyControlsRestrictContract(payload, {
-      ...buildAdminFetchOptions(token, {
-        method: "POST",
-        extraHeaders: { "x-persai-step-up-token": stepUpToken }
-      })
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
     });
     if (!isSuccessStatus(response.status)) {
       throw new Error("Unexpected non-success response for POST /admin/safety-controls/restrict.");
@@ -3974,12 +3938,12 @@ export async function postAdminSafetyRestrict(
 }
 
 export async function getAdminSafetyModerationCases(
-  token: string | null | undefined,
+  token: string,
   params: { userId?: string; caseId?: string }
 ): Promise<GetAdminSafetyControlsCasesResponse["cases"]> {
   try {
     const response = await getAdminSafetyControlsCasesContract(params, {
-      ...buildAdminFetchOptions(token)
+      headers: getAuthHeaders(token)
     });
     if (response.status !== 200) {
       throw new Error("Unexpected non-success response for GET /admin/safety-controls/cases.");
@@ -3991,12 +3955,12 @@ export async function getAdminSafetyModerationCases(
 }
 
 export async function getAdminSafetyPolicyHeuristicRules(
-  token: string | null | undefined,
+  token: string,
   params?: GetAdminSafetyPolicyHeuristicRulesParams
 ): Promise<SafetyHeuristicRuleState[]> {
   try {
     const response = await getAdminSafetyPolicyHeuristicRulesContract(params, {
-      ...buildAdminFetchOptions(token)
+      headers: getAuthHeaders(token)
     });
     if (response.status !== 200) {
       throw new Error(
@@ -4010,12 +3974,12 @@ export async function getAdminSafetyPolicyHeuristicRules(
 }
 
 export async function putAdminSafetyPolicyHeuristicRules(
-  token: string | null | undefined,
+  token: string,
   payload: PutAdminSafetyPolicyHeuristicRulesRequest
 ): Promise<SafetyHeuristicRuleState[]> {
   try {
     const response = await putAdminSafetyPolicyHeuristicRulesContract(payload, {
-      ...buildAdminFetchOptions(token, { method: "PUT" })
+      headers: getAuthHeaders(token)
     });
     if (!isSuccessStatus(response.status)) {
       throw new Error(
@@ -4029,11 +3993,11 @@ export async function putAdminSafetyPolicyHeuristicRules(
 }
 
 export async function getAdminSafetyPolicySettings(
-  token: string | null | undefined
+  token: string
 ): Promise<SafetyPolicySettingsState> {
   try {
     const response = await getAdminSafetyPolicySettingsContract({
-      ...buildAdminFetchOptions(token)
+      headers: getAuthHeaders(token)
     });
     if (response.status !== 200) {
       throw new Error("Unexpected non-success response for GET /admin/safety-policy/settings.");
@@ -4045,12 +4009,12 @@ export async function getAdminSafetyPolicySettings(
 }
 
 export async function putAdminSafetyPolicySettings(
-  token: string | null | undefined,
+  token: string,
   payload: PutAdminSafetyPolicySettingsRequest
 ): Promise<SafetyPolicySettingsState> {
   try {
     const response = await putAdminSafetyPolicySettingsContract(payload, {
-      ...buildAdminFetchOptions(token, { method: "PUT" })
+      headers: getAuthHeaders(token)
     });
     if (!isSuccessStatus(response.status)) {
       throw new Error("Unexpected non-success response for PUT /admin/safety-policy/settings.");
