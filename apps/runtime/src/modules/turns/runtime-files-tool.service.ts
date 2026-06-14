@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   DEFAULT_RUNTIME_SANDBOX_POLICY,
+  type ProviderGatewayMessageContentBlock,
   type ProviderGatewayToolCall,
   type RuntimeFileRef,
   type RuntimeFilesToolAction,
@@ -14,6 +15,16 @@ import {
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
+import {
+  buildFilesInspectContent,
+  readFilesToolEffectivePreviewLimits
+} from "./runtime-file-capabilities";
+import {
+  buildFilePreviewBlocks,
+  resolveFilePreviewCapSource
+} from "./runtime-file-preview-hydration";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
+import { buildDocumentReadMetadata, buildTextReadMetadata } from "./runtime-files-read-metadata";
 import {
   RuntimeAssistantFileRegistryService,
   type RuntimeAssistantFileRecord
@@ -69,6 +80,15 @@ type FilesGetRequest = FilesLookupTarget & {
   action: "get";
 };
 
+type FilesInspectRequest = FilesLookupTarget & {
+  action: "inspect";
+};
+
+type FilesPreviewRequest = FilesLookupTarget & {
+  action: "preview";
+  instruction: string | null;
+};
+
 type FilesReadRequest = FilesLookupTarget & {
   action: "read";
 };
@@ -114,7 +134,9 @@ type FilesSendRequest = {
 type ParsedFilesToolRequest =
   | FilesListRequest
   | FilesSearchRequest
+  | FilesInspectRequest
   | FilesGetRequest
+  | FilesPreviewRequest
   | FilesReadRequest
   | FilesWriteRequest
   | FilesWriteAndSendRequest
@@ -150,14 +172,22 @@ export interface RuntimeFilesToolExecutionResult {
    * already-optional `aliases` field on `items[]` / `item`.
    */
   discoveredFileRefs?: RuntimeFileRef[];
+  /**
+   * ADR-116 — ephemeral provider multimodal blocks for the next tool-loop provider
+   * call after `files.preview`. Never serialized into tool-result JSON.
+   */
+  pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
 }
 
 @Injectable()
 export class RuntimeFilesToolService {
+  private readonly logger = new Logger(RuntimeFilesToolService.name);
+
   constructor(
     private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService,
     private readonly sandboxClientService: SandboxClientService,
-    private readonly persaiInternalApiClientService: PersaiInternalApiClientService
+    private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async executeToolCall(params: {
@@ -242,8 +272,22 @@ export class RuntimeFilesToolService {
             params.availableWorkingFileRefs ?? [],
             request
           );
+        case "inspect":
+          return await this.executeInspectAction(
+            params.bundle,
+            request,
+            params.currentFileRefs,
+            params.availableWorkingFileRefs ?? []
+          );
         case "get":
           return await this.executeGetAction(
+            params.bundle,
+            request,
+            params.currentFileRefs,
+            params.availableWorkingFileRefs ?? []
+          );
+        case "preview":
+          return await this.executePreviewAction(
             params.bundle,
             request,
             params.currentFileRefs,
@@ -363,6 +407,25 @@ export class RuntimeFilesToolService {
     currentFileRefs: RuntimeFileRef[],
     availableWorkingFileRefs: RuntimeFileRef[]
   ): Promise<RuntimeFilesToolExecutionResult> {
+    return this.executeInspectAction(bundle, request, currentFileRefs, availableWorkingFileRefs, {
+      requestedAction: "get",
+      resultAction: "fetched"
+    });
+  }
+
+  private async executeInspectAction(
+    bundle: AssistantRuntimeBundle,
+    request: FilesInspectRequest | FilesGetRequest,
+    currentFileRefs: RuntimeFileRef[],
+    availableWorkingFileRefs: RuntimeFileRef[],
+    options: {
+      requestedAction: "inspect" | "get";
+      resultAction: "inspected" | "fetched";
+    } = {
+      requestedAction: "inspect",
+      resultAction: "inspected"
+    }
+  ): Promise<RuntimeFilesToolExecutionResult> {
     const resolved = await this.resolveTarget({
       assistantId: bundle.metadata.assistantId,
       workspaceId: bundle.metadata.workspaceId,
@@ -377,7 +440,7 @@ export class RuntimeFilesToolService {
         payload: {
           ...this.createSkippedResult({
             reason: resolved.reason,
-            requestedAction: "get",
+            requestedAction: options.requestedAction,
             warning: resolved.warning
           }),
           items: resolved.items ?? []
@@ -397,17 +460,29 @@ export class RuntimeFilesToolService {
         ...stickyRef
       }
     ];
+    const filesPolicy =
+      bundle.governance.toolPolicies.find((policy) => policy.toolCode === "files") ?? null;
+    const record = await this.runtimeAssistantFileRegistryService.findByFileRef({
+      assistantId: bundle.metadata.assistantId,
+      workspaceId: bundle.metadata.workspaceId,
+      fileRef: itemWithAliases.fileRef
+    });
     return {
       payload: {
         toolCode: "files",
         executionMode: "inline",
-        requestedAction: "get",
-        action: "fetched",
+        requestedAction: options.requestedAction,
+        action: options.resultAction,
         reason: null,
         warning: resolved.warning,
         item: itemWithAliases,
         items: [itemWithAliases],
-        content: null,
+        content: buildFilesInspectContent({
+          mimeType: itemWithAliases.mimeType,
+          sizeBytes: itemWithAliases.sizeBytes,
+          policy: filesPolicy,
+          metadata: record?.metadata ?? null
+        }),
         job: null,
         fileRefs: [itemWithAliases.fileRef],
         queuedArtifacts: 0
@@ -415,6 +490,105 @@ export class RuntimeFilesToolService {
       artifacts: [],
       isError: false,
       discoveredFileRefs
+    };
+  }
+
+  private async executePreviewAction(
+    bundle: AssistantRuntimeBundle,
+    request: FilesPreviewRequest,
+    currentFileRefs: RuntimeFileRef[],
+    availableWorkingFileRefs: RuntimeFileRef[]
+  ): Promise<RuntimeFilesToolExecutionResult> {
+    const resolved = await this.resolveTarget({
+      assistantId: bundle.metadata.assistantId,
+      workspaceId: bundle.metadata.workspaceId,
+      currentFileRefs,
+      availableWorkingFileRefs,
+      alias: request.alias,
+      path: request.path,
+      query: request.query
+    });
+    if (resolved.item === null) {
+      return {
+        payload: {
+          ...this.createSkippedResult({
+            reason: resolved.reason,
+            requestedAction: "preview",
+            warning: resolved.warning
+          }),
+          items: resolved.items ?? []
+        },
+        artifacts: [],
+        isError: true
+      };
+    }
+
+    const filesPolicy =
+      bundle.governance.toolPolicies.find((policy) => policy.toolCode === "files") ?? null;
+    const limits = readFilesToolEffectivePreviewLimits(filesPolicy);
+    const stickyRef =
+      this.assignStickyAliasesToRuntimeFileRefs(
+        [resolved.runtimeFileRef],
+        [...currentFileRefs, ...availableWorkingFileRefs]
+      )[0] ?? resolved.runtimeFileRef;
+    const itemWithAliases = this.toItemFromRuntimeFileRef(stickyRef);
+    const previewAlias = request.alias ?? itemWithAliases.aliases?.[0] ?? null;
+    const hydration = await buildFilePreviewBlocks({
+      mediaObjectStorage: this.mediaObjectStorage,
+      objectKey: stickyRef.objectKey,
+      mimeType: itemWithAliases.mimeType,
+      filename: itemWithAliases.displayName,
+      sizeBytes: itemWithAliases.sizeBytes,
+      effectiveMaxPreviewBytes: limits.effectiveMaxPreviewBytes,
+      effectiveMaxPreviewEdgePx: limits.effectiveMaxPreviewEdgePx,
+      alias: previewAlias,
+      instruction: request.instruction
+    });
+    if (!hydration.ok) {
+      return {
+        payload: this.createSkippedResult({
+          reason: hydration.reason,
+          requestedAction: "preview",
+          warning:
+            hydration.reason === "preview_size_limit"
+              ? `File exceeds the effective preview byte limit (${String(limits.effectiveMaxPreviewBytes)}). Use files.read for text when supported.`
+              : hydration.reason === "preview_unsupported"
+                ? "Visual preview is only available for images and native PDF files under the preview byte limit."
+                : "Failed to download the file for visual preview."
+        }),
+        artifacts: [],
+        isError: true
+      };
+    }
+
+    this.logger.log(
+      `file_preview assistantId=${bundle.metadata.assistantId} fileRef=${itemWithAliases.fileRef} mimeType=${itemWithAliases.mimeType} bytes=${String(hydration.bytes)} effectiveMaxPreviewBytes=${String(limits.effectiveMaxPreviewBytes)} capSource=${resolveFilePreviewCapSource(filesPolicy?.maxFilePreviewBytes ?? null)}`
+    );
+
+    return {
+      payload: {
+        toolCode: "files",
+        executionMode: "inline",
+        requestedAction: "preview",
+        action: "previewed",
+        reason: null,
+        warning: resolved.warning,
+        item: itemWithAliases,
+        items: [itemWithAliases],
+        content: JSON.stringify({
+          alias: previewAlias,
+          mimeType: itemWithAliases.mimeType,
+          visualKind: hydration.visualKind,
+          instruction: request.instruction
+        }),
+        job: null,
+        fileRefs: [itemWithAliases.fileRef],
+        queuedArtifacts: 0
+      },
+      artifacts: [],
+      isError: false,
+      discoveredFileRefs: [{ ...stickyRef }],
+      pendingFilePreviewBlocks: hydration.blocks
     };
   }
 
@@ -474,6 +648,7 @@ export class RuntimeFilesToolService {
           fileRef: itemWithAliases.fileRef
         });
         if (extraction.extracted) {
+          const readMetadata = buildDocumentReadMetadata(extraction);
           return {
             payload: {
               toolCode: "files",
@@ -482,14 +657,16 @@ export class RuntimeFilesToolService {
               action: "read",
               reason: null,
               warning:
-                extraction.note ??
-                `Extracted text from "${itemWithAliases.displayName ?? itemWithAliases.relativePath}" through PersAI document extraction.`,
+                extraction.text.trim().length > 0
+                  ? `Extracted text from "${itemWithAliases.displayName ?? itemWithAliases.relativePath}" through PersAI document extraction.`
+                  : null,
               item: itemWithAliases,
               items: [itemWithAliases],
               content: extraction.text,
               job: null,
               fileRefs: [itemWithAliases.fileRef],
-              queuedArtifacts: 0
+              queuedArtifacts: 0,
+              ...readMetadata
             },
             artifacts: [],
             isError: false,
@@ -503,13 +680,14 @@ export class RuntimeFilesToolService {
             requestedAction: "read",
             action: "skipped",
             reason: "document_text_extraction_failed",
-            warning: extraction.note,
+            warning: null,
             item: itemWithAliases,
             items: [itemWithAliases],
             content: null,
             job: null,
             fileRefs: [itemWithAliases.fileRef],
-            queuedArtifacts: 0
+            queuedArtifacts: 0,
+            readNote: extraction.note
           },
           artifacts: [],
           isError: true,
@@ -550,6 +728,8 @@ export class RuntimeFilesToolService {
       mountedFileRefs: [itemWithAliases.fileRef]
     });
 
+    const textReadMetadata = buildTextReadMetadata(job.content);
+
     return {
       payload: {
         toolCode: "files",
@@ -563,7 +743,8 @@ export class RuntimeFilesToolService {
         content: job.content,
         job,
         fileRefs: [itemWithAliases.fileRef],
-        queuedArtifacts: 0
+        queuedArtifacts: 0,
+        ...textReadMetadata
       },
       artifacts: [],
       isError: job.status !== "completed",
@@ -1033,7 +1214,7 @@ export class RuntimeFilesToolService {
     const action = this.readRequestedAction(row);
     if (action === null) {
       return new Error(
-        "files.action must be one of list, search, get, read, write, write_and_send, edit, delete, or send."
+        "files.action must be one of list, search, inspect, get, read, preview, write, write_and_send, edit, delete, or send."
       );
     }
     switch (action) {
@@ -1066,12 +1247,27 @@ export class RuntimeFilesToolService {
             : DEFAULT_FILES_SEARCH_LIMIT;
         return { action, query, limit };
       }
+      case "inspect":
+        return {
+          action: "inspect",
+          alias: this.readNonEmptyString(row.alias),
+          path: this.readNonEmptyString(row.path),
+          query: this.readNonEmptyString(row.query)
+        };
       case "get":
         return {
           action: "get",
           alias: this.readNonEmptyString(row.alias),
           path: this.readNonEmptyString(row.path),
           query: this.readNonEmptyString(row.query)
+        };
+      case "preview":
+        return {
+          action: "preview",
+          alias: this.readNonEmptyString(row.alias),
+          path: this.readNonEmptyString(row.path),
+          query: this.readNonEmptyString(row.query),
+          instruction: this.readNonEmptyString(row.instruction)
         };
       case "read":
         return {
@@ -1761,8 +1957,10 @@ export class RuntimeFilesToolService {
     const action = (value as Record<string, unknown>).action;
     return action === "list" ||
       action === "search" ||
+      action === "inspect" ||
       action === "get" ||
       action === "read" ||
+      action === "preview" ||
       action === "write" ||
       action === "write_and_send" ||
       action === "edit" ||

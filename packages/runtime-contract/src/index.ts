@@ -284,8 +284,10 @@ export interface RuntimeSandboxToolResult {
 export const PERSAI_RUNTIME_FILES_TOOL_ACTIONS = [
   "list",
   "search",
+  "inspect",
   "get",
   "read",
+  "preview",
   "write",
   "write_and_send",
   "edit",
@@ -294,6 +296,10 @@ export const PERSAI_RUNTIME_FILES_TOOL_ACTIONS = [
 ] as const;
 
 export type RuntimeFilesToolAction = (typeof PERSAI_RUNTIME_FILES_TOOL_ACTIONS)[number];
+
+export const PERSAI_RUNTIME_FILE_CAPABILITIES = ["text", "visual"] as const;
+
+export type RuntimeFileCapability = (typeof PERSAI_RUNTIME_FILE_CAPABILITIES)[number];
 
 export interface RuntimeFilesToolItem {
   fileRef: string;
@@ -309,6 +315,14 @@ export interface RuntimeFilesToolItem {
   semanticSummaryHint?: string | null;
 }
 
+/** ADR-116 — model-visible document extraction quality on `files.read`. */
+export type RuntimeFilesReadExtractionQuality = {
+  status: "ok" | "poor" | "needs_review";
+  score: number | null;
+  reasonCodes: string[];
+  textChars: number;
+};
+
 export interface RuntimeFilesToolResult {
   toolCode: "files";
   executionMode: "inline";
@@ -316,8 +330,10 @@ export interface RuntimeFilesToolResult {
   action:
     | "listed"
     | "results"
+    | "inspected"
     | "fetched"
     | "read"
+    | "previewed"
     | "written"
     | "written_and_queued"
     | "edited"
@@ -332,6 +348,16 @@ export interface RuntimeFilesToolResult {
   job: RuntimeSandboxJobResult | null;
   fileRefs: string[];
   queuedArtifacts: number;
+  /** ADR-116 — full text length before model-context sanitization. */
+  charCount?: number | null;
+  /** ADR-116 — set true when sanitizer clips `content` to the model cap. */
+  truncated?: boolean;
+  /** ADR-116 — document extraction quality when `files.read` used extract API. */
+  extractionQuality?: RuntimeFilesReadExtractionQuality | null;
+  /** ADR-116 — extraction-side note distinct from operational `warning`. */
+  readNote?: string | null;
+  /** ADR-116 — true when text came from `assistant_files.metadata` extraction cache. */
+  extractionCached?: boolean;
 }
 
 export interface RuntimeInboundMessage {
@@ -662,6 +688,17 @@ export interface RuntimeToolPolicy {
    * review turn before delivery. Plan-gated via bundle materialization.
    */
   mediaCompletionVisionEnabled?: boolean;
+  /**
+   * ADR-116 — materialized effective max bytes for one `files.preview` or
+   * current-turn attachment vision payload. Always a positive integer on the
+   * `files` policy after bundle compile; omitted on other tools.
+   */
+  maxFilePreviewBytes?: number | null;
+  /**
+   * ADR-116 — materialized effective max image edge (px) for preview resize.
+   * Omitted on non-`files` policies.
+   */
+  maxFilePreviewEdgePx?: number | null;
 }
 
 /**
@@ -3145,6 +3182,11 @@ export interface ProviderGatewayTextGenerateRequest {
    * The gateway enforces a hard cap of 600_000ms regardless of the hint value.
    */
   timeoutMsHint?: number;
+  /**
+   * ADR-116 — ephemeral multimodal user content appended after `toolHistory` on the
+   * next provider call (e.g. `files.preview` pixels/PDF). Never persisted in tool-result JSON.
+   */
+  toolFollowUpUserContent?: ProviderGatewayMessageContent;
 }
 
 export interface ProviderGatewayTextGenerateResult {

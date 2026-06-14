@@ -1,6 +1,7 @@
 # ADR-032: OpenClaw capability envelope hardening (Step 8 E2)
 
 ## Status
+
 Accepted
 
 ## Context

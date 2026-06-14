@@ -1,9 +1,11 @@
 # ADR-063: Tiered OpenClaw runtime and clean cutover
 
 ## Status
+
 Accepted
 
 ## Context
+
 PersAI is moving from a functional single-runtime baseline toward a paid production SaaS model with materially higher expectations for:
 
 - runtime isolation
@@ -38,6 +40,7 @@ The user constraints for this slice are:
 - prepare GKE early enough that the later runtime split does not require a redesign
 
 ## Decision
+
 1. **One combined program, not two disconnected stages**
 
    Shared-runtime hardening and tiered runtime routing are treated as one platform track with staged delivery, not as two competing designs.
@@ -95,7 +98,9 @@ The user constraints for this slice are:
    `docs/PERSAI-FORK-PATCHES.md` remains useful, but fork safety must be enforced by automated diff/invariant checks against the actual git history and current code, not by the document alone.
 
 ## Consequences
+
 ### Positive
+
 - Shared-runtime hardening and future runtime routing now live on one coherent line.
 - GKE preparation happens before the product is trapped behind one-runtime assumptions.
 - Free vs paid vs isolated runtime classes become product and platform concepts, not ad hoc infra hacks.
@@ -103,11 +108,13 @@ The user constraints for this slice are:
 - The OpenClaw fork gets a cleaner long-term maintenance model.
 
 ### Negative
+
 - The initial docs/program slice is larger than a narrow bug fix.
 - Future adapter/config changes must be more disciplined because they cannot assume one runtime forever.
 - GKE and routing work must start earlier than a purely single-runtime rollout would require.
 
 ## Alternatives considered
+
 - **Keep one shared runtime as the long-term architecture**: rejected because it creates a weak long-term security and noisy-neighbor story for paid production.
 - **Treat shared-runtime hardening and tiered runtime routing as separate tracks**: rejected because it would create legacy and duplicated planning.
 - **Go fully per-user runtime immediately**: rejected as too expensive and operationally heavy for the current product phase.

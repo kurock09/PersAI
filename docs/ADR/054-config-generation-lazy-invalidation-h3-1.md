@@ -61,22 +61,22 @@ OpenClaw chat handlers (sync and stream) implement a two-layer check:
 
 **configGeneration++ (admin writes):**
 
-| Service | Trigger |
-|---------|---------|
-| `ManageAdminRuntimeProviderSettingsService` | Provider/model/key save |
-| `ManageAdminPlansService` | Plan create/update (includes entitlements + tool activations) |
-| `ManageBootstrapPresetsService` | Preset template update |
-| Tool catalog admin (when surfaced) | Tool CRUD |
+| Service                                     | Trigger                                                       |
+| ------------------------------------------- | ------------------------------------------------------------- |
+| `ManageAdminRuntimeProviderSettingsService` | Provider/model/key save                                       |
+| `ManageAdminPlansService`                   | Plan create/update (includes entitlements + tool activations) |
+| `ManageBootstrapPresetsService`             | Preset template update                                        |
+| Tool catalog admin (when surfaced)          | Tool CRUD                                                     |
 
 **configDirtyAt = NOW() (per-user writes):**
 
-| Service | Trigger |
-|---------|---------|
-| `UpsertOnboardingService` | Profile update (name, birthday, gender, locale, timezone) |
-| `ManageAdminAssistantPlanOverrideService` | Assistant plan override set/reset |
-| `ConnectTelegramIntegrationService` | Telegram connect |
-| `RevokeTelegramIntegrationSecretService` | Telegram revoke |
-| `SyncWorkspaceSubscriptionService` | Subscription snapshot changed or deleted |
+| Service                                   | Trigger                                                   |
+| ----------------------------------------- | --------------------------------------------------------- |
+| `UpsertOnboardingService`                 | Profile update (name, birthday, gender, locale, timezone) |
+| `ManageAdminAssistantPlanOverrideService` | Assistant plan override set/reset                         |
+| `ConnectTelegramIntegrationService`       | Telegram connect                                          |
+| `RevokeTelegramIntegrationSecretService`  | Telegram revoke                                           |
+| `SyncWorkspaceSubscriptionService`        | Subscription snapshot changed or deleted                  |
 
 ## Consequences
 

@@ -93,6 +93,7 @@ missing remains `0`; bonus units are additive on top.
 New intent purpose: `media_package_purchase`.
 
 `CreateAssistantPackagePaymentIntentInput`:
+
 - `packageItemIds: string[]` — one or more catalog item IDs from the same or different types
 - `paymentMethodClass`
 - `idempotencyKey`
@@ -174,7 +175,7 @@ On `Admin > Plans`, a second major block below the plans list: `Media packages`.
   intents use the sentinel `"__media_package__"` and store the selected items in `metadata.packageItems`.
 - `HandleCloudpaymentsWebhookService` gains a new fulfillment branch guarded by
   `purpose === "media_package_purchase"`.
-- The quota accounting reservation path (`TrackWorkspaceQuotaUsageService`, 
+- The quota accounting reservation path (`TrackWorkspaceQuotaUsageService`,
   `ReserveInternalRuntimeMonthlyMediaQuotaService`) is extended to accept the overlay context and
   enforce `effectiveLimitUnits` instead of raw plan limit.
 - `ResolvePlanVisibilityService` and `ReadInternalRuntimeQuotaStatusService` are extended to include

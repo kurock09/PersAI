@@ -323,7 +323,7 @@ The runtime worker never touches monthly media quota.
 ```
 
 - Runtime: all `releaseMonthlyMediaQuotaReservationBestEffort(...)` call sites (and their private helpers) removed from `runtime-image-generate-tool.service.ts`, `runtime-image-edit-tool.service.ts`, `runtime-video-generate-tool.service.ts`. The worker now has **zero** monthly-media-quota call sites (verified by grep over `apps/runtime/src/modules/turns`; the `reserve/release/markReconciliation` methods remain only as unused client definitions on `persai-internal-api.client.service.ts`).
-- API scheduler (`assistant-media-job-scheduler.service.ts`): `failJob` releases the job's full `N` **once** for every terminal failure path (`invalid_request_payload`, `assistant_not_found`*, `runtime_bundle_missing`, `media_job_artifacts_missing`, terminal worker failure incl. `image_provider_safety_rejected`); retryable requeue touches no quota.
+- API scheduler (`assistant-media-job-scheduler.service.ts`): `failJob` releases the job's full `N` **once** for every terminal failure path (`invalid_request_payload`, `assistant_not_found`\*, `runtime_bundle_missing`, `media_job_artifacts_missing`, terminal worker failure incl. `image_provider_safety_rejected`); retryable requeue touches no quota.
 - API completion (`assistant-media-job-completion-delivery.service.ts`): `failDelivery` reconciles `N` once for pre-delivery-loop failures, guarded by a `loopResolved` flag so a post-`deliver()` exception cannot double-count.
 - Delivery loop (`media-delivery.service.ts`) is unchanged: settles 1 per delivered artifact, reconciles 1 per failed-delivery artifact.
 

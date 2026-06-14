@@ -786,6 +786,7 @@ Baseline SHA at session start (after Slice 10b commit `be12d973` and the Slice 1
 ### Files touched
 
 **Modified (17):**
+
 - `apps/web/app/app/assistant-api-client.ts` — 4 Slice 9 client methods dropped `/api/v1` prefix (Fix #1)
 - `apps/web/app/app/assistant-api-client.test.ts` — +4 URL-shape assertions (URL passed to `fetch` does NOT contain `api/v1/api/v1`)
 - `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts` — Fix #2 (prompt validation order + placeholder for talking_avatar) + Fix #3e (new credential-ref lookup for talking_avatar before dispatch). New module constant `VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY = "video_generate_talking_avatar"`. Cinematic dispatch path untouched.
@@ -805,6 +806,7 @@ Baseline SHA at session start (after Slice 10b commit `be12d973` and the Slice 1
 - `packages/contracts/src/generated/model/adminPlanState.ts` — hand-edited to mirror OpenAPI
 
 **NOT touched:**
+
 - No Prisma schema or migration (talking-avatar plan fields persist via the existing `billingProviderHints` JSON column).
 - No HeyGen API client change (`HeyGenProviderClient` from Slice 6 unchanged).
 - No `docs/ADR/109-heygen-talking-avatar-on-vcoin.md` modification by the subagent (orchestrator-only; the E14 spec block was committed separately in `39207360` before the subagent ran).
@@ -815,16 +817,16 @@ Baseline SHA at session start (after Slice 10b commit `be12d973` and the Slice 1
 
 ### Tests run (8/8 PASS, orchestrator-run)
 
-| Gate | Result |
-|---|---|
-| `corepack pnpm -r --if-present run lint` | PASS — all 6 packages Done |
-| `corepack pnpm run format:check` | PASS — "All matched files use Prettier code style!" |
-| `corepack pnpm --filter @persai/api run typecheck` | PASS — exit 0 |
-| `corepack pnpm --filter @persai/web run typecheck` | PASS — exit 0 |
-| `corepack pnpm --filter @persai/runtime-contract run typecheck` | PASS — exit 0 |
-| `corepack pnpm --filter @persai/web test --run` | PASS — **670/670** across 65 files (was 665/665 pre-Slice-10c; +5 new — 4 URL-shape + 1 admin-plans round-trip) |
-| `corepack pnpm --filter @persai/runtime test` | PASS — all suites including 4 prompt-validation + 2 credential-routing + 2 native-tool-projection (now actually registered + executed) |
-| `corepack pnpm --filter @persai/api test` | PASS — all suites including 3 plan-validation + 5 materializ |
+| Gate                                                            | Result                                                                                                                                 |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `corepack pnpm -r --if-present run lint`                        | PASS — all 6 packages Done                                                                                                             |
+| `corepack pnpm run format:check`                                | PASS — "All matched files use Prettier code style!"                                                                                    |
+| `corepack pnpm --filter @persai/api run typecheck`              | PASS — exit 0                                                                                                                          |
+| `corepack pnpm --filter @persai/web run typecheck`              | PASS — exit 0                                                                                                                          |
+| `corepack pnpm --filter @persai/runtime-contract run typecheck` | PASS — exit 0                                                                                                                          |
+| `corepack pnpm --filter @persai/web test --run`                 | PASS — **670/670** across 65 files (was 665/665 pre-Slice-10c; +5 new — 4 URL-shape + 1 admin-plans round-trip)                        |
+| `corepack pnpm --filter @persai/runtime test`                   | PASS — all suites including 4 prompt-validation + 2 credential-routing + 2 native-tool-projection (now actually registered + executed) |
+| `corepack pnpm --filter @persai/api test`                       | PASS — all suites including 3 plan-validation + 5 materializ                                                                           |
 
 ### Honest subtleties
 
@@ -866,6 +868,7 @@ The operator instructed "делай 10b пока я проверяю" after the 
 **Surface decision (mid-slice pivot — honest course correction):** the first subagent run honestly investigated the codebase and reported a critical gap — its initial implementation patched `ActivityEvent` in `activity-badge.tsx`, but the `video_generate` tool activity is intentionally suppressed in production via `HIDDEN_MEDIA_ACTIVITY_LABEL` in `use-chat.ts:345` (`buildToolLiveActivity`). The work was real infrastructure but invisible to users. Orchestrator inspected the codebase: the actual user-visible surface for in-flight media jobs is the chip in `chat-input.tsx` lines ~1058–1079, which already ticks every 1 second via the parent's `mediaJobNowMs` state and renders `resolveMediaJobLabel(t, job) + formatDuration(...)` per chip. Subagent resumed with the corrected scope: revert activity-badge changes, keep the i18n keys (correct + needed), patch the chip surface, add the minimum DTO field needed for detection.
 
 **Detection mechanism:** per ADR-109 erratum E3 line 767, the spec explicitly permitted "a new optional `displayKind: "talking_avatar"` field on the active job DTO that the runtime can set when it accepts the job" as one of two options. Orchestrator chose option (b) over option (a) ("provider key visible on persisted artifact metadata") because the artifact only exists post-completion — for an in-flight job we need the discriminator on the active-job DTO. Implementation:
+
 - OpenAPI `AssistantWebChatActiveMediaJobState` schema gained optional non-required `displayKind: enum [cinematic, talking_avatar], nullable: true` with descriptive doc text referencing this slice.
 - Generated TS `assistantWebChatActiveMediaJobState.ts` hand-edited with `displayKind?: ... | null`; new sibling enum file `assistantWebChatActiveMediaJobStateDisplayKind.ts` follows the orval pattern of `assistantWebChatActiveMediaJobStateOperation.ts` and `runtimeVideoModelKind.ts`.
 - API-side internal type `AssistantWebChatActiveMediaJobState` (in `web-chat.types.ts`) mirrors the field.
@@ -878,6 +881,7 @@ The operator instructed "делай 10b пока я проверяю" after the 
 ### Files touched
 
 **Modified (10):**
+
 - `packages/contracts/openapi.yaml` — `displayKind` enum on `AssistantWebChatActiveMediaJobState`
 - `packages/contracts/src/generated/model/assistantWebChatActiveMediaJobState.ts` — hand-edited `displayKind?: ... | null` field
 - `packages/contracts/src/generated/model/index.ts` — re-export sibling enum
@@ -890,9 +894,11 @@ The operator instructed "делай 10b пока я проверяю" after the 
 - `apps/web/messages/ru.json` — 4 new keys
 
 **New (1):**
+
 - `packages/contracts/src/generated/model/assistantWebChatActiveMediaJobStateDisplayKind.ts` — orval-style sibling enum
 
 **NOT touched (revert verified):**
+
 - `apps/web/app/app/_components/activity-badge.tsx` — back to pre-pivot state, zero diff vs HEAD (no `providerId`/`startedAtMs`/`useTalkingAvatarBannerStage` added; confirmed via grep `0 matches`).
 - `apps/web/app/app/_components/activity-badge.test.tsx` — back to pre-pivot state.
 - No `apps/runtime/**`, no `apps/provider-gateway/**`, no Prisma files, no module wiring changes.
@@ -900,15 +906,15 @@ The operator instructed "делай 10b пока я проверяю" after the 
 
 ### Tests run
 
-| Gate | Result |
-|---|---|
-| `corepack pnpm -r --if-present run lint` | PASS — all 6 packages Done |
-| `corepack pnpm run format:check` | PASS — "All matched files use Prettier code style!" |
-| `corepack pnpm --filter @persai/web run typecheck` | PASS — exit 0 |
-| `corepack pnpm --filter @persai/api run typecheck` | PASS — exit 0 |
-| `corepack pnpm --filter @persai/contracts run typecheck` | PASS — exit 0 |
-| `corepack pnpm --filter @persai/web run test` | PASS — **665/665** across 65 files (was 662/662 pre-Slice-10b; +3 chat-input tests) |
-| `corepack pnpm --filter @persai/api run test` | PASS — all assertions passed across all suites including 3 new in `assistant-media-job-open-context.test.ts` |
+| Gate                                                     | Result                                                                                                       |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `corepack pnpm -r --if-present run lint`                 | PASS — all 6 packages Done                                                                                   |
+| `corepack pnpm run format:check`                         | PASS — "All matched files use Prettier code style!"                                                          |
+| `corepack pnpm --filter @persai/web run typecheck`       | PASS — exit 0                                                                                                |
+| `corepack pnpm --filter @persai/api run typecheck`       | PASS — exit 0                                                                                                |
+| `corepack pnpm --filter @persai/contracts run typecheck` | PASS — exit 0                                                                                                |
+| `corepack pnpm --filter @persai/web run test`            | PASS — **665/665** across 65 files (was 662/662 pre-Slice-10b; +3 chat-input tests)                          |
+| `corepack pnpm --filter @persai/api run test`            | PASS — all assertions passed across all suites including 3 new in `assistant-media-job-open-context.test.ts` |
 
 ### Honest subtleties & decisions under ambiguity
 
@@ -918,7 +924,7 @@ The operator instructed "делай 10b пока я проверяю" after the 
 4. **Helper return type narrowed.** Subagent typed the helper return as the concrete union rather than `AssistantWebChatActiveMediaJobState["displayKind"]` because the latter resolves to `... | null | undefined` under `exactOptionalPropertyTypes: true` and trips the row-mapper assignment. Honest TypeScript pragmatism.
 5. **Test isolation pattern.** For the 4-stage rotation test, the subagent used a "fresh mount per stage" pattern (`cleanup() + setSystemTime + render`) rather than `rerender + advanceTimersByTime`, because the 1s parent interval firing 600+ times during a single advance produced an empty body. Behaviorally equivalent — what's being tested is the elapsed-time → stage mapping, not the parent's interval mechanics.
 6. **`displayKind` not added to `RuntimeVideoGenerateRequest`/`Result`.** The runtime contract already carries `mode: "talking_avatar"` via Slice 3 — that's the source of truth; the API mapper merely projects it into the web view DTO. No duplicate field on the runtime contract layer.
-7. **No `apps/runtime/**` edits.** Slice 10b is strictly a web-chat-DTO + web-render slice. The runtime continues to receive `request.mode` per Slice 3; only the API web-mapper writes the projection.
+7. **No `apps/runtime/**`edits.** Slice 10b is strictly a web-chat-DTO + web-render slice. The runtime continues to receive`request.mode` per Slice 3; only the API web-mapper writes the projection.
 8. **Cross-slice invariants 1–15 re-verified true:** #1 cinematic UX byte-identical (Test 1 + Test 2 confirm at t=10s, t=10min, and with missing field); #11 ADR-107 carve-out preserved (no Runway/Kling/OpenAI client edits); #12 no keyword routing (boolean `===` equality on enum strings; no regex/fuzzy/keyword anywhere); #14 REST-only persona mutation N/A (no persona code touched); #15 NON-NEGOTIABLE (strict structural enum equality, defensive parsing of `requestJson` paths with type-safe casts).
 
 ### Risks / residuals
@@ -931,6 +937,7 @@ The operator instructed "делай 10b пока я проверяю" after the 
 ### Next recommended step
 
 **Slice 11 — Tests + docs + verification + live smoke.** This is the final ADR-109 slice and the only remaining work. Scope per ADR:
+
 - Full ADR-109 acceptance checklist sweep (line ~960-995 of the ADR).
 - E2E smoke in `persai-dev`: create a workspace, enable `talkingVideoEnabled`, create a persona via Settings → Characters, ask the assistant to "have <persona> read this text", verify the chip rotates Stage 1 → Stage 2 → Stage 3 → Stage 4 over a real ~3-minute HeyGen render, verify the rendered MP4 plays back, verify the VC ledger debit landed.
 - Cross-doc updates: `docs/CHANGELOG.md` (Slice 11 entry), `docs/ADR/109` Status (mark Completed), `docs/SESSION-HANDOFF.md` (final closure), `docs/ARCHITECTURE.md` (mention talking-avatar mode as a top-level capability), `docs/API-BOUNDARY.md` (document persona REST endpoints + voice catalog), `docs/DATA-MODEL.md` (mention `workspace_video_personas`).
@@ -958,16 +965,16 @@ The operator requested a "полный аудит независимыми аг�
 
 **Triage result — 8 must-fix items** (all closed by this fixup commit):
 
-| # | Issue | E13 ref | Files |
-|---|---|---|---|
-| 1 | Error envelope parsing broken in 4 web client methods | E13.8 | `assistant-api-client.ts`, `assistant-settings.tsx` |
-| 2 | `heygenAvatarId` leaks to user-facing list API | E13.4 | `manage-workspace-video-personas.service.ts`, `openapi.yaml`, generated TS, `assistant-api-client.ts` |
-| 3 | HeyGen 4xx mis-mapped to `heygen_unavailable` at gateway | E13.5 | `heygen-provider.client.ts`, `provider-heygen-avatars.service.ts` |
-| 4 | E4 locked state hides real workspace personas | E13.9 | `assistant-settings.tsx` |
-| 5 | Concurrent persona-create wallet over-debit | E13.6 | `manage-workspace-video-personas.service.ts` |
-| 6 | `storageWarning` silently dropped on success | E13.10 | `assistant-settings.tsx`, `en.json`, `ru.json` |
-| 7 | `talkingVideoEnabled` requiredness drift | E13.11 | `userPlanVisibilityEntitlements.ts` |
-| 8 | Orphan-avatar warning too narrow | E13.7 | `manage-workspace-video-personas.service.ts` |
+| #   | Issue                                                    | E13 ref | Files                                                                                                 |
+| --- | -------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
+| 1   | Error envelope parsing broken in 4 web client methods    | E13.8   | `assistant-api-client.ts`, `assistant-settings.tsx`                                                   |
+| 2   | `heygenAvatarId` leaks to user-facing list API           | E13.4   | `manage-workspace-video-personas.service.ts`, `openapi.yaml`, generated TS, `assistant-api-client.ts` |
+| 3   | HeyGen 4xx mis-mapped to `heygen_unavailable` at gateway | E13.5   | `heygen-provider.client.ts`, `provider-heygen-avatars.service.ts`                                     |
+| 4   | E4 locked state hides real workspace personas            | E13.9   | `assistant-settings.tsx`                                                                              |
+| 5   | Concurrent persona-create wallet over-debit              | E13.6   | `manage-workspace-video-personas.service.ts`                                                          |
+| 6   | `storageWarning` silently dropped on success             | E13.10  | `assistant-settings.tsx`, `en.json`, `ru.json`                                                        |
+| 7   | `talkingVideoEnabled` requiredness drift                 | E13.11  | `userPlanVisibilityEntitlements.ts`                                                                   |
+| 8   | Orphan-avatar warning too narrow                         | E13.7   | `manage-workspace-video-personas.service.ts`                                                          |
 
 **Acknowledged limitations (no fix this pass, recorded in ADR-109 E13 block):**
 
@@ -998,6 +1005,7 @@ No merge conflict.
 **Modified files (16):**
 
 Backend / contracts (Fixup A):
+
 - `apps/api/prisma/schema.prisma` — `WorkspaceVideoPersona` doc comments updated for E12 eager-create + archived-name-reuse acknowledged-limitation note (no schema change, no migration)
 - `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service.ts` — `PersonaListItem` type drops `heygenAvatarId`; `toListItem` mapper updated; conditional debit via `updateMany(where: { workspaceId, balanceVc: { gte: cost } })` inside tx; orphan warning widened to all post-HeyGen errors
 - `apps/api/test/manage-workspace-video-personas.service.test.ts` — Tests 15–17 added (list strips `heygenAvatarId`; conditional debit race; non-guard infra error orphan path); `updateMany` stub added; Test 1 debit tracking updated
@@ -1011,6 +1019,7 @@ Backend / contracts (Fixup A):
 - `packages/contracts/src/generated/model/userPlanVisibilityEntitlements.ts` — `talkingVideoEnabled?: boolean` → `talkingVideoEnabled: boolean` (required)
 
 Web UI (Fixup B):
+
 - `apps/web/app/app/_components/assistant-settings.tsx` — imports `ApiStructuredError`; `ActionFeedback` widened to `"ok" | "err" | "warn"`; `loadPersonas()` no longer gated on `talkingVideoEnabled`; locked state renders real workspace personas as `opacity-60` disabled cards (no buttons); create-success path branches on `result.storageWarning === "persona_created_storage_failed"` → amber warning feedback; error catch uses `err instanceof ApiStructuredError ? err.code : null` so all 6 mapped codes flow through
 - `apps/web/app/app/_components/assistant-settings.test.tsx` — `heygenAvatarId` removed from 5 mock persona objects (Fixup A); `talkingVideoEnabled: false` added to base entitlements mock (Fixup A); 2 existing locked-state tests inverted to assert `getWorkspaceVideoPersonas` IS called (Fixup B); 4 new tests added (locked state with real personas; `storageWarning` → warning feedback; `persona_limit_reached` → mapped i18n; `persona_duplicate_name` → mapped i18n)
 - `apps/web/app/app/assistant-api-client.ts` — `PersonaListItemDto` drops `heygenAvatarId` (A); `ApiStructuredError` newly exported (B); all 4 Slice 9 methods (`getWorkspaceVideoPersonas`, `getWorkspaceVoiceCatalog`, `createWorkspaceVideoPersona`, `deleteWorkspaceVideoPersona`) replaced ad-hoc `body?.code` parsing with the existing `readApiErrorEnvelope(response)` helper + `throw new ApiStructuredError(envelope.message, envelope.code, envelope.details)`
@@ -1080,7 +1089,8 @@ Claude Sonnet 4.6 medium thinking. Single hire + one resume for the fixup below.
 ```ts
 // What the subagent originally wrote (NOW REMOVED):
 const VOICE_LABEL_TO_LANGUAGE: ReadonlyArray<[string, string]> = [
-  ["Russian", "ru-RU"], ["English", "en-US"], /* …14 more entries… */
+  ["Russian", "ru-RU"],
+  ["English", "en-US"] /* …14 more entries… */
 ];
 function resolveVoiceLanguageFromLabel(label: string): string | null {
   const lower = label.toLowerCase();
@@ -1098,6 +1108,7 @@ Cleaner architecturally; final entry shape is `{ personaId, displayName, voiceLa
 ### Files touched (Scope IN)
 
 **Modified files (6):**
+
 - `packages/runtime-contract/src/index.ts` — new `RuntimeVideoPersonaCatalogEntry` (`{ personaId, displayName, voiceLabel }`), `RuntimeVideoPersonaCatalog` (`{ provider: "heygen", schema: "...", personas: [...] }`), `isRuntimeVideoPersonaCatalog` type guard
 - `packages/runtime-bundle/src/index.ts` — `videoPersonaCatalog?: RuntimeVideoPersonaCatalog | null` on `AssistantRuntimeBundleToolCredentialRef` (mirrors `videoVoiceCatalog`)
 - `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — injected `WORKSPACE_VIDEO_PERSONA_REPOSITORY` (already registered for Slice 7); new private `attachMaterializedVideoPersonaCatalog(ref, workspaceId, talkingVideoEnabled)` method gated by exact `providerId === "heygen"` AND `talkingVideoEnabled === true`; reads `listActive(workspaceId)` from Slice 5b repo; wired right after `attachMaterializedVideoVoiceCatalog`; `resolveRuntimeToolCredentialRefs` signature extended with `workspaceId` + `talkingVideoEnabled`
@@ -1138,6 +1149,7 @@ Cleaner architecturally; final entry shape is `{ personaId, displayName, voiceLa
 ### Cross-slice invariants
 
 All 15 invariants verified true:
+
 - **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits. ✅
 - **#12 no keyword routing** — LLM does name → personaId resolution from the materialized shortlist via exact case-insensitive name match (its own job, not code's job); no fuzzy / regex / `.includes` / `.match` on user input anywhere new. The original `resolveVoiceLanguageFromLabel` keyword table was removed in the orchestrator fixup. ✅
 - **#14 REST-only persona mutation** — materialization READS personas only via `listActive(workspaceId)`; explicit grep confirms zero `personaRepository.(create|update|archive)` calls in `materialize-*`. ✅
@@ -1160,6 +1172,7 @@ Baseline SHA at session start: Slice 8 closure (`f75ff2c3`). Tree clean.
 Slice 9 is the **first user-visible HeyGen talking-avatar UI** — end-users can now manage their workspace's video personas (characters) from the assistant settings page. The slice carries three substrate additions to expose existing data to the user-facing UI, plus a new shared web component, plus the actual Characters section in `assistant-settings.tsx`.
 
 **Substrate additions:**
+
 1. **`UserPlanVisibilityEntitlements.talkingVideoEnabled: boolean`** — exposes the Slice 8 plan toggle to the user-facing visibility API so the UI can decide locked-with-upsell vs unlocked mode. Defensive structural read of `billingProviderHints.talkingVideoEnabled === true` from `resolve-plan-visibility.service.ts`; default `false` for legacy plans.
 2. **Voice catalog endpoint** — `GET /api/v1/workspaces/:workspaceId/video-personas/voice-catalog` exposes the Slice 4 HeyGen voice cache to the UI. New `ReadHeygenVoiceCatalogForWorkspaceService` wraps the platform `HeyGenVoiceCatalogService` and re-projects to UI shape (`{ voiceId, name, language, gender, previewAudioUrl }`). Workspace ID is for auth-scoping; data is platform-wide. Returns empty `voices: []` honestly when cache is unavailable.
 3. **`WorkspaceVideoPersonaListState.creationVcoinCost: integer`** — sourced from `PlatformRuntimeProviderSettings.heygenPersonaCreationVcoin`; lets the UI render "Create for N VC" without a second roundtrip.
@@ -1167,6 +1180,7 @@ Slice 9 is the **first user-visible HeyGen talking-avatar UI** — end-users can
 **Shared component** `apps/web/app/_components/voice-preview-button.tsx`: HTML5 `<audio>` playback with module-level coordination (only one preview plays at a time); when `previewAudioUrl` is null/empty → grey disabled icon, when non-null → active Play/Pause toggle. **NO TTS fallback substrate** in this slice — per operator directive ("просто показывать серый значок play если нет превью"), voices without native HeyGen preview show a grey disabled icon. Slice 9b can add the TTS fallback later if real-world voices have a high null-rate.
 
 **Settings UI section** in `assistant-settings.tsx` between Character (1) and Limits (2), with two visual states gated structurally on `data.plan?.entitlements?.talkingVideoEnabled === true`:
+
 - **Locked-with-upsell** (false/missing): section header + italic upsell hint with inactive `/pricing` link + 1 mock disabled demo card ("Маша" with gray-circle placeholder portrait) + banner "Эти персонажи будут доступны при активации тарифа". Conversion-oriented but quiet per E4.
 - **Unlocked** (true): persona list with portrait/name/voice-label/preview-button; Create button (disabled with tooltip when `personas.length >= limit`); Create modal (portrait upload + name + voice picker with inline preview per option + VC cost line + submit disabled with link to `/app/packages` when insufficient balance); Delete confirm modal.
 
@@ -1181,16 +1195,19 @@ Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification g
 ### Files touched (Scope IN)
 
 **New files (4):**
+
 - `apps/api/src/modules/workspace-management/application/heygen/read-heygen-voice-catalog-for-workspace.service.ts` — wraps platform voice catalog cache, re-projects to UI shape, returns null when unavailable
 - `apps/api/test/read-heygen-voice-catalog-for-workspace.service.test.ts` — 4 assertions (happy path, null catalog, empty shortlist, `previewAudioUrl` present/null)
 - `apps/web/app/_components/voice-preview-button.tsx` — shared component with module-level audio coordination
 - `apps/web/app/_components/voice-preview-button.test.tsx` — 5 cases (active/disabled states, play/pause behavior, coordination)
 
 **New generated TS model files (2):**
+
 - `packages/contracts/src/generated/model/workspaceHeygenVoiceCatalogEntry.ts`
 - `packages/contracts/src/generated/model/workspaceHeygenVoiceCatalogState.ts`
 
 **Modified files (15):**
+
 - `apps/api/src/modules/workspace-management/application/plan-visibility.types.ts` — `talkingVideoEnabled` added to entitlements
 - `apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts` — defensive structural read of the flag from `billingProviderHints`
 - `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service.ts` — `listPersonas` return type extended with `creationVcoinCost` sourced from platform settings
@@ -1238,6 +1255,7 @@ Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification g
 ### Cross-slice invariants
 
 All 15 invariants verified true:
+
 - **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits. ✅
 - **#12 no keyword routing** — `talkingVideoEnabled === true` boolean equality everywhere; persona-name uniqueness delegated to existing REST API structural check; voice picker matches by exact `voiceId === heygenVoiceId`. ✅
 - **#14 REST-only persona mutation** — UI calls REST endpoints only via `createWorkspaceVideoPersona`/`deleteWorkspaceVideoPersona`; no runtime persona writes. ✅
@@ -1258,6 +1276,7 @@ Alternative: **Slice 10b — Talking-video banner UX (time-based)** (per erratum
 Baseline SHA at session start: Slice 7 closure (`01316a9c`). Tree clean.
 
 Slice 8 lights up the **plan-level on/off switch** for talking-avatar video by wiring `talkingVideoEnabled: boolean` end-to-end:
+
 - Admin Plans editor (`apps/web/app/admin/plans/page.tsx`) gains a checkbox next to the existing `videoGenerateModelKey` / `videoGenerateFallbackModelKey` fields; default `false` for new and legacy plans.
 - Plan service (`manage-admin-plans.service.ts`) persists the boolean into the existing `billingProviderHints` JSON column under the top-level `talkingVideoEnabled` key. New `parseBooleanInput(value, fieldName)` helper defaults `null`/`undefined` to `false` and throws on non-boolean.
 - Materialization (`materialize-assistant-published-version.service.ts`) resolves the flag via new private `resolvePlanTalkingVideoEnabled(planCode)` (mirrors the existing `resolvePlanBillingHintString` pattern) and post-processes the resolved `toolPolicies` to attach `talkingVideoEnabled` to the `video_generate` policy specifically.
@@ -1277,6 +1296,7 @@ Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification g
 ### Files touched (Scope IN)
 
 **Modified files (13):**
+
 - `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts` — added `talkingVideoEnabled: boolean` to `AdminPlanInput` (line ~175) and `AdminPlanState` (line ~247).
 - `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` — new `parseBooleanInput(value, fieldName)` helper; input parser, `toWriteInput`, and `toAdminPlanState` updated to round-trip the flag through `billingProviderHints`; capability refusal message at line 1323 changed `(Slice 9)` → `(Slice 8)`.
 - `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — new private `resolvePlanTalkingVideoEnabled(planCode)` method (reads `billingProviderHints.talkingVideoEnabled`, defaults `false`); renamed local `toolPolicies` → `rawToolPolicies` to make room for `.map(p => p.toolCode === "video_generate" ? { ...p, talkingVideoEnabled: planTalkingVideoEnabled } : p)` injection.
@@ -1321,6 +1341,7 @@ Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification g
 ### Cross-slice invariants
 
 All 15 invariants verified true:
+
 - **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits. ✅
 - **#12 no keyword routing** — boolean check is strict `=== true` equality everywhere (projection, materialization, runtime gate). Zero regex, zero string matching, zero phrase parsing. ✅
 - **#14 REST-only persona mutation** — `apps/runtime/src/**` untouched for writes (only `native-tool-projection.ts` and `runtime-video-generate-tool.service.ts` test file changes; neither touches `workspace_video_personas`). ✅
@@ -1341,6 +1362,7 @@ Alternative if Slice 9 feels premature: **Slice 10 — Chat UX for talking video
 Baseline SHA at session start: Slice 5b closure (`dab28fd6`). Tree clean.
 
 Slice 7 wires the **runtime execution path** for `mode === "talking_avatar"`:
+
 - Persona path: `personaId` → read-only fetch via new internal API endpoint → use persona's stored `heygenAvatarId` (always populated post-E12) + `heygenVoiceId` (or explicit `voiceKey` override against the materialized HeyGen shortlist) → dispatch to provider-gateway with `cachedHeygenAvatarId` set and `portraitImageBytesBase64: null` (HeyGen `type: "avatar"` doesn't need portrait at render).
 - Portrait alias path: `portraitImageAlias` → resolve via existing media alias resolution → dispatch with `portraitImageBytesBase64` set and `cachedHeygenAvatarId: null` (HeyGen `type: "image"` ad-hoc).
 - Honest failures: `persona_not_found`, `voice_required`, `voice_not_found`, `portrait_alias_unavailable`, `talking_avatar_provider_unavailable` (no fallback to Kling/Runway/OpenAI), `talking_avatar_plan_disabled` (gate present even though Slice 8 hasn't landed the toggle).
@@ -1355,11 +1377,13 @@ Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification g
 ### Files touched (Scope IN)
 
 **New files:**
+
 - `apps/api/src/modules/workspace-management/application/heygen/read-workspace-video-persona.service.ts` — read-only persona lookup by `(workspaceId, personaId)`; returns null when persona missing, cross-workspace, or archived (fail-closed isolation).
 - `apps/api/src/modules/workspace-management/interface/http/internal-runtime-workspace-video-personas.controller.ts` — `GET /api/v1/internal/runtime/workspaces/:workspaceId/video-personas/:personaId` with fail-closed `Authorization: Bearer <PERSAI_INTERNAL_API_TOKEN>` auth (mirrors `internal-runtime-knowledge.controller.ts`).
 - `apps/api/test/read-workspace-video-persona.service.test.ts` — 5 assertions (happy path, not found, cross-workspace isolation, archived rejection, `heygenAvatarId` non-null post-E12).
 
 **Modified files:**
+
 - `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts` — added the talking-avatar early-dispatch branch (after Slice 3 validation succeeds for `mode === "talking_avatar"`) that calls the new private `executeTalkingAvatarDispatch` helper (~130 LOC). Helper performs: structural provider check (`isTalkingAvatarVideoProvider(providerId)`) → plan toggle TODO-stub (`talkingVideoEnabled === false` is the only blocking condition; missing/undefined/true is permissive) → branch on persona vs portrait-alias → resolve voice id → build gateway DTO with the new Slice 6 fields populated → dispatch via existing `provider-gateway.client.service.ts::generateVideo`. Cinematic path bits unchanged.
 - `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts` — added `fetchWorkspaceVideoPersona({ workspaceId, personaId })`: GET internal endpoint, 404 → return null, 5xx/network/timeout → throw `ServiceUnavailableException`, schema-tag validation on response.
 - `apps/api/src/modules/workspace-management/workspace-management.module.ts` — registered `ReadWorkspaceVideoPersonaService` + `InternalRuntimeWorkspaceVideoPersonasController`.
@@ -1393,6 +1417,7 @@ Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification g
 ### Cross-slice invariants
 
 All 15 invariants verified true:
+
 - **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits. ✅
 - **#12 no keyword routing** — explicit grep: no `speechText.match/regex/includes/test/split` anywhere new. `speechText` appears only in structural type/presence checks from Slice 3. ✅
 - **#14 REST-only persona mutation** — **CRITICAL preserved**: explicit grep across `apps/runtime/**` for `personaRepository.(create|update|archive)` returns zero matches. Runtime only calls `fetchWorkspaceVideoPersona` (read-only GET against internal API). Invariant stays in its original strict form. ✅
@@ -1426,6 +1451,7 @@ Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 14 verification g
 ### Files touched (Scope IN)
 
 **New files:**
+
 - `apps/provider-gateway/src/modules/providers/interface/http/provider-heygen-avatars.controller.ts` — exposes `POST /api/v1/providers/heygen/create-photo-avatar`
 - `apps/provider-gateway/src/modules/providers/provider-heygen-avatars.service.ts` — defensive `normalizeInput` + secret resolution + `HeyGenProviderClient.createPhotoAvatar` delegation
 - `apps/provider-gateway/test/provider-heygen-avatars.service.test.ts` — 6 assertions (happy path, providerId rejection, missing-portrait rejection, empty-name rejection, secret resolution failure, HeyGen client error mapped to `heygen_avatar_create_failed`)
@@ -1434,6 +1460,7 @@ Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 14 verification g
 - `apps/api/prisma/migrations/20260605000000_slice5b_persona_heygen_avatar_id_required/migration.sql` — sentinel-backfill (`unset_legacy`) of any existing NULL rows + `ALTER COLUMN heygen_avatar_id SET NOT NULL`
 
 **Modified files:**
+
 - `apps/api/prisma/schema.prisma` — `WorkspaceVideoPersona.heygenAvatarId` `String?` → `String`
 - `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service.ts` — full retrofit: settings + voice-catalog + portrait normalize → **pre-checks (limit, duplicate name, balance — best-effort racy reads OUTSIDE tx)** → **HeyGen call OUTSIDE tx** → **tx with authoritative re-checks + persona insert WITH `heygenAvatarId` populated + ledger + debit** → portrait save AFTER tx commit. Orphan-avatar warning log fires only when the tx-level race guards reject after a successful HeyGen call (rare).
 - `apps/api/src/modules/workspace-management/domain/workspace-video-persona.repository.ts` — `WorkspaceVideoPersonaRecord.heygenAvatarId` `string | null` → `string`
@@ -1475,6 +1502,7 @@ Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 14 verification g
 ### Cross-slice invariants
 
 All 15 invariants verified true:
+
 - **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits.
 - **#12** — no keyword routing. The only regex in the new code is `/^\d+$/.test(rawTimeout)` parsing a numeric env var, NOT user-supplied strings. Persona name handling stays `.toLowerCase()` equality.
 - **#14 REST-only persona mutation** — `apps/runtime/src/**` untouched. Persona writes happen exclusively from the API service (`ManageWorkspaceVideoPersonasService`) via the REST controller. Strict form preserved, no erratum needed.
@@ -1483,6 +1511,7 @@ All 15 invariants verified true:
 ### Next recommended slice
 
 **Slice 7: Runtime talking_avatar execution** is now substantially simpler than originally specified — persona reads always return a populated `heygen_avatar_id`, so the runtime never sees `null`. Scope:
+
 1. Wire `mode === "talking_avatar"` in `runtime-video-generate-tool.service.ts` to dispatch through `HeyGenProviderClient.generateVideo`.
 2. Resolve `personaId` → persona row (read `portraitImageStorageKey`, `heygenVoiceId`, `heygenAvatarId`). Persona reads stay read-only — no runtime writes.
 3. Resolve `portraitImageAlias` (Scenario A) → chat-uploaded image bytes from media storage.
@@ -1502,6 +1531,7 @@ Baseline SHA at session start: Slice 5 closure commit (`14b6146d`). Tree clean.
 Slice 6 lands the **HeyGen v3 HTTP client** end-to-end in the provider-gateway: submit + lazy avatar creation + asset upload + 10s polling + defensive status parsing + result download + `RuntimeBillingFacts` time-metered emission. This is the biggest single slice in the ADR-109 program — a full HTTP integration plus contract widening plus dispatch wiring — but it ships in one bounded subagent run because all the surrounding substrate (Slices 1-5) was already in place.
 
 Three HeyGen v3 endpoints are reachable from PersAI after this slice:
+
 - `POST /v3/videos` (submit) with `type: "image"` (Scenario A, ad-hoc photo) OR `type: "avatar"` (Scenario C, persona reuse)
 - `POST /v3/avatars` (lazy avatar creation when a persona has no cached `heygen_avatar_id`)
 - `POST /v3/assets` (portrait pre-upload returning `asset_id` consumed by the avatar create body)
@@ -1516,10 +1546,12 @@ Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification g
 ### Files touched (Scope IN)
 
 **New files:**
+
 - `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts` — full client (submit dispatch by scenario, lazy avatar create, asset upload, 10s polling, defensive status parsing, polling-loss tolerance, billingFacts emission)
 - `apps/provider-gateway/test/heygen-provider.client.test.ts` — 12 assertion groups
 
 **Modified files:**
+
 - `packages/runtime-contract/src/index.ts` — `ProviderGatewayVideoGenerateRequest` gained `cachedHeygenAvatarId?`, `portraitImageBytesBase64?`, `portraitImageMimeType?` (all optional, backward-compatible); `ProviderGatewayVideoGenerateResult` gained `lazyCreatedHeygenAvatarId?` (default null)
 - `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts` — injected `HeyGenProviderClient`, replaced Slice 2a placeholder throw with real dispatch, extended `normalizeInput` to defensively parse + forward the new fields with type-safe 400s
 - `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts` — registered `HeyGenProviderClient`
@@ -1556,6 +1588,7 @@ Claude Sonnet 4.6 medium thinking. Single run, clean exit, all 12 verification g
 ### Cross-slice invariants
 
 All 15 invariants verified true:
+
 - **#11 ADR-107 carve-out** — no Runway/Kling/OpenAI provider-client edits.
 - **#12** — no keyword routing introduced. Scenario determination is structural (`cachedHeygenAvatarId !== null` / `personaId !== null` field checks).
 - **#14 REST-only persona mutation** — provider client returns `lazyCreatedHeygenAvatarId` for Slice 7 to persist; client itself never touches `workspace_video_personas`. `apps/runtime/src/**` untouched (only `apps/runtime/test/provider-gateway.client.service.test.ts` augmented — pure test-side HTTP serialization assertions).
@@ -1578,6 +1611,7 @@ Subagent: Claude Sonnet 4.6 medium thinking, single run, clean exit. Subagent au
 Slice 5 lands the **workspace video persona registry** — the PersAI-side substrate for HeyGen talking-avatar persona management. This slice delivers the full stack from Prisma model to REST controller, with vcoin wallet integration (ledger-first → debit-second per ADR-108 discipline) and platform admin knobs.
 
 Key design decisions:
+
 - **Soft-delete only** (`archived=true`). The row is kept so Slice 6 can cascade the HeyGen avatar DELETE via `heygenAvatarId`. A hard-delete in this slice would permanently lose the `heygenAvatarId` needed for the Slice 6 cascade.
 - **No vcoin refund on archive.** Persona creation is a final spend (mirrors HeyGen's per-avatar billing). Documented in honesty section.
 - **Workspace authorization via `req.workspaceId` identity check.** The middleware-resolved workspace must match the `:workspaceId` URL param. Fail-closed: any mismatch → 401.
@@ -1589,6 +1623,7 @@ Key design decisions:
 ### Files touched (Scope IN)
 
 **New files:**
+
 - `apps/api/prisma/migrations/20260604230000_slice5_workspace_video_persona/migration.sql`
 - `apps/api/src/modules/workspace-management/domain/workspace-video-persona.repository.ts`
 - `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-video-persona.repository.ts`
@@ -1600,6 +1635,7 @@ Key design decisions:
 - `apps/api/test/manage-workspace-video-personas.service.test.ts` (9 assertions)
 
 **Modified files:**
+
 - `apps/api/prisma/schema.prisma` — `WorkspaceVideoPersona` model + persona knob columns
 - `apps/api/src/modules/workspace-management/domain/workspace-vcoin-ledger-event.repository.ts` — widened kind union (`"persona_creation"`)
 - `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts` — new fields
@@ -1704,6 +1740,7 @@ The Slice 4 subagent (Sonnet 4.6 medium thinking) found that `apps/api/test/mate
 ### Cross-slice invariants
 
 All 15 invariants honored. Specifically:
+
 - #11 (ADR-107 carve-out) — heygen recognized as talking-avatar provider, Slice 2b `kind=talking_avatar` constraint untouched.
 - #12 / #15 — no keyword routing, no parsing of user message bodies or speech text.
 - #14 — persona REST-only (no persona code touched in this slice).

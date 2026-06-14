@@ -1,6 +1,7 @@
 # ADR-035: Integrations panel messenger presentation (Step 8 E5)
 
 ## Status
+
 Accepted
 
 ## Context

@@ -1369,6 +1369,13 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         output: exchange.toolResult.content
       });
     }
+    const toolFollowUpUserContent = input.toolFollowUpUserContent;
+    if (toolFollowUpUserContent !== undefined) {
+      items.push({
+        role: "user",
+        content: this.toOpenAIMessageContent(toolFollowUpUserContent)
+      });
+    }
     // ADR-110 prompt-cache discipline: per-turn relevance memory is volatile, so it must sit
     // OUTSIDE the cached prefix. Splice it in as a `developer` block right before the current
     // question so it never invalidates the cached history while staying high in recency. The

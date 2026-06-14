@@ -42,4 +42,3 @@ For Step 5 C4:
 - Telegram chat actions
 - Soft-delete behavior under delete action
 - C5 limits/caps and C6 degradation UX expansion
-

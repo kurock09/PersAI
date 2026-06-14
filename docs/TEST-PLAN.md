@@ -1186,9 +1186,10 @@ corepack pnpm --filter @persai/runtime run typecheck
 Interpretation rules:
 
 1. prompt hydration must present uploaded/current chat attachments as working files with durable `fileRef`
-2. `files.search/get/read/send` must operate over the unified assistant Files registry, including uploads, generated outputs, and sandbox outputs
-3. `files.read`/`files.edit`/`files.delete` must mount resolved registry files into sandbox by required `fileRef`, not by storage path or object key
-4. ambiguous query behavior must return clear candidate items with `fileRef`
+2. `files.search/inspect/get/read/send` must operate over the unified assistant Files registry, including uploads, generated outputs, and sandbox outputs
+3. `files.inspect` / legacy `files.get` must return `capabilities` gated by materialized `maxFilePreviewBytes`; plan save must round-trip `maxFilePreviewBytes` / `maxFilePreviewEdgePx` on the `files` activation row
+4. `files.read`/`files.edit`/`files.delete` must mount resolved registry files into sandbox by required `fileRef`, not by storage path or object key
+5. ambiguous query behavior must return clear candidate items with `fileRef`
 
 When a change implements ADR-081 Assistant Settings Files UI or chat attachment projection, add these focused web checks:
 

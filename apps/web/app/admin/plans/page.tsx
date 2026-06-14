@@ -50,6 +50,8 @@ type ToolActivationDraft = {
    * (TOOL_HARD_CAP_PER_TURN). Set a positive integer to override.
    */
   perTurnCap: number | null;
+  maxFilePreviewBytes: number | null;
+  maxFilePreviewEdgePx: number | null;
 };
 
 type ContextPolicyPresetDraft = AdminPlanState["contextPolicy"]["preset"];
@@ -313,7 +315,7 @@ const TOOL_CARD_DESCRIPTION: Readonly<Record<string, string>> = {
   memory_search: "Search the assistant's durable memory and knowledge base.",
   memory_get: "Read a specific knowledge or memory entry by reference.",
   scheduled_action: "Schedule user-visible reminders or hidden assistant follow-up checks.",
-  files: "List, read, write, edit, and deliver assistant files.",
+  files: "List, inspect, read, preview, write, edit, and deliver assistant files.",
   exec: "Run one bounded executable inside the sandbox workspace.",
   shell: "Run one bounded shell command inside the sandbox workspace."
 };
@@ -324,6 +326,10 @@ const TOOL_FIELD_HELP = {
     "Safety cap for day-scoped tools. Blank = unlimited daily calls (still counted for observability). Media generation/editing uses monthly delivery-confirmed quotas below.",
   perTurnCap:
     "Maximum calls inside a single assistant turn. Blank = inherit the runtime default for this tool.",
+  maxFilePreviewBytes:
+    "Max bytes for one visual file preview (image or native PDF). Blank = platform default (8 MB). Cannot exceed the platform ceiling.",
+  maxFilePreviewEdgePx:
+    "Max image edge in pixels when resizing for preview. Blank = platform default (2048 px).",
   videoModel: "Provider model used for video generation. Affects cost and quality."
 } as const;
 
@@ -945,7 +951,9 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
         policyClass: ta.policyClass,
         active: ta.active,
         dailyCallLimit: ta.dailyCallLimit,
-        perTurnCap: ta.perTurnCap
+        perTurnCap: ta.perTurnCap,
+        maxFilePreviewBytes: ta.maxFilePreviewBytes ?? null,
+        maxFilePreviewEdgePx: ta.maxFilePreviewEdgePx ?? null
       })),
     toolLoopLimitNormal: plan.toolBudgets?.loopLimitByMode?.normal?.toString() ?? "",
     toolLoopLimitPremium: plan.toolBudgets?.loopLimitByMode?.premium?.toString() ?? "",
@@ -1347,7 +1355,13 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       toolCode: ta.toolCode,
       active: ta.active,
       dailyCallLimit: MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) ? null : ta.dailyCallLimit,
-      perTurnCap: ta.perTurnCap
+      perTurnCap: ta.perTurnCap,
+      ...(ta.toolCode === "files"
+        ? {
+            maxFilePreviewBytes: ta.maxFilePreviewBytes,
+            maxFilePreviewEdgePx: ta.maxFilePreviewEdgePx
+          }
+        : {})
     })),
     toolBudgets: {
       loopLimitByMode: {
@@ -1775,6 +1789,30 @@ export function ToolActivationsEdit({
     onUpdate(next);
   }
 
+  function setMaxFilePreviewBytes(idx: number, val: string) {
+    const next = activations.map((a, i) =>
+      i === idx
+        ? {
+            ...a,
+            maxFilePreviewBytes: val === "" ? null : Math.max(1, Math.floor(Number(val)))
+          }
+        : a
+    );
+    onUpdate(next);
+  }
+
+  function setMaxFilePreviewEdgePx(idx: number, val: string) {
+    const next = activations.map((a, i) =>
+      i === idx
+        ? {
+            ...a,
+            maxFilePreviewEdgePx: val === "" ? null : Math.max(1, Math.floor(Number(val)))
+          }
+        : a
+    );
+    onUpdate(next);
+  }
+
   const numericInputClasses =
     "w-full appearance-none rounded border border-border bg-surface px-2 py-1 pr-7 text-[11px] text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]";
 
@@ -2000,6 +2038,30 @@ export function ToolActivationsEdit({
                   className={numericInputClasses}
                 />
               </FieldRow>
+              {ta.toolCode === "files" ? (
+                <>
+                  <FieldRow label="Preview max bytes" tip={TOOL_FIELD_HELP.maxFilePreviewBytes}>
+                    <input
+                      type="number"
+                      min={1}
+                      value={ta.maxFilePreviewBytes ?? ""}
+                      onChange={(e) => setMaxFilePreviewBytes(idx, e.target.value)}
+                      placeholder="8 MB default"
+                      className={numericInputClasses}
+                    />
+                  </FieldRow>
+                  <FieldRow label="Preview max edge px" tip={TOOL_FIELD_HELP.maxFilePreviewEdgePx}>
+                    <input
+                      type="number"
+                      min={1}
+                      value={ta.maxFilePreviewEdgePx ?? ""}
+                      onChange={(e) => setMaxFilePreviewEdgePx(idx, e.target.value)}
+                      placeholder="2048 default"
+                      className={numericInputClasses}
+                    />
+                  </FieldRow>
+                </>
+              ) : null}
             </div>
           </div>
         );
@@ -4291,7 +4353,9 @@ export default function AdminPlansPage() {
           policyClass: ta.policyClass,
           active: false,
           dailyCallLimit: null,
-          perTurnCap: null
+          perTurnCap: null,
+          maxFilePreviewBytes: null,
+          maxFilePreviewEdgePx: null
         }));
     }
     setCreateDraft(draft);

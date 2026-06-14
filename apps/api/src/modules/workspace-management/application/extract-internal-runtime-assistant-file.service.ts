@@ -53,6 +53,7 @@ export type ExtractInternalRuntimeAssistantFileOutcome =
       note: string | null;
       provider: KnowledgeProcessingProviderTrace;
       quality: KnowledgeExtractionQuality;
+      cached: boolean;
     }
   | {
       ok: true;
@@ -125,7 +126,8 @@ export class ExtractInternalRuntimeAssistantFileService {
         markdown: cachedExtraction.markdown,
         note: cachedExtraction.note,
         provider: cachedExtraction.provider,
-        quality: cachedExtraction.quality
+        quality: cachedExtraction.quality,
+        cached: true
       };
     }
     if (!isSupportedInternalRuntimeExtractionMime(mime)) {
@@ -175,7 +177,8 @@ export class ExtractInternalRuntimeAssistantFileService {
         markdown: cachedExtractionRecord.markdown,
         note: cachedExtractionRecord.note,
         provider: cachedExtractionRecord.provider,
-        quality: cachedExtractionRecord.quality
+        quality: cachedExtractionRecord.quality,
+        cached: false
       };
     }
     return {
@@ -186,7 +189,8 @@ export class ExtractInternalRuntimeAssistantFileService {
       markdown: extraction.markdown ?? null,
       note: text.length > 0 ? null : "Document extraction completed but produced no usable text.",
       provider: extraction.provider,
-      quality: extraction.quality
+      quality: extraction.quality,
+      cached: false
     };
   }
 

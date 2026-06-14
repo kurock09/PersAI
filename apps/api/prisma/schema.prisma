@@ -1456,6 +1456,12 @@ model PlanCatalogToolActivation {
   /// (Number.MAX_SAFE_INTEGER fits in Int4) to make a normally-capped tool
   /// effectively uncapped on this plan.
   perTurnCap       Int?                     @map("per_turn_cap")
+  /// ADR-116 — per-plan max bytes for one visual file preview (`files.preview`
+  /// or current-turn attachment vision). NULL = code default at materialize.
+  maxFilePreviewBytes   Int?                @map("max_file_preview_bytes")
+  /// ADR-116 — optional per-plan max image edge for preview resize. NULL =
+  /// code default at materialize.
+  maxFilePreviewEdgePx  Int?                @map("max_file_preview_edge_px")
   createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
   plan             PlanCatalogPlan          @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)

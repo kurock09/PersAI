@@ -475,6 +475,7 @@ Verification: PASS `corepack pnpm --filter @persai/api run typecheck`; PASS `cor
 **Slice 6a** (data plumbing, commit `fc02efed`): `PublicPricingPlanState` gained `videoVcoinMonthlyGrant` (required), `vcoinExchangeRate` (required), `videoVcoinApproxVideosPerMonth` (optional, server-precomputed). `UserPlanVisibilityState` gained required `workspaceVcoinBalance: { balanceVc, videoVcoinMonthlyGrant, vcoinExchangeRate }`. API services injected `WorkspaceVcoinBalanceRepository` and `ResolvePlatformRuntimeProviderSettingsService`. Contracts regenerated; web test stubs updated mechanically. PASS: `@persai/api run typecheck`; `@persai/web run typecheck`; `pnpm -r lint`; `format:check`; full API suite.
 
 **Slice 6b** (UI rendering): Three web surfaces updated to consume the new data:
+
 - `apps/web/app/app/_components/assistant-settings.tsx` (`buildMonthlyCard`): `video_generate` card now renders `"Remaining N VC"` (value) and `"1 VC ≈ $X"` (secondary/tooltip) when `workspaceVcoinBalance` is present; all other media cards (image_generate, image_edit, tts, stt) byte-identical.
 - `apps/web/app/_components/pricing-page-view.tsx` (`derivePlanFacts`): new VC branch added before legacy video branch — emits `"X VC / month ≈ Y videos"` (when `videoVcoinApproxVideosPerMonth` present) or `"X VC / month"` for plans with `videoVcoinMonthlyGrant > 0`; legacy `videoGenerateMonthlyUnitsLimit` branch retained as fallback for un-migrated plans. Image/token/skill fact chips byte-identical.
 - `apps/web/app/app/packages/page.tsx` (`formatPackageLabel`): `video_generate` packages render `"N VC"` instead of `"N units"`. All other package types (image_generate, image_edit, document) byte-identical.
@@ -515,6 +516,7 @@ Verification: PASS `corepack pnpm --filter @persai/api run typecheck`; PASS `cor
 **Status (2026-06-04): Completed.**
 
 **Contract change** — `RuntimeMonthlyToolQuotaStatusToolRow` in `packages/runtime-contract/src/index.ts` converted from a flat interface to a discriminated union:
+
 - `RuntimeMonthlyToolQuotaStatusToolRowUnits` (`kind: "units"`) for `image_generate`, `image_edit`, `document`. All prior fields preserved byte-identical. Optional `effectiveLimitUnits` carry-over added for backward compat.
 - `RuntimeMonthlyToolQuotaStatusToolRowVcoin` (`kind: "vcoin"`) for `video_generate`. Fields: `balanceVc`, `monthlyGrantVc`, `typicalVideoCostVc`, `typicalVideoSeconds`, `typicalCostFromPlatformFallback`, `status: "ok" | "balance_exhausted"`.
 
@@ -529,12 +531,14 @@ Verification: PASS `corepack pnpm --filter @persai/api run typecheck`; PASS `cor
 **Fallback behavior** — all reads degrade gracefully; missing VC balance → 0; missing exchange rate → 20; failing typical cost service → null cost fields.
 
 **Consumers narrowed**:
+
 - `apps/api/src/modules/workspace-management/application/read-internal-runtime-quota-status.service.ts` — `computeAdvisoryCandidates` skips vcoin rows.
 - `apps/api/src/modules/workspace-management/application/quota-grounded-limit-copy.service.ts` — `buildMonthlyToolCopy` narrows `kind === "units"` before accessing unit fields.
 - `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts` — excludes `kind === "vcoin"` rows before reading unit fields; accepts rows without `kind` for test-stub backward compat.
 - `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts` — `isMonthlyToolQuotaStatusTool` validates both variants using `kind` discriminator.
 
 **Verification PASS**:
+
 - `corepack pnpm --filter @persai/api run pretypecheck` — PASS
 - `corepack pnpm --filter @persai/api run typecheck` — PASS
 - `corepack pnpm --filter @persai/web run typecheck` — PASS

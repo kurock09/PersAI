@@ -15,4 +15,14 @@ export interface AdminPlanToolActivationInput {
    * @nullable
    */
   perTurnCap?: number | null;
+  /**
+   * ADR-116 — `files` tool only. See AdminPlanToolActivation.maxFilePreviewBytes.
+   * @nullable
+   */
+  maxFilePreviewBytes?: number | null;
+  /**
+   * ADR-116 — `files` tool only. See AdminPlanToolActivation.maxFilePreviewEdgePx.
+   * @nullable
+   */
+  maxFilePreviewEdgePx?: number | null;
 }

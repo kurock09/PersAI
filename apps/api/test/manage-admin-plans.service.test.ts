@@ -1559,6 +1559,83 @@ async function run(): Promise<void> {
     (error) => error instanceof BadRequestException && /perTurnCap/i.test(error.message)
   );
 
+  // ADR-116 — preview limit fields apply only to files; values above ceiling clamp.
+  const parsedFilesPreview = service.parseUpdateInput({
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    defaultOnRegistration: true,
+    trialEnabled: true,
+    trialDurationDays: 7,
+    lifecyclePolicy: { trialFallbackPlanCode: "starter_fallback" },
+    metadata: { commercialTag: "trial", notes: null },
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: false,
+        utilityTools: true,
+        costDrivingQuotaGoverned: true,
+        utilityQuotaGoverned: true
+      },
+      channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
+    },
+    quotaLimits: { tokenBudgetLimit: 1000 },
+    contextPolicy,
+    primaryModelKey: null,
+    runtimeTierDefault: "free_shared_restricted",
+    toolActivations: [
+      {
+        toolCode: "files",
+        active: true,
+        dailyCallLimit: 20,
+        perTurnCap: null,
+        maxFilePreviewBytes: 16_777_216,
+        maxFilePreviewEdgePx: 1536
+      }
+    ]
+  });
+  const filesOverride = parsedFilesPreview.toolActivations?.find((ta) => ta.toolCode === "files");
+  assert.equal(filesOverride?.maxFilePreviewBytes, 8_388_608);
+  assert.equal(filesOverride?.maxFilePreviewEdgePx, 1536);
+
+  assert.throws(
+    () =>
+      service.parseUpdateInput({
+        displayName: "Starter",
+        description: "Trial plan",
+        status: "active",
+        defaultOnRegistration: true,
+        trialEnabled: true,
+        trialDurationDays: 7,
+        lifecyclePolicy: { trialFallbackPlanCode: "starter_fallback" },
+        metadata: { commercialTag: "trial", notes: null },
+        entitlements: {
+          toolClasses: {
+            costDrivingTools: false,
+            utilityTools: true,
+            costDrivingQuotaGoverned: true,
+            utilityQuotaGoverned: true
+          },
+          channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
+        },
+        quotaLimits: { tokenBudgetLimit: 1000 },
+        contextPolicy,
+        primaryModelKey: null,
+        runtimeTierDefault: "free_shared_restricted",
+        toolActivations: [
+          {
+            toolCode: "web_fetch",
+            active: true,
+            dailyCallLimit: null,
+            perTurnCap: null,
+            maxFilePreviewBytes: 1_048_576
+          }
+        ]
+      }),
+    (error) =>
+      error instanceof BadRequestException &&
+      /preview limit fields apply only to the files tool/i.test(error.message)
+  );
+
   // Strict parser rejects non-positive loop limit.
   assert.throws(
     () =>

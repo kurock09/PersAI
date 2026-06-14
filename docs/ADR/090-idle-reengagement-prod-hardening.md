@@ -42,6 +42,7 @@ The lock/unlock commands are issued inside a `$transaction` interactive transact
 A new Prisma model `AssistantIdleEvaluationMarker` with a unique constraint on `(assistantId, chatId)` becomes the primary cooldown / attempt-budget source of truth for idle re-engagement.
 
 Candidate qualification:
+
 ```
 qualifies IFF
   latest_user_message exists
@@ -55,6 +56,7 @@ qualifies IFF
 ```
 
 State transitions after `evaluate()`:
+
 - `push` / `complete` → upsert marker with snapshot; set `attempts = MAX_ATTEMPTS` (closed until next user message)
 - `no_push` → upsert marker with snapshot; increment `attempts`; if `>= MAX_ATTEMPTS` → closed
 - LLM/delivery error → increment `attempts`; set `nextEligibleEvaluationAt = now + backoff` (30s → 2min → 10min, capped)

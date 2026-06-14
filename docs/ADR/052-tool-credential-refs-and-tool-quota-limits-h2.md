@@ -61,7 +61,6 @@ The current quota system has a single `cost_or_token_driving_tool_class` dimensi
    `providerHints` gains a `requiredCredentialId` field (nullable string) that maps to a `PlatformRuntimeProviderSecret.providerKey`. Tools with `providerHints.providerAgnostic = true` and no `requiredCredentialId` do not require separate credentials.
 
 6. **Add a dedicated admin API for tool credential management.**
-
    - `GET /api/v1/admin/runtime/tool-credentials` — returns tool catalog with credential status (configured, lastFour, updatedAt) for each tool that requires credentials
    - `PUT /api/v1/admin/runtime/tool-credentials` — accepts write-only raw keys for tool credentials, triggers reapply
 

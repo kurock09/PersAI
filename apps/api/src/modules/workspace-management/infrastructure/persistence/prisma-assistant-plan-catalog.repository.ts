@@ -256,7 +256,9 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
           activationStatus:
             activation.activationStatus === "active" ? ("active" as const) : ("inactive" as const),
           dailyCallLimit: activation.dailyCallLimit,
-          perTurnCap: activation.perTurnCap
+          perTurnCap: activation.perTurnCap,
+          maxFilePreviewBytes: activation.maxFilePreviewBytes,
+          maxFilePreviewEdgePx: activation.maxFilePreviewEdgePx
         })),
       isDefaultFirstRegistrationPlan: plan.isDefaultFirstRegistrationPlan,
       isTrialPlan: plan.isTrialPlan,
@@ -392,13 +394,31 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
       // applies it uniformly. Hidden internal tools (memory, etc.) keep
       // NULL and inherit the runtime default of "no cap".
       const perTurnCap = override?.perTurnCap ?? null;
+      const maxFilePreviewBytes =
+        tool.code === "files" ? (override?.maxFilePreviewBytes ?? null) : null;
+      const maxFilePreviewEdgePx =
+        tool.code === "files" ? (override?.maxFilePreviewEdgePx ?? null) : null;
 
       await tx.planCatalogToolActivation.upsert({
         where: {
           planId_toolId: { planId, toolId: tool.id }
         },
-        update: { activationStatus, dailyCallLimit, perTurnCap },
-        create: { planId, toolId: tool.id, activationStatus, dailyCallLimit, perTurnCap }
+        update: {
+          activationStatus,
+          dailyCallLimit,
+          perTurnCap,
+          maxFilePreviewBytes,
+          maxFilePreviewEdgePx
+        },
+        create: {
+          planId,
+          toolId: tool.id,
+          activationStatus,
+          dailyCallLimit,
+          perTurnCap,
+          maxFilePreviewBytes,
+          maxFilePreviewEdgePx
+        }
       });
     }
   }

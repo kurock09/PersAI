@@ -1,6 +1,7 @@
 # ADR-039: Ops cockpit baseline (Step 9 F3)
 
 ## Status
+
 Accepted
 
 ## Context
@@ -44,16 +45,19 @@ F3 requires a serious, readable ops cockpit baseline that surfaces high-signal c
 ## Consequences
 
 ### Positive
+
 - Operators can check baseline assistant/runtime health and publish/apply truth without raw DB/log inspection.
 - Ops cockpit remains high-signal and readable.
 - Existing RBAC and audit assumptions remain intact.
 
 ### Negative
+
 - F3 does not add historical analytics, trend charts, or business KPI reporting.
 - Restart control is not introduced.
 - Scope remains focused to per-operator assistant/runtime baseline visibility.
 
 ## Out of scope (F3)
+
 - full BI/business cockpit features
 - broad metric dashboards or unbounded operational telemetry walls
 - restart/redeploy orchestration controls

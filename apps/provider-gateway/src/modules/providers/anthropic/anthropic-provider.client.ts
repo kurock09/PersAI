@@ -523,6 +523,13 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         ]
       });
     }
+    const toolFollowUpUserContent = input.toolFollowUpUserContent;
+    if (toolFollowUpUserContent !== undefined) {
+      messages.push({
+        role: "user",
+        content: this.toAnthropicMessageContent(toolFollowUpUserContent)
+      });
+    }
     if (this.shouldApplyAnthropicMovingHistoryBreakpoint(input)) {
       this.applyAnthropicMovingHistoryBreakpoint(messages, input.promptCache);
     }

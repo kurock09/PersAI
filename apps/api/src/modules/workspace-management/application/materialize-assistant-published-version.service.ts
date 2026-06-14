@@ -1629,6 +1629,8 @@ export class MaterializeAssistantPublishedVersionService {
       toolCode: string;
       dailyCallLimit: number | null;
       perTurnCap: number | null;
+      maxFilePreviewBytes: number | null;
+      maxFilePreviewEdgePx: number | null;
       activationStatus: string;
     }>
   > {
@@ -1648,6 +1650,8 @@ export class MaterializeAssistantPublishedVersionService {
         activationStatus: true,
         dailyCallLimit: true,
         perTurnCap: true,
+        maxFilePreviewBytes: true,
+        maxFilePreviewEdgePx: true,
         tool: {
           select: { code: true }
         }
@@ -1657,6 +1661,8 @@ export class MaterializeAssistantPublishedVersionService {
       toolCode: activation.tool.code,
       dailyCallLimit: activation.dailyCallLimit,
       perTurnCap: activation.perTurnCap,
+      maxFilePreviewBytes: activation.maxFilePreviewBytes,
+      maxFilePreviewEdgePx: activation.maxFilePreviewEdgePx,
       activationStatus: activation.activationStatus
     }));
   }

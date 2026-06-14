@@ -45,6 +45,7 @@ PersAI DB (structured)  →  Materialization (Markdown)  →  Per-user workspace
 ### Per-user workspace isolation
 
 Each assistant gets a dedicated workspace directory resolved from `assistantId`. The root is configurable via `PERSAI_WORKSPACE_ROOT` env var:
+
 - Dev: `~/.openclaw/workspaces` (local filesystem)
 - Prod: `/mnt/workspaces` (GCS FUSE CSI mount to `persai-agent-workspaces` bucket)
 

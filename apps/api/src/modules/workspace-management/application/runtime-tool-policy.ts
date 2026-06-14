@@ -1,5 +1,9 @@
 import type { AssistantRuntimeBundleToolCredentialRef } from "@persai/runtime-bundle";
 import {
+  resolveEffectiveMaxFilePreviewBytes,
+  resolveEffectiveMaxFilePreviewEdgePx
+} from "@persai/config";
+import {
   PERSAI_RUNTIME_BROWSER_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
@@ -23,6 +27,8 @@ type ToolQuotaPolicyEntry = {
    * apps/runtime/src/modules/turns/tool-budget-policy.ts).
    */
   perTurnCap: number | null;
+  maxFilePreviewBytes: number | null;
+  maxFilePreviewEdgePx: number | null;
   activationStatus: string;
 };
 
@@ -126,7 +132,7 @@ function resolveRuntimeToolUsageGuidance(
     return "Keep this helper off the normal model-visible path.";
   }
   if (runtimeToolCode === "files") {
-    return "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. For files.write and files.write_and_send, always prefer a non-empty relative path as the save target; filename is only a delivery-name override, not the canonical save path. Use files.delete for cleanup of obsolete files or directory trees. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. By default, present file inventories as a short grouped summary (workspace, uploads, artifacts) and hide raw service paths or UUID folders; only enumerate every raw relativePath when the user explicitly asks for the full raw list. When a working-file alias is available, use that alias first with files.get, files.read, files.edit, files.delete, or files.send; otherwise use relativePath or query. If the user asks you to send, resend, attach, or share an existing file, discovering or reading that file is not enough: call files.send in the same turn. A working-file alias, relativePath, filename, or markdown link is not a substitute for delivery. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep exec and shell for actual process execution only.";
+    return "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. For files.write and files.write_and_send, always prefer a non-empty relative path as the save target; filename is only a delivery-name override, not the canonical save path. Use files.delete for cleanup of obsolete files or directory trees. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. By default, present file inventories as a short grouped summary (workspace, uploads, artifacts) and hide raw service paths or UUID folders; only enumerate every raw relativePath when the user explicitly asks for the full raw list. When a working-file alias is available, use that alias first with files.inspect, files.read, files.preview, files.edit, files.delete, or files.send; otherwise use relativePath or query. Use files.inspect before files.read or files.preview to see capabilities and size limits. If the user asks you to send, resend, attach, or share an existing file, discovering or reading that file is not enough: call files.send in the same turn. A working-file alias, relativePath, filename, or markdown link is not a substitute for delivery. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep exec and shell for actual process execution only.";
   }
   return tool.modelUsageGuidance;
 }
@@ -353,6 +359,12 @@ export function resolveRuntimeToolPolicies(params: {
   const perTurnCapByCode = new Map(
     params.planToolQuotaPolicy.map((tool) => [tool.toolCode, tool.perTurnCap] as const)
   );
+  const maxFilePreviewBytesByCode = new Map(
+    params.planToolQuotaPolicy.map((tool) => [tool.toolCode, tool.maxFilePreviewBytes] as const)
+  );
+  const maxFilePreviewEdgePxByCode = new Map(
+    params.planToolQuotaPolicy.map((tool) => [tool.toolCode, tool.maxFilePreviewEdgePx] as const)
+  );
   const catalogPolicies = params.tools.map((tool): RuntimeToolPolicy => {
     const kind = resolveToolKind(tool.policyClass);
     const runtimeToolCode = resolveRuntimeToolCode(tool.code);
@@ -377,7 +389,17 @@ export function resolveRuntimeToolPolicies(params: {
       visibleToModel: kind !== "internal" && enabled,
       visibleInPlanEditor: tool.visibleInPlanEditor,
       dailyCallLimit: dailyLimitByCode.get(tool.code) ?? null,
-      perTurnCap: perTurnCapByCode.get(tool.code) ?? null
+      perTurnCap: perTurnCapByCode.get(tool.code) ?? null,
+      ...(runtimeToolCode === "files"
+        ? {
+            maxFilePreviewBytes: resolveEffectiveMaxFilePreviewBytes(
+              maxFilePreviewBytesByCode.get(tool.code) ?? null
+            ),
+            maxFilePreviewEdgePx: resolveEffectiveMaxFilePreviewEdgePx(
+              maxFilePreviewEdgePxByCode.get(tool.code) ?? null
+            )
+          }
+        : {})
     };
   });
   const canonicalToolCodes = new Set(

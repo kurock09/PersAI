@@ -13286,6 +13286,19 @@ components:
             this tool's executions inside a single runtime turn. NULL means
             "use the runtime code default" (TOOL_HARD_CAP_PER_TURN in
             apps/runtime/src/modules/turns/tool-budget-policy.ts).
+        maxFilePreviewBytes:
+          type: integer
+          nullable: true
+          description: >-
+            ADR-116 — `files` tool only. Max bytes for one visual preview
+            (image or native PDF). NULL = code default at materialize. Values
+            above the platform ceiling are clamped on save.
+        maxFilePreviewEdgePx:
+          type: integer
+          nullable: true
+          description: >-
+            ADR-116 — `files` tool only. Max image edge (px) for preview
+            resize. NULL = code default at materialize.
         visibleInPlanEditor:
           type: boolean
     AdminPlanToolActivationInput:
@@ -13307,6 +13320,16 @@ components:
           nullable: true
           description: >-
             ADR-074 Slice L1 — see AdminPlanToolActivation.perTurnCap.
+        maxFilePreviewBytes:
+          type: integer
+          nullable: true
+          description: >-
+            ADR-116 — `files` tool only. See AdminPlanToolActivation.maxFilePreviewBytes.
+        maxFilePreviewEdgePx:
+          type: integer
+          nullable: true
+          description: >-
+            ADR-116 — `files` tool only. See AdminPlanToolActivation.maxFilePreviewEdgePx.
     AdminPlanLifecyclePolicy:
       type: object
       required:

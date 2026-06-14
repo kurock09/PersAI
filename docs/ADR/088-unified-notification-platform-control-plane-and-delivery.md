@@ -39,6 +39,7 @@ These are NOT real adapters. No `notification_channel_registry` row is created f
 ### D2 — `user_preferred` unresolvable → escalation or fail
 
 If `user_preferred` cannot be expanded (e.g. no assistant or binding):
+
 - If the policy has an `escalationChannel` → route to escalation.
 - If no escalation → mark intent `failed` with `failureReason=user_preferred_unavailable`.
 
@@ -47,24 +48,26 @@ No silent fallback. The operator must configure an escalation channel if they wa
 ### D3 — `current_thread` unresolvable → fail
 
 If `current_thread` cannot be expanded (no surface context on intent):
+
 - Mark intent `failed` with `failureReason=current_thread_context_missing`.
 - No escalation path: this source is inherently in-thread and an escalation would be confusing.
 
 ### D4 — Policy defaults rewrite
 
-| Source | channels | escalationChannel |
-|---|---|---|
-| `idle_reengagement` | `["user_preferred"]` | `web_notification_center` |
-| `quota_advisory` | `["current_thread"]` | `null` |
-| `reminder` | `["user_preferred"]` | `web_notification_center` |
+| Source                 | channels             | escalationChannel         |
+| ---------------------- | -------------------- | ------------------------- |
+| `idle_reengagement`    | `["user_preferred"]` | `web_notification_center` |
+| `quota_advisory`       | `["current_thread"]` | `null`                    |
+| `reminder`             | `["user_preferred"]` | `web_notification_center` |
 | `background_task_push` | `["user_preferred"]` | `web_notification_center` |
-| `billing_lifecycle` | `["email"]` | `admin_webhook` |
-| `system_event` | `["admin_webhook"]` | `null` |
-| `admin_system` | `["user_preferred"]` | `null` |
+| `billing_lifecycle`    | `["email"]`          | `admin_webhook`           |
+| `system_event`         | `["admin_webhook"]`  | `null`                    |
+| `admin_system`         | `["user_preferred"]` | `null`                    |
 
 ### D5 — Producer cleanup
 
 Hardcoded `allowedChannels` overrides removed from user-facing producers:
+
 - `quota-advisory-follow-up.service.ts` — no longer passes `["telegram_thread"]`/`["web_thread"]`; passes `surface` + `chatId` so `current_thread` can be expanded by the worker.
 - `billing-lifecycle-producer.service.ts` — intentionally kept (`["email"]` primary, `["web_notification_center"]` optional push). These are direct producer decisions, not policy shortcuts.
 - `system-event-notification-producer.service.ts` — kept (`["admin_webhook"]`); operational.
@@ -90,6 +93,7 @@ New `POST /api/v1/admin/notifications/policies/:source/test` endpoint. Body: `{ 
 ### D8 — `grounded_llm` is NOT an LLM call from the notification platform
 
 `grounded_llm` is, and permanently stays, a **pre-rendered pass-through**:
+
 - For `reminder`, `idle_reengagement`, `background_task_push`, `quota_advisory` — the assistant runtime already generates the user-facing text with full chat context and passes it via `factPayload.pushText`. The notification platform forwards it.
 - A second LLM call inside the notification platform would lose chat context, double-bill tokens, and risk inconsistent tone.
 - Billing MUST NOT use LLM (text must be deterministic for legal/financial correctness).
@@ -100,6 +104,7 @@ The admin Policies UI labels it: `"pre-rendered (runtime-generated)"` and shows 
 ### D9 — Admin UI: Policies tab
 
 Per-source form changes:
+
 - `renderStrategy` is now **read-only info** with a one-line explanation per value.
 - `Channels (current)` is a read-only bullet list.
 - `Default channel` dropdown is limited to source-appropriate options (per D4 table).

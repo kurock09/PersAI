@@ -104,6 +104,7 @@ async function run(): Promise<void> {
       reasonCodes: [],
       textChars: 42
     });
+    assert.equal(first.cached, false);
   }
   assert.equal(findCalls, 1);
   assert.equal(downloadCalls, 1);
@@ -130,6 +131,7 @@ async function run(): Promise<void> {
       reasonCodes: [],
       textChars: 42
     });
+    assert.equal(second.cached, true);
   }
   assert.equal(findCalls, 2);
   assert.equal(downloadCalls, 1);

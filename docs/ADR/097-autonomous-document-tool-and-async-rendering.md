@@ -504,27 +504,32 @@ Sandbox may be reconsidered later for:
 ### 2026-05-24 — Long-document chunked generation + sticky HTML persistence landed locally
 
 Single-shot vs chunked routing decision:
+
 - made ONCE before any LLM call; if `sourceFiles[]` exist AND total inlined source text > 20 KB (`LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES`), route to chunked; otherwise single-shot
 - one explicitly-allowed re-route: single-shot output that is structurally truncated (no `</body>`/`</html>` AND body text below threshold) logs `[document-pdf-single-shot-truncated]` and switches to chunked once; this counts as one wasted attempt; no other cross-route switch is allowed
 - no keyword or prompt-text heuristics
 
 Chunked pipeline (outline → style anchor → sequential section generation → assembly):
+
 - **Outline call (1 LLM call):** strict JSON envelope `{ mode: "document_pdf_outline", sections: [{ heading, intent, expectedLength }] }`; invalid/empty outline fails the job with `document_pdf_outline_invalid`, no fallback
 - **Style anchor (no LLM call):** synthesized in worker from `prompt + instructions + persona.displayName + userContext.locale`; identical verbatim in every section call
 - **Section generation (sequential, 1 LLM call each):** each call gets style anchor, full outline, current/total position, proportional source-text slice (simple v1 weight split: short=1, medium=2, long=3), and tail summary of prior sections (≤1500 chars); model returns HTML fragment only (no DOCTYPE/html/body wrappers); parallel calls are explicitly forbidden per this ADR to prevent style drift
 - **Assembly:** concatenate fragments → wrap in `<!DOCTYPE html><html><head>...</head><body>...</body></html>` → run through existing `repairHtmlDocument` (parse5 + CSS inject + thead promotion) → send to PDFMonkey
 
 Sticky HTML persistence:
+
 - `AssistantDocumentVersion.renderedHtml TEXT` added via Prisma migration `20260524000000_adr097_persist_rendered_html`
 - worker returns `renderedHtml` in `RuntimeDocumentJobRunResult`; scheduler persists it to `AssistantDocumentVersion` when transitioning to `ready_for_delivery`
 - applies to both single-shot and chunked-assembled HTML
 - no retroactive backfill; Slice 2 will reject patch-revise of versions without `renderedHtml` with an honest error
 
 Output-token ceiling:
+
 - `DOCUMENT_HTML_MAX_OUTPUT_TOKENS = 16_000` removed; effective ceiling = `min(bundle.modelSlots[slot].maxOutputTokens, DEFENSIVE_OUTPUT_TOKEN_CAP=64_000)`
 - applies to both single-shot and per-section calls
 
 Timeout:
+
 - single-shot keeps `DEFAULT_DOCUMENT_TIMEOUT_MS` (6 min)
 - chunked uses `CHUNKED_DOCUMENT_TIMEOUT_MS = 15 * 60 * 1000`
 
@@ -535,12 +540,14 @@ No presentations impact, no PDFMonkey API surface change, no legacy backfill, no
 Addresses two production observations from `persai-dev` manual test.
 
 **Gap A — Timeout → chunked re-route:**
+
 - `ProviderGatewayTimeoutError` (typed) replaces generic `ServiceUnavailableException` for timeout cases in `ProviderGatewayClientService`
 - `RuntimeDocumentProviderAdapterService` catches `ProviderGatewayTimeoutError` on single-shot attempts → flips `useChunked`, logs `[document-pdf-single-shot-timeout]`, counts attempt against retry budget (parallels existing truncation re-route)
 - Chunked pipeline `ProviderGatewayTimeoutError` → fails job with `document_pdf_chunked_timeout`, no re-route
 - `ProviderGatewayTextGenerateRequest.timeoutMsHint` (optional `number`) extends runtime contract; worker passes `240_000ms` for `document_html_generation`, `document_pdf_outline`, `document_pdf_patch_revise`; provider clients use `max(default, hint)` capped at `600_000ms`; gateway validates at `assertValidRequest`; `document_pdf_section_generation` keeps default 90s
 
 **Gap B — Contextual revise hint:**
+
 - `AssistantDocumentJobReadService.listRecentChatPdfsForTurn()`: queries up to 3 `pdf_document` rows with `currentVersion.renderedHtml IS NOT NULL` and `updatedAt >= createdAt of N-th most recent message` (N=10); ordered by `updatedAt DESC`
 - Result flows through `RuntimeTurnRequest.recentChatPdfs` (new contract field `RuntimeRecentChatPdf[]`)
 - `TurnExecutionService.buildRecentChatPdfsHintSection()` injects `RECENT PDFS IN THIS CHAT (server-resolved, not user-typed)` block into developer section when document tool is in scope and list is non-empty; zero-cost when list is empty
@@ -552,6 +559,7 @@ Addresses two production observations from `persai-dev` manual test.
 `revise_document` for PDF is now an honest patch-edit on top of `AssistantDocumentVersion.renderedHtml` persisted by Slice 1.
 
 Key properties:
+
 - One LLM call per revise job using new `document_pdf_patch_revise` classification; model returns a strict JSON envelope `{ mode: "document_pdf_patch_revise", patches: [{ search, replace }] }`
 - Each `search` block must match the previous HTML **exactly once** — non-empty, found at least once, found exactly once. Violation → job fails with `document_pdf_patch_revise_search_not_found` / `document_pdf_patch_revise_search_ambiguous`; no retry, no fuzzy match
 - Patches applied sequentially with `String.replace` (first match, guaranteed unique); result passes through existing `repairHtmlDocument`; output HTML persisted to new `AssistantDocumentVersion.renderedHtml`

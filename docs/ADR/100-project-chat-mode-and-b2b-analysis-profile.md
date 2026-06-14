@@ -197,7 +197,8 @@ Supporting boundaries stay separate:
    - persist extracted/cache truth after the first deep analysis and reuse it instead of reparsing by default
    - run Skill/user/Product KB retrieval
    - fetch exact excerpts when needed
-  - use web/browser when the current local context does not directly answer the real user task
+
+- use web/browser when the current local context does not directly answer the real user task
 
 3. `analyze`
    - compare requirements, project documents, norms, and assumptions
@@ -578,15 +579,15 @@ For implementation slices:
 
 ## Execution program status
 
-| Slice | Status | Notes |
-|-------|--------|-------|
-| 1 ADR + audit | done | decision and reuse constraints established |
-| 2 chat mode contract | complete | explicit `chatMode`; compatibility `deepModeEnabled` preserved |
-| 3 project UI shell | complete | mode control, project marker, project-files sidebar |
-| 4 project execution profile | complete | staged project runtime profile landed |
-| 5 activity + reasoning feed | complete | project-only visible activity/reasoning landed |
+| Slice                                      | Status              | Notes                                                                                     |
+| ------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------- |
+| 1 ADR + audit                              | done                | decision and reuse constraints established                                                |
+| 2 chat mode contract                       | complete            | explicit `chatMode`; compatibility `deepModeEnabled` preserved                            |
+| 3 project UI shell                         | complete            | mode control, project marker, project-files sidebar                                       |
+| 4 project execution profile                | complete            | staged project runtime profile landed                                                     |
+| 5 activity + reasoning feed                | complete            | project-only visible activity/reasoning landed                                            |
 | 6 retrieval and file-intelligence closeout | complete through 6H | project files, lazy extraction cache, bounded upload enrichment, source-admission cleanup |
-| 7 hidden B2B cluster plan | blocked | after deploy prep and live project verification |
+| 7 hidden B2B cluster plan                  | blocked             | after deploy prep and live project verification                                           |
 
 ## Next recommended step
 

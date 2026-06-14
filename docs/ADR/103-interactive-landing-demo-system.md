@@ -23,7 +23,7 @@ PersAI is a calm, premium, adult, trustworthy personal-AI platform. The product
 promise is "one assistant, one continuous workflow": chat, files, knowledge,
 actions, and memory in a single experience. The current public landing
 (`apps/web/app/page.tsx`) communicates this only through static type and static
-schematic illustrations. It does not let a first-time visitor *feel* the product.
+schematic illustrations. It does not let a first-time visitor _feel_ the product.
 
 Founder decision: build a **new, professional, premium landing** whose first screen
 is a **single, coherent, interactive demo flow** — not a noisy gallery of 4–6
@@ -53,11 +53,11 @@ language.
   `scroll-cue`) defined in `globals.css`, all gated by
   `@media (prefers-reduced-motion: reduce)` where relevant.
 - **Theme model (ADR-076):** dark is the default; light is opt-in via `html.light`
-  + cookie. Tailwind's `dark:` variant is **re-bound** in `globals.css` to
-  `&:where(html:not(.light), html:not(.light) *)`, NOT to `prefers-color-scheme`.
-  All colors are tokens: `--chrome`, `--bg`, `--surface`, `--surface-raised`,
-  `--surface-hover`, `--border`, `--text`, `--text-muted`, `--text-subtle`,
-  `--accent` (sage), `--accent-hover`, `--accent-glow`, plus warm/cool/sage tints.
+  - cookie. Tailwind's `dark:` variant is **re-bound** in `globals.css` to
+    `&:where(html:not(.light), html:not(.light) *)`, NOT to `prefers-color-scheme`.
+    All colors are tokens: `--chrome`, `--bg`, `--surface`, `--surface-raised`,
+    `--surface-hover`, `--border`, `--text`, `--text-muted`, `--text-subtle`,
+    `--accent` (sage), `--accent-hover`, `--accent-glow`, plus warm/cool/sage tints.
 - **Real chat UI (the product to replicate):** `apps/web/app/app/_components/`.
   - `chat-message.tsx`: assistant message = `AssistantAvatar` (size `md`,
     `h-10 w-10 rounded-full bg-accent/15`) + plain text, **no bubble**,
@@ -77,7 +77,7 @@ language.
   `/admin`, and a few `/api/*` routes. Authenticated users are redirected to `/app`
   from `page.tsx`. There is **no public, unauthenticated LLM endpoint**.
 - **LLM path:** `web (/api/v1 passthrough) → @persai/api → @persai/runtime →
-  provider-gateway (/api/v1/providers/generate-text | streamText) → OpenAI/Anthropic`.
+provider-gateway (/api/v1/providers/generate-text | streamText) → OpenAI/Anthropic`.
   Every existing path is auth + session + credential + billing gated. The
   provider-gateway `generate-text` requires a `credential { secretId, providerId }`.
 
@@ -160,7 +160,7 @@ at every step.
     `POST /api/demo/turn`, but is cancelled/deferred indefinitely as of 2026-06-07.
 - **Hybrid by design:** autoplay and the first frame are always scripted; the LLM is
   only ever invoked during takeover. The takeover request carries the demo context
-  *up to the current step* (compact transcript + assistant state: "Aurora, warm,
+  _up to the current step_ (compact transcript + assistant state: "Aurora, warm,
   skill X, remembered: warm tones"), so the visitor continues the same session, not
   an empty chat.
 - **Limits:** ≤3 LLM replies per session → `limitReached` → inline CTA → soft reset.
@@ -318,7 +318,7 @@ working model mirrors the ADR-102 session:
   2. `corepack pnpm run format:check`
   3. `corepack pnpm --filter @persai/web run typecheck`
   4. `corepack pnpm --filter @persai/web run test` (focused on the touched files)
-  Cancelled Slice B would additionally have run `@persai/api` typecheck + focused tests.
+     Cancelled Slice B would additionally have run `@persai/api` typecheck + focused tests.
 - **Sequencing:** tasks run in the documented order; a task is dispatched only after
   its predecessor is accepted. Independent tasks (e.g. i18n copy authoring) may run in
   parallel subagents when they do not touch the same files.
@@ -344,7 +344,7 @@ Each `A#`/`B#` below is a single dispatchable subagent task. Status legend:
   - `[x]` **A2 — Adaptive `demo-window` replica.** Built the PersAI-replica shell
     (`DemoWindow`/`DemoSidebar`/`DemoComposer`, bento `bg-chrome`/`bg-bg`, sidebar
     desktop-only, thread, composer) on tokens (+ `demo-window.test.tsx`); verified dark
-    + `html.light`.
+    - `html.light`.
   - `[x]` **A3 — State machine + script.** `demo-script.ts` (steps + `classifyIntent` →
     `getStubReply` rules, i18n keys) + `use-demo-machine.ts` (`useReducer`) +
     `use-idle-timer.ts` + `use-demo-machine.test.ts` (27 transition tests).
@@ -377,6 +377,7 @@ Each `A#`/`B#` below is a single dispatchable subagent task. Status legend:
     duplicated per breakpoint.
   - `ChatBubble` was split into the more accurate `AssistantRow` (no bubble) +
     `UserBubble` (right-aligned bubble), matching `chat-message.tsx` exactly.
+
 - **Slice B — Public demo LLM endpoint (cancelled/deferred indefinitely; no active follow-up):**
   - `[~]` **B1 — Endpoint + service.** `POST /api/demo/turn` (web BFF) + public
     demo-turn service in `@persai/api` → provider-gateway `generate-text`/`streamText`,
@@ -393,7 +394,7 @@ Each `A#`/`B#` below is a single dispatchable subagent task. Status legend:
 
 ### Positive
 
-- A first-time visitor *experiences* "one assistant, one workflow" in seconds, using
+- A first-time visitor _experiences_ "one assistant, one workflow" in seconds, using
   the real product UI — maximizing trust and conversion.
 - One coherent narrative instead of a noisy feature gallery; calm/premium preserved.
 - Clean seam: a single client island; SSR/SEO/LCP unaffected; copy stays in i18n.

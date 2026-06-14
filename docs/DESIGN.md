@@ -5,6 +5,7 @@
 This document defines the intended design language and product experience for PersAI.
 
 It exists so implementation work does not drift into:
+
 - generic dashboard UI,
 - noisy “AI product” styling,
 - overcomplicated enterprise admin visuals,
@@ -62,6 +63,7 @@ The user should feel:
 - “This feels modern and premium, but not flashy.”
 
 The interface should support:
+
 - trust,
 - continuity,
 - clarity,
@@ -72,28 +74,35 @@ The interface should support:
 ## Experience Principles
 
 ### 1. Assistant before interface chrome
+
 The assistant should feel like the center of the product.  
 Navigation, settings, status, and controls support that feeling.  
 They should not overpower it.
 
 ### 2. Calm over noisy
+
 The UI should breathe.  
 Avoid cramped density, too many borders, too many cards, too many indicators, and too many competing highlights.
 
 ### 3. Warm over sterile
+
 The product should not feel cold or purely mechanical.  
 Use softness in spacing, rhythm, surface treatment, and tone.
 
 ### 4. Clear over clever
+
 Do not optimize for novelty.  
 Optimize for understanding.
 
 ### 5. Premium over decorative
+
 The UI should feel high quality because it is disciplined, readable, and balanced.  
 Not because it has visual gimmicks.
 
 ### 6. Truthful over magical
+
 The product can feel smooth and elegant, but it must not hide important truth:
+
 - publish/apply state,
 - errors,
 - limits,
@@ -102,6 +111,7 @@ The product can feel smooth and elegant, but it must not hide important truth:
 - assistant updates.
 
 ### 7. Consistency over one-off brilliance
+
 A cohesive product is better than a few impressive screens and many mismatched ones.
 
 ---
@@ -109,6 +119,7 @@ A cohesive product is better than a few impressive screens and many mismatched o
 ## Visual Tone
 
 ### Target tone
+
 - soft
 - precise
 - friendly
@@ -119,7 +130,9 @@ A cohesive product is better than a few impressive screens and many mismatched o
 - not overly playful
 
 ### Emotional target
+
 The product should feel like:
+
 - a well-designed personal environment,
 - not a loud tool,
 - not a gaming interface,
@@ -130,21 +143,26 @@ The product should feel like:
 ## Layout Philosophy
 
 ### Spacious, not empty
+
 Use real breathing room.  
 But do not make the product feel hollow or unfinished.
 
 ### Structured, not rigid
+
 The layout should feel intentional and grid-aware.  
 But it should not become stiff or bureaucratic.
 
 ### Clear hierarchy
+
 Every screen should have an obvious reading order:
+
 1. primary status or goal
 2. main action area
 3. supporting context
 4. secondary details
 
 ### One main thing per screen
+
 Each surface should have a dominant focal point.  
 Avoid “everything important at once.”
 
@@ -155,6 +173,7 @@ Avoid “everything important at once.”
 Typography should carry a lot of the premium feel.
 
 ### Principles
+
 - strong hierarchy
 - generous line-height
 - avoid tiny dense text
@@ -162,6 +181,7 @@ Typography should carry a lot of the premium feel.
 - use weight and spacing more than decoration
 
 ### Preferred feeling
+
 - clean
 - readable
 - slightly refined
@@ -170,6 +190,7 @@ Typography should carry a lot of the premium feel.
 - not overly technical
 
 ### Rules
+
 - headings should be clear and calm, not oversized for drama
 - body text should remain highly readable
 - helper text should be subtle but not weak
@@ -183,6 +204,7 @@ Typography should carry a lot of the premium feel.
 Spacing is one of the most important quality signals in PersAI.
 
 ### Rules
+
 - prefer generous spacing over dense packing
 - keep rhythm consistent
 - similar component types should use similar spacing
@@ -190,6 +212,7 @@ Spacing is one of the most important quality signals in PersAI.
 - avoid nested cramped containers
 
 ### What to avoid
+
 - too many small stacked cards
 - tiny gaps between unrelated blocks
 - large random whitespace without hierarchy
@@ -200,15 +223,18 @@ Spacing is one of the most important quality signals in PersAI.
 ## Surfaces and Containers
 
 ### Surface model
+
 Surfaces should feel soft, quiet, and supportive.
 
 ### Desired qualities
+
 - gentle layering
 - subtle separation
 - calm grouping
 - not heavy boxed dashboards
 
 ### Rules
+
 - do not overuse borders
 - do not overuse shadows
 - do not make everything a card if it does not need to be
@@ -216,6 +242,7 @@ Surfaces should feel soft, quiet, and supportive.
 - surface hierarchy should remain simple
 
 ### Component feel
+
 - rounded, but not cartoonish
 - polished, but not glossy
 - soft, but not vague
@@ -227,6 +254,7 @@ Surfaces should feel soft, quiet, and supportive.
 This document does not lock exact colors, but it locks the behavior of color.
 
 ### Color should do these jobs
+
 - establish warmth
 - create hierarchy
 - support meaning
@@ -234,12 +262,14 @@ This document does not lock exact colors, but it locks the behavior of color.
 - preserve calmness
 
 ### Color should not do these jobs
+
 - create excitement for its own sake
 - make the UI look “more AI”
 - replace structure
 - compensate for poor hierarchy
 
 ### Desired palette behavior
+
 - quiet base
 - restrained accents
 - soft semantic states
@@ -254,6 +284,7 @@ This document does not lock exact colors, but it locks the behavior of color.
 Icons should support clarity, not decorate emptiness.
 
 ### Rules
+
 - use icons sparingly
 - use icons consistently
 - prefer meaningful icons over ornamental ones
@@ -267,6 +298,7 @@ Icons should support clarity, not decorate emptiness.
 Motion should be subtle and helpful.
 
 ### Motion should be used for
+
 - transitions of state
 - continuity
 - reducing abruptness
@@ -274,12 +306,14 @@ Motion should be subtle and helpful.
 - clarifying expand/collapse or save/apply changes
 
 ### Motion should not be used for
+
 - spectacle
 - novelty
 - attention farming
 - making the product feel “more advanced”
 
 ### Desired motion feel
+
 - soft
 - fast enough
 - unobtrusive
@@ -291,19 +325,23 @@ Motion should be subtle and helpful.
 ## Interaction Style
 
 ### General interaction tone
+
 - clear
 - predictable
 - low-friction
 - respectful
 
 ### Buttons and actions
+
 - primary actions should be obvious
 - dangerous actions should be unmistakable
 - secondary actions should not visually fight primary ones
 - repetitive small actions should feel light
 
 ### Confirmations
+
 Use confirmations where the action is meaningfully destructive or state-changing:
+
 - reset
 - delete
 - dangerous admin actions
@@ -319,19 +357,23 @@ Do not over-confirm harmless interactions.
 Empty states matter a lot in PersAI because they shape emotional trust early.
 
 ### Good empty states should be
+
 - calm
 - helpful
 - forward-moving
 - light
 
 ### Bad empty states are
+
 - overly cute
 - overexplained
 - emotionally manipulative
 - too technical
 
 ### Desired effect
+
 The user should feel:
+
 - “I know what to do next”
 - not “the product is unfinished”
 - not “I need to read a wall of guidance”
@@ -343,12 +385,14 @@ The user should feel:
 Loading should feel stable and intentional.
 
 ### Principles
+
 - avoid sudden layout jumps
 - keep hierarchy visible
 - avoid flashing skeleton overload
 - preserve user orientation
 
 ### Good loading behavior
+
 - makes it clear what is loading
 - keeps the screen coherent
 - does not pretend finished content exists when it does not
@@ -358,12 +402,14 @@ Loading should feel stable and intentional.
 ## Error States
 
 Error states must follow the product philosophy:
+
 - human
 - honest
 - calm
 - useful
 
 ### Error states should not be
+
 - raw
 - alarming without reason
 - empty
@@ -371,6 +417,7 @@ Error states must follow the product philosophy:
 - passive-aggressive
 
 ### The user should understand:
+
 - roughly what failed
 - whether it is temporary
 - whether something still worked
@@ -384,6 +431,7 @@ The assistant dashboard is not just a dashboard.
 It is the home of the assistant.
 
 ### It should communicate
+
 - assistant status
 - current live condition
 - assistant identity
@@ -392,11 +440,13 @@ It is the home of the assistant.
 - product confidence
 
 ### It should not feel like
+
 - a wall of widgets
 - a chat app home page
 - a metrics-first backoffice
 
 ### Layout priority
+
 1. main assistant state/control block
 2. assistant identity/summary block
 3. meaningful supporting context
@@ -409,6 +459,7 @@ It is the home of the assistant.
 The assistant editor should feel powerful but not intimidating.
 
 ### The editor should be
+
 - section-based
 - readable
 - calm
@@ -416,12 +467,14 @@ The assistant editor should feel powerful but not intimidating.
 - confidence-building
 
 ### It should not be
+
 - one giant settings page
 - a raw system prompt editor
 - a wizard for everyday editing
 - a maze of tiny toggles
 
 ### Important rule
+
 Publish/apply truth must remain visible while editing.
 
 ---
@@ -429,6 +482,7 @@ Publish/apply truth must remain visible while editing.
 ## Chat Design
 
 Web chat should feel:
+
 - alive
 - premium
 - highly readable
@@ -436,12 +490,14 @@ Web chat should feel:
 - focused
 
 ### Chat should not feel like
+
 - a terminal
 - a developer console
 - a generic support chat widget
 - a cluttered sidebar-heavy messenger clone
 
 ### Priorities
+
 - message readability
 - composer clarity
 - streaming smoothness
@@ -456,20 +512,25 @@ Web chat should feel:
 Memory and Tasks surfaces should feel trustworthy and controllable.
 
 ### They should not feel like
+
 - admin backoffice tools
 - raw technical storage inspectors
 - workflow engines
 
 ### They should feel like
+
 - thoughtful assistant support panels
 - understandable personal-control surfaces
 
 ### Design goal
+
 The user should feel:
+
 - “I can understand and control this”
 - not “I’m operating a system internals console”
 
 ### Step 6 D5 Tasks Center
+
 - Assistant editor **Tasks** section mirrors Memory Center calm patterns: Active vs Inactive groups, plain-language actions (Pause / Stop / Turn back on), source/surface pill, friendly next-run copy—no workflow canvas and no runtime dumps.
 
 ---
@@ -479,18 +540,21 @@ The user should feel:
 Admin surfaces are allowed to be denser than user surfaces, but they still must remain calm and credible.
 
 ### Admin UI should feel
+
 - serious
 - reliable
 - scanable
 - intentional
 
 ### Admin UI should not feel
+
 - visually punishing
 - crowded
 - color-shouting
 - metric-chaotic
 
 ### Important distinction
+
 Ops truth and business views should feel related, but not visually confused.
 
 ---
@@ -500,6 +564,7 @@ Ops truth and business views should feel related, but not visually confused.
 The product should stay elegant across screen sizes.
 
 ### Principles
+
 - preserve hierarchy first
 - collapse complexity gracefully
 - do not cram full desktop density into smaller screens
@@ -513,6 +578,7 @@ The product should stay elegant across screen sizes.
 PersAI must feel premium through usability, not just aesthetics.
 
 ### Baseline requirements
+
 - readable contrast
 - visible focus states
 - semantic structure
@@ -537,6 +603,7 @@ When working on frontend/design tasks, Cursor should aim for:
 - strong consistency across all screens
 
 Cursor should improve:
+
 - readability
 - hierarchy
 - cohesion
@@ -544,6 +611,7 @@ Cursor should improve:
 - polish
 
 Cursor should preserve:
+
 - lifecycle truth
 - publish/apply truth
 - product semantics
@@ -593,6 +661,7 @@ If the answer is “no” to several of these, the slice is not done.
 PersAI should feel like a personal assistant product with emotional intelligence and operational maturity.
 
 It should feel:
+
 - elegant without showmanship,
 - warm without cuteness,
 - premium without arrogance,

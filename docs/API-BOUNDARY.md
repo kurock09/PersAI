@@ -289,6 +289,8 @@ ADR-081 Slice 1 exposes the first assistant-scoped Files API under `/api/v1/assi
 
 ADR-081 follow-up (2026-05-07) keeps `fileRef` as the canonical runtime/API file identity but changes the runtime model-facing contract to alias-first across uploaded chat files, generated outputs, and sandbox-created files. Runtime may still mount files into sandbox by relative path internally, and tool execution still resolves to canonical `fileRef`, but the model-facing selector passed through prompt/tool usage guidance is a human-readable working-file alias; sandbox/object storage paths and raw `fileRef` remain internal implementation details.
 
+ADR-116 extends the runtime `files` tool with `inspect` (metadata + `capabilities` + effective preview byte limits), `files.preview` (visual re-view for images and native PDF with ephemeral provider injection), and plan-owned preview limits on the `files` tool activation (`maxFilePreviewBytes`, `maxFilePreviewEdgePx`). `get` remains a compatibility alias with the same inspect payload shape.
+
 ADR-081 Slice 4 adds the first visible product Files surface inside Assistant Settings. The web UI consumes the assistant-scoped Files API by `fileRef` and uses a Clerk-authenticated web proxy for open/download links. Chat attachment cards prefer the same canonical file route when `fileRef` exists, so attachment cards and settings rows are projections of the same File instead of separate storage concepts.
 
 ADR-081 Slice 5 removes the old attachment-download fallback from the active product/API path. Product open/download links are now canonical `fileRef` links only, and assistant Files API state exposes product metadata without storage-derived `relativePath`, `sha256`, `objectKey`, or raw path fields.

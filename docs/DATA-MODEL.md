@@ -27,6 +27,7 @@ PersAI is the source of truth for:
 - persisted assistant workspace files through `assistant_files`
 - assistant background task state through `assistant_background_tasks` and per-run history through `assistant_background_task_runs`
 - plan-owned retrieval policy and admin-managed knowledge governance
+- plan `files` tool activation may store `max_file_preview_bytes` and `max_file_preview_edge_px` on `plan_catalog_tool_activations` (ADR-116); materialized onto the runtime bundle `files` `RuntimeToolPolicy` as effective preview limits
 - durable retrieval observability rollups/events
 - governance, quota, audit, and admin state, including subscription-period media quota counters
 - ADR-115 inbound safety persistence: `user_restrictions` stores user-wide safety blocks (`kind=safety` in v1) with audit fields (`reasonCode`, `source`, `sourceAssistantId`, `sourceModerationCaseId`, clear metadata). One row per `(userId, kind)` is upserted over time. `moderation_cases` is append-only contour-2 evidence (`triggerSnapshot`, optional `threadSnapshot`, `scores`, `decision`, `reasonCode`); slice 115.2 writes cases from the async worker.

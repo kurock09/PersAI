@@ -1540,12 +1540,12 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
           description:
-            'One files action: "list", "search", "get", "read", "write", "write_and_send", "edit", "delete", or "send".'
+            'One files action: "list", "search", "inspect", "get", "read", "preview", "write", "write_and_send", "edit", "delete", or "send". Prefer "inspect" over legacy "get".'
         },
         query: {
           type: "string",
           description:
-            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", "delete", or "send" when no working-file alias or exact path is available. Search spans the assistant Files registry, including uploaded chat files, generated outputs, and sandbox files. If the user asks to send or resend a discovered file, discovering it is not enough: call action="send" with the resolved target in the same turn.'
+            'Non-empty search text for action="search", or a selector for action="inspect", "get", "read", "preview", "edit", "delete", or "send" when no working-file alias or exact path is available. Search spans the assistant Files registry, including uploaded chat files, generated outputs, and sandbox files. If the user asks to send or resend a discovered file, discovering it is not enough: call action="send" with the resolved target in the same turn.'
         },
         limit: {
           type: "integer",
@@ -1557,12 +1557,12 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         path: {
           type: "string",
           description:
-            'Assistant file path for action="list", "get", "read", "write", "write_and_send", "edit", or "delete". For action="write" and "write_and_send", this is the canonical save location. For action="list", leave unset or use "." for the root.'
+            'Assistant file path for action="list", "inspect", "get", "read", "preview", "write", "write_and_send", "edit", or "delete". For action="write" and "write_and_send", this is the canonical save location. For action="list", leave unset or use "." for the root.'
         },
         alias: {
           type: "string",
           description:
-            'Human-readable sticky working-file alias for action="get", "read", "edit", "delete", or "send", for example "file #1" or "image #1". Prefer this for reusable chat files when available.'
+            'Human-readable sticky working-file alias for action="inspect", "get", "read", "preview", "edit", "delete", or "send", for example "file #1" or "image #1". Prefer this for reusable chat files when available.'
         },
         content: {
           type: "string",
@@ -1595,6 +1595,11 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           description:
             'Optional filename override for action="send" or action="write_and_send" when exactly one file is selected. This does not replace path as the canonical save location.'
+        },
+        instruction: {
+          type: "string",
+          description:
+            'Optional focus hint for action="preview" (for example "read the nutrition label" or "compare with the previous photo").'
         }
       }
     }

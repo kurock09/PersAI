@@ -303,10 +303,54 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     };
     const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
       content: string | null;
+      charCount: number;
+      truncated: boolean;
     };
     assert.equal(parsed.content?.startsWith("a".repeat(100)), true);
     assert.match(parsed.content ?? "", /content truncated for model context/);
     assert.ok((parsed.content ?? "").length < 17_000);
+    assert.equal(parsed.charCount, 20_000);
+    assert.equal(parsed.truncated, true);
+  }
+
+  // ADR-116 — document read metadata survives sanitization.
+  {
+    const payload = {
+      toolCode: "files" as const,
+      executionMode: "inline" as const,
+      requestedAction: "read" as const,
+      action: "read" as const,
+      reason: null,
+      warning: "Extracted text from spec.pdf through PersAI document extraction.",
+      item: null,
+      items: [],
+      content: "hello pdf text",
+      charCount: 16,
+      truncated: false,
+      readNote: "Served from durable extraction cache.",
+      extractionQuality: {
+        status: "ok" as const,
+        score: 0.98,
+        reasonCodes: [] as string[],
+        textChars: 16
+      },
+      extractionCached: true,
+      job: null,
+      fileRefs: [],
+      queuedArtifacts: 0
+    };
+    const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
+      content: string | null;
+      charCount: number;
+      truncated: boolean;
+      note: string;
+      extractionCached: boolean;
+    };
+    assert.equal(parsed.content, "hello pdf text");
+    assert.equal(parsed.charCount, 16);
+    assert.equal(parsed.truncated, false);
+    assert.equal(parsed.note, "Served from durable extraction cache.");
+    assert.equal(parsed.extractionCached, true);
   }
 
   // Defensive: a null `artifact` field on a skipped tool result must not

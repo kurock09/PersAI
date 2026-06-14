@@ -1,6 +1,7 @@
 # ADR-040: Business cockpit baseline (Step 9 F4)
 
 ## Status
+
 Accepted
 
 ## Context
@@ -34,15 +35,18 @@ F4 requires a serious, scanable business view while preserving separation from o
 ## Consequences
 
 ### Positive
+
 - Admins get a compact commercial/product cockpit without manual DB/log digging.
 - Business and operations views remain distinct and easier to reason about.
 - Existing F1/F2/F3 boundaries remain intact.
 
 ### Negative
+
 - F4 does not provide long-range trends, custom filtering, cohort analysis, or BI exports.
 - Channel split remains baseline and bounded to currently available control-plane signals.
 
 ## Out of scope (F4)
+
 - heavy BI platform capabilities
 - vanity-only metrics and decorative dashboards
 - deep historical analytics/reporting workflows

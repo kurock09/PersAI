@@ -1,6 +1,7 @@
 # ADR-043: Secret lifecycle hardening (Step 10 G1)
 
 ## Status
+
 Accepted
 
 ## Context

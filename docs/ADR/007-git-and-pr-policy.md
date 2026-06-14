@@ -1,12 +1,15 @@
 # ADR-007: Git and PR policy
 
 ## Status
+
 Accepted
 
 ## Context
+
 The foundation repo must remain controlled and reviewable.
 
 ## Decision
+
 - trunk-based
 - protected main
 - no direct push to main
@@ -17,8 +20,11 @@ The foundation repo must remain controlled and reviewable.
 - branch naming by type
 
 ## Consequences
+
 ### Positive
+
 - Predictable history and safer merges.
 
 ### Negative
+
 - Slightly more ceremony.

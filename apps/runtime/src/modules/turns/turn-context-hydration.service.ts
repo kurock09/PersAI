@@ -38,10 +38,9 @@ import {
   type RuntimeAssistantFileRecord
 } from "./runtime-assistant-file-registry.service";
 import { parseStoredReusableCompactionState } from "./shared-compaction-state";
+import { readFilesToolEffectivePreviewLimits } from "./runtime-file-capabilities";
 
-const MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const MAX_DIRECT_PROVIDER_ATTACHMENT_TOTAL_BYTES = 12 * 1024 * 1024;
-const ORDINARY_VISION_MAX_IMAGE_DIMENSION = 2048;
 const MIN_HYDRATED_MEMORY_ITEMS = 3;
 const MAX_HYDRATED_MEMORY_ITEMS = 10;
 const MIN_HYDRATED_MEMORY_TOTAL_CHARS = 400;
@@ -317,9 +316,12 @@ export class TurnContextHydrationService {
     bundle: AssistantRuntimeBundle
   ): Promise<ProviderGatewayTextMessage[]> {
     const contextHydration = resolveRuntimeContextHydrationConfig(bundle);
+    const directInputPreviewLimits = readFilesToolEffectivePreviewLimits(
+      bundle.governance?.toolPolicies?.find((policy) => policy.toolCode === "files") ?? null
+    );
     const canonicalSurface = toHydratedCanonicalSurface(input.conversation.channel);
     if (canonicalSurface === null) {
-      return [await this.createCurrentUserMessage(input)];
+      return [await this.createCurrentUserMessage(input, directInputPreviewLimits)];
     }
 
     const storedMessages = await this.loadCanonicalChatMessages(input.conversation);
@@ -356,7 +358,10 @@ export class TurnContextHydrationService {
       });
     }
     if (storedMessages === null) {
-      const currentUserMessage = await this.createCurrentUserMessage(input);
+      const currentUserMessage = await this.createCurrentUserMessage(
+        input,
+        directInputPreviewLimits
+      );
       return this.composeWithCarryOverDurableMemoryAndConversation(
         carryOver,
         durableMemory,
@@ -370,12 +375,13 @@ export class TurnContextHydrationService {
       input,
       durableMemory,
       carryOver,
-      contextHydration
+      contextHydration,
+      directInputPreviewLimits
     );
     if (hydrated.length > 0) {
       return hydrated;
     }
-    const currentUserMessage = await this.createCurrentUserMessage(input);
+    const currentUserMessage = await this.createCurrentUserMessage(input, directInputPreviewLimits);
     return this.composeWithCarryOverDurableMemoryAndConversation(
       carryOver,
       durableMemory,
@@ -649,7 +655,8 @@ export class TurnContextHydrationService {
     input: RuntimeTurnRequest,
     durableMemory: DurableMemoryHydration,
     carryOver: CrossSessionCarryOverHydration | null,
-    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>,
+    directInputPreviewLimits: ReturnType<typeof readFilesToolEffectivePreviewLimits>
   ): Promise<ProviderGatewayTextMessage[]> {
     const hydratableMessages = storedMessages.filter((message) =>
       this.isHydratableCanonicalMessage(message)
@@ -662,7 +669,8 @@ export class TurnContextHydrationService {
       const hydratedMessages = await this.hydrateCanonicalMessageSequence(
         hydratableMessages,
         input,
-        contextHydration
+        contextHydration,
+        directInputPreviewLimits
       );
       return this.composeWithCarryOverDurableMemoryAndConversation(
         carryOver,
@@ -682,7 +690,8 @@ export class TurnContextHydrationService {
       const hydratedMessages = await this.hydrateCanonicalMessageSequence(
         hydratableMessages,
         input,
-        contextHydration
+        contextHydration,
+        directInputPreviewLimits
       );
       return this.composeWithCarryOverDurableMemoryAndConversation(
         carryOver,
@@ -696,7 +705,8 @@ export class TurnContextHydrationService {
     const hydratedRecentMessages = await this.hydrateCanonicalMessageSequence(
       recentMessages,
       input,
-      contextHydration
+      contextHydration,
+      directInputPreviewLimits
     );
     // Stable prefix order: durable_memory_core (stable) ->
     // cross_session_carry_over (stable, turn-0-only — typically NOT present
@@ -1052,7 +1062,8 @@ export class TurnContextHydrationService {
   private async hydrateCanonicalMessageSequence(
     messages: CanonicalChatMessageRow[],
     input: RuntimeTurnRequest,
-    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>,
+    directInputPreviewLimits: ReturnType<typeof readFilesToolEffectivePreviewLimits>
   ): Promise<ProviderGatewayTextMessage[]> {
     const hydrated: ProviderGatewayTextMessage[] = [];
     let currentMessageFound = false;
@@ -1069,7 +1080,8 @@ export class TurnContextHydrationService {
         baseContent: isCurrentInboundMessage ? input.message.text : message.content,
         attachments: message.attachments,
         fallbackAttachments: isCurrentInboundMessage ? input.message.attachments : [],
-        allowDirectAttachmentInput: isCurrentInboundMessage && message.author === "user"
+        allowDirectAttachmentInput: isCurrentInboundMessage && message.author === "user",
+        directInputPreviewLimits
       });
 
       hydrated.push({
@@ -1082,7 +1094,7 @@ export class TurnContextHydrationService {
     }
 
     if (!currentMessageFound) {
-      hydrated.push(await this.createCurrentUserMessage(input));
+      hydrated.push(await this.createCurrentUserMessage(input, directInputPreviewLimits));
     }
 
     return this.limitHydratedMessages(hydrated, contextHydration);
@@ -1520,7 +1532,8 @@ export class TurnContextHydrationService {
   }
 
   private async createCurrentUserMessage(
-    input: RuntimeTurnRequest
+    input: RuntimeTurnRequest,
+    directInputPreviewLimits: ReturnType<typeof readFilesToolEffectivePreviewLimits>
   ): Promise<ProviderGatewayTextMessage> {
     return {
       role: "user",
@@ -1531,7 +1544,8 @@ export class TurnContextHydrationService {
         baseContent: input.message.text,
         attachments: [],
         fallbackAttachments: input.message.attachments,
-        allowDirectAttachmentInput: true
+        allowDirectAttachmentInput: true,
+        directInputPreviewLimits
       })
     };
   }
@@ -1544,9 +1558,16 @@ export class TurnContextHydrationService {
     attachments: CanonicalChatAttachmentRow[];
     fallbackAttachments: RuntimeAttachmentRef[];
     allowDirectAttachmentInput: boolean;
+    directInputPreviewLimits?: ReturnType<typeof readFilesToolEffectivePreviewLimits>;
   }): Promise<ProviderGatewayMessageContent> {
+    const previewLimits =
+      input.directInputPreviewLimits ?? readFilesToolEffectivePreviewLimits(null);
     const directInputSelection = input.allowDirectAttachmentInput
-      ? await this.buildDirectInputSelection(input.attachments, input.fallbackAttachments)
+      ? await this.buildDirectInputSelection(
+          input.attachments,
+          input.fallbackAttachments,
+          previewLimits
+        )
       : this.createEmptyDirectInputSelection();
     const textContent = await this.buildHydratedMessageTextContent(input);
 
@@ -1583,8 +1604,11 @@ export class TurnContextHydrationService {
 
   private async buildDirectInputSelection(
     attachments: CanonicalChatAttachmentRow[],
-    fallbackAttachments: RuntimeAttachmentRef[]
+    fallbackAttachments: RuntimeAttachmentRef[],
+    previewLimits: ReturnType<typeof readFilesToolEffectivePreviewLimits>
   ): Promise<DirectInputSelection> {
+    const maxAttachmentBytes = previewLimits.effectiveMaxPreviewBytes;
+    const maxImageEdgePx = previewLimits.effectiveMaxPreviewEdgePx;
     const selection = this.createEmptyDirectInputSelection();
     const candidates =
       attachments.length > 0
@@ -1600,7 +1624,7 @@ export class TurnContextHydrationService {
       if (
         candidate.sizeBytes <= 0 ||
         (candidate.kind !== "image" &&
-          (candidate.sizeBytes > MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES ||
+          (candidate.sizeBytes > maxAttachmentBytes ||
             totalBytes + candidate.sizeBytes > MAX_DIRECT_PROVIDER_ATTACHMENT_TOTAL_BYTES))
       ) {
         continue;
@@ -1611,17 +1635,21 @@ export class TurnContextHydrationService {
         continue;
       }
       if (
-        buffer.length > MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES ||
+        buffer.length > maxAttachmentBytes ||
         totalBytes + buffer.length > MAX_DIRECT_PROVIDER_ATTACHMENT_TOTAL_BYTES
       ) {
         continue;
       }
-      const prepared = await this.prepareDirectProviderAttachmentPayload(candidate, buffer);
+      const prepared = await this.prepareDirectProviderAttachmentPayload(
+        candidate,
+        buffer,
+        maxImageEdgePx
+      );
       if (prepared === null) {
         continue;
       }
       if (
-        prepared.buffer.length > MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES ||
+        prepared.buffer.length > maxAttachmentBytes ||
         totalBytes + prepared.buffer.length > MAX_DIRECT_PROVIDER_ATTACHMENT_TOTAL_BYTES
       ) {
         continue;
@@ -1648,13 +1676,13 @@ export class TurnContextHydrationService {
         sizeBytes: attachment.sizeBytes
       };
     }
-    if (attachment.mimeType === "application/pdf") {
+    if (attachment.mimeType === "application/pdf" || attachment.mimeType === "application/x-pdf") {
       return {
         source: "canonical",
         referenceKey: attachment.id,
         kind: "pdf",
         objectKey: attachment.storagePath,
-        mimeType: attachment.mimeType,
+        mimeType: "application/pdf",
         filename: attachment.originalFilename,
         sizeBytes: attachment.sizeBytes
       };
@@ -1676,13 +1704,13 @@ export class TurnContextHydrationService {
         sizeBytes: attachment.sizeBytes
       };
     }
-    if (attachment.mimeType === "application/pdf") {
+    if (attachment.mimeType === "application/pdf" || attachment.mimeType === "application/x-pdf") {
       return {
         source: "runtime",
         referenceKey: attachment.attachmentId,
         kind: "pdf",
         objectKey: attachment.objectKey,
-        mimeType: attachment.mimeType,
+        mimeType: "application/pdf",
         filename: attachment.filename,
         sizeBytes: attachment.sizeBytes
       };
@@ -1713,7 +1741,8 @@ export class TurnContextHydrationService {
 
   private async prepareDirectProviderAttachmentPayload(
     candidate: DirectInputAttachmentCandidate,
-    buffer: Buffer
+    buffer: Buffer,
+    maxImageEdgePx: number
   ): Promise<PreparedDirectProviderAttachmentPayload | null> {
     if (candidate.kind !== "image") {
       return {
@@ -1730,8 +1759,7 @@ export class TurnContextHydrationService {
       if (
         width === null ||
         height === null ||
-        (width <= ORDINARY_VISION_MAX_IMAGE_DIMENSION &&
-          height <= ORDINARY_VISION_MAX_IMAGE_DIMENSION)
+        (width <= maxImageEdgePx && height <= maxImageEdgePx)
       ) {
         return {
           buffer,
@@ -1740,7 +1768,7 @@ export class TurnContextHydrationService {
       }
       const resized = await sharp(buffer)
         .rotate()
-        .resize(ORDINARY_VISION_MAX_IMAGE_DIMENSION, ORDINARY_VISION_MAX_IMAGE_DIMENSION, {
+        .resize(maxImageEdgePx, maxImageEdgePx, {
           fit: "inside",
           withoutEnlargement: true
         })

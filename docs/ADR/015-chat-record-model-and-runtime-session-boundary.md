@@ -49,4 +49,3 @@ For Step 5 C1:
 - Active web chats cap enforcement (`C5`)
 - Telegram chat domain entities/surface modeling
 - Runtime session internals inside backend chat tables
-

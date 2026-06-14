@@ -11,6 +11,10 @@ export type AssistantPlanCatalogToolActivationOverride = {
    * NULL = no per-plan override (use runtime code default).
    */
   perTurnCap: number | null;
+  /** ADR-116 — see `AssistantPlanCatalogToolActivation.maxFilePreviewBytes`. */
+  maxFilePreviewBytes: number | null;
+  /** ADR-116 — see `AssistantPlanCatalogToolActivation.maxFilePreviewEdgePx`. */
+  maxFilePreviewEdgePx: number | null;
 };
 
 export type AssistantPlanCatalogDeleteImpact = {

@@ -1,6 +1,7 @@
 # ADR-044: Abuse and rate-limit enforcement (Step 10 G2)
 
 ## Status
+
 Accepted
 
 ## Context

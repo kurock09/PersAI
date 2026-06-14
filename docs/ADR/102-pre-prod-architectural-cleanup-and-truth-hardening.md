@@ -49,22 +49,22 @@ A second read-only pass re-checked every code-level claim against the tree (base
 
 ### Workspace vs assistant truth (canonical for this program)
 
-| Truth | Scope | Notes |
-| ----- | ----- | ----- |
-| Subscription / billing row | workspace | `workspace_subscriptions` |
-| Quota usage counters (tokens, storage, media monthly) | workspace | shared bucket |
-| Effective plan limits for enforcement/display | resolved via **active assistant** | may differ when `assistantPlanOverrideCode` is set (B2B/Ops) |
-| Chats, files, memory, runtime context | assistant | ADR-101 |
+| Truth                                                 | Scope                             | Notes                                                        |
+| ----------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
+| Subscription / billing row                            | workspace                         | `workspace_subscriptions`                                    |
+| Quota usage counters (tokens, storage, media monthly) | workspace                         | shared bucket                                                |
+| Effective plan limits for enforcement/display         | resolved via **active assistant** | may differ when `assistantPlanOverrideCode` is set (B2B/Ops) |
+| Chats, files, memory, runtime context                 | assistant                         | ADR-101                                                      |
 
 Cleanup slices must **not** accidentally reintroduce user-only assistant lookup. UI plan refresh after assistant switch is a **consistency** fix, not a billing-model change.
 
 ### Economics truth (canonical for this program)
 
-| Path | Ledger today | Purpose |
-| ---- | ------------ | ------- |
-| PDFMonkey/Gamma render on delivery | yes | `document_render` via tool-path `billingFacts` |
-| Delivery framing LLM text | yes | `chat_helper` / completion framing |
-| Document OCR/extraction | yes | extraction path |
+| Path                                                          | Ledger today                  | Purpose                                                                                      |
+| ------------------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------- |
+| PDFMonkey/Gamma render on delivery                            | yes                           | `document_render` via tool-path `billingFacts`                                               |
+| Delivery framing LLM text                                     | yes                           | `chat_helper` / completion framing                                                           |
+| Document OCR/extraction                                       | yes                           | extraction path                                                                              |
 | Document worker internal LLM (outline, sections, HTML, patch) | **yes (Slice 8, 2026-05-30)** | usage aggregated in runtime adapter → `document_generation` ledger row appended at scheduler |
 
 Document economics are now three-way (`document_render` + `chat_helper` framing + `document_generation` worker LLM); Admin read-model still must not overclaim "full platform economics" beyond the wired purposes.
@@ -96,19 +96,19 @@ Record HEAD SHA in session handoff. **Do not start Slice 1 on a dirty tree.**
 
 ## Execution ledger
 
-| Slice | Title | PROD-blocking | Deploy |
-| ----- | ----- | ------------- | ------ |
-| 0 | Baseline gate | yes | NO |
-| 1 | Runtime document honesty | **yes** | DEPLOY REQUIRED |
-| 2 | Runtime media honesty | **yes** | DEPLOY REQUIRED |
-| 3 | Runtime open document jobs context | recommended | DEPLOY REQUIRED |
-| 4 | Multi-assistant admin tails | recommended | DEPLOY REQUIRED |
-| 5 | OpenAPI + web contract drift | recommended | NO (unless contract-only deploy policy says otherwise) |
-| 6 | Web assistant-switch plan refresh | no | NO |
-| 7 | Telegram inline tool-path ledger | no | DEPLOY REQUIRED |
-| 8 | Document worker LLM economics (optional) | no | DEPLOY REQUIRED |
-| 9 | CI / deploy hygiene | **yes** | NO |
-| 10 | PROD preflight smoke | **yes** | DEPLOY REQUIRED |
+| Slice | Title                                    | PROD-blocking | Deploy                                                 |
+| ----- | ---------------------------------------- | ------------- | ------------------------------------------------------ |
+| 0     | Baseline gate                            | yes           | NO                                                     |
+| 1     | Runtime document honesty                 | **yes**       | DEPLOY REQUIRED                                        |
+| 2     | Runtime media honesty                    | **yes**       | DEPLOY REQUIRED                                        |
+| 3     | Runtime open document jobs context       | recommended   | DEPLOY REQUIRED                                        |
+| 4     | Multi-assistant admin tails              | recommended   | DEPLOY REQUIRED                                        |
+| 5     | OpenAPI + web contract drift             | recommended   | NO (unless contract-only deploy policy says otherwise) |
+| 6     | Web assistant-switch plan refresh        | no            | NO                                                     |
+| 7     | Telegram inline tool-path ledger         | no            | DEPLOY REQUIRED                                        |
+| 8     | Document worker LLM economics (optional) | no            | DEPLOY REQUIRED                                        |
+| 9     | CI / deploy hygiene                      | **yes**       | NO                                                     |
+| 10    | PROD preflight smoke                     | **yes**       | DEPLOY REQUIRED                                        |
 
 **Minimum PROD path:** `0 → 1 → 2 → 9 → 10`. Slice 5 is **recommended** (contract-truth hygiene, not a user-facing PROD blocker — web already works on hand-rolled types); run it in the full cleanup before PROD if time allows.  
 **Recommended full cleanup:** all slices through 10 except optional Slice 8.
@@ -415,15 +415,15 @@ kubectl -n persai-dev get pods -o wide
 
 Execute only after Slice 10 or in parallel if zero prod risk:
 
-| Item | Action |
-| ---- | ------ |
-| `services/openclaw/.gitkeep` | Delete empty slot; keep `pnpm-workspace.yaml` valid |
-| `WebRuntimeShadowComparisonService` | Remove dead wiring + admin overview field |
-| `send-native-*` / `native-*` filenames | Rename in dedicated naming slice |
-| `uploadChatAttachment()` dead export | Delete from web client |
-| Hardcoded `"Навык - ..."` in `use-chat.ts` | i18n key |
-| `ARCHITECTURE.md` stale “ledger events yet” phrase | Docs-only fix |
-| `RuntimeDocumentToolResult.action: "deferred"` union tail | Narrow/deprecate after Slice 1 |
+| Item                                                      | Action                                              |
+| --------------------------------------------------------- | --------------------------------------------------- |
+| `services/openclaw/.gitkeep`                              | Delete empty slot; keep `pnpm-workspace.yaml` valid |
+| `WebRuntimeShadowComparisonService`                       | Remove dead wiring + admin overview field           |
+| `send-native-*` / `native-*` filenames                    | Rename in dedicated naming slice                    |
+| `uploadChatAttachment()` dead export                      | Delete from web client                              |
+| Hardcoded `"Навык - ..."` in `use-chat.ts`                | i18n key                                            |
+| `ARCHITECTURE.md` stale “ledger events yet” phrase        | Docs-only fix                                       |
+| `RuntimeDocumentToolResult.action: "deferred"` union tail | Narrow/deprecate after Slice 1                      |
 
 Historical OpenClaw in ADRs/migrations/tests: **do not touch** as bugs.
 
@@ -471,18 +471,18 @@ Deliver:
 
 ## Verification matrix (summary)
 
-| Slice | Focused tests | Broad gate |
-| ----- | ------------- | ---------- |
-| 1 | runtime deferred-document, runtime-document-tool | runtime typecheck |
-| 2 | deferred-media-acknowledgement | runtime typecheck |
-| 3 | contracts generate + API/runtime typecheck | — |
-| 4 | admin ownership, ops cockpit | api typecheck |
-| 5 | assistant-api-client, chat-message | contracts + web typecheck |
-| 6 | use-app-data | web typecheck |
-| 7 | telegram turn, record-model-cost-ledger | api typecheck |
-| 8 | document adapter + ledger (TBD in slice) | api + runtime typecheck |
-| 9 | detect-affected unit tests, helm lint/template | — |
-| 10 | live smoke | full lint/format/typecheck if any slice pending |
+| Slice | Focused tests                                    | Broad gate                                      |
+| ----- | ------------------------------------------------ | ----------------------------------------------- |
+| 1     | runtime deferred-document, runtime-document-tool | runtime typecheck                               |
+| 2     | deferred-media-acknowledgement                   | runtime typecheck                               |
+| 3     | contracts generate + API/runtime typecheck       | —                                               |
+| 4     | admin ownership, ops cockpit                     | api typecheck                                   |
+| 5     | assistant-api-client, chat-message               | contracts + web typecheck                       |
+| 6     | use-app-data                                     | web typecheck                                   |
+| 7     | telegram turn, record-model-cost-ledger          | api typecheck                                   |
+| 8     | document adapter + ledger (TBD in slice)         | api + runtime typecheck                         |
+| 9     | detect-affected unit tests, helm lint/template   | —                                               |
+| 10    | live smoke                                       | full lint/format/typecheck if any slice pending |
 
 ---
 

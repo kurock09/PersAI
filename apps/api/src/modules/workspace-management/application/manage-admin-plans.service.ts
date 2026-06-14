@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
+import { clampPlanMaxFilePreviewBytes } from "@persai/config";
 import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
   type AssistantPlanCatalogRepository,
@@ -1045,7 +1046,46 @@ export class ManageAdminPlansService {
         }
         perTurnCap = typed.perTurnCap;
       }
-      return { toolCode, active, dailyCallLimit, perTurnCap };
+      let maxFilePreviewBytes: number | null = null;
+      let maxFilePreviewEdgePx: number | null = null;
+      if (toolCode === "files") {
+        if (typed.maxFilePreviewBytes !== undefined && typed.maxFilePreviewBytes !== null) {
+          if (
+            typeof typed.maxFilePreviewBytes !== "number" ||
+            !Number.isInteger(typed.maxFilePreviewBytes) ||
+            typed.maxFilePreviewBytes <= 0
+          ) {
+            throw new BadRequestException(
+              `toolActivations[${String(idx)}].maxFilePreviewBytes must be a positive integer or null.`
+            );
+          }
+          maxFilePreviewBytes = clampPlanMaxFilePreviewBytes(typed.maxFilePreviewBytes);
+        }
+        if (typed.maxFilePreviewEdgePx !== undefined && typed.maxFilePreviewEdgePx !== null) {
+          if (
+            typeof typed.maxFilePreviewEdgePx !== "number" ||
+            !Number.isInteger(typed.maxFilePreviewEdgePx) ||
+            typed.maxFilePreviewEdgePx <= 0
+          ) {
+            throw new BadRequestException(
+              `toolActivations[${String(idx)}].maxFilePreviewEdgePx must be a positive integer or null.`
+            );
+          }
+          maxFilePreviewEdgePx = typed.maxFilePreviewEdgePx;
+        }
+      } else if (typed.maxFilePreviewBytes != null || typed.maxFilePreviewEdgePx != null) {
+        throw new BadRequestException(
+          `toolActivations[${String(idx)}] preview limit fields apply only to the files tool.`
+        );
+      }
+      return {
+        toolCode,
+        active,
+        dailyCallLimit,
+        perTurnCap,
+        maxFilePreviewBytes,
+        maxFilePreviewEdgePx
+      };
     });
   }
 
@@ -1194,7 +1234,9 @@ export class ManageAdminPlansService {
         toolCode: ta.toolCode,
         active: ta.active,
         dailyCallLimit: ta.dailyCallLimit,
-        perTurnCap: ta.perTurnCap
+        perTurnCap: ta.perTurnCap,
+        maxFilePreviewBytes: ta.maxFilePreviewBytes ?? null,
+        maxFilePreviewEdgePx: ta.maxFilePreviewEdgePx ?? null
       }))
     };
   }
@@ -1215,7 +1257,11 @@ export class ManageAdminPlansService {
         toolCode: tool.toolCode,
         active: override?.active ?? activeByClass,
         dailyCallLimit: override?.dailyCallLimit ?? null,
-        perTurnCap: override?.perTurnCap ?? null
+        perTurnCap: override?.perTurnCap ?? null,
+        maxFilePreviewBytes:
+          tool.toolCode === "files" ? (override?.maxFilePreviewBytes ?? null) : null,
+        maxFilePreviewEdgePx:
+          tool.toolCode === "files" ? (override?.maxFilePreviewEdgePx ?? null) : null
       };
     });
   }
@@ -1578,6 +1624,8 @@ export class ManageAdminPlansService {
         active: ta.activationStatus === "active",
         dailyCallLimit: ta.dailyCallLimit,
         perTurnCap: ta.perTurnCap,
+        maxFilePreviewBytes: ta.toolCode === "files" ? ta.maxFilePreviewBytes : null,
+        maxFilePreviewEdgePx: ta.toolCode === "files" ? ta.maxFilePreviewEdgePx : null,
         visibleInPlanEditor: ta.policyClass === "plan_managed"
       })),
       toolBudgets,

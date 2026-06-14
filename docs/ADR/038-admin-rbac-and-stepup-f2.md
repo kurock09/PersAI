@@ -1,6 +1,7 @@
 # ADR-038: Admin RBAC and dangerous-action step-up (Step 9 F2)
 
 ## Status
+
 Accepted
 
 ## Context
@@ -50,15 +51,18 @@ F2 requires explicit admin roles and hardened dangerous-action protection withou
 ## Consequences
 
 ### Positive
+
 - Admin access is role-based and non-collapsed.
 - Dangerous writes are protected by explicit step-up confirmation.
 - Audit trail includes role and actor context for admin actions.
 
 ### Negative
+
 - F2 does not yet provide admin-role management APIs/UI.
 - Step-up in F2 is challenge-token based and scoped to current dangerous admin actions only.
 
 ## Out of scope (F2)
+
 - full admin-role lifecycle management UI/APIs
 - step-up for non-admin user actions
 - elevated session management and MFA orchestration policy engine

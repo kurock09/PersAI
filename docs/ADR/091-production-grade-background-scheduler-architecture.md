@@ -9,12 +9,12 @@
 
 PersAI runs four polling background schedulers in `apps/api`:
 
-| Scheduler | Service | Tick | Batch | Drain-loop | Workload character |
-|---|---|---|---|---|---|
-| Idle re-engagement | `PersaiIdleReengagementSchedulerService` | 15 min | 12 | **NO** | LLM call per candidate (~30–60s each) |
-| Background tasks (reminders) | `PersaiBackgroundTaskSchedulerService` | 5 sec | 8 | YES | LLM call per due task |
-| Background compaction | `PersaiBackgroundCompactionSchedulerService` | 5 sec | 8 | YES | LLM call only when token threshold exceeded |
-| Media jobs | `AssistantMediaJobSchedulerService` | 5 sec | 4 | YES | Direct provider call (image / video gen) |
+| Scheduler                    | Service                                      | Tick   | Batch | Drain-loop | Workload character                          |
+| ---------------------------- | -------------------------------------------- | ------ | ----- | ---------- | ------------------------------------------- |
+| Idle re-engagement           | `PersaiIdleReengagementSchedulerService`     | 15 min | 12    | **NO**     | LLM call per candidate (~30–60s each)       |
+| Background tasks (reminders) | `PersaiBackgroundTaskSchedulerService`       | 5 sec  | 8     | YES        | LLM call per due task                       |
+| Background compaction        | `PersaiBackgroundCompactionSchedulerService` | 5 sec  | 8     | YES        | LLM call only when token threshold exceeded |
+| Media jobs                   | `AssistantMediaJobSchedulerService`          | 5 sec  | 4     | YES        | Direct provider call (image / video gen)    |
 
 ADR-090 hardened the first three by wrapping each `tick()` in a Postgres `$transaction` and using `pg_try_advisory_xact_lock` for single-leader semantics. The transaction stays open for the entire drain pass — including outbound HTTP to the runtime LLM. This is **safe and correct** but pins one Prisma pool connection per leader for up to 10 minutes per tick. At 1000+ users this becomes a real operational risk:
 
@@ -157,15 +157,15 @@ When this ADR lands:
 
 A new `BackgroundSchedulerMetricsService` exposes the following per scheduler kind:
 
-| Metric | Type | Description |
-|---|---|---|
-| `scheduler_tick_total` | counter | total ticks attempted |
-| `scheduler_tick_acquired_total` | counter | ticks where lease was acquired (= leader chosen) |
-| `scheduler_tick_skipped_total` | counter | ticks where another pod was leader |
-| `scheduler_tick_duration_ms` | histogram | leader's tick duration end-to-end |
-| `scheduler_drain_candidates_total` | counter | candidates processed (success + failure) |
-| `scheduler_lease_lost_total` | counter | heartbeat failed → drain aborted |
-| `scheduler_lease_expired_recovered_total` | counter | another pod recovered an expired lease |
+| Metric                                    | Type      | Description                                      |
+| ----------------------------------------- | --------- | ------------------------------------------------ |
+| `scheduler_tick_total`                    | counter   | total ticks attempted                            |
+| `scheduler_tick_acquired_total`           | counter   | ticks where lease was acquired (= leader chosen) |
+| `scheduler_tick_skipped_total`            | counter   | ticks where another pod was leader               |
+| `scheduler_tick_duration_ms`              | histogram | leader's tick duration end-to-end                |
+| `scheduler_drain_candidates_total`        | counter   | candidates processed (success + failure)         |
+| `scheduler_lease_lost_total`              | counter   | heartbeat failed → drain aborted                 |
+| `scheduler_lease_expired_recovered_total` | counter   | another pod recovered an expired lease           |
 
 Metrics are exposed via the existing health-controller surface (no new endpoint type). Cloud Logging structured logs already cover per-event detail; this is for at-a-glance health.
 
@@ -178,6 +178,7 @@ CONNECTIONS_PER_POD = max(10, cpu_count × 4)
 ```
 
 Rationale (post §A there is **no scheduler-pinned connection budget** to subtract):
+
 - 4 schedulers × ≤ 1 short-lived UPDATE per heartbeat (every 20 s) ≈ negligible
 - User-facing API traffic + read-heavy admin traffic dominates the pool
 
@@ -185,13 +186,13 @@ Documented in `docs/ARCHITECTURE.md` under "Database connection pool sizing" (ne
 
 ### G. Failure model — explicit and testable
 
-| Failure | Behavior |
-|---|---|
-| Leader pod hard-crashes mid-drain | Lease expires after `LEASE_TTL_MS` (90 s); next tick on any pod acquires; in-flight per-candidate work was per-candidate-tx so no row is left in inconsistent state. |
-| Leader pod loses DB connectivity for > 1 heartbeat | Heartbeat UPDATE returns 0 rows → drain aborts; the partially-processed candidates (each in its own tx) keep their results; remaining candidates wait for next leader. |
-| Leader pod's network to OpenAI hangs | Per-candidate HTTP timeout (already configured per client) fires; that candidate is marked failed/deferred per existing rules; drain continues; lease unaffected. |
-| Two pods think they are leader (clock skew + missed heartbeat) | Lease-token check on heartbeat means at most one pod gets `1 row updated` and continues; the other's next heartbeat fails and it aborts. |
-| Lease row missing (e.g. wiped manually) | Acquire path's `UPDATE … WHERE expires_at < NOW() OR holder_id IS NULL` returns 0 rows → tick exits silently. The seed migration plus boot-time `INSERT … ON CONFLICT DO NOTHING` guards re-create the row. |
+| Failure                                                        | Behavior                                                                                                                                                                                                    |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Leader pod hard-crashes mid-drain                              | Lease expires after `LEASE_TTL_MS` (90 s); next tick on any pod acquires; in-flight per-candidate work was per-candidate-tx so no row is left in inconsistent state.                                        |
+| Leader pod loses DB connectivity for > 1 heartbeat             | Heartbeat UPDATE returns 0 rows → drain aborts; the partially-processed candidates (each in its own tx) keep their results; remaining candidates wait for next leader.                                      |
+| Leader pod's network to OpenAI hangs                           | Per-candidate HTTP timeout (already configured per client) fires; that candidate is marked failed/deferred per existing rules; drain continues; lease unaffected.                                           |
+| Two pods think they are leader (clock skew + missed heartbeat) | Lease-token check on heartbeat means at most one pod gets `1 row updated` and continues; the other's next heartbeat fails and it aborts.                                                                    |
+| Lease row missing (e.g. wiped manually)                        | Acquire path's `UPDATE … WHERE expires_at < NOW() OR holder_id IS NULL` returns 0 rows → tick exits silently. The seed migration plus boot-time `INSERT … ON CONFLICT DO NOTHING` guards re-create the row. |
 
 ## Out of scope
 

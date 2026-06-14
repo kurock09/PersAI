@@ -5,6 +5,9 @@
 
 ## 2026-06-14
 
+- **ADR-116 Slice 116.2 (preview + injection):** `files.preview` for `image/*` and native PDF with plan-owned byte/edge limits; tool JSON ack only, ephemeral multimodal via `toolFollowUpUserContent` after tool history; `turn-context-hydration` uses bundle effective preview limits for current-turn attachments.
+- **ADR-116 Slice 116.0 (file re-view foundation):** added `files.inspect` / contract `files.preview`, plan-owned `maxFilePreviewBytes` + `maxFilePreviewEdgePx` on `files` tool activation (Prisma + Admin Plans UI + materialized `RuntimeToolPolicy`), `@persai/config` preview defaults/ceiling helpers, and `files.inspect`/`get` metadata responses with `capabilities` + effective preview limits.
+- **ADR-116 Slice 116.1 (read hardening):** `files.read` on PDF/DOCX now surfaces `charCount`, `extractionQuality`, `readNote`, `extractionCached`; sanitizer sets `truncated` + `charCount` when clipping to 16k; internal extract API returns `cached: true` on metadata cache hits.
 - **Doc hygiene — program closure:** retired stale “active program” references to ADR-078 / ADR-102 across `AGENTS.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `DATA-MODEL.md`, `SESSION-HANDOFF.md`, and cursor rules. All orchestration programs through ADR-115 are closed archive; new work requires explicit user priority + new ADR.
 - **Media job completion framing:** plan-level `mediaCompletionVisionEnabled` toggles vision review on the existing `/media-jobs/complete` LLM call for `image_generate` / `image_edit` (up to 10 hydrated images, required non-empty reply). Cheap plans stay text-only but prompts now require a real delivery reply instead of optional silence + hardcoded «Медиафайл отправлен.» / `Media sent.`
 - **Media completion follow-up:** vision input limited to job output images only; completion max output tokens raised to 1000; `seriesItems` must be unique per frame in image tool projection.

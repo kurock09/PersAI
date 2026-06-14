@@ -1,6 +1,7 @@
 # ADR-033: Channel and surface binding model hardening (Step 8 E3)
 
 ## Status
+
 Accepted
 
 ## Context

@@ -4,7 +4,8 @@ import type {
   ProviderGatewayToolCall,
   RuntimeOutputArtifact,
   RuntimeSandboxJobRequest,
-  RuntimeSandboxJobResult
+  RuntimeSandboxJobResult,
+  RuntimeToolPolicy
 } from "@persai/runtime-contract";
 import { RuntimeAssistantFileRegistryService } from "../src/modules/turns/runtime-assistant-file-registry.service";
 import { RuntimeFilesToolService } from "../src/modules/turns/runtime-files-tool.service";
@@ -14,7 +15,21 @@ function createBundle(overrides?: {
   webMaxOutboundBytes?: number;
   telegramMaxOutboundBytes?: number;
   maxArtifactSendCountPerTurn?: number;
+  toolPolicies?: RuntimeToolPolicy[];
 }): AssistantRuntimeBundle {
+  const defaultFilesPolicy: RuntimeToolPolicy = {
+    toolCode: "files",
+    displayName: "Files",
+    description: "Unified file tool.",
+    usageGuidance: null,
+    kind: "plan",
+    executionMode: "inline",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  };
   return {
     metadata: {
       assistantId: "assistant-1",
@@ -47,21 +62,7 @@ function createBundle(overrides?: {
       }
     },
     governance: {
-      toolPolicies: [
-        {
-          toolCode: "files",
-          displayName: "Files",
-          description: "Unified file tool.",
-          usageGuidance: null,
-          kind: "plan",
-          executionMode: "inline",
-          usageRule: "allowed",
-          enabled: true,
-          visibleToModel: true,
-          visibleInPlanEditor: true,
-          dailyCallLimit: null
-        }
-      ]
+      toolPolicies: overrides?.toolPolicies ?? [defaultFilesPolicy]
     }
   } as AssistantRuntimeBundle;
 }
@@ -352,13 +353,18 @@ async function run(): Promise<void> {
       }
     }
   };
+  const mediaObjectStorage = {
+    objects: new Map<string, Buffer>([
+      ["assistant-media/runtime-output/generated.png", Buffer.from("fake-png-bytes")],
+      ["assistant-media/uploads/tz/TZ.pdf", Buffer.from("fake-pdf-bytes")]
+    ]),
+    async downloadObject(objectKey: string) {
+      return this.objects.get(objectKey) ?? null;
+    }
+  };
   const registry = new RuntimeAssistantFileRegistryService(
     prisma as never,
-    {
-      async downloadObject() {
-        return null;
-      }
-    } as never
+    mediaObjectStorage as never
   );
   const sandboxClientService = new FakeSandboxClientService();
   const service = new RuntimeFilesToolService(
@@ -382,13 +388,24 @@ async function run(): Promise<void> {
           markdown: null,
           note: null,
           provider: null,
-          quality: null
+          quality: {
+            status: "ok",
+            score: 0.95,
+            reasonCodes: [],
+            textChars: 18
+          },
+          cached: false
         };
       }
-    } as never
+    } as never,
+    mediaObjectStorage as never
   );
 
-  function toRuntimeFileRefWithAliases(rowId: string, aliases: string[]) {
+  function toRuntimeFileRefWithAliases(
+    rowId: string,
+    aliases: string[],
+    fileOverrides?: { mimeType?: string; sizeBytes?: number }
+  ) {
     const row = canonicalRows.find((entry) => entry.id === rowId);
     assert.ok(row !== undefined);
     return {
@@ -402,8 +419,8 @@ async function run(): Promise<void> {
         objectKey: row.objectKey,
         relativePath: row.relativePath,
         displayName: row.displayName,
-        mimeType: row.mimeType,
-        sizeBytes: Number(row.sizeBytes),
+        mimeType: fileOverrides?.mimeType ?? row.mimeType,
+        sizeBytes: fileOverrides?.sizeBytes ?? Number(row.sizeBytes),
         logicalSizeBytes: row.logicalSizeBytes === null ? null : Number(row.logicalSizeBytes),
         sha256: row.sha256,
         metadata: row.metadata,
@@ -574,6 +591,15 @@ async function run(): Promise<void> {
   assert.equal(readUploadedPdfByQuery.payload.action, "read");
   assert.equal(readUploadedPdfByQuery.payload.item?.fileRef, "file-ref-uploaded-pdf");
   assert.equal(readUploadedPdfByQuery.payload.content, "Extracted PDF text");
+  assert.equal(readUploadedPdfByQuery.payload.charCount, 18);
+  assert.equal(readUploadedPdfByQuery.payload.truncated, false);
+  assert.deepEqual(readUploadedPdfByQuery.payload.extractionQuality, {
+    status: "ok",
+    score: 0.95,
+    reasonCodes: [],
+    textChars: 18
+  });
+  assert.equal(readUploadedPdfByQuery.payload.extractionCached, false);
   assert.match(readUploadedPdfByQuery.payload.warning ?? "", /Extracted text/);
   assert.deepEqual(
     readUploadedPdfByQuery.payload.item?.aliases,
@@ -747,6 +773,195 @@ async function run(): Promise<void> {
   });
   assert.equal(getPrefersStickyAliases.isError, false);
   assert.deepEqual(getPrefersStickyAliases.payload.item?.aliases, ["file #1"]);
+  assert.equal(getPrefersStickyAliases.payload.action, "fetched");
+  const getInspectContent = JSON.parse(getPrefersStickyAliases.payload.content ?? "{}") as {
+    capabilities: string[];
+    effectiveMaxPreviewBytes: number;
+  };
+  assert.deepEqual(getInspectContent.capabilities, ["text"]);
+  assert.equal(getInspectContent.effectiveMaxPreviewBytes, 8_388_608);
+
+  const inspectImage = await service.executeToolCall({
+    bundle: createBundle({
+      toolPolicies: [
+        {
+          toolCode: "files",
+          displayName: "Files",
+          description: "Unified file tool.",
+          usageGuidance: null,
+          kind: "plan",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null,
+          maxFilePreviewBytes: 256,
+          maxFilePreviewEdgePx: 512
+        }
+      ]
+    }),
+    toolCall: {
+      id: "tool-call-inspect-image",
+      name: "files",
+      arguments: {
+        action: "inspect",
+        alias: "image #1"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-inspect-image",
+    currentArtifacts: [],
+    currentFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-generated-1", ["image #1"], {
+        mimeType: "image/png",
+        sizeBytes: 128
+      })
+    ],
+    availableWorkingFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-generated-1", ["image #1"], {
+        mimeType: "image/png",
+        sizeBytes: 128
+      })
+    ],
+    channel: "web"
+  });
+  assert.equal(inspectImage.isError, false);
+  assert.equal(inspectImage.payload.action, "inspected");
+  const inspectImageContent = JSON.parse(inspectImage.payload.content ?? "{}") as {
+    capabilities: string[];
+    effectiveMaxPreviewBytes: number;
+    effectiveMaxPreviewEdgePx: number;
+  };
+  assert.deepEqual(inspectImageContent.capabilities, ["visual"]);
+  assert.equal(inspectImageContent.effectiveMaxPreviewBytes, 256);
+  assert.equal(inspectImageContent.effectiveMaxPreviewEdgePx, 512);
+
+  const previewImage = await service.executeToolCall({
+    bundle: createBundle({
+      toolPolicies: [
+        {
+          toolCode: "files",
+          displayName: "Files",
+          description: "Unified file tool.",
+          usageGuidance: null,
+          kind: "plan",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null,
+          maxFilePreviewBytes: 256,
+          maxFilePreviewEdgePx: 512
+        }
+      ]
+    }),
+    toolCall: {
+      id: "tool-call-preview-image",
+      name: "files",
+      arguments: {
+        action: "preview",
+        alias: "image #1",
+        instruction: "Describe the scene."
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-preview-image",
+    currentArtifacts: [],
+    currentFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-generated-1", ["image #1"], {
+        mimeType: "image/png",
+        sizeBytes: 128
+      })
+    ],
+    availableWorkingFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-generated-1", ["image #1"], {
+        mimeType: "image/png",
+        sizeBytes: 128
+      })
+    ],
+    channel: "web"
+  });
+  assert.equal(previewImage.isError, false);
+  assert.equal(previewImage.payload.action, "previewed");
+  assert.ok(previewImage.pendingFilePreviewBlocks !== undefined);
+  assert.ok(previewImage.pendingFilePreviewBlocks!.length >= 2);
+  assert.equal(previewImage.pendingFilePreviewBlocks![0]?.type, "text");
+  assert.equal(previewImage.pendingFilePreviewBlocks![1]?.type, "image");
+  const previewAck = JSON.parse(previewImage.payload.content ?? "{}") as {
+    alias: string;
+    mimeType: string;
+    visualKind: string;
+    instruction: string;
+  };
+  assert.equal(previewAck.alias, "image #1");
+  assert.equal(previewAck.mimeType, "image/png");
+  assert.equal(previewAck.visualKind, "image");
+  assert.equal(previewAck.instruction, "Describe the scene.");
+
+  const previewOversize = await service.executeToolCall({
+    bundle: createBundle({
+      toolPolicies: [
+        {
+          toolCode: "files",
+          displayName: "Files",
+          description: "Unified file tool.",
+          usageGuidance: null,
+          kind: "plan",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null,
+          maxFilePreviewBytes: 64
+        }
+      ]
+    }),
+    toolCall: {
+      id: "tool-call-preview-oversize",
+      name: "files",
+      arguments: {
+        action: "preview",
+        alias: "file #1"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-preview-oversize",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    availableWorkingFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-uploaded-pdf", ["file #1"], {
+        mimeType: "application/pdf",
+        sizeBytes: 2048
+      })
+    ],
+    channel: "web"
+  });
+  assert.equal(previewOversize.isError, true);
+  assert.equal(previewOversize.payload.reason, "preview_size_limit");
+  assert.equal(previewOversize.pendingFilePreviewBlocks, undefined);
+
+  const previewUnsupported = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-preview-unsupported",
+      name: "files",
+      arguments: {
+        action: "preview",
+        alias: "file #1"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-preview-unsupported",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    availableWorkingFileRefs: [toRuntimeFileRefWithAliases("file-ref-1", ["file #1"])],
+    channel: "web"
+  });
+  assert.equal(previewUnsupported.isError, true);
+  assert.equal(previewUnsupported.payload.reason, "preview_unsupported");
 
   const sendWithMissingPluralAlias = await service.executeToolCall({
     bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),

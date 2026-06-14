@@ -23,6 +23,7 @@ import {
   type PersaiRuntimeSharedCompactionToolCode,
   type ProviderGatewayPromptCacheConfig,
   type ProviderGatewayRequestMetadata,
+  type ProviderGatewayMessageContentBlock,
   type ProviderGatewayToolCall,
   type ProviderGatewayToolExchange,
   type ProviderGatewayTextMessage,
@@ -226,6 +227,11 @@ type TurnExecutionState = {
    * metadata for next-turn hydration.
    */
   discoveredFileRefIdSet: string[];
+  /**
+   * ADR-116 — ephemeral multimodal blocks from `files.preview` for the next
+   * tool-loop provider call only.
+   */
+  pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
 };
 
 type ToolExecutionOutcome = {
@@ -263,6 +269,7 @@ type ToolExecutionOutcome = {
     toolCode: PersaiRuntimeSharedCompactionToolCode;
     durableStatePersisted: boolean;
   };
+  pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
 };
 
 type PlannedToolExecution = {
@@ -1098,10 +1105,15 @@ export class TurnExecutionService {
     const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
     const maxToolLoopIterations =
       toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
+    let previewFollowUpExtraIterations = 0;
     this.runtimeObservabilityService.beginStreamTurn();
     try {
       try {
-        for (let iteration = 0; iteration < maxToolLoopIterations; iteration += 1) {
+        for (
+          let iteration = 0;
+          iteration < maxToolLoopIterations + previewFollowUpExtraIterations;
+          iteration += 1
+        ) {
           if (projectModeActive && iteration > 0) {
             for (const projectEvent of createProjectModeReplanStreamEvents({
               identity: projectStreamIdentity,
@@ -1111,6 +1123,8 @@ export class TurnExecutionService {
             }
           }
           const iterationBaseText = assembledText;
+          const pendingFilePreviewBlocks = turnState.pendingFilePreviewBlocks;
+          delete turnState.pendingFilePreviewBlocks;
           const providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
             assistantText: iterationBaseText,
             baseDeveloperInstructionSections: execution.developerInstructionSections,
@@ -1121,6 +1135,7 @@ export class TurnExecutionService {
             forceFinalTextOnly,
             deferredMediaJobs: turnState.deferredMediaJobs,
             deferredDocumentJobs: turnState.deferredDocumentJobs,
+            ...(pendingFilePreviewBlocks === undefined ? {} : { pendingFilePreviewBlocks }),
             requestMetadata: this.createTurnProviderRequestMetadata({
               acceptedTurn,
               classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
@@ -1347,6 +1362,13 @@ export class TurnExecutionService {
                 }
               }
 
+              previewFollowUpExtraIterations = this.reservePreviewFollowUpIterationIfNeeded({
+                turnState,
+                iteration,
+                maxToolLoopIterations,
+                previewFollowUpExtraIterations
+              });
+
               advancedToNextIteration = true;
               break;
             }
@@ -1471,9 +1493,13 @@ export class TurnExecutionService {
                 event.code === "provider_context_window_exceeded" &&
                 !contextOverflowRetryAttempted &&
                 deliveredText.trim().length === 0 &&
-                iteration + 1 < maxToolLoopIterations
+                iteration + 1 < maxToolLoopIterations + previewFollowUpExtraIterations
               ) {
                 contextOverflowRetryAttempted = true;
+                this.restorePendingFilePreviewBlocksAfterOverflow(
+                  turnState,
+                  pendingFilePreviewBlocks
+                );
                 toolHistory.splice(0, toolHistory.length);
                 forceFinalTextOnly = true;
                 execution.providerRequest = this.buildContextOverflowRecoveryProviderRequest(
@@ -2627,9 +2653,15 @@ export class TurnExecutionService {
     const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
     const maxToolLoopIterations =
       toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
-    for (let iteration = 0; iteration < maxToolLoopIterations; iteration += 1) {
+    let previewFollowUpExtraIterations = 0;
+    for (
+      let iteration = 0;
+      iteration < maxToolLoopIterations + previewFollowUpExtraIterations;
+      iteration += 1
+    ) {
       let providerResult: ProviderGatewayTextGenerateResult;
       let availableWorkingFileRefs = execution.availableWorkingFileRefs;
+      let pendingFilePreviewBlocks: ProviderGatewayMessageContentBlock[] | undefined;
       try {
         availableWorkingFileRefs =
           await this.turnContextHydrationService.listAvailableWorkingFileRefs({
@@ -2638,6 +2670,8 @@ export class TurnExecutionService {
             currentFileRefs: turnState.fileRefs,
             currentArtifacts: turnState.artifacts
           });
+        pendingFilePreviewBlocks = turnState.pendingFilePreviewBlocks;
+        delete turnState.pendingFilePreviewBlocks;
         const request = this.buildToolLoopProviderRequest(execution.providerRequest, {
           assistantText: accumulatedText,
           baseDeveloperInstructionSections: execution.developerInstructionSections,
@@ -2648,6 +2682,7 @@ export class TurnExecutionService {
           forceFinalTextOnly,
           deferredMediaJobs: turnState.deferredMediaJobs,
           deferredDocumentJobs: turnState.deferredDocumentJobs,
+          ...(pendingFilePreviewBlocks === undefined ? {} : { pendingFilePreviewBlocks }),
           requestMetadata: this.createTurnProviderRequestMetadata({
             acceptedTurn,
             classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
@@ -2669,9 +2704,10 @@ export class TurnExecutionService {
         if (
           this.isContextWindowExceededError(error) &&
           !contextOverflowRetryAttempted &&
-          iteration + 1 < maxToolLoopIterations
+          iteration + 1 < maxToolLoopIterations + previewFollowUpExtraIterations
         ) {
           contextOverflowRetryAttempted = true;
+          this.restorePendingFilePreviewBlocksAfterOverflow(turnState, pendingFilePreviewBlocks);
           toolHistory.splice(0, toolHistory.length);
           forceFinalTextOnly = true;
           execution.providerRequest = this.buildContextOverflowRecoveryProviderRequest(
@@ -2796,6 +2832,12 @@ export class TurnExecutionService {
       if (durableCompactionExecuted) {
         execution.providerRequest = await this.refreshProviderRequestMessages(execution, input);
       }
+      previewFollowUpExtraIterations = this.reservePreviewFollowUpIterationIfNeeded({
+        turnState,
+        iteration,
+        maxToolLoopIterations,
+        previewFollowUpExtraIterations
+      });
     }
 
     throw new TurnExecutionError(
@@ -3105,7 +3147,8 @@ export class TurnExecutionService {
           result.isError,
           undefined,
           result.artifacts,
-          result.discoveredFileRefs
+          result.discoveredFileRefs,
+          result.pendingFilePreviewBlocks
         );
       }
       case EXEC_TOOL_CODE:
@@ -3722,7 +3765,8 @@ export class TurnExecutionService {
     isError = false,
     sharedCompaction?: ToolExecutionOutcome["sharedCompaction"],
     artifacts?: RuntimeOutputArtifact[],
-    discoveredFileRefs?: RuntimeFileRef[]
+    discoveredFileRefs?: RuntimeFileRef[],
+    pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[]
   ): ToolExecutionOutcome {
     return {
       exchange: {
@@ -3747,7 +3791,10 @@ export class TurnExecutionService {
       ...(discoveredFileRefs === undefined || discoveredFileRefs.length === 0
         ? {}
         : { discoveredFileRefs }),
-      ...(sharedCompaction === undefined ? {} : { sharedCompaction })
+      ...(sharedCompaction === undefined ? {} : { sharedCompaction }),
+      ...(pendingFilePreviewBlocks === undefined || pendingFilePreviewBlocks.length === 0
+        ? {}
+        : { pendingFilePreviewBlocks })
     };
   }
 
@@ -3763,6 +3810,7 @@ export class TurnExecutionService {
       forceFinalTextOnly?: boolean;
       deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
       deferredDocumentJobs?: TurnExecutionState["deferredDocumentJobs"];
+      pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
       requestMetadata: ProviderGatewayRequestMetadata;
     }
   ): ProviderGatewayTextGenerateRequest {
@@ -3778,6 +3826,7 @@ export class TurnExecutionService {
       input.deferredMediaJobs ?? [],
       input.deferredDocumentJobs ?? []
     );
+    const pendingFilePreviewBlocks = input.pendingFilePreviewBlocks ?? [];
     return {
       ...baseRequest,
       ...(developerInstructions === null ? {} : { developerInstructions }),
@@ -3792,6 +3841,9 @@ export class TurnExecutionService {
               }
             ],
       ...(input.toolHistory.length === 0 ? {} : { toolHistory: input.toolHistory }),
+      ...(pendingFilePreviewBlocks.length === 0
+        ? {}
+        : { toolFollowUpUserContent: pendingFilePreviewBlocks }),
       ...(input.forceFinalTextOnly === true ? { tools: [], toolChoice: "none" as const } : {}),
       requestMetadata: input.requestMetadata
     };
@@ -4784,6 +4836,47 @@ export class TurnExecutionService {
     }
   }
 
+  private mergePendingFilePreviewBlocks(
+    existing: ProviderGatewayMessageContentBlock[] | undefined,
+    incoming: ProviderGatewayMessageContentBlock[]
+  ): ProviderGatewayMessageContentBlock[] {
+    if (incoming.length === 0) {
+      return existing ?? [];
+    }
+    return [...(existing ?? []), ...incoming];
+  }
+
+  private restorePendingFilePreviewBlocksAfterOverflow(
+    turnState: TurnExecutionState,
+    consumedBlocks: ProviderGatewayMessageContentBlock[] | undefined
+  ): void {
+    if (consumedBlocks === undefined || consumedBlocks.length === 0) {
+      return;
+    }
+    turnState.pendingFilePreviewBlocks = this.mergePendingFilePreviewBlocks(
+      turnState.pendingFilePreviewBlocks,
+      consumedBlocks
+    );
+  }
+
+  private reservePreviewFollowUpIterationIfNeeded(input: {
+    turnState: TurnExecutionState;
+    iteration: number;
+    maxToolLoopIterations: number;
+    previewFollowUpExtraIterations: number;
+  }): number {
+    if (
+      input.turnState.pendingFilePreviewBlocks === undefined ||
+      input.turnState.pendingFilePreviewBlocks.length === 0
+    ) {
+      return input.previewFollowUpExtraIterations;
+    }
+    if (input.iteration + 1 < input.maxToolLoopIterations + input.previewFollowUpExtraIterations) {
+      return input.previewFollowUpExtraIterations;
+    }
+    return Math.max(input.previewFollowUpExtraIterations, 1);
+  }
+
   private extractBillingFactsFromToolPayload(
     payload: ToolExecutionOutcome["payload"]
   ): RuntimeBillingFacts | null {
@@ -4819,6 +4912,15 @@ export class TurnExecutionService {
     const closedOpenLoopRef = this.extractClosedOpenLoopRef(outcome.payload);
     if (closedOpenLoopRef !== null && !turnState.closedOpenLoopRefs.includes(closedOpenLoopRef)) {
       turnState.closedOpenLoopRefs.push(closedOpenLoopRef);
+    }
+    if (
+      outcome.pendingFilePreviewBlocks !== undefined &&
+      outcome.pendingFilePreviewBlocks.length > 0
+    ) {
+      turnState.pendingFilePreviewBlocks = this.mergePendingFilePreviewBlocks(
+        turnState.pendingFilePreviewBlocks,
+        outcome.pendingFilePreviewBlocks
+      );
     }
     if (outcome.artifacts !== undefined && outcome.artifacts.length > 0) {
       for (const artifact of outcome.artifacts) {
@@ -5107,8 +5209,10 @@ export class TurnExecutionService {
     const action = (value as { action?: unknown }).action;
     return action === "list" ||
       action === "search" ||
+      action === "inspect" ||
       action === "get" ||
       action === "read" ||
+      action === "preview" ||
       action === "write" ||
       action === "write_and_send" ||
       action === "edit" ||

@@ -1,6 +1,7 @@
 # ADR-031: Tool catalog and activation model (Step 8 E1)
 
 ## Status
+
 Accepted
 
 ## Context

@@ -1,6 +1,7 @@
 # ADR-037: Append-only audit log hardening (Step 9 F1)
 
 ## Status
+
 Accepted
 
 ## Context
@@ -52,14 +53,17 @@ Step 9 F1 requires traceability for high-value events without turning audit into
 ## Consequences
 
 ### Positive
+
 - Critical lifecycle, runtime-transition, admin, policy, and binding actions are now traceable in an append-only store.
 - Audit remains operationally useful by avoiding low-value chat/token delta dumps.
 
 ### Negative
+
 - F1 does not yet expose a read/query API surface for audit data.
 - Coverage is action-based; broad infra/runtime telemetry remains outside this slice.
 
 ## Out of scope (F1)
+
 - Admin RBAC/step-up actions (F2).
 - Ops/business cockpit read surfaces (F3/F4).
 - Full secret lifecycle workflow and secret-value mutation APIs (Step 10 G1).

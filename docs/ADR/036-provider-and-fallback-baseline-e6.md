@@ -1,6 +1,7 @@
 # ADR-036: Provider and fallback baseline (Step 8 E6)
 
 ## Status
+
 Accepted
 
 ## Context

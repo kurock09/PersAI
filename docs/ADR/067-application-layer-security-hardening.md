@@ -23,6 +23,7 @@ A security audit (code + live GKE cluster) after Wave 1-3 infrastructure hardeni
 ### D2 — Per-peer Telegram rate limit
 
 `EnforceAbuseRateLimitService` gains an in-memory sliding-window counter keyed by `assistantId:surface:peerKey`. For Telegram turns, `threadId` (the Telegram chat session key) is passed as `peerKey`. Limits are configurable via `ABUSE_PEER_SLOWDOWN_REQUESTS_PER_MINUTE` and `ABUSE_PEER_BLOCK_REQUESTS_PER_MINUTE`. The in-memory approach is acceptable because:
+
 - Each API pod independently enforces limits (effective per-pod, which is protective enough)
 - No DB migration required
 - Stale entries are garbage-collected periodically
@@ -30,6 +31,7 @@ A security audit (code + live GKE cluster) after Wave 1-3 infrastructure hardeni
 ### D3 — Draft string length limits
 
 `UpdateAssistantDraftService.parseInput()` enforces:
+
 - `displayName`: max 100 characters
 - `instructions`: max 50,000 characters
 - `avatarEmoji`: max 8 characters (already constrained by Prisma `@db.VarChar(8)`)
@@ -37,6 +39,7 @@ A security audit (code + live GKE cluster) after Wave 1-3 infrastructure hardeni
 ### D4 — avatarUrl validation
 
 `UpdateAssistantDraftService.parseInput()` validates `avatarUrl`:
+
 - Must start with `https://`
 - Must parse as a valid URL (`new URL()`)
 - Max 2048 characters

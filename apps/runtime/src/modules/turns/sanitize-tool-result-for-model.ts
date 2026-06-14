@@ -50,7 +50,7 @@ const MODEL_VISIBLE_FILES_ITEM_FIELDS = new Set([
   "aliases",
   "semanticSummaryHint"
 ]);
-const MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS = 16_000;
+export const MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS = 16_000;
 
 function isSuccessfulFilesDeliveryResult(value: Record<string, unknown>): boolean {
   if (value.toolCode !== "files" || value.executionMode !== "inline") {
@@ -111,17 +111,41 @@ function isLikelyBinaryContent(value: string): boolean {
   return controlChars / sample.length > 0.02;
 }
 
-function sanitizeFilesContentForModel(value: unknown): string | null {
+function sanitizeFilesContentForModel(
+  value: unknown,
+  existingCharCount: number | null | undefined
+): {
+  content: string | null;
+  charCount: number | null;
+  truncated: boolean;
+} {
   if (typeof value !== "string") {
-    return null;
+    return {
+      content: null,
+      charCount: existingCharCount ?? null,
+      truncated: false
+    };
   }
+  const originalCharCount = existingCharCount ?? value.length;
   if (isLikelyBinaryContent(value)) {
-    return "[binary file content omitted from model context]";
+    return {
+      content: "[binary file content omitted from model context]",
+      charCount: originalCharCount,
+      truncated: false
+    };
   }
   if (value.length > MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS) {
-    return `${value.slice(0, MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS)}\n\n[content truncated for model context: ${String(value.length - MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS)} characters omitted]`;
+    return {
+      content: `${value.slice(0, MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS)}\n\n[content truncated for model context: ${String(value.length - MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS)} characters omitted]`,
+      charCount: originalCharCount,
+      truncated: true
+    };
   }
-  return value;
+  return {
+    content: value,
+    charCount: originalCharCount,
+    truncated: false
+  };
 }
 
 function sanitizeFilesToolResultForModel(value: Record<string, unknown>): Record<string, unknown> {
@@ -155,6 +179,21 @@ function sanitizeFilesToolResultForModel(value: Record<string, unknown>): Record
       )
     : [];
 
+  const existingCharCount =
+    typeof value.charCount === "number" && Number.isFinite(value.charCount)
+      ? value.charCount
+      : null;
+  const sanitizedContent = sanitizeFilesContentForModel(value.content, existingCharCount);
+  const readNote =
+    typeof value.readNote === "string"
+      ? value.readNote
+      : value.readNote === null
+        ? null
+        : undefined;
+  const extractionQuality =
+    value.extractionQuality !== undefined ? value.extractionQuality : undefined;
+  const extractionCached = value.extractionCached === true ? true : undefined;
+
   return {
     toolCode: "files",
     executionMode: value.executionMode,
@@ -164,7 +203,12 @@ function sanitizeFilesToolResultForModel(value: Record<string, unknown>): Record
     warning: value.warning,
     item,
     items,
-    content: sanitizeFilesContentForModel(value.content),
+    content: sanitizedContent.content,
+    charCount: sanitizedContent.charCount,
+    truncated: sanitizedContent.truncated,
+    ...(readNote !== undefined ? { note: readNote } : {}),
+    ...(extractionQuality !== undefined ? { extractionQuality } : {}),
+    ...(extractionCached === true ? { extractionCached: true } : {}),
     job: null,
     queuedArtifacts: value.queuedArtifacts ?? 0
   };

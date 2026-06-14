@@ -1,9 +1,11 @@
 # ADR-070: Scaling readiness program and clean delivery discipline
 
 ## Status
+
 Accepted
 
 ## Context
+
 PersAI now has a substantial runtime/control-plane foundation, but the repo does not yet have one explicit program-level decision for how the system will become production-ready for `1000–5000` online users.
 
 The current state has three risks:
@@ -15,6 +17,7 @@ The current state has three risks:
 This repository already uses ADRs, roadmap slices, execution-plan docs, and session handoffs effectively for bounded architecture programs. Scaling readiness should follow the same discipline instead of creating an informal parallel process.
 
 ## Decision
+
 Use one explicit scaling-readiness program with a docs-first control layer.
 
 ### 1. One architecture source and one execution source
@@ -116,18 +119,22 @@ The target state for this program is:
 - go/no-go decisions are based on measured evidence, not optimistic inference
 
 ## Consequences
+
 ### Positive
+
 - Scaling work becomes a controlled program instead of an ad hoc sequence of fixes.
 - Cursor-agent sessions can resume reliably from docs without reconstructing intent from chat history.
 - Temporary rollout paths must either be removed or explicitly justified.
 - Production-readiness claims become tied to concrete evidence and gates.
 
 ### Negative
+
 - More documentation discipline is required before and after slices.
 - Some fast tactical changes will need to wait until they fit a named slice.
 - Temporary compatibility logic becomes more expensive to justify because it must carry a removal plan.
 
 ## Alternatives considered
+
 - Keep scaling work distributed across `ROADMAP`, `SESSION-HANDOFF`, and ad hoc notes only (rejected: weak source-of-truth and high agent-context loss risk).
 - Treat scaling as one broad refactor (rejected: too much scope, poor rollback, high drift risk).
 - Leave rollout/deploy timing informal per session (rejected: makes attribution and rollback unreliable for infra/runtime work).

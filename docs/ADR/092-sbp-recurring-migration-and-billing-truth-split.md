@@ -43,19 +43,19 @@ For **PROD**:
 
 Implementation work for the landed slices touched these areas; this ADR still does not prescribe line-by-line patches:
 
-| Area | Location |
-|------|----------|
-| Subscription read model / labels | `apps/api/src/modules/workspace-management/application/manage-assistant-billing-subscription.service.ts` |
-| Payment intent creation / recurring vs one-time | `apps/api/src/modules/workspace-management/application/manage-assistant-payment-intents.service.ts` |
-| Webhook → billing events → lifecycle | `apps/api/src/modules/workspace-management/application/handle-cloudpayments-webhook.service.ts` |
-| Provider mutation on billing events | `apps/api/src/modules/workspace-management/application/apply-workspace-subscription-billing-event.service.ts` |
-| CloudPayments API adapter | `apps/api/src/modules/workspace-management/infrastructure/billing/cloudpayments-constructor-billing-provider.adapter.ts` |
-| Billing → notification intents | `apps/api/src/modules/workspace-management/application/billing-lifecycle-producer.service.ts` |
-| Notification platform | `apps/api/src/modules/workspace-management/application/notifications/manage-notification-platform.service.ts` |
-| Email adapter | `apps/api/src/modules/workspace-management/infrastructure/notifications/channel-adapters/email-channel.adapter.ts` |
-| Billing templates | `apps/api/src/modules/workspace-management/application/notifications/templates/billing/` |
-| User settings UI | `apps/web/app/app/_components/assistant-settings.tsx` |
-| Public API contract | `packages/contracts/openapi.yaml` (`AssistantBillingSubscriptionManagementState`) |
+| Area                                            | Location                                                                                                                 |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Subscription read model / labels                | `apps/api/src/modules/workspace-management/application/manage-assistant-billing-subscription.service.ts`                 |
+| Payment intent creation / recurring vs one-time | `apps/api/src/modules/workspace-management/application/manage-assistant-payment-intents.service.ts`                      |
+| Webhook → billing events → lifecycle            | `apps/api/src/modules/workspace-management/application/handle-cloudpayments-webhook.service.ts`                          |
+| Provider mutation on billing events             | `apps/api/src/modules/workspace-management/application/apply-workspace-subscription-billing-event.service.ts`            |
+| CloudPayments API adapter                       | `apps/api/src/modules/workspace-management/infrastructure/billing/cloudpayments-constructor-billing-provider.adapter.ts` |
+| Billing → notification intents                  | `apps/api/src/modules/workspace-management/application/billing-lifecycle-producer.service.ts`                            |
+| Notification platform                           | `apps/api/src/modules/workspace-management/application/notifications/manage-notification-platform.service.ts`            |
+| Email adapter                                   | `apps/api/src/modules/workspace-management/infrastructure/notifications/channel-adapters/email-channel.adapter.ts`       |
+| Billing templates                               | `apps/api/src/modules/workspace-management/application/notifications/templates/billing/`                                 |
+| User settings UI                                | `apps/web/app/app/_components/assistant-settings.tsx`                                                                    |
+| Public API contract                             | `packages/contracts/openapi.yaml` (`AssistantBillingSubscriptionManagementState`)                                        |
 
 ---
 
@@ -65,13 +65,13 @@ Implementation work for the landed slices touched these areas; this ADR still do
 
 Introduce and enforce **two distinct** product concepts everywhere (API, DB projection, UI copy):
 
-| Term | Meaning |
-|------|---------|
-| **One-time payment method** | Class + optional display hints for a **single** successful capture (upgrade, first purchase, package, manual one-shot). |
-| **Recurring payment method** | The **provider-bound** instrument used for **next and subsequent** automatic charges while auto-renew is active (e.g. card token, or SBP-backed recurring **only** if provider API + PersAI state say so). |
-| **Last payment method** | The method class (and safe labels) for the **most recent successful** user-initiated or provider-settled payment that the product considers “last payment” for support UX. |
-| **Auto-renew method** | The method class (and safe labels) for **what will renew**; if auto-renew is disabled or not provider-managed, this MUST be `null` or an explicit `not_applicable` / `none` — never borrowed from “last payment”. |
-| **Recurring migration state** | PersAI-owned enum/state machine for **in-progress or failed** moves between recurring instruments (e.g. card → SBP). |
+| Term                             | Meaning                                                                                                                                                                                                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **One-time payment method**      | Class + optional display hints for a **single** successful capture (upgrade, first purchase, package, manual one-shot).                                                                                                                                                              |
+| **Recurring payment method**     | The **provider-bound** instrument used for **next and subsequent** automatic charges while auto-renew is active (e.g. card token, or SBP-backed recurring **only** if provider API + PersAI state say so).                                                                           |
+| **Last payment method**          | The method class (and safe labels) for the **most recent successful** user-initiated or provider-settled payment that the product considers “last payment” for support UX.                                                                                                           |
+| **Auto-renew method**            | The method class (and safe labels) for **what will renew**; if auto-renew is disabled or not provider-managed, this MUST be `null` or an explicit `not_applicable` / `none` — never borrowed from “last payment”.                                                                    |
+| **Recurring migration state**    | PersAI-owned enum/state machine for **in-progress or failed** moves between recurring instruments (e.g. card → SBP).                                                                                                                                                                 |
 | **Provider-confirmed migration** | Migration is **complete** only when PersAI has **both**: (a) persisted canonical fields matching target instrument, and (b) **positive confirmation** from provider callbacks/API fields required by the chosen integration (not inferred from a single one-time SBP success alone). |
 
 **Forbidden:** using one ambiguous `paymentMethodLabel` (or any single string) as **long-term** source of truth for both last payment and auto-renew. The OpenAPI field `paymentMethodLabel` MUST be **replaced in one bounded contract change** with explicit fields (see §D2). Partial renames or dual semantics are not allowed.
@@ -107,6 +107,7 @@ Introduce and enforce **two distinct** product concepts everywhere (API, DB proj
 4. **Card recurring flows** that do not involve SBP MUST remain correct; no regression on existing `card` recurring-start and renewals.
 
 **Implementation note:** `apply-workspace-subscription-billing-event.service.ts` and `cloudpayments-constructor-billing-provider.adapter.ts` MUST gain explicit hooks to:
+
 - run migration steps in order,
 - persist migration state transitions,
 - call provider APIs with the parameters documentation requires for SBP recurring (exact calls are **not** fixed in this ADR).
@@ -147,13 +148,13 @@ Whenever PersAI updates provider recurring **Amount**, **Period**, **StartDate**
 
 **Mandatory audit checklist** (implementation slice must close with evidence):
 
-| Hypothesis class | What to verify |
-|------------------|----------------|
-| Intent not created | `BillingLifecycleProducerService` / payment-success producer paths actually call `NotificationIntentService.createIntent` |
-| Intent not listed | `ManageNotificationPlatformService.listDeliveries` joins and filters include `source=billing_lifecycle` and new payment-success source if added |
-| Filter excludes rows | Admin UI filters default to showing billing rows; server accepts `source` filter values |
-| Lifecycle hides history | Intent rows are not deleted or over-written; `lifecycle_status` transitions remain queryable for history |
-| Bypass unified platform | No billing email path sends “around” `notification_intents` |
+| Hypothesis class        | What to verify                                                                                                                                  |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Intent not created      | `BillingLifecycleProducerService` / payment-success producer paths actually call `NotificationIntentService.createIntent`                       |
+| Intent not listed       | `ManageNotificationPlatformService.listDeliveries` joins and filters include `source=billing_lifecycle` and new payment-success source if added |
+| Filter excludes rows    | Admin UI filters default to showing billing rows; server accepts `source` filter values                                                         |
+| Lifecycle hides history | Intent rows are not deleted or over-written; `lifecycle_status` transitions remain queryable for history                                        |
+| Bypass unified platform | No billing email path sends “around” `notification_intents`                                                                                     |
 
 **Acceptance:** After a successful billing notification delivery, operators can see the intent and attempts in **`Admin > Notifications`** history; replay/webhook storms do not remove history.
 

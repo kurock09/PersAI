@@ -48,4 +48,3 @@ For Step 5 C2:
 - Telegram transport/domain expansion
 - Backend runtime behavior routing logic
 - Runtime session internals in backend chat domain tables
-

@@ -142,13 +142,25 @@ async function run(): Promise<void> {
         toolCode: "web_search",
         dailyCallLimit: 20,
         perTurnCap: 2,
+        maxFilePreviewBytes: null,
+        maxFilePreviewEdgePx: null,
         activationStatus: "active"
       },
       {
         toolCode: "image_generate",
         dailyCallLimit: 5,
         perTurnCap: null,
+        maxFilePreviewBytes: null,
+        maxFilePreviewEdgePx: null,
         activationStatus: "inactive"
+      },
+      {
+        toolCode: "files",
+        dailyCallLimit: 20,
+        perTurnCap: null,
+        maxFilePreviewBytes: 1_048_576,
+        maxFilePreviewEdgePx: 1024,
+        activationStatus: "active"
       }
     ],
     toolCredentialRefs: {
@@ -222,6 +234,9 @@ async function run(): Promise<void> {
   assert.match(filesPolicy?.usageGuidance ?? "", /files\.write_and_send when the user asks/);
   assert.match(filesPolicy?.usageGuidance ?? "", /filename is only a delivery-name override/);
   assert.match(filesPolicy?.usageGuidance ?? "", /Do not claim a file was sent unless/);
+  assert.match(filesPolicy?.usageGuidance ?? "", /files\.inspect/);
+  assert.equal(filesPolicy?.maxFilePreviewBytes, 1_048_576);
+  assert.equal(filesPolicy?.maxFilePreviewEdgePx, 1024);
   assert.equal(
     toolPolicies.filter((tool) => tool.toolCode === "quota_status").length,
     1,

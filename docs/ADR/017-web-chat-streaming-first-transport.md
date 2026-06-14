@@ -47,4 +47,3 @@ For Step 5 C3:
 - Telegram streaming or Telegram chat transport
 - Behavioral runtime routing logic in backend domain/application layers
 - Advanced streaming semantics (resume/replay/token metadata channels)
-

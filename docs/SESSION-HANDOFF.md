@@ -3,31 +3,50 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
-## 2026-06-14 - Program closure doc hygiene + media completion follow-ups
+## 2026-06-14 — ADR-116 Slice 116.2 landed (preview + injection)
 
 ### Baseline
 
-- `main` @ `4b63f2ef` (program closure doc hygiene).
+- Slices 116.0 + 116.1 in tree; 116.2 implementation uncommitted at session end.
 
-### Platform program status
+### What landed (116.2)
 
-- **No open orchestration program ADR.** The numbered execution programs through **ADR-115** are closed archive.
-- Last closed program: **ADR-115** inbound safety (2026-06-14).
-- Other recently closed programs still authoritative as **target-state** docs only: ADR-100 (project chat), ADR-102 (pre-PROD cleanup), ADR-105 (media jobs), ADR-106–109 (video/vcoin/HeyGen), ADR-112 (context/memory/tools), ADR-114 (reserve image transport).
-- New product work (e.g. skill internal flows/scenarios) needs **explicit user priority** and a **new ADR** — do not resume ADR-078 / ADR-102 slice order.
+- **`files.preview`:** image/\* and native PDF under plan `effectiveMaxPreviewBytes`; oversize → `preview_size_limit`; unsupported mime → `preview_unsupported`.
+- **Ephemeral injection:** tool result is JSON ack only; pixels/PDF via turn-local `pendingFilePreviewBlocks` → `toolFollowUpUserContent` on next provider call (after `toolHistory`).
+- **Unified hydration:** current-turn attachment direct-input uses bundle `effectiveMaxPreviewBytes` / `effectiveMaxPreviewEdgePx` instead of hardcoded 8 MB / 2048 px.
+- **New modules:** `runtime-file-preview-hydration.ts`; provider-gateway OpenAI + Anthropic append ephemeral user multimodal after tool history.
 
-### Recent landed code (2026-06-14)
+### Verification
 
-- Media job completion framing: `mediaCompletionVisionEnabled`, vision vs text-only delivery reply (`48bf0023`, `accd30ef`).
-- Vision input scoped to job outputs only; max output tokens 1000; warmer completion prompts.
-- `seriesItems` must be unique per frame (`fb2d2415`).
+- `runtime-files-tool.service.test.ts` (preview success / size limit / unsupported)
+- `@persai/runtime` / `@persai/provider-gateway` typecheck; lint + format gate
 
-### Doc hygiene (this session)
+### Next recommended slice
 
-- Retired stale ADR-102 / ADR-078 “active program” references from `AGENTS.md`, `ARCHITECTURE.md`, `ROADMAP.md`, cursor rules, and this handoff.
-- Replaced `.cursor/rules/adr072-runtime-continuity.mdc` with `persai-session-continuity.mdc`.
+- **ADR-116.3** — live acceptance, any remaining focused tests/docs.
+- **Deploy:** `runtime` + `provider-gateway` for 116.2; `api` + `web` if 116.0 migration/UI not yet deployed.
 
-### Next recommended step
+---
 
-- User-driven: audit skill scenarios / project-mode flows and draft **ADR-116** if product wants internal agent playbooks (e.g. marketer: Instagram carousel, product cards, avatar video).
-- Ops: deploy `api` + `runtime` for media completion + series fixes; re-materialize assistants after plan toggles.
+## 2026-06-14 — ADR-116 Slice 116.1 landed (read hardening)
+
+### Baseline
+
+- Slice 116.0 landed in tree; 116.1 implementation uncommitted at session end.
+
+### What landed (116.1)
+
+- **`files.read` document path:** `charCount`, `extractionQuality`, `readNote`, `extractionCached` on tool result; operational `warning` stays separate from `readNote`.
+- **Sanitizer:** when clipping `content` to 16k, model JSON gets `truncated: true` and `charCount` of the full text.
+- **Internal extract API:** `cached: true` on durable `assistant_files.metadata` cache hits (second read skips download/OCR).
+
+### Verification
+
+- `runtime-files-read-metadata.test.ts`, `runtime-files-tool.service.test.ts`, `sanitize-tool-result-for-model.test.ts`, `extract-internal-runtime-assistant-file.service.test.ts`
+- `@persai/api` / `@persai/runtime` typecheck
+
+### Next recommended slice
+
+- **ADR-116.2** — `files.preview` + ephemeral multimodal injection + unified hydration byte limit.
+- Then **116.3** live acceptance.
+- **Deploy:** `api` + `runtime` for 116.0 + 116.1; migration from 116.0 if not yet applied.

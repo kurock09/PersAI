@@ -161,6 +161,8 @@ function createPlanState(): AdminPlanState {
         active: true,
         dailyCallLimit: 2,
         perTurnCap: null,
+        maxFilePreviewBytes: null,
+        maxFilePreviewEdgePx: null,
         visibleInPlanEditor: true
       }
     ],
@@ -342,7 +344,9 @@ describe("admin plans page helpers", () => {
             policyClass: "plan_managed",
             active: true,
             dailyCallLimit: 2,
-            perTurnCap: null
+            perTurnCap: null,
+            maxFilePreviewBytes: null,
+            maxFilePreviewEdgePx: null
           },
           {
             toolCode: "image_generate",
@@ -351,7 +355,9 @@ describe("admin plans page helpers", () => {
             policyClass: "plan_managed",
             active: true,
             dailyCallLimit: 5,
-            perTurnCap: null
+            perTurnCap: null,
+            maxFilePreviewBytes: null,
+            maxFilePreviewEdgePx: null
           },
           {
             toolCode: "image_edit",
@@ -360,7 +366,9 @@ describe("admin plans page helpers", () => {
             policyClass: "plan_managed",
             active: true,
             dailyCallLimit: 5,
-            perTurnCap: null
+            perTurnCap: null,
+            maxFilePreviewBytes: null,
+            maxFilePreviewEdgePx: null
           }
         ]}
         onUpdate={() => {}}
@@ -587,6 +595,33 @@ describe("admin plans page helpers", () => {
     const snapshot = normalizePlanDraftForCompare(draft);
     expect(isPlanDraftDirty(snapshot, draft)).toBe(false);
     expect(isPlanDraftDirty(snapshot, { ...draft, mediaCompletionVisionEnabled: true })).toBe(true);
+  });
+
+  it("ADR-116 Slice 116.0 — files preview limits round-trip through planToDraft and draftToPayload", () => {
+    const plan = {
+      ...createPlanState(),
+      toolActivations: [
+        {
+          toolCode: "files",
+          displayName: "Files",
+          toolClass: "utility",
+          policyClass: "plan_managed",
+          active: true,
+          dailyCallLimit: 20,
+          perTurnCap: 10,
+          maxFilePreviewBytes: 1_048_576,
+          maxFilePreviewEdgePx: 1024,
+          visibleInPlanEditor: true
+        }
+      ]
+    } as AdminPlanState;
+    const draft = planToDraft(plan);
+    expect(draft.toolActivations[0]?.maxFilePreviewBytes).toBe(1_048_576);
+    expect(draft.toolActivations[0]?.maxFilePreviewEdgePx).toBe(1024);
+    const payload = draftToPayload(draft);
+    const filesActivation = payload.toolActivations?.find((ta) => ta.toolCode === "files");
+    expect(filesActivation?.maxFilePreviewBytes).toBe(1_048_576);
+    expect(filesActivation?.maxFilePreviewEdgePx).toBe(1024);
   });
 
   it("ADR-109 Slice 10c — talkingAvatarModelKey and talkingAvatarFallbackModelKey round-trip through draft and payload", () => {

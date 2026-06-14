@@ -378,6 +378,7 @@ export type InternalRuntimeFileExtractionOutcome =
       note: string | null;
       provider: unknown;
       quality: unknown;
+      cached: boolean;
     }
   | {
       extracted: false;
@@ -1784,7 +1785,8 @@ export class PersaiInternalApiClientService {
       markdown: typeof payload.markdown === "string" ? payload.markdown : null,
       note: typeof payload.note === "string" ? payload.note : null,
       provider: payload.provider,
-      quality: payload.quality
+      quality: payload.quality,
+      cached: payload.cached === true
     };
   }
 

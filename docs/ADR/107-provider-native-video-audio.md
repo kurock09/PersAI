@@ -144,11 +144,11 @@ The orchestrator must:
 
 | Slice | Title                              | Purpose                                                                                                                        | Deploy                           |
 | ----- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
-| 0     | Provider capability audit          | Map current OpenAI/Runway/Kling audio, voice-control, multi-image, and Omni API shapes against current PersAI seams          | NO                               |
+| 0     | Provider capability audit          | Map current OpenAI/Runway/Kling audio, voice-control, multi-image, and Omni API shapes against current PersAI seams            | NO                               |
 | 1     | Contract and catalog capability    | Add durable capability truth for native audio, voice control, multi-image, and Omni eligibility without changing execution yet | CONTRACT/API/WEB                 |
 | 2     | Admin selection and validation     | Let admins configure the new video capability truth and prevent impossible plan/runtime selections                             | API/WEB                          |
-| 3     | Materialization and runtime intent | Materialize audio/input-mode truth and make runtime distinguish silent, audio, voice-control, multi-image, and Omni requests  | API/RUNTIME                      |
-| 4     | Provider-gateway extended mapping  | Implement proven provider mappings: Kling standard audio first, then Kling multi-image/Omni, and Runway only where docs prove | PROVIDER-GATEWAY/RUNTIME         |
+| 3     | Materialization and runtime intent | Materialize audio/input-mode truth and make runtime distinguish silent, audio, voice-control, multi-image, and Omni requests   | API/RUNTIME                      |
+| 4     | Provider-gateway extended mapping  | Implement proven provider mappings: Kling standard audio first, then Kling multi-image/Omni, and Runway only where docs prove  | PROVIDER-GATEWAY/RUNTIME         |
 | 5     | Billing, delivery honesty, verify  | Attribute cost honestly and verify user-visible audio/voice/input-mode outcomes                                                | API/RUNTIME/PROVIDER-GATEWAY/WEB |
 
 Minimum useful path for honest catalog/admin support: `0 -> 1 -> 2`.

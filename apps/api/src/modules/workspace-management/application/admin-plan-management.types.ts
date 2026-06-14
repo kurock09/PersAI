@@ -35,6 +35,10 @@ export type AdminPlanToolActivation = {
    */
   perTurnCap: number | null;
   visibleInPlanEditor: boolean;
+  /** ADR-116 — `files` tool only; NULL on other tools in API responses. */
+  maxFilePreviewBytes: number | null;
+  /** ADR-116 — `files` tool only; NULL on other tools in API responses. */
+  maxFilePreviewEdgePx: number | null;
 };
 
 export type AdminPlanToolActivationInput = {
@@ -43,6 +47,10 @@ export type AdminPlanToolActivationInput = {
   dailyCallLimit: number | null;
   /** ADR-074 Slice L1 — see `AdminPlanToolActivation.perTurnCap`. */
   perTurnCap: number | null;
+  /** ADR-116 — `files` tool only. */
+  maxFilePreviewBytes?: number | null;
+  /** ADR-116 — `files` tool only. */
+  maxFilePreviewEdgePx?: number | null;
 };
 
 /**

@@ -21,16 +21,16 @@ ADR-044 explicitly placed content moderation out of scope. This ADR closes that 
 
 ### Existing code truth (baseline)
 
-| Area | Today | Gap |
-| ---- | ----- | --- |
-| Inbound layer order | `PrepareAssistantInboundTurnService` and `HandleInternalTelegramTurnService` run **quota before abuse** | Reorder to canonical **safety → abuse → quota** in slice **115.0** (PROD-correct from day one) |
-| Spam / flood | `EnforceAbuseRateLimitService` + `assistant_abuse_*` tables (ADR-044) | Works; cleanup deferred (see Non-goals) |
-| Quota | `EnforceAssistantCapabilityAndQuotaService` | Must stay separate |
-| Runtime routing | `TurnRoutingService` (`precheckRuleOverrides`, term lists) | Model/skills routing — **not** safety; do not reuse those lists |
-| Content safety | Provider policy errors on media tools (reactive) | No preventive inbound safety gate |
-| Admin unblock | `POST /api/v1/admin/abuse-controls/unblock` | Rate-limit scoped; no user-wide safety restriction model |
-| Admin safety policy UI | `/admin/runtime` (router/provider only); `/admin/ops` (user cockpit); `/admin/abuse` (spam) | No contour-1 heuristic editor; no per-user safety restriction UX |
-| User notice | `rate_limited` / error-class UX | Tone/copy deferred to a later slice |
+| Area                   | Today                                                                                                   | Gap                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Inbound layer order    | `PrepareAssistantInboundTurnService` and `HandleInternalTelegramTurnService` run **quota before abuse** | Reorder to canonical **safety → abuse → quota** in slice **115.0** (PROD-correct from day one) |
+| Spam / flood           | `EnforceAbuseRateLimitService` + `assistant_abuse_*` tables (ADR-044)                                   | Works; cleanup deferred (see Non-goals)                                                        |
+| Quota                  | `EnforceAssistantCapabilityAndQuotaService`                                                             | Must stay separate                                                                             |
+| Runtime routing        | `TurnRoutingService` (`precheckRuleOverrides`, term lists)                                              | Model/skills routing — **not** safety; do not reuse those lists                                |
+| Content safety         | Provider policy errors on media tools (reactive)                                                        | No preventive inbound safety gate                                                              |
+| Admin unblock          | `POST /api/v1/admin/abuse-controls/unblock`                                                             | Rate-limit scoped; no user-wide safety restriction model                                       |
+| Admin safety policy UI | `/admin/runtime` (router/provider only); `/admin/ops` (user cockpit); `/admin/abuse` (spam)             | No contour-1 heuristic editor; no per-user safety restriction UX                               |
+| User notice            | `rate_limited` / error-class UX                                                                         | Tone/copy deferred to a later slice                                                            |
 
 ## Non-goals
 
@@ -47,11 +47,11 @@ ADR-044 explicitly placed content moderation out of scope. This ADR closes that 
 
 ### D1 — Three independent inbound layers (never merge semantics)
 
-| Layer | Purpose | Persistence | Scope |
-| ----- | ------- | ----------- | ----- |
-| Quota / entitlement | plan limits, billing | existing quota tables | workspace / assistant resolution |
-| Spam throttle (ADR-044) | request flood | `assistant_abuse_guard_states` etc. | assistant + user + surface |
-| **Safety restriction** | harmful / illegal / platform misuse | **`user_restrictions`** (new) | **user-wide** |
+| Layer                   | Purpose                             | Persistence                         | Scope                            |
+| ----------------------- | ----------------------------------- | ----------------------------------- | -------------------------------- |
+| Quota / entitlement     | plan limits, billing                | existing quota tables               | workspace / assistant resolution |
+| Spam throttle (ADR-044) | request flood                       | `assistant_abuse_guard_states` etc. | assistant + user + surface       |
+| **Safety restriction**  | harmful / illegal / platform misuse | **`user_restrictions`** (new)       | **user-wide**                    |
 
 **Canonical PROD enforcement order** at API inbound boundaries (`PrepareAssistantInboundTurnService`, `HandleInternalTelegramTurnService`):
 
@@ -76,22 +76,22 @@ ADR-044 explicitly placed content moderation out of scope. This ADR closes that 
 
 **Output:** `InboundSafetyPrecheckOutcome`:
 
-| Field | Type | Notes |
-| ----- | ---- | ----- |
-| `route` | `allow` \| `defer_contour_2` \| `block_obvious` | `block_obvious` is rare |
-| `confidence` | `none` \| `low` \| `medium` \| `high` | drives routing |
-| `reasonCode` | string | machine-readable |
-| `rulePack` | string \| null | which heuristic pack matched |
-| `matchedSignals` | string[] | for audit; no PII in logs |
+| Field            | Type                                            | Notes                        |
+| ---------------- | ----------------------------------------------- | ---------------------------- |
+| `route`          | `allow` \| `defer_contour_2` \| `block_obvious` | `block_obvious` is rare      |
+| `confidence`     | `none` \| `low` \| `medium` \| `high`           | drives routing               |
+| `reasonCode`     | string                                          | machine-readable             |
+| `rulePack`       | string \| null                                  | which heuristic pack matched |
+| `matchedSignals` | string[]                                        | for audit; no PII in logs    |
 
 **Rule packs (v1 intent, not profanity):**
 
-| Pack | Examples | Typical route |
-| ---- | -------- | ------------- |
+| Pack                          | Examples                                                                 | Typical route                                        |
+| ----------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------- |
 | `violence_extremism_explicit` | explicit terrorism / mass-violence instructions (RU+EN curated patterns) | `defer_c2` or `block_obvious` when confidence `high` |
-| `hack_abuse_request` | credential theft, unauthorized intrusion, malware distribution requests | usually `defer_c2` (legit security questions exist) |
-| `unsolicited_adult_spam` | mass porn link spam, “разошли порно”, flood of adult URLs | `defer_c2`; `block_obvious` only on very high signal |
-| `structural_abuse_signal` | empty/link-only repeats, base64 noise, attachment anomaly | `defer_c2` |
+| `hack_abuse_request`          | credential theft, unauthorized intrusion, malware distribution requests  | usually `defer_c2` (legit security questions exist)  |
+| `unsolicited_adult_spam`      | mass porn link spam, “разошли порно”, flood of adult URLs                | `defer_c2`; `block_obvious` only on very high signal |
+| `structural_abuse_signal`     | empty/link-only repeats, base64 noise, attachment anomaly                | `defer_c2`                                           |
 
 **Routing rules (canonical):**
 
@@ -102,12 +102,12 @@ ADR-044 explicitly placed content moderation out of scope. This ADR closes that 
 
 **Heuristic storage (canonical):**
 
-| Layer | Location | Notes |
-| ----- | -------- | ----- |
-| **PROD truth** | `safety_heuristic_rules` table | pattern/regex, `pack`, `locale`, `weight`, `enabled`, audit timestamps |
-| **Baseline** | versioned seed under `apps/api/prisma/` | reproducible ~50–100 curated rules on migrate/deploy (same pattern as tool-catalog / bootstrap presets) |
-| **Runtime read** | `EvaluateInboundSafetyPrecheckService` | in-memory cache loaded from DB; reload on admin policy save |
-| **Admin edit** | `/admin/runtime` → **Inbound safety** section | see **D5**; **not** ops, **not** abuse |
+| Layer            | Location                                      | Notes                                                                                                   |
+| ---------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **PROD truth**   | `safety_heuristic_rules` table                | pattern/regex, `pack`, `locale`, `weight`, `enabled`, audit timestamps                                  |
+| **Baseline**     | versioned seed under `apps/api/prisma/`       | reproducible ~50–100 curated rules on migrate/deploy (same pattern as tool-catalog / bootstrap presets) |
+| **Runtime read** | `EvaluateInboundSafetyPrecheckService`        | in-memory cache loaded from DB; reload on admin policy save                                             |
+| **Admin edit**   | `/admin/runtime` → **Inbound safety** section | see **D5**; **not** ops, **not** abuse                                                                  |
 
 **Explicit non-storage:**
 
@@ -138,17 +138,17 @@ ADR-044 explicitly placed content moderation out of scope. This ADR closes that 
 
 **Table:** `user_restrictions`
 
-| Column | Purpose |
-| ------ | ------- |
-| `userId` | PK / unique active row per kind |
-| `kind` | `safety` (v1); reserve `spam_global` for future |
-| `status` | `active` \| `cleared` |
-| `blockedUntil` | null = until manual clear |
-| `reasonCode` | e.g. `violence_extremism`, `unsolicited_adult_spam`, `hack_abuse` |
-| `source` | `moderation_auto` \| `admin` |
-| `sourceAssistantId` | triggering assistant |
-| `sourceModerationCaseId` | FK to case |
-| `createdAt` / `clearedAt` / `clearedByUserId` | audit |
+| Column                                        | Purpose                                                           |
+| --------------------------------------------- | ----------------------------------------------------------------- |
+| `userId`                                      | PK / unique active row per kind                                   |
+| `kind`                                        | `safety` (v1); reserve `spam_global` for future                   |
+| `status`                                      | `active` \| `cleared`                                             |
+| `blockedUntil`                                | null = until manual clear                                         |
+| `reasonCode`                                  | e.g. `violence_extremism`, `unsolicited_adult_spam`, `hack_abuse` |
+| `source`                                      | `moderation_auto` \| `admin`                                      |
+| `sourceAssistantId`                           | triggering assistant                                              |
+| `sourceModerationCaseId`                      | FK to case                                                        |
+| `createdAt` / `clearedAt` / `clearedByUserId` | audit                                                             |
 
 **Rule:** any active `safety` restriction on `userId` denies **all** inbound turns for that user (all assistants, all surfaces).
 
@@ -156,33 +156,33 @@ ADR-044 explicitly placed content moderation out of scope. This ADR closes that 
 
 Three existing admin pages — **no fourth nav item** for v1. Do **not** bolt heuristic regex editing onto `/admin/ops` (already a large user cockpit) or `/admin/abuse` (ADR-044 spam only).
 
-| Admin page | Safety scope | v1 UI |
-| ---------- | ------------ | ----- |
-| **`/admin/runtime`** | **Platform policy** — contour-1 heuristic rules, routing knobs, optional C2 config display | New **Inbound safety** section (pack tabs, rule table, enable/disable, routing knobs) |
-| **`/admin/ops`** | **Per-user incidents** — restriction badge, incident signal, unblock/restrict from user cockpit, link to source case | Thin layer on existing user directory + detail panel (no global cases browser, no rule editor) |
-| **`/admin/abuse`** | **Spam throttle only** (ADR-044) | Unchanged; operators must **not** use abuse unblock for `user_restrictions` |
+| Admin page           | Safety scope                                                                                                         | v1 UI                                                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **`/admin/runtime`** | **Platform policy** — contour-1 heuristic rules, routing knobs, optional C2 config display                           | New **Inbound safety** section (pack tabs, rule table, enable/disable, routing knobs)          |
+| **`/admin/ops`**     | **Per-user incidents** — restriction badge, incident signal, unblock/restrict from user cockpit, link to source case | Thin layer on existing user directory + detail panel (no global cases browser, no rule editor) |
+| **`/admin/abuse`**   | **Spam throttle only** (ADR-044)                                                                                     | Unchanged; operators must **not** use abuse unblock for `user_restrictions`                    |
 
 **Auth:** same roles as abuse controls — `ops_admin` \| `security_admin` \| `super_admin`; permanent restrict / policy edit may require `super_admin` or step-up (match ADR-038).
 
 #### D5a — Safety policy API (`/admin/runtime` backing)
 
-| Endpoint | Purpose |
-| -------- | ------- |
-| `GET /api/v1/admin/safety-policy/heuristic-rules` | list contour-1 rules (filter by pack/locale/enabled) |
-| `PUT /api/v1/admin/safety-policy/heuristic-rules` | bulk upsert rules from runtime admin save |
-| `GET /api/v1/admin/safety-policy/settings` | routing knobs + C2 display config |
-| `PUT /api/v1/admin/safety-policy/settings` | update knobs (sync hold timeout, instant-block allowlist, etc.) |
+| Endpoint                                          | Purpose                                                         |
+| ------------------------------------------------- | --------------------------------------------------------------- |
+| `GET /api/v1/admin/safety-policy/heuristic-rules` | list contour-1 rules (filter by pack/locale/enabled)            |
+| `PUT /api/v1/admin/safety-policy/heuristic-rules` | bulk upsert rules from runtime admin save                       |
+| `GET /api/v1/admin/safety-policy/settings`        | routing knobs + C2 display config                               |
+| `PUT /api/v1/admin/safety-policy/settings`        | update knobs (sync hold timeout, instant-block allowlist, etc.) |
 
 Implement via `ManageAdminSafetyPolicyService` + `AdminSafetyPolicyController`. Reuse save/validation patterns from `ManageAdminRuntimeProviderSettingsService`, but **separate** persistence from `platform_runtime_provider_settings`.
 
 #### D5b — Safety controls API (`/admin/ops` backing)
 
-| Endpoint | Purpose |
-| -------- | ------- |
-| `GET /api/v1/admin/safety-controls/restrictions` | list active user restrictions (ops global count + user drill-down) |
-| `GET /api/v1/admin/safety-controls/cases` | fetch moderation case(s) by id or `userId` (not a full global queue in v1) |
-| `POST /api/v1/admin/safety-controls/unblock` | clear user `safety` restriction + audit |
-| `POST /api/v1/admin/safety-controls/restrict` | manual restrict user (admin source) |
+| Endpoint                                         | Purpose                                                                    |
+| ------------------------------------------------ | -------------------------------------------------------------------------- |
+| `GET /api/v1/admin/safety-controls/restrictions` | list active user restrictions (ops global count + user drill-down)         |
+| `GET /api/v1/admin/safety-controls/cases`        | fetch moderation case(s) by id or `userId` (not a full global queue in v1) |
+| `POST /api/v1/admin/safety-controls/unblock`     | clear user `safety` restriction + audit                                    |
+| `POST /api/v1/admin/safety-controls/restrict`    | manual restrict user (admin source)                                        |
 
 Extend `ResolveAdminOpsCockpitService` / ops contracts with `safetyRestriction` summary + `incidentSignals` entry when active. Reuse patterns from `ManageAdminAbuseControlsService`; **do not** require abuse unblock for safety.
 
@@ -225,16 +225,16 @@ On safety deny at inbound:
 
 ## Alternatives considered
 
-| Alternative | Verdict |
-| ----------- | ------- |
-| Reuse `assistant_abuse_guard_states` for safety blocks | Rejected — mixes counters with semantic policy; wrong granularity (assistant vs user) |
-| Only OpenAI Moderation, no contour 1 | Rejected — no routing/throttle for obvious patterns; higher cost |
-| Only contour 1 heuristics, no C2 | Rejected — unacceptable false positive/negative tradeoff for hacking/extremism |
-| Per-assistant safety block | Rejected — founder rule is user-wide |
-| Block profanity via word lists | Rejected — explicit non-goal |
-| Store C1 heuristics in `routerPolicy.precheckRuleOverrides` | Rejected — routing skills/terms, not safety semantics |
-| Single new `/admin/safety` page for everything | Rejected — reuse runtime (policy) + ops (incidents); avoid nav sprawl |
-| Full safety UI on `/admin/ops` (rules + cases + unblock) | Rejected — ops cockpit already large; ops gets user-level actions only |
+| Alternative                                                 | Verdict                                                                               |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Reuse `assistant_abuse_guard_states` for safety blocks      | Rejected — mixes counters with semantic policy; wrong granularity (assistant vs user) |
+| Only OpenAI Moderation, no contour 1                        | Rejected — no routing/throttle for obvious patterns; higher cost                      |
+| Only contour 1 heuristics, no C2                            | Rejected — unacceptable false positive/negative tradeoff for hacking/extremism        |
+| Per-assistant safety block                                  | Rejected — founder rule is user-wide                                                  |
+| Block profanity via word lists                              | Rejected — explicit non-goal                                                          |
+| Store C1 heuristics in `routerPolicy.precheckRuleOverrides` | Rejected — routing skills/terms, not safety semantics                                 |
+| Single new `/admin/safety` page for everything              | Rejected — reuse runtime (policy) + ops (incidents); avoid nav sprawl                 |
+| Full safety UI on `/admin/ops` (rules + cases + unblock)    | Rejected — ops cockpit already large; ops gets user-level actions only                |
 
 ## Agent execution program
 
@@ -246,18 +246,18 @@ On safety deny at inbound:
 4. Run AGENTS.md verification gate before claiming clean.
 5. **Do not** implement abuse refactor or user-facing copy tone unless the slice explicitly says so.
 
-| Slice | Title | Deploy | Depends |
-| ----- | ----- | ------ | ------- |
-| **115.0** | Data model + inbound gate skeleton + canonical inbound order | DEPLOY REQUIRED (api) | — |
-| **115.1** | Contour 1 heuristics + routing + safety-policy API | DEPLOY REQUIRED (api) | 115.0 |
-| **115.2** | Contour 2 async job + Moderation API | DEPLOY REQUIRED (api) | 115.0 |
-| **115.3** | User deny at inbound + reason codes | DEPLOY REQUIRED (api) | 115.0, 115.2 |
-| **115.4** | Safety controls API + Ops user-level UI | DEPLOY REQUIRED (api, web) | 115.0, 115.2 |
-| **115.5** | Admin notifications + focused tests | DEPLOY REQUIRED (api) | 115.2, 115.4 |
-| **115.6** | Runtime inbound-safety policy UI | DEPLOY REQUIRED (web) | 115.1 |
-| **115.7** | User warn UX + strike escalation | DEPLOY REQUIRED (api, web) | 115.2, 115.3 |
-| **—** | Abuse cleanup (ADR-044 hygiene) | separate program | **not part of 115** |
-| **—** | User notice tone/i18n | separate program | after 115.3 |
+| Slice     | Title                                                        | Deploy                     | Depends             |
+| --------- | ------------------------------------------------------------ | -------------------------- | ------------------- |
+| **115.0** | Data model + inbound gate skeleton + canonical inbound order | DEPLOY REQUIRED (api)      | —                   |
+| **115.1** | Contour 1 heuristics + routing + safety-policy API           | DEPLOY REQUIRED (api)      | 115.0               |
+| **115.2** | Contour 2 async job + Moderation API                         | DEPLOY REQUIRED (api)      | 115.0               |
+| **115.3** | User deny at inbound + reason codes                          | DEPLOY REQUIRED (api)      | 115.0, 115.2        |
+| **115.4** | Safety controls API + Ops user-level UI                      | DEPLOY REQUIRED (api, web) | 115.0, 115.2        |
+| **115.5** | Admin notifications + focused tests                          | DEPLOY REQUIRED (api)      | 115.2, 115.4        |
+| **115.6** | Runtime inbound-safety policy UI                             | DEPLOY REQUIRED (web)      | 115.1               |
+| **115.7** | User warn UX + strike escalation                             | DEPLOY REQUIRED (api, web) | 115.2, 115.3        |
+| **—**     | Abuse cleanup (ADR-044 hygiene)                              | separate program           | **not part of 115** |
+| **—**     | User notice tone/i18n                                        | separate program           | after 115.3         |
 
 **Minimum path:** `115.0 → 115.1 → 115.2 → 115.3 → 115.4`. Slice **115.6** (runtime policy UI) ships after **115.1**; may trail **115.4** if ops unblock is higher priority than live rule editing.
 
@@ -389,11 +389,11 @@ On safety deny at inbound:
 
 **Policy (canonical):**
 
-| Pack / class | First incident | Repeat within strike window |
-| --- | --- | --- |
-| `violence_extremism_explicit`, `sexual/minors` | Block (sync hold or immediate) | Block |
-| `hack_abuse_request`, `structural_abuse_signal`, `unsolicited_adult_spam` | **Warn** (no `user_restrictions`) | Block at inbound (sync review) |
-| Other deferred medium/high | Warn when below block threshold | Block when prior warn exists for same `reasonCode` |
+| Pack / class                                                              | First incident                    | Repeat within strike window                        |
+| ------------------------------------------------------------------------- | --------------------------------- | -------------------------------------------------- |
+| `violence_extremism_explicit`, `sexual/minors`                            | Block (sync hold or immediate)    | Block                                              |
+| `hack_abuse_request`, `structural_abuse_signal`, `unsolicited_adult_spam` | **Warn** (no `user_restrictions`) | Block at inbound (sync review)                     |
+| Other deferred medium/high                                                | Warn when below block threshold   | Block when prior warn exists for same `reasonCode` |
 
 **Strike truth:** count `moderation_cases` with `decision = warn` for `userId + reasonCode` in rolling window (`SAFETY_MODERATION_STRIKE_WINDOW_DAYS`, default 30). Second qualifying incident escalates to `block_user` + `user_restrictions`.
 
@@ -436,28 +436,28 @@ Focused tests per slice as listed in `TEST-PLAN.md` § ADR-115 (to be added in s
 
 ## Execution ledger
 
-| Slice | Status | Baseline SHA | Notes |
-| ----- | ------ | ------------ | ----- |
-| 115.0 | complete | `aa0d69fb` | schema + read-only gate + inbound order |
-| 115.1 | complete | `aa0d69fb` | contour-1 precheck + policy API + C2 enqueue stub |
-| 115.2 | complete | `aa0d69fb` | contour-2 worker + Moderation API + cases + auto restrict |
-| 115.3 | complete | `e797a172` | sync hold + safety_restricted deny + web mapping |
-| 115.4 | complete | `e797a172` | safety controls API + ops UI |
-| 115.5 | complete | `c36208e4` | safety_user_restricted admin_system + user email labels |
-| 115.6 | complete | `e797a172` | runtime inbound-safety policy UI |
-| 115.7 | complete | `a35d17c3` | warn UX, strikes, pack thresholds, platformNotice |
+| Slice | Status   | Baseline SHA | Notes                                                     |
+| ----- | -------- | ------------ | --------------------------------------------------------- |
+| 115.0 | complete | `aa0d69fb`   | schema + read-only gate + inbound order                   |
+| 115.1 | complete | `aa0d69fb`   | contour-1 precheck + policy API + C2 enqueue stub         |
+| 115.2 | complete | `aa0d69fb`   | contour-2 worker + Moderation API + cases + auto restrict |
+| 115.3 | complete | `e797a172`   | sync hold + safety_restricted deny + web mapping          |
+| 115.4 | complete | `e797a172`   | safety controls API + ops UI                              |
+| 115.5 | complete | `c36208e4`   | safety_user_restricted admin_system + user email labels   |
+| 115.6 | complete | `e797a172`   | runtime inbound-safety policy UI                          |
+| 115.7 | complete | `a35d17c3`   | warn UX, strikes, pack thresholds, platformNotice         |
 
 ## Program closure (2026-06-14)
 
 All core slices shipped. Follow-through polish (not new slice numbers):
 
-| Item | Status | Baseline SHA | Notes |
-| ---- | ------ | ------------ | ----- |
-| Warn banner above composer (web) | complete | `989fc2b8` | Matches restrict-banner layout; no in-thread card |
-| TG warn in-chat + restrict i18n | complete | `989fc2b8` | `DeliverSafetyInboundWarnNoticeService`; `reasonCode` copy |
-| Admin `safety_user_restricted` notifications | complete | `989fc2b8` | Slice 115.5 follow-through |
-| Sidebar safety standing icons + modal | complete | `4f72286e` | `userSafety` bootstrap; warn/block affordance on assistant card |
-| Warn copy chat-context framing | complete | `4f72286e` | Web/TG/sidebar text references prior messages in thread |
-| Outbound message moderation | **not planned** | — | Explicitly out of program scope |
+| Item                                         | Status          | Baseline SHA | Notes                                                           |
+| -------------------------------------------- | --------------- | ------------ | --------------------------------------------------------------- |
+| Warn banner above composer (web)             | complete        | `989fc2b8`   | Matches restrict-banner layout; no in-thread card               |
+| TG warn in-chat + restrict i18n              | complete        | `989fc2b8`   | `DeliverSafetyInboundWarnNoticeService`; `reasonCode` copy      |
+| Admin `safety_user_restricted` notifications | complete        | `989fc2b8`   | Slice 115.5 follow-through                                      |
+| Sidebar safety standing icons + modal        | complete        | `4f72286e`   | `userSafety` bootstrap; warn/block affordance on assistant card |
+| Warn copy chat-context framing               | complete        | `4f72286e`   | Web/TG/sidebar text references prior messages in thread         |
+| Outbound message moderation                  | **not planned** | —            | Explicitly out of program scope                                 |
 
 **Residual / ops:** live validation on dev after deploy; strike window remains config (`SAFETY_MODERATION_STRIKE_WINDOW_DAYS`, default 30).

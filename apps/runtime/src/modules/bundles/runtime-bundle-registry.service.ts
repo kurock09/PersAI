@@ -342,6 +342,20 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
         );
       }
     }
+    if (policy.maxFilePreviewBytes !== null && policy.maxFilePreviewBytes !== undefined) {
+      if (!Number.isInteger(policy.maxFilePreviewBytes) || policy.maxFilePreviewBytes <= 0) {
+        throw new BadRequestException(
+          `bundleDocument.governance.toolPolicies["${policy.toolCode}"].maxFilePreviewBytes must be null, omitted, or a strictly-positive integer`
+        );
+      }
+    }
+    if (policy.maxFilePreviewEdgePx !== null && policy.maxFilePreviewEdgePx !== undefined) {
+      if (!Number.isInteger(policy.maxFilePreviewEdgePx) || policy.maxFilePreviewEdgePx <= 0) {
+        throw new BadRequestException(
+          `bundleDocument.governance.toolPolicies["${policy.toolCode}"].maxFilePreviewEdgePx must be null, omitted, or a strictly-positive integer`
+        );
+      }
+    }
     if (policy.kind === "internal" && policy.visibleToModel) {
       throw new BadRequestException(
         `bundleDocument.governance.toolPolicies["${policy.toolCode}"] cannot be internal and model-visible`

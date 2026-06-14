@@ -33,28 +33,28 @@ Two ordered steps. **Step 1 = backend slice (the feature).** **Step 2 = admin su
 
 **1.1 Policy schema (per-plan and global).** Two configuration surfaces, one purpose each:
 
-| Where | Owns | New keys |
-|---|---|---|
-| `billingHints.retrievalPolicy` (per plan, [`manage-admin-plans.service.ts`](../../apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts)) | **Volume allowed for tier** | `smartSearchShortDocChars`, `smartSearchMediumDocChars`, `chatSectionDefaultRadius`, `fetchFullModeMaxChars`, `fetchFullModeMaxChatMessages` (all positive ints, in addition to existing keys) |
-| Admin Knowledge ([`admin-knowledge-retrieval-policy.ts`](../../apps/api/src/modules/workspace-management/application/admin-knowledge-retrieval-policy.ts)) | **Hard ceilings + form of response** | `smartSearchEnabled` (bool), `smartSearchLongDocSummaryChars` (positive int), `fetchFullModeAbsoluteMaxChars` (positive int), `fetchFullModeAbsoluteMaxChatMessages` (positive int) |
+| Where                                                                                                                                                                   | Owns                                 | New keys                                                                                                                                                                                       |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `billingHints.retrievalPolicy` (per plan, [`manage-admin-plans.service.ts`](../../apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts)) | **Volume allowed for tier**          | `smartSearchShortDocChars`, `smartSearchMediumDocChars`, `chatSectionDefaultRadius`, `fetchFullModeMaxChars`, `fetchFullModeMaxChatMessages` (all positive ints, in addition to existing keys) |
+| Admin Knowledge ([`admin-knowledge-retrieval-policy.ts`](../../apps/api/src/modules/workspace-management/application/admin-knowledge-retrieval-policy.ts))              | **Hard ceilings + form of response** | `smartSearchEnabled` (bool), `smartSearchLongDocSummaryChars` (positive int), `fetchFullModeAbsoluteMaxChars` (positive int), `fetchFullModeAbsoluteMaxChatMessages` (positive int)            |
 
 Effective per-call limit = `min(plan.fetchFullModeMaxChars, admin.fetchFullModeAbsoluteMaxChars)` and analogously for chat messages. `KnowledgeRetrievalPolicy` reading paths fall back to a **Start-tier-grade default** (not the current Free-grade default) so existing plan rows without overrides become reasonable across the catalog.
 
 **Recommended values per role** (admin applies them through the existing JSON billing-hints UI in this step; full UI lands in Step 2):
 
-| Field | Free | Start | Plus | Premium | Pro/Biz |
-|---|---:|---:|---:|---:|---:|
-| `defaultMaxResults` | 5 | 6 | 7 | 8 | 10 |
-| `maxMaxResults` | 8 | 10 | 12 | 15 | 20 |
-| `knowledgeFetchWindowRadius` | 2 | 3 | 4 | 5 | 6 |
-| `chatFetchWindowRadius` | 5 | 10 | 15 | 20 | 30 |
-| `fetchMaxChars` | 4 000 | 8 000 | 14 000 | 25 000 | 40 000 |
-| `helperEnabled` | false | true | true | true | true |
-| `smartSearchShortDocChars` | 1 500 | 2 000 | 2 500 | 3 000 | 4 000 |
-| `smartSearchMediumDocChars` | 5 000 | 8 000 | 10 000 | 14 000 | 20 000 |
-| `chatSectionDefaultRadius` | 10 | 15 | 20 | 30 | 50 |
-| `fetchFullModeMaxChars` | 12 000 | 25 000 | 40 000 | 60 000 | 100 000 |
-| `fetchFullModeMaxChatMessages` | 80 | 150 | 250 | 400 | 800 |
+| Field                          |   Free |  Start |   Plus | Premium | Pro/Biz |
+| ------------------------------ | -----: | -----: | -----: | ------: | ------: |
+| `defaultMaxResults`            |      5 |      6 |      7 |       8 |      10 |
+| `maxMaxResults`                |      8 |     10 |     12 |      15 |      20 |
+| `knowledgeFetchWindowRadius`   |      2 |      3 |      4 |       5 |       6 |
+| `chatFetchWindowRadius`        |      5 |     10 |     15 |      20 |      30 |
+| `fetchMaxChars`                |  4 000 |  8 000 | 14 000 |  25 000 |  40 000 |
+| `helperEnabled`                |  false |   true |   true |    true |    true |
+| `smartSearchShortDocChars`     |  1 500 |  2 000 |  2 500 |   3 000 |   4 000 |
+| `smartSearchMediumDocChars`    |  5 000 |  8 000 | 10 000 |  14 000 |  20 000 |
+| `chatSectionDefaultRadius`     |     10 |     15 |     20 |      30 |      50 |
+| `fetchFullModeMaxChars`        | 12 000 | 25 000 | 40 000 |  60 000 | 100 000 |
+| `fetchFullModeMaxChatMessages` |     80 |    150 |    250 |     400 |     800 |
 
 Admin Knowledge ceilings: `smartSearchEnabled = true`, `smartSearchLongDocSummaryChars = 800`, `fetchFullModeAbsoluteMaxChars = 500 000`, `fetchFullModeAbsoluteMaxChatMessages = 800`.
 
@@ -108,17 +108,17 @@ Chat is a first-class source: `mode = section` for chat means the configured `ch
 
 Mandatory. **Critical findings block Step 2** (per ADR-093 progression gate). Quality findings either land in the Step-1 slice or are explicitly deferred with reason in handoff.
 
-| Audit | Question | Pass criterion |
-|---|---|---|
-| **CI gate** | `format:check`, `lint -r`, `typecheck`, `test` | All four green on the Step-1 branch. |
-| **Skill-base contract** | Do `seed-base-skills.ts` skills + currently-published skills run the new tools without surface change? | Targeted runtime-knowledge-tool tests cover `mode = "section"` defaulting; integration test exercises a skill that uses `knowledge_fetch` and confirms backwards-shaped responses still render. |
-| **Smart-search end-to-end** | On a short KB document ("how to connect Telegram"), does one `knowledge_search` call return `inlinedDocument` so the model needs no follow-up `fetch`? | Yes, demonstrated by a focused test with a 1 200-char fixture document. |
-| **Flexible fetch end-to-end** | Does `mode = full` on a 30 000-char doc return the full text under `fetchFullModeMaxChars`, and `truncated: true` with marker when over the cap? | Yes, with two fixtures spanning under-cap and over-cap cases. |
-| **Chat fetch** | Does `mode = section` on a chat hit return tens of messages assembled in order, not "± 1 message"? | Yes, with a chat fixture of ≥ 60 messages. |
-| **Orchestrated path** | Is the prompt block `# Retrieved Knowledge Context` hydrated with full short documents (not 1 200-char chunks) when the router-plan picks 1 ready doc? | Yes, demonstrated by `orchestrate-runtime-retrieval.service.test.ts`. |
-| **Per-tier reachability** | Can admin override `retrievalPolicy` JSON in `/admin/plans` with the new keys for any of the 5 tiers and have it actually applied at runtime? | Yes, parser accepts the new keys and `resolveAssistantRetrievalPolicy` returns the resolved values; covered by `manage-admin-plans.service.test.ts`. |
-| **No legacy** | Are there any leftover `MAX_ITEM_CHARS` literals, hard-coded radius, "fetch without mode" branches, or hidden flags? | None — checked by code search and reflected in CHANGELOG cleanup notes. |
-| **Smoke (manual, on dev)** | One real assistant turn that exercises (a) short-doc smart search, (b) `mode=full` on a known doc, (c) `mode=section` on a chat | Each behaves as designed; logs print the chosen mode and bytes returned. |
+| Audit                         | Question                                                                                                                                               | Pass criterion                                                                                                                                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **CI gate**                   | `format:check`, `lint -r`, `typecheck`, `test`                                                                                                         | All four green on the Step-1 branch.                                                                                                                                                            |
+| **Skill-base contract**       | Do `seed-base-skills.ts` skills + currently-published skills run the new tools without surface change?                                                 | Targeted runtime-knowledge-tool tests cover `mode = "section"` defaulting; integration test exercises a skill that uses `knowledge_fetch` and confirms backwards-shaped responses still render. |
+| **Smart-search end-to-end**   | On a short KB document ("how to connect Telegram"), does one `knowledge_search` call return `inlinedDocument` so the model needs no follow-up `fetch`? | Yes, demonstrated by a focused test with a 1 200-char fixture document.                                                                                                                         |
+| **Flexible fetch end-to-end** | Does `mode = full` on a 30 000-char doc return the full text under `fetchFullModeMaxChars`, and `truncated: true` with marker when over the cap?       | Yes, with two fixtures spanning under-cap and over-cap cases.                                                                                                                                   |
+| **Chat fetch**                | Does `mode = section` on a chat hit return tens of messages assembled in order, not "± 1 message"?                                                     | Yes, with a chat fixture of ≥ 60 messages.                                                                                                                                                      |
+| **Orchestrated path**         | Is the prompt block `# Retrieved Knowledge Context` hydrated with full short documents (not 1 200-char chunks) when the router-plan picks 1 ready doc? | Yes, demonstrated by `orchestrate-runtime-retrieval.service.test.ts`.                                                                                                                           |
+| **Per-tier reachability**     | Can admin override `retrievalPolicy` JSON in `/admin/plans` with the new keys for any of the 5 tiers and have it actually applied at runtime?          | Yes, parser accepts the new keys and `resolveAssistantRetrievalPolicy` returns the resolved values; covered by `manage-admin-plans.service.test.ts`.                                            |
+| **No legacy**                 | Are there any leftover `MAX_ITEM_CHARS` literals, hard-coded radius, "fetch without mode" branches, or hidden flags?                                   | None — checked by code search and reflected in CHANGELOG cleanup notes.                                                                                                                         |
+| **Smoke (manual, on dev)**    | One real assistant turn that exercises (a) short-doc smart search, (b) `mode=full` on a known doc, (c) `mode=section` on a chat                        | Each behaves as designed; logs print the chosen mode and bytes returned.                                                                                                                        |
 
 If any **Critical** row fails, Step 2 does not start. The agent stops at the session boundary and emits the next-session prompt per ADR-093 §"Session handoff contract".
 
@@ -134,14 +134,14 @@ If any **Critical** row fails, Step 2 does not start. The agent stops at the ses
 
 ### Final audit (after Step 2)
 
-| Audit | Pass criterion |
-|---|---|
-| **CI gate** | `format:check`, `lint -r`, `typecheck`, `test` all green on the Step-2 branch. |
-| **Migration safety** | `api-migrate` PreSync runs against dev cluster without rollback; new columns are nullable. |
-| **UI round-trip** | Admin user saves new per-tier values for all 5 tiers via UI; values reach `resolveAssistantRetrievalPolicy` end-to-end. |
-| **Telemetry** | `KnowledgeRetrievalEvent` rows in dev DB include `modeUsed` and `bytesReturned` for new turns. |
+| Audit                      | Pass criterion                                                                                                                                           |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **CI gate**                | `format:check`, `lint -r`, `typecheck`, `test` all green on the Step-2 branch.                                                                           |
+| **Migration safety**       | `api-migrate` PreSync runs against dev cluster without rollback; new columns are nullable.                                                               |
+| **UI round-trip**          | Admin user saves new per-tier values for all 5 tiers via UI; values reach `resolveAssistantRetrievalPolicy` end-to-end.                                  |
+| **Telemetry**              | `KnowledgeRetrievalEvent` rows in dev DB include `modeUsed` and `bytesReturned` for new turns.                                                           |
 | **Skill regression sweep** | Run 3 base skills (`dietitian`, `fitness-coach`, `sleep-coach`) end-to-end on dev; each receives sane KB volume per its plan tier; no broken tool calls. |
-| **Docs aligned** | `ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`, `TEST-PLAN.md`, `CHANGELOG.md` updated in the same slice. |
+| **Docs aligned**           | `ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`, `TEST-PLAN.md`, `CHANGELOG.md` updated in the same slice.                                         |
 
 ## Acceptance criteria
 
@@ -162,6 +162,7 @@ If any **Critical** row fails, Step 2 does not start. The agent stops at the ses
 ## Consequences
 
 ### Positive
+
 - One tool call answers simple KB questions instead of search → fetch round trip; lower latency, fewer model decisions.
 - The model has a real `full` mode for full-document and full-thread reads, gated by per-tier admin policy.
 - Per-tier differentiation actually works: each of the 5 tiers can be tuned independently via Admin Plans.
@@ -169,6 +170,7 @@ If any **Critical** row fails, Step 2 does not start. The agent stops at the ses
 - No legacy modes, no shadow paths, no flags to remove later.
 
 ### Negative
+
 - More config surface to keep documented (mitigated by tooltips in Step 2 UI).
 - One Prisma migration on `KnowledgeRetrievalEvent` (additive, nullable, low risk under PreSync hook).
 - `knowledge_search` response payloads are larger in the smart branch; trade-off accepted for the latency win.

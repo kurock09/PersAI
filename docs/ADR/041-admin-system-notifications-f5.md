@@ -1,6 +1,7 @@
 # ADR-041: Admin system-notification channel baseline (Step 9 F5)
 
 ## Status
+
 Accepted
 
 ## Context
@@ -40,15 +41,18 @@ F5 requires a baseline admin notification channel that is system-oriented, keeps
 ## Consequences
 
 ### Positive
+
 - Critical admin signals can reach administrators outside web UI.
 - Existing RBAC and append-only audit assumptions remain intact.
 - Delivery visibility exists via explicit delivery logs and admin channel state.
 
 ### Negative
+
 - F5 does not include multi-provider routing, batching/digesting, or escalation policies.
 - Notification triggers remain intentionally bounded to selected high-signal events.
 
 ## Out of scope (F5)
+
 - replacing admin console workflows with notification workflows
 - coupling alerts to personal assistant persona behavior
 - heavy incident management/escalation platform features

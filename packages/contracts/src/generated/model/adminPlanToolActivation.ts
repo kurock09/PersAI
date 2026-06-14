@@ -20,5 +20,15 @@ export interface AdminPlanToolActivation {
    * @nullable
    */
   perTurnCap: number | null;
+  /**
+   * ADR-116 — `files` tool only. Max bytes for one visual preview (image or native PDF). NULL = code default at materialize. Values above the platform ceiling are clamped on save.
+   * @nullable
+   */
+  maxFilePreviewBytes?: number | null;
+  /**
+   * ADR-116 — `files` tool only. Max image edge (px) for preview resize. NULL = code default at materialize.
+   * @nullable
+   */
+  maxFilePreviewEdgePx?: number | null;
   visibleInPlanEditor: boolean;
 }

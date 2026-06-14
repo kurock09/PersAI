@@ -12,6 +12,10 @@ export type AssistantPlanCatalogToolActivation = {
    * apps/runtime/src/modules/turns/tool-budget-policy.ts).
    */
   perTurnCap: number | null;
+  /** ADR-116 — max bytes for one visual file preview on the `files` tool. */
+  maxFilePreviewBytes: number | null;
+  /** ADR-116 — max image edge (px) for preview resize on the `files` tool. */
+  maxFilePreviewEdgePx: number | null;
 };
 
 export type AssistantPlanCatalog = {

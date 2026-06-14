@@ -1,9 +1,11 @@
 # ADR-071: OpenClaw SaaS context and runtime optimization
 
 ## Status
+
 Accepted
 
 ## Context
+
 PersAI is preparing for a realistic `1000+` user SaaS baseline where token cost, long-thread latency, and background runtime noise matter as much as raw feature completeness.
 
 The current architecture already establishes:
@@ -24,9 +26,11 @@ However, the current runtime optimization story is still incomplete and too impl
 The repo also has a strict boundary rule in `AGENTS.md`: prefer PersAI-only fixes when the problem is control-plane, config generation, UI, deploy wiring, or product policy, and touch native OpenClaw core only when runtime execution behavior truly cannot be expressed through existing seams.
 
 ## Decision
+
 PersAI will treat OpenClaw SaaS optimization as an explicit control-plane program with the following ordering and ownership rules.
 
 ### 1. Optimization order
+
 The optimization order is:
 
 1. heartbeat hygiene
@@ -39,6 +43,7 @@ The optimization order is:
 This order is mandatory unless live evidence disproves it.
 
 ### Audit status note
+
 Repository audit status as of `2026-04-09`:
 
 - slices 1-4 are materially implemented through the intended PersAI control-plane path, although Helm/runtime-pool defaults still remain as a transitional baseline
@@ -46,6 +51,7 @@ Repository audit status as of `2026-04-09`:
 - the "cheaper compaction model path" in this ADR remains directional, not delivered, until PersAI exposes and verifies that policy path explicitly
 
 ### 2. Ownership boundary
+
 PersAI owns:
 
 - optimization policy and defaults by runtime tier
@@ -65,6 +71,7 @@ OpenClaw owns:
 Native OpenClaw changes are allowed only when PersAI config/admin/materialization seams are insufficient for the required behavior or observability.
 
 ### 3. Humanity preservation rule
+
 Persona and assistant feel are not the primary optimization budget.
 
 The first cuts must target:
@@ -76,6 +83,7 @@ The first cuts must target:
 Bootstrap/persona reduction is deferred until after those wins are measured.
 
 ### 4. Heartbeat policy rule
+
 Heartbeat must become an explicit policy surface rather than an accidental side effect of default materialized text.
 
 The control-plane baseline is:
@@ -85,6 +93,7 @@ The control-plane baseline is:
 - explicit reason-level observability for `interval`, `wake`, `hook`, `exec-event`, and `cron` sources before broad tuning claims are made
 
 ### 5. Context economy rule
+
 Long-thread optimization should prefer pruning and compaction before bootstrap trimming.
 
 The baseline direction is:
@@ -100,6 +109,7 @@ Current product policy clarification:
 - Telegram/multi-channel compaction UX should be reintroduced only as a shared runtime/tool capability after Step 15, not as a channel-specific slash-command seam
 
 ### 6. OpenAI tuning rule
+
 OpenAI-specific knobs are policy-controlled by tier and use case, not globally enabled without distinction.
 
 Baseline guidance:
@@ -110,6 +120,7 @@ Baseline guidance:
 - `openaiWsWarmup` is a transport optimization, not the primary SaaS cost lever
 
 ### 7. UI exposure rule
+
 Important optimization controls should be exposed through the existing admin runtime surface as policy controls, not infrastructure details.
 
 The UI should expose:
@@ -126,7 +137,9 @@ The UI should not expose:
 - raw topology internals as product settings
 
 ## Consequences
+
 ### Positive
+
 - Token and latency optimization becomes an explicit PersAI-owned program instead of scattered runtime folklore.
 - The repo gets one honest order of operations that protects assistant humanity.
 - Most changes stay in PersAI docs, config generation, materialization, contracts, and admin UX.
@@ -134,11 +147,13 @@ The UI should not expose:
 - Native OpenClaw changes stay bounded and easier to justify.
 
 ### Negative
+
 - This adds one more architectural document and one more policy layer that must stay synchronized with runtime plans and scaling-readiness docs.
 - Some optimizations will intentionally wait behind docs-first alignment and bounded slices instead of being shipped ad hoc.
 - The admin/runtime contracts will likely grow, which increases coordination cost across API, web, and generated contracts.
 
 ## Alternatives considered
+
 - Cut bootstrap/persona first to reduce prompt size quickly.
   - Rejected because it risks visible quality loss before removing larger background and long-context waste.
 - Put all optimization logic directly into native OpenClaw.

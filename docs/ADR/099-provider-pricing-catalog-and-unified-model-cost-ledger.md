@@ -267,12 +267,12 @@ Second block, explicitly later:
 
 Each row is keyed by `pathKey = {toolCode}:{providerId}` with versioned `effectiveFrom` / `effectiveTo`, `billingMode`, and money metadata:
 
-| toolCode | Typical providers | billingMode |
-|----------|-------------------|-------------|
-| `web_search` | tavily, brave, perplexity, google | `fixed_operation` (per search call) |
-| `web_fetch` | firecrawl | `fixed_operation` (per successful fetch/page credit) |
-| `browser` | browserless | `time_metered` (per second/minute) |
-| `document_render` | pdfmonkey, gamma | `tiered_operation` or `fixed_operation` (per render; tier by output format) |
+| toolCode          | Typical providers                 | billingMode                                                                 |
+| ----------------- | --------------------------------- | --------------------------------------------------------------------------- |
+| `web_search`      | tavily, brave, perplexity, google | `fixed_operation` (per search call)                                         |
+| `web_fetch`       | firecrawl                         | `fixed_operation` (per successful fetch/page credit)                        |
+| `browser`         | browserless                       | `time_metered` (per second/minute)                                          |
+| `document_render` | pdfmonkey, gamma                  | `tiered_operation` or `fixed_operation` (per render; tier by output format) |
 
 API: `GET/PUT /api/v1/admin/tools/economics` (step-up: `admin.tool_path_pricing.update`).
 
