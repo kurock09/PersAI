@@ -456,8 +456,8 @@ All core slices shipped. Follow-through polish (not new slice numbers):
 | Warn banner above composer (web) | complete | `989fc2b8` | Matches restrict-banner layout; no in-thread card |
 | TG warn in-chat + restrict i18n | complete | `989fc2b8` | `DeliverSafetyInboundWarnNoticeService`; `reasonCode` copy |
 | Admin `safety_user_restricted` notifications | complete | `989fc2b8` | Slice 115.5 follow-through |
-| Sidebar safety standing icons + modal | complete | `80c9a89a` | `userSafety` bootstrap; warn/block affordance on assistant card |
-| Warn copy chat-context framing | complete | `80c9a89a` | Web/TG/sidebar text references prior messages in thread |
+| Sidebar safety standing icons + modal | complete | `4f72286e` | `userSafety` bootstrap; warn/block affordance on assistant card |
+| Warn copy chat-context framing | complete | `4f72286e` | Web/TG/sidebar text references prior messages in thread |
 | Outbound message moderation | **not planned** | — | Explicitly out of program scope |
 
 **Residual / ops:** live validation on dev after deploy; strike window remains config (`SAFETY_MODERATION_STRIKE_WINDOW_DAYS`, default 30).

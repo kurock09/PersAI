@@ -7,7 +7,7 @@
 
 ### Baseline
 
-- Closing commit: `80c9a89a` on `main` (from `989fc2b8`).
+- Closing commit: `4f72286e` on `main` (from `989fc2b8`).
 
 ### What changed
 
