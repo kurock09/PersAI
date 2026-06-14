@@ -5,6 +5,7 @@
 
 ## 2026-06-14
 
+- ADR-115 Slices 3–4 and 6 landed on `main` at `e797a172` (full repo gate: lint, typecheck, test, test:step2, build).
 - ADR-115 Slice 0 (inbound safety gate skeleton): added `user_restrictions` and `moderation_cases` Prisma models + migration, `EnforceInboundSafetyGateService` read-only gate, and canonical inbound reorder to `safety -> abuse -> quota` in web prepare and Telegram inbound paths. Active safety restrictions deny with `403 safety_restricted`; empty table preserves prior behavior aside from the intentional abuse-before-quota reorder.
 - ADR-115 Slice 1 (contour-1 heuristics): added `safety_heuristic_rules`, `safety_policy_settings`, and `safety_moderation_review_jobs`; `EvaluateInboundSafetyPrecheckService` with seeded RU/EN packs; async contour-2 enqueue on defer/block; admin safety-policy API at `/api/v1/admin/safety-policy/*`. Inbound order is now `safety -> abuse -> contour-1 -> quota -> runtime`.
 - ADR-115 Slice 2 (contour-2 async moderation): added `ProcessSafetyModerationReviewService` + scheduler worker, OpenAI Moderation API client, `moderation_cases` writes, and auto `user_restrictions` upsert on `block_user`. Config keys `SAFETY_MODERATION_*` live in `packages/config` api config.

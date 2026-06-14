@@ -406,7 +406,7 @@ Focused tests per slice as listed in `TEST-PLAN.md` § ADR-115 (to be added in s
 | 115.0 | complete | `aa0d69fb` | schema + read-only gate + inbound order |
 | 115.1 | complete | `aa0d69fb` | contour-1 precheck + policy API + C2 enqueue stub |
 | 115.2 | complete | `aa0d69fb` | contour-2 worker + Moderation API + cases + auto restrict |
-| 115.3 | complete | — | sync hold + safety_restricted deny + web mapping (local, uncommitted) |
-| 115.4 | complete | — | safety controls API + ops UI (local, uncommitted) |
+| 115.3 | complete | `e797a172` | sync hold + safety_restricted deny + web mapping |
+| 115.4 | complete | `e797a172` | safety controls API + ops UI |
 | 115.5 | pending | — | |
-| 115.6 | complete | — | runtime inbound-safety policy UI (local, uncommitted) |
+| 115.6 | complete | `e797a172` | runtime inbound-safety policy UI |

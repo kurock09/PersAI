@@ -3,11 +3,42 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-14 - ADR-115 Slices 3-4-6 committed and pushed
+
+### Baseline
+
+- Starting SHA: `737b38c7`; landed and pushed as `e797a172` on `main`.
+
+### What changed
+
+- **115.3** — sync hold + `safety_restricted` inbound deny + web UX mapping.
+- **115.4** — safety controls API + ops user-level UI (unblock/restrict, cockpit signals).
+- **115.6** — runtime inbound-safety policy UI + OpenAPI/contracts for `/admin/safety-policy/*`.
+
+### Verification (full gate)
+
+- `corepack pnpm run lint`
+- `corepack pnpm run typecheck`
+- `corepack pnpm run test`
+- `corepack pnpm run test:step2`
+- `corepack pnpm run build`
+- Fixes during gate: `admin-ops-user-directory.service.test.ts` mock for `userRestrictionRepository`; `inbound-safety-policy.helpers.test.ts` locale guard (`en` not `ru`).
+- `prisma:migrate:check` skipped locally (no Postgres on `localhost:5432`); CI full-verification covers this.
+
+### Risks / residuals
+
+- Placeholder inbound copy (i18n deferred); Telegram sync deny without thread notice when chat not created yet.
+- Admin `safety_user_restricted` notification remains **115.5**.
+
+### Next recommended step
+
+- **115.5** — admin notifications + focused E2E test hardening, then deploy api + web for 115.3–115.6.
+
 ## 2026-06-14 - ADR-115 Slice 6 runtime inbound-safety policy UI
 
 ### Baseline
 
-- Continuing from local 115.3–115.4 work on top of committed `737b38c7`. Slices **115.3–115.6** are implemented locally and **not yet committed**.
+- Landed in `e797a172` with slices 115.3–115.4 (bundle commit).
 
 ### What changed
 
@@ -28,13 +59,13 @@
 
 ### Next recommended step
 
-- **115.5** — admin notifications + focused E2E test hardening, then commit/deploy 115.3–115.6 bundle.
+- **115.5** — admin notifications + focused E2E test hardening.
 
 ## 2026-06-14 - ADR-115 Slice 4 safety controls API + ops UI
 
 ### Baseline
 
-- Continuing from local 115.3 work on top of committed `737b38c7` (115.0–115.2). Slices **115.3 + 115.4** are implemented locally and **not yet committed**.
+- Landed in `e797a172` with slices 115.3 and 115.6 (bundle commit).
 
 ### What changed
 
@@ -65,7 +96,7 @@
 
 ### Baseline
 
-- Continuing from committed `737b38c7` (115.0–115.2 on main). Slice 115.3 is implemented locally and **not yet committed**.
+- Landed in `e797a172` with slices 115.4 and 115.6 (bundle commit).
 
 ### What changed
 
