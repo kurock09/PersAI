@@ -27,6 +27,16 @@
  * `recordActivity()`. The watchdog is meant to detect slow TEXT streaming, not slow
  * tool execution or post-tool thinking latency.
  *
+ * Post-tool slow_avg suspension: once ANY native tool has started in this stream
+ * span, the slow_avg signal is disabled for the remainder of the span. A short
+ * post-tool final answer (e.g. the wrap-up note after `image_edit`/`image_generate`)
+ * is routinely streamed slower than the per-token cadence threshold by some models,
+ * and the previous behavior aborted the runtime fetch mid-final-answer — surfacing
+ * as a silent stream cut with no error and, for media turns, a lost/duplicated job
+ * because side-effect turns are not safe to retry. This mirrors the silent-timer
+ * philosophy already documented for `recordToolFinished`: a slow post-tool answer is
+ * the job of provider/runtime stream timeouts, not this mid-text cadence watchdog.
+ *
  * The watchdog fires `onStall` at most once and then becomes inert. Callers must
  * always invoke `dispose()` (typically in a `finally` block) so that the silent
  * timer is cleared even when the stream completes normally.
@@ -144,6 +154,11 @@ export function createCadenceWatchdog(
   // timer is suspended (long tools like image_generate routinely produce no
   // chunks for 15–60 s, which is healthy, not a stall).
   let inflightToolCount = 0;
+  // Once any native tool has started in this span, the slow_avg signal is
+  // disabled for the remainder of the span. See the file header comment: a
+  // short post-tool final answer is routinely streamed below the per-token
+  // cadence threshold and must not abort the runtime fetch.
+  let slowAvgDisabledByTool = false;
   const recentGapsMs: number[] = [];
 
   function clearSilentTimer(): void {
@@ -197,7 +212,7 @@ export function createCadenceWatchdog(
       if (lastDeltaAtMs !== null) {
         const gap = ts - lastDeltaAtMs;
         observedDeltaCount += 1;
-        if (slowAvgEnabled && observedDeltaCount > warmupDeltas) {
+        if (slowAvgEnabled && !slowAvgDisabledByTool && observedDeltaCount > warmupDeltas) {
           recentGapsMs.push(gap);
           if (recentGapsMs.length > avgWindow) {
             recentGapsMs.shift();
@@ -235,6 +250,10 @@ export function createCadenceWatchdog(
     recordToolStarted() {
       if (disposed || fired) return;
       inflightToolCount += 1;
+      // Disable slow_avg for the rest of this span. A post-tool wrap-up answer
+      // (common on media turns) is legitimately slow and previously tripped
+      // slow_avg, aborting the runtime fetch mid-answer with no error.
+      slowAvgDisabledByTool = true;
       // Move the inter-delta anchor forward (same reason as recordActivity)
       // so that resumed text deltas after the tool finishes do not measure
       // the giant pre-tool gap.

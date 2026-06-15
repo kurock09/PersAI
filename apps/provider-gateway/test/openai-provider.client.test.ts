@@ -880,7 +880,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   assert.deepEqual(capturedImagePayload, {
     model: "gpt-image-1.5",
     prompt:
-      "Return 2 distinct standalone images. Each returned image must be one final image. Do not make a collage, grid, contact sheet, diptych, triptych, or multi-panel composition unless the user explicitly asked for that format. User request: Generate a serene lake at dusk",
+      "Return 2 distinct standalone images. Each returned image must be one standalone final image that stays faithful to the overall request. Do not make a collage, grid, contact sheet, diptych, triptych, or multi-panel composition unless the user explicitly asked for that format. User request: Generate a serene lake at dusk",
     n: 2,
     output_format: "png",
     background: "transparent",
@@ -1312,6 +1312,36 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
     /Use the second\/reference image only as visual guidance/,
     "reference guidance must be preserved in multi-output prompt"
+  );
+
+  // Multi-reference: source + 3 references must produce one ordered image[] of
+  // length 4 and switch the prompt to plural reference wording.
+  capturedImageEditPayload = null;
+  await client.editImage(
+    {
+      ...createImageEditRequest({ includeReference: true }),
+      referenceImages: [
+        { bytesBase64: "cmVmLTE=", mimeType: "image/png", filename: "ref-1.png" },
+        { bytesBase64: "cmVmLTI=", mimeType: "image/png", filename: "ref-2.png" },
+        { bytesBase64: "cmVmLTM=", mimeType: "image/png", filename: "ref-3.png" }
+      ]
+    },
+    { apiKey: "tool-openai-key" }
+  );
+  assert.equal(
+    ((capturedImageEditPayload as { image?: unknown[] } | null)?.image ?? []).length,
+    4,
+    "multi-reference edit must send source plus all references as one image[] input"
+  );
+  assert.match(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
+    /Use the additional reference images only as visual guidance/,
+    "multi-reference prompt must use plural reference wording"
+  );
+  assert.match(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
+    /Reference images: ref-1\.png, ref-2\.png, ref-3\.png\./,
+    "multi-reference prompt must list every reference filename"
   );
 
   // DEFECT 3: count>1 without reference image — prompt states cardinality

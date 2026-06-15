@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type {
   AssistantRuntimeCompiledOrdinaryPromptSections,
   AssistantRuntimePromptConstructor,
@@ -12,7 +12,6 @@ import {
   renderEnabledSkillsPromptBlock,
   type EnabledSkillPromptCard
 } from "./enabled-skills-prompt-materialization";
-import { buildRuntimeToolPoliciesMarkdown } from "./runtime-tool-policy";
 import type { VoiceDnaResolved } from "./voice-dna-modulator";
 
 export interface PromptTemplateMap {
@@ -34,6 +33,8 @@ export interface PromptTemplateMap {
 
 @Injectable()
 export class CompilePromptConstructorService {
+  private readonly logger = new Logger(CompilePromptConstructorService.name);
+
   compile(params: {
     publishedVersion: AssistantPublishedVersion;
     userContext: {
@@ -347,19 +348,21 @@ export class CompilePromptConstructorService {
     return skillCardsBlock;
   }
 
-  private generateToolsPrompt(toolPolicies: RuntimeToolPolicy[], template: string | null): string {
-    // ADR-074 P1: native provider tool definitions already carry full descriptions; we no longer
-    // duplicate them as a markdown catalog inside the cached system prompt. If a custom template
-    // still references `{{tools_catalog_block}}`, the placeholder is stripped because the value
-    // resolves to null in `interpolateTemplate`. The catalog is preserved as a fallback only when
-    // no template row exists at all (legacy / fresh-DB before seed).
+  private generateToolsPrompt(_toolPolicies: RuntimeToolPolicy[], template: string | null): string {
+    // ADR-074 P1 / ADR-117 Slice 4: native provider tool definitions already carry the tool
+    // descriptor surface, and the DB `tools` prompt template is the single selection-guide owner.
+    // If a custom template still references `{{tools_catalog_block}}`, the placeholder is stripped
+    // because the value resolves to null in `interpolateTemplate`.
     if (template) {
       return this.interpolateTemplate(template, {
         tools_catalog_block: null
       });
     }
 
-    return buildRuntimeToolPoliciesMarkdown(toolPolicies);
+    this.logger.warn(
+      "Prompt template 'tools' is missing; emitting an empty tools block without the legacy markdown fallback."
+    );
+    return "";
   }
 
   private generateAgentsPrompt(template: string | null): string {

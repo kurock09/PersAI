@@ -26,6 +26,11 @@ import type {
   RuntimeBillingFacts,
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
+import {
+  ANTI_COLLAGE_RULE,
+  STANDALONE_IMAGE_RULE,
+  referenceGuidanceRule
+} from "@persai/runtime-contract";
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
@@ -345,7 +350,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         input.count > 1
           ? [
               `Return ${String(input.count)} distinct standalone images.`,
-              "Each returned image must be one final image. Do not make a collage, grid, contact sheet, diptych, triptych, or multi-panel composition unless the user explicitly asked for that format.",
+              `${STANDALONE_IMAGE_RULE} ${ANTI_COLLAGE_RULE}`,
               `User request: ${input.prompt}`
             ].join(" ")
           : input.prompt;
@@ -438,22 +443,29 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           ? { type: input.sourceImage.mimeType }
           : undefined
       );
-      const referenceImage =
-        input.referenceImage === null
-          ? null
-          : await toFile(
-              Buffer.from(input.referenceImage.bytesBase64, "base64"),
-              input.referenceImage.filename ??
-                this.defaultImageFilename(input.referenceImage.mimeType),
-              input.referenceImage.mimeType.trim().length > 0
-                ? { type: input.referenceImage.mimeType }
-                : undefined
-            );
+      // Prefer the multi-reference array; fall back to the deprecated single
+      // `referenceImage`. OpenAI `images.edit` accepts the source plus all
+      // references as one ordered `image[]` input set.
+      const referenceInputs =
+        Array.isArray(input.referenceImages) && input.referenceImages.length > 0
+          ? input.referenceImages
+          : input.referenceImage === null
+            ? []
+            : [input.referenceImage];
+      const referenceImages = await Promise.all(
+        referenceInputs.map((reference) =>
+          toFile(
+            Buffer.from(reference.bytesBase64, "base64"),
+            reference.filename ?? this.defaultImageFilename(reference.mimeType),
+            reference.mimeType.trim().length > 0 ? { type: reference.mimeType } : undefined
+          )
+        )
+      );
       const payload: OpenAIImageEditParams = {
         model,
         prompt: providerPrompt,
         n: input.count,
-        image: referenceImage === null ? sourceImage : [sourceImage, referenceImage],
+        image: referenceImages.length === 0 ? sourceImage : [sourceImage, ...referenceImages],
         output_format: "png",
         background: input.background,
         ...(input.size === null ? {} : { size: input.size })
@@ -1804,30 +1816,46 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   private buildImageEditPrompt(input: ProviderGatewayImageEditRequest): string {
     const prompt = input.prompt.trim();
     const count = input.count ?? 1;
-    if (input.referenceImage === null) {
+    const referenceInputs =
+      Array.isArray(input.referenceImages) && input.referenceImages.length > 0
+        ? input.referenceImages
+        : input.referenceImage === null
+          ? []
+          : [input.referenceImage];
+    if (referenceInputs.length === 0) {
       if (count <= 1) {
         return prompt;
       }
       return [
         `Return ${String(count)} distinct edited variations of the source image.`,
-        "Each returned image must be one standalone final image. Do not make a collage, grid, contact sheet, diptych, triptych, or multi-panel composition unless the user explicitly asked for that format.",
+        `${STANDALONE_IMAGE_RULE} ${ANTI_COLLAGE_RULE}`,
         `User request: ${prompt}`
       ].join(" ");
     }
     const sourceFilename = input.sourceImage.filename ?? "image #1";
-    const referenceFilename = input.referenceImage.filename ?? "image #2";
+    const referenceFilenames = referenceInputs.map(
+      (reference, index) => reference.filename ?? `image #${String(index + 2)}`
+    );
     const outputCardinalityInstruction =
       count <= 1
         ? "Edit only the first/source image and return one edited version of that source image."
         : `Edit the source image and return ${String(count)} distinct edited variations of it.`;
+    const multipleReferences = referenceInputs.length > 1;
+    const referenceGuidance = referenceGuidanceRule({ multiple: multipleReferences });
+    const referenceProtection = multipleReferences
+      ? "Do not separately edit, restyle, or reproduce any reference image as its own output."
+      : "Do not separately edit, restyle, or reproduce the reference image as its own output.";
+    const referenceLabel = multipleReferences
+      ? `Reference images: ${referenceFilenames.join(", ")}.`
+      : `Reference image: ${referenceFilenames[0] ?? "image #2"}.`;
     return [
       outputCardinalityInstruction,
-      "Each returned image must be one standalone final image. Do not make a collage, grid, contact sheet, diptych, triptych, or multi-panel composition unless the user explicitly asked for that format.",
-      "Use the second/reference image only as visual guidance for style, appearance, makeup, color palette, lighting, environment, or similar attributes unless the user explicitly asks to borrow a concrete object from it.",
-      "Do not separately edit, restyle, or reproduce the reference image as its own output.",
+      `${STANDALONE_IMAGE_RULE} ${ANTI_COLLAGE_RULE}`,
+      referenceGuidance,
+      referenceProtection,
       "Preserve the identity, pose, framing, and main content of the source image unless the user explicitly asks to change them.",
       `Source image: ${sourceFilename}.`,
-      `Reference image: ${referenceFilename}.`,
+      referenceLabel,
       `User request: ${prompt}`
     ].join(" ");
   }

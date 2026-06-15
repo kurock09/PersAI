@@ -11,8 +11,6 @@ import {
 } from "@persai/runtime-contract";
 import type { EffectiveToolAvailabilityState } from "./effective-tool-availability.types";
 import {
-  buildPromptToolMarkdownEntry,
-  PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER,
   SYNTHETIC_PROMPT_CONSTRUCTOR_TOOL_DEFAULTS,
   resolveSyntheticPromptConstructorTool
 } from "./prompt-constructor-tool-metadata";
@@ -119,7 +117,7 @@ function resolveRuntimeToolDescription(
     return "Migration-only inventory entry. Step 15 does not expose raw path-based workspace attachment to the model.";
   }
   if (runtimeToolCode === "files") {
-    return "List, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files through one canonical file surface.";
+    return "List, search, inspect, read, preview, write, write-and-send, edit, delete, or send assistant-managed files through one canonical file surface.";
   }
   return tool.modelDescription ?? tool.description;
 }
@@ -421,31 +419,4 @@ export function resolveRuntimeToolPolicies(params: {
       )
     );
   return dedupeRuntimeToolPolicies([...catalogPolicies, ...syntheticPolicies]);
-}
-
-export function buildRuntimeToolPoliciesMarkdown(toolPolicies: RuntimeToolPolicy[]): string {
-  const visibleTools = toolPolicies.filter((tool) => tool.enabled && tool.visibleToModel);
-  const orderedTools = [...visibleTools].sort((left, right) => {
-    const leftIndex = PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER.indexOf(
-      left.toolCode as (typeof PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER)[number]
-    );
-    const rightIndex = PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER.indexOf(
-      right.toolCode as (typeof PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER)[number]
-    );
-    if (leftIndex !== -1 || rightIndex !== -1) {
-      return (
-        (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
-        (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex)
-      );
-    }
-    return left.toolCode.localeCompare(right.toolCode);
-  });
-  const blocks: string[] = [];
-  for (const tool of orderedTools) {
-    const block = buildPromptToolMarkdownEntry(tool.toolCode, tool.description, tool.usageGuidance);
-    if (block) {
-      blocks.push(block);
-    }
-  }
-  return blocks.join("\n\n").trimEnd();
 }

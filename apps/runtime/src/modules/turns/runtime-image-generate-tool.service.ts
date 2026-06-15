@@ -20,7 +20,10 @@ import {
   type RuntimeAttachmentRef,
   type RuntimeUsageSnapshot,
   type RuntimeOutputArtifact,
-  type RuntimeToolPolicy
+  type RuntimeToolPolicy,
+  ANTI_COLLAGE_RULE,
+  STANDALONE_GENERATED_IMAGE_RULE,
+  seriesItemHeaderLine
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
@@ -93,6 +96,9 @@ export class RuntimeImageGenerateToolService {
   }): Promise<RuntimeImageGenerateToolExecutionResult> {
     const request = this.readImageGenerateArguments(params.toolCall.arguments);
     if (request instanceof Error) {
+      this.logger.warn(
+        `[image-generate] requestId=${params.requestId} skipped reason=invalid_arguments: ${request.message}`
+      );
       return {
         payload: {
           toolCode: "image_generate",
@@ -642,10 +648,6 @@ export class RuntimeImageGenerateToolService {
     if ("toolCode" in args && args.toolCode !== IMAGE_GENERATE_TOOL_CODE) {
       return new Error(`toolCode must be ${IMAGE_GENERATE_TOOL_CODE}`);
     }
-    const prompt = this.asNonEmptyString(args.prompt);
-    if (prompt === null) {
-      return new Error("prompt must be a non-empty string");
-    }
 
     const count =
       args.count === undefined || args.count === null
@@ -727,6 +729,20 @@ export class RuntimeImageGenerateToolService {
     }
     const background: PersaiRuntimeImageBackground =
       typeof backgroundInput === "string" ? backgroundInput : "auto";
+
+    // `prompt` carries the overall request. In series mode each `seriesItems`
+    // entry is self-describing, so models routinely omit the top-level prompt;
+    // synthesize an overall prompt instead of rejecting the call as
+    // invalid_arguments (which silently skips the whole media request).
+    let prompt = this.asNonEmptyString(args.prompt);
+    if (prompt === null) {
+      if (outputMode === "series" && seriesItems !== null && seriesItems.length > 0) {
+        prompt =
+          "Generate a coherent multi-image series; each series item below describes one image to produce.";
+      } else {
+        return new Error("prompt must be a non-empty string");
+      }
+    }
 
     return {
       toolCode: "image_generate",
@@ -870,13 +886,13 @@ export class RuntimeImageGenerateToolService {
       return Array.from(
         { length: request.count },
         (_, index) =>
-          `Create variation ${String(index + 1)} of ${String(request.count)} for the same core idea. Keep the same product/campaign identity and overall intent, but make this finished image meaningfully distinct in composition, framing, lighting, palette, or mood. Return one final generated image only.`
+          `Create variation ${String(index + 1)} of ${String(request.count)} for the same core idea. Keep the same product/campaign identity and overall intent, but make this finished image meaningfully distinct in composition, framing, lighting, palette, or mood. ${STANDALONE_GENERATED_IMAGE_RULE}`
       );
     }
     return Array.from(
       { length: request.count },
       (_, index) =>
-        `Create output ${String(index + 1)} of ${String(request.count)} as one standalone final image that stays faithful to the overall request. Return one final generated image only.`
+        `Create output ${String(index + 1)} of ${String(request.count)} as one standalone final image that stays faithful to the overall request. ${STANDALONE_GENERATED_IMAGE_RULE}`
     );
   }
 
@@ -898,10 +914,10 @@ export class RuntimeImageGenerateToolService {
     total: number;
   }): string {
     return [
-      `Series item ${String(input.index + 1)} of ${String(input.total)}.`,
+      seriesItemHeaderLine(input.index, input.total),
       `Overall request: ${input.overallPrompt}`,
       "Keep the same product/campaign identity, visual world, and brand continuity across all series items unless the user explicitly asked for different products.",
-      "Return one final image for this item only, not a collage, grid, contact sheet, or multi-panel composition.",
+      `${STANDALONE_GENERATED_IMAGE_RULE} ${ANTI_COLLAGE_RULE}`,
       `This item only: ${input.itemPrompt}`
     ].join("\n\n");
   }

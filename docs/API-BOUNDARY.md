@@ -63,6 +63,16 @@ Trust-page boundary rules:
 
 ## Runtime-related boundaries
 
+### Native Tool Runtime instruction ownership
+
+ADR-117 defines one owner per model/provider instruction concern:
+
+- **Selection guide (`WHICH tool / WHEN`)** lives only in the DB-backed `tools` prompt-template block (`apps/api/prisma/bootstrap-preset-data.ts` default, admin-editable via presets). This is the Native Tool Runtime selection guide and the only place cross-tool comparison, mutual exclusion, call-don't-narrate rules, and `action="pending_delivery"` delivery honesty may live.
+- **Per-tool mechanical contract (`WHAT tool / params`)** lives only in the catalog → runtime-tool-policy → native-tool-projection descriptor path. Per-tool `modelDescription` / `modelUsageGuidance` may explain that tool's own behavior and parameter semantics, but must not re-teach sibling-tool selection.
+- **Provider-conditioning (`HOW provider renders`)** lives only in `packages/runtime-contract/src/media-prompt-fragments.ts` and is consumed by runtime media composers plus provider-gateway builders. This text is provider-only and must never be repeated in model-facing tool descriptions.
+
+Precedence rule: if a rule compares two tools, chooses between tools, or explains when not to call a sibling tool, it belongs only in the selection guide. Descriptor text stays mechanical, and provider-rendering hygiene stays provider-only.
+
 ### Runtime preflight
 
 - public API route: `GET /api/v1/assistant/runtime/preflight`

@@ -23,7 +23,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Provider-backed external web lookup tool.",
     modelDescription: "Search the public web through the currently configured search provider.",
     modelUsageGuidance:
-      "Use this when you need sources or links about a topic and do not already have one exact URL to fetch.",
+      "Results include source URLs and content snippets; prefer parallel calls for independent queries.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_web_search",
@@ -37,7 +37,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     modelDescription:
       "Fetch and extract the main content of a public webpage through the current web-fetch provider.",
     modelUsageGuidance:
-      "Use this when you already know the exact URL and need page content, not a search results list.",
+      "Returns the extracted main text of the target page; prefer parallel calls when multiple URLs are already known.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_web_fetch",
@@ -50,7 +50,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "AI image generation via DALL-E or other supported providers.",
     modelDescription: "Generate brand-new images from a text prompt.",
     modelUsageGuidance:
-      'Use this only for creating a new image, not for editing an existing one or generating video. When the user directly asks you to make, draw, create, or generate an image, call this tool immediately instead of narrating the planned call. Never print `image_generate(...)`, JSON arguments, or a fenced code block as a substitute. For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". If the result says `action="deferred"`, say the image is still rendering and will arrive separately; do not describe it as already created, attached, or sent.',
+      'For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". If the result says `action="pending_delivery"`, say the image is still rendering and will arrive separately; do not describe it as already created, attached, or sent.',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -65,7 +65,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     modelDescription:
       "Edit images only when the user explicitly asks to modify an image, for example replace, remove, add, recolor, restyle, insert, or draw something.",
     modelUsageGuidance:
-      'Do not use this for image description, OCR, or "what do you see" questions. Prefer the current user attachment; otherwise use a recent reusable chat image already in context. With one available image, edit that image. With multiple images, set `sourceImageAlias` to the image being edited and use `referenceImageAlias` only as a visual guide from another available image. If roles like "the second photo" are still unclear, ask instead of guessing. For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". Never claim the edit is done unless this turn produced a successful `image_edit` result. If you have not called `image_edit`, do not pretend the image was edited. If the result says `action="deferred"`, say the edit is in progress and will arrive separately.',
+      'Prefer the current user attachment; otherwise use a recent reusable chat image already in context. With one available image, edit that image. With multiple images, set `sourceImageAlias` to the image being edited; you may also pass one or more guidance images via `referenceImageAliases` — the edited output stays rooted in the source while references only guide it. If roles like "the second photo" are still unclear, ask instead of guessing. For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". Never claim the edit is done unless this turn produced a successful `image_edit` result. If you have not called `image_edit`, do not pretend the image was edited. If the result says `action="pending_delivery"`, say the edit is in progress and will arrive separately.',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -79,7 +79,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       "Generate a short video clip from a text prompt, optionally guided by one current or recent chat reference image.",
     modelDescription: "Generate a short brand-new video clip from a text prompt.",
     modelUsageGuidance:
-      'Use this only when the user explicitly wants a generated video, animation, or clip. When the user directly asks for one, call this tool immediately instead of narrating the planned call. Never print `video_generate(...)`, JSON arguments, or a fenced code block as a substitute. You may guide the result with one current or recent chat image via `referenceImageAlias`. Do not use this for editing an existing video or answering image questions. If the result says `action="deferred"`, say the video is still rendering and will arrive separately; do not describe it as already created, attached, or sent.',
+      'You may guide the result with one current or recent chat image via `referenceImageAlias`. If the result says `action="pending_delivery"`, say the video is still rendering and will arrive separately; do not describe it as already created, attached, or sent.',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -171,7 +171,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Schedule simple unconditional user-visible reminders.",
     modelDescription: "Schedule simple unconditional user-visible reminders.",
     modelUsageGuidance:
-      'Use this only for unconditional user-visible reminders such as "remind me in 10 minutes", "ping me tomorrow", or "daily check-in". For create, use `kind="user_reminder"` with `title`, `reminderText`, and exactly one schedule (`runAt`, `delayMs`, `everyMs`, or `cronExpr`). Do not use it for hidden checks, quiet follow-through, conditional monitoring, or "поставь себе фоновую задачу"; use `background_task` for that. Never confirm success unless this turn returned a tool result with `action="created"`. If the result was `action="skipped"` or no success arrived, say scheduling failed. Prefer taskId for pause/resume/cancel; otherwise use titleMatch.',
+      'Use this only for unconditional user-visible reminders such as "remind me in 10 minutes", "ping me tomorrow", or "daily check-in". For create, use `kind="user_reminder"` with `title`, `reminderText`, and exactly one schedule (`runAt`, `delayMs`, `everyMs`, or `cronExpr`). Never confirm success unless this turn returned a tool result with `action="created"`. If the result was `action="skipped"` or no success arrived, say scheduling failed. Prefer taskId for pause/resume/cancel; otherwise use titleMatch.',
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -184,7 +184,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     modelDescription:
       "Create and manage quiet assistant-side background tasks that the platform later evaluates and may push to the user.",
     modelUsageGuidance:
-      'Use this for conditional checks and quiet assistant follow-through such as "поставь себе фоновую задачу", "тихо проверь", or "if X happens, ping me". `scheduled_action` is only for unconditional user-visible reminders. One background_task may later use allowed tools, generate supported artifacts, and then decide whether to push. If the user asks "check X later and if condition Y then send or generate Y", create one background_task whose brief includes the condition, any needed tools or artifacts, and the push-vs-silence rule. For create, provide a short `title`, a precise `brief`, and exactly one schedule (`runAt`, `delayMs`, `everyMs`, or `cronExpr`).',
+      'Use this for conditional checks and quiet assistant follow-through such as "поставь себе фоновую задачу", "тихо проверь", or "if X happens, ping me". One background_task may later use allowed tools, generate supported artifacts, and then decide whether to push. If the user asks "check X later and if condition Y then send or generate Y", create one background_task whose brief includes the condition, any needed tools or artifacts, and the push-vs-silence rule. For create, provide a short `title`, a precise `brief`, and exactly one schedule (`runAt`, `delayMs`, `everyMs`, or `cronExpr`).',
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -223,6 +223,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       "Unified assistant file tool for search, metadata lookup, reads, writes, edits, and channel delivery.",
     modelDescription:
       "List, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files through one canonical file surface.",
+    // policy-overridden: the real model-facing text is supplied by
+    // runtime-tool-policy.ts resolveRuntimeToolUsageGuidance and always
+    // supersedes this catalog value. Edit the hardcoded override there, not here.
     modelUsageGuidance:
       "Use files.write_and_send when the user wants a file created or saved and delivered in chat right away. Use files.write when it should only be saved. For writes, prefer a non-empty relative path as the canonical target; filename is only a delivery-name override. Use files.delete for cleanup. Use files.list for an exact inventory and files.search with a non-empty query when you need discovery by name. By default, summarize inventories by workspace/uploads/artifacts and hide raw service paths or UUID folders unless the user explicitly asks for the raw list. When you already know the target, prefer a working-file alias first, then relativePath, then query. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep shell and exec for real process execution only.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,

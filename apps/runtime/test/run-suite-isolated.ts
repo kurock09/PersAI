@@ -119,6 +119,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   {
     modulePath: "./native-tool-projection.test.ts",
     exportName: "runNativeToolProjectionTest"
+  },
+  {
+    modulePath: "./native-tool-projection.test.ts",
+    exportName: "runMediaPromptFragmentsSanityTest"
   }
 ];
 

@@ -1599,6 +1599,14 @@ export const MAX_RUNTIME_IMAGE_GENERATE_COUNT = 10 as const;
 export const MIN_RUNTIME_IMAGE_EDIT_COUNT = MIN_RUNTIME_IMAGE_GENERATE_COUNT;
 export const MAX_RUNTIME_IMAGE_EDIT_COUNT = MAX_RUNTIME_IMAGE_GENERATE_COUNT;
 
+// `image_edit` sends the source image plus optional reference images to the
+// provider as one input set. OpenAI `images.edit` (gpt-image-1) accepts up to
+// 16 input images total, so the source consumes one slot and up to 15
+// additional reference images may accompany it.
+export const MAX_RUNTIME_IMAGE_EDIT_INPUT_IMAGES = 16 as const;
+// Source consumes one of the 16 input slots, leaving up to 15 reference images.
+export const MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES = 15 as const;
+
 export interface RuntimePendingMediaDeliveryFacts {
   canSendFileNow: false;
   jobId: string;
@@ -1654,7 +1662,19 @@ export interface RuntimeImageEditRequest {
   size: PersaiRuntimeImageGenerateSize | null;
   background: PersaiRuntimeImageBackground;
   sourceImageAlias: string | null;
+  /**
+   * @deprecated Single-reference alias kept for backward compatibility. New
+   * callers should use `referenceImageAliases`; the parser normalizes this
+   * single value into that array.
+   */
   referenceImageAlias: string | null;
+  /**
+   * Optional sticky aliases of additional images used purely as visual style,
+   * appearance, background, or composition references. Up to
+   * `MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES`. The edited output stays rooted
+   * in `sourceImageAlias`.
+   */
+  referenceImageAliases?: string[] | null;
 }
 
 export interface RuntimeImageEditToolResult {
@@ -1667,8 +1687,10 @@ export interface RuntimeImageEditToolResult {
   requestedCount: number | null;
   sourceImageAlias: string | null;
   referenceImageAlias: string | null;
+  referenceImageAliases?: string[] | null;
   sourceFilename: string | null;
   referenceFilename: string | null;
+  referenceFilenames?: (string | null)[] | null;
   size: PersaiRuntimeImageGenerateSize | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
@@ -3407,11 +3429,22 @@ export interface ProviderGatewayImageEditRequest {
     mimeType: string;
     filename: string | null;
   };
+  /**
+   * @deprecated Single reference kept for backward compatibility. Prefer
+   * `referenceImages`; when both are present `referenceImages` wins.
+   */
   referenceImage: {
     bytesBase64: string;
     mimeType: string;
     filename: string | null;
   } | null;
+  referenceImages?:
+    | {
+        bytesBase64: string;
+        mimeType: string;
+        filename: string | null;
+      }[]
+    | null;
   credential: {
     toolCode: "image_edit";
     secretId: string;
@@ -3870,3 +3903,12 @@ export interface ProviderGatewayHeyGenCreateVoiceCloneResult {
   previewAudioUrl: string | null;
   respondedAt: string;
 }
+
+export {
+  ANTI_COLLAGE_RULE,
+  STANDALONE_IMAGE_RULE,
+  STANDALONE_GENERATED_IMAGE_RULE,
+  STANDALONE_EDITED_IMAGE_RULE,
+  referenceGuidanceRule,
+  seriesItemHeaderLine
+} from "./media-prompt-fragments";

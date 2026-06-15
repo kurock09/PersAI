@@ -56,6 +56,50 @@ describe("runtime media request parsing", () => {
     ]);
   });
 
+  test("image_generate synthesizes an overall prompt for series mode without a top-level prompt", () => {
+    const service = new RuntimeImageGenerateToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const parsed = (
+      service as unknown as {
+        readImageGenerateArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageGenerateArguments({
+      toolCode: "image_generate",
+      count: 3,
+      outputMode: "series",
+      seriesItems: ["hero frame", "detail frame", "cta frame"],
+      background: "auto"
+    });
+    assert.ok(!(parsed instanceof Error));
+    assert.ok(
+      typeof (parsed as { prompt: unknown }).prompt === "string" &&
+        (parsed as { prompt: string }).prompt.length > 0
+    );
+  });
+
+  test("image_generate still rejects a missing prompt outside series mode", () => {
+    const service = new RuntimeImageGenerateToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const parsed = (
+      service as unknown as {
+        readImageGenerateArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageGenerateArguments({
+      toolCode: "image_generate",
+      count: 1,
+      background: "auto"
+    });
+    assert.ok(parsed instanceof Error);
+  });
+
   test("image_edit accepts persisted toolCode inside worker request", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
@@ -98,6 +142,131 @@ describe("runtime media request parsing", () => {
       outputMode: "series",
       seriesItems: ["frame 1", "frame 2"],
       sourceImageAlias: "current image #1"
+    });
+    assert.ok(parsed instanceof Error);
+  });
+
+  test("image_edit synthesizes an overall prompt for series mode without a top-level prompt", () => {
+    const service = new RuntimeImageEditToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const parsed = (
+      service as unknown as {
+        readImageEditArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageEditArguments({
+      toolCode: "image_edit",
+      count: 4,
+      outputMode: "series",
+      seriesItems: ["slide 1", "slide 2", "slide 3", "slide 4"],
+      sourceImageAlias: "image #1",
+      referenceImageAlias: "image #2",
+      size: "1024x1024",
+      background: "auto"
+    });
+    assert.ok(!(parsed instanceof Error));
+    assert.ok(
+      typeof (parsed as { prompt: unknown }).prompt === "string" &&
+        (parsed as { prompt: string }).prompt.length > 0
+    );
+  });
+
+  test("image_edit still rejects a missing prompt outside series mode", () => {
+    const service = new RuntimeImageEditToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const parsed = (
+      service as unknown as {
+        readImageEditArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageEditArguments({
+      toolCode: "image_edit",
+      count: 1,
+      sourceImageAlias: "image #1",
+      background: "auto"
+    });
+    assert.ok(parsed instanceof Error);
+  });
+
+  test("image_edit accepts multiple reference aliases and merges the single alias", () => {
+    const service = new RuntimeImageEditToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const parsed = (
+      service as unknown as {
+        readImageEditArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageEditArguments({
+      toolCode: "image_edit",
+      prompt: "blend the styles",
+      count: 1,
+      sourceImageAlias: "image #1",
+      referenceImageAlias: "image #2",
+      referenceImageAliases: ["image #2", "image #3", "image #4"],
+      background: "auto"
+    });
+    assert.ok(!(parsed instanceof Error));
+    assert.deepEqual((parsed as { referenceImageAliases: string[] }).referenceImageAliases, [
+      "image #2",
+      "image #3",
+      "image #4"
+    ]);
+    assert.equal((parsed as { referenceImageAlias: string }).referenceImageAlias, "image #2");
+  });
+
+  test("image_edit drops a reference alias that equals the source alias", () => {
+    const service = new RuntimeImageEditToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const parsed = (
+      service as unknown as {
+        readImageEditArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageEditArguments({
+      toolCode: "image_edit",
+      prompt: "tweak it",
+      count: 1,
+      sourceImageAlias: "image #1",
+      referenceImageAliases: ["image #1", "image #2"],
+      background: "auto"
+    });
+    assert.ok(!(parsed instanceof Error));
+    assert.deepEqual((parsed as { referenceImageAliases: string[] }).referenceImageAliases, [
+      "image #2"
+    ]);
+  });
+
+  test("image_edit rejects more than the maximum reference images", () => {
+    const service = new RuntimeImageEditToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const tooMany = Array.from({ length: 16 }, (_, index) => `image #${String(index + 2)}`);
+    const parsed = (
+      service as unknown as {
+        readImageEditArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageEditArguments({
+      toolCode: "image_edit",
+      prompt: "blend many",
+      count: 1,
+      sourceImageAlias: "image #1",
+      referenceImageAliases: tooMany,
+      background: "auto"
     });
     assert.ok(parsed instanceof Error);
   });

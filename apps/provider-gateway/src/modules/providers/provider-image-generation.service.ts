@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import {
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   MAX_RUNTIME_IMAGE_EDIT_COUNT,
+  MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES,
   MIN_RUNTIME_IMAGE_EDIT_COUNT,
   MAX_RUNTIME_IMAGE_GENERATE_COUNT,
   MIN_RUNTIME_IMAGE_GENERATE_COUNT,
@@ -160,6 +161,11 @@ export class ProviderImageGenerationService {
       mimeType: string;
       filename: string | null;
     } | null;
+    referenceImages: {
+      bytesBase64: string;
+      mimeType: string;
+      filename: string | null;
+    }[];
     credential: ProviderGatewayImageEditRequest["credential"] & {
       providerId: PersaiRuntimeImageEditProviderId | null;
     };
@@ -200,10 +206,22 @@ export class ProviderImageGenerationService {
       );
     }
     const sourceImage = this.normalizeEditImageInput(input.sourceImage, "sourceImage");
-    const referenceImage =
-      input.referenceImage === null || input.referenceImage === undefined
-        ? null
-        : this.normalizeEditImageInput(input.referenceImage, "referenceImage");
+    // Prefer the multi-reference array; fall back to the deprecated single
+    // `referenceImage` when only that is provided.
+    const rawReferenceImages =
+      Array.isArray(input.referenceImages) && input.referenceImages.length > 0
+        ? input.referenceImages
+        : input.referenceImage === null || input.referenceImage === undefined
+          ? []
+          : [input.referenceImage];
+    if (rawReferenceImages.length > MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES) {
+      throw new BadRequestException(
+        `referenceImages must contain at most ${String(MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES)} image(s)`
+      );
+    }
+    const referenceImages = rawReferenceImages.map((image) =>
+      this.normalizeEditImageInput(image, "referenceImage")
+    );
 
     const requestContext = input.credential.requestContext;
     return {
@@ -214,7 +232,8 @@ export class ProviderImageGenerationService {
       background: input.background,
       timeoutMs: this.normalizeOptionalPositiveInteger(input.timeoutMs, "timeoutMs"),
       sourceImage,
-      referenceImage,
+      referenceImage: referenceImages[0] ?? null,
+      referenceImages,
       credential: {
         toolCode: "image_edit",
         secretId: input.credential.secretId.trim(),

@@ -654,6 +654,41 @@ describe("CadenceWatchdog", () => {
     wd.dispose();
   });
 
+  test("slow_avg is disabled for the rest of the span once a tool has started", () => {
+    // Regression: media turns (image_edit / image_generate) stream a short
+    // wrap-up answer AFTER the tool finishes. Some models stream that answer
+    // slower than the per-token cadence threshold, which previously fired
+    // slow_avg and aborted the runtime fetch mid-answer — a silent stream cut
+    // with no error, and (because side-effect turns are not safe to retry) a
+    // lost media job. Once any tool starts, slow_avg must stay quiet.
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        silentMs: 60_000,
+        avgWindow: 5,
+        avgThresholdMs: 200,
+        avgMinSamples: 5,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordToolStarted();
+    wd.recordToolFinished();
+    // Post-tool wrap-up answer streamed well above the threshold (300ms gaps).
+    wd.recordDelta();
+    for (let i = 0; i < 20; i++) {
+      clock.advance(300);
+      wd.recordDelta();
+    }
+    assert.equal(reports.length, 0);
+    assert.equal(wd.hasStalled(), false);
+    wd.dispose();
+  });
+
   test("swallows errors thrown from the onStall callback", () => {
     const clock = createFakeClock();
     const wd = createCadenceWatchdog(

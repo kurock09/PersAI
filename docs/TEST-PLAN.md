@@ -376,6 +376,23 @@ corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-completion-
 corepack pnpm --filter @persai/api exec tsx test/enqueue-runtime-deferred-media-job.service.test.ts
 ```
 
+### ADR-117 single-source golden test
+
+`apps/runtime/test/native-tool-projection.test.ts` exports `runMediaPromptFragmentsSanityTest`, the ADR-117 Slice 5 golden guard. It reads the real source files from disk and fails if tool-instruction ownership drifts:
+
+1. the collage/contact-sheet/diptych rule is re-inlined outside `packages/runtime-contract/src/media-prompt-fragments.ts`;
+2. runtime media services or the OpenAI gateway stop referencing the shared `@persai/runtime-contract` fragments;
+3. `apps/api/prisma/tool-catalog-data.ts` reintroduces `action="deferred"` or cross-tool comparison prose;
+4. `apps/api/prisma/bootstrap-preset-data.ts` loses the Native Tool Runtime selection-guide marker or reintroduces an `agents` Tasks Policy section.
+
+Run it through the runtime temp-runner path when isolating the test:
+
+```bash
+corepack pnpm --filter @persai/runtime exec tsx test/_tmp-run.ts
+```
+
+Where `test/_tmp-run.ts` temporarily imports `runMediaPromptFragmentsSanityTest` (and any adjacent projection sanity export you also want) and awaits them, then is deleted after the run.
+
 ## ADR-099 Session A catalog foundation focused checks
 
 When a change touches the structured Admin Runtime provider/model catalog, pricing metadata fields, or the compatibility alias that downstream model pickers still consume, add these focused checks before broad verification:
@@ -571,7 +588,7 @@ Interpretation rules:
 7. Slice 115.6 runtime UI must round-trip heuristic rules and routing knobs via safety-policy API without mixing router `precheckRuleOverrides`.
 8. Empty `user_restrictions` must not change safety-deny behavior; abuse-before-quota reorder remains intentional from slice 115.0.
 9. Slice 115.7 warn path must persist `moderation_cases` with `decision: warn` without `user_restrictions`; repeat warn for same `reasonCode` in strike window must escalate to `block_user` at inbound; web must render `platformNotice.kind = safety_inbound_warn`.
-10. Slice 115.5 admin_system must emit `safety_user_restricted` on auto `block_user` and admin manual restrict; notification message must include user email (not bare UUID). User-scoped admin_system events (`billing_*`, `support_ticket_opened`, `runtime_apply_*`, `safety_user_restricted`) must resolve `userEmail`/`recipientEmail` before label enrichment.
+10. Slice 115.5 admin*system must emit `safety_user_restricted` on auto `block_user` and admin manual restrict; notification message must include user email (not bare UUID). User-scoped admin_system events (`billing*_`, `support*ticket_opened`, `runtime_apply*_`, `safety_user_restricted`) must resolve `userEmail`/`recipientEmail` before label enrichment.
 11. Follow-through: web warn banner above composer (not in-thread); TG warn via `DeliverSafetyInboundWarnNoticeService` once per `triggerKey`; `GET /app/user-safety-standing` + bootstrap `userSafety` for sidebar icons.
 12. `apps/api/test/resolve-user-safety-standing.service.test.ts`, `safety-moderation-review-core.service.test.ts` (warn delivery idempotency), `apps/web/app/app/_components/sidebar.test.tsx` (safety icon modals).
 
@@ -731,11 +748,11 @@ Interpretation rules:
 10. Payment recovery must restore active paid state with provider/manual period truth and append `payment_recovered`.
 11. Credits/token budget visibility, inbound quota enforcement, and admin quota-pressure surfaces must read the current `workspace_token_budget_period_counters` bucket for the effective subscription period, not stale compatibility token totals from a previous period.
 12. Legacy `assistant_abuse_*` rows with `block_reason` `quota_pressure_*` must be cleared on the next distributed abuse attempt; abuse enforcement must not reintroduce quota-driven slowdown/block (ADR-044 cleanup + ADR-087).
-12. Billing lifecycle notification schedules must come from persisted Billing Settings policy, with email required and assistant push optional.
-13. Lifecycle events must create durable `notification_intents` (class: `transactional`) via `NotificationIntentService` instead of process-local timers; required email jobs stay pending until Slice 3 adds MJML templates and a real Postmark email delivery path.
-14. Ops Cockpit user-directory rows should be billing-support rows: email, plan, lifecycle status, next relevant billing/trial/grace date, usage risk, and actions, not assistant setup trivia.
-15. Ops Cockpit selected detail must expose PersAI-owned subscription truth, lifecycle events, notification jobs, quota period, and support identifiers without reading billing-provider state directly at request time.
-16. Ops Cockpit support actions must run through lifecycle/subscription services rather than raw admin row mutation: extend trial updates trial windows, grant/extend grace preserves paid access logic, fallback now moves deterministically to configured fallback truth, manual reminder creates durable notification work, and the selected detail refreshes to the new lifecycle state after each action.
+13. Billing lifecycle notification schedules must come from persisted Billing Settings policy, with email required and assistant push optional.
+14. Lifecycle events must create durable `notification_intents` (class: `transactional`) via `NotificationIntentService` instead of process-local timers; required email jobs stay pending until Slice 3 adds MJML templates and a real Postmark email delivery path.
+15. Ops Cockpit user-directory rows should be billing-support rows: email, plan, lifecycle status, next relevant billing/trial/grace date, usage risk, and actions, not assistant setup trivia.
+16. Ops Cockpit selected detail must expose PersAI-owned subscription truth, lifecycle events, notification jobs, quota period, and support identifiers without reading billing-provider state directly at request time.
+17. Ops Cockpit support actions must run through lifecycle/subscription services rather than raw admin row mutation: extend trial updates trial windows, grant/extend grace preserves paid access logic, fallback now moves deterministically to configured fallback truth, manual reminder creates durable notification work, and the selected detail refreshes to the new lifecycle state after each action.
 
 ## ADR-084 payment-intent and provider-port focused checks
 

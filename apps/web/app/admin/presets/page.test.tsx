@@ -231,6 +231,41 @@ describe("AdminPresetsPage tool prompt defaults", () => {
     expect(guidance.readOnly).toBe(true);
   });
 
+  it("renders the tools section as selection guide with no catalog-block variable chip", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/admin/prompt-templates")) {
+        return jsonResponse({
+          presets: [
+            {
+              id: "tools",
+              template: "# Native Tool Runtime — Selection Guide\n\nUse only the declared tools.",
+              updatedAt: "2026-01-01T00:00:00.000Z"
+            }
+          ]
+        });
+      }
+      if (url.endsWith("/api/v1/admin/tools/metadata")) {
+        return jsonResponse({ tools: [] });
+      }
+      if (url.endsWith("/api/v1/admin/persona-archetypes")) {
+        return jsonResponse({ archetypes: [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(<AdminPresetsPage />);
+
+    await screen.findByText("Native Tool Runtime — Selection Guide");
+    expect(
+      screen.getByText(
+        "Cross-tool selection guide in the cached system prefix. Edit here to control which tool the model calls and when. Per-tool mechanical contract (description, usage guidance) lives in Per-Tool Model Instructions below."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText("tools_catalog_block")).not.toBeInTheDocument();
+  });
+
   it("renders voice summary sample variables inside onboarding compiled preview", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockImplementation(async (input) => {

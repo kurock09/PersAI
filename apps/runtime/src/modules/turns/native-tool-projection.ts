@@ -4,6 +4,7 @@ import type {
 } from "@persai/runtime-bundle";
 import {
   MAX_RUNTIME_IMAGE_EDIT_COUNT,
+  MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES,
   MAX_RUNTIME_IMAGE_GENERATE_COUNT,
   MIN_RUNTIME_IMAGE_EDIT_COUNT,
   MIN_RUNTIME_IMAGE_GENERATE_COUNT,
@@ -92,32 +93,6 @@ function buildPendingDeliveryHint(params: {
   ]
     .filter((line): line is string => line !== null)
     .join(" ");
-}
-
-function containsLegacyScheduledActionGuidance(text: string): boolean {
-  return /assistant_check|hidden assistant follow-?up|actionPayload|actionType|audience/i.test(
-    text
-  );
-}
-
-function containsGhostBackgroundTaskAction(text: string): boolean {
-  return /\bcreate\b[^.]*\bupdate\b|\bupdate\b[^.]*\b(pause|resume|cancel|list)\b/i.test(text);
-}
-
-function resolveSanitizedScheduledActionDescription(
-  policy: RuntimeToolPolicy,
-  fallback: string
-): string {
-  const description = resolveToolDefinitionDescription(policy, fallback);
-  return containsLegacyScheduledActionGuidance(description) ? fallback : description;
-}
-
-function resolveSanitizedBackgroundTaskDescription(
-  policy: RuntimeToolPolicy,
-  fallback: string
-): string {
-  const description = resolveToolDefinitionDescription(policy, fallback);
-  return containsGhostBackgroundTaskAction(description) ? fallback : description;
 }
 
 function describeVideoVoiceCatalogHint(
@@ -853,7 +828,7 @@ function createImageGenerateToolDefinition(
             policy
           )
         ),
-        "count=N means N separate final images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items. If the current turn already includes a reusable product/source image and the outputs should stay tied to that same image across slides, do not use image_generate; use image_edit with sourceImageAlias instead."
+        "count=N means N separate final images in this one job. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items. If the current turn already includes a reusable product/source image and the outputs should stay tied to that same image across slides, do not use image_generate; use image_edit with sourceImageAlias instead."
       ),
       buildPendingDeliveryHint({
         subject: "the images are being prepared",
@@ -918,12 +893,12 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           resolveToolDefinitionDescription(
             policy,
             appendPerTurnCapHint(
-              "Edit a user-referenced image and return a new image file — use this only when the user explicitly wants an image modified, never to describe, analyze, or answer questions about an image (those are answered in text). For any multi-image edit request, use outputMode='series' with seriesItems so each requested output is described as its own final edited image inside one clean job; do not make extra calls. Keep outputMode='variants' only as a rare fallback for internal compatibility, not as the normal multi-image path. When another image should guide style or appearance, set referenceImageAlias to that image.",
+              "Edit a user-referenced image and return a new image file — use this only when the user explicitly wants an image modified, never to describe, analyze, or answer questions about an image (those are answered in text). For any multi-image edit request, use outputMode='series' with seriesItems so each requested output is described as its own final edited image inside one clean job; do not make extra calls. Keep outputMode='variants' only as a rare fallback for internal compatibility, not as the normal multi-image path. When other images should guide style, appearance, background, or composition, list them in referenceImageAliases (the edited output still stays rooted in the source image).",
               "image_edit",
               policy
             )
           ),
-          "count=N means N separate final edited images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items. In series mode, keep the same source product/object identity across slides unless the user explicitly asked to change products."
+          "count=N means N separate final edited images in this one job. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items. In series mode, keep the same source product/object identity across slides unless the user explicitly asked to change products."
         ),
         buildPendingDeliveryHint({
           subject: "the edit is being prepared",
@@ -967,7 +942,13 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
         referenceImageAlias: {
           type: "string",
           description:
-            'Optional human-readable sticky alias of a second available image to use only as a visual style, appearance, or background reference, for example "image #2". The tool must still return one edited version of the source image, not a separate edit of the reference image.'
+            'Optional single sticky alias of one extra image used only as a visual style, appearance, or background reference, for example "image #2". Prefer referenceImageAliases for one or more references. The tool must still return one edited version of the source image, not a separate edit of a reference image.'
+        },
+        referenceImageAliases: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES,
+          description: `Optional sticky aliases of additional images (up to ${String(MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES)}) used only as visual style, appearance, background, or composition references, for example ["image #2", "image #3"]. Do not include the sourceImageAlias here. The edited output stays rooted in the source image; references only guide it.`
         },
         filename: {
           type: "string",
@@ -1365,9 +1346,9 @@ function createScheduledActionToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: "scheduled_action",
-    description: resolveSanitizedScheduledActionDescription(
+    description: resolveToolDefinitionDescription(
       policy,
-      "Schedule simple unconditional user-visible reminders. Use background_task for assistant-side conditional checks."
+      "Schedule simple unconditional user-visible reminders."
     ),
     inputSchema: {
       type: "object",
@@ -1449,7 +1430,7 @@ function createBackgroundTaskToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: "background_task",
-    description: resolveSanitizedBackgroundTaskDescription(
+    description: resolveToolDefinitionDescription(
       policy,
       appendPerTurnCapHint(
         "Create and manage quiet assistant-side background tasks. Use this for conditional checks and delayed assistant follow-through; the platform will later evaluate the brief and push the user directly only when warranted. Before creating a new task, avoid duplicates: if the user seems to be referring to an already existing follow-up with the same purpose, first call list and then pause, resume, cancel, or keep the existing task instead of creating a second equivalent one.",

@@ -13,7 +13,7 @@ This repository contains the active PersAI platform baseline.
 5. `docs/API-BOUNDARY.md`
 6. `docs/DATA-MODEL.md`
 7. `docs/TEST-PLAN.md`
-8. relevant `docs/ADR/*` for the task at hand. Migration history: `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`. **Closed program archive** (do not treat as active backlog): `docs/ADR/078-consolidated-follow-through-program.md` through `docs/ADR/115-inbound-safety-program-contour-heuristics-and-async-moderation.md`. There is **no open orchestration program ADR** unless the user starts a new one.
+8. relevant `docs/ADR/*` for the task at hand. Migration history: `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`. **Closed program archive** (do not treat as active backlog): `docs/ADR/078-consolidated-follow-through-program.md` through `docs/ADR/115-inbound-safety-program-contour-heuristics-and-async-moderation.md`. **Open program ADR:** `docs/ADR/117-tool-instruction-source-of-truth-and-native-tool-runtime-selection-guide.md` (tool-instruction consolidation, Мир 2 only — selection guide + descriptor + provider-conditioning constants; execute its slices in order). Apart from ADR-117 there is **no open orchestration program ADR** unless the user starts a new one.
 
 ## Repo rules
 

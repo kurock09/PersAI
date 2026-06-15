@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import type { EffectiveToolAvailabilityState } from "../src/modules/workspace-management/application/effective-tool-availability.types";
-import {
-  buildRuntimeToolPoliciesMarkdown,
-  resolveRuntimeToolPolicies
-} from "../src/modules/workspace-management/application/runtime-tool-policy";
+import { resolveRuntimeToolPolicies } from "../src/modules/workspace-management/application/runtime-tool-policy";
 
 const tools = [
   {
@@ -231,6 +228,7 @@ async function run(): Promise<void> {
   assert.equal(cronPolicy?.perTurnCap, null, "hidden-internal policies have null perTurnCap");
   const filesPolicy = toolPolicies.find((tool) => tool.toolCode === "files");
   assert.match(filesPolicy?.description ?? "", /write-and-send/);
+  assert.match(filesPolicy?.description ?? "", /preview/);
   assert.match(filesPolicy?.usageGuidance ?? "", /files\.write_and_send when the user asks/);
   assert.match(filesPolicy?.usageGuidance ?? "", /filename is only a delivery-name override/);
   assert.match(filesPolicy?.usageGuidance ?? "", /Do not claim a file was sent unless/);
@@ -243,30 +241,6 @@ async function run(): Promise<void> {
     "quota_status should be emitted only once even when synthetic and catalog policies overlap"
   );
   assert.equal(toolPolicies.filter((tool) => tool.toolCode === "files").length, 1);
-
-  const markdown = buildRuntimeToolPoliciesMarkdown(toolPolicies);
-  assert.match(markdown, /\*\*`summarize_context`\*\*\nCreate a concise shared-context summary/);
-  assert.match(markdown, /\*\*`quota_status`\*\*\nRead live PersAI quota status/);
-  assert.match(
-    markdown,
-    /non-media daily tool counters, main quota buckets, monthly media quotas, and checkout-link creation/
-  );
-  assert.match(
-    markdown,
-    /\*\*`knowledge_search`\*\*\nSearch assistant-owned or PersAI-owned knowledge/
-  );
-  assert.match(markdown, /\*\*`web_search`\*\*\nSearch the public web\./);
-  assert.match(markdown, /\*\*`document`\*\*\nCreate and revise documents\./);
-  assert.match(
-    markdown,
-    /\*\*`scheduled_action`\*\*\nCreate and manage user reminders or hidden assistant actions\./
-  );
-  assert.match(
-    markdown,
-    /\*\*`files`\*\*\nList, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files/
-  );
-  assert.doesNotMatch(markdown, /cron/);
-  assert.doesNotMatch(markdown, /image_generate/);
 
   const videoTools = tools.map((tool) =>
     tool.code === "video_generate"

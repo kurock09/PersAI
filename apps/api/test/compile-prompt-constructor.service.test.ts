@@ -268,21 +268,36 @@ async function runPresenceCachedPrefixInvariant(): Promise<void> {
 }
 
 async function runFallbackCompile(): Promise<void> {
-  // Without any custom prompt template the legacy concatenation path runs.
-  // ADR-074 P1: heartbeat must still be excluded from the fallback systemPrompt, but the legacy
-  // tool-policies markdown remains as a safety net so a fresh DB without seed rows still carries
-  // tool guidance into the prompt.
   const service = new CompilePromptConstructorService();
+  const warnings: string[] = [];
+  const logger = (service as unknown as { logger?: { warn?: (message: string) => void } }).logger;
+  const originalWarn = logger?.warn;
+  if (logger) {
+    logger.warn = (message: string) => {
+      warnings.push(message);
+    };
+  }
   const compiled = service.compile({
     ...baseInput(),
     promptTemplates: {}
   });
+  if (logger && originalWarn) {
+    logger.warn = originalWarn;
+  }
   const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
-  assert.match(systemPrompt, /summarize_context/, "fallback path keeps tool-policy markdown");
+  assert.equal(compiled.promptDocuments.tools, "");
+  assert.doesNotMatch(
+    systemPrompt,
+    /summarize_context/,
+    "missing tools template should no longer re-derive legacy tool-policy markdown"
+  );
+  assert.deepEqual(warnings, [
+    "Prompt template 'tools' is missing; emitting an empty tools block without the legacy markdown fallback."
+  ]);
   assert.doesNotMatch(
     systemPrompt,
     /Stay quiet unless a user-visible follow-up/,
-    "fallback path still excludes heartbeat from systemPrompt"
+    "missing tools template path still excludes heartbeat from systemPrompt"
   );
 }
 

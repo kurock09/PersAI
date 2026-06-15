@@ -230,33 +230,3 @@ export function sortPromptConstructorTools<T extends { toolCode: string }>(tools
     return left.toolCode.localeCompare(right.toolCode);
   });
 }
-
-export function joinPromptToolInstruction(
-  description: string | null | undefined,
-  usageGuidance: string | null | undefined
-): string | null {
-  const normalizedDescription = description?.trim() || null;
-  const normalizedGuidance = usageGuidance?.trim() || null;
-  if (!normalizedDescription && !normalizedGuidance) {
-    return null;
-  }
-  if (!normalizedDescription) {
-    return normalizedGuidance;
-  }
-  if (!normalizedGuidance) {
-    return normalizedDescription;
-  }
-  return `${normalizedDescription} ${normalizedGuidance}`;
-}
-
-export function buildPromptToolMarkdownEntry(
-  toolCode: string,
-  description: string | null | undefined,
-  usageGuidance: string | null | undefined
-): string | null {
-  const instruction = joinPromptToolInstruction(description, usageGuidance);
-  if (!instruction) {
-    return null;
-  }
-  return `**\`${toolCode}\`**\n${instruction}`;
-}

@@ -6,6 +6,7 @@ import type {
 } from "@persai/runtime-bundle";
 import {
   MAX_RUNTIME_IMAGE_EDIT_COUNT,
+  MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES,
   MIN_RUNTIME_IMAGE_EDIT_COUNT,
   PERSAI_RUNTIME_IMAGE_BACKGROUNDS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
@@ -20,7 +21,10 @@ import {
   type RuntimeImageEditToolResult,
   type RuntimeUsageSnapshot,
   type RuntimeOutputArtifact,
-  type RuntimeToolPolicy
+  type RuntimeToolPolicy,
+  ANTI_COLLAGE_RULE,
+  STANDALONE_EDITED_IMAGE_RULE,
+  seriesItemHeaderLine
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
@@ -64,22 +68,27 @@ function mergeUsageSnapshots(
   };
 }
 
+interface LoadedImageEditImage {
+  bytesBase64: string;
+  mimeType: string;
+  filename: string | null;
+}
+
 type ResolvedImageEditSelection =
   | {
       ok: true;
-      sourceImage: {
-        bytesBase64: string;
-        mimeType: string;
-        filename: string | null;
-      };
-      referenceImage: {
-        bytesBase64: string;
-        mimeType: string;
-        filename: string | null;
-      } | null;
+      sourceImage: LoadedImageEditImage;
+      /** Reference images in request order; empty when none were provided. */
+      referenceImages: LoadedImageEditImage[];
+      /** @deprecated First reference image, kept for backward compatibility. */
+      referenceImage: LoadedImageEditImage | null;
       sourceImageAlias: string;
+      referenceImageAliases: string[];
+      /** @deprecated First reference alias, kept for backward compatibility. */
       referenceImageAlias: string | null;
       sourceFilename: string | null;
+      referenceFilenames: (string | null)[];
+      /** @deprecated First reference filename, kept for backward compatibility. */
       referenceFilename: string | null;
     }
   | {
@@ -118,6 +127,9 @@ export class RuntimeImageEditToolService {
   }): Promise<RuntimeImageEditToolExecutionResult> {
     const request = this.readImageEditArguments(params.toolCall.arguments);
     if (request instanceof Error) {
+      this.logger.warn(
+        `[image-edit] requestId=${params.requestId} skipped reason=invalid_arguments: ${request.message}`
+      );
       return {
         payload: {
           toolCode: IMAGE_EDIT_TOOL_CODE,
@@ -260,6 +272,9 @@ export class RuntimeImageEditToolService {
 
     const selection = await this.resolveImageSelection(params.availableAttachments, request);
     if (!selection.ok) {
+      this.logger.warn(
+        `[image-edit] requestId=${params.requestId} skipped reason=${selection.reason}: ${selection.warning}`
+      );
       return {
         payload: {
           toolCode: "image_edit",
@@ -335,8 +350,10 @@ export class RuntimeImageEditToolService {
             requestedCount: request.count,
             sourceImageAlias: selection.sourceImageAlias,
             referenceImageAlias: selection.referenceImageAlias,
+            referenceImageAliases: selection.referenceImageAliases,
             sourceFilename: selection.sourceFilename,
             referenceFilename: selection.referenceFilename,
+            referenceFilenames: selection.referenceFilenames,
             size: request.size,
             artifacts: [],
             usage: null,
@@ -395,6 +412,7 @@ export class RuntimeImageEditToolService {
         background: request.background,
         sourceImage: selection.sourceImage,
         referenceImage: selection.referenceImage,
+        referenceImages: selection.referenceImages,
         credential: {
           toolCode: IMAGE_EDIT_TOOL_CODE,
           secretId: modelSelection.credential.secretRef.id,
@@ -515,7 +533,11 @@ export class RuntimeImageEditToolService {
         };
       };
       this.logger.log(
-        `[image-edit] requestId=${params.requestId} provider=${providerId} sourceAlias="${selection.sourceImageAlias}" referenceAlias="${selection.referenceImageAlias ?? "none"}"`
+        `[image-edit] requestId=${params.requestId} provider=${providerId} sourceAlias="${selection.sourceImageAlias}" referenceAliases=${
+          selection.referenceImageAliases.length === 0
+            ? "none"
+            : `[${selection.referenceImageAliases.join(", ")}]`
+        }`
       );
       let accumulatedUsage: RuntimeUsageSnapshot | null = null;
       let accumulatedWarning: string | null = modelSelection.warning;
@@ -569,7 +591,7 @@ export class RuntimeImageEditToolService {
             index,
             total: multiImagePlan.length,
             sourceImageAlias: selection.sourceImageAlias,
-            referenceImageAlias: selection.referenceImageAlias
+            referenceImageAliases: selection.referenceImageAliases
           });
           const seriesResult = await runEditCall(composedPrompt, 1, `:series:${String(index + 1)}`);
           if (!seriesResult.ok) {
@@ -650,9 +672,11 @@ export class RuntimeImageEditToolService {
       this.logger.log(
         `[image-edit] completed requestId=${params.requestId} provider=${providerId} artifacts=${String(
           persistedArtifacts.length
-        )} sourceAlias="${selection.sourceImageAlias}" referenceAlias="${
-          selection.referenceImageAlias ?? "none"
-        }"`
+        )} sourceAlias="${selection.sourceImageAlias}" referenceAliases=${
+          selection.referenceImageAliases.length === 0
+            ? "none"
+            : `[${selection.referenceImageAliases.join(", ")}]`
+        }`
       );
       return {
         payload: {
@@ -665,8 +689,10 @@ export class RuntimeImageEditToolService {
           requestedCount: request.count,
           sourceImageAlias: selection.sourceImageAlias,
           referenceImageAlias: selection.referenceImageAlias,
+          referenceImageAliases: selection.referenceImageAliases,
           sourceFilename: selection.sourceFilename,
           referenceFilename: selection.referenceFilename,
+          referenceFilenames: selection.referenceFilenames,
           size: request.size,
           artifacts: persistedArtifacts,
           usage: accumulatedUsage,
@@ -685,9 +711,11 @@ export class RuntimeImageEditToolService {
       };
     } catch (error) {
       this.logger.warn(
-        `[image-edit] failed requestId=${params.requestId} sourceAlias="${selection.sourceImageAlias}" referenceAlias="${
-          selection.referenceImageAlias ?? "none"
-        }": ${error instanceof Error ? error.message : "Image edit failed."}`
+        `[image-edit] failed requestId=${params.requestId} sourceAlias="${selection.sourceImageAlias}" referenceAliases=${
+          selection.referenceImageAliases.length === 0
+            ? "none"
+            : `[${selection.referenceImageAliases.join(", ")}]`
+        }: ${error instanceof Error ? error.message : "Image edit failed."}`
       );
       return {
         payload: {
@@ -737,17 +765,14 @@ export class RuntimeImageEditToolService {
         key !== "size" &&
         key !== "background" &&
         key !== "sourceImageAlias" &&
-        key !== "referenceImageAlias"
+        key !== "referenceImageAlias" &&
+        key !== "referenceImageAliases"
     );
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
     }
     if ("toolCode" in args && args.toolCode !== IMAGE_EDIT_TOOL_CODE) {
       return new Error(`toolCode must be ${IMAGE_EDIT_TOOL_CODE}`);
-    }
-    const prompt = this.asNonEmptyString(args.prompt);
-    if (prompt === null) {
-      return new Error("prompt must be a non-empty string");
     }
 
     const count =
@@ -839,16 +864,73 @@ export class RuntimeImageEditToolService {
       return new Error("sourceImageAlias must be a non-empty string when provided");
     }
 
-    const referenceImageAlias =
+    const singleReferenceImageAlias =
       args.referenceImageAlias === undefined || args.referenceImageAlias === null
         ? null
         : this.asNonEmptyString(args.referenceImageAlias);
     if (
       "referenceImageAlias" in args &&
       args.referenceImageAlias !== null &&
-      referenceImageAlias === null
+      singleReferenceImageAlias === null
     ) {
       return new Error("referenceImageAlias must be a non-empty string when provided");
+    }
+
+    const referenceImageAliasesRaw = args.referenceImageAliases;
+    if (
+      "referenceImageAliases" in args &&
+      args.referenceImageAliases !== null &&
+      !Array.isArray(referenceImageAliasesRaw)
+    ) {
+      return new Error("referenceImageAliases must be an array of non-empty strings when provided");
+    }
+    const referenceImageAliasesParsed = Array.isArray(referenceImageAliasesRaw)
+      ? referenceImageAliasesRaw
+          .map((item) => this.asNonEmptyString(item))
+          .filter((item): item is string => item !== null)
+      : [];
+
+    // Merge the deprecated single alias with the array form, dedupe
+    // case-insensitively, and drop any reference that collides with the source
+    // image (a reference must be a different image than the source).
+    const normalizedSourceAlias =
+      sourceImageAlias === null ? null : this.normalizeAlias(sourceImageAlias);
+    const mergedReferenceAliases: string[] = [];
+    const seenReferenceAliases = new Set<string>();
+    for (const alias of [
+      ...(singleReferenceImageAlias === null ? [] : [singleReferenceImageAlias]),
+      ...referenceImageAliasesParsed
+    ]) {
+      const normalized = this.normalizeAlias(alias);
+      if (normalizedSourceAlias !== null && normalized === normalizedSourceAlias) {
+        continue;
+      }
+      if (seenReferenceAliases.has(normalized)) {
+        continue;
+      }
+      seenReferenceAliases.add(normalized);
+      mergedReferenceAliases.push(alias);
+    }
+    if (mergedReferenceAliases.length > MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES) {
+      return new Error(
+        `referenceImageAliases must list at most ${String(MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES)} reference image(s)`
+      );
+    }
+    const referenceImageAlias = mergedReferenceAliases[0] ?? null;
+    const referenceImageAliases = mergedReferenceAliases.length > 0 ? mergedReferenceAliases : null;
+
+    // `prompt` carries the overall request. In series mode each `seriesItems`
+    // entry is self-describing, so models routinely omit the top-level prompt;
+    // synthesize an overall prompt instead of rejecting the call as
+    // invalid_arguments (which silently skips the whole media request).
+    let prompt = this.asNonEmptyString(args.prompt);
+    if (prompt === null) {
+      if (outputMode === "series" && seriesItems !== null && seriesItems.length > 0) {
+        prompt =
+          "Edit the source image into a coherent multi-image series; each series item below describes one image to produce.";
+      } else {
+        return new Error("prompt must be a non-empty string");
+      }
     }
 
     return {
@@ -861,7 +943,8 @@ export class RuntimeImageEditToolService {
       size,
       background,
       sourceImageAlias,
-      referenceImageAlias
+      referenceImageAlias,
+      referenceImageAliases
     };
   }
 
@@ -880,7 +963,9 @@ export class RuntimeImageEditToolService {
     }
 
     const sourceImageAlias = request.sourceImageAlias;
-    const referenceImageAlias = request.referenceImageAlias;
+    const referenceImageAliases =
+      request.referenceImageAliases ??
+      (request.referenceImageAlias === null ? [] : [request.referenceImageAlias]);
 
     if (imageAttachments.length > 1 && sourceImageAlias === null) {
       return {
@@ -904,29 +989,37 @@ export class RuntimeImageEditToolService {
       };
     }
 
-    if (
-      referenceImageAlias !== null &&
-      this.findAttachmentByAlias(imageAttachments, referenceImageAlias) === null
-    ) {
-      return {
-        ok: false,
-        reason: "reference_image_alias_invalid",
-        warning:
-          "referenceImageAlias must match one of the available reusable image aliases in the working-files context."
-      };
-    }
-
-    if (
-      referenceImageAlias !== null &&
-      this.normalizeAlias(referenceImageAlias) ===
-        this.normalizeAlias(this.resolvePrimaryAttachmentAlias(sourceAttachment))
-    ) {
-      return {
-        ok: false,
-        reason: "reference_image_same_as_source",
-        warning:
-          "referenceImageAlias must refer to a different reusable image than sourceImageAlias."
-      };
+    const normalizedSource = this.normalizeAlias(
+      this.resolvePrimaryAttachmentAlias(sourceAttachment)
+    );
+    const referenceAttachments: RuntimeAttachmentRef[] = [];
+    const seenReferenceAliases = new Set<string>();
+    for (const alias of referenceImageAliases) {
+      const referenceAttachment = this.findAttachmentByAlias(imageAttachments, alias);
+      if (referenceAttachment === null) {
+        return {
+          ok: false,
+          reason: "reference_image_alias_invalid",
+          warning:
+            "Each referenceImageAlias must match one of the available reusable image aliases in the working-files context."
+        };
+      }
+      const normalizedReference = this.normalizeAlias(
+        this.resolvePrimaryAttachmentAlias(referenceAttachment)
+      );
+      if (normalizedReference === normalizedSource) {
+        return {
+          ok: false,
+          reason: "reference_image_same_as_source",
+          warning:
+            "Each referenceImageAlias must refer to a different reusable image than sourceImageAlias."
+        };
+      }
+      if (seenReferenceAliases.has(normalizedReference)) {
+        continue;
+      }
+      seenReferenceAliases.add(normalizedReference);
+      referenceAttachments.push(referenceAttachment);
     }
 
     const loadedSource = await this.loadSelectedImage(sourceAttachment, "source");
@@ -934,29 +1027,33 @@ export class RuntimeImageEditToolService {
       return loadedSource;
     }
 
-    const referenceAttachment =
-      referenceImageAlias === null
-        ? null
-        : this.findAttachmentByAlias(imageAttachments, referenceImageAlias);
-    const loadedReference =
-      referenceAttachment === null
-        ? null
-        : await this.loadSelectedImage(referenceAttachment, "reference");
-    if (loadedReference !== null && !loadedReference.ok) {
-      return loadedReference;
+    const loadedReferences: LoadedImageEditImage[] = [];
+    for (const referenceAttachment of referenceAttachments) {
+      const loadedReference = await this.loadSelectedImage(referenceAttachment, "reference");
+      if (!loadedReference.ok) {
+        return loadedReference;
+      }
+      loadedReferences.push(loadedReference.image);
     }
+
+    const resolvedReferenceAliases = referenceAttachments.map((attachment) =>
+      this.resolvePrimaryAttachmentAlias(attachment)
+    );
+    const resolvedReferenceFilenames = referenceAttachments.map(
+      (attachment) => attachment.filename ?? null
+    );
 
     return {
       ok: true,
       sourceImage: loadedSource.image,
-      referenceImage: loadedReference?.image ?? null,
+      referenceImages: loadedReferences,
+      referenceImage: loadedReferences[0] ?? null,
       sourceImageAlias: this.resolvePrimaryAttachmentAlias(sourceAttachment),
-      referenceImageAlias:
-        referenceAttachment === null
-          ? null
-          : this.resolvePrimaryAttachmentAlias(referenceAttachment),
+      referenceImageAliases: resolvedReferenceAliases,
+      referenceImageAlias: resolvedReferenceAliases[0] ?? null,
       sourceFilename: sourceAttachment.filename,
-      referenceFilename: referenceAttachment?.filename ?? null
+      referenceFilenames: resolvedReferenceFilenames,
+      referenceFilename: resolvedReferenceFilenames[0] ?? null
     };
   }
 
@@ -1148,13 +1245,13 @@ export class RuntimeImageEditToolService {
       return Array.from(
         { length: request.count },
         (_, index) =>
-          `Create variation ${String(index + 1)} of ${String(request.count)} for the same core idea. Keep the same source subject and overall intent, but make this finished image meaningfully distinct in composition, framing, lighting, palette, pose, or mood. Return one final edited image only.`
+          `Create variation ${String(index + 1)} of ${String(request.count)} for the same core idea. Keep the same source subject and overall intent, but make this finished image meaningfully distinct in composition, framing, lighting, palette, pose, or mood. ${STANDALONE_EDITED_IMAGE_RULE}`
       );
     }
     return Array.from(
       { length: request.count },
       (_, index) =>
-        `Create output ${String(index + 1)} of ${String(request.count)} as one standalone final edited image that stays faithful to the overall request. Return one final edited image only.`
+        `Create output ${String(index + 1)} of ${String(request.count)} as one standalone final edited image that stays faithful to the overall request. ${STANDALONE_EDITED_IMAGE_RULE}`
     );
   }
 
@@ -1169,24 +1266,31 @@ export class RuntimeImageEditToolService {
       : `${base} ${input.failureWarning.trim()}`;
   }
 
+  private formatAliasList(aliases: string[]): string {
+    if (aliases.length <= 1) {
+      return aliases[0] ?? "";
+    }
+    return `${aliases.slice(0, -1).join(", ")} and ${aliases[aliases.length - 1]}`;
+  }
+
   private composeSeriesPrompt(input: {
     overallPrompt: string;
     itemPrompt: string;
     index: number;
     total: number;
     sourceImageAlias: string;
-    referenceImageAlias: string | null;
+    referenceImageAliases: string[];
   }): string {
     const referenceLine =
-      input.referenceImageAlias === null
+      input.referenceImageAliases.length === 0
         ? "No separate reference image was provided."
-        : `Use ${input.referenceImageAlias} only as a supporting visual reference; keep the edited product rooted in ${input.sourceImageAlias}.`;
+        : `Use ${this.formatAliasList(input.referenceImageAliases)} only as supporting visual references; keep the edited product rooted in ${input.sourceImageAlias}.`;
     return [
-      `Series item ${String(input.index + 1)} of ${String(input.total)}.`,
+      seriesItemHeaderLine(input.index, input.total),
       `Overall request: ${input.overallPrompt}`,
       `Keep the same source product/object identity from ${input.sourceImageAlias} across every series item unless the user explicitly asked to replace it.`,
       referenceLine,
-      "Return one final edited image for this item only, not a collage, grid, contact sheet, or multi-panel composition.",
+      `${STANDALONE_EDITED_IMAGE_RULE} ${ANTI_COLLAGE_RULE}`,
       `This item only: ${input.itemPrompt}`
     ].join("\n\n");
   }

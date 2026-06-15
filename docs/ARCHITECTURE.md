@@ -68,6 +68,22 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
 - assistant-workspace materialization and persistence through canonical `AssistantFile` rows
 - sandbox job health/readiness and job polling surfaces used by `apps/runtime`
 
+### Native Tool Runtime instruction model
+
+ADR-117 closes the tool-instruction surface into three owned seams:
+
+```text
+Model-facing
+- tools prompt block -> Native Tool Runtime selection guide (which tool / when)
+- catalog -> policy -> projection -> per-tool descriptor (what tool / params)
+- projection-only helpers -> per-turn runtime-state hints
+
+Provider-facing
+- media-prompt-fragments.ts -> provider-conditioning only (how rendering should behave)
+```
+
+Cross-tool selection rules live only in the selection guide (`apps/api` prompt-template default + admin presets). Per-tool mechanical text lives only in the descriptor path. Provider-conditioning text is shared through `packages/runtime-contract/src/media-prompt-fragments.ts` and must not be repeated in model-facing tool descriptions.
+
 ## Active request path
 
 ### Web

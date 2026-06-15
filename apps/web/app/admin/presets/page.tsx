@@ -147,7 +147,7 @@ const PRESET_META: Record<
       { key: "identity_block", hint: "Compiled identity block" },
       { key: "enabled_skills_block", hint: "Compiled enabled Skills instruction cards" },
       { key: "tools_block", hint: "Compiled native tool runtime block" },
-      { key: "agents_block", hint: "Compiled memory and task governance block" },
+      { key: "agents_block", hint: "Compiled memory policy block" },
       { key: "heartbeat_block", hint: "Compiled task heartbeat block" }
     ]
   },
@@ -201,19 +201,15 @@ const PRESET_META: Record<
     variables: [{ key: "skill_cards_block", hint: "Rendered enabled Skill cards" }]
   },
   tools: {
-    label: "Native Tool Runtime",
+    label: "Native Tool Runtime — Selection Guide",
     description:
-      "Canonical machine-readable tool instruction block assembled from the actual model-facing tool metadata surface.",
-    variables: [
-      {
-        key: "tools_catalog_block",
-        hint: "Compiled runtime tool block generated from the actual declared tool surface"
-      }
-    ]
+      "Cross-tool selection guide in the cached system prefix. Edit here to control which tool the model calls and when. Per-tool mechanical contract (description, usage guidance) lives in Per-Tool Model Instructions below.",
+    variables: []
   },
   agents: {
-    label: "Memory and Task Governance",
-    description: "Directly editable governance instructions for memory and scheduled actions.",
+    label: "Memory Policy",
+    description:
+      "Directly editable memory hygiene instructions for the assistant. Task selection rules (scheduled_action vs background_task) have moved to the Native Tool Runtime selection guide.",
     variables: []
   },
   heartbeat: {

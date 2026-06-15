@@ -1,6 +1,90 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import { projectRuntimeNativeTools } from "../src/modules/turns/native-tool-projection";
+import {
+  ANTI_COLLAGE_RULE,
+  STANDALONE_IMAGE_RULE,
+  referenceGuidanceRule,
+  seriesItemHeaderLine
+} from "@persai/runtime-contract";
+
+function findRepoRoot(): string {
+  const starts = Array.from(new Set([path.resolve(__dirname), path.resolve(process.cwd())]));
+  for (const start of starts) {
+    let current = start;
+    let reachedRoot = false;
+    while (!reachedRoot) {
+      const runtimeContractPath = path.join(
+        current,
+        "packages",
+        "runtime-contract",
+        "src",
+        "media-prompt-fragments.ts"
+      );
+      const projectionPath = path.join(
+        current,
+        "apps",
+        "runtime",
+        "src",
+        "modules",
+        "turns",
+        "native-tool-projection.ts"
+      );
+      if (existsSync(runtimeContractPath) && existsSync(projectionPath)) {
+        return current;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        reachedRoot = true;
+      } else {
+        current = parent;
+      }
+    }
+  }
+  throw new Error("Could not locate the PersAI repo root for the ADR-117 golden test.");
+}
+
+function readRepoFile(repoRoot: string, relativePath: string): string {
+  return readFileSync(path.join(repoRoot, relativePath), "utf8");
+}
+
+function countStringLiteralsMatching(text: string, pattern: RegExp): number {
+  const stringLiteralPattern = /"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`/g;
+  let count = 0;
+  for (const match of text.matchAll(stringLiteralPattern)) {
+    const literal = match[0];
+    const tester = new RegExp(pattern.source, pattern.flags);
+    if (tester.test(literal)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function assertImportsRuntimeContractSymbols(params: {
+  ruleName: string;
+  relativePath: string;
+  source: string;
+  requiredSymbols: string[];
+}): void {
+  const normalized = params.source.replace(/\r\n/g, "\n");
+  const importMatches = Array.from(
+    normalized.matchAll(/import\s*\{([\s\S]*?)\}\s*from\s*"@persai\/runtime-contract";/g)
+  );
+  assert.ok(
+    importMatches.length > 0,
+    `${params.ruleName}: ${params.relativePath} must import shared media fragments from @persai/runtime-contract`
+  );
+  const importBody = importMatches.map((match) => match[1] ?? "").join("\n");
+  for (const symbol of params.requiredSymbols) {
+    assert.ok(
+      importBody.includes(symbol),
+      `${params.ruleName}: ${params.relativePath} must reference shared symbol ${symbol} from @persai/runtime-contract`
+    );
+  }
+}
 
 export async function runNativeToolProjectionTest(): Promise<void> {
   const artifact = compileAssistantRuntimeBundle({
@@ -320,10 +404,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         {
           toolCode: "scheduled_action",
           displayName: "Scheduled Action",
-          description:
-            "Schedule actions for both user-visible reminders and hidden assistant follow-ups.",
-          usageGuidance:
-            "For create, choose exactly one explicit kind. Hidden assistant follow-ups do not belong here.",
+          description: "Schedule simple unconditional user-visible reminders.",
+          usageGuidance: "For create, choose exactly one explicit kind.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -335,9 +417,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         {
           toolCode: "background_task",
           displayName: "Background Task",
-          description: "Create, list, update, pause, resume, or cancel assistant background tasks.",
+          description: "Create and manage quiet assistant-side background tasks.",
           usageGuidance:
-            "Before creating a duplicate, list and update the existing task if possible.",
+            "Before creating a duplicate, list and then pause, resume, cancel, or keep the existing task instead of creating a second equivalent one.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -465,7 +547,12 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.match(imageGenerateBackground?.description ?? "", /PNG with alpha/);
   assert.match(
     imageGenerate?.description ?? "",
-    /count=N means N separate final images in this one job, not a collage, contact sheet, grid, or multiple panels/
+    /count=N means N separate final images in this one job/
+  );
+  assert.doesNotMatch(
+    imageGenerate?.description ?? "",
+    /not a collage|contact sheet|diptych|triptych/,
+    "image_generate model-facing description must not contain provider-hygiene collage clause"
   );
   assert.match(imageGenerate?.description ?? "", /outputMode='series'/);
   assert.match(imageGenerate?.description ?? "", /seriesItems/);
@@ -490,7 +577,12 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.match(imageEdit?.description ?? "", /actually called image_edit/);
   assert.match(
     imageEdit?.description ?? "",
-    /count=N means N separate final edited images in this one job, not a collage, contact sheet, grid, or multiple panels/
+    /count=N means N separate final edited images in this one job/
+  );
+  assert.doesNotMatch(
+    imageEdit?.description ?? "",
+    /not a collage|contact sheet|diptych|triptych/,
+    "image_edit model-facing description must not contain provider-hygiene collage clause"
   );
   assert.match(imageEdit?.description ?? "", /outputMode='series'/);
   assert.match(imageEdit?.description ?? "", /seriesItems/);
@@ -743,7 +835,6 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     }
   )?.properties?.kind?.description;
   assert.match(scheduledAction?.description ?? "", /user-visible reminders/i);
-  assert.match(scheduledAction?.description ?? "", /background_task/);
   assert.doesNotMatch(scheduledAction?.description ?? "", /hidden assistant follow-ups?/i);
   assert.match(scheduledActionKindDescription ?? "", /user_reminder/);
   assert.match(scheduledActionKindDescription ?? "", /background_task/);
@@ -1396,5 +1487,375 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       ?.properties?.mode,
     undefined,
     "Slice 10c projection: mode field must NOT appear in schema when video_generate_talking_avatar ref is absent"
+  );
+}
+
+/**
+ * ADR-117 Slice 3 — single-source sanity test (down-payment on Slice 5 golden test).
+ *
+ * Asserts:
+ * 1. The canonical Rule A/B/C constants are exported from @persai/runtime-contract.
+ * 2. The collage phrase no longer appears in the model-facing image tool descriptions
+ *    produced by native-tool-projection (it belongs in provider prompts only).
+ */
+export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
+  assert.equal(typeof ANTI_COLLAGE_RULE, "string", "ANTI_COLLAGE_RULE must be exported");
+  assert.ok(ANTI_COLLAGE_RULE.length > 0, "ANTI_COLLAGE_RULE must be non-empty");
+  assert.ok(
+    ANTI_COLLAGE_RULE.includes("diptych") && ANTI_COLLAGE_RULE.includes("triptych"),
+    "ANTI_COLLAGE_RULE must name diptych and triptych (gateway-facing complete variant)"
+  );
+
+  assert.equal(typeof STANDALONE_IMAGE_RULE, "string", "STANDALONE_IMAGE_RULE must be exported");
+  assert.ok(STANDALONE_IMAGE_RULE.length > 0, "STANDALONE_IMAGE_RULE must be non-empty");
+  assert.ok(
+    STANDALONE_IMAGE_RULE.includes("standalone final image"),
+    "STANDALONE_IMAGE_RULE must include 'standalone final image'"
+  );
+
+  const singleRef = referenceGuidanceRule({ multiple: false });
+  const multiRef = referenceGuidanceRule({ multiple: true });
+  assert.ok(
+    singleRef.includes("second/reference image"),
+    "referenceGuidanceRule({multiple:false}) must reference second/reference image"
+  );
+  assert.ok(
+    multiRef.includes("additional reference images"),
+    "referenceGuidanceRule({multiple:true}) must reference additional reference images"
+  );
+
+  const repoRoot = findRepoRoot();
+  const mediaFragmentsPath = "packages/runtime-contract/src/media-prompt-fragments.ts";
+  const projectionPath = "apps/runtime/src/modules/turns/native-tool-projection.ts";
+  const imageGenerateServicePath =
+    "apps/runtime/src/modules/turns/runtime-image-generate-tool.service.ts";
+  const imageEditServicePath = "apps/runtime/src/modules/turns/runtime-image-edit-tool.service.ts";
+  const openAiClientPath =
+    "apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts";
+  const toolCatalogPath = "apps/api/prisma/tool-catalog-data.ts";
+  const bootstrapPath = "apps/api/prisma/bootstrap-preset-data.ts";
+
+  const mediaFragmentsSource = readRepoFile(repoRoot, mediaFragmentsPath);
+  const projectionSource = readRepoFile(repoRoot, projectionPath);
+  const imageGenerateServiceSource = readRepoFile(repoRoot, imageGenerateServicePath);
+  const imageEditServiceSource = readRepoFile(repoRoot, imageEditServicePath);
+  const openAiClientSource = readRepoFile(repoRoot, openAiClientPath);
+  const toolCatalogSource = readRepoFile(repoRoot, toolCatalogPath);
+  const bootstrapSource = readRepoFile(repoRoot, bootstrapPath);
+
+  const collageLiteralPattern =
+    /Do not make a collage|contact sheet|diptych|triptych|multi-panel composition/i;
+  assert.equal(
+    countStringLiteralsMatching(mediaFragmentsSource, collageLiteralPattern),
+    1,
+    `Rule A: ${mediaFragmentsPath} must be the only production source file that defines the collage/contact-sheet/diptych rule as a string literal`
+  );
+  for (const [relativePath, source] of [
+    [projectionPath, projectionSource],
+    [imageGenerateServicePath, imageGenerateServiceSource],
+    [imageEditServicePath, imageEditServiceSource],
+    [openAiClientPath, openAiClientSource]
+  ] as const) {
+    assert.doesNotMatch(
+      source,
+      collageLiteralPattern,
+      `Rule A: ${relativePath} must not inline the collage/contact-sheet/diptych rule; import the shared fragment instead`
+    );
+  }
+
+  assertImportsRuntimeContractSymbols({
+    ruleName: "Rule B / D",
+    relativePath: imageGenerateServicePath,
+    source: imageGenerateServiceSource,
+    requiredSymbols: [
+      "ANTI_COLLAGE_RULE",
+      "STANDALONE_GENERATED_IMAGE_RULE",
+      "seriesItemHeaderLine"
+    ]
+  });
+  assertImportsRuntimeContractSymbols({
+    ruleName: "Rule B / C / D",
+    relativePath: imageEditServicePath,
+    source: imageEditServiceSource,
+    requiredSymbols: ["ANTI_COLLAGE_RULE", "STANDALONE_EDITED_IMAGE_RULE", "seriesItemHeaderLine"]
+  });
+  assertImportsRuntimeContractSymbols({
+    ruleName: "Rule A / B / C",
+    relativePath: openAiClientPath,
+    source: openAiClientSource,
+    requiredSymbols: ["ANTI_COLLAGE_RULE", "STANDALONE_IMAGE_RULE", "referenceGuidanceRule"]
+  });
+
+  const sharedSeriesHeader = seriesItemHeaderLine(0, 2);
+  assert.equal(
+    sharedSeriesHeader,
+    "Series item 1 of 2.",
+    "Rule D: seriesItemHeaderLine must be exported"
+  );
+  assert.ok(
+    imageGenerateServiceSource.includes("seriesItemHeaderLine("),
+    `Rule D: ${imageGenerateServicePath} must call seriesItemHeaderLine() instead of re-declaring the header wording`
+  );
+  assert.ok(
+    imageEditServiceSource.includes("seriesItemHeaderLine("),
+    `Rule D: ${imageEditServicePath} must call seriesItemHeaderLine() instead of re-declaring the header wording`
+  );
+  assert.ok(
+    openAiClientSource.includes("referenceGuidanceRule({ multiple:"),
+    `Rule C: ${openAiClientPath} must build reference guidance through referenceGuidanceRule() instead of re-declaring the wording`
+  );
+
+  assert.doesNotMatch(
+    toolCatalogSource,
+    /action="deferred"/i,
+    `Drift guard: ${toolCatalogPath} must not mention action="deferred" after ADR-117 Slice 2`
+  );
+  for (const [pattern, label] of [
+    [/not for editing/i, 'cross-tool comparison "not for editing"'],
+    [/do not use this for/i, 'cross-tool comparison "do not use this for"'],
+    [/use `background_task` for that/i, 'cross-tool comparison "use `background_task` for that"'],
+    [
+      /need sources or links without an exact URL/i,
+      "selection-guide URL sentence duplicated into catalog"
+    ],
+    [/know the exact URL/i, "selection-guide exact-URL sentence duplicated into catalog"]
+  ] as const) {
+    assert.doesNotMatch(
+      toolCatalogSource,
+      pattern,
+      `Drift guard: ${toolCatalogPath} must not reintroduce ${label}`
+    );
+  }
+
+  assert.match(
+    bootstrapSource,
+    /tools:\s*`# Native Tool Runtime — Selection Guide/,
+    `Selection guide presence: ${bootstrapPath} must seed the Native Tool Runtime selection guide in the tools block`
+  );
+  assert.match(
+    bootstrapSource,
+    /agents:\s*`# Memory Policy/,
+    `Selection guide presence: ${bootstrapPath} must keep the agents block reduced to Memory Policy`
+  );
+  assert.doesNotMatch(
+    bootstrapSource,
+    /# Tasks Policy/,
+    `Selection guide presence: ${bootstrapPath} must not reintroduce a Tasks Policy section into the agents block`
+  );
+
+  // Rule A must NOT appear inline in the model-facing image tool descriptions.
+  // (The projection test fixture produces tools via the real projection pipeline.)
+  const artifact = compileAssistantRuntimeBundle({
+    metadata: {
+      assistantId: "sanity-1",
+      workspaceId: "ws-1",
+      publishedVersionId: "ver-1",
+      publishedVersion: 1,
+      algorithmVersion: 72,
+      configGeneration: 1
+    },
+    persona: {
+      displayName: "Test",
+      instructions: "Be helpful.",
+      traits: null,
+      avatarEmoji: null,
+      avatarUrl: null,
+      assistantGender: null,
+      voiceProfile: {
+        schema: "persai.assistantVoiceProfile.v1",
+        defaultLocale: "en-US",
+        deliveryKind: "voice_note",
+        elevenlabs: { voiceId: null },
+        yandex: { voice: "jane", role: null },
+        openai: { voice: "marin" }
+      }
+    },
+    userContext: {
+      displayName: "User",
+      birthday: null,
+      gender: null,
+      locale: "en",
+      timezone: "UTC"
+    },
+    runtime: {
+      runtimeAssignment: { effectiveTier: "paid_shared_restricted" },
+      runtimeProviderProfile: {
+        mode: "admin_managed",
+        primary: { provider: "openai", model: "gpt-5.4" }
+      },
+      runtimeProviderRouting: {
+        primaryPath: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4",
+          active: true,
+          inactiveReason: null
+        }
+      },
+      contextHydration: {
+        preset: "balanced",
+        targetContextBudget: 24000,
+        compactionTriggerThreshold: 8000,
+        keepRecentMinimum: 4,
+        knowledgeHydrationBudget: 2400,
+        autoCompactionWeb: false,
+        autoCompactionTelegram: true,
+        crossSessionCarryOverTtlDays: 7,
+        crossSessionCarryOverIdleHours: 4,
+        crossSessionCarryOverCooldownHours: 12
+      },
+      sharedCompaction: {
+        summarizeToolCode: "summarize_context",
+        compactToolCode: "compact_context",
+        webSuggestionLatencyMs: 7000,
+        reserveTokens: 24000,
+        keepRecentTokens: 16000,
+        recentTurnsPreserve: 4,
+        telegramAutoSummarizeEnabled: true
+      },
+      knowledgeAccess: {
+        searchToolCode: "knowledge_search",
+        fetchToolCode: "knowledge_fetch",
+        executionModes: ["inline", "worker"],
+        ragMode: "pattern_only",
+        sources: []
+      },
+      workerTools: { tools: [] },
+      browser: {
+        toolCode: "browser",
+        executionMode: "worker",
+        credentialToolCode: "browser",
+        providerIds: ["browserless"],
+        defaultProviderId: "browserless",
+        actions: ["snapshot", "act"],
+        confirmationRequiredActions: ["act"]
+      }
+    },
+    governance: {
+      capabilityEnvelope: null,
+      secretRefs: null,
+      policyEnvelope: null,
+      effectiveCapabilities: null,
+      toolAvailability: null,
+      memoryControl: null,
+      tasksControl: null,
+      toolCredentialRefs: {
+        image_generate: {
+          refKey: "persai:persai-runtime:tool/image_generate/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/image_generate/api-key"
+          },
+          configured: true,
+          providerId: "openai",
+          modelKey: "gpt-image-1.5"
+        },
+        image_edit: {
+          refKey: "persai:persai-runtime:tool/image_generate/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/image_generate/api-key"
+          },
+          configured: true,
+          providerId: "openai",
+          modelKey: "gpt-image-1.5"
+        }
+      },
+      toolPolicies: [
+        {
+          toolCode: "image_generate",
+          displayName: "Image Generate",
+          description: "Generate new images from a text prompt.",
+          usageGuidance: 'Set background="transparent" when the user wants transparent PNG output.',
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: 10
+        },
+        {
+          toolCode: "image_edit",
+          displayName: "Image Edit",
+          description: "Edit a current-turn image.",
+          usageGuidance:
+            'Set background="transparent" when the user asks to remove the background.',
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: 10
+        }
+      ],
+      quota: {
+        planCode: "starter_trial",
+        workspaceQuotaBytes: 1024,
+        quotaHook: null
+      },
+      auditHook: null
+    },
+    channels: {
+      bindings: null,
+      telegram: {
+        enabled: false,
+        autoCompactionEnabled: false,
+        dmPolicy: "off",
+        groupReplyMode: "mentions_only",
+        parseMode: "HTML",
+        inbound: false,
+        outbound: false,
+        accessMode: "owner_only",
+        ownerClaimStatus: "unclaimed",
+        ownerClaimCode: null,
+        ownerClaimCodeExpiresAt: null,
+        ownerTelegramUserId: null,
+        ownerTelegramUsername: null,
+        ownerTelegramChatId: null
+      }
+    },
+    promptDocuments: {
+      soul: "",
+      user: "",
+      identity: "",
+      tools: "",
+      agents: "",
+      heartbeat: "",
+      preview: "",
+      welcome: ""
+    }
+  });
+  const { tools } = projectRuntimeNativeTools(artifact.bundle);
+  const imageGenerateTool = tools.find((t) => t.name === "image_generate");
+  const imageEditTool = tools.find((t) => t.name === "image_edit");
+
+  assert.ok(imageGenerateTool, "image_generate must be projected in sanity test");
+  assert.ok(imageEditTool, "image_edit must be projected in sanity test");
+
+  const collagePattern = /collage|contact sheet|diptych|triptych/i;
+  assert.doesNotMatch(
+    imageGenerateTool?.description ?? "",
+    collagePattern,
+    "ADR-117 Slice 3: collage/diptych/triptych phrase must not appear in model-facing image_generate description"
+  );
+  assert.doesNotMatch(
+    imageEditTool?.description ?? "",
+    collagePattern,
+    "ADR-117 Slice 3: collage/diptych/triptych phrase must not appear in model-facing image_edit description"
+  );
+
+  // count=N / series intent must still be present (model still needs this for tool selection).
+  assert.match(
+    imageGenerateTool?.description ?? "",
+    /count=N means N separate final images in this one job/,
+    "ADR-117 Slice 3: count/series intent must still be present in image_generate description"
+  );
+  assert.match(
+    imageEditTool?.description ?? "",
+    /count=N means N separate final edited images in this one job/,
+    "ADR-117 Slice 3: count/series intent must still be present in image_edit description"
   );
 }
