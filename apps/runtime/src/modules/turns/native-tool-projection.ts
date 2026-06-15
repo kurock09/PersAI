@@ -939,11 +939,6 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           description:
             'Optional human-readable sticky alias of the available image to edit, for example "image #1". Required when multiple reusable images are available and the source image is clear.'
         },
-        referenceImageAlias: {
-          type: "string",
-          description:
-            'Optional single sticky alias of one extra image used only as a visual style, appearance, or background reference, for example "image #2". Prefer referenceImageAliases for one or more references. The tool must still return one edited version of the source image, not a separate edit of a reference image.'
-        },
         referenceImageAliases: {
           type: "array",
           items: { type: "string" },
@@ -1020,7 +1015,7 @@ function createVideoGenerateToolDefinition(
       ),
       [
         [
-          "Prefer calling this tool immediately when the user clearly wants a video. For cinematic mode, pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. For talking_avatar mode, do not pass cinematic seconds/size/audio/input/filename controls; provide a non-empty speechText from the user's requested script plus exactly one avatar source (personaId or portraitImageAlias). If personaId is used, omit talkingAvatarAspectRatio because the persona's saved avatar format controls output. If portraitImageAlias is used, pass talkingAvatarAspectRatio only for an explicit user aspect request. If the user wants an avatar/person to move without speaking, that is cinematic, not talking_avatar.",
+          "Prefer calling this tool immediately when the user clearly wants a video. For cinematic mode, pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values.",
           buildPendingDeliveryHint({
             subject: "the video is being prepared",
             quotaToolCode: "video_generate"

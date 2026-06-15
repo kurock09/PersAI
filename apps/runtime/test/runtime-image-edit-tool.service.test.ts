@@ -363,7 +363,7 @@ describe("RuntimeImageEditToolService", () => {
         arguments: {
           prompt: "Apply the style of the reference image",
           sourceImageAlias: "image #1",
-          referenceImageAlias: "image #2"
+          referenceImageAliases: ["image #2"]
         }
       } as never,
       availableAttachments: attachments,

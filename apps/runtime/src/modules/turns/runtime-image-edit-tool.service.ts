@@ -765,7 +765,6 @@ export class RuntimeImageEditToolService {
         key !== "size" &&
         key !== "background" &&
         key !== "sourceImageAlias" &&
-        key !== "referenceImageAlias" &&
         key !== "referenceImageAliases"
     );
     if (unknownKeys.length > 0) {
@@ -864,18 +863,6 @@ export class RuntimeImageEditToolService {
       return new Error("sourceImageAlias must be a non-empty string when provided");
     }
 
-    const singleReferenceImageAlias =
-      args.referenceImageAlias === undefined || args.referenceImageAlias === null
-        ? null
-        : this.asNonEmptyString(args.referenceImageAlias);
-    if (
-      "referenceImageAlias" in args &&
-      args.referenceImageAlias !== null &&
-      singleReferenceImageAlias === null
-    ) {
-      return new Error("referenceImageAlias must be a non-empty string when provided");
-    }
-
     const referenceImageAliasesRaw = args.referenceImageAliases;
     if (
       "referenceImageAliases" in args &&
@@ -890,17 +877,14 @@ export class RuntimeImageEditToolService {
           .filter((item): item is string => item !== null)
       : [];
 
-    // Merge the deprecated single alias with the array form, dedupe
-    // case-insensitively, and drop any reference that collides with the source
-    // image (a reference must be a different image than the source).
+    // Dedupe the reference aliases case-insensitively and drop any reference
+    // that collides with the source image (a reference must be a different
+    // image than the source).
     const normalizedSourceAlias =
       sourceImageAlias === null ? null : this.normalizeAlias(sourceImageAlias);
     const mergedReferenceAliases: string[] = [];
     const seenReferenceAliases = new Set<string>();
-    for (const alias of [
-      ...(singleReferenceImageAlias === null ? [] : [singleReferenceImageAlias]),
-      ...referenceImageAliasesParsed
-    ]) {
+    for (const alias of referenceImageAliasesParsed) {
       const normalized = this.normalizeAlias(alias);
       if (normalizedSourceAlias !== null && normalized === normalizedSourceAlias) {
         continue;

@@ -163,7 +163,7 @@ describe("runtime media request parsing", () => {
       outputMode: "series",
       seriesItems: ["slide 1", "slide 2", "slide 3", "slide 4"],
       sourceImageAlias: "image #1",
-      referenceImageAlias: "image #2",
+      referenceImageAliases: ["image #2"],
       size: "1024x1024",
       background: "auto"
     });
@@ -194,7 +194,7 @@ describe("runtime media request parsing", () => {
     assert.ok(parsed instanceof Error);
   });
 
-  test("image_edit accepts multiple reference aliases and merges the single alias", () => {
+  test("image_edit accepts multiple reference aliases and dedupes them", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
@@ -210,8 +210,7 @@ describe("runtime media request parsing", () => {
       prompt: "blend the styles",
       count: 1,
       sourceImageAlias: "image #1",
-      referenceImageAlias: "image #2",
-      referenceImageAliases: ["image #2", "image #3", "image #4"],
+      referenceImageAliases: ["image #2", "image #2", "image #3", "image #4"],
       background: "auto"
     });
     assert.ok(!(parsed instanceof Error));

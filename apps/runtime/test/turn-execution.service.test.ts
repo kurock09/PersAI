@@ -6704,7 +6704,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           arguments: {
             prompt: "Place the car from image #2 into the yard in image #1",
             sourceImageAlias: "image #1",
-            referenceImageAlias: "image #2",
+            referenceImageAliases: ["image #2"],
             filename: "yard-with-car.png"
           }
         }

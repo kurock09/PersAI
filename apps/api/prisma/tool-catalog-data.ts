@@ -50,7 +50,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "AI image generation via DALL-E or other supported providers.",
     modelDescription: "Generate brand-new images from a text prompt.",
     modelUsageGuidance:
-      'For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". If the result says `action="pending_delivery"`, say the image is still rendering and will arrive separately; do not describe it as already created, attached, or sent.',
+      'For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent".',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -65,7 +65,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     modelDescription:
       "Edit images only when the user explicitly asks to modify an image, for example replace, remove, add, recolor, restyle, insert, or draw something.",
     modelUsageGuidance:
-      'Prefer the current user attachment; otherwise use a recent reusable chat image already in context. With one available image, edit that image. With multiple images, set `sourceImageAlias` to the image being edited; you may also pass one or more guidance images via `referenceImageAliases` — the edited output stays rooted in the source while references only guide it. If roles like "the second photo" are still unclear, ask instead of guessing. For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". Never claim the edit is done unless this turn produced a successful `image_edit` result. If you have not called `image_edit`, do not pretend the image was edited. If the result says `action="pending_delivery"`, say the edit is in progress and will arrive separately.',
+      'Prefer the current user attachment; otherwise use a recent reusable chat image already in context. With one available image, edit that image. With multiple images, set `sourceImageAlias` to the image being edited; you may also pass one or more guidance images via `referenceImageAliases` — the edited output stays rooted in the source while references only guide it. If roles like "the second photo" are still unclear, ask instead of guessing. For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". Never claim the edit is done unless this turn produced a successful `image_edit` result. If you have not called `image_edit`, do not pretend the image was edited.',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -79,7 +79,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       "Generate a short video clip from a text prompt, optionally guided by one current or recent chat reference image.",
     modelDescription: "Generate a short brand-new video clip from a text prompt.",
     modelUsageGuidance:
-      'You may guide the result with one current or recent chat image via `referenceImageAlias`. If the result says `action="pending_delivery"`, say the video is still rendering and will arrive separately; do not describe it as already created, attached, or sent.',
+      "You may guide the result with one current or recent chat image via `referenceImageAlias`.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",

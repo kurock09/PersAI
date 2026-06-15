@@ -81,8 +81,9 @@ async function run(): Promise<void> {
     const imageEdit = TOOL_CATALOG.find((entry) => entry.code === "image_edit");
     const videoGenerate = TOOL_CATALOG.find((entry) => entry.code === "video_generate");
 
-    // A1 drift fix: action token must be pending_delivery (not the old "deferred")
-    assert.ok(imageGenerate?.modelUsageGuidance?.includes('action="pending_delivery"'));
+    // pending_delivery honesty is canonical in the selection guide + runtime hint,
+    // so it must NOT be duplicated into per-tool catalog guidance.
+    assert.ok(!imageGenerate?.modelUsageGuidance?.includes("pending_delivery"));
     assert.ok(!imageGenerate?.modelUsageGuidance?.includes('action="deferred"'));
     // A2: selection sentences removed from image_generate
     assert.ok(!imageGenerate?.modelUsageGuidance?.includes("not for editing an existing one"));
@@ -90,16 +91,17 @@ async function run(): Promise<void> {
     // P2: per-tool mechanical content kept
     assert.ok(imageGenerate?.modelUsageGuidance?.includes('background="transparent"'));
 
-    // P8: per-tool honesty contract kept in image_edit
+    // P8: per-tool honesty contract kept in image_edit (this is the pre-call
+    // "do not pretend you already edited" rule, distinct from pending_delivery)
     assert.ok(imageEdit?.modelUsageGuidance?.includes("Never claim the edit is done"));
     assert.ok(imageEdit?.modelUsageGuidance?.includes("If you have not called `image_edit`"));
-    // A1 drift fix and A4 multi-reference fix
-    assert.ok(imageEdit?.modelUsageGuidance?.includes('action="pending_delivery"'));
+    // pending_delivery is not duplicated into the catalog; A4 multi-reference fix
+    assert.ok(!imageEdit?.modelUsageGuidance?.includes("pending_delivery"));
     assert.ok(!imageEdit?.modelUsageGuidance?.includes('action="deferred"'));
     assert.ok(imageEdit?.modelUsageGuidance?.includes("referenceImageAliases"));
 
-    // A1 drift fix: video_generate
-    assert.ok(videoGenerate?.modelUsageGuidance?.includes('action="pending_delivery"'));
+    // pending_delivery is not duplicated into video_generate catalog guidance
+    assert.ok(!videoGenerate?.modelUsageGuidance?.includes("pending_delivery"));
     assert.ok(!videoGenerate?.modelUsageGuidance?.includes('action="deferred"'));
     // A2: selection sentences removed from video_generate
     assert.ok(!videoGenerate?.modelUsageGuidance?.includes("call this tool immediately"));
