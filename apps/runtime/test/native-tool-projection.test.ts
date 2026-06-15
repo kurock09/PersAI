@@ -21,7 +21,7 @@ function findRepoRoot(): string {
         "packages",
         "runtime-contract",
         "src",
-        "media-prompt-fragments.ts"
+        "index.ts"
       );
       const projectionPath = path.join(
         current,
@@ -1525,7 +1525,11 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
   );
 
   const repoRoot = findRepoRoot();
-  const mediaFragmentsPath = "packages/runtime-contract/src/media-prompt-fragments.ts";
+  // The provider-conditioning fragments live directly in the runtime-contract index
+  // module: the package is consumed as un-built TS source at runtime, so it must stay
+  // a single self-contained module (extensionless relative imports are unresolvable
+  // under Node's type-stripping ESM loader). See ADR-117 / index.ts header note.
+  const mediaFragmentsPath = "packages/runtime-contract/src/index.ts";
   const projectionPath = "apps/runtime/src/modules/turns/native-tool-projection.ts";
   const imageGenerateServicePath =
     "apps/runtime/src/modules/turns/runtime-image-generate-tool.service.ts";

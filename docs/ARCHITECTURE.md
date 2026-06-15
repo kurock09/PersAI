@@ -79,10 +79,10 @@ Model-facing
 - projection-only helpers -> per-turn runtime-state hints
 
 Provider-facing
-- media-prompt-fragments.ts -> provider-conditioning only (how rendering should behave)
+- runtime-contract index fragments -> provider-conditioning only (how rendering should behave)
 ```
 
-Cross-tool selection rules live only in the selection guide (`apps/api` prompt-template default + admin presets). Per-tool mechanical text lives only in the descriptor path. Provider-conditioning text is shared through `packages/runtime-contract/src/media-prompt-fragments.ts` and must not be repeated in model-facing tool descriptions.
+Cross-tool selection rules live only in the selection guide (`apps/api` prompt-template default + admin presets). Per-tool mechanical text lives only in the descriptor path. Provider-conditioning text is shared through the canonical fragments in `packages/runtime-contract/src/index.ts` and must not be repeated in model-facing tool descriptions. These fragments live directly in the contract index module (not a sibling file) because `@persai/runtime-contract` is consumed as un-built TypeScript source at runtime and must stay a single self-contained module (extensionless relative imports are unresolvable under Node's type-stripping ESM loader).
 
 ## Active request path
 

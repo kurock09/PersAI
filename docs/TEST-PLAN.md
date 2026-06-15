@@ -380,7 +380,7 @@ corepack pnpm --filter @persai/api exec tsx test/enqueue-runtime-deferred-media-
 
 `apps/runtime/test/native-tool-projection.test.ts` exports `runMediaPromptFragmentsSanityTest`, the ADR-117 Slice 5 golden guard. It reads the real source files from disk and fails if tool-instruction ownership drifts:
 
-1. the collage/contact-sheet/diptych rule is re-inlined outside `packages/runtime-contract/src/media-prompt-fragments.ts`;
+1. the collage/contact-sheet/diptych rule is re-inlined outside `packages/runtime-contract/src/index.ts`;
 2. runtime media services or the OpenAI gateway stop referencing the shared `@persai/runtime-contract` fragments;
 3. `apps/api/prisma/tool-catalog-data.ts` reintroduces `action="deferred"` or cross-tool comparison prose;
 4. `apps/api/prisma/bootstrap-preset-data.ts` loses the Native Tool Runtime selection-guide marker or reintroduces an `agents` Tasks Policy section.
