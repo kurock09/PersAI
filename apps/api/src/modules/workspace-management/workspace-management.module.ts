@@ -126,6 +126,7 @@ import { ManageAdminToolCredentialsService } from "./application/manage-admin-to
 import { ManageAdminToolPromptMetadataService } from "./application/manage-admin-tool-prompt-metadata.service";
 import { ManageAdminKnowledgeSourcesService } from "./application/manage-admin-knowledge-sources.service";
 import { ManageAdminSkillsService } from "./application/manage-admin-skills.service";
+import { ManageSkillScenariosService } from "./application/manage-skill-scenarios.service";
 import { GenerateSkillAuthoringDraftService } from "./application/generate-skill-authoring-draft.service";
 import { ManageAdminKnowledgeRetrievalPolicyService } from "./application/manage-admin-knowledge-retrieval-policy.service";
 import { ManageAdminMemoryBackfillService } from "./application/manage-admin-memory-backfill.service";
@@ -539,6 +540,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageAdminToolPromptMetadataService,
     ManageAdminKnowledgeSourcesService,
     ManageAdminSkillsService,
+    ManageSkillScenariosService,
     GenerateSkillAuthoringDraftService,
     ManageAdminKnowledgeRetrievalPolicyService,
     ManageAdminMemoryBackfillService,

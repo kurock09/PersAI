@@ -3520,6 +3520,183 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /api/v1/admin/skills/{skillId}/scenarios:
+    get:
+      operationId: getAdminSkillScenarios
+      summary: List scenarios for a Skill
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: includeArchived
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Skill scenarios list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminSkillScenariosResponse"
+        "404":
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: postAdminSkillScenario
+      summary: Create a scenario for a Skill
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminCreateSkillScenarioRequest"
+      responses:
+        "201":
+          description: Skill scenario created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSkillScenarioResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Scenario key already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /api/v1/admin/skills/{skillId}/scenarios/{scenarioKey}:
+    get:
+      operationId: getAdminSkillScenario
+      summary: Get a single Skill scenario by key
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: scenarioKey
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Skill scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSkillScenarioResponse"
+        "404":
+          description: Skill or scenario not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: patchAdminSkillScenario
+      summary: Update a Skill scenario
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: scenarioKey
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateSkillScenarioRequest"
+      responses:
+        "200":
+          description: Skill scenario updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSkillScenarioResponse"
+        "400":
+          description: Validation error or invalid status transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill or scenario not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAdminSkillScenario
+      summary: Archive a Skill scenario (soft delete)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: scenarioKey
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Skill scenario archived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSkillScenarioResponse"
+        "404":
+          description: Skill or scenario not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/skills:
     get:
       operationId: getAssistantSkills
@@ -9086,6 +9263,183 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SkillKnowledgeCardState"
+    AdminSkillScenarioStep:
+      type: object
+      required:
+        - number
+        - directive
+        - recommendedToolCall
+        - mayBeSkippedIf
+        - negativeGuards
+      properties:
+        number:
+          type: integer
+        directive:
+          type: string
+        recommendedToolCall:
+          type: string
+          nullable: true
+        mayBeSkippedIf:
+          type: string
+          nullable: true
+        negativeGuards:
+          type: array
+          items:
+            type: string
+    AdminSkillScenario:
+      type: object
+      required:
+        - id
+        - skillId
+        - key
+        - displayName
+        - description
+        - iconEmoji
+        - intentExamples
+        - steps
+        - recommendedTools
+        - exitCondition
+        - status
+        - displayOrder
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        skillId:
+          type: string
+          format: uuid
+        key:
+          type: string
+        displayName:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        description:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        iconEmoji:
+          type: string
+          nullable: true
+        intentExamples:
+          type: array
+          items:
+            type: string
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminSkillScenarioStep"
+        recommendedTools:
+          type: array
+          items:
+            type: string
+        exitCondition:
+          type: string
+        status:
+          $ref: "#/components/schemas/SkillScenarioStatus"
+        displayOrder:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    SkillScenarioStatus:
+      type: string
+      enum:
+        - draft
+        - active
+        - archived
+    AdminCreateSkillScenarioRequest:
+      type: object
+      required:
+        - key
+        - displayName
+        - description
+        - intentExamples
+        - steps
+        - recommendedTools
+        - exitCondition
+      properties:
+        key:
+          type: string
+        displayName:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        description:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        iconEmoji:
+          type: string
+          nullable: true
+        intentExamples:
+          type: array
+          items:
+            type: string
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminSkillScenarioStep"
+        recommendedTools:
+          type: array
+          items:
+            type: string
+        exitCondition:
+          type: string
+        status:
+          $ref: "#/components/schemas/SkillScenarioStatus"
+        displayOrder:
+          type: integer
+          nullable: true
+    AdminUpdateSkillScenarioRequest:
+      type: object
+      properties:
+        displayName:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        description:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        iconEmoji:
+          type: string
+          nullable: true
+        intentExamples:
+          type: array
+          items:
+            type: string
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminSkillScenarioStep"
+        recommendedTools:
+          type: array
+          items:
+            type: string
+        exitCondition:
+          type: string
+        status:
+          $ref: "#/components/schemas/SkillScenarioStatus"
+        displayOrder:
+          type: integer
+    AdminSkillScenarioResponse:
+      type: object
+      required:
+        - requestId
+        - scenario
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        scenario:
+          $ref: "#/components/schemas/AdminSkillScenario"
+    GetAdminSkillScenariosResponse:
+      type: object
+      required:
+        - requestId
+        - scenarios
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        scenarios:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminSkillScenario"
     AssistantSkillCatalogItemState:
       type: object
       required:

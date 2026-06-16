@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UploadedFile,
@@ -17,6 +18,7 @@ import type { RequestWithPlatformContext } from "../../../platform-core/interfac
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
 import { GenerateSkillAuthoringDraftService } from "../../application/generate-skill-authoring-draft.service";
 import { ManageAdminSkillsService } from "../../application/manage-admin-skills.service";
+import { ManageSkillScenariosService } from "../../application/manage-skill-scenarios.service";
 import type { SkillKnowledgeCardState } from "../../application/authored-knowledge.types";
 import type { SkillAuthoringDraftProposalState } from "../../application/skill-authoring-draft.types";
 import type {
@@ -24,12 +26,14 @@ import type {
   KnowledgeIndexingJobState,
   SkillDocumentState
 } from "../../application/skill-management.types";
+import type { AdminSkillScenarioState } from "../../application/skill-scenario.types";
 
 @Controller("api/v1/admin/skills")
 export class AdminSkillsController {
   constructor(
     private readonly manageAdminSkillsService: ManageAdminSkillsService,
-    private readonly generateSkillAuthoringDraftService: GenerateSkillAuthoringDraftService
+    private readonly generateSkillAuthoringDraftService: GenerateSkillAuthoringDraftService,
+    private readonly manageSkillScenariosService: ManageSkillScenariosService
   ) {}
 
   @Get()
@@ -227,6 +231,81 @@ export class AdminSkillsController {
       cardId
     );
     return { requestId: req.requestId ?? null, ...result };
+  }
+
+  // --- Skill Scenario routes ---
+
+  @Get(":skillId/scenarios")
+  async listScenarios(
+    @Req() req: RequestWithPlatformContext,
+    @Param("skillId") skillId: string,
+    @Query("includeArchived") includeArchived?: string
+  ): Promise<{ requestId: string | null; scenarios: AdminSkillScenarioState[] }> {
+    const userId = this.resolveRequestUserId(req);
+    const scenarios = await this.manageSkillScenariosService.listScenarios(userId, skillId, {
+      includeArchived: includeArchived === "true"
+    });
+    return { requestId: req.requestId ?? null, scenarios };
+  }
+
+  @Post(":skillId/scenarios")
+  async createScenario(
+    @Req() req: RequestWithPlatformContext,
+    @Param("skillId") skillId: string,
+    @Body() body: unknown
+  ): Promise<{ requestId: string | null; scenario: AdminSkillScenarioState }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.manageSkillScenariosService.parseCreateInput(body);
+    const scenario = await this.manageSkillScenariosService.createScenario(userId, skillId, input);
+    return { requestId: req.requestId ?? null, scenario };
+  }
+
+  @Get(":skillId/scenarios/:scenarioKey")
+  async getScenario(
+    @Req() req: RequestWithPlatformContext,
+    @Param("skillId") skillId: string,
+    @Param("scenarioKey") scenarioKey: string
+  ): Promise<{ requestId: string | null; scenario: AdminSkillScenarioState }> {
+    const userId = this.resolveRequestUserId(req);
+    const scenario = await this.manageSkillScenariosService.getScenario(
+      userId,
+      skillId,
+      scenarioKey
+    );
+    return { requestId: req.requestId ?? null, scenario };
+  }
+
+  @Patch(":skillId/scenarios/:scenarioKey")
+  async updateScenario(
+    @Req() req: RequestWithPlatformContext,
+    @Param("skillId") skillId: string,
+    @Param("scenarioKey") scenarioKey: string,
+    @Body() body: unknown
+  ): Promise<{ requestId: string | null; scenario: AdminSkillScenarioState }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.manageSkillScenariosService.parseUpdateInput(body);
+    const scenario = await this.manageSkillScenariosService.updateScenario(
+      userId,
+      skillId,
+      scenarioKey,
+      input
+    );
+    return { requestId: req.requestId ?? null, scenario };
+  }
+
+  @Delete(":skillId/scenarios/:scenarioKey")
+  async archiveScenario(
+    @Req() req: RequestWithPlatformContext,
+    @Param("skillId") skillId: string,
+    @Param("scenarioKey") scenarioKey: string
+  ): Promise<{ requestId: string | null; scenario: AdminSkillScenarioState }> {
+    const userId = this.resolveRequestUserId(req);
+    const scenario = await this.manageSkillScenariosService.archiveScenario(
+      userId,
+      skillId,
+      scenarioKey
+    );
+    return { requestId: req.requestId ?? null, scenario };
   }
 
   private resolveRequestUserId(req: RequestWithPlatformContext): string {

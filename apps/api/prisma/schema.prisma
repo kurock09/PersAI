@@ -345,6 +345,12 @@ enum SkillStatus {
   archived
 }
 
+enum SkillScenarioStatus {
+  draft
+  active
+  archived
+}
+
 enum AssistantSkillAssignmentStatus {
   active
   disabled
@@ -2836,11 +2842,34 @@ model Skill {
   assignments         AssistantSkillAssignment[]
   indexingJobs        KnowledgeIndexingJob[]
   vectorChunks        KnowledgeVectorChunk[]
+  scenarios           SkillScenario[]
 
   @@index([status, displayOrder])
   @@index([category, status])
   @@index([createdByUserId, createdAt(sort: Desc)])
   @@map("skills")
+}
+
+model SkillScenario {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  skillId          String              @map("skill_id") @db.Uuid
+  key              String              @db.VarChar(64)
+  displayName      Json                @map("display_name") @db.JsonB
+  description      Json                @db.JsonB
+  iconEmoji        String?             @map("icon_emoji") @db.VarChar(16)
+  intentExamples   Json                @default("[]") @map("intent_examples") @db.JsonB
+  steps            Json                @default("[]") @db.JsonB
+  recommendedTools Json                @default("[]") @map("recommended_tools") @db.JsonB
+  exitCondition    String              @map("exit_condition") @db.Text
+  status           SkillScenarioStatus @default(draft)
+  displayOrder     Int                 @default(100) @map("display_order")
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  skill            Skill               @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([skillId, key])
+  @@index([skillId, status, displayOrder])
+  @@map("skill_scenarios")
 }
 
 model SkillDocument {

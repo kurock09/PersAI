@@ -10,6 +10,7 @@ import type {
   AdminAssistantOwnershipTransferRequest,
   AdminBillingLifecycleSettingsRequest,
   AdminBillingProviderCredentialsRequest,
+  AdminCreateSkillScenarioRequest,
   AdminDocumentProcessingSettingsRequest,
   AdminDocumentProcessingTestConnectionRequest,
   AdminKnowledgeEmbeddingChangePreviewRequest,
@@ -20,9 +21,11 @@ import type {
   AdminRuntimeProviderSettingsRequest,
   AdminSafetyRestrictRequest,
   AdminSafetyUnblockRequest,
+  AdminSkillScenarioResponse,
   AdminSkillUpsertRequest,
   AdminStepUpChallengeRequest,
   AdminToolPathPricingCatalogRequest,
+  AdminUpdateSkillScenarioRequest,
   ArchiveWorkspaceVideoPersona200,
   AssistantDraftUpdateRequest,
   AssistantMemoryDoNotRememberRequest,
@@ -84,6 +87,8 @@ import type {
   GetAdminSafetyPolicySettingsResponse,
   GetAdminSitePagesResponse,
   GetAdminSkillResponse,
+  GetAdminSkillScenariosParams,
+  GetAdminSkillScenariosResponse,
   GetAdminSkillsParams,
   GetAdminSkillsResponse,
   GetAdminToolPathPricingCatalogResponse,
@@ -5255,6 +5260,255 @@ export const postAdminSkillKnowledgeCardReindex = async (
     {
       ...options,
       method: "POST"
+    }
+  );
+};
+
+/**
+ * @summary List scenarios for a Skill
+ */
+export type getAdminSkillScenariosResponse200 = {
+  data: GetAdminSkillScenariosResponse;
+  status: 200;
+};
+
+export type getAdminSkillScenariosResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAdminSkillScenariosResponseSuccess = getAdminSkillScenariosResponse200 & {
+  headers: Headers;
+};
+export type getAdminSkillScenariosResponseError = getAdminSkillScenariosResponse404 & {
+  headers: Headers;
+};
+
+export type getAdminSkillScenariosResponse =
+  | getAdminSkillScenariosResponseSuccess
+  | getAdminSkillScenariosResponseError;
+
+export const getGetAdminSkillScenariosUrl = (
+  skillId: string,
+  params?: GetAdminSkillScenariosParams
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/admin/skills/${skillId}/scenarios?${stringifiedParams}`
+    : `/api/v1/admin/skills/${skillId}/scenarios`;
+};
+
+export const getAdminSkillScenarios = async (
+  skillId: string,
+  params?: GetAdminSkillScenariosParams,
+  options?: RequestInit
+): Promise<getAdminSkillScenariosResponse> => {
+  return customFetch<getAdminSkillScenariosResponse>(
+    getGetAdminSkillScenariosUrl(skillId, params),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Create a scenario for a Skill
+ */
+export type postAdminSkillScenarioResponse201 = {
+  data: AdminSkillScenarioResponse;
+  status: 201;
+};
+
+export type postAdminSkillScenarioResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminSkillScenarioResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminSkillScenarioResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAdminSkillScenarioResponseSuccess = postAdminSkillScenarioResponse201 & {
+  headers: Headers;
+};
+export type postAdminSkillScenarioResponseError = (
+  | postAdminSkillScenarioResponse400
+  | postAdminSkillScenarioResponse404
+  | postAdminSkillScenarioResponse409
+) & {
+  headers: Headers;
+};
+
+export type postAdminSkillScenarioResponse =
+  | postAdminSkillScenarioResponseSuccess
+  | postAdminSkillScenarioResponseError;
+
+export const getPostAdminSkillScenarioUrl = (skillId: string) => {
+  return `/api/v1/admin/skills/${skillId}/scenarios`;
+};
+
+export const postAdminSkillScenario = async (
+  skillId: string,
+  adminCreateSkillScenarioRequest: AdminCreateSkillScenarioRequest,
+  options?: RequestInit
+): Promise<postAdminSkillScenarioResponse> => {
+  return customFetch<postAdminSkillScenarioResponse>(getPostAdminSkillScenarioUrl(skillId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminCreateSkillScenarioRequest)
+  });
+};
+
+/**
+ * @summary Get a single Skill scenario by key
+ */
+export type getAdminSkillScenarioResponse200 = {
+  data: AdminSkillScenarioResponse;
+  status: 200;
+};
+
+export type getAdminSkillScenarioResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAdminSkillScenarioResponseSuccess = getAdminSkillScenarioResponse200 & {
+  headers: Headers;
+};
+export type getAdminSkillScenarioResponseError = getAdminSkillScenarioResponse404 & {
+  headers: Headers;
+};
+
+export type getAdminSkillScenarioResponse =
+  | getAdminSkillScenarioResponseSuccess
+  | getAdminSkillScenarioResponseError;
+
+export const getGetAdminSkillScenarioUrl = (skillId: string, scenarioKey: string) => {
+  return `/api/v1/admin/skills/${skillId}/scenarios/${scenarioKey}`;
+};
+
+export const getAdminSkillScenario = async (
+  skillId: string,
+  scenarioKey: string,
+  options?: RequestInit
+): Promise<getAdminSkillScenarioResponse> => {
+  return customFetch<getAdminSkillScenarioResponse>(
+    getGetAdminSkillScenarioUrl(skillId, scenarioKey),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Update a Skill scenario
+ */
+export type patchAdminSkillScenarioResponse200 = {
+  data: AdminSkillScenarioResponse;
+  status: 200;
+};
+
+export type patchAdminSkillScenarioResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type patchAdminSkillScenarioResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type patchAdminSkillScenarioResponseSuccess = patchAdminSkillScenarioResponse200 & {
+  headers: Headers;
+};
+export type patchAdminSkillScenarioResponseError = (
+  | patchAdminSkillScenarioResponse400
+  | patchAdminSkillScenarioResponse404
+) & {
+  headers: Headers;
+};
+
+export type patchAdminSkillScenarioResponse =
+  | patchAdminSkillScenarioResponseSuccess
+  | patchAdminSkillScenarioResponseError;
+
+export const getPatchAdminSkillScenarioUrl = (skillId: string, scenarioKey: string) => {
+  return `/api/v1/admin/skills/${skillId}/scenarios/${scenarioKey}`;
+};
+
+export const patchAdminSkillScenario = async (
+  skillId: string,
+  scenarioKey: string,
+  adminUpdateSkillScenarioRequest: AdminUpdateSkillScenarioRequest,
+  options?: RequestInit
+): Promise<patchAdminSkillScenarioResponse> => {
+  return customFetch<patchAdminSkillScenarioResponse>(
+    getPatchAdminSkillScenarioUrl(skillId, scenarioKey),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminUpdateSkillScenarioRequest)
+    }
+  );
+};
+
+/**
+ * @summary Archive a Skill scenario (soft delete)
+ */
+export type deleteAdminSkillScenarioResponse200 = {
+  data: AdminSkillScenarioResponse;
+  status: 200;
+};
+
+export type deleteAdminSkillScenarioResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type deleteAdminSkillScenarioResponseSuccess = deleteAdminSkillScenarioResponse200 & {
+  headers: Headers;
+};
+export type deleteAdminSkillScenarioResponseError = deleteAdminSkillScenarioResponse404 & {
+  headers: Headers;
+};
+
+export type deleteAdminSkillScenarioResponse =
+  | deleteAdminSkillScenarioResponseSuccess
+  | deleteAdminSkillScenarioResponseError;
+
+export const getDeleteAdminSkillScenarioUrl = (skillId: string, scenarioKey: string) => {
+  return `/api/v1/admin/skills/${skillId}/scenarios/${scenarioKey}`;
+};
+
+export const deleteAdminSkillScenario = async (
+  skillId: string,
+  scenarioKey: string,
+  options?: RequestInit
+): Promise<deleteAdminSkillScenarioResponse> => {
+  return customFetch<deleteAdminSkillScenarioResponse>(
+    getDeleteAdminSkillScenarioUrl(skillId, scenarioKey),
+    {
+      ...options,
+      method: "DELETE"
     }
   );
 };
