@@ -627,7 +627,6 @@ async function run(): Promise<void> {
             chatMode: "project",
             deepModeEnabled: true,
             skillDecisionState: null,
-            skillCadenceState: null,
             archivedAt: null,
             lastMessageAt: null,
             createdAt: new Date("2026-04-06T00:00:00.000Z"),

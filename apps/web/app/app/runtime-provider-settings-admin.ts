@@ -487,10 +487,6 @@ export function buildRuntimeProviderSettingsRequest(params: {
       clarifyOnMissingContext: true,
       analyzeUploadsOnB2cUpload: false,
       precheckRuleOverrides: null
-    },
-    skillRoutingPolicy: {
-      initialCheckUserMessageIndex: 3,
-      backgroundRecheckIntervalMessages: 5
     }
   };
   if (Object.keys(providerKeys).length > 0) {

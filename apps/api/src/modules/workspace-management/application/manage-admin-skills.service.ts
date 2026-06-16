@@ -6,10 +6,7 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { AdminAuthorizationService } from "./admin-authorization.service";
-import {
-  createEnabledSkillBootstrapCadenceState,
-  createInactiveSkillDecisionState
-} from "./auto-skill-routing-state.service";
+import { createInactiveSkillDecisionState } from "./auto-skill-routing-state.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
 import {
@@ -675,8 +672,6 @@ export class ManageAdminSkillsService {
         data: {
           skillDecisionState:
             createInactiveSkillDecisionState() as unknown as Prisma.InputJsonValue,
-          skillCadenceState:
-            createEnabledSkillBootstrapCadenceState() as unknown as Prisma.InputJsonValue,
           skillRetrievalState: Prisma.DbNull
         }
       });
@@ -686,7 +681,6 @@ export class ManageAdminSkillsService {
         where: { assistantId: { in: assistantsWithoutActiveSkills } },
         data: {
           skillDecisionState: Prisma.DbNull,
-          skillCadenceState: Prisma.DbNull,
           skillRetrievalState: Prisma.DbNull
         }
       });

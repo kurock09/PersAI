@@ -318,8 +318,7 @@ export class SendWebChatTurnService {
       const skillStateContext = await this.autoSkillRoutingStateService.buildRuntimeContext({
         chatId: prepared.chat.id,
         currentUserMessageId: prepared.userMessage.id,
-        decisionState: prepared.chat.skillDecisionState,
-        cadenceState: prepared.chat.skillCadenceState
+        decisionState: prepared.chat.skillDecisionState
       });
       const openMediaJobs = await this.assistantMediaJobService.listOpenJobsForChatContext({
         assistantId: prepared.assistantId,
@@ -513,14 +512,7 @@ export class SendWebChatTurnService {
           return await persistWebTurnSkillStateAndQueueBackgroundCheck({
             autoSkillRoutingStateService: this.autoSkillRoutingStateService,
             chatId: prepared.chat.id,
-            userMessageId: prepared.userMessage.id,
-            currentUserMessageIndex: skillStateContext.currentUserMessageIndex,
-            turnRouting: runtimeResponse.turnRouting,
-            runBackgroundSkillCheck: (backgroundSkillStateContext) =>
-              this.webRuntimeTurnClientService.checkSkillRouting({
-                ...webRuntimeTurnInput,
-                skillStateContext: backgroundSkillStateContext
-              })
+            turnRouting: runtimeResponse.turnRouting
           });
         } catch (error) {
           this.logger.warn(
@@ -529,8 +521,7 @@ export class SendWebChatTurnService {
             }`
           );
           return {
-            skillDecisionState: prepared.chat.skillDecisionState,
-            skillCadenceState: prepared.chat.skillCadenceState
+            skillDecisionState: prepared.chat.skillDecisionState
           };
         }
       })();
@@ -542,8 +533,7 @@ export class SendWebChatTurnService {
       return {
         chat: {
           ...prepared.chat,
-          skillDecisionState: persistedSkillState.skillDecisionState,
-          skillCadenceState: persistedSkillState.skillCadenceState
+          skillDecisionState: persistedSkillState.skillDecisionState
         },
         userMessage: prepared.userMessage,
         assistantMessage: {
@@ -732,7 +722,6 @@ export class SendWebChatTurnService {
         chatMode: chat.chatMode,
         deepModeEnabled: chat.deepModeEnabled,
         skillDecisionState: chat.skillDecisionState,
-        skillCadenceState: chat.skillCadenceState,
         archivedAt: chat.archivedAt?.toISOString() ?? null,
         lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
         createdAt: chat.createdAt.toISOString(),

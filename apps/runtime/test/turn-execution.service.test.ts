@@ -3335,8 +3335,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     "Focus on practical nutrition principles for everyday meals and explain the guidance clearly. " +
     "Keep the answer grounded in the active nutrition skill.";
   groundedSkillRequest.skillStateContext = {
-    decision: null,
-    cadence: null,
+    decision: {
+      status: "active",
+      activeSkillId: "skill-diet",
+      activeSkillName: "Dietitian",
+      activeScenarioKey: null,
+      topicSummary: "Nutrition principles"
+    },
     currentUserMessageIndex: 8,
     recentMessages: [{ role: "user", text: groundedSkillRequest.message.text }],
     forceCheck: false
@@ -3351,27 +3356,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     groundedSkillRequest.bundle.bundleHash;
   providerGatewayClient.resultQueue = [
-    {
-      provider: "openai",
-      model: "gpt-4.1",
-      text: JSON.stringify({
-        decision: "activate",
-        skillId: "skill-diet",
-        topicSummary: "Nutrition principles",
-        confidence: "high",
-        reasonCode: "foreground_skill_match"
-      }),
-      respondedAt: "2026-04-11T12:00:04.000Z",
-      usage: {
-        providerKey: "openai",
-        modelKey: "gpt-4.1",
-        inputTokens: 5,
-        outputTokens: 3,
-        totalTokens: 8
-      },
-      stopReason: "completed",
-      toolCalls: []
-    },
     {
       provider: "openai",
       model: "gpt-5.4-pro",
@@ -3410,12 +3394,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     allowedKnowledgeSearchSources: ["memory", "chat"],
     allowedKnowledgeFetchSources: ["memory", "chat"]
   });
-  assert.equal(
-    groundedSkillCompleted.usageAccounting?.entries.some(
-      (entry) => entry.stepType === "skill_state_routing"
-    ),
-    true
-  );
   const groundedSkillDeveloperInstructions = groundedSkillFinalCall?.developerInstructions ?? "";
   const plannedRetrievalBlockStart = groundedSkillDeveloperInstructions.indexOf(
     "# Retrieved Knowledge Context"
@@ -3482,15 +3460,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       status: "active",
       activeSkillId: "skill-diet",
       activeSkillName: "Dietitian",
-      topicSummary: "Nutrition project audit",
-      confidence: "high",
-      checkedAtMessageIndex: 9
-    },
-    cadence: {
-      messageCountSinceCheck: 1,
-      backgroundCheckQueuedAtMessageIndex: null,
-      needsBootstrap: false,
-      bootstrapReason: null
+      activeScenarioKey: null,
+      topicSummary: "Nutrition project audit"
     },
     currentUserMessageIndex: 10,
     recentMessages: [{ role: "user", text: projectGroundedRequest.message.text }]
@@ -3774,15 +3745,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       status: "active",
       activeSkillId: "skill-diet",
       activeSkillName: "Диетолог",
-      topicSummary: "Type 1 diabetes nutrition",
-      confidence: "high",
-      checkedAtMessageIndex: 3
-    },
-    cadence: {
-      messageCountSinceCheck: 1,
-      backgroundCheckQueuedAtMessageIndex: null,
-      needsBootstrap: false,
-      bootstrapReason: null
+      activeScenarioKey: null,
+      topicSummary: "Type 1 diabetes nutrition"
     },
     currentUserMessageIndex: 4,
     recentMessages: []

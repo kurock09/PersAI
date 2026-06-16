@@ -29,21 +29,8 @@ export type AssistantChatSkillDecisionState = {
   status: "inactive" | "active";
   activeSkillId: string | null;
   activeSkillName: string | null;
+  activeScenarioKey: string | null;
   topicSummary: string | null;
-  confidence: "low" | "medium" | "high";
-  checkedAtMessageIndex: number;
-};
-
-export type AssistantChatSkillBootstrapReason =
-  | "new_chat"
-  | "skills_enabled_after_chat_started"
-  | "migration_repair";
-
-export type AssistantChatSkillCadenceState = {
-  messageCountSinceCheck: number;
-  backgroundCheckQueuedAtMessageIndex?: number | null;
-  needsBootstrap: boolean;
-  bootstrapReason?: AssistantChatSkillBootstrapReason | null;
 };
 
 export type AssistantChatSkillRetrievalDecisionMode =
@@ -76,7 +63,6 @@ export type AssistantChat = {
   chatMode: AssistantChatMode;
   deepModeEnabled: boolean;
   skillDecisionState: AssistantChatSkillDecisionState | null;
-  skillCadenceState: AssistantChatSkillCadenceState | null;
   skillRetrievalState: AssistantChatSkillRetrievalState | null;
   archivedAt: Date | null;
   lastMessageAt: Date | null;

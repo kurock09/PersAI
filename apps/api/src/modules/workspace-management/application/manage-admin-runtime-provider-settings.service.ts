@@ -75,10 +75,7 @@ export class ManageAdminRuntimeProviderSettingsService {
         fallbackProvider: input.fallback?.provider ?? null,
         fallbackModel: input.fallback?.model ?? null,
         routingFastModelKey: input.routingFastModelKey,
-        routerPolicy: {
-          ...input.routerPolicy,
-          skillRoutingPolicy: input.skillRoutingPolicy
-        } as Prisma.InputJsonValue,
+        routerPolicy: input.routerPolicy as unknown as Prisma.InputJsonValue,
         availableModelsByProvider: input.availableModelsByProvider as Prisma.InputJsonValue,
         availableModelCatalogByProvider:
           input.availableModelCatalogByProvider as Prisma.InputJsonValue,
@@ -95,10 +92,7 @@ export class ManageAdminRuntimeProviderSettingsService {
         fallbackProvider: input.fallback?.provider ?? null,
         fallbackModel: input.fallback?.model ?? null,
         routingFastModelKey: input.routingFastModelKey,
-        routerPolicy: {
-          ...input.routerPolicy,
-          skillRoutingPolicy: input.skillRoutingPolicy
-        } as Prisma.InputJsonValue,
+        routerPolicy: input.routerPolicy as unknown as Prisma.InputJsonValue,
         availableModelsByProvider: input.availableModelsByProvider as Prisma.InputJsonValue,
         availableModelCatalogByProvider:
           input.availableModelCatalogByProvider as Prisma.InputJsonValue,
@@ -156,7 +150,6 @@ export class ManageAdminRuntimeProviderSettingsService {
         fallback: settings.fallback,
         routingFastModelKey: settings.routingFastModelKey,
         routerPolicy: settings.routerPolicy,
-        skillRoutingPolicy: settings.skillRoutingPolicy,
         updatedProviders: Object.entries(input.providerKeys)
           .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
           .map(([provider]) => provider),

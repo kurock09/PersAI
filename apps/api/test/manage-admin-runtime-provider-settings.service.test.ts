@@ -38,10 +38,6 @@ async function run(): Promise<void> {
           analyzeUploadsOnB2cUpload: false,
           precheckRuleOverrides: null
         },
-        skillRoutingPolicy: {
-          initialCheckUserMessageIndex: 3,
-          backgroundRecheckIntervalMessages: 5
-        },
         availableModelsByProvider: {
           openai: ["gpt-5.4"],
           anthropic: []
@@ -87,10 +83,6 @@ async function run(): Promise<void> {
         clarifyOnMissingContext: true,
         analyzeUploadsOnB2cUpload: true,
         precheckRuleOverrides: null
-      },
-      skillRoutingPolicy: {
-        initialCheckUserMessageIndex: 3,
-        backgroundRecheckIntervalMessages: 5
       },
       availableModelsByProvider: {
         openai: ["gpt-5.4"],

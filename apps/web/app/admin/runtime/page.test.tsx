@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdminRuntimeProviderSettingsState } from "@persai/contracts";
 import AdminRuntimePage, {
   buildRouterPrecheckRuleOverrides,
-  buildSkillRoutingPolicyInput,
   normalizeVideoModelParametersForSlice2,
   normalizeDecimalInputText,
   parseDecimalInputText,
@@ -47,10 +46,6 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
       clarifyOnMissingContext: true,
       analyzeUploadsOnB2cUpload: false,
       precheckRuleOverrides: null
-    },
-    skillRoutingPolicy: {
-      initialCheckUserMessageIndex: 3,
-      backgroundRecheckIntervalMessages: 5
     },
     availableModelsByProvider: {
       openai: ["gpt-5.4"],
@@ -660,26 +655,5 @@ describe("admin runtime router policy helpers", () => {
         personalPriorityTermsText: ""
       })
     ).toBeNull();
-  });
-
-  it("parses bounded skill routing cadence inputs", () => {
-    expect(
-      buildSkillRoutingPolicyInput({
-        initialCheckUserMessageIndexText: "3",
-        backgroundRecheckIntervalMessagesText: "5"
-      })
-    ).toEqual({
-      initialCheckUserMessageIndex: 3,
-      backgroundRecheckIntervalMessages: 5
-    });
-  });
-
-  it("rejects invalid skill routing cadence inputs", () => {
-    expect(() =>
-      buildSkillRoutingPolicyInput({
-        initialCheckUserMessageIndexText: "0",
-        backgroundRecheckIntervalMessagesText: "x"
-      })
-    ).toThrow(/Initial background skill check must be between 1 and 20/);
   });
 });

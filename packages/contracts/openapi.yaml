@@ -11517,7 +11517,6 @@ components:
         - chatMode
         - deepModeEnabled
         - skillDecisionState
-        - skillCadenceState
         - archivedAt
         - lastMessageAt
         - createdAt
@@ -11551,9 +11550,8 @@ components:
             - status
             - activeSkillId
             - activeSkillName
+            - activeScenarioKey
             - topicSummary
-            - confidence
-            - checkedAtMessageIndex
           properties:
             status:
               type: string
@@ -11566,40 +11564,12 @@ components:
             activeSkillName:
               type: string
               nullable: true
+            activeScenarioKey:
+              type: string
+              nullable: true
             topicSummary:
               type: string
               nullable: true
-            confidence:
-              type: string
-              enum:
-                - low
-                - medium
-                - high
-            checkedAtMessageIndex:
-              type: integer
-        skillCadenceState:
-          type: object
-          nullable: true
-          required:
-            - messageCountSinceCheck
-            - backgroundCheckQueuedAtMessageIndex
-            - needsBootstrap
-            - bootstrapReason
-          properties:
-            messageCountSinceCheck:
-              type: integer
-            backgroundCheckQueuedAtMessageIndex:
-              type: integer
-              nullable: true
-            needsBootstrap:
-              type: boolean
-            bootstrapReason:
-              type: string
-              nullable: true
-              enum:
-                - new_chat
-                - skills_enabled_after_chat_started
-                - migration_repair
         archivedAt:
           type: string
           format: date-time
@@ -11846,9 +11816,8 @@ components:
                 - status
                 - activeSkillId
                 - activeSkillName
+                - activeScenarioKey
                 - topicSummary
-                - confidence
-                - checkedAtMessageIndex
               properties:
                 status:
                   type: string
@@ -11861,17 +11830,12 @@ components:
                 activeSkillName:
                   type: string
                   nullable: true
+                activeScenarioKey:
+                  type: string
+                  nullable: true
                 topicSummary:
                   type: string
                   nullable: true
-                confidence:
-                  type: string
-                  enum:
-                    - low
-                    - medium
-                    - high
-                checkedAtMessageIndex:
-                  type: integer
     AssistantWebChatTurnState:
       type: object
       required:
@@ -15991,7 +15955,6 @@ components:
         - fallback
         - routingFastModelKey
         - routerPolicy
-        - skillRoutingPolicy
         - availableModelsByProvider
         - availableModelCatalogByProvider
         - providerKeys
@@ -16084,20 +16047,6 @@ components:
                   type: array
                   items:
                     type: string
-        skillRoutingPolicy:
-          type: object
-          required:
-            - initialCheckUserMessageIndex
-            - backgroundRecheckIntervalMessages
-          properties:
-            initialCheckUserMessageIndex:
-              type: integer
-              minimum: 1
-              maximum: 20
-            backgroundRecheckIntervalMessages:
-              type: integer
-              minimum: 1
-              maximum: 50
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
         availableModelCatalogByProvider:
@@ -16153,7 +16102,6 @@ components:
         - primary
         - routingFastModelKey
         - routerPolicy
-        - skillRoutingPolicy
         - availableModelsByProvider
         - availableModelCatalogByProvider
       properties:
@@ -16238,20 +16186,6 @@ components:
                   type: array
                   items:
                     type: string
-        skillRoutingPolicy:
-          type: object
-          required:
-            - initialCheckUserMessageIndex
-            - backgroundRecheckIntervalMessages
-          properties:
-            initialCheckUserMessageIndex:
-              type: integer
-              minimum: 1
-              maximum: 20
-            backgroundRecheckIntervalMessages:
-              type: integer
-              minimum: 1
-              maximum: 50
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
         availableModelCatalogByProvider:

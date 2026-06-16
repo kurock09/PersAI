@@ -266,7 +266,6 @@ export class PrepareAssistantInboundTurnService {
         chatMode: chat.chatMode,
         deepModeEnabled: chat.deepModeEnabled,
         skillDecisionState: chat.skillDecisionState,
-        skillCadenceState: chat.skillCadenceState,
         archivedAt: chat.archivedAt?.toISOString() ?? null,
         lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
         createdAt: chat.createdAt.toISOString(),

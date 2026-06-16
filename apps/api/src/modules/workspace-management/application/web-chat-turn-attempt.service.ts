@@ -11,10 +11,7 @@ import type {
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
 import type { CompletedWebTurnReplayState } from "../domain/assistant-channel-surface-binding.repository";
-import type {
-  AssistantChatSkillCadenceState,
-  AssistantChatSkillDecisionState
-} from "../domain/assistant-chat.entity";
+import type { AssistantChatSkillDecisionState } from "../domain/assistant-chat.entity";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 import {
   getAttachmentDerivativeRefs,
@@ -52,15 +49,7 @@ function parseSkillDecisionState(value: unknown): AssistantChatSkillDecisionStat
   }
   const row = value as Record<string, unknown>;
   const status = row.status === "active" || row.status === "inactive" ? row.status : null;
-  const confidence =
-    row.confidence === "high" || row.confidence === "medium" || row.confidence === "low"
-      ? row.confidence
-      : null;
-  const checkedAtMessageIndex =
-    typeof row.checkedAtMessageIndex === "number" && Number.isInteger(row.checkedAtMessageIndex)
-      ? row.checkedAtMessageIndex
-      : null;
-  if (status === null || confidence === null || checkedAtMessageIndex === null) {
+  if (status === null) {
     return null;
   }
   return {
@@ -69,39 +58,11 @@ function parseSkillDecisionState(value: unknown): AssistantChatSkillDecisionStat
       status === "active" && typeof row.activeSkillId === "string" ? row.activeSkillId : null,
     activeSkillName:
       status === "active" && typeof row.activeSkillName === "string" ? row.activeSkillName : null,
-    topicSummary: typeof row.topicSummary === "string" ? row.topicSummary : null,
-    confidence,
-    checkedAtMessageIndex
-  };
-}
-
-function parseSkillCadenceState(value: unknown): AssistantChatSkillCadenceState | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  const row = value as Record<string, unknown>;
-  const messageCountSinceCheck =
-    typeof row.messageCountSinceCheck === "number" && Number.isInteger(row.messageCountSinceCheck)
-      ? row.messageCountSinceCheck
-      : null;
-  const needsBootstrap = typeof row.needsBootstrap === "boolean" ? row.needsBootstrap : null;
-  if (messageCountSinceCheck === null || needsBootstrap === null) {
-    return null;
-  }
-  return {
-    messageCountSinceCheck,
-    backgroundCheckQueuedAtMessageIndex:
-      typeof row.backgroundCheckQueuedAtMessageIndex === "number" &&
-      Number.isInteger(row.backgroundCheckQueuedAtMessageIndex)
-        ? row.backgroundCheckQueuedAtMessageIndex
+    activeScenarioKey:
+      status === "active" && typeof row.activeScenarioKey === "string"
+        ? row.activeScenarioKey
         : null,
-    needsBootstrap,
-    bootstrapReason:
-      row.bootstrapReason === "new_chat" ||
-      row.bootstrapReason === "skills_enabled_after_chat_started" ||
-      row.bootstrapReason === "migration_repair"
-        ? row.bootstrapReason
-        : null
+    topicSummary: typeof row.topicSummary === "string" ? row.topicSummary : null
   };
 }
 
@@ -591,7 +552,6 @@ export class WebChatTurnAttemptService {
               chatMode: chat.chatMode,
               deepModeEnabled: chat.deepModeEnabled,
               skillDecisionState: parseSkillDecisionState(chat.skillDecisionState),
-              skillCadenceState: parseSkillCadenceState(chat.skillCadenceState),
               archivedAt: chat.archivedAt?.toISOString() ?? null,
               lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
               createdAt: chat.createdAt.toISOString(),

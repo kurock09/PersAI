@@ -441,8 +441,7 @@ export class StreamWebChatTurnService {
     const skillStateContext = await this.autoSkillRoutingStateService.buildRuntimeContext({
       chatId: prepared.chat.id,
       currentUserMessageId: prepared.userMessage.id,
-      decisionState: prepared.chat.skillDecisionState,
-      cadenceState: prepared.chat.skillCadenceState
+      decisionState: prepared.chat.skillDecisionState
     });
     const webRuntimeTurnInput = this.buildWebRuntimeStreamInput({
       requestId: trace.getTraceId(),
@@ -769,14 +768,7 @@ export class StreamWebChatTurnService {
           await persistWebTurnSkillStateAndQueueBackgroundCheck({
             autoSkillRoutingStateService: this.autoSkillRoutingStateService,
             chatId: prepared.chat.id,
-            userMessageId: prepared.userMessage.id,
-            currentUserMessageIndex: skillStateContext.currentUserMessageIndex,
-            turnRouting,
-            runBackgroundSkillCheck: (backgroundSkillStateContext) =>
-              this.webRuntimeTurnClientService.checkSkillRouting({
-                ...webRuntimeTurnInput,
-                skillStateContext: backgroundSkillStateContext
-              })
+            turnRouting
           });
         } catch (error) {
           this.logger.warn(
@@ -827,7 +819,6 @@ export class StreamWebChatTurnService {
             chatMode: refreshedChat.chatMode,
             deepModeEnabled: refreshedChat.deepModeEnabled,
             skillDecisionState: refreshedChat.skillDecisionState,
-            skillCadenceState: refreshedChat.skillCadenceState,
             archivedAt: refreshedChat.archivedAt?.toISOString() ?? null,
             lastMessageAt: refreshedChat.lastMessageAt?.toISOString() ?? null,
             createdAt: refreshedChat.createdAt.toISOString(),
@@ -1630,7 +1621,6 @@ export class StreamWebChatTurnService {
         chatMode: chat.chatMode,
         deepModeEnabled: chat.deepModeEnabled,
         skillDecisionState: chat.skillDecisionState,
-        skillCadenceState: chat.skillCadenceState,
         archivedAt: chat.archivedAt?.toISOString() ?? null,
         lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
         createdAt: chat.createdAt.toISOString(),
@@ -1774,7 +1764,6 @@ export class StreamWebChatTurnService {
           chatMode: refreshedChat.chatMode,
           deepModeEnabled: refreshedChat.deepModeEnabled,
           skillDecisionState: refreshedChat.skillDecisionState,
-          skillCadenceState: refreshedChat.skillCadenceState,
           archivedAt: refreshedChat.archivedAt?.toISOString() ?? null,
           lastMessageAt: refreshedChat.lastMessageAt?.toISOString() ?? null,
           createdAt: refreshedChat.createdAt.toISOString(),

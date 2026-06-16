@@ -162,9 +162,8 @@ type RuntimeTransportMeta = {
       status: "inactive" | "active";
       activeSkillId: string | null;
       activeSkillName: string | null;
+      activeScenarioKey: string | null;
       topicSummary: string | null;
-      confidence: "low" | "medium" | "high";
-      checkedAtMessageIndex: number;
     } | null;
   } | null;
 };

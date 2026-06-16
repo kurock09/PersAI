@@ -169,7 +169,6 @@ export class SkillStateRoutingService {
             output: parsed,
             currentState: input.request.skillStateContext?.decision ?? null,
             enabledSkills,
-            currentUserMessageIndex: input.request.skillStateContext?.currentUserMessageIndex ?? 0,
             mode: input.mode
           }),
           usage
@@ -269,10 +268,8 @@ export class SkillStateRoutingService {
         : currentState.status === "active"
           ? `active:${currentState.activeSkillId ?? "none"}:${currentState.activeSkillName ?? "unknown"}`
           : "inactive";
-    const checkReason = input.request.skillStateContext?.checkReason ?? null;
     return [
       `Mode: ${input.mode}`,
-      `Check reason: ${checkReason ?? "unspecified"}`,
       `Current user message index: ${String(input.request.skillStateContext?.currentUserMessageIndex ?? 0)}`,
       `Current Skill state: ${currentStateLine}`,
       "Enabled Skills summary:",
@@ -289,10 +286,8 @@ export class SkillStateRoutingService {
     output: SkillStateClassifierOutput;
     currentState: RuntimeSkillDecisionState | null;
     enabledSkills: EnabledSkillSummary[];
-    currentUserMessageIndex: number;
     mode: "full_check" | "foreground_activation";
   }): RuntimeSkillDecisionState | null {
-    const nextIndex = Math.max(0, input.currentUserMessageIndex);
     const selectedSkill =
       input.output.skillId === null
         ? null
@@ -305,9 +300,8 @@ export class SkillStateRoutingService {
         status: "active",
         activeSkillId: selectedSkill.id,
         activeSkillName: selectedSkill.name,
-        topicSummary: this.normalizeTopicSummary(input.output.topicSummary),
-        confidence: input.output.confidence,
-        checkedAtMessageIndex: nextIndex
+        activeScenarioKey: null,
+        topicSummary: this.normalizeTopicSummary(input.output.topicSummary)
       };
     }
     if (input.output.decision === "activate" && selectedSkill !== null) {
@@ -315,24 +309,19 @@ export class SkillStateRoutingService {
         status: "active",
         activeSkillId: selectedSkill.id,
         activeSkillName: selectedSkill.name,
-        topicSummary: this.normalizeTopicSummary(input.output.topicSummary),
-        confidence: input.output.confidence,
-        checkedAtMessageIndex: nextIndex
+        activeScenarioKey: input.currentState?.activeScenarioKey ?? null,
+        topicSummary: this.normalizeTopicSummary(input.output.topicSummary)
       };
     }
     if (input.output.decision === "no_change" && input.currentState?.status === "active") {
-      return {
-        ...input.currentState,
-        checkedAtMessageIndex: nextIndex
-      };
+      return input.currentState;
     }
     return {
       status: "inactive",
       activeSkillId: null,
       activeSkillName: null,
-      topicSummary: this.normalizeTopicSummary(input.output.topicSummary),
-      confidence: input.output.confidence,
-      checkedAtMessageIndex: nextIndex
+      activeScenarioKey: null,
+      topicSummary: this.normalizeTopicSummary(input.output.topicSummary)
     };
   }
 

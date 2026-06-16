@@ -148,10 +148,6 @@ describe("admin rollout client", () => {
             analyzeUploadsOnB2cUpload: false,
             precheckRuleOverrides: null
           },
-          skillRoutingPolicy: {
-            initialCheckUserMessageIndex: 3,
-            backgroundRecheckIntervalMessages: 5
-          },
           availableModelsByProvider: {
             openai: ["gpt-5.4"],
             anthropic: ["claude-sonnet-4-5"]
@@ -215,10 +211,6 @@ describe("admin rollout client", () => {
             analyzeUploadsOnB2cUpload: true,
             precheckRuleOverrides: null
           },
-          skillRoutingPolicy: {
-            initialCheckUserMessageIndex: 3,
-            backgroundRecheckIntervalMessages: 5
-          },
           availableModelsByProvider: {
             openai: ["gpt-5.4"],
             anthropic: []
@@ -260,10 +252,6 @@ describe("admin rollout client", () => {
           clarifyOnMissingContext: true,
           analyzeUploadsOnB2cUpload: true,
           precheckRuleOverrides: null
-        },
-        skillRoutingPolicy: {
-          initialCheckUserMessageIndex: 3,
-          backgroundRecheckIntervalMessages: 5
         },
         availableModelsByProvider: {
           openai: ["gpt-5.4"],

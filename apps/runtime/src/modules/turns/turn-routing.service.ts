@@ -587,7 +587,7 @@ export class TurnRoutingService {
         retrievalPlan: this.createRetrievalPlan({
           useSkills: true,
           selectedSkillIds: [activeAutoSkill.skill.id],
-          confidence: state.confidence,
+          confidence: "high",
           reasonCode: "sticky_skill_reuse"
         }),
         source: "precheck",
@@ -1135,14 +1135,12 @@ export class TurnRoutingService {
     if (request.skillStateContext?.forceCheck !== true) {
       return request.skillStateContext?.decision ?? null;
     }
-    const currentUserMessageIndex = request.skillStateContext?.currentUserMessageIndex ?? 0;
     return {
       status: "inactive",
       activeSkillId: null,
       activeSkillName: null,
-      topicSummary: this.buildTopicSummary(request),
-      confidence: "low",
-      checkedAtMessageIndex: currentUserMessageIndex
+      activeScenarioKey: null,
+      topicSummary: this.buildTopicSummary(request)
     };
   }
 

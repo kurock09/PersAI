@@ -153,40 +153,6 @@ export function buildRouterPrecheckRuleOverrides(input: {
   return Object.values(overrides).some((entries) => entries.length > 0) ? overrides : null;
 }
 
-function parseBoundedIntegerField(
-  value: string,
-  label: string,
-  bounds: { min: number; max: number }
-): number {
-  const normalized = value.trim();
-  if (!/^\d+$/.test(normalized)) {
-    throw new Error(`${label} must be a whole number.`);
-  }
-  const parsed = Number.parseInt(normalized, 10);
-  if (parsed < bounds.min || parsed > bounds.max) {
-    throw new Error(`${label} must be between ${String(bounds.min)} and ${String(bounds.max)}.`);
-  }
-  return parsed;
-}
-
-export function buildSkillRoutingPolicyInput(input: {
-  initialCheckUserMessageIndexText: string;
-  backgroundRecheckIntervalMessagesText: string;
-}): AdminRuntimeProviderSettingsRequest["skillRoutingPolicy"] {
-  return {
-    initialCheckUserMessageIndex: parseBoundedIntegerField(
-      input.initialCheckUserMessageIndexText,
-      "Initial background skill check",
-      { min: 1, max: 20 }
-    ),
-    backgroundRecheckIntervalMessages: parseBoundedIntegerField(
-      input.backgroundRecheckIntervalMessagesText,
-      "Background skill recheck interval",
-      { min: 1, max: 50 }
-    )
-  };
-}
-
 function modeLabel(mode: AdminRuntimeProviderSettingsState["mode"]): string {
   return mode === "global_settings" ? "Global settings" : "Unconfigured default";
 }
@@ -1062,14 +1028,6 @@ export default function AdminRuntimePage() {
   const [routerProductPriorityTermsText, setRouterProductPriorityTermsText] = useState("");
   const [routerWebPriorityTermsText, setRouterWebPriorityTermsText] = useState("");
   const [routerPersonalPriorityTermsText, setRouterPersonalPriorityTermsText] = useState("");
-  const [
-    skillRoutingInitialCheckUserMessageIndexText,
-    setSkillRoutingInitialCheckUserMessageIndexText
-  ] = useState("3");
-  const [
-    skillRoutingBackgroundRecheckIntervalMessagesText,
-    setSkillRoutingBackgroundRecheckIntervalMessagesText
-  ] = useState("5");
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [vcoinExchangeRateText, setVcoinExchangeRateText] = useState("20");
@@ -1150,12 +1108,6 @@ export default function AdminRuntimePage() {
       setRouterPersonalPriorityTermsText(
         formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.personalPriorityTerms)
       );
-      setSkillRoutingInitialCheckUserMessageIndexText(
-        String(res.skillRoutingPolicy.initialCheckUserMessageIndex)
-      );
-      setSkillRoutingBackgroundRecheckIntervalMessagesText(
-        String(res.skillRoutingPolicy.backgroundRecheckIntervalMessages)
-      );
       setModelCatalogByProvider(
         withDerivedCatalogWeights(
           normalizeCatalogForSlice2(
@@ -1234,10 +1186,6 @@ export default function AdminRuntimePage() {
         webPriorityTermsText: routerWebPriorityTermsText,
         personalPriorityTermsText: routerPersonalPriorityTermsText
       });
-      const skillRoutingPolicy = buildSkillRoutingPolicyInput({
-        initialCheckUserMessageIndexText: skillRoutingInitialCheckUserMessageIndexText,
-        backgroundRecheckIntervalMessagesText: skillRoutingBackgroundRecheckIntervalMessagesText
-      });
       if (routerEnabled && routingFastModelKey.trim().length === 0) {
         throw new Error("Fast routing model is required when the router is enabled.");
       }
@@ -1281,7 +1229,6 @@ export default function AdminRuntimePage() {
           analyzeUploadsOnB2cUpload,
           precheckRuleOverrides
         },
-        skillRoutingPolicy,
         availableModelsByProvider: parsedCatalog,
         availableModelCatalogByProvider: parsedModelCatalog,
         providerKeys: {
@@ -1322,8 +1269,6 @@ export default function AdminRuntimePage() {
     routerProductPriorityTermsText,
     routerWebPriorityTermsText,
     routerPersonalPriorityTermsText,
-    skillRoutingBackgroundRecheckIntervalMessagesText,
-    skillRoutingInitialCheckUserMessageIndexText,
     routingFastModelKey,
     openaiKey,
     primaryModel,
@@ -1527,44 +1472,13 @@ export default function AdminRuntimePage() {
         </div>
       </Fold>
 
-      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-        <Card title="Skill Routing Cadence">
-          <Field
-            label="First background check after user message #"
-            value={skillRoutingInitialCheckUserMessageIndexText}
-            onChange={setSkillRoutingInitialCheckUserMessageIndexText}
-            placeholder="3"
-            type="number"
-          />
-          <Field
-            label="Background recheck interval in user messages"
-            value={skillRoutingBackgroundRecheckIntervalMessagesText}
-            onChange={setSkillRoutingBackgroundRecheckIntervalMessagesText}
-            placeholder="5"
-            type="number"
-          />
-          <p className="text-[10px] text-text-subtle">
-            This only controls background auto-skill monitoring cadence. It does not change normal
-            routing when no skills are assigned.
-          </p>
-          <p className="text-[10px] text-text-subtle">
-            Skill cadence and sticky retrieval still apply to assistants with enabled skills even if
-            the early smart router toggle is off.
-          </p>
-        </Card>
-        <Card title="Skill Retrieval Policy">
-          <p className="text-[10px] text-text-subtle">
-            Active skills now use a sticky retrieval policy: close follow-ups can reuse cached refs,
-            medium drift can refresh search only, and ambiguous turns can still use the helper
-            rerank path.
-          </p>
-          <p className="text-[10px] text-text-subtle">
-            The cadence block on the left controls when background skill drift checks fire; the
-            retrieval layer decides how much search/reranking work is needed inside the active
-            skill.
-          </p>
-        </Card>
-      </div>
+      <Card title="Skill Retrieval Policy">
+        <p className="text-[10px] text-text-subtle">
+          Active skills use a sticky retrieval policy: close follow-ups can reuse cached refs,
+          medium drift can refresh search only, and ambiguous turns can still use the helper rerank
+          path.
+        </p>
+      </Card>
 
       <Fold t="Provider Model Catalog">
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">

@@ -405,7 +405,6 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
       createRequest("Какие принципы питания учитывать при диабете 1 типа?"),
       {
         decision: null,
-        cadence: null,
         currentUserMessageIndex: 2,
         recentMessages: [
           { role: "user", text: "У меня диабет 1 типа" },
@@ -435,7 +434,6 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
       createRequest("Какие принципы питания учитывать при диабете 1 типа?"),
       {
         decision: null,
-        cadence: null,
         currentUserMessageIndex: 3,
         recentMessages: [
           { role: "user", text: "У меня диабет 1 типа" },
@@ -456,7 +454,6 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     bundle: createBundle(),
     request: withSkillRoutingContext(createRequest("Привет, как дела?"), {
       decision: null,
-      cadence: null,
       currentUserMessageIndex: 1,
       recentMessages: [{ role: "user", text: "Привет, как дела?" }]
     }),
@@ -474,15 +471,8 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
         status: "inactive",
         activeSkillId: null,
         activeSkillName: null,
-        topicSummary: null,
-        confidence: "low",
-        checkedAtMessageIndex: 0
-      },
-      cadence: {
-        messageCountSinceCheck: 2,
-        backgroundCheckQueuedAtMessageIndex: null,
-        needsBootstrap: false,
-        bootstrapReason: null
+        activeScenarioKey: null,
+        topicSummary: null
       },
       currentUserMessageIndex: 3,
       recentMessages: [{ role: "user", text: "Привет, как дела?" }]
@@ -527,7 +517,6 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     ]),
     request: withSkillRoutingContext(createRequest("Сколько калорий?"), {
       decision: null,
-      cadence: null,
       currentUserMessageIndex: 3,
       recentMessages: [{ role: "user", text: "Сколько калорий?" }]
     }),
@@ -602,7 +591,6 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     ]),
     request: withSkillRoutingContext(createRequest("А подешевле?"), {
       decision: null,
-      cadence: null,
       currentUserMessageIndex: 4,
       recentMessages: [
         { role: "user", text: "Посчитай мой рацион" },
@@ -634,7 +622,6 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     bundle: createBundle(),
     request: withSkillRoutingContext(createRequest("Нужен роутинг по теме"), {
       decision: null,
-      cadence: null,
       currentUserMessageIndex: 5,
       recentMessages: [
         { role: "user", text: "Собери рацион на неделю" },
@@ -663,15 +650,8 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
         status: "active",
         activeSkillId: "skill-accounting",
         activeSkillName: "Accountant",
-        topicSummary: "quarterly tax categories",
-        confidence: "high",
-        checkedAtMessageIndex: 3
-      },
-      cadence: {
-        messageCountSinceCheck: 2,
-        backgroundCheckQueuedAtMessageIndex: null,
-        needsBootstrap: false,
-        bootstrapReason: null
+        activeScenarioKey: null,
+        topicSummary: "quarterly tax categories"
       },
       currentUserMessageIndex: 4,
       recentMessages: [
@@ -692,15 +672,8 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
       status: "active",
       activeSkillId: "skill-accounting",
       activeSkillName: "Accountant",
-      topicSummary: "quarterly tax categories",
-      confidence: "high",
-      checkedAtMessageIndex: 4
-    },
-    cadence: {
-      messageCountSinceCheck: 1,
-      backgroundCheckQueuedAtMessageIndex: null,
-      needsBootstrap: false,
-      bootstrapReason: null
+      activeScenarioKey: null,
+      topicSummary: "quarterly tax categories"
     },
     currentUserMessageIndex: 5,
     recentMessages: [
@@ -761,15 +734,8 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
         status: "active",
         activeSkillId: "skill-accounting",
         activeSkillName: "Accountant",
-        topicSummary: "quarterly tax categories",
-        confidence: "high",
-        checkedAtMessageIndex: 3
-      },
-      cadence: {
-        messageCountSinceCheck: 5,
-        backgroundCheckQueuedAtMessageIndex: null,
-        needsBootstrap: false,
-        bootstrapReason: null
+        activeScenarioKey: null,
+        topicSummary: "quarterly tax categories"
       },
       currentUserMessageIndex: 9,
       recentMessages: [
@@ -785,7 +751,6 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
   assert.deepEqual(driftRecheckDecision.retrievalPlan.selectedSkillIds, []);
   assert.equal(driftRecheckDecision.skillState?.status, "active");
   assert.equal(driftRecheckDecision.skillState?.activeSkillId, "skill-accounting");
-  assert.equal(driftRecheckDecision.skillState?.checkedAtMessageIndex, 3);
   assert.equal(providerGatewayClient.calls.length, 0);
   providerGatewayClient.result = skillClassifierResult;
 
@@ -793,7 +758,6 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     bundle: createBundle(undefined, false),
     request: withSkillRoutingContext(createRequest("Привет, как дела?"), {
       decision: null,
-      cadence: null,
       currentUserMessageIndex: 1,
       recentMessages: [{ role: "user", text: "Привет, как дела?" }],
       forceCheck: true
@@ -1114,7 +1078,6 @@ async function runAutoSkillRoutingHardeningTests(): Promise<void> {
     bundle: createBundle(undefined, true, enabledSkills),
     request: withSkillRoutingContext(createRequest("Давай диету"), {
       decision: null,
-      cadence: null,
       currentUserMessageIndex: 3,
       recentMessages: [
         { role: "user", text: "OLD-ROUTING-MESSAGE-1 ".repeat(20) },

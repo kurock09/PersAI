@@ -292,10 +292,6 @@ async function run(): Promise<void> {
         toolTerms: ["browse"]
       }
     },
-    skillRoutingPolicy: {
-      initialCheckUserMessageIndex: 4,
-      backgroundRecheckIntervalMessages: 6
-    },
     providerKeys: {
       openai: " sk-openai-new ",
       anthropic: "sk-anthropic-new"
@@ -311,8 +307,6 @@ async function run(): Promise<void> {
   assert.equal(parsed.routerPolicy.analyzeUploadsOnB2cUpload, true);
   assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.continueTerms, ["ok", "continue"]);
   assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.premiumTerms, ["rewrite"]);
-  assert.equal(parsed.skillRoutingPolicy.initialCheckUserMessageIndex, 4);
-  assert.equal(parsed.skillRoutingPolicy.backgroundRecheckIntervalMessages, 6);
   assert.deepEqual(parsed.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
   assert.deepEqual(parsed.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.deepEqual(Object.keys(parsed.availableModelCatalogByProvider).sort(), [
@@ -806,11 +800,7 @@ async function run(): Promise<void> {
         classifierFailureFallbackMode: "premium",
         clarifyOnMissingContext: false,
         analyzeUploadsOnB2cUpload: true,
-        precheckRuleOverrides: null,
-        skillRoutingPolicy: {
-          initialCheckUserMessageIndex: 2,
-          backgroundRecheckIntervalMessages: 7
-        }
+        precheckRuleOverrides: null
       },
       availableModelsByProvider: {
         openai: ["gpt‑5.4", "gpt‑5.4-mini"],
@@ -902,8 +892,6 @@ async function run(): Promise<void> {
   assert.equal(settings.routerPolicy.mode, "active");
   assert.equal(settings.routerPolicy.classifierFailureFallbackMode, "premium");
   assert.equal(settings.routerPolicy.analyzeUploadsOnB2cUpload, true);
-  assert.equal(settings.skillRoutingPolicy.initialCheckUserMessageIndex, 2);
-  assert.equal(settings.skillRoutingPolicy.backgroundRecheckIntervalMessages, 7);
   assert.deepEqual(settings.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.deepEqual(settings.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
   assert.deepEqual(settings.availableModelCatalogByProvider.runway.models, []);

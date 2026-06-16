@@ -15,15 +15,8 @@ export interface AssistantWebChatState {
     status: "inactive" | "active";
     activeSkillId: string | null;
     activeSkillName: string | null;
+    activeScenarioKey: string | null;
     topicSummary: string | null;
-    confidence: "low" | "medium" | "high";
-    checkedAtMessageIndex: number;
-  } | null;
-  skillCadenceState: {
-    messageCountSinceCheck: number;
-    backgroundCheckQueuedAtMessageIndex?: number | null;
-    needsBootstrap: boolean;
-    bootstrapReason?: "new_chat" | "skills_enabled_after_chat_started" | "migration_repair" | null;
   } | null;
   archivedAt: string | null;
   lastMessageAt: string | null;
@@ -99,9 +92,8 @@ export interface AssistantWebChatTurnRoutingState {
     status: "inactive" | "active";
     activeSkillId: string | null;
     activeSkillName: string | null;
+    activeScenarioKey: string | null;
     topicSummary: string | null;
-    confidence: "low" | "medium" | "high";
-    checkedAtMessageIndex: number;
   } | null;
 }
 

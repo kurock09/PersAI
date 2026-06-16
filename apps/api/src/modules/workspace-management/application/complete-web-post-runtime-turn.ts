@@ -1,8 +1,4 @@
-import type {
-  RuntimeSkillStateCheckResult,
-  RuntimeSkillStateContext,
-  RuntimeUsageAccounting
-} from "@persai/runtime-contract";
+import type { RuntimeUsageAccounting } from "@persai/runtime-contract";
 import type { AssistantChatMessage } from "../domain/assistant-chat-message.entity";
 import type { AssistantChatRepository } from "../domain/assistant-chat.repository";
 import type {
@@ -411,49 +407,12 @@ export async function completeWebTurnReplay(input: {
 }
 
 export async function persistWebTurnSkillStateAndQueueBackgroundCheck(input: {
-  autoSkillRoutingStateService: Pick<
-    AutoSkillRoutingStateService,
-    | "persistFromTurnRouting"
-    | "buildRuntimeContext"
-    | "shouldRunBackgroundCheck"
-    | "createBackgroundCheckContext"
-    | "markBackgroundCheckQueued"
-    | "runBackgroundCheck"
-  >;
+  autoSkillRoutingStateService: Pick<AutoSkillRoutingStateService, "persistFromTurnRouting">;
   chatId: string;
-  userMessageId: string;
-  currentUserMessageIndex: number;
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null | undefined;
-  runBackgroundSkillCheck: (
-    skillStateContext: RuntimeSkillStateContext
-  ) => Promise<RuntimeSkillStateCheckResult>;
 }): Promise<PersistedSkillState> {
-  const persistedSkillState = await input.autoSkillRoutingStateService.persistFromTurnRouting({
+  return await input.autoSkillRoutingStateService.persistFromTurnRouting({
     chatId: input.chatId,
-    currentUserMessageIndex: input.currentUserMessageIndex,
     turnRouting: input.turnRouting
   });
-  const postTurnSkillStateContext = await input.autoSkillRoutingStateService.buildRuntimeContext({
-    chatId: input.chatId,
-    currentUserMessageId: input.userMessageId,
-    decisionState: persistedSkillState.skillDecisionState,
-    cadenceState: persistedSkillState.skillCadenceState
-  });
-
-  if (
-    await input.autoSkillRoutingStateService.shouldRunBackgroundCheck(postTurnSkillStateContext)
-  ) {
-    const backgroundSkillStateContext =
-      input.autoSkillRoutingStateService.createBackgroundCheckContext(postTurnSkillStateContext);
-    await input.autoSkillRoutingStateService.markBackgroundCheckQueued({
-      chatId: input.chatId,
-      context: postTurnSkillStateContext
-    });
-    input.autoSkillRoutingStateService.runBackgroundCheck({
-      chatId: input.chatId,
-      execute: () => input.runBackgroundSkillCheck(backgroundSkillStateContext)
-    });
-  }
-
-  return persistedSkillState;
 }

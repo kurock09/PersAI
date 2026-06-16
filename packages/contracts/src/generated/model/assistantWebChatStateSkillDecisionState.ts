@@ -5,7 +5,6 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantWebChatStateSkillDecisionStateStatus } from "./assistantWebChatStateSkillDecisionStateStatus";
-import type { AssistantWebChatStateSkillDecisionStateConfidence } from "./assistantWebChatStateSkillDecisionStateConfidence";
 
 /**
  * @nullable
@@ -17,7 +16,7 @@ export type AssistantWebChatStateSkillDecisionState = {
   /** @nullable */
   activeSkillName: string | null;
   /** @nullable */
+  activeScenarioKey: string | null;
+  /** @nullable */
   topicSummary: string | null;
-  confidence: AssistantWebChatStateSkillDecisionStateConfidence;
-  checkedAtMessageIndex: number;
 } | null;

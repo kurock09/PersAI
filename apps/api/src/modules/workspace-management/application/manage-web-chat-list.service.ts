@@ -10,7 +10,6 @@ import {
 } from "../domain/assistant-chat.repository";
 import type {
   AssistantChatMode,
-  AssistantChatSkillCadenceState,
   AssistantChatSkillDecisionState
 } from "../domain/assistant-chat.entity";
 import {
@@ -82,7 +81,6 @@ function toChatState(chat: {
   chatMode: AssistantChatMode;
   deepModeEnabled: boolean;
   skillDecisionState: AssistantChatSkillDecisionState | null;
-  skillCadenceState: AssistantChatSkillCadenceState | null;
   archivedAt: Date | null;
   lastMessageAt: Date | null;
   createdAt: Date;
@@ -97,7 +95,6 @@ function toChatState(chat: {
     chatMode: chat.chatMode,
     deepModeEnabled: chat.deepModeEnabled,
     skillDecisionState: chat.skillDecisionState,
-    skillCadenceState: chat.skillCadenceState,
     archivedAt: chat.archivedAt?.toISOString() ?? null,
     lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
     createdAt: chat.createdAt.toISOString(),

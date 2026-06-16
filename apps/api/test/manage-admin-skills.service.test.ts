@@ -399,13 +399,6 @@ async function run(): Promise<void> {
   assert.equal(
     Object.prototype.hasOwnProperty.call(
       harness.assistantChatUpdates.at(-1)?.data ?? {},
-      "skillCadenceState"
-    ),
-    true
-  );
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(
-      harness.assistantChatUpdates.at(-1)?.data ?? {},
       "skillRetrievalState"
     ),
     true

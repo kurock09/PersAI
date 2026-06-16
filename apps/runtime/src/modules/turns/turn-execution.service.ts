@@ -2440,18 +2440,12 @@ export class TurnExecutionService {
         usageEntries: []
       };
     }
-    let routeDecision = await this.turnRoutingService.decide({
+    const routeDecision = await this.turnRoutingService.decide({
       bundle,
       request: input,
       projectedTools
     });
     const usageEntries = this.toTurnRoutingUsageEntries(routeDecision.usage);
-    const foregroundSkillActivation = await this.maybeApplyForegroundSkillActivation({
-      bundle,
-      request: input,
-      routeDecision
-    });
-    routeDecision = foregroundSkillActivation.routeDecision;
     const modelRole =
       routeDecision.mode === "active"
         ? this.mapExecutionModeToModelRole(routeDecision.executionMode)
@@ -2461,7 +2455,7 @@ export class TurnExecutionService {
     return {
       modelRole,
       routeDecision,
-      usageEntries: [...usageEntries, ...foregroundSkillActivation.usageEntries]
+      usageEntries
     };
   }
 
@@ -2487,109 +2481,6 @@ export class TurnExecutionService {
     return [
       {
         stepType: "turn_routing",
-        modelRole: "system_tool",
-        providerKey: usage.providerKey,
-        modelKey: usage.modelKey,
-        inputTokens: usage.inputTokens,
-        cacheCreationInputTokens: usage.cacheCreationInputTokens ?? null,
-        cachedInputTokens: usage.cachedInputTokens ?? null,
-        outputTokens: usage.outputTokens,
-        totalTokens: usage.totalTokens
-      }
-    ];
-  }
-
-  private async maybeApplyForegroundSkillActivation(input: {
-    bundle: AssistantRuntimeBundle;
-    request: RuntimeTurnRequest;
-    routeDecision: TurnRouteDecision;
-  }): Promise<{
-    routeDecision: TurnRouteDecision;
-    usageEntries: RuntimeUsageAccountingEntry[];
-  }> {
-    if (
-      input.request.skillStateContext?.forceCheck === true ||
-      input.routeDecision.skillState?.status === "active" ||
-      !this.skillStateRoutingService.shouldTryForegroundActivation({
-        bundle: input.bundle,
-        request: input.request
-      })
-    ) {
-      return {
-        routeDecision: input.routeDecision,
-        usageEntries: []
-      };
-    }
-    const result = await this.skillStateRoutingService.tryForegroundActivation({
-      bundle: input.bundle,
-      request: input.request
-    });
-    const skillState = result.skillState;
-    if (
-      skillState === null ||
-      skillState.status !== "active" ||
-      skillState.activeSkillId === null ||
-      skillState.activeSkillId.trim().length === 0
-    ) {
-      return {
-        routeDecision: input.routeDecision,
-        usageEntries: this.toUsageEntries("skill_state_routing", result.usage)
-      };
-    }
-    const routeDecision = this.applyForegroundSkillActivationToDecision({
-      routeDecision: input.routeDecision,
-      skillState,
-      request: input.request
-    });
-    return {
-      routeDecision,
-      usageEntries: this.toUsageEntries("skill_state_routing", result.usage)
-    };
-  }
-
-  private applyForegroundSkillActivationToDecision(input: {
-    routeDecision: TurnRouteDecision;
-    skillState: NonNullable<TurnRouteDecision["skillState"]>;
-    request: RuntimeTurnRequest;
-  }): TurnRouteDecision {
-    const activatedDecision: TurnRouteDecision = {
-      ...input.routeDecision,
-      skillState: input.skillState,
-      retrievalPlan: {
-        ...input.routeDecision.retrievalPlan,
-        useSkills: true,
-        selectedSkillIds: [input.skillState.activeSkillId ?? ""].filter((id) => id.length > 0),
-        ordinarySourcePriorityMode: "not_applicable",
-        reasonCode: "foreground_skill_activation"
-      },
-      reasonCode: `${input.routeDecision.reasonCode}:foreground_skill_activation`
-    };
-    if (activatedDecision.executionMode !== "normal") {
-      return activatedDecision;
-    }
-    if (
-      activatedDecision.retrievalPlan.useUserKnowledge ||
-      activatedDecision.retrievalPlan.useProductKnowledge ||
-      input.request.message.attachments.some((attachment) => attachment.kind === "file")
-    ) {
-      return {
-        ...activatedDecision,
-        executionMode: "premium"
-      };
-    }
-    return activatedDecision;
-  }
-
-  private toUsageEntries(
-    stepType: string,
-    usage: RuntimeUsageSnapshot | null
-  ): RuntimeUsageAccountingEntry[] {
-    if (usage === null) {
-      return [];
-    }
-    return [
-      {
-        stepType,
         modelRole: "system_tool",
         providerKey: usage.providerKey,
         modelKey: usage.modelKey,

@@ -530,27 +530,12 @@ export interface RuntimeRetrievalPlan {
   reasonCode: string;
 }
 
-export type RuntimeSkillRoutingConfidence = "low" | "medium" | "high";
-
 export interface RuntimeSkillDecisionState {
   status: "inactive" | "active";
   activeSkillId: string | null;
   activeSkillName: string | null;
+  activeScenarioKey: string | null;
   topicSummary: string | null;
-  confidence: RuntimeSkillRoutingConfidence;
-  checkedAtMessageIndex: number;
-}
-
-export type RuntimeSkillBootstrapReason =
-  | "new_chat"
-  | "skills_enabled_after_chat_started"
-  | "migration_repair";
-
-export interface RuntimeSkillCadenceState {
-  messageCountSinceCheck: number;
-  backgroundCheckQueuedAtMessageIndex?: number | null;
-  needsBootstrap: boolean;
-  bootstrapReason?: RuntimeSkillBootstrapReason | null;
 }
 
 export interface RuntimeSkillRoutingRecentMessage {
@@ -558,18 +543,11 @@ export interface RuntimeSkillRoutingRecentMessage {
   text: string;
 }
 
-export type RuntimeSkillCheckReason =
-  | "background_bootstrap"
-  | "background_cadence"
-  | "foreground_activation";
-
 export interface RuntimeSkillStateContext {
   decision: RuntimeSkillDecisionState | null;
-  cadence: RuntimeSkillCadenceState | null;
   currentUserMessageIndex: number;
   recentMessages: RuntimeSkillRoutingRecentMessage[];
   forceCheck?: boolean;
-  checkReason?: RuntimeSkillCheckReason;
 }
 
 export type RuntimeRetrievedKnowledgeSourceLabel =

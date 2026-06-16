@@ -135,11 +135,9 @@ function createRequest(): RuntimeTurnRequest {
     },
     skillStateContext: {
       decision: null,
-      cadence: null,
       currentUserMessageIndex: 7,
       recentMessages: [{ role: "user", text: "can you help plan the launch?" }],
-      forceCheck: true,
-      checkReason: "background_cadence"
+      forceCheck: true
     }
   };
 }

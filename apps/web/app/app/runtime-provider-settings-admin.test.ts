@@ -86,10 +86,6 @@ describe("runtime-provider-settings-admin", () => {
         analyzeUploadsOnB2cUpload: false,
         precheckRuleOverrides: null
       },
-      skillRoutingPolicy: {
-        initialCheckUserMessageIndex: 3,
-        backgroundRecheckIntervalMessages: 5
-      },
       availableModelsByProvider: {
         openai: ["gpt-5.4", "gpt-4.1"],
         anthropic: ["claude-sonnet-4-5"]

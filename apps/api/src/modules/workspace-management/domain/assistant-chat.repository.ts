@@ -2,7 +2,6 @@ import type { AssistantChatMessage } from "./assistant-chat-message.entity";
 import type {
   AssistantChat,
   AssistantChatMode,
-  AssistantChatSkillCadenceState,
   AssistantChatSkillDecisionState,
   AssistantChatSkillRetrievalState,
   AssistantChatSurface
@@ -49,7 +48,6 @@ export type UpdateAssistantChatInput = {
   chatMode?: AssistantChatMode;
   deepModeEnabled?: boolean;
   skillDecisionState?: AssistantChatSkillDecisionState | null;
-  skillCadenceState?: AssistantChatSkillCadenceState | null;
   skillRetrievalState?: AssistantChatSkillRetrievalState | null;
 };
 

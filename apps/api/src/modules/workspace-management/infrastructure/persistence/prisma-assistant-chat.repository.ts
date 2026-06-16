@@ -8,7 +8,6 @@ import type { AssistantChatMessage } from "../../domain/assistant-chat-message.e
 import type {
   AssistantChat,
   AssistantChatMode,
-  AssistantChatSkillCadenceState,
   AssistantChatSkillDecisionState,
   AssistantChatSkillRetrievalState,
   AssistantChatSurface
@@ -293,14 +292,6 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
                   ? Prisma.DbNull
                   : (input.skillDecisionState as unknown as Prisma.InputJsonValue)
             }),
-        ...(input.skillCadenceState === undefined
-          ? {}
-          : {
-              skillCadenceState:
-                input.skillCadenceState === null
-                  ? Prisma.DbNull
-                  : (input.skillCadenceState as unknown as Prisma.InputJsonValue)
-            }),
         ...(input.skillRetrievalState === undefined
           ? {}
           : {
@@ -536,7 +527,6 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       chatMode: chat.chatMode,
       deepModeEnabled: chat.deepModeEnabled,
       skillDecisionState: this.parseSkillDecisionState(chat.skillDecisionState),
-      skillCadenceState: this.parseSkillCadenceState(chat.skillCadenceState),
       skillRetrievalState: this.parseSkillRetrievalState(chat.skillRetrievalState),
       archivedAt: chat.archivedAt,
       lastMessageAt: chat.lastMessageAt,
@@ -551,57 +541,20 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     }
     const row = value as Record<string, unknown>;
     const status = row.status === "active" || row.status === "inactive" ? row.status : null;
-    const activeSkillId = typeof row.activeSkillId === "string" ? row.activeSkillId : null;
-    const activeSkillName = typeof row.activeSkillName === "string" ? row.activeSkillName : null;
-    const topicSummary = typeof row.topicSummary === "string" ? row.topicSummary : null;
-    const confidence =
-      row.confidence === "high" || row.confidence === "medium" || row.confidence === "low"
-        ? row.confidence
-        : null;
-    const checkedAtMessageIndex =
-      typeof row.checkedAtMessageIndex === "number" && Number.isInteger(row.checkedAtMessageIndex)
-        ? row.checkedAtMessageIndex
-        : null;
-    if (status === null || confidence === null || checkedAtMessageIndex === null) {
+    if (status === null) {
       return null;
     }
+    const activeSkillId = typeof row.activeSkillId === "string" ? row.activeSkillId : null;
+    const activeSkillName = typeof row.activeSkillName === "string" ? row.activeSkillName : null;
+    const activeScenarioKey =
+      typeof row.activeScenarioKey === "string" ? row.activeScenarioKey : null;
+    const topicSummary = typeof row.topicSummary === "string" ? row.topicSummary : null;
     return {
       status,
       activeSkillId: status === "active" ? activeSkillId : null,
       activeSkillName: status === "active" ? activeSkillName : null,
-      topicSummary,
-      confidence,
-      checkedAtMessageIndex
-    };
-  }
-
-  private parseSkillCadenceState(value: unknown): AssistantChatSkillCadenceState | null {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      return null;
-    }
-    const row = value as Record<string, unknown>;
-    const messageCountSinceCheck =
-      typeof row.messageCountSinceCheck === "number" && Number.isInteger(row.messageCountSinceCheck)
-        ? row.messageCountSinceCheck
-        : null;
-    const needsBootstrap = typeof row.needsBootstrap === "boolean" ? row.needsBootstrap : null;
-    if (messageCountSinceCheck === null || needsBootstrap === null) {
-      return null;
-    }
-    return {
-      messageCountSinceCheck,
-      backgroundCheckQueuedAtMessageIndex:
-        typeof row.backgroundCheckQueuedAtMessageIndex === "number" &&
-        Number.isInteger(row.backgroundCheckQueuedAtMessageIndex)
-          ? row.backgroundCheckQueuedAtMessageIndex
-          : null,
-      needsBootstrap,
-      bootstrapReason:
-        row.bootstrapReason === "new_chat" ||
-        row.bootstrapReason === "skills_enabled_after_chat_started" ||
-        row.bootstrapReason === "migration_repair"
-          ? row.bootstrapReason
-          : null
+      activeScenarioKey: status === "active" ? activeScenarioKey : null,
+      topicSummary
     };
   }
 

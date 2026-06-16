@@ -7,7 +7,6 @@
 import type { AssistantChatSurface } from "./assistantChatSurface";
 import type { AssistantWebChatStateChatMode } from "./assistantWebChatStateChatMode";
 import type { AssistantWebChatStateSkillDecisionState } from "./assistantWebChatStateSkillDecisionState";
-import type { AssistantWebChatStateSkillCadenceState } from "./assistantWebChatStateSkillCadenceState";
 
 export interface AssistantWebChatState {
   id: string;
@@ -20,8 +19,6 @@ export interface AssistantWebChatState {
   deepModeEnabled: boolean;
   /** @nullable */
   skillDecisionState: AssistantWebChatStateSkillDecisionState;
-  /** @nullable */
-  skillCadenceState: AssistantWebChatStateSkillCadenceState;
   /** @nullable */
   archivedAt: string | null;
   /** @nullable */

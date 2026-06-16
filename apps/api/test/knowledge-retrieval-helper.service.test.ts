@@ -57,10 +57,6 @@ async function run(): Promise<void> {
         analyzeUploadsOnB2cUpload: false,
         precheckRuleOverrides: null
       },
-      skillRoutingPolicy: {
-        initialCheckUserMessageIndex: 3,
-        backgroundRecheckIntervalMessages: 5
-      },
       availableModelsByProvider: { openai: ["gpt-5.4"], anthropic: ["claude-sonnet-4-5"] },
       availableModelCatalogByProvider: { openai: { models: [] }, anthropic: { models: [] } },
       providerKeys: {
