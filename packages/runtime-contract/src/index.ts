@@ -538,16 +538,8 @@ export interface RuntimeSkillDecisionState {
   topicSummary: string | null;
 }
 
-export interface RuntimeSkillRoutingRecentMessage {
-  role: "user" | "assistant";
-  text: string;
-}
-
 export interface RuntimeSkillStateContext {
   decision: RuntimeSkillDecisionState | null;
-  currentUserMessageIndex: number;
-  recentMessages: RuntimeSkillRoutingRecentMessage[];
-  forceCheck?: boolean;
 }
 
 export type RuntimeRetrievedKnowledgeSourceLabel =
@@ -2991,11 +2983,6 @@ export interface RuntimeTurnResult {
    * in that chat.
    */
   discoveredFileRefIds?: string[];
-}
-
-export interface RuntimeSkillStateCheckResult {
-  requestId: string;
-  skillState: RuntimeSkillDecisionState | null;
 }
 
 export interface RuntimeTurnAutoCompactionState {

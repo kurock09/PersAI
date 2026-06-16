@@ -403,15 +403,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     bundle: createBundle(),
     request: withSkillRoutingContext(
       createRequest("Какие принципы питания учитывать при диабете 1 типа?"),
-      {
-        decision: null,
-        currentUserMessageIndex: 2,
-        recentMessages: [
-          { role: "user", text: "У меня диабет 1 типа" },
-          { role: "user", text: "Какие принципы питания учитывать при диабете 1 типа?" }
-        ],
-        forceCheck: true
-      }
+      { decision: null }
     ),
     projectedTools
   });
@@ -432,16 +424,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     bundle: createBundle({ enabled: false }),
     request: withSkillRoutingContext(
       createRequest("Какие принципы питания учитывать при диабете 1 типа?"),
-      {
-        decision: null,
-        currentUserMessageIndex: 3,
-        recentMessages: [
-          { role: "user", text: "У меня диабет 1 типа" },
-          { role: "assistant", text: "Поняла, давай говорить про питание." },
-          { role: "user", text: "Какие принципы питания учитывать при диабете 1 типа?" }
-        ],
-        forceCheck: true
-      }
+      { decision: null }
     ),
     projectedTools
   });
@@ -452,11 +435,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
 
   const simpleEnabledSkillTurn = await service.decide({
     bundle: createBundle(),
-    request: withSkillRoutingContext(createRequest("Привет, как дела?"), {
-      decision: null,
-      currentUserMessageIndex: 1,
-      recentMessages: [{ role: "user", text: "Привет, как дела?" }]
-    }),
+    request: withSkillRoutingContext(createRequest("Привет, как дела?"), { decision: null }),
     projectedTools
   });
   assert.equal(simpleEnabledSkillTurn.source, "precheck");
@@ -473,9 +452,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
         activeSkillName: null,
         activeScenarioKey: null,
         topicSummary: null
-      },
-      currentUserMessageIndex: 3,
-      recentMessages: [{ role: "user", text: "Привет, как дела?" }]
+      }
     }),
     projectedTools
   });
@@ -515,11 +492,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
         routingExamples: ["Объясни, почему вес стоит при текущем количестве калорий."]
       }
     ]),
-    request: withSkillRoutingContext(createRequest("Сколько калорий?"), {
-      decision: null,
-      currentUserMessageIndex: 3,
-      recentMessages: [{ role: "user", text: "Сколько калорий?" }]
-    }),
+    request: withSkillRoutingContext(createRequest("Сколько калорий?"), { decision: null }),
     projectedTools
   });
   assert.equal(metadataSkillMatchDecision.source, "precheck");
@@ -589,15 +562,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
         routingExamples: ["Объясни, почему вес стоит при текущем количестве калорий."]
       }
     ]),
-    request: withSkillRoutingContext(createRequest("А подешевле?"), {
-      decision: null,
-      currentUserMessageIndex: 4,
-      recentMessages: [
-        { role: "user", text: "Посчитай мой рацион" },
-        { role: "assistant", text: "Я посчитала калории и предложила рацион на неделю." },
-        { role: "user", text: "А подешевле?" }
-      ]
-    }),
+    request: withSkillRoutingContext(createRequest("А подешевле?"), { decision: null }),
     projectedTools
   });
   assert.equal(assistantContextSkillMatchDecision.source, "precheck");
@@ -605,7 +570,6 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
   assert.equal(assistantContextSkillMatchDecision.retrievalPlan.useSkills, false);
   assert.equal(providerGatewayClient.calls.length, 0);
 
-  const longTail = "tail-segment ".repeat(40);
   const assembledClassifierRequest = (
     service as unknown as {
       buildClassifierRequest: (input: {
@@ -620,16 +584,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     }
   ).buildClassifierRequest({
     bundle: createBundle(),
-    request: withSkillRoutingContext(createRequest("Нужен роутинг по теме"), {
-      decision: null,
-      currentUserMessageIndex: 5,
-      recentMessages: [
-        { role: "user", text: "Собери рацион на неделю" },
-        { role: "assistant", text: `Очень длинный ответ ${longTail}` },
-        { role: "user", text: "Сделай список покупок" }
-      ],
-      forceCheck: true
-    }),
+    request: withSkillRoutingContext(createRequest("Нужен роутинг по теме"), { decision: null }),
     projectedTools,
     provider: "openai",
     model: "gpt-4.1",
@@ -652,13 +607,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
         activeSkillName: "Accountant",
         activeScenarioKey: null,
         topicSummary: "quarterly tax categories"
-      },
-      currentUserMessageIndex: 4,
-      recentMessages: [
-        { role: "user", text: "Explain quarterly tax categories" },
-        { role: "assistant", text: "Let's compare the categories." },
-        { role: "user", text: "А если изменить срок?" }
-      ]
+      }
     }),
     projectedTools
   });
@@ -674,13 +623,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
       activeSkillName: "Accountant",
       activeScenarioKey: null,
       topicSummary: "quarterly tax categories"
-    },
-    currentUserMessageIndex: 5,
-    recentMessages: [
-      { role: "user", text: "Explain quarterly tax categories" },
-      { role: "assistant", text: "Let's compare the categories." },
-      { role: "user", text: "Use this file too." }
-    ]
+    }
   });
   stickySkillWithFileRequest.message.attachments = [
     {
@@ -705,63 +648,11 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     "skill-accounting"
   ]);
   assert.equal(providerGatewayClient.calls.length, 0);
-
-  providerGatewayClient.result = {
-    ...skillClassifierResult,
-    text: JSON.stringify({
-      executionMode: "normal",
-      retrievalHint: false,
-      toolHints: "none",
-      confidence: "high",
-      clarifyNeeded: false,
-      fallbackMode: "normal",
-      reasonCode: "classifier_result",
-      retrievalPlan: {
-        useSkills: false,
-        selectedSkillIds: [],
-        useUserKnowledge: false,
-        useProductKnowledge: false,
-        useWeb: false,
-        confidence: "medium",
-        reasonCode: "classifier_topic_drift"
-      }
-    })
-  };
-  const driftRecheckDecision = await service.decide({
-    bundle: createBundle(),
-    request: withSkillRoutingContext(createRequest("Теперь хочу обсудить B2B воронку"), {
-      decision: {
-        status: "active",
-        activeSkillId: "skill-accounting",
-        activeSkillName: "Accountant",
-        activeScenarioKey: null,
-        topicSummary: "quarterly tax categories"
-      },
-      currentUserMessageIndex: 9,
-      recentMessages: [
-        { role: "user", text: "Explain quarterly tax categories" },
-        { role: "assistant", text: "Let's compare the categories." },
-        { role: "user", text: "Теперь хочу обсудить B2B воронку" }
-      ],
-      forceCheck: true
-    }),
-    projectedTools
-  });
-  assert.equal(driftRecheckDecision.source, "precheck");
-  assert.deepEqual(driftRecheckDecision.retrievalPlan.selectedSkillIds, []);
-  assert.equal(driftRecheckDecision.skillState?.status, "active");
-  assert.equal(driftRecheckDecision.skillState?.activeSkillId, "skill-accounting");
-  assert.equal(providerGatewayClient.calls.length, 0);
   providerGatewayClient.result = skillClassifierResult;
 
   const noSkillsDecision = await service.decide({
     bundle: createBundle(undefined, false),
-    request: withSkillRoutingContext(createRequest("Привет, как дела?"), {
-      decision: null,
-      currentUserMessageIndex: 1,
-      recentMessages: [{ role: "user", text: "Привет, как дела?" }],
-      forceCheck: true
-    }),
+    request: withSkillRoutingContext(createRequest("Привет, как дела?"), { decision: null }),
     projectedTools
   });
   assert.equal(noSkillsDecision.source, "precheck");
@@ -1076,21 +967,7 @@ async function runAutoSkillRoutingHardeningTests(): Promise<void> {
   }));
   const decision = await service.decide({
     bundle: createBundle(undefined, true, enabledSkills),
-    request: withSkillRoutingContext(createRequest("Давай диету"), {
-      decision: null,
-      currentUserMessageIndex: 3,
-      recentMessages: [
-        { role: "user", text: "OLD-ROUTING-MESSAGE-1 ".repeat(20) },
-        { role: "assistant", text: "OLD-ROUTING-MESSAGE-2 ".repeat(20) },
-        { role: "user", text: "Мне нужен план питания без рыбы и молока" },
-        { role: "assistant", text: "Напиши цель и ограничения" },
-        { role: "user", text: "Хочу похудеть и держать сахар стабильно" },
-        { role: "assistant", text: "Укажи вес и рост" },
-        { role: "user", text: "Вес 92, рост 178" },
-        { role: "assistant", text: "Сколько тренировок в неделю?" }
-      ],
-      forceCheck: true
-    }),
+    request: withSkillRoutingContext(createRequest("Давай диету"), { decision: null }),
     projectedTools
   });
   assert.equal(decision.source, "precheck");

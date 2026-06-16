@@ -56,19 +56,13 @@ function createPlatformHttpMetricsServiceMock() {
 }
 
 function createWebRuntimeTurnClientServiceMock() {
-  return {
-    checkSkillRouting: async () => {
-      throw new Error("background skill routing should not run in this test");
-    }
-  };
+  return {};
 }
 
 function createSkillStatePersistenceServiceMock() {
   return {
-    buildRuntimeContext: async (input: { decisionState?: unknown }) => ({
-      decision: input.decisionState ?? null,
-      currentUserMessageIndex: 1,
-      recentMessages: []
+    buildRuntimeContext: (input: { decisionState?: unknown }) => ({
+      decision: input.decisionState ?? null
     }),
     persistFromTurnRouting: async () => ({
       skillDecisionState: null

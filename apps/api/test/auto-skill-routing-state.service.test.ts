@@ -124,49 +124,6 @@ async function run(): Promise<void> {
     chatId: "chat-active",
     activeSkillId: "skill-finance"
   });
-
-  chatStateById.set("chat-inactive", { skillDecisionState: null });
-  const updatesBeforeActivation = chatUpdates.length;
-  await service.persistFromSkillCheckResult({
-    chatId: "chat-inactive",
-    result: {
-      requestId: "request-1",
-      skillState: {
-        status: "active",
-        activeSkillId: "skill-diet",
-        activeSkillName: "Диетолог",
-        activeScenarioKey: null,
-        topicSummary: "nutrition"
-      }
-    }
-  });
-  assert.equal(chatUpdates.length, updatesBeforeActivation + 1);
-  assert.deepEqual(chatStateById.get("chat-inactive")?.skillDecisionState, {
-    status: "active",
-    activeSkillId: "skill-diet",
-    activeSkillName: "Диетолог",
-    activeScenarioKey: null,
-    topicSummary: "nutrition"
-  });
-  assert.deepEqual(clearedForChats.at(-1), {
-    chatId: "chat-inactive",
-    activeSkillId: "skill-diet"
-  });
-
-  const updatesBeforeNullize = chatUpdates.length;
-  await service.persistFromSkillCheckResult({
-    chatId: "chat-inactive",
-    result: {
-      requestId: "request-2",
-      skillState: null
-    }
-  });
-  assert.equal(chatUpdates.length, updatesBeforeNullize + 1);
-  assert.equal(chatStateById.get("chat-inactive")?.skillDecisionState, null);
-  assert.deepEqual(clearedForChats.at(-1), {
-    chatId: "chat-inactive",
-    activeSkillId: null
-  });
 }
 
 void run();

@@ -1,15 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import type {
-  RuntimeSkillDecisionState,
-  RuntimeSkillStateCheckResult,
-  RuntimeSkillStateContext
-} from "@persai/runtime-contract";
+import type { RuntimeSkillDecisionState, RuntimeSkillStateContext } from "@persai/runtime-contract";
 import { SkillRetrievalStateService } from "./skill-retrieval-state.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-
-const MAX_RECENT_ROUTING_MESSAGES = 30;
-const MAX_RECENT_ROUTING_USER_TURNS = 5;
 
 export function createInactiveSkillDecisionState(input?: {
   topicSummary?: string | null;
@@ -30,54 +23,12 @@ export class AutoSkillRoutingStateService {
     private readonly skillRetrievalStateService: SkillRetrievalStateService
   ) {}
 
-  async buildRuntimeContext(input: {
+  buildRuntimeContext(input: {
     chatId: string;
     currentUserMessageId: string;
     decisionState: RuntimeSkillDecisionState | null;
-  }): Promise<RuntimeSkillStateContext> {
-    const currentMessage = await this.prisma.assistantChatMessage.findUnique({
-      where: { id: input.currentUserMessageId },
-      select: { createdAt: true }
-    });
-    const [currentUserMessageIndex, recentRows] = await Promise.all([
-      currentMessage === null
-        ? Promise.resolve(0)
-        : this.prisma.assistantChatMessage.count({
-            where: {
-              chatId: input.chatId,
-              author: "user",
-              createdAt: { lte: currentMessage.createdAt }
-            }
-          }),
-      this.prisma.assistantChatMessage.findMany({
-        where: {
-          chatId: input.chatId,
-          author: { in: ["user", "assistant"] }
-        },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        take: MAX_RECENT_ROUTING_MESSAGES,
-        select: {
-          author: true,
-          content: true,
-          createdAt: true,
-          id: true
-        }
-      })
-    ]);
-
-    return {
-      decision: input.decisionState,
-      currentUserMessageIndex,
-      recentMessages: this.selectRecentRoutingRows(
-        recentRows.sort((left, right) => {
-          const byTime = left.createdAt.getTime() - right.createdAt.getTime();
-          return byTime === 0 ? left.id.localeCompare(right.id) : byTime;
-        })
-      ).map((row) => ({
-        role: row.author === "assistant" ? ("assistant" as const) : ("user" as const),
-        text: row.content
-      }))
-    };
+  }): RuntimeSkillStateContext {
+    return { decision: input.decisionState };
   }
 
   extractDecisionStateFromTurnRouting(input: {
@@ -115,19 +66,6 @@ export class AutoSkillRoutingStateService {
       nextDecision
     });
     return { skillDecisionState: nextDecision };
-  }
-
-  async persistFromSkillCheckResult(input: {
-    chatId: string;
-    result: RuntimeSkillStateCheckResult;
-  }): Promise<void> {
-    const nextDecision = this.normalizeDecisionState(input.result.skillState) ?? null;
-    const current = await this.readChatSkillState(input.chatId);
-    await this.persistDecisionIfChanged({
-      chatId: input.chatId,
-      currentDecision: current.skillDecisionState,
-      nextDecision
-    });
   }
 
   private async persistDecisionIfChanged(input: {
@@ -195,26 +133,6 @@ export class AutoSkillRoutingStateService {
             : (input.skillDecisionState as unknown as Prisma.InputJsonValue)
       }
     });
-  }
-
-  private selectRecentRoutingRows<
-    T extends {
-      author: string;
-    }
-  >(rows: T[]): T[] {
-    let remainingUserTurns = MAX_RECENT_ROUTING_USER_TURNS;
-    let startIndex = 0;
-    for (let index = rows.length - 1; index >= 0; index -= 1) {
-      if (rows[index]?.author !== "user") {
-        continue;
-      }
-      remainingUserTurns -= 1;
-      startIndex = index;
-      if (remainingUserTurns === 0) {
-        break;
-      }
-    }
-    return rows.slice(startIndex);
   }
 
   private normalizeDecisionState(value: unknown): RuntimeSkillDecisionState | null | undefined {

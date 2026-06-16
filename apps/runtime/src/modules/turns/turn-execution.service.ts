@@ -54,7 +54,6 @@ import {
   type RuntimeFailedEvent,
   type RuntimeInterruptedEvent,
   type RuntimeTextDeltaSource,
-  type RuntimeSkillStateCheckResult,
   type RuntimeTurnRequest,
   type RuntimeTurnResult,
   type RuntimeTurnRoutingSnapshot,
@@ -129,7 +128,6 @@ import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
-import { SkillStateRoutingService } from "./skill-state-routing.service";
 import { TurnRoutingService, type TurnRouteDecision } from "./turn-routing.service";
 import {
   RuntimeExecutionAdmissionService,
@@ -395,7 +393,6 @@ export class TurnExecutionService {
     private readonly runtimeBundleAutoRefreshService: RuntimeBundleAutoRefreshService,
     private readonly turnContextHydrationService: TurnContextHydrationService,
     private readonly turnAcceptanceService: TurnAcceptanceService,
-    private readonly skillStateRoutingService: SkillStateRoutingService,
     private readonly turnRoutingService: TurnRoutingService,
     private readonly turnFinalizationService: TurnFinalizationService,
     private readonly sessionCompactionService: SessionCompactionService,
@@ -538,40 +535,6 @@ export class TurnExecutionService {
         });
       }
     }
-  }
-
-  async checkSkillRouting(input: RuntimeTurnRequest): Promise<RuntimeSkillStateCheckResult> {
-    this.assertSupportedTurnRequest(input, "checkSkillRouting");
-    let bundleEntry = this.resolveBundleEntry(input.bundle);
-    if (bundleEntry === null || !this.bundleEntryMatchesRequest(bundleEntry, input.bundle)) {
-      const warmed = await this.runtimeBundleAutoRefreshService.ensureRequestedBundle({
-        bundle: input.bundle,
-        runtimeTier: input.runtimeTier
-      });
-      if (warmed) {
-        bundleEntry = this.resolveBundleEntry(input.bundle);
-      }
-    }
-    if (bundleEntry === null) {
-      throw new ServiceUnavailableException(
-        `Runtime bundle "${input.bundle.bundleId}" is not warmed.`
-      );
-    }
-    const request =
-      input.skillStateContext === undefined
-        ? input
-        : {
-            ...input,
-            skillStateContext: { ...input.skillStateContext, forceCheck: true }
-          };
-    const result = await this.skillStateRoutingService.checkSkillState({
-      bundle: bundleEntry.parsedBundle,
-      request
-    });
-    return {
-      requestId: input.requestId,
-      skillState: result.skillState
-    };
   }
 
   private async executeAcceptedTurn(
@@ -2510,7 +2473,7 @@ export class TurnExecutionService {
 
   private assertSupportedTurnRequest(
     input: RuntimeTurnRequest,
-    operation: "createTurn" | "streamTurn" | "createBackgroundTaskToolRun" | "checkSkillRouting"
+    operation: "createTurn" | "streamTurn" | "createBackgroundTaskToolRun"
   ): void {
     if (input.message.text.trim().length === 0) {
       throw new BadRequestException(

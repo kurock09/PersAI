@@ -68,7 +68,6 @@ import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.ser
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
 import type { RuntimeBundleAutoRefreshService } from "../src/modules/turns/runtime-bundle-auto-refresh.service";
 import { BuildActiveScenarioBlockService } from "../src/modules/turns/build-active-scenario-block.service";
-import { SkillStateRoutingService } from "../src/modules/turns/skill-state-routing.service";
 import { ToolBudgetPolicy } from "../src/modules/turns/tool-budget-policy";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
@@ -2222,7 +2221,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     > as RuntimeBundleAutoRefreshService,
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
-    new SkillStateRoutingService(providerGatewayClient as unknown as ProviderGatewayClientService),
     turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
@@ -2391,7 +2389,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     > as RuntimeBundleAutoRefreshService,
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
-    new SkillStateRoutingService(providerGatewayClient as unknown as ProviderGatewayClientService),
     turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
@@ -2466,7 +2463,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     > as RuntimeBundleAutoRefreshService,
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
-    new SkillStateRoutingService(providerGatewayClient as unknown as ProviderGatewayClientService),
     turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
@@ -3352,10 +3348,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       activeSkillName: "Dietitian",
       activeScenarioKey: null,
       topicSummary: "Nutrition principles"
-    },
-    currentUserMessageIndex: 8,
-    recentMessages: [{ role: "user", text: groundedSkillRequest.message.text }],
-    forceCheck: false
+    }
   };
   turnContextHydrationService.messages = [
     {
@@ -3473,9 +3466,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       activeSkillName: "Dietitian",
       activeScenarioKey: null,
       topicSummary: "Nutrition project audit"
-    },
-    currentUserMessageIndex: 10,
-    recentMessages: [{ role: "user", text: projectGroundedRequest.message.text }]
+    }
   };
   turnContextHydrationService.messages = [
     {
@@ -3758,9 +3749,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       activeSkillName: "Диетолог",
       activeScenarioKey: null,
       topicSummary: "Type 1 diabetes nutrition"
-    },
-    currentUserMessageIndex: 4,
-    recentMessages: []
+    }
   };
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
@@ -7635,7 +7624,6 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
     null as never, // runtimeBundleAutoRefreshService
     null as never, // turnContextHydrationService
     null as never, // turnAcceptanceService
-    null as never, // skillStateRoutingService
     null as never, // turnRoutingService
     null as never, // turnFinalizationService
     null as never, // sessionCompactionService

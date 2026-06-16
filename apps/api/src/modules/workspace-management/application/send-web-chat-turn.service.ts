@@ -315,7 +315,7 @@ export class SendWebChatTurnService {
         ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, request.welcomeLocale)
         : prepared.userMessage.content;
       const currentTimeIso = new Date().toISOString();
-      const skillStateContext = await this.autoSkillRoutingStateService.buildRuntimeContext({
+      const skillStateContext = this.autoSkillRoutingStateService.buildRuntimeContext({
         chatId: prepared.chat.id,
         currentUserMessageId: prepared.userMessage.id,
         decisionState: prepared.chat.skillDecisionState

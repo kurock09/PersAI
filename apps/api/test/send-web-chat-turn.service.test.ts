@@ -41,10 +41,8 @@ function createAttachmentObjectAvailabilityServiceMock() {
 
 function createSkillStatePersistenceServiceMock() {
   return {
-    buildRuntimeContext: async (input: { decisionState?: unknown }) => ({
-      decision: input.decisionState ?? null,
-      currentUserMessageIndex: 1,
-      recentMessages: []
+    buildRuntimeContext: (input: { decisionState?: unknown }) => ({
+      decision: input.decisionState ?? null
     }),
     persistFromTurnRouting: async () => ({
       skillDecisionState: null
@@ -1077,9 +1075,8 @@ describe("SendWebChatTurnService", () => {
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       {
-        buildRuntimeContext: async () => ({
-          currentUserMessageIndex: 2,
-          recentMessages: []
+        buildRuntimeContext: () => ({
+          decision: null
         }),
         persistFromTurnRouting: async () => {
           throw new Error("skill-state write failed");

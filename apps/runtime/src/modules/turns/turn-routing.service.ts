@@ -429,7 +429,7 @@ export class TurnRoutingService {
           source: "fallback",
           mode: policy.mode,
           usage: result?.usage ?? null,
-          skillState: this.createAutoSkillStateOnClassifierFailure(input.request)
+          skillState: input.request.skillStateContext?.decision ?? null
         });
       }
       const sanitizedRetrievalPlan = this.sanitizeClassifierRetrievalPlan(
@@ -453,7 +453,7 @@ export class TurnRoutingService {
           source: "llm",
           mode: policy.mode,
           usage: result.usage,
-          skillState: this.carryForwardAutoSkillState(input.request)
+          skillState: input.request.skillStateContext?.decision ?? null
         }),
         input.request
       );
@@ -477,8 +477,7 @@ export class TurnRoutingService {
           source: "fallback",
           mode: policy.mode,
           usage: null,
-          skillState:
-            precheck.skillState ?? this.createAutoSkillStateOnClassifierFailure(input.request)
+          skillState: precheck.skillState ?? input.request.skillStateContext?.decision ?? null
         }),
         input.request
       );
@@ -533,7 +532,17 @@ export class TurnRoutingService {
       personalTerms: personalPriorityTerms
     });
     const enabledSkills = this.resolveEnabledSkillSummaries(input.bundle);
-    const activeAutoSkill = this.resolveActiveAutoSkill(input.request, enabledSkills);
+    const currentSkillDecision = input.request.skillStateContext?.decision ?? null;
+    const resolvedSkillEntry =
+      currentSkillDecision !== null &&
+      currentSkillDecision.status === "active" &&
+      currentSkillDecision.activeSkillId !== null
+        ? (enabledSkills.find((s) => s.id === currentSkillDecision.activeSkillId) ?? null)
+        : null;
+    const activeAutoSkill =
+      resolvedSkillEntry !== null && currentSkillDecision !== null
+        ? { state: currentSkillDecision, skill: resolvedSkillEntry }
+        : null;
     const retrievalIntent = this.matchesAny(lowerText, retrievalTerms);
     const recallRetrievalIntent = this.isRecallRetrievalIntent(lowerText, {
       retrievalTerms,
@@ -554,9 +563,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        skillState: activeAutoSkill
-          ? activeAutoSkill.state
-          : this.carryForwardAutoSkillState(input.request)
+        skillState: activeAutoSkill?.state ?? currentSkillDecision
       });
     }
 
@@ -564,17 +571,7 @@ export class TurnRoutingService {
       availableHints,
       toolTerms
     });
-    if (
-      activeAutoSkill &&
-      this.shouldReuseActiveSkill({
-        request: input.request,
-        activeSkill: activeAutoSkill,
-        lowerText,
-        normalizedText,
-        hintedTool,
-        ordinaryPriorityMode
-      })
-    ) {
+    if (activeAutoSkill) {
       const state = activeAutoSkill.state;
       return this.createDecision({
         executionMode: input.request.deepMode === true ? "premium" : "normal",
@@ -616,7 +613,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        skillState: this.carryForwardAutoSkillState(input.request)
+        skillState: currentSkillDecision
       });
     }
 
@@ -630,10 +627,8 @@ export class TurnRoutingService {
           availableWeb: availableHints.has("web"),
           ordinarySourcePriorityMode: ordinaryPriorityMode,
           productKnowledgeIntent,
-          skillState: activeAutoSkill
-            ? activeAutoSkill.state
-            : this.carryForwardAutoSkillState(input.request),
-          selectedSkillIds: activeAutoSkill ? [activeAutoSkill.skill.id] : []
+          skillState: currentSkillDecision,
+          selectedSkillIds: []
         })
       );
     }
@@ -656,7 +651,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        skillState: this.carryForwardAutoSkillState(input.request)
+        skillState: currentSkillDecision
       });
     }
 
@@ -680,7 +675,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        skillState: this.carryForwardAutoSkillState(input.request)
+        skillState: currentSkillDecision
       });
     }
 
@@ -697,7 +692,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        skillState: this.carryForwardAutoSkillState(input.request)
+        skillState: currentSkillDecision
       });
     }
 
@@ -728,7 +723,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        skillState: this.carryForwardAutoSkillState(input.request)
+        skillState: currentSkillDecision
       });
     }
 
@@ -749,7 +744,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        skillState: this.carryForwardAutoSkillState(input.request)
+        skillState: currentSkillDecision
       });
     }
 
@@ -765,7 +760,7 @@ export class TurnRoutingService {
       source: "precheck",
       mode: input.policy.mode,
       usage: null,
-      skillState: this.carryForwardAutoSkillState(input.request)
+      skillState: currentSkillDecision
     });
   }
 
@@ -1002,160 +997,6 @@ export class TurnRoutingService {
       "Current user message:",
       input.request.message.text.trim()
     ].join("\n");
-  }
-
-  private resolveActiveAutoSkill(
-    request: RuntimeTurnRequest,
-    enabledSkills: EnabledSkillSummary[]
-  ): { state: RuntimeSkillDecisionState; skill: EnabledSkillSummary } | null {
-    const state = request.skillStateContext?.decision ?? null;
-    if (state === null || state.status !== "active" || state.activeSkillId === null) {
-      return null;
-    }
-    const skill = enabledSkills.find((row) => row.id === state.activeSkillId) ?? null;
-    return skill === null ? null : { state, skill };
-  }
-
-  private carryForwardAutoSkillState(
-    request: RuntimeTurnRequest
-  ): RuntimeSkillDecisionState | null {
-    return request.skillStateContext?.decision ?? null;
-  }
-
-  private shouldReuseActiveSkill(input: {
-    request: RuntimeTurnRequest;
-    activeSkill: { state: RuntimeSkillDecisionState; skill: EnabledSkillSummary };
-    lowerText: string;
-    normalizedText: string;
-    hintedTool: RoutingToolHint;
-    ordinaryPriorityMode: OrdinarySourcePriorityMode;
-  }): boolean {
-    if (input.request.skillStateContext?.forceCheck === true) {
-      return false;
-    }
-    if (
-      input.hintedTool === "web" ||
-      input.hintedTool === "browser" ||
-      input.hintedTool === "media" ||
-      input.ordinaryPriorityMode === "product_first" ||
-      input.ordinaryPriorityMode === "web_first"
-    ) {
-      return false;
-    }
-    if (
-      this.hasSkillLexicalMatch(
-        input.lowerText,
-        input.activeSkill.skill,
-        input.activeSkill.state.topicSummary
-      )
-    ) {
-      return true;
-    }
-    const shortFollowUp =
-      input.normalizedText.length > 0 &&
-      input.normalizedText.length <= 160 &&
-      !input.normalizedText.includes("\n");
-    if (!shortFollowUp) {
-      return false;
-    }
-    return this.hasSkillLexicalMatch(
-      this.buildSkillRoutingMatchText(input.request, input.lowerText),
-      input.activeSkill.skill,
-      input.activeSkill.state.topicSummary
-    );
-  }
-
-  private buildSkillRoutingMatchText(request: RuntimeTurnRequest, lowerText: string): string {
-    const recentMessages = request.skillStateContext?.recentMessages ?? [];
-    const recentText = recentMessages
-      .slice(-8)
-      .map((message) => this.normalizeMessageText(message.text).toLowerCase())
-      .filter((text) => text.length > 0)
-      .join("\n");
-    return [recentText, lowerText]
-      .filter((part) => part.length > 0)
-      .join("\n")
-      .slice(-4_000);
-  }
-
-  private hasSkillLexicalMatch(
-    lowerText: string,
-    skill: EnabledSkillSummary,
-    topicSummary: string | null
-  ): boolean {
-    if (lowerText.length < 4) {
-      return false;
-    }
-    return this.buildSkillRoutingTerms(skill, topicSummary).some((term) =>
-      lowerText.includes(term)
-    );
-  }
-
-  private buildSkillRoutingTerms(
-    skill: EnabledSkillSummary,
-    topicSummary: string | null
-  ): string[] {
-    const terms = new Set<string>();
-    const values = [
-      skill.name,
-      skill.description,
-      topicSummary,
-      ...skill.tags,
-      ...skill.routingExamples
-    ].filter((value): value is string => value !== null && value.trim().length > 0);
-
-    for (const value of values) {
-      const tokens = this.tokenizeForSkillRouting(value);
-      for (const token of tokens) {
-        if (token.length >= 4) {
-          terms.add(token);
-        }
-        for (const stem of this.skillRoutingStems(token)) {
-          terms.add(stem);
-        }
-      }
-    }
-    return Array.from(terms).filter((term) => term.length >= 4);
-  }
-
-  private tokenizeForSkillRouting(value: string): string[] {
-    return Array.from(value.toLowerCase().matchAll(/[\p{L}\p{N}]+/gu), (match) => match[0]);
-  }
-
-  private skillRoutingStems(token: string): string[] {
-    if (!/^\p{L}+$/u.test(token) || token.length < 6) {
-      return [];
-    }
-    return token.length >= 8 ? [token.slice(0, 4), token.slice(0, 5)] : [token.slice(0, 4)];
-  }
-
-  private createAutoSkillStateOnClassifierFailure(
-    request: RuntimeTurnRequest
-  ): RuntimeSkillDecisionState | null {
-    if (request.skillStateContext?.forceCheck !== true) {
-      return request.skillStateContext?.decision ?? null;
-    }
-    return {
-      status: "inactive",
-      activeSkillId: null,
-      activeSkillName: null,
-      activeScenarioKey: null,
-      topicSummary: this.buildTopicSummary(request)
-    };
-  }
-
-  private buildTopicSummary(request: RuntimeTurnRequest): string | null {
-    const messages = request.skillStateContext?.recentMessages ?? [];
-    const conversationTexts = messages
-      .slice(-6)
-      .map((message) => ({
-        role: message.role,
-        text: this.normalizeMessageText(message.text)
-      }))
-      .filter((message) => message.text.length > 0)
-      .map((message) => `${message.role}: ${message.text}`);
-    const summary = conversationTexts.join(" / ").slice(0, 240).trim();
-    return summary.length === 0 ? null : summary;
   }
 
   private readRouterPolicy(bundle: AssistantRuntimeBundle): RouterPolicy {

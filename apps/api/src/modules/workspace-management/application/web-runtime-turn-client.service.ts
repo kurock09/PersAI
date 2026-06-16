@@ -6,7 +6,6 @@ import type {
   RuntimeOpenMediaJobContext,
   RuntimeOpenDocumentJobContext,
   RuntimeAttachmentRef,
-  RuntimeSkillStateCheckResult,
   RuntimeSkillStateContext,
   RuntimeTurnRequest,
   RuntimeTurnResult
@@ -183,30 +182,6 @@ export class WebRuntimeTurnClientService {
         ? {}
         : { discoveredFileRefIds: response.body.discoveredFileRefIds })
     };
-  }
-
-  async checkSkillRouting(input: WebRuntimeTurnClientInput): Promise<RuntimeSkillStateCheckResult> {
-    const request = await this.buildRuntimeTurnRequest(input);
-    const config = loadApiConfig(process.env);
-    const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
-    if (!baseUrl) {
-      throw new AssistantRuntimeError("runtime_unreachable", "Web runtime base URL is missing.");
-    }
-    const response = await this.postJson(
-      new URL("/api/v1/turns/skill-routing-check", baseUrl).toString(),
-      request,
-      config.PERSAI_RUNTIME_TURN_TIMEOUT_MS
-    );
-    if (!response.ok) {
-      this.throwForFailedResponse(response);
-    }
-    if (!this.isRuntimeSkillStateCheckResult(response.body)) {
-      throw new AssistantRuntimeError(
-        "invalid_response",
-        "Web runtime returned an invalid Skill routing check response."
-      );
-    }
-    return response.body;
   }
 
   private async buildRuntimeTurnRequest(
@@ -390,11 +365,6 @@ export class WebRuntimeTurnClientService {
         row.turnRouting === null ||
         this.isRuntimeTurnRoutingSnapshot(row.turnRouting))
     );
-  }
-
-  private isRuntimeSkillStateCheckResult(value: unknown): value is RuntimeSkillStateCheckResult {
-    const row = this.asObject(value);
-    return typeof row?.requestId === "string";
   }
 
   private isRuntimeTurnRoutingSnapshot(
