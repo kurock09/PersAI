@@ -5,16 +5,24 @@ import type {
   SkillDocumentState,
   SkillKnowledgeCardState
 } from "@/app/app/assistant-api-client";
+import type { AdminSkillScenario } from "@persai/contracts";
 import {
   draftToSkillPayload,
   filterUnsavedProposedKnowledgeCards,
   KNOWLEDGE_LOCALE_OPTIONS,
   knowledgeCardDraftToPayload,
   knowledgeCardToDraft,
+  NATIVE_SCENARIO_TOOL_KEYS,
+  renderActiveScenarioBlockPreview,
+  renderScenarioCatalogLine,
+  scenarioDraftToCreatePayload,
+  scenarioDraftToUpdatePayload,
+  scenarioToDraft,
   skillToDraft,
   summarizeKnowledgeCards,
   summarizeSkillReadiness,
   validateKnowledgeCardDraft,
+  validateScenarioDraft,
   validateSkillDraft
 } from "./page";
 
@@ -232,5 +240,198 @@ describe("admin skills page helpers", () => {
     expect(
       filterUnsavedProposedKnowledgeCards([duplicateProposal, newProposal, newProposal], [existing])
     ).toEqual([newProposal]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario helper tests (ADR-118 Slice 5)
+// ---------------------------------------------------------------------------
+
+function createScenario(
+  key = "instagram_carousel",
+  status: AdminSkillScenario["status"] = "active"
+): AdminSkillScenario {
+  return {
+    id: `scenario-${key}`,
+    skillId: "skill-1",
+    key,
+    displayName: { ru: "Карусель Instagram", en: "Instagram Carousel" },
+    description: {
+      ru: "8 слайдов через image_generate",
+      en: "8-slide carousel via image_generate"
+    },
+    iconEmoji: "🎨",
+    intentExamples: ["сделай карусель", "carousel for instagram"],
+    steps: [
+      {
+        number: 1,
+        directive: "CALL image_generate with outputMode=series, count=8",
+        recommendedToolCall: "image_generate",
+        mayBeSkippedIf: null,
+        negativeGuards: ["combine slides into one image"]
+      },
+      {
+        number: 2,
+        directive: "Confirm all slides with user and call skill({ release })",
+        recommendedToolCall: null,
+        mayBeSkippedIf: null,
+        negativeGuards: []
+      }
+    ],
+    recommendedTools: ["image_generate"],
+    exitCondition: "After user confirms all slides call skill({ release }).",
+    status,
+    displayOrder: 10,
+    createdAt: "2026-06-16T12:00:00.000Z",
+    updatedAt: "2026-06-16T12:00:00.000Z"
+  };
+}
+
+describe("admin skills — scenario helper functions", () => {
+  // Test 1: Scenarios list renders correctly for a Skill with active scenarios
+  it("round-trips an active scenario into a draft with all fields preserved", () => {
+    const scenario = createScenario("instagram_carousel", "active");
+    const draft = scenarioToDraft(scenario);
+
+    expect(draft.key).toBe("instagram_carousel");
+    expect(draft.displayNameRu).toBe("Карусель Instagram");
+    expect(draft.displayNameEn).toBe("Instagram Carousel");
+    expect(draft.descriptionRu).toBe("8 слайдов через image_generate");
+    expect(draft.status).toBe("active");
+    expect(draft.steps).toHaveLength(2);
+    const step0 = draft.steps[0];
+    const step1 = draft.steps[1];
+    expect(step0).toBeDefined();
+    expect(step1).toBeDefined();
+    expect(step0?.directive).toBe("CALL image_generate with outputMode=series, count=8");
+    expect(step0?.recommendedToolCall).toBe("image_generate");
+    expect(step0?.negativeGuards).toEqual(["combine slides into one image"]);
+    expect(draft.intentExamples).toHaveLength(2);
+    expect(draft.recommendedTools).toEqual(["image_generate"]);
+  });
+
+  // Test 2: Create scenario form: fill + submit → creates correct payload
+  it("creates a complete AdminCreateSkillScenarioRequest from a valid draft", () => {
+    const draft = scenarioToDraft(createScenario("instagram_carousel", "draft"));
+    const payload = scenarioDraftToCreatePayload(draft);
+
+    expect(payload.key).toBe("instagram_carousel");
+    expect(payload.displayName).toMatchObject({
+      ru: "Карусель Instagram",
+      en: "Instagram Carousel"
+    });
+    expect(payload.description).toMatchObject({
+      ru: "8 слайдов через image_generate",
+      en: "8-slide carousel via image_generate"
+    });
+    expect(payload.steps).toHaveLength(2);
+    expect(payload.steps[0]?.number).toBe(1);
+    expect(payload.steps[1]?.number).toBe(2);
+    expect(payload.steps[0]?.recommendedToolCall).toBe("image_generate");
+    expect(payload.steps[0]?.negativeGuards).toEqual(["combine slides into one image"]);
+    expect(payload.recommendedTools).toEqual(["image_generate"]);
+    expect(payload.exitCondition).toBe("After user confirms all slides call skill({ release }).");
+  });
+
+  // Test 3: Validation — bad key regex blocks submit
+  it("blocks submit and shows error when key fails regex", () => {
+    const draft = { ...scenarioToDraft(null), key: "BadKey With Spaces!" };
+    const { errors } = validateScenarioDraft(draft);
+    expect(errors.key).toContain("строчные");
+    expect(Object.keys(errors).length).toBeGreaterThan(0);
+    expect(() => scenarioDraftToCreatePayload(draft)).toThrow();
+  });
+
+  // Test 4: Validation — empty steps blocks submit
+  it("blocks submit when there are no steps", () => {
+    const draft = {
+      ...scenarioToDraft(createScenario()),
+      steps: []
+    };
+    const { errors } = validateScenarioDraft(draft);
+    expect(errors.steps).toBeTruthy();
+    expect(() => scenarioDraftToCreatePayload(draft)).toThrow();
+  });
+
+  // Test 5: Edit existing scenario — key field must NOT appear in update payload
+  it("scenarioDraftToUpdatePayload omits the key field (immutable after create)", () => {
+    const draft = scenarioToDraft(createScenario("instagram_carousel", "active"));
+    const payload = scenarioDraftToUpdatePayload(draft);
+
+    expect("key" in payload).toBe(false);
+    expect(payload.displayName).toMatchObject({ ru: "Карусель Instagram" });
+    expect(payload.steps).toBeDefined();
+    expect(payload.steps?.length).toBe(2);
+  });
+
+  // Test 6: Archive action — status: "archived" goes into update payload
+  it("produces status=archived in the update payload for the archive action", () => {
+    const draft = {
+      ...scenarioToDraft(createScenario("instagram_carousel", "active")),
+      status: "archived" as const
+    };
+    const payload = scenarioDraftToUpdatePayload(draft);
+    expect(payload.status).toBe("archived");
+  });
+
+  // Live-preview test: typing in directive updates Pane B output
+  it("renderActiveScenarioBlockPreview reflects directive text changes", () => {
+    const base = scenarioToDraft(createScenario());
+    const preview1 = renderActiveScenarioBlockPreview(base, "Маркетолог");
+    expect(preview1).toContain("CALL image_generate with outputMode=series, count=8");
+    expect(preview1).toContain("## Active Scenario: Instagram Carousel (Skill: Маркетолог)");
+    expect(preview1).toContain("Recommended tool: image_generate");
+    expect(preview1).toContain("Guards: Do NOT combine slides into one image.");
+    expect(preview1).toContain(
+      "Exit condition: After user confirms all slides call skill({ release })."
+    );
+
+    const firstStep = base.steps[0];
+    expect(firstStep).toBeDefined();
+    const modified = {
+      ...base,
+      steps: [{ ...firstStep!, directive: "НОВАЯ директива" }, ...base.steps.slice(1)]
+    };
+    const preview2 = renderActiveScenarioBlockPreview(modified, "Маркетолог");
+    expect(preview2).toContain("НОВАЯ директива");
+    expect(preview2).not.toContain("CALL image_generate with outputMode=series, count=8");
+  });
+
+  // Catalog preview test: renderScenarioCatalogLine format matches materialization
+  it("renderScenarioCatalogLine matches materialization format exactly", () => {
+    const draft = scenarioToDraft(createScenario());
+    const line = renderScenarioCatalogLine(draft, "ru");
+    expect(line).toBe(
+      "- instagram_carousel: Карусель Instagram — 8 слайдов через image_generate (recommended: image_generate)"
+    );
+    const lineEn = renderScenarioCatalogLine(draft, "en");
+    expect(lineEn).toBe(
+      "- instagram_carousel: Instagram Carousel — 8-slide carousel via image_generate (recommended: image_generate)"
+    );
+  });
+
+  // Soft warning test: last step without skill({ shows yellow warning
+  it("shows soft warning when last step directive does not contain skill({ or release", () => {
+    const draft = {
+      ...scenarioToDraft(createScenario()),
+      steps: [
+        {
+          directive: "Do something without releasing",
+          recommendedToolCall: "" as string,
+          mayBeSkippedIf: "" as string,
+          negativeGuards: [] as string[]
+        }
+      ]
+    };
+    const { warnings, errors } = validateScenarioDraft(draft);
+    expect(errors.steps).toBeUndefined();
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings[0]).toContain("skill({ release })");
+  });
+
+  it("NATIVE_SCENARIO_TOOL_KEYS contains expected tool codes", () => {
+    expect(NATIVE_SCENARIO_TOOL_KEYS).toContain("image_generate");
+    expect(NATIVE_SCENARIO_TOOL_KEYS).toContain("skill");
+    expect(NATIVE_SCENARIO_TOOL_KEYS).toContain("files");
   });
 });
