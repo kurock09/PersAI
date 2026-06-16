@@ -3520,7 +3520,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-  /api/v1/admin/skills/{skillId}/scenarios:
+  /admin/skills/{skillId}/scenarios:
     get:
       operationId: getAdminSkillScenarios
       summary: List scenarios for a Skill
@@ -3594,7 +3594,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-  /api/v1/admin/skills/{skillId}/scenarios/{scenarioKey}:
+  /admin/skills/{skillId}/scenarios/{scenarioKey}:
     get:
       operationId: getAdminSkillScenario
       summary: Get a single Skill scenario by key

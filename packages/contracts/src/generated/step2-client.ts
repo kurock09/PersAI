@@ -5303,8 +5303,8 @@ export const getGetAdminSkillScenariosUrl = (
   const stringifiedParams = normalizedParams.toString();
 
   return stringifiedParams.length > 0
-    ? `/api/v1/admin/skills/${skillId}/scenarios?${stringifiedParams}`
-    : `/api/v1/admin/skills/${skillId}/scenarios`;
+    ? `/admin/skills/${skillId}/scenarios?${stringifiedParams}`
+    : `/admin/skills/${skillId}/scenarios`;
 };
 
 export const getAdminSkillScenarios = async (
@@ -5360,7 +5360,7 @@ export type postAdminSkillScenarioResponse =
   | postAdminSkillScenarioResponseError;
 
 export const getPostAdminSkillScenarioUrl = (skillId: string) => {
-  return `/api/v1/admin/skills/${skillId}/scenarios`;
+  return `/admin/skills/${skillId}/scenarios`;
 };
 
 export const postAdminSkillScenario = async (
@@ -5401,7 +5401,7 @@ export type getAdminSkillScenarioResponse =
   | getAdminSkillScenarioResponseError;
 
 export const getGetAdminSkillScenarioUrl = (skillId: string, scenarioKey: string) => {
-  return `/api/v1/admin/skills/${skillId}/scenarios/${scenarioKey}`;
+  return `/admin/skills/${skillId}/scenarios/${scenarioKey}`;
 };
 
 export const getAdminSkillScenario = async (
@@ -5451,7 +5451,7 @@ export type patchAdminSkillScenarioResponse =
   | patchAdminSkillScenarioResponseError;
 
 export const getPatchAdminSkillScenarioUrl = (skillId: string, scenarioKey: string) => {
-  return `/api/v1/admin/skills/${skillId}/scenarios/${scenarioKey}`;
+  return `/admin/skills/${skillId}/scenarios/${scenarioKey}`;
 };
 
 export const patchAdminSkillScenario = async (
@@ -5496,7 +5496,7 @@ export type deleteAdminSkillScenarioResponse =
   | deleteAdminSkillScenarioResponseError;
 
 export const getDeleteAdminSkillScenarioUrl = (skillId: string, scenarioKey: string) => {
-  return `/api/v1/admin/skills/${skillId}/scenarios/${scenarioKey}`;
+  return `/admin/skills/${skillId}/scenarios/${scenarioKey}`;
 };
 
 export const deleteAdminSkillScenario = async (
