@@ -2197,10 +2197,18 @@ export class OrchestrateRuntimeRetrievalService {
   }
 
   private truncate(value: string, maxChars: number): string {
-    const normalized = value.replace(/\s+/g, " ").trim();
+    // Preserve line structure so markdown (headings, lists) survives into the
+    // Retrieved Knowledge Context block. Collapse only intra-line whitespace
+    // (spaces/tabs) and cap blank-line runs; never flatten newlines, otherwise
+    // a leading `#` turns the whole excerpt into one giant heading.
+    const normalized = value
+      .replace(/[^\S\n]+/g, " ")
+      .replace(/[ \t]*\n[ \t]*/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
     return normalized.length <= maxChars
       ? normalized
-      : `${normalized.slice(0, maxChars - 3).trim()}...`;
+      : `${normalized.slice(0, maxChars - 1).trimEnd()}…`;
   }
 
   private resolveTelemetryErrorCode(error: unknown): string {
