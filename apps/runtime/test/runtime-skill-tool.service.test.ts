@@ -1,16 +1,38 @@
 import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
-import type { ProviderGatewayToolCall } from "@persai/runtime-contract";
+import type { ProviderGatewayToolCall, RuntimeBundleSkillScenario } from "@persai/runtime-contract";
 import type { PersaiInternalApiClientService } from "../src/modules/turns/persai-internal-api.client.service";
 import { RuntimeSkillToolService } from "../src/modules/turns/runtime-skill-tool.service";
 
-function createBundle(opts?: { enabledSkills?: Array<{ id: string; name: string }> }) {
+const INSTAGRAM_CAROUSEL_SCENARIO: RuntimeBundleSkillScenario = {
+  key: "instagram_carousel",
+  displayName: "Instagram Carousel",
+  description: "Create an Instagram carousel post.",
+  iconEmoji: "📸",
+  intentExamples: ["carousel", "instagram post"],
+  steps: [
+    {
+      number: 1,
+      directive: "CALL image_generate with outputMode=series, count=8",
+      recommendedToolCall: "image_generate",
+      mayBeSkippedIf: null,
+      negativeGuards: ["Do not collapse into one call"]
+    }
+  ],
+  recommendedTools: ["image_generate"],
+  exitCondition: "All 8 slides are confirmed and the user is satisfied."
+};
+
+function createBundle(opts?: {
+  enabledSkills?: Array<{ id: string; name: string; scenarios?: RuntimeBundleSkillScenario[] }>;
+}) {
   const enabledSkills = (opts?.enabledSkills ?? []).map((s) => ({
     id: s.id,
     name: s.name,
     description: null,
     category: "general",
-    tags: []
+    tags: [],
+    ...(s.scenarios !== undefined ? { scenarios: s.scenarios } : {})
   }));
   return compileAssistantRuntimeBundle({
     metadata: {
@@ -198,6 +220,15 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
   const bundleWithSkill = createBundle({
     enabledSkills: [{ id: "skill-finance", name: "Finance" }]
   });
+  const bundleWithSkillAndScenarios = createBundle({
+    enabledSkills: [
+      {
+        id: "skill-marketer",
+        name: "Marketer",
+        scenarios: [INSTAGRAM_CAROUSEL_SCENARIO]
+      }
+    ]
+  });
   const bundleEmpty = createBundle({ enabledSkills: [] });
 
   // (a) Happy path: engage without scenarioKey
@@ -265,7 +296,7 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
     assert.equal(api.skillStateCalls.length, 0, "must not call API when skill is not enabled");
   }
 
-  // (d) Slice 2 honesty: scenarioKey always returns scenario_not_found
+  // (d) scenario_not_found when the skill has no scenarios in the bundle
   {
     const api = new FakeInternalApi();
     const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
@@ -286,10 +317,92 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
     );
     assert.deepEqual(
       (result.payload as { error: string; availableScenarios: unknown[] }).availableScenarios,
-      []
+      [],
+      "availableScenarios is empty when the skill has no scenarios"
     );
     assert.equal(result.isError, false);
-    assert.equal(api.skillStateCalls.length, 0, "must not call API when scenario is not wired");
+    assert.equal(
+      api.skillStateCalls.length,
+      0,
+      "must not call API when scenario is not in catalog"
+    );
+  }
+
+  // (d2) scenario_not_found with populated availableScenarios when the skill has other scenarios
+  {
+    const api = new FakeInternalApi();
+    const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle: bundleWithSkillAndScenarios,
+      toolCall: createToolCall({
+        action: "engage",
+        skillId: "skill-marketer",
+        scenarioKey: "nonexistent_scenario"
+      }),
+      conversation: webConversation,
+      requestId: "req-4b"
+    });
+    assert.equal((result.payload as { error: string }).error, "scenario_not_found");
+    assert.deepEqual(
+      (result.payload as { availableScenarios: string[] }).availableScenarios,
+      ["instagram_carousel"],
+      "availableScenarios lists what is actually in the bundle"
+    );
+    assert.equal(result.isError, false);
+    assert.equal(
+      api.skillStateCalls.length,
+      0,
+      "must not call API when scenario is not in catalog"
+    );
+  }
+
+  // (j) Happy path: engage-with-scenario — returns full scenario payload
+  {
+    const api = new FakeInternalApi();
+    api.skillStateResult = {
+      skillId: "skill-marketer",
+      skillDisplayName: "Marketer",
+      previousSkillId: null
+    };
+    const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle: bundleWithSkillAndScenarios,
+      toolCall: createToolCall({
+        action: "engage",
+        skillId: "skill-marketer",
+        scenarioKey: "instagram_carousel"
+      }),
+      conversation: webConversation,
+      requestId: "req-10"
+    });
+    assert.equal(result.isError, false);
+    const payload = result.payload as {
+      action: "engaged";
+      skillId: string;
+      skillDisplayName: string;
+      scenarioKey: string;
+      scenarioDisplayName: string;
+      steps: unknown[];
+      recommendedTools: string[];
+      exitCondition: string;
+    };
+    assert.equal(payload.action, "engaged");
+    assert.equal(payload.skillId, "skill-marketer");
+    assert.equal(payload.skillDisplayName, "Marketer");
+    assert.equal(payload.scenarioKey, "instagram_carousel");
+    assert.equal(payload.scenarioDisplayName, "Instagram Carousel");
+    assert.equal(payload.steps.length, 1);
+    assert.deepEqual(payload.recommendedTools, ["image_generate"]);
+    assert.equal(payload.exitCondition, "All 8 slides are confirmed and the user is satisfied.");
+    assert.equal(api.skillStateCalls.length, 1);
+    assert.deepEqual(api.skillStateCalls[0], {
+      assistantId: "assistant-1",
+      channel: "web",
+      surfaceThreadKey: "thread-1",
+      action: "engage",
+      skillId: "skill-marketer",
+      scenarioKey: "instagram_carousel"
+    });
   }
 
   // (e) Error: invalid_arguments — unknown extra key

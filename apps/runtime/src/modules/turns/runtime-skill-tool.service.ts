@@ -1,5 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
+import type {
+  AssistantRuntimeBundle,
+  AssistantRuntimeEnabledSkillSummary
+} from "@persai/runtime-bundle";
 import type { ProviderGatewayToolCall, RuntimeConversationAddress } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 
@@ -11,6 +14,16 @@ export type RuntimeSkillToolResult =
       scenarioKey: null;
     }
   | {
+      action: "engaged";
+      skillId: string;
+      skillDisplayName: string;
+      scenarioKey: string;
+      scenarioDisplayName: string;
+      steps: import("@persai/runtime-contract").RuntimeBundleSkillScenarioStep[];
+      recommendedTools: string[];
+      exitCondition: string;
+    }
+  | {
       action: "released";
       previousSkillId: string | null;
     }
@@ -19,12 +32,9 @@ export type RuntimeSkillToolResult =
       skillId: string;
     }
   | {
-      // ADR-118 Slice 2: scenario catalog does not yet exist (Slice 3 creates the entity,
-      // Slice 4 surfaces it on the bundle). Return honest error so the model retries
-      // without scenarioKey.
       error: "scenario_not_found";
       scenarioKey: string;
-      availableScenarios: never[];
+      availableScenarios: string[];
     }
   | {
       error: "invalid_arguments";
@@ -92,18 +102,8 @@ export class RuntimeSkillToolService {
       };
     }
 
-    // ADR-118 Slice 2: scenarioKey validation deferred to Slice 4 (materialized catalog).
-    // Until Slice 4 lands, any scenarioKey is unknown → honest error so the model retries
-    // without scenarioKey (free-form engage).
     if (request.scenarioKey !== null) {
-      return {
-        payload: {
-          error: "scenario_not_found",
-          scenarioKey: request.scenarioKey,
-          availableScenarios: []
-        },
-        isError: false
-      };
+      return this.executeEngageWithScenario(params, request, skill, request.scenarioKey);
     }
 
     try {
@@ -129,6 +129,64 @@ export class RuntimeSkillToolService {
       const message = error instanceof Error ? error.message : "Skill engage failed.";
       this.logger.warn(
         `[skill] engage failed assistantId=${params.bundle.metadata.assistantId} skillId=${request.skillId}: ${message}`
+      );
+      return {
+        payload: { error: "invalid_arguments", reason: message },
+        isError: true
+      };
+    }
+  }
+
+  private async executeEngageWithScenario(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      conversation: RuntimeConversationAddress;
+      requestId: string | null;
+    },
+    request: EngageRequest,
+    skill: AssistantRuntimeEnabledSkillSummary,
+    scenarioKey: string
+  ): Promise<RuntimeSkillToolExecutionResult> {
+    const scenarios = skill.scenarios ?? [];
+    const scenario = scenarios.find((s) => s.key === scenarioKey) ?? null;
+    if (scenario === null) {
+      return {
+        payload: {
+          error: "scenario_not_found",
+          scenarioKey,
+          availableScenarios: scenarios.map((s) => s.key)
+        },
+        isError: false
+      };
+    }
+
+    try {
+      const outcome = await this.persaiInternalApiClientService.updateSkillState({
+        assistantId: params.bundle.metadata.assistantId,
+        channel: params.conversation.channel,
+        surfaceThreadKey: params.conversation.externalThreadKey,
+        action: "engage",
+        skillId: request.skillId,
+        scenarioKey
+      });
+
+      return {
+        payload: {
+          action: "engaged",
+          skillId: outcome.skillId,
+          skillDisplayName: outcome.skillDisplayName,
+          scenarioKey: scenario.key,
+          scenarioDisplayName: scenario.displayName,
+          steps: scenario.steps,
+          recommendedTools: scenario.recommendedTools,
+          exitCondition: scenario.exitCondition
+        },
+        isError: false
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Skill engage-with-scenario failed.";
+      this.logger.warn(
+        `[skill] engage-with-scenario failed assistantId=${params.bundle.metadata.assistantId} skillId=${request.skillId} scenarioKey=${scenarioKey}: ${message}`
       );
       return {
         payload: { error: "invalid_arguments", reason: message },

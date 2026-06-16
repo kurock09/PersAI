@@ -3003,6 +3003,27 @@ export interface RuntimeTurnAutoCompactionState {
   tokensAfter: number | null;
 }
 
+// ADR-118 Slice 4 — scenario catalog shape in the materialized runtime bundle.
+
+export interface RuntimeBundleSkillScenarioStep {
+  number: number;
+  directive: string;
+  recommendedToolCall: string | null;
+  mayBeSkippedIf: string | null;
+  negativeGuards: string[];
+}
+
+export interface RuntimeBundleSkillScenario {
+  key: string;
+  displayName: string;
+  description: string;
+  iconEmoji: string | null;
+  intentExamples: string[];
+  steps: RuntimeBundleSkillScenarioStep[];
+  recommendedTools: string[];
+  exitCondition: string;
+}
+
 export interface ProviderGatewayTextMessage {
   role: "user" | "assistant";
   content: ProviderGatewayMessageContent;
@@ -3015,6 +3036,14 @@ export interface ProviderGatewayTextMessage {
    * remain part of the cacheable prefix in their natural conversation order.
    */
   cacheRole?: "volatile_context";
+  /**
+   * ADR-118 Slice 4 — discriminates the volatile-context block kind so provider clients
+   * can wrap content with the appropriate XML tag. Absent or "memory" → the existing
+   * `<recent_short_memory>` / `<persai_contextual_memory>` wrapper. "active_scenario" → the
+   * new `<active_scenario>` / `<persai_active_scenario>` wrapper. Ignored when `cacheRole`
+   * is not "volatile_context".
+   */
+  volatileKind?: "memory" | "active_scenario";
 }
 
 export interface ProviderGatewayTextContentBlock {

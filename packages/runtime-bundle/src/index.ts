@@ -12,7 +12,8 @@ import {
   type RuntimeSharedCompactionConfig,
   type RuntimeToolBudgetsConfig,
   type RuntimeToolPolicy,
-  type RuntimeWorkerToolsConfig
+  type RuntimeWorkerToolsConfig,
+  type RuntimeBundleSkillScenario
 } from "@persai/runtime-contract";
 
 export const PERSAI_RUNTIME_BUNDLE_SCHEMA = "persai.runtime.bundle.v1" as const;
@@ -52,6 +53,8 @@ export interface AssistantRuntimeEnabledSkillSummary {
   tags: string[];
   iconEmoji?: string | null;
   routingExamples?: string[];
+  /** ADR-118 Slice 4 — active scenarios materialized into the bundle. */
+  scenarios?: RuntimeBundleSkillScenario[];
 }
 
 export interface AssistantRuntimeBundleSecretRef {

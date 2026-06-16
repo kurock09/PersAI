@@ -78,6 +78,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     modulePath: "./runtime-skill-tool.service.test.ts",
     exportName: "runRuntimeSkillToolServiceTest"
   },
+  {
+    modulePath: "./build-active-scenario-block.service.test.ts",
+    exportName: "runBuildActiveScenarioBlockServiceTest"
+  },
   { modulePath: "./session-store.service.test.ts", exportName: "runSessionStoreServiceTest" },
   { modulePath: "./session-lease.service.test.ts", exportName: "runSessionLeaseServiceTest" },
   {

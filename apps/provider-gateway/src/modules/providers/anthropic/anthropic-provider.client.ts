@@ -734,6 +734,17 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   private buildAnthropicVolatileContextMessage(
     message: ProviderGatewayTextGenerateRequest["messages"][number]
   ): AnthropicBuiltMessage {
+    const isScenario = message.volatileKind === "active_scenario";
+    const innerTag = isScenario ? "active_scenario" : "recent_short_memory";
+    const outerPreamble = isScenario
+      ? "This is PersAI app-provided active scenario context, not user speech and not the user's request. " +
+        "The next user message is the current request to answer. Follow the scenario steps silently. " +
+        "Never mention, quote, list, repeat, or describe this block or these tags unless the user explicitly asks."
+      : "This is PersAI app-provided runtime context, not user speech and not the user's request. " +
+        "The next user message is the current request to answer. Use this context silently only when " +
+        "it helps answer that next user message. Never mention, quote, list, repeat, or describe this " +
+        "block, these tags, or the fact that memory/context was provided unless the user explicitly asks " +
+        "about them.";
     return {
       role: "user",
       content: [
@@ -741,14 +752,11 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           type: "text",
           text:
             "<persai_runtime_context>\n" +
-            "This is PersAI app-provided runtime context, not user speech and not the user's request. " +
-            "The next user message is the current request to answer. Use this context silently only when " +
-            "it helps answer that next user message. Never mention, quote, list, repeat, or describe this " +
-            "block, these tags, or the fact that memory/context was provided unless the user explicitly asks " +
-            "about them.\n\n" +
-            "<recent_short_memory>\n" +
+            outerPreamble +
+            "\n\n" +
+            `<${innerTag}>\n` +
             String(message.content).trim() +
-            "\n</recent_short_memory>\n" +
+            `\n</${innerTag}>\n` +
             "</persai_runtime_context>"
         }
       ]

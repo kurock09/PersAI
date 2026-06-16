@@ -67,6 +67,7 @@ import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-
 import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
 import type { RuntimeBundleAutoRefreshService } from "../src/modules/turns/runtime-bundle-auto-refresh.service";
+import { BuildActiveScenarioBlockService } from "../src/modules/turns/build-active-scenario-block.service";
 import { SkillStateRoutingService } from "../src/modules/turns/skill-state-routing.service";
 import { ToolBudgetPolicy } from "../src/modules/turns/tool-budget-policy";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
@@ -2239,6 +2240,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeTtsToolService,
     runtimeVideoGenerateToolService,
     runtimeSkillToolService,
+    new BuildActiveScenarioBlockService(),
     runtimeObservabilityService,
     runtimeExecutionAdmissionService
   );
@@ -2407,6 +2409,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeTtsToolService,
     runtimeVideoGenerateToolService,
     runtimeSkillToolService,
+    new BuildActiveScenarioBlockService(),
     runtimeObservabilityService,
     runtimeExecutionAdmissionService
   );
@@ -2481,6 +2484,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeTtsToolService,
     runtimeVideoGenerateToolService,
     runtimeSkillToolService,
+    new BuildActiveScenarioBlockService(),
     runtimeObservabilityService,
     runtimeExecutionAdmissionService
   );
@@ -7649,6 +7653,7 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
     null as never, // runtimeTtsToolService
     null as never, // runtimeVideoGenerateToolService
     null as never, // runtimeSkillToolService
+    null as never, // buildActiveScenarioBlockService
     null as never, // runtimeObservabilityService
     null as never // runtimeExecutionAdmissionService
   );

@@ -1839,4 +1839,64 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       return true;
     }
   );
+
+  // ADR-118 Slice 4 — volatile wrapper widening (back-compat + new active_scenario variant)
+
+  // volatileKind: "memory" (explicit) must produce the same <persai_contextual_memory> wrapper
+  // as the missing-volatileKind back-compat path already tested above.
+  await client.generateText({
+    ...request,
+    messages: [
+      {
+        role: "assistant",
+        content: "Short memory entry.",
+        cacheRole: "volatile_context",
+        volatileKind: "memory"
+      },
+      ...request.messages
+    ]
+  });
+  {
+    const devItem = (capturedGeneratePayload!.input as Array<Record<string, unknown>>).find(
+      (item) =>
+        typeof item.content === "string" &&
+        (item.content as string).includes("<persai_contextual_memory>")
+    );
+    assert.ok(
+      devItem !== undefined,
+      "volatileKind: memory must produce <persai_contextual_memory> wrapper"
+    );
+    assert.match(devItem!.content as string, /<persai_contextual_memory>/);
+    assert.doesNotMatch(devItem!.content as string, /<persai_active_scenario>/);
+  }
+
+  // volatileKind: "active_scenario" must produce the <persai_active_scenario> wrapper.
+  await client.generateText({
+    ...request,
+    messages: [
+      {
+        role: "user",
+        content:
+          "## Active Scenario: Instagram Carousel (Skill: Marketer)\n\nFollow steps in order.",
+        cacheRole: "volatile_context",
+        volatileKind: "active_scenario"
+      },
+      ...request.messages
+    ]
+  });
+  {
+    const devItem = (capturedGeneratePayload!.input as Array<Record<string, unknown>>).find(
+      (item) =>
+        typeof item.content === "string" &&
+        (item.content as string).includes("<persai_active_scenario>")
+    );
+    assert.ok(
+      devItem !== undefined,
+      "volatileKind: active_scenario must produce <persai_active_scenario> wrapper"
+    );
+    assert.match(devItem!.content as string, /<persai_active_scenario>/);
+    assert.match(devItem!.content as string, /<\/persai_active_scenario>/);
+    assert.doesNotMatch(devItem!.content as string, /<persai_contextual_memory>/);
+    assert.match(devItem!.content as string, /Instagram Carousel/);
+  }
 }

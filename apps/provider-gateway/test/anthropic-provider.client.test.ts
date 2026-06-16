@@ -1058,4 +1058,72 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     }
   ]);
   assertNoDeveloperRole(capturedStreamPayload!.messages);
+
+  // ADR-118 Slice 4 — volatile wrapper widening (back-compat + new active_scenario variant)
+
+  // volatileKind: "memory" (explicit) must produce the same <recent_short_memory> wrapper as
+  // the missing-volatileKind back-compat path already tested above.
+  const volatileMemoryExplicitRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    messages: [
+      {
+        role: "assistant",
+        content: "Short memory entry.",
+        cacheRole: "volatile_context",
+        volatileKind: "memory"
+      },
+      ...request.messages
+    ]
+  };
+  await client.generateText(volatileMemoryExplicitRequest);
+  const memoryVolatileMessage = (
+    capturedGeneratePayload!.messages as Array<{ role?: unknown; content?: unknown }>
+  ).find((msg) => {
+    const firstBlock =
+      Array.isArray(msg.content) && (msg.content[0] as Record<string, unknown> | undefined)?.text;
+    return (
+      typeof firstBlock === "string" && (firstBlock as string).includes("<recent_short_memory>")
+    );
+  });
+  assert.ok(
+    memoryVolatileMessage !== undefined,
+    "volatileKind: memory must produce <recent_short_memory> wrapper"
+  );
+  const memoryText = ((memoryVolatileMessage!.content as Array<{ text?: unknown }>)[0]?.text ??
+    "") as string;
+  assert.match(memoryText, /<recent_short_memory>/);
+  assert.doesNotMatch(memoryText, /<active_scenario>/);
+
+  // volatileKind: "active_scenario" must produce the <active_scenario> wrapper.
+  const volatileScenarioRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    messages: [
+      {
+        role: "user",
+        content:
+          "## Active Scenario: Instagram Carousel (Skill: Marketer)\n\nFollow steps in order.",
+        cacheRole: "volatile_context",
+        volatileKind: "active_scenario"
+      },
+      ...request.messages
+    ]
+  };
+  await client.generateText(volatileScenarioRequest);
+  const scenarioVolatileMessage = (
+    capturedGeneratePayload!.messages as Array<{ role?: unknown; content?: unknown }>
+  ).find((msg) => {
+    const firstBlock =
+      Array.isArray(msg.content) && (msg.content[0] as Record<string, unknown> | undefined)?.text;
+    return typeof firstBlock === "string" && (firstBlock as string).includes("<active_scenario>");
+  });
+  assert.ok(
+    scenarioVolatileMessage !== undefined,
+    "volatileKind: active_scenario must produce <active_scenario> wrapper"
+  );
+  const scenarioText = ((scenarioVolatileMessage!.content as Array<{ text?: unknown }>)[0]?.text ??
+    "") as string;
+  assert.match(scenarioText, /<active_scenario>/);
+  assert.match(scenarioText, /<\/active_scenario>/);
+  assert.doesNotMatch(scenarioText, /<recent_short_memory>/);
+  assert.match(scenarioText, /Instagram Carousel/);
 }

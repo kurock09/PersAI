@@ -43,6 +43,7 @@ import { RuntimeExecutionAdmissionService } from "./runtime-execution-admission.
 import { TurnExecutionService } from "./turn-execution.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
+import { BuildActiveScenarioBlockService } from "./build-active-scenario-block.service";
 import { SkillStateRoutingService } from "./skill-state-routing.service";
 import { TurnRoutingService } from "./turn-routing.service";
 
@@ -58,6 +59,7 @@ import { TurnRoutingService } from "./turn-routing.service";
   providers: [
     PersaiInternalApiClientService,
     ProviderGatewayClientService,
+    BuildActiveScenarioBlockService,
     RuntimeBrowserToolService,
     RuntimeDocumentToolService,
     RuntimeDocumentProviderAdapterService,
@@ -97,6 +99,7 @@ import { TurnRoutingService } from "./turn-routing.service";
   exports: [
     PersaiInternalApiClientService,
     ProviderGatewayClientService,
+    BuildActiveScenarioBlockService,
     RuntimeBrowserToolService,
     RuntimeDocumentToolService,
     RuntimeDocumentProviderAdapterService,

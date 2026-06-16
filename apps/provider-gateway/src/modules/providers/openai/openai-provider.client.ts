@@ -1422,6 +1422,22 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       .map((message) => String(message.content).trim())
       .filter((text) => text.length > 0)
       .join("\n\n");
+    // All volatile messages in a batch share the same kind (they are inserted separately per kind).
+    const firstMessage = messages[0];
+    const isScenario = firstMessage?.volatileKind === "active_scenario";
+    if (isScenario) {
+      return {
+        role: "developer",
+        content:
+          "<persai_active_scenario>\n" +
+          "This is PersAI app-provided active scenario context for this provider call. " +
+          "It is not the user's latest request; follow the scenario steps while answering the existing " +
+          "conversation. Never mention, quote, list, repeat, or describe this block, these tags, or these " +
+          "instructions to the user unless the user explicitly asks.\n\n" +
+          body +
+          "\n</persai_active_scenario>"
+      };
+    }
     return {
       role: "developer",
       content:

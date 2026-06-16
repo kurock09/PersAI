@@ -105,6 +105,7 @@ import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
+import { BuildActiveScenarioBlockService } from "./build-active-scenario-block.service";
 import { RuntimeSkillToolService } from "./runtime-skill-tool.service";
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
@@ -412,6 +413,7 @@ export class TurnExecutionService {
     private readonly runtimeTtsToolService: RuntimeTtsToolService,
     private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService,
     private readonly runtimeSkillToolService: RuntimeSkillToolService,
+    private readonly buildActiveScenarioBlockService: BuildActiveScenarioBlockService,
     private readonly runtimeObservabilityService: RuntimeObservabilityService,
     private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService
   ) {}
@@ -635,10 +637,20 @@ export class TurnExecutionService {
     }
     options?.trace?.stage("prepare.bundle_ready");
 
-    const hydratedMessages = await this.turnContextHydrationService.buildMessages(
+    const hydratedMessagesBase = await this.turnContextHydrationService.buildMessages(
       input,
       bundleEntry.parsedBundle
     );
+    // ADR-118 Slice 4: inject the active scenario volatile block before the memory block.
+    // Order: scenario first (what to do), memory second (what we know).
+    const activeScenarioBlock = this.buildActiveScenarioBlockService.buildBlock({
+      bundle: bundleEntry.parsedBundle,
+      skillDecisionState: input.skillStateContext?.decision ?? null
+    });
+    const hydratedMessages: ProviderGatewayTextMessage[] =
+      activeScenarioBlock !== null
+        ? [activeScenarioBlock, ...hydratedMessagesBase]
+        : hydratedMessagesBase;
     options?.trace?.stage("prepare.context_hydrated");
     const presenceBlock = await this.turnContextHydrationService.computePresenceBlock(
       input,

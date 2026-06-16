@@ -82,8 +82,10 @@ import {
 } from "./compile-prompt-constructor.service";
 import {
   resolveEnabledSkillPromptCards,
+  resolveEnabledSkillScenariosForBundle,
   type EnabledSkillPromptCandidate,
-  type EnabledSkillPromptInstructionCard
+  type EnabledSkillPromptInstructionCard,
+  type EnabledSkillScenarioCandidate
 } from "./enabled-skills-prompt-materialization";
 import { ManagePersonaArchetypesService } from "./manage-persona-archetypes.service";
 import {
@@ -856,11 +858,20 @@ export class MaterializeAssistantPublishedVersionService {
       effectivePlanCode,
       locale: userContext.locale
     });
+    const enabledSkillScenarios = await this.resolveEnabledSkillScenariosForBundle({
+      skillIds: enabledSkillCards.map((card) => card.id),
+      locale: userContext.locale
+    });
+    // Inject resolved scenarios into the prompt cards so the catalog renders in the cached prefix.
+    const enabledSkillCardsWithScenarios = enabledSkillCards.map((card) => ({
+      ...card,
+      scenarios: enabledSkillScenarios.get(card.id) ?? []
+    }));
     const compiledPromptConstructor = this.compilePromptConstructorService.compile({
       publishedVersion,
       userContext,
       toolPolicies,
-      enabledSkillCards,
+      enabledSkillCards: enabledSkillCardsWithScenarios,
       promptTemplates,
       voiceDna
     });
@@ -990,7 +1001,8 @@ export class MaterializeAssistantPublishedVersionService {
           category: card.category,
           tags: card.tags.slice(0, 2),
           iconEmoji: card.iconEmoji,
-          routingExamples: card.examples.slice(0, 2)
+          routingExamples: card.examples.slice(0, 2),
+          scenarios: enabledSkillScenarios.get(card.id) ?? []
         }))
       },
       promptDocuments: {
@@ -1782,6 +1794,39 @@ export class MaterializeAssistantPublishedVersionService {
     });
   }
 
+  private async resolveEnabledSkillScenariosForBundle(params: {
+    skillIds: string[];
+    locale: string;
+  }): Promise<
+    Map<string, import("@persai/runtime-bundle").AssistantRuntimeEnabledSkillSummary["scenarios"]>
+  > {
+    if (params.skillIds.length === 0) {
+      return new Map();
+    }
+    const rows = await this.prisma.skillScenario.findMany({
+      where: {
+        skillId: { in: params.skillIds },
+        status: "active"
+      },
+      orderBy: [{ skillId: "asc" }, { displayOrder: "asc" }, { createdAt: "asc" }, { id: "asc" }]
+    });
+    const scenarioCandidates: EnabledSkillScenarioCandidate[] = rows.map((row) => ({
+      skillId: row.skillId,
+      key: row.key,
+      displayName: normalizeStringRecord(row.displayName),
+      description: normalizeStringRecord(row.description),
+      iconEmoji: row.iconEmoji,
+      intentExamples: normalizeStringArray(row.intentExamples),
+      steps: normalizeSkillScenarioSteps(row.steps),
+      recommendedTools: normalizeStringArray(row.recommendedTools),
+      exitCondition: row.exitCondition
+    }));
+    return resolveEnabledSkillScenariosForBundle({
+      candidates: scenarioCandidates,
+      locale: params.locale
+    });
+  }
+
   private async resolveEnabledSkillLimitForPlan(planCode: string | null): Promise<number | null> {
     if (planCode === null) {
       return null;
@@ -2066,6 +2111,27 @@ function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function normalizeSkillScenarioSteps(
+  value: unknown
+): import("@persai/runtime-contract").RuntimeBundleSkillScenarioStep[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item) => item !== null && typeof item === "object")
+    .map((item) => {
+      const row = item as Record<string, unknown>;
+      return {
+        number: typeof row.number === "number" ? row.number : 0,
+        directive: typeof row.directive === "string" ? row.directive : "",
+        recommendedToolCall:
+          typeof row.recommendedToolCall === "string" ? row.recommendedToolCall : null,
+        mayBeSkippedIf: typeof row.mayBeSkippedIf === "string" ? row.mayBeSkippedIf : null,
+        negativeGuards: normalizeStringArray(row.negativeGuards)
+      };
+    });
 }
 
 function normalizeInstructionCard(value: unknown): EnabledSkillPromptInstructionCard {

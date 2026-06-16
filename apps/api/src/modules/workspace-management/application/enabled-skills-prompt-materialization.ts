@@ -1,3 +1,5 @@
+import type { RuntimeBundleSkillScenario } from "@persai/runtime-contract";
+
 export type EnabledSkillPromptAssignmentStatus =
   | "active"
   | "disabled"
@@ -23,6 +25,8 @@ export type EnabledSkillPromptCandidate = {
   iconEmoji: string | null;
   assignmentStatus: EnabledSkillPromptAssignmentStatus;
   assignmentEnabledAt: Date | string | null;
+  /** ADR-118 Slice 4 — active scenarios for this skill, pre-resolved to bundle shape. */
+  scenarios?: RuntimeBundleSkillScenario[];
 };
 
 export type EnabledSkillPromptCard = {
@@ -36,7 +40,23 @@ export type EnabledSkillPromptCard = {
   body: string;
   guardrails: string[];
   examples: string[];
+  scenarios: RuntimeBundleSkillScenario[];
 };
+
+export type EnabledSkillScenarioCandidate = {
+  skillId: string;
+  key: string;
+  displayName: Record<string, string>;
+  description: Record<string, string>;
+  iconEmoji: string | null;
+  intentExamples: string[];
+  steps: RuntimeBundleSkillScenario["steps"];
+  recommendedTools: string[];
+  exitCondition: string;
+};
+
+/** ADR-118 Slice 4 — maximum scenarios rendered per skill in the cached prefix. */
+export const SCENARIO_CATALOG_RENDER_LIMIT = 8;
 
 const MAX_RENDERED_TAGS = 6;
 const MAX_RENDERED_GUARDRAILS = 6;
@@ -68,7 +88,8 @@ export function resolveEnabledSkillPromptCards(params: {
     title: normalizeSingleLine(candidate.instructionCard.title) || "Skill instructions",
     body: truncateText(candidate.instructionCard.body, MAX_RENDERED_BODY_CHARS),
     guardrails: normalizeBoundedList(candidate.instructionCard.guardrails, MAX_RENDERED_GUARDRAILS),
-    examples: normalizeBoundedList(candidate.instructionCard.examples, MAX_RENDERED_EXAMPLES)
+    examples: normalizeBoundedList(candidate.instructionCard.examples, MAX_RENDERED_EXAMPLES),
+    scenarios: candidate.scenarios ?? []
   }));
 }
 
@@ -112,8 +133,59 @@ function renderSkillCard(card: EnabledSkillPromptCard, position: number): string
       lines.push(`- ${example}`);
     }
   }
+  if ((card.scenarios ?? []).length > 0) {
+    const scenarios = card.scenarios ?? [];
+    lines.push("", "Available scenarios:");
+    const rendered = scenarios.slice(0, SCENARIO_CATALOG_RENDER_LIMIT);
+    const surplus = scenarios.length - rendered.length;
+    for (const scenario of rendered) {
+      const toolsHint =
+        scenario.recommendedTools.length > 0
+          ? ` (recommended: ${scenario.recommendedTools.join(", ")})`
+          : "";
+      lines.push(
+        `- ${scenario.key}: ${scenario.displayName} — ${scenario.description}${toolsHint}`
+      );
+    }
+    if (surplus > 0) {
+      lines.push(`... +${String(surplus)} more`);
+    }
+  }
   lines.push("");
   return lines;
+}
+
+/**
+ * ADR-118 Slice 4 — resolve active scenarios for the runtime bundle (not for the prompt card).
+ * Returns a Map<skillId, RuntimeBundleSkillScenario[]> for all provided candidates.
+ */
+export function resolveEnabledSkillScenariosForBundle(params: {
+  candidates: EnabledSkillScenarioCandidate[];
+  locale: string;
+}): Map<string, RuntimeBundleSkillScenario[]> {
+  const result = new Map<string, RuntimeBundleSkillScenario[]>();
+  for (const candidate of params.candidates) {
+    const displayName = localizeScenarioText(candidate.displayName, params.locale) ?? candidate.key;
+    const description = localizeScenarioText(candidate.description, params.locale) ?? "";
+    const scenario: RuntimeBundleSkillScenario = {
+      key: candidate.key,
+      displayName,
+      description,
+      iconEmoji: candidate.iconEmoji,
+      intentExamples: candidate.intentExamples,
+      steps: candidate.steps,
+      recommendedTools: candidate.recommendedTools,
+      exitCondition: candidate.exitCondition
+    };
+    const existing = result.get(candidate.skillId) ?? [];
+    existing.push(scenario);
+    result.set(candidate.skillId, existing);
+  }
+  return result;
+}
+
+function localizeScenarioText(value: Record<string, string>, locale: string): string | null {
+  return localize(value, locale);
 }
 
 function compareEnabledSkillCandidates(
