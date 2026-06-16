@@ -134,12 +134,14 @@ function createImageEditRequest(options?: {
       mimeType: "image/png",
       filename: "living-room.png"
     },
-    referenceImage: options?.includeReference
-      ? {
-          bytesBase64: "cmVmLWNhci1pbWFnZQ==",
-          mimeType: "image/png",
-          filename: "red-car.png"
-        }
+    referenceImages: options?.includeReference
+      ? [
+          {
+            bytesBase64: "cmVmLWNhci1pbWFnZQ==",
+            mimeType: "image/png",
+            filename: "red-car.png"
+          }
+        ]
       : null,
     credential: {
       toolCode: "image_edit",

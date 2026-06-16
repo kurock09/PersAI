@@ -443,15 +443,9 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           ? { type: input.sourceImage.mimeType }
           : undefined
       );
-      // Prefer the multi-reference array; fall back to the deprecated single
-      // `referenceImage`. OpenAI `images.edit` accepts the source plus all
-      // references as one ordered `image[]` input set.
-      const referenceInputs =
-        Array.isArray(input.referenceImages) && input.referenceImages.length > 0
-          ? input.referenceImages
-          : input.referenceImage === null
-            ? []
-            : [input.referenceImage];
+      // OpenAI `images.edit` accepts the source plus all references as one
+      // ordered `image[]` input set.
+      const referenceInputs = Array.isArray(input.referenceImages) ? input.referenceImages : [];
       const referenceImages = await Promise.all(
         referenceInputs.map((reference) =>
           toFile(
@@ -1816,12 +1810,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   private buildImageEditPrompt(input: ProviderGatewayImageEditRequest): string {
     const prompt = input.prompt.trim();
     const count = input.count ?? 1;
-    const referenceInputs =
-      Array.isArray(input.referenceImages) && input.referenceImages.length > 0
-        ? input.referenceImages
-        : input.referenceImage === null
-          ? []
-          : [input.referenceImage];
+    const referenceInputs = Array.isArray(input.referenceImages) ? input.referenceImages : [];
     if (referenceInputs.length === 0) {
       if (count <= 1) {
         return prompt;

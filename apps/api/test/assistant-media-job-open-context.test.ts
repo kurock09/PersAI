@@ -125,7 +125,7 @@ async function run(): Promise<void> {
               count: 2,
               prompt: "recolor",
               sourceImageAlias: "att-1",
-              referenceImageAlias: null,
+              referenceImageAliases: null,
               filename: null,
               size: null,
               background: "auto"

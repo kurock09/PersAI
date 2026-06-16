@@ -374,9 +374,10 @@ describe("RuntimeImageEditToolService", () => {
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "generated");
     assert.equal(result.payload.sourceImageAlias, "image #1");
-    assert.equal(result.payload.referenceImageAlias, "image #2");
-    assert.ok(
-      capturedRequest?.referenceImage !== null,
+    assert.deepEqual(result.payload.referenceImageAliases, ["image #2"]);
+    assert.equal(
+      capturedRequest?.referenceImages?.length ?? 0,
+      1,
       "reference image must be passed to provider"
     );
   });

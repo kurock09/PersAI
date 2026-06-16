@@ -6631,8 +6631,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     prompt?: string | null;
     sourceImageAlias?: string | null;
     referenceImageAlias?: string | null;
+    referenceImageAliases?: string[] | null;
     sourceFilename?: string | null;
     referenceFilename?: string | null;
+    referenceFilenames?: Array<string | null> | null;
     artifacts?: Array<{
       kind?: string;
       filename?: string | null;
@@ -6645,14 +6647,19 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(imageEditToolHistory.provider, "openai");
   assert.equal(imageEditToolHistory.prompt, "Replace the couch with a red chair");
   assert.equal(imageEditToolHistory.sourceImageAlias, "image #1");
-  assert.equal(imageEditToolHistory.referenceImageAlias, null);
-  // `sourceFilename` and `referenceFilename` are user-supplied input
+  assert.equal(imageEditToolHistory.referenceImageAliases, null);
+  // ADR-117 single-path: the legacy singular `referenceImageAlias` /
+  // `referenceFilename` keys must NOT appear in the tool result that the
+  // model sees; only the plural arrays survive.
+  assert.equal(imageEditToolHistory.referenceImageAlias, undefined);
+  assert.equal(imageEditToolHistory.referenceFilename, undefined);
+  // `sourceFilename` and `referenceFilenames` are user-supplied input
   // filenames — the model already saw them in the user's message context,
   // so echoing them in the tool result is not a leak. FIX 2 only strips
   // *output*-artifact filenames, which the model otherwise has no reason
   // to know.
   assert.equal(imageEditToolHistory.sourceFilename, "living-room.png");
-  assert.equal(imageEditToolHistory.referenceFilename, null);
+  assert.equal(imageEditToolHistory.referenceFilenames, null);
   assert.deepEqual(imageEditToolHistory.artifacts, []);
 
   const yardImageBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x03]);
@@ -6739,9 +6746,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   ) as {
     action?: string;
     sourceImageAlias?: string | null;
-    referenceImageAlias?: string | null;
+    referenceImageAliases?: string[] | null;
     sourceFilename?: string | null;
-    referenceFilename?: string | null;
+    referenceFilenames?: Array<string | null> | null;
   };
   assert.equal(referencedImageEditToolHistory.action, "skipped");
 
@@ -6814,11 +6821,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   ) as {
     action?: string;
     sourceImageAlias?: string | null;
-    referenceImageAlias?: string | null;
+    referenceImageAliases?: string[] | null;
   };
   assert.equal(inferredReferenceImageEditToolHistory.action, "pending_delivery");
   assert.equal(inferredReferenceImageEditToolHistory.sourceImageAlias, "image #1");
-  assert.equal(inferredReferenceImageEditToolHistory.referenceImageAlias, null);
+  assert.equal(inferredReferenceImageEditToolHistory.referenceImageAliases, null);
 
   const providerCallsBeforeAmbiguousImageEdit = providerGatewayClient.calls.length;
   const providerImageEditsBeforeAmbiguous = providerGatewayClient.imageEditCalls.length;
@@ -6877,11 +6884,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   ) as {
     action?: string;
     sourceImageAlias?: string | null;
-    referenceImageAlias?: string | null;
+    referenceImageAliases?: string[] | null;
   };
   assert.equal(ambiguousImageEditToolHistory.action, "pending_delivery");
   assert.equal(ambiguousImageEditToolHistory.sourceImageAlias, "image #1");
-  assert.equal(ambiguousImageEditToolHistory.referenceImageAlias, null);
+  assert.equal(ambiguousImageEditToolHistory.referenceImageAliases, null);
   request.message.attachments = [];
 
   if (bundleRegistry.entry !== null) {

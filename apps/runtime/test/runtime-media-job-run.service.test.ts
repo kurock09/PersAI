@@ -389,6 +389,88 @@ describe("RuntimeMediaJobRunService", () => {
     );
   });
 
+  test("treats invalid_arguments image jobs as non-retryable bad requests", async () => {
+    // Mirrors the video NON_RETRYABLE_IMAGE_REASONS contract: a persisted
+    // image job whose stored request shape no longer matches the parser
+    // whitelist (e.g. ADR-117 cleanup dropped a legacy field) must surface as
+    // a terminal 400 immediately instead of looping through the
+    // exponential-backoff retry budget for ~7.5 min.
+    const service = new RuntimeMediaJobRunService(
+      {} as never,
+      {
+        executeToolCall: async () => ({
+          payload: {
+            toolCode: "image_edit",
+            executionMode: "worker",
+            provider: null,
+            model: null,
+            prompt: null,
+            revisedPrompt: null,
+            requestedCount: null,
+            sourceImageAlias: null,
+            referenceImageAliases: null,
+            sourceFilename: null,
+            referenceFilenames: null,
+            size: null,
+            artifacts: [],
+            usage: null,
+            action: "skipped",
+            reason: "invalid_arguments",
+            warning: "Unexpected arguments: referenceImageAlias"
+          },
+          artifacts: [],
+          isError: true
+        })
+      } as never,
+      {} as never,
+      new RuntimeExecutionAdmissionService(new RuntimeObservabilityService()),
+      {
+        acceptTurn: async (input: RuntimeTurnRequest) => createAcceptedTurn(input)
+      } as never,
+      {
+        completeAcceptedTurn: async () => {
+          throw new Error("should not complete");
+        },
+        failAcceptedTurn: async () => ({
+          receiptStatus: "failed",
+          session: {} as never,
+          leaseReleased: true
+        })
+      } as never
+    );
+
+    const request = createRunRequest("edit this image");
+    request.directToolExecution = {
+      toolCode: "image_edit",
+      request: {
+        toolCode: "image_edit",
+        prompt: "edit this image",
+        count: 1,
+        filename: null,
+        size: null,
+        background: "auto",
+        sourceImageAlias: "image #1",
+        referenceImageAliases: null
+      }
+    };
+
+    await assert.rejects(
+      () => service.run(request),
+      (error) => {
+        assert.ok(
+          error instanceof BadRequestException,
+          "invalid_arguments image jobs must surface as non-retryable BadRequest"
+        );
+        const response = (error as BadRequestException).getResponse() as {
+          error?: { code?: string; message?: string };
+        };
+        assert.equal(response.error?.code, "invalid_arguments");
+        assert.match(response.error?.message ?? "", /Unexpected arguments/);
+        return true;
+      }
+    );
+  });
+
   test("treats model-correctable video request errors as non-retryable bad requests", async () => {
     for (const reason of ["invalid_arguments", "portrait_alias_unavailable"] as const) {
       const service = new RuntimeMediaJobRunService(

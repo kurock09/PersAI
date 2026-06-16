@@ -232,9 +232,9 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
   }
 
   // Top-level user-supplied filenames (`sourceFilename`, `referenceFilename`
-  // on image_edit / video_generate results) are NOT redacted because the
-  // model already saw them in the user's message context — only output
-  // artifacts get the redaction.
+  // on video_generate results) are NOT redacted because the model already
+  // saw them in the user's message context — only output artifacts get the
+  // redaction.
   {
     const payload = {
       sourceFilename: "user-uploaded.png",

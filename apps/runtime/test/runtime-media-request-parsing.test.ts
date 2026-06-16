@@ -219,7 +219,11 @@ describe("runtime media request parsing", () => {
       "image #3",
       "image #4"
     ]);
-    assert.equal((parsed as { referenceImageAlias: string }).referenceImageAlias, "image #2");
+    assert.equal(
+      (parsed as Record<string, unknown>).referenceImageAlias,
+      undefined,
+      "parsed RuntimeImageEditRequest must NOT carry the legacy singular referenceImageAlias field"
+    );
   });
 
   test("image_edit drops a reference alias that equals the source alias", () => {
@@ -268,6 +272,66 @@ describe("runtime media request parsing", () => {
       background: "auto"
     });
     assert.ok(parsed instanceof Error);
+  });
+
+  test("persisted RuntimeImageEditRequest passes worker rehydrate parse", () => {
+    // Regression guard for the post-`4a0baa39` (ADR-117 cleanup) hotfix where
+    // the parser whitelist was tightened to plural-only `referenceImageAliases`
+    // while the persisted request shape still carried the legacy singular
+    // `referenceImageAlias`. The worker rehydrate parse rejected every job as
+    // `invalid_arguments: Unexpected arguments: referenceImageAlias` and the
+    // scheduler burned the full ~7.5 min exponential-backoff retry budget.
+    const service = new RuntimeImageEditToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const readImageEditArguments = (
+      service as unknown as {
+        readImageEditArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageEditArguments.bind(service);
+
+    // Step 1 — fresh parse of a model tool call.
+    const freshArgs = {
+      toolCode: "image_edit" as const,
+      prompt: "carousel from this product photo",
+      count: 4,
+      outputMode: "series" as const,
+      seriesItems: ["slide 1", "slide 2", "slide 3", "slide 4"],
+      sourceImageAlias: "image #1",
+      referenceImageAliases: ["image #2"],
+      filename: "x.png",
+      size: "1024x1536" as const,
+      background: "auto" as const
+    };
+    const parsedFresh = readImageEditArguments(freshArgs);
+    assert.ok(
+      !(parsedFresh instanceof Error),
+      `fresh image_edit parse must succeed: ${parsedFresh instanceof Error ? parsedFresh.message : ""}`
+    );
+    assert.equal(
+      (parsedFresh as Record<string, unknown>).referenceImageAlias,
+      undefined,
+      "parsed RuntimeImageEditRequest must NOT carry the legacy singular referenceImageAlias field"
+    );
+
+    // Step 2 — feed the parsed request back through the same parser, simulating
+    // the deferred-media-job worker rehydrate (the persisted
+    // `directToolExecution.request` shape is fed straight back into
+    // `readImageEditArguments`).
+    const parsedRehydrate = readImageEditArguments(
+      parsedFresh as unknown as Record<string, unknown>
+    );
+    assert.ok(
+      !(parsedRehydrate instanceof Error),
+      `persisted RuntimeImageEditRequest must rehydrate-parse without 'Unexpected arguments' errors (got: ${parsedRehydrate instanceof Error ? parsedRehydrate.message : ""})`
+    );
+    assert.deepEqual(
+      (parsedRehydrate as { referenceImageAliases: string[] | null }).referenceImageAliases,
+      ["image #2"]
+    );
   });
 
   test("video_generate accepts persisted toolCode inside worker request", () => {

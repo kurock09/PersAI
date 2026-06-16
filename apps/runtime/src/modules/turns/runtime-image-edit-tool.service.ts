@@ -80,16 +80,10 @@ type ResolvedImageEditSelection =
       sourceImage: LoadedImageEditImage;
       /** Reference images in request order; empty when none were provided. */
       referenceImages: LoadedImageEditImage[];
-      /** @deprecated First reference image, kept for backward compatibility. */
-      referenceImage: LoadedImageEditImage | null;
       sourceImageAlias: string;
-      referenceImageAliases: string[];
-      /** @deprecated First reference alias, kept for backward compatibility. */
-      referenceImageAlias: string | null;
+      referenceImageAliases: string[] | null;
       sourceFilename: string | null;
-      referenceFilenames: (string | null)[];
-      /** @deprecated First reference filename, kept for backward compatibility. */
-      referenceFilename: string | null;
+      referenceFilenames: (string | null)[] | null;
     }
   | {
       ok: false;
@@ -140,9 +134,9 @@ export class RuntimeImageEditToolService {
           revisedPrompt: null,
           requestedCount: null,
           sourceImageAlias: null,
-          referenceImageAlias: null,
+          referenceImageAliases: null,
           sourceFilename: null,
-          referenceFilename: null,
+          referenceFilenames: null,
           size: null,
           artifacts: [],
           usage: null,
@@ -167,9 +161,9 @@ export class RuntimeImageEditToolService {
           revisedPrompt: null,
           requestedCount: request.count,
           sourceImageAlias: request.sourceImageAlias,
-          referenceImageAlias: request.referenceImageAlias,
+          referenceImageAliases: request.referenceImageAliases ?? null,
           sourceFilename: null,
-          referenceFilename: null,
+          referenceFilenames: null,
           size: request.size,
           artifacts: [],
           usage: null,
@@ -194,9 +188,9 @@ export class RuntimeImageEditToolService {
           revisedPrompt: null,
           requestedCount: request.count,
           sourceImageAlias: request.sourceImageAlias,
-          referenceImageAlias: request.referenceImageAlias,
+          referenceImageAliases: request.referenceImageAliases ?? null,
           sourceFilename: null,
-          referenceFilename: null,
+          referenceFilenames: null,
           size: request.size,
           artifacts: [],
           usage: null,
@@ -221,9 +215,9 @@ export class RuntimeImageEditToolService {
           revisedPrompt: null,
           requestedCount: request.count,
           sourceImageAlias: request.sourceImageAlias,
-          referenceImageAlias: request.referenceImageAlias,
+          referenceImageAliases: request.referenceImageAliases ?? null,
           sourceFilename: null,
-          referenceFilename: null,
+          referenceFilenames: null,
           size: request.size,
           artifacts: [],
           usage: null,
@@ -255,9 +249,9 @@ export class RuntimeImageEditToolService {
           revisedPrompt: null,
           requestedCount: request.count,
           sourceImageAlias: request.sourceImageAlias,
-          referenceImageAlias: request.referenceImageAlias,
+          referenceImageAliases: request.referenceImageAliases ?? null,
           sourceFilename: null,
-          referenceFilename: null,
+          referenceFilenames: null,
           size: request.size,
           artifacts: [],
           usage: null,
@@ -285,9 +279,9 @@ export class RuntimeImageEditToolService {
           revisedPrompt: null,
           requestedCount: request.count,
           sourceImageAlias: request.sourceImageAlias,
-          referenceImageAlias: request.referenceImageAlias,
+          referenceImageAliases: request.referenceImageAliases ?? null,
           sourceFilename: null,
-          referenceFilename: null,
+          referenceFilenames: null,
           size: request.size,
           artifacts: [],
           usage: null,
@@ -323,9 +317,9 @@ export class RuntimeImageEditToolService {
               revisedPrompt: null,
               requestedCount: request.count,
               sourceImageAlias: selection.sourceImageAlias,
-              referenceImageAlias: selection.referenceImageAlias,
+              referenceImageAliases: selection.referenceImageAliases,
               sourceFilename: selection.sourceFilename,
-              referenceFilename: selection.referenceFilename,
+              referenceFilenames: selection.referenceFilenames,
               size: request.size,
               artifacts: [],
               usage: null,
@@ -349,10 +343,8 @@ export class RuntimeImageEditToolService {
             revisedPrompt: null,
             requestedCount: request.count,
             sourceImageAlias: selection.sourceImageAlias,
-            referenceImageAlias: selection.referenceImageAlias,
             referenceImageAliases: selection.referenceImageAliases,
             sourceFilename: selection.sourceFilename,
-            referenceFilename: selection.referenceFilename,
             referenceFilenames: selection.referenceFilenames,
             size: request.size,
             artifacts: [],
@@ -379,9 +371,9 @@ export class RuntimeImageEditToolService {
             revisedPrompt: null,
             requestedCount: request.count,
             sourceImageAlias: selection.sourceImageAlias,
-            referenceImageAlias: selection.referenceImageAlias,
+            referenceImageAliases: selection.referenceImageAliases,
             sourceFilename: selection.sourceFilename,
-            referenceFilename: selection.referenceFilename,
+            referenceFilenames: selection.referenceFilenames,
             size: request.size,
             artifacts: [],
             usage: null,
@@ -411,7 +403,6 @@ export class RuntimeImageEditToolService {
         size: request.size,
         background: request.background,
         sourceImage: selection.sourceImage,
-        referenceImage: selection.referenceImage,
         referenceImages: selection.referenceImages,
         credential: {
           toolCode: IMAGE_EDIT_TOOL_CODE,
@@ -472,9 +463,9 @@ export class RuntimeImageEditToolService {
                 revisedPrompt: null,
                 requestedCount: request.count,
                 sourceImageAlias: selection.sourceImageAlias,
-                referenceImageAlias: selection.referenceImageAlias,
+                referenceImageAliases: selection.referenceImageAliases,
                 sourceFilename: selection.sourceFilename,
-                referenceFilename: selection.referenceFilename,
+                referenceFilenames: selection.referenceFilenames,
                 size: request.size,
                 artifacts: [],
                 usage: null,
@@ -509,9 +500,9 @@ export class RuntimeImageEditToolService {
                 revisedPrompt: effectivePrompt,
                 requestedCount: request.count,
                 sourceImageAlias: selection.sourceImageAlias,
-                referenceImageAlias: selection.referenceImageAlias,
+                referenceImageAliases: selection.referenceImageAliases,
                 sourceFilename: selection.sourceFilename,
-                referenceFilename: selection.referenceFilename,
+                referenceFilenames: selection.referenceFilenames,
                 size: request.size,
                 artifacts: [],
                 usage: null,
@@ -534,7 +525,7 @@ export class RuntimeImageEditToolService {
       };
       this.logger.log(
         `[image-edit] requestId=${params.requestId} provider=${providerId} sourceAlias="${selection.sourceImageAlias}" referenceAliases=${
-          selection.referenceImageAliases.length === 0
+          selection.referenceImageAliases === null
             ? "none"
             : `[${selection.referenceImageAliases.join(", ")}]`
         }`
@@ -591,7 +582,7 @@ export class RuntimeImageEditToolService {
             index,
             total: multiImagePlan.length,
             sourceImageAlias: selection.sourceImageAlias,
-            referenceImageAliases: selection.referenceImageAliases
+            referenceImageAliases: selection.referenceImageAliases ?? []
           });
           const seriesResult = await runEditCall(composedPrompt, 1, `:series:${String(index + 1)}`);
           if (!seriesResult.ok) {
@@ -654,9 +645,9 @@ export class RuntimeImageEditToolService {
             revisedPrompt: null,
             requestedCount: request.count,
             sourceImageAlias: selection.sourceImageAlias,
-            referenceImageAlias: selection.referenceImageAlias,
+            referenceImageAliases: selection.referenceImageAliases,
             sourceFilename: selection.sourceFilename,
-            referenceFilename: selection.referenceFilename,
+            referenceFilenames: selection.referenceFilenames,
             size: request.size,
             artifacts: [],
             usage: accumulatedUsage,
@@ -673,7 +664,7 @@ export class RuntimeImageEditToolService {
         `[image-edit] completed requestId=${params.requestId} provider=${providerId} artifacts=${String(
           persistedArtifacts.length
         )} sourceAlias="${selection.sourceImageAlias}" referenceAliases=${
-          selection.referenceImageAliases.length === 0
+          selection.referenceImageAliases === null
             ? "none"
             : `[${selection.referenceImageAliases.join(", ")}]`
         }`
@@ -688,10 +679,8 @@ export class RuntimeImageEditToolService {
           revisedPrompt,
           requestedCount: request.count,
           sourceImageAlias: selection.sourceImageAlias,
-          referenceImageAlias: selection.referenceImageAlias,
           referenceImageAliases: selection.referenceImageAliases,
           sourceFilename: selection.sourceFilename,
-          referenceFilename: selection.referenceFilename,
           referenceFilenames: selection.referenceFilenames,
           size: request.size,
           artifacts: persistedArtifacts,
@@ -712,7 +701,7 @@ export class RuntimeImageEditToolService {
     } catch (error) {
       this.logger.warn(
         `[image-edit] failed requestId=${params.requestId} sourceAlias="${selection.sourceImageAlias}" referenceAliases=${
-          selection.referenceImageAliases.length === 0
+          selection.referenceImageAliases === null
             ? "none"
             : `[${selection.referenceImageAliases.join(", ")}]`
         }: ${error instanceof Error ? error.message : "Image edit failed."}`
@@ -727,9 +716,9 @@ export class RuntimeImageEditToolService {
           revisedPrompt: null,
           requestedCount: request.count,
           sourceImageAlias: selection.sourceImageAlias,
-          referenceImageAlias: selection.referenceImageAlias,
+          referenceImageAliases: selection.referenceImageAliases,
           sourceFilename: selection.sourceFilename,
-          referenceFilename: selection.referenceFilename,
+          referenceFilenames: selection.referenceFilenames,
           size: request.size,
           artifacts: [],
           usage: null,
@@ -900,7 +889,6 @@ export class RuntimeImageEditToolService {
         `referenceImageAliases must list at most ${String(MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES)} reference image(s)`
       );
     }
-    const referenceImageAlias = mergedReferenceAliases[0] ?? null;
     const referenceImageAliases = mergedReferenceAliases.length > 0 ? mergedReferenceAliases : null;
 
     // `prompt` carries the overall request. In series mode each `seriesItems`
@@ -927,7 +915,6 @@ export class RuntimeImageEditToolService {
       size,
       background,
       sourceImageAlias,
-      referenceImageAlias,
       referenceImageAliases
     };
   }
@@ -947,9 +934,7 @@ export class RuntimeImageEditToolService {
     }
 
     const sourceImageAlias = request.sourceImageAlias;
-    const referenceImageAliases =
-      request.referenceImageAliases ??
-      (request.referenceImageAlias === null ? [] : [request.referenceImageAlias]);
+    const referenceImageAliases = request.referenceImageAliases ?? [];
 
     if (imageAttachments.length > 1 && sourceImageAlias === null) {
       return {
@@ -985,7 +970,7 @@ export class RuntimeImageEditToolService {
           ok: false,
           reason: "reference_image_alias_invalid",
           warning:
-            "Each referenceImageAlias must match one of the available reusable image aliases in the working-files context."
+            "Each entry in referenceImageAliases must match one of the available reusable image aliases in the working-files context."
         };
       }
       const normalizedReference = this.normalizeAlias(
@@ -996,7 +981,7 @@ export class RuntimeImageEditToolService {
           ok: false,
           reason: "reference_image_same_as_source",
           warning:
-            "Each referenceImageAlias must refer to a different reusable image than sourceImageAlias."
+            "Each entry in referenceImageAliases must refer to a different reusable image than sourceImageAlias."
         };
       }
       if (seenReferenceAliases.has(normalizedReference)) {
@@ -1031,13 +1016,12 @@ export class RuntimeImageEditToolService {
       ok: true,
       sourceImage: loadedSource.image,
       referenceImages: loadedReferences,
-      referenceImage: loadedReferences[0] ?? null,
       sourceImageAlias: this.resolvePrimaryAttachmentAlias(sourceAttachment),
-      referenceImageAliases: resolvedReferenceAliases,
-      referenceImageAlias: resolvedReferenceAliases[0] ?? null,
+      referenceImageAliases:
+        resolvedReferenceAliases.length === 0 ? null : resolvedReferenceAliases,
       sourceFilename: sourceAttachment.filename,
-      referenceFilenames: resolvedReferenceFilenames,
-      referenceFilename: resolvedReferenceFilenames[0] ?? null
+      referenceFilenames:
+        resolvedReferenceFilenames.length === 0 ? null : resolvedReferenceFilenames
     };
   }
 

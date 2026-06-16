@@ -131,7 +131,7 @@ function createImageEditRequest(): ProviderGatewayImageEditRequest {
       mimeType: "image/png",
       filename: "living-room.png"
     },
-    referenceImage: null,
+    referenceImages: null,
     credential: {
       toolCode: "image_edit",
       secretId: "secret-1",

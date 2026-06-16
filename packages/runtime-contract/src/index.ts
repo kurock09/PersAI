@@ -1663,18 +1663,12 @@ export interface RuntimeImageEditRequest {
   background: PersaiRuntimeImageBackground;
   sourceImageAlias: string | null;
   /**
-   * @deprecated Single-reference alias kept for backward compatibility. New
-   * callers should use `referenceImageAliases`; the parser normalizes this
-   * single value into that array.
-   */
-  referenceImageAlias: string | null;
-  /**
-   * Optional sticky aliases of additional images used purely as visual style,
+   * Sticky aliases of additional images used purely as visual style,
    * appearance, background, or composition references. Up to
    * `MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES`. The edited output stays rooted
-   * in `sourceImageAlias`.
+   * in `sourceImageAlias`. `null` means no separate reference images.
    */
-  referenceImageAliases?: string[] | null;
+  referenceImageAliases: string[] | null;
 }
 
 export interface RuntimeImageEditToolResult {
@@ -1686,11 +1680,9 @@ export interface RuntimeImageEditToolResult {
   revisedPrompt: string | null;
   requestedCount: number | null;
   sourceImageAlias: string | null;
-  referenceImageAlias: string | null;
-  referenceImageAliases?: string[] | null;
+  referenceImageAliases: string[] | null;
   sourceFilename: string | null;
-  referenceFilename: string | null;
-  referenceFilenames?: (string | null)[] | null;
+  referenceFilenames: (string | null)[] | null;
   size: PersaiRuntimeImageGenerateSize | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
@@ -3430,15 +3422,10 @@ export interface ProviderGatewayImageEditRequest {
     filename: string | null;
   };
   /**
-   * @deprecated Single reference kept for backward compatibility. Prefer
-   * `referenceImages`; when both are present `referenceImages` wins.
+   * Ordered reference images that accompany `sourceImage` as one provider
+   * input set. Empty array (or `null`) means no separate references.
    */
-  referenceImage: {
-    bytesBase64: string;
-    mimeType: string;
-    filename: string | null;
-  } | null;
-  referenceImages?:
+  referenceImages:
     | {
         bytesBase64: string;
         mimeType: string;

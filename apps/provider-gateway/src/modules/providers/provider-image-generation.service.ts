@@ -156,11 +156,6 @@ export class ProviderImageGenerationService {
       mimeType: string;
       filename: string | null;
     };
-    referenceImage: {
-      bytesBase64: string;
-      mimeType: string;
-      filename: string | null;
-    } | null;
     referenceImages: {
       bytesBase64: string;
       mimeType: string;
@@ -206,14 +201,7 @@ export class ProviderImageGenerationService {
       );
     }
     const sourceImage = this.normalizeEditImageInput(input.sourceImage, "sourceImage");
-    // Prefer the multi-reference array; fall back to the deprecated single
-    // `referenceImage` when only that is provided.
-    const rawReferenceImages =
-      Array.isArray(input.referenceImages) && input.referenceImages.length > 0
-        ? input.referenceImages
-        : input.referenceImage === null || input.referenceImage === undefined
-          ? []
-          : [input.referenceImage];
+    const rawReferenceImages = Array.isArray(input.referenceImages) ? input.referenceImages : [];
     if (rawReferenceImages.length > MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES) {
       throw new BadRequestException(
         `referenceImages must contain at most ${String(MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES)} image(s)`
@@ -232,7 +220,6 @@ export class ProviderImageGenerationService {
       background: input.background,
       timeoutMs: this.normalizeOptionalPositiveInteger(input.timeoutMs, "timeoutMs"),
       sourceImage,
-      referenceImage: referenceImages[0] ?? null,
       referenceImages,
       credential: {
         toolCode: "image_edit",

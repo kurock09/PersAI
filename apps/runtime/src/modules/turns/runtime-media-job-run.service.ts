@@ -43,6 +43,24 @@ const NON_RETRYABLE_VIDEO_REASONS = new Set<string>([
   "voice_required"
 ]);
 
+// Permanent image failure reasons: same rationale as the video set above.
+// `invalid_arguments` covers the persisted worker-rehydrate parse path — if
+// the stored request shape no longer matches the parser whitelist, no number
+// of retries will recover; surface honestly as a non-retryable 400 instead of
+// burning the ~7.5 min exponential-backoff budget. Other reasons listed here
+// are model-correctable selection mistakes (alias not found, source/reference
+// collision, unsupported MIME type) that retrying the same job cannot fix.
+const NON_RETRYABLE_IMAGE_REASONS = new Set<string>([
+  "invalid_arguments",
+  "source_image_missing",
+  "source_image_alias_required",
+  "source_image_alias_invalid",
+  "reference_image_alias_invalid",
+  "reference_image_same_as_source",
+  "unsupported_source_image_type",
+  "unsupported_reference_image_type"
+]);
+
 @Injectable()
 export class RuntimeMediaJobRunService {
   constructor(
@@ -391,6 +409,14 @@ export class RuntimeMediaJobRunService {
         ? warning.trim()
         : "Media-job image worker did not produce deliverable artifacts.";
     if (reason === "image_provider_safety_rejected") {
+      throw new BadRequestException({
+        error: {
+          code: reason,
+          message
+        }
+      });
+    }
+    if (NON_RETRYABLE_IMAGE_REASONS.has(reason)) {
       throw new BadRequestException({
         error: {
           code: reason,
