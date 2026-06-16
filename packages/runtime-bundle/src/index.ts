@@ -52,7 +52,6 @@ export interface AssistantRuntimeEnabledSkillSummary {
   category: string;
   tags: string[];
   iconEmoji?: string | null;
-  routingExamples?: string[];
   /** ADR-118 Slice 4 — active scenarios materialized into the bundle. */
   scenarios?: RuntimeBundleSkillScenario[];
 }

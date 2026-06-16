@@ -97,6 +97,16 @@ async function run(): Promise<void> {
   assert.doesNotMatch(block, /archived mode/);
   assert.doesNotMatch(block, /over-limit mode/);
 
+  // ADR-118 post-Slice-7 hotfix — the Skill ID MUST be rendered in the card so
+  // the model can pass it verbatim to `skill({ action: "engage", skillId })`.
+  // Without this line, the model has no source of truth for skillId and is
+  // forced to guess (caught in production at SHA 079910fc-deploy where the
+  // model passed display names "Диетолог" / "1" and got skill_not_enabled).
+  assert.match(block, /- Skill ID: accounting/);
+  assert.match(block, /- Skill ID: legal/);
+  assert.match(block, /- Display name: /);
+  assert.match(block, /Skill ID.*EXACT opaque identifier/);
+
   assert.equal(
     renderEnabledSkillsPromptBlock(
       resolveEnabledSkillPromptCards({

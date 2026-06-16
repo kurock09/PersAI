@@ -3301,8 +3301,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           description: "Nutrition planning",
           category: "personal",
           tags: ["nutrition"],
-          iconEmoji: "🥦",
-          routingExamples: ["Explain nutrition principles"]
+          iconEmoji: "🥦"
         }
       ]
     };
@@ -3772,8 +3771,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           description: "Nutrition coaching.",
           category: "health",
           tags: ["nutrition"],
-          iconEmoji: "🥦",
-          routingExamples: ["nutrition for adults with type 1 diabetes"]
+          iconEmoji: "🥦"
         }
       ]
     };

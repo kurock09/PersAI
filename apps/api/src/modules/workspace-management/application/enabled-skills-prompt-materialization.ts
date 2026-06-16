@@ -101,7 +101,7 @@ export function renderEnabledSkillsPromptBlock(cards: EnabledSkillPromptCard[]):
   return [
     "# Enabled Skills",
     "",
-    "These professional Skill cards are enabled by the user for this assistant. Apply them when relevant, but do not invent document knowledge that is not present in the conversation or retrieved context.",
+    'These professional Skill cards are enabled by the user for this assistant. Apply them when relevant, but do not invent document knowledge that is not present in the conversation or retrieved context. The `Skill ID` field of each card below is the EXACT opaque identifier to pass as `skillId` when calling `skill({ action: "engage", skillId, scenarioKey? })` — never substitute the display name or category.',
     "",
     ...cards.flatMap((card, index) => renderSkillCard(card, index + 1))
   ]
@@ -110,7 +110,12 @@ export function renderEnabledSkillsPromptBlock(cards: EnabledSkillPromptCard[]):
 }
 
 function renderSkillCard(card: EnabledSkillPromptCard, position: number): string[] {
-  const lines = [`## ${String(position)}. ${card.title}`, "", `- Skill: ${card.name}`];
+  const lines = [
+    `## ${String(position)}. ${card.title}`,
+    "",
+    `- Skill ID: ${card.id}`,
+    `- Display name: ${card.name}`
+  ];
   if (card.description !== null) {
     lines.push(`- Summary: ${card.description}`);
   }

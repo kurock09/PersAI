@@ -1001,7 +1001,6 @@ export class MaterializeAssistantPublishedVersionService {
           category: card.category,
           tags: card.tags.slice(0, 2),
           iconEmoji: card.iconEmoji,
-          routingExamples: card.examples.slice(0, 2),
           scenarios: enabledSkillScenarios.get(card.id) ?? []
         }))
       },

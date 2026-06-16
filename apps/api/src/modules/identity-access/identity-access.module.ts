@@ -357,6 +357,20 @@ export class IdentityAccessModule implements NestModule {
         path: "api/v1/admin/skills/:skillId/knowledge-cards/:cardId/reindex",
         method: RequestMethod.POST
       },
+      { path: "api/v1/admin/skills/:skillId/scenarios", method: RequestMethod.GET },
+      { path: "api/v1/admin/skills/:skillId/scenarios", method: RequestMethod.POST },
+      {
+        path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
+        method: RequestMethod.PATCH
+      },
+      {
+        path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
+        method: RequestMethod.DELETE
+      },
       { path: "api/v1/admin/tools/document-processing", method: RequestMethod.GET },
       { path: "api/v1/admin/tools/document-processing", method: RequestMethod.PUT },
       { path: "api/v1/admin/tools/economics", method: RequestMethod.GET },

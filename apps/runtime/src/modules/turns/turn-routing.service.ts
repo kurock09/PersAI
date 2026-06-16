@@ -43,7 +43,6 @@ type EnabledSkillSummary = {
   category: string;
   tags: string[];
   iconEmoji: string | null;
-  routingExamples: string[];
 };
 
 export type TurnRetrievalPlan = {
@@ -1379,8 +1378,7 @@ export class TurnRoutingService {
         description: this.asNonEmptyString(skill.description),
         category: this.asNonEmptyString(skill.category),
         tags: this.asStringArray(skill.tags),
-        iconEmoji: this.asNonEmptyString(skill.iconEmoji),
-        routingExamples: this.asStringArray(skill.routingExamples).slice(0, 2)
+        iconEmoji: this.asNonEmptyString(skill.iconEmoji)
       }))
       .filter(
         (skill): skill is EnabledSkillSummary =>

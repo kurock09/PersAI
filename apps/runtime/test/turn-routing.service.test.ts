@@ -92,7 +92,6 @@ function createBundle(
     category: string;
     tags: string[];
     iconEmoji: string;
-    routingExamples: string[];
   }>
 ) {
   return compileAssistantRuntimeBundle({
@@ -257,8 +256,7 @@ function createBundle(
               description: "Accounting and tax support",
               category: "finance",
               tags: ["tax", "books"],
-              iconEmoji: "🧾",
-              routingExamples: ["Explain quarterly tax categories", "Compare bookkeeping options"]
+              iconEmoji: "🧾"
             },
             {
               id: "skill-legal",
@@ -266,8 +264,7 @@ function createBundle(
               description: "Legal drafting support",
               category: "law",
               tags: ["contracts", "risk"],
-              iconEmoji: "⚖️",
-              routingExamples: ["Draft a contract clause", "Review legal risk"]
+              iconEmoji: "⚖️"
             }
           ])
         : []
@@ -489,8 +486,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
         description: "Помощник по питанию и составлению рациона под цели",
         category: "personal",
         tags: ["nutrition", "meal-planning"],
-        iconEmoji: "🥦",
-        routingExamples: ["Объясни, почему вес стоит при текущем количестве калорий."]
+        iconEmoji: "🥦"
       }
     ]),
     request: withSkillRoutingContext(createRequest("Сколько калорий?"), { decision: null }),
@@ -559,8 +555,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
         description: "Помощник по питанию и составлению рациона под цели",
         category: "personal",
         tags: ["nutrition", "meal-planning"],
-        iconEmoji: "🥦",
-        routingExamples: ["Объясни, почему вес стоит при текущем количестве калорий."]
+        iconEmoji: "🥦"
       }
     ]),
     request: withSkillRoutingContext(createRequest("А подешевле?"), { decision: null }),
@@ -962,11 +957,7 @@ async function runAutoSkillRoutingHardeningTests(): Promise<void> {
       "Extremely verbose description that should never be copied into the routing prompt because it wastes tokens.",
     category: "health-and-wellness",
     tags: ["nutrition", "metabolism", "diabetes"],
-    iconEmoji: "x",
-    routingExamples: [
-      "Build a detailed weekly plan with constraints and substitutions",
-      "Review supplements and calories for a health goal"
-    ]
+    iconEmoji: "x"
   }));
   const decision = await service.decide({
     bundle: createBundle(undefined, true, enabledSkills),

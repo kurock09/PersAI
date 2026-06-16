@@ -1742,27 +1742,49 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
     /# Tasks Policy/,
     `Selection guide presence: ${bootstrapPath} must not reintroduce a Tasks Policy section into the agents block`
   );
-  // ADR-118 Slice 7 — Skills rule must appear exactly once in the selection guide.
+  // ADR-118 Slice 7 + hotfix — Skills section must appear exactly once and
+  // give the model concrete activation guidance (Skill ID source of truth,
+  // trigger logic, scenario routing, release semantics).
   assert.match(
     bootstrapSource,
-    /\*\*Skills\.\*\* If a Skill is enabled in the assistant's domain of the request/,
-    `ADR-118 Slice 7: ${bootstrapPath} must include the Skills selection-guide rule`
+    /## Skills/,
+    `ADR-118: ${bootstrapPath} must include the Skills section in the selection guide`
   );
   assert.match(
     bootstrapSource,
-    /skill\(\{ action: "engage", skillId, scenarioKey\? \}\)/,
-    `ADR-118 Slice 7: Skills rule must reference the skill engage call signature`
+    /The \\`# Enabled Skills\\` block lists professional Skills/,
+    `ADR-118: Skills section must point the model at the # Enabled Skills block as the source of truth`
+  );
+  assert.match(
+    bootstrapSource,
+    /\\`Skill ID\\` — the exact opaque identifier/,
+    `ADR-118: Skills section must call out Skill ID as the exact identifier to pass as skillId`
+  );
+  assert.match(
+    bootstrapSource,
+    /NEVER substitute the display name, category, or any other value/,
+    `ADR-118: Skills section must forbid substituting display name for skillId`
+  );
+  assert.match(
+    bootstrapSource,
+    /skill\(\{ action: "engage", skillId \}\)/,
+    `ADR-118: Skills section must reference the engage call signature`
+  );
+  assert.match(
+    bootstrapSource,
+    /scenarioKey: "instagram_carousel"/,
+    `ADR-118: Skills section must include a concrete scenarioKey example`
   );
   assert.match(
     bootstrapSource,
     /skill\(\{ action: "release" \}\)/,
-    `ADR-118 Slice 7: Skills rule must reference the skill release call`
+    `ADR-118: Skills section must reference the release call`
   );
-  const skillsRuleOccurrences = (bootstrapSource.match(/\*\*Skills\.\*\*/g) ?? []).length;
+  const skillsSectionOccurrences = (bootstrapSource.match(/## Skills\n/g) ?? []).length;
   assert.equal(
-    skillsRuleOccurrences,
+    skillsSectionOccurrences,
     1,
-    `ADR-118 Slice 7: Skills rule must appear exactly once in ${bootstrapPath}`
+    `ADR-118: ## Skills section must appear exactly once in ${bootstrapPath}`
   );
 
   // Rule A must NOT appear inline in the model-facing image tool descriptions.

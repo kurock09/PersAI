@@ -295,7 +295,7 @@ const SAMPLE_VARIABLES: Record<string, string> = {
     "Your voice is **Magnetic Strategist** — warm, concise, confident, and slightly playful.",
   traits_summary_line: "They set your personality to: warmth 80/100, playfulness 75/100.",
   skill_cards_block:
-    "# Enabled Skills\n\n## 1. Accounting mode\n\n- Skill: Accountant\n- Summary: Accounting support\n- Category: finance\n- Tags: tax, books\n\nUse accounting knowledge carefully.\n\nGuardrails:\n- No legal guarantees",
+    "# Enabled Skills\n\n## 1. Accounting mode\n\n- Skill ID: skl_accounting_demo\n- Display name: Accountant\n- Summary: Accounting support\n- Category: finance\n- Tags: tax, books\n\nUse accounting knowledge carefully.\n\nGuardrails:\n- No legal guarantees",
   time_since_last_user_message_in_thread: "earlier today",
   time_since_last_user_message_anywhere: "yesterday",
   current_local_time: "21:47",

@@ -208,6 +208,23 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
       path: "api/v1/admin/skills/:skillId/documents/:documentId/reindex",
       method: RequestMethod.POST
     },
+    // ADR-118 Slice 3 — Skill Scenario CRUD routes (5 endpoints).
+    // Missing from middleware registration in Slice 3 → production caught it as
+    // "Authenticated user context is missing." 401 on the admin Scenarios section.
+    { path: "api/v1/admin/skills/:skillId/scenarios", method: RequestMethod.GET },
+    { path: "api/v1/admin/skills/:skillId/scenarios", method: RequestMethod.POST },
+    {
+      path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
+      method: RequestMethod.GET
+    },
+    {
+      path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
+      method: RequestMethod.PATCH
+    },
+    {
+      path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
+      method: RequestMethod.DELETE
+    },
     { path: "api/v1/admin/site-pages", method: RequestMethod.GET },
     { path: "api/v1/admin/site-pages/:slug", method: RequestMethod.PUT },
     { path: "api/v1/admin/site-pages/:slug/publish", method: RequestMethod.POST },

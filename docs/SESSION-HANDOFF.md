@@ -3,6 +3,48 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-16 — ADR-118 post-Slice-7 production hotfix (Skill ID rendering + selection-guide expansion + `routingExamples` Slice-6 residual cleanup + Clerk middleware admin scenarios registration)
+
+### Root cause
+
+Production caught the model passing `skillId: "Диетолог"` (display name) and `skillId: "1"` (random) to `skill({action:"engage", ...})` and getting `skill_not_enabled`. `renderSkillCard` in `enabled-skills-prompt-materialization.ts` never rendered `card.id`; the tool description told the model "Must be one of the Skill ids listed in the Enabled Skills block" but the block contained no IDs.
+
+### Scope
+
+**A. Skill ID rendering**
+- `apps/api/.../enabled-skills-prompt-materialization.ts`: each card now starts with `- Skill ID: ${card.id}` then `- Display name: ${card.name}` (renamed from `- Skill:`). Section intro explicitly tells the model `Skill ID` is the EXACT opaque identifier to pass as `skillId`.
+- `apps/api/test/enabled-skills-prompt-materialization.test.ts`: regression — `assert.match(block, /- Skill ID: accounting/)` + `Display name:` + intro phrase.
+- `apps/web/app/admin/presets/page.tsx`: `skill_cards_block` sample preview updated (`- Skill ID: skl_accounting_demo`, `- Display name: Accountant`).
+
+**B. Selection-guide `## Skills` section expanded**
+- `apps/api/prisma/bootstrap-preset-data.ts`: replaced single prose paragraph with concrete trigger logic — points the model at `# Enabled Skills` block as source of truth, forbids substituting display name / category, gives `scenarioKey: "instagram_carousel"` example, references engage and release signatures.
+- `apps/runtime/test/native-tool-projection.test.ts` (ADR-117 golden): 4 old `**Skills.**` assertions replaced with 7 new ones for the expanded section.
+
+**C. Slice 6 ledger-gap follow-up — `routingExamples` removal**
+- `routingExamples` was a derived field (`card.examples.slice(0, 2)`) populated in materialization and parsed into `EnabledSkillSummary` in `turn-routing.service.ts`, but never read post-Slice-6 (sole consumer was the deleted `hasSkillLexicalMatch`).
+- Removed from: `AssistantRuntimeEnabledSkillSummary` (runtime-bundle), `materialize-assistant-published-version.service.ts:1004` derive, local type in `turn-routing.service.ts:39+1383`, plus 3 test fixture files (`turn-routing.service.test.ts` 5 occurrences, `turn-execution.service.test.ts` 2 occurrences).
+- Grep audit: 0 active-code matches for `routingExamples` in `apps/` and `packages/`.
+
+**D. Clerk middleware admin scenarios registration (Slice 3 follow-up, production-blocking)**
+- `IdentityAccessModule.configure(consumer)` uses **explicit per-route registration** for `ClerkAuthMiddleware.forRoutes(...)` — every API route needing `req.resolvedAppUser` must be enumerated.
+- Slice 3 added 5 new scenario controller routes (`@Get/@Post/@Patch/@Delete` under `/api/v1/admin/skills/:skillId/scenarios[/:scenarioKey]`) but never updated the middleware registration. Result: API received the request, middleware did not run, `req.resolvedAppUser === undefined`, controller threw `UnauthorizedException("Authenticated user context is missing.")`.
+- Fix: added 5 paths to `apps/api/src/modules/identity-access/identity-access.module.ts`.
+- Guardrail: 5 new `hasRoute` assertions added to `apps/api/test/identity-access.module.test.ts` so any future scenario route surfaces this gap before merge.
+
+### Cache prefix invalidation
+
+One deliberate one-time invalidation covers all three changes (intro line + per-card Skill ID line + `## Skills` selection-guide section).
+
+### Gate green
+
+lint PASS · format:check PASS · 5 typechecks PASS · api test PASS · runtime test PASS (ADR-117 golden expanded) · web test PASS (777/777) · provider-gateway test PASS.
+
+### Next step
+
+After this hotfix lands on dev, validate that the model engages skills correctly with the real skillId (Диетолог-style intent → `skill({engage, skillId: <opaque cuid>})` → state persists → annotation appears). If green, proceed to ADR-118 Slice 8 (ADR closure + golden invariant tests + docs). User has parked a follow-up discussion about importing `msitarzewski/agency-agents` content as PersAI Skill+Scenario seed material.
+
+---
+
 ## 2026-06-16 — ADR-118 Slice 7 landed — UX engagement indicator + selection-guide rule
 
 ### Scope
