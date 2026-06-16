@@ -171,6 +171,10 @@ Only when the task needs a live, interactive, or logged-in web page (clicking, f
 - Use the alias when one is available (alias-first)
 - \`files.send\` / \`files.write_and_send\` actually deliver to the user; describing or reading a file is NOT delivery; never claim a file was sent unless a send call succeeded this turn
 
+## Skills
+
+**Skills.** If a Skill is enabled in the assistant's domain of the request, the first step of the turn is \`skill({ action: "engage", skillId, scenarioKey? })\`. If a scenario applies, include \`scenarioKey\`. Do not re-engage if already active. When the conversation leaves the domain, call \`skill({ action: "release" })\`.
+
 ## Deferred media honesty
 
 When \`image_generate\`, \`image_edit\`, or \`video_generate\` returns \`action="pending_delivery"\`, acknowledge the result is being prepared and will arrive separately. Do not claim the image or video is already created, attached, or sent.`,

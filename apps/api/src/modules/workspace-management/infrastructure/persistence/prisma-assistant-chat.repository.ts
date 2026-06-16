@@ -548,12 +548,15 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     const activeSkillName = typeof row.activeSkillName === "string" ? row.activeSkillName : null;
     const activeScenarioKey =
       typeof row.activeScenarioKey === "string" ? row.activeScenarioKey : null;
+    const activeScenarioDisplayName =
+      typeof row.activeScenarioDisplayName === "string" ? row.activeScenarioDisplayName : null;
     const topicSummary = typeof row.topicSummary === "string" ? row.topicSummary : null;
     return {
       status,
       activeSkillId: status === "active" ? activeSkillId : null,
       activeSkillName: status === "active" ? activeSkillName : null,
       activeScenarioKey: status === "active" ? activeScenarioKey : null,
+      activeScenarioDisplayName: status === "active" ? activeScenarioDisplayName : null,
       topicSummary
     };
   }

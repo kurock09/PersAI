@@ -20,7 +20,7 @@ import {
 } from "../domain/assistant-channel-surface-binding.repository";
 import { type AssistantRuntimeWebChatTurnResult } from "./assistant-runtime.facade";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
-import type { AssistantWebChatTurnState } from "./web-chat.types";
+import { deriveEngagementSummary, type AssistantWebChatTurnState } from "./web-chat.types";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
 import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-turn.service";
 import {
@@ -530,6 +530,10 @@ export class SendWebChatTurnService {
         status: "completed",
         outputPreview: postRuntime.finalAssistantContent
       });
+      const finalSkillDecisionState = persistedSkillState.skillDecisionState as Parameters<
+        typeof deriveEngagementSummary
+      >[0];
+      const engagementSummary = deriveEngagementSummary(finalSkillDecisionState);
       return {
         chat: {
           ...prepared.chat,
@@ -550,6 +554,7 @@ export class SendWebChatTurnService {
           : { followUpAssistantMessage: postRuntime.followUpAssistantMessage }),
         activeMediaJobs: postRuntime.activeMediaJobs,
         activeDocumentJobs: postRuntime.activeDocumentJobs,
+        ...(engagementSummary !== null ? { engagementSummary } : {}),
         runtime: {
           respondedAt: runtimeResponse.respondedAt,
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
@@ -712,6 +717,9 @@ export class SendWebChatTurnService {
       chatId: chat.id
     });
 
+    const replayEngagementSummary = deriveEngagementSummary(
+      chat.skillDecisionState as Parameters<typeof deriveEngagementSummary>[0]
+    );
     return {
       chat: {
         id: chat.id,
@@ -760,6 +768,7 @@ export class SendWebChatTurnService {
           }),
       activeMediaJobs,
       activeDocumentJobs,
+      ...(replayEngagementSummary !== null ? { engagementSummary: replayEngagementSummary } : {}),
       runtime: {
         respondedAt: state.respondedAt,
         degradedByQuotaFallback: state.degradedByQuotaFallback,

@@ -62,6 +62,10 @@ function parseSkillDecisionState(value: unknown): AssistantChatSkillDecisionStat
       status === "active" && typeof row.activeScenarioKey === "string"
         ? row.activeScenarioKey
         : null,
+    activeScenarioDisplayName:
+      status === "active" && typeof row.activeScenarioDisplayName === "string"
+        ? row.activeScenarioDisplayName
+        : null,
     topicSummary: typeof row.topicSummary === "string" ? row.topicSummary : null
   };
 }

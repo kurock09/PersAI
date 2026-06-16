@@ -12,6 +12,7 @@ export function createInactiveSkillDecisionState(input?: {
     activeSkillId: null,
     activeSkillName: null,
     activeScenarioKey: null,
+    activeScenarioDisplayName: null,
     topicSummary: input?.topicSummary ?? null
   };
 }
@@ -102,6 +103,7 @@ export class AutoSkillRoutingStateService {
       currentState.activeSkillId !== nextState.activeSkillId ||
       currentState.activeSkillName !== nextState.activeSkillName ||
       currentState.activeScenarioKey !== nextState.activeScenarioKey ||
+      currentState.activeScenarioDisplayName !== nextState.activeScenarioDisplayName ||
       currentState.topicSummary !== nextState.topicSummary
     );
   }
@@ -156,6 +158,10 @@ export class AutoSkillRoutingStateService {
       activeScenarioKey:
         status === "active" && typeof row.activeScenarioKey === "string"
           ? row.activeScenarioKey
+          : null,
+      activeScenarioDisplayName:
+        status === "active" && typeof row.activeScenarioDisplayName === "string"
+          ? row.activeScenarioDisplayName
           : null,
       topicSummary: typeof row.topicSummary === "string" ? row.topicSummary : null
     };

@@ -90,6 +90,7 @@ export interface ChatMessage {
   thought?: string;
   thoughtStartedAt?: string | null;
   thoughtFinishedAt?: string | null;
+  engagementSummary?: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
 }
 export interface RecentAutoCompactionNotice {
   detectedAt: string;
@@ -163,6 +164,7 @@ type RuntimeTransportMeta = {
       activeSkillId: string | null;
       activeSkillName: string | null;
       activeScenarioKey: string | null;
+      activeScenarioDisplayName: string | null;
       topicSummary: string | null;
     } | null;
   } | null;
@@ -3165,6 +3167,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             };
             activeMediaJobs?: WebChatActiveMediaJobState[];
             activeDocumentJobs?: WebChatActiveDocumentJobState[];
+            engagementSummary?: {
+              skillDisplayName?: unknown;
+              scenarioDisplayName?: unknown;
+            } | null;
             runtime?: RuntimeTransportMeta;
           } | null;
           const realUserMsgId = typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
@@ -3175,6 +3181,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             t.assistantMessage.attachments.length > 0
               ? t.assistantMessage.attachments.map((attachment) => toChatAttachment(attachment))
               : undefined;
+          const engagementSummaryFromTransport: ChatMessage["engagementSummary"] = (() => {
+            const raw = t?.engagementSummary;
+            if (!raw || typeof raw !== "object") return null;
+            if (typeof raw.skillDisplayName !== "string") return null;
+            return {
+              skillDisplayName: raw.skillDisplayName,
+              scenarioDisplayName:
+                typeof raw.scenarioDisplayName === "string" ? raw.scenarioDisplayName : null
+            };
+          })();
           const followUpAssistantMessage =
             typeof t?.followUpAssistantMessage?.id === "string" &&
             typeof t?.followUpAssistantMessage?.content === "string"
@@ -3212,7 +3228,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     ? { content: authoritativeAssistantContent }
                     : {}),
                   status: "committed" as const,
-                  attachments: assistantAttachments
+                  attachments: assistantAttachments,
+                  ...(engagementSummaryFromTransport !== null
+                    ? { engagementSummary: engagementSummaryFromTransport }
+                    : {})
                 };
               }
               if (m.id === userMsgId && realUserMsgId) {

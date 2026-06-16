@@ -1021,6 +1021,7 @@ describe("SendWebChatTurnService", () => {
               activeSkillId: "skill-1",
               activeSkillName: "Helper",
               activeScenarioKey: null,
+              activeScenarioDisplayName: null,
               topicSummary: "old"
             },
             archivedAt: null,
@@ -1098,6 +1099,7 @@ describe("SendWebChatTurnService", () => {
       activeSkillId: "skill-1",
       activeSkillName: "Helper",
       activeScenarioKey: null,
+      activeScenarioDisplayName: null,
       topicSummary: "old"
     });
   });

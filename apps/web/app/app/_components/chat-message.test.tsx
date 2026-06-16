@@ -964,6 +964,125 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByRole("button", { name: "workingNotesDone" })).toBeInTheDocument();
     expect(screen.queryByText("workingNotesDuration")).not.toBeInTheDocument();
   });
+
+  // ADR-118 Slice 7 — engagement annotation inline in the toggle row.
+
+  it("renders skill-only annotation inline with toggle when engagementSummary has no scenario", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
+          content: `:::working
+Checking facts.
+:::
+
+Done.`,
+          engagementSummary: { skillDisplayName: "Finance", scenarioDisplayName: null }
+        })}
+      />
+    );
+
+    const annotation = screen.getByTestId("engagement-annotation");
+    expect(annotation).toBeInTheDocument();
+    expect(annotation).toHaveTextContent("Finance");
+    // Must be a sibling of the toggle button, not inside the block body
+    const toggle = screen.getByRole("button", { name: /workingNotesDone/ });
+    expect(toggle.parentElement).toBe(annotation.parentElement);
+  });
+
+  it("renders skill + scenario annotation inline with toggle", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
+          content: `:::working
+Working on carousel.
+:::
+
+Done.`,
+          engagementSummary: {
+            skillDisplayName: "Маркетолог",
+            scenarioDisplayName: "Instagram-карусель"
+          }
+        })}
+      />
+    );
+
+    const annotation = screen.getByTestId("engagement-annotation");
+    expect(annotation).toBeInTheDocument();
+    expect(annotation).toHaveTextContent("Маркетолог");
+    expect(annotation).toHaveTextContent("Instagram-карусель");
+    // · separator must be present
+    expect(annotation).toHaveTextContent("·");
+  });
+
+  it("renders no engagement annotation when engagementSummary is null", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
+          content: `:::working
+Working.
+:::
+
+Done.`,
+          engagementSummary: null
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId("engagement-annotation")).not.toBeInTheDocument();
+  });
+
+  it("renders no engagement annotation when engagementSummary is not provided", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: `:::working
+Working.
+:::
+
+Done.`
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId("engagement-annotation")).not.toBeInTheDocument();
+  });
+
+  it("annotation is in the same row as the toggle, not in the expanded block body", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
+          content: `:::working
+Some notes.
+:::
+
+Done.`,
+          engagementSummary: { skillDisplayName: "Finance", scenarioDisplayName: null }
+        })}
+      />
+    );
+
+    // Expand to show block body
+    fireEvent.click(screen.getByRole("button", { name: /workingNotesDone/ }));
+
+    // Both toggle and annotation must be in the same flex row container
+    const annotation = screen.getByTestId("engagement-annotation");
+    const toggle = screen.getByRole("button", { name: /workingNotesDone/ });
+    expect(toggle.parentElement).toBe(annotation.parentElement);
+
+    // The block notes text is present (expanded) but annotation is NOT inside the notes section
+    expect(screen.getByText("Some notes.")).toBeInTheDocument();
+    // annotation text is still the skill name, not wrapped in notes
+    expect(annotation).toHaveTextContent("Finance");
+  });
 });
 
 describe("resolveInternalChatCta", () => {

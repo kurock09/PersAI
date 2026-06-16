@@ -22,7 +22,8 @@ export type SkillStateEngageResult = {
   action: "engaged";
   skillId: string;
   skillDisplayName: string;
-  scenarioKey: null;
+  scenarioKey: string | null;
+  scenarioDisplayName: string | null;
 };
 
 export type SkillStateReleaseResult = {
@@ -71,6 +72,7 @@ export class InternalRuntimeSkillStateService {
         activeSkillId: null,
         activeSkillName: null,
         activeScenarioKey: null,
+        activeScenarioDisplayName: null,
         topicSummary: currentState?.topicSummary ?? null
       };
       // persistFromTurnRouting writes the decision state and calls
@@ -98,11 +100,26 @@ export class InternalRuntimeSkillStateService {
     }
 
     const skillDisplayName = this.resolveSkillDisplayName(skill.name);
+
+    // Resolve scenario display name when scenarioKey is provided
+    const scenarioKey = input.scenarioKey?.trim() || null;
+    let activeScenarioDisplayName: string | null = null;
+    if (scenarioKey !== null) {
+      const scenario = await this.prisma.skillScenario.findFirst({
+        where: { skillId, key: scenarioKey },
+        select: { displayName: true }
+      });
+      if (scenario !== null) {
+        activeScenarioDisplayName = this.resolveSkillDisplayName(scenario.displayName);
+      }
+    }
+
     const nextState: RuntimeSkillDecisionState = {
       status: "active",
       activeSkillId: skillId,
       activeSkillName: skillDisplayName,
-      activeScenarioKey: null,
+      activeScenarioKey: scenarioKey,
+      activeScenarioDisplayName,
       topicSummary: currentState?.topicSummary ?? null
     };
     await this.autoSkillRoutingStateService.persistFromTurnRouting({
@@ -114,7 +131,8 @@ export class InternalRuntimeSkillStateService {
       action: "engaged",
       skillId,
       skillDisplayName,
-      scenarioKey: null
+      scenarioKey,
+      scenarioDisplayName: activeScenarioDisplayName
     };
   }
 

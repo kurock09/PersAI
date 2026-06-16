@@ -451,6 +451,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
         activeSkillId: null,
         activeSkillName: null,
         activeScenarioKey: null,
+        activeScenarioDisplayName: null,
         topicSummary: null
       }
     }),
@@ -606,6 +607,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
         activeSkillId: "skill-accounting",
         activeSkillName: "Accountant",
         activeScenarioKey: null,
+        activeScenarioDisplayName: null,
         topicSummary: "quarterly tax categories"
       }
     }),
@@ -622,6 +624,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
       activeSkillId: "skill-accounting",
       activeSkillName: "Accountant",
       activeScenarioKey: null,
+      activeScenarioDisplayName: null,
       topicSummary: "quarterly tax categories"
     }
   });

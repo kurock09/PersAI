@@ -23,6 +23,15 @@ const ENGAGE_BODY = {
   scenarioKey: null
 };
 
+const ENGAGE_WITH_SCENARIO_BODY = {
+  assistantId: "assistant-1",
+  channel: "web",
+  surfaceThreadKey: "thread-1",
+  action: "engage",
+  skillId: "skill-finance",
+  scenarioKey: "tax-advisory"
+};
+
 const RELEASE_BODY = {
   assistantId: "assistant-1",
   channel: "web",
@@ -33,7 +42,7 @@ const RELEASE_BODY = {
 async function run(): Promise<void> {
   setupEnv();
 
-  // --- engage OK ---
+  // --- engage OK (no scenario) ---
   {
     const svc = {
       async apply() {
@@ -41,7 +50,8 @@ async function run(): Promise<void> {
           action: "engaged" as const,
           skillId: "skill-finance",
           skillDisplayName: "Finance",
-          scenarioKey: null
+          scenarioKey: null,
+          scenarioDisplayName: null
         };
       }
     } as InternalRuntimeSkillStateService;
@@ -54,6 +64,34 @@ async function run(): Promise<void> {
       skillId: "skill-finance",
       skillDisplayName: "Finance",
       scenarioKey: null,
+      scenarioDisplayName: null,
+      previousSkillId: null
+    });
+  }
+
+  // --- engage OK (with scenario) ---
+  {
+    const svc = {
+      async apply() {
+        return {
+          action: "engaged" as const,
+          skillId: "skill-finance",
+          skillDisplayName: "Finance",
+          scenarioKey: "tax-advisory",
+          scenarioDisplayName: "Tax Advisory"
+        };
+      }
+    } as InternalRuntimeSkillStateService;
+
+    const controller = new InternalRuntimeSkillStateController(svc);
+    const result = await controller.updateState(AUTH_HEADER, ENGAGE_WITH_SCENARIO_BODY);
+    assert.deepEqual(result, {
+      ok: true,
+      action: "engaged",
+      skillId: "skill-finance",
+      skillDisplayName: "Finance",
+      scenarioKey: "tax-advisory",
+      scenarioDisplayName: "Tax Advisory",
       previousSkillId: null
     });
   }
@@ -77,6 +115,7 @@ async function run(): Promise<void> {
       skillId: null,
       skillDisplayName: null,
       scenarioKey: null,
+      scenarioDisplayName: null,
       previousSkillId: "skill-finance"
     });
   }
@@ -89,7 +128,8 @@ async function run(): Promise<void> {
           action: "engaged" as const,
           skillId: "skill-finance",
           skillDisplayName: "Finance",
-          scenarioKey: null
+          scenarioKey: null,
+          scenarioDisplayName: null
         };
       }
     } as InternalRuntimeSkillStateService;

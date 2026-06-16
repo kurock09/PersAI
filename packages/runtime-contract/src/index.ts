@@ -535,6 +535,7 @@ export interface RuntimeSkillDecisionState {
   activeSkillId: string | null;
   activeSkillName: string | null;
   activeScenarioKey: string | null;
+  activeScenarioDisplayName: string | null;
   topicSummary: string | null;
 }
 

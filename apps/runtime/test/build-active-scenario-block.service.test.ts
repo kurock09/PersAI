@@ -186,6 +186,7 @@ const activeStateWithScenario: RuntimeSkillDecisionState = {
   activeSkillId: "skill-marketer",
   activeSkillName: "Marketer",
   activeScenarioKey: "instagram_carousel",
+  activeScenarioDisplayName: "Instagram Carousel",
   topicSummary: null
 };
 
@@ -194,6 +195,7 @@ const activeStateNoScenario: RuntimeSkillDecisionState = {
   activeSkillId: "skill-marketer",
   activeSkillName: "Marketer",
   activeScenarioKey: null,
+  activeScenarioDisplayName: null,
   topicSummary: null
 };
 
@@ -202,6 +204,7 @@ const inactiveState: RuntimeSkillDecisionState = {
   activeSkillId: null,
   activeSkillName: null,
   activeScenarioKey: null,
+  activeScenarioDisplayName: null,
   topicSummary: null
 };
 

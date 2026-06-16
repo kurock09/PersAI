@@ -25,7 +25,8 @@ export class InternalRuntimeSkillStateController {
     action: string;
     skillId: string | null;
     skillDisplayName: string | null;
-    scenarioKey: null;
+    scenarioKey: string | null;
+    scenarioDisplayName: string | null;
     previousSkillId: string | null;
   }> {
     this.assertAuthorized(req);
@@ -37,7 +38,8 @@ export class InternalRuntimeSkillStateController {
         action: "engaged",
         skillId: result.skillId,
         skillDisplayName: result.skillDisplayName,
-        scenarioKey: null,
+        scenarioKey: result.scenarioKey,
+        scenarioDisplayName: result.scenarioDisplayName,
         previousSkillId: null
       };
     }
@@ -47,6 +49,7 @@ export class InternalRuntimeSkillStateController {
       skillId: null,
       skillDisplayName: null,
       scenarioKey: null,
+      scenarioDisplayName: null,
       previousSkillId: result.previousSkillId
     };
   }

@@ -3,6 +3,59 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-16 — ADR-118 Slice 7 landed — UX engagement indicator + selection-guide rule
+
+### Scope
+
+**A. Runtime-contract / Domain type extension**
+- `packages/runtime-contract/src/index.ts`: `RuntimeSkillDecisionState` + `activeScenarioDisplayName: string | null`.
+- `apps/api/.../domain/assistant-chat.entity.ts`: `AssistantChatSkillDecisionState` + `activeScenarioDisplayName`.
+- `apps/api/.../infrastructure/persistence/prisma-assistant-chat.repository.ts`: `parseSkillDecisionState` includes the new field.
+- `apps/api/.../application/web-chat-turn-attempt.service.ts`: `parseSkillDecisionState` includes the new field.
+
+**B. Internal skill state service / routing service**
+- `auto-skill-routing-state.service.ts`: `createInactiveSkillDecisionState` factory, `normalizeDecisionState`, and `shouldPersistSkillDecisionState` all include `activeScenarioDisplayName`.
+
+**C. API projection / types**
+- `web-chat.types.ts`: inline `skillDecisionState` shapes updated; `AssistantWebChatEngagementSummary` interface + `deriveEngagementSummary` helper added; `AssistantWebChatTurnState` extended with `engagementSummary?`.
+- `assistant-runtime.facade.ts`: inline `skillState` shape updated.
+- `send-web-chat-turn.service.ts`: derives and includes `engagementSummary` on turn completion.
+- `stream-web-chat-turn.service.ts`: derives and includes `engagementSummary` on `turn_completed` SSE event.
+
+**D. Web hook + component**
+- `use-chat.ts`: `ChatMessage.engagementSummary` field; `onCompleted` extracts from transport payload.
+- `chat-message.tsx`: `WorkingTextBlocks` gains `engagementSummary` prop; annotation renders inline to the right of the toggle — `<span data-testid="engagement-annotation">`, classes `flex min-w-0 items-center text-sm leading-relaxed text-text-subtle/60`, skill name with `shrink-0 whitespace-nowrap`, scenario with `truncate`, `·` separator, null = nothing.
+
+**E. Selection-guide rule**
+- `apps/api/prisma/bootstrap-preset-data.ts`: Skills rule added after `## Files`, before `## Deferred media honesty`. Deliberate one-time cache prefix invalidation.
+
+**F. Tests**
+- `apps/api/test/engagement-summary.derivation.test.ts` (new): 7 cases for `deriveEngagementSummary`.
+- `apps/web/app/app/_components/chat-message.test.tsx`: 6 new engagement annotation cases (skill-only, skill+scenario, absent-null, absent-undefined, same-row structural, not-in-block-body).
+- `apps/runtime/test/native-tool-projection.test.ts`: 4 new ADR-118 Slice 7 assertions for the Skills rule.
+- `apps/api/test/auto-skill-routing-state.service.test.ts`: `activeScenarioDisplayName` added to all `RuntimeSkillDecisionState` fixtures.
+- `apps/api/test/send-web-chat-turn.service.test.ts`: `activeScenarioDisplayName: null` in `skillDecisionState` mock.
+- `apps/runtime/test/build-active-scenario-block.service.test.ts`: all `RuntimeSkillDecisionState` fixtures updated.
+- `apps/runtime/test/turn-execution.service.test.ts`: 3 `RuntimeSkillDecisionState` fixtures updated.
+- `apps/runtime/test/turn-routing.service.test.ts`: 3 `RuntimeSkillDecisionState` fixtures updated.
+
+### Deviations / notes
+- `engagementSummary` is derived from `skillDecisionState` in the same turn-completion path (both streaming SSE and non-streaming). Historical messages loaded via history API carry the `engagementSummary` if the field was stored in the turn state at commit time — no separate DB column change needed (JSON field additive).
+- The `WorkingTextBlocks` component did not previously have a slot for annotations — the flex row was added as a new structural container wrapping both the toggle button and the new annotation span.
+- `bootstrap-preset-data.ts` cache prefix change is deliberate and noted here as the one-time Slice 7 invalidation.
+
+### Status
+- **Not committed, not deployed.** Deploy expected BEFORE Slice 8.
+
+### Verify gate
+- lint PASS; format:check PASS; runtime-contract typecheck PASS; api typecheck PASS; web typecheck PASS; runtime typecheck PASS; provider-gateway typecheck PASS; api test PASS (exit 0); runtime test PASS (ADR-117 golden test passes); web test PASS (777/777); provider-gateway test PASS (exit 0).
+
+### Next recommended step
+- **Deploy Slice 7** (Slices 1–7 uncommitted; entire Slice 1–7 stack ships together).
+- **ADR-118 Slice 8** (ADR closure + golden invariant tests) — after deploy confirmation.
+
+---
+
 ## 2026-06-16 — ADR-118 Slice 6 landed — full dead-code sweep (classifier / cadence / HTTP route / lexical-gate stack)
 
 ### Scope — Phase 1 (classifier / HTTP route / caller chain)

@@ -20,10 +20,11 @@ import {
 } from "./assistant-runtime.facade";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { Assistant } from "../domain/assistant.entity";
-import type {
-  AssistantWebChatMessageState,
-  AssistantWebChatState,
-  AssistantWebChatTurnState
+import {
+  deriveEngagementSummary,
+  type AssistantWebChatMessageState,
+  type AssistantWebChatState,
+  type AssistantWebChatTurnState
 } from "./web-chat.types";
 import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-turn.service";
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
@@ -807,6 +808,9 @@ export class StreamWebChatTurnService {
         runtimeStartedAtMs: primaryRuntimeStartedAt,
         firstDeltaMs: primaryFirstDeltaMs
       });
+      const streamEngagementSummary = deriveEngagementSummary(
+        refreshedChat.skillDecisionState as Parameters<typeof deriveEngagementSummary>[0]
+      );
       return {
         status: "completed",
         transport: {
@@ -839,6 +843,9 @@ export class StreamWebChatTurnService {
             : { followUpAssistantMessage: postRuntime.followUpAssistantMessage }),
           activeMediaJobs: postRuntime.activeMediaJobs,
           activeDocumentJobs: postRuntime.activeDocumentJobs,
+          ...(streamEngagementSummary !== null
+            ? { engagementSummary: streamEngagementSummary }
+            : {}),
           runtime: {
             respondedAt: respondedAt ?? new Date().toISOString(),
             degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
@@ -1659,6 +1666,12 @@ export class StreamWebChatTurnService {
           }),
       activeMediaJobs,
       activeDocumentJobs,
+      ...(() => {
+        const s = deriveEngagementSummary(
+          chat.skillDecisionState as Parameters<typeof deriveEngagementSummary>[0]
+        );
+        return s !== null ? { engagementSummary: s } : {};
+      })(),
       runtime: {
         respondedAt: state.respondedAt,
         degradedByQuotaFallback: state.degradedByQuotaFallback,

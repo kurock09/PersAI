@@ -787,12 +787,14 @@ function WorkingTextBlocks({
   blocks,
   isStreaming,
   startedAt,
-  finishedAt
+  finishedAt,
+  engagementSummary
 }: {
   blocks: string[];
   isStreaming: boolean;
   startedAt?: string | null | undefined;
   finishedAt?: string | null | undefined;
+  engagementSummary?: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
 }) {
   const visibleBlocks = blocks.filter((block) => block.trim().length > 0);
   const [expanded, setExpanded] = useState(isStreaming);
@@ -824,11 +826,11 @@ function WorkingTextBlocks({
   }
   return (
     <div className="mb-5">
-      <div>
+      <div className="flex items-center gap-2 overflow-hidden">
         <button
           type="button"
           onClick={() => setExpanded((current) => !current)}
-          className="group inline-flex items-center gap-1.5 text-sm leading-relaxed text-text-muted/72 transition-colors hover:text-text-muted"
+          className="group inline-flex shrink-0 items-center gap-1.5 text-sm leading-relaxed text-text-muted/72 transition-colors hover:text-text-muted"
           aria-expanded={expanded}
         >
           <span>
@@ -841,6 +843,22 @@ function WorkingTextBlocks({
             <ChevronDown className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
           )}
         </button>
+        {engagementSummary ? (
+          <span
+            className="flex min-w-0 items-center text-sm leading-relaxed text-text-subtle/60"
+            data-testid="engagement-annotation"
+          >
+            <span className="shrink-0 whitespace-nowrap">{engagementSummary.skillDisplayName}</span>
+            {engagementSummary.scenarioDisplayName ? (
+              <>
+                <span aria-hidden className="shrink-0 px-1">
+                  ·
+                </span>
+                <span className="truncate">{engagementSummary.scenarioDisplayName}</span>
+              </>
+            ) : null}
+          </span>
+        ) : null}
       </div>
       {expanded ? (
         <div className="mt-3">
@@ -1846,6 +1864,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               isStreaming={isStreaming}
               startedAt={message.thoughtStartedAt}
               finishedAt={message.thoughtFinishedAt}
+              engagementSummary={message.engagementSummary ?? null}
             />
             {isStreaming ? (
               <>

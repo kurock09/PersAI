@@ -53,6 +53,7 @@ async function run(): Promise<void> {
     activeSkillId: null,
     activeSkillName: null,
     activeScenarioKey: null,
+    activeScenarioDisplayName: null,
     topicSummary: "persai landing copy"
   });
 
@@ -62,6 +63,7 @@ async function run(): Promise<void> {
       activeSkillId: "skill-diet",
       activeSkillName: "Диетолог",
       activeScenarioKey: null,
+      activeScenarioDisplayName: null,
       topicSummary: "nutrition"
     }
   });
@@ -74,6 +76,7 @@ async function run(): Promise<void> {
         activeSkillId: "skill-diet",
         activeSkillName: "Диетолог",
         activeScenarioKey: null,
+        activeScenarioDisplayName: null,
         topicSummary: "nutrition"
       }
     }
@@ -84,6 +87,7 @@ async function run(): Promise<void> {
     activeSkillId: "skill-diet",
     activeSkillName: "Диетолог",
     activeScenarioKey: null,
+    activeScenarioDisplayName: null,
     topicSummary: "nutrition"
   });
 
@@ -97,6 +101,7 @@ async function run(): Promise<void> {
     activeSkillId: "skill-diet",
     activeSkillName: "Диетолог",
     activeScenarioKey: null,
+    activeScenarioDisplayName: null,
     topicSummary: "nutrition"
   });
 
@@ -108,6 +113,7 @@ async function run(): Promise<void> {
         activeSkillId: "skill-finance",
         activeSkillName: "Accountant",
         activeScenarioKey: null,
+        activeScenarioDisplayName: null,
         topicSummary: "quarterly tax categories"
       }
     }
@@ -118,6 +124,7 @@ async function run(): Promise<void> {
     activeSkillId: "skill-finance",
     activeSkillName: "Accountant",
     activeScenarioKey: null,
+    activeScenarioDisplayName: null,
     topicSummary: "quarterly tax categories"
   });
   assert.deepEqual(clearedForChats.at(-1), {

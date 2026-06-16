@@ -3347,6 +3347,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       activeSkillId: "skill-diet",
       activeSkillName: "Dietitian",
       activeScenarioKey: null,
+      activeScenarioDisplayName: null,
       topicSummary: "Nutrition principles"
     }
   };
@@ -3465,6 +3466,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       activeSkillId: "skill-diet",
       activeSkillName: "Dietitian",
       activeScenarioKey: null,
+      activeScenarioDisplayName: null,
       topicSummary: "Nutrition project audit"
     }
   };
@@ -3748,6 +3750,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       activeSkillId: "skill-diet",
       activeSkillName: "Диетолог",
       activeScenarioKey: null,
+      activeScenarioDisplayName: null,
       topicSummary: "Type 1 diabetes nutrition"
     }
   };

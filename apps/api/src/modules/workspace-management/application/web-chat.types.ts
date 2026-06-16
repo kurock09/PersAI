@@ -16,6 +16,7 @@ export interface AssistantWebChatState {
     activeSkillId: string | null;
     activeSkillName: string | null;
     activeScenarioKey: string | null;
+    activeScenarioDisplayName: string | null;
     topicSummary: string | null;
   } | null;
   archivedAt: string | null;
@@ -93,8 +94,31 @@ export interface AssistantWebChatTurnRoutingState {
     activeSkillId: string | null;
     activeSkillName: string | null;
     activeScenarioKey: string | null;
+    activeScenarioDisplayName: string | null;
     topicSummary: string | null;
   } | null;
+}
+
+export interface AssistantWebChatEngagementSummary {
+  skillDisplayName: string;
+  scenarioDisplayName: string | null;
+}
+
+export function deriveEngagementSummary(
+  skillDecisionState: AssistantWebChatState["skillDecisionState"]
+): AssistantWebChatEngagementSummary | null {
+  if (
+    skillDecisionState === null ||
+    skillDecisionState === undefined ||
+    skillDecisionState.status !== "active" ||
+    skillDecisionState.activeSkillName === null
+  ) {
+    return null;
+  }
+  return {
+    skillDisplayName: skillDecisionState.activeSkillName,
+    scenarioDisplayName: skillDecisionState.activeScenarioDisplayName ?? null
+  };
 }
 
 export interface AssistantWebChatTurnState {
@@ -104,6 +128,7 @@ export interface AssistantWebChatTurnState {
   followUpAssistantMessage?: AssistantWebChatMessageState;
   activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
   activeDocumentJobs?: AssistantWebChatActiveDocumentJobState[];
+  engagementSummary?: AssistantWebChatEngagementSummary | null;
   runtime: {
     respondedAt: string;
     degradedByQuotaFallback: boolean;

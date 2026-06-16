@@ -1742,6 +1742,28 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
     /# Tasks Policy/,
     `Selection guide presence: ${bootstrapPath} must not reintroduce a Tasks Policy section into the agents block`
   );
+  // ADR-118 Slice 7 — Skills rule must appear exactly once in the selection guide.
+  assert.match(
+    bootstrapSource,
+    /\*\*Skills\.\*\* If a Skill is enabled in the assistant's domain of the request/,
+    `ADR-118 Slice 7: ${bootstrapPath} must include the Skills selection-guide rule`
+  );
+  assert.match(
+    bootstrapSource,
+    /skill\(\{ action: "engage", skillId, scenarioKey\? \}\)/,
+    `ADR-118 Slice 7: Skills rule must reference the skill engage call signature`
+  );
+  assert.match(
+    bootstrapSource,
+    /skill\(\{ action: "release" \}\)/,
+    `ADR-118 Slice 7: Skills rule must reference the skill release call`
+  );
+  const skillsRuleOccurrences = (bootstrapSource.match(/\*\*Skills\.\*\*/g) ?? []).length;
+  assert.equal(
+    skillsRuleOccurrences,
+    1,
+    `ADR-118 Slice 7: Skills rule must appear exactly once in ${bootstrapPath}`
+  );
 
   // Rule A must NOT appear inline in the model-facing image tool descriptions.
   // (The projection test fixture produces tools via the real projection pipeline.)
