@@ -3,6 +3,67 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-16 — ADR-118 post-deploy hotfix (skill state write-race: tool engage was being silently reverted by post-turn turnRouting echo)
+
+### Root cause
+
+Model successfully called `skill({action:"engage", skillId:"131c1531-...", scenarioKey:"instagram_carousel"})` (verified via Function Call in the user UI) and the tool returned `{action:"engaged", ...}`. But on the NEXT turn no `<persai_active_scenario>` developer block appeared. DB inspection (`assistant_chats.skill_decision_state` for the most recent chat) showed `{status:"inactive", activeSkillId:null, activeScenarioKey:null}` — i.e. the tool's persisted ACTIVE state was overwritten with INACTIVE between tool execution and the next turn.
+
+Two writers on the same JSONB column inside one turn:
+- **Writer 1 (correct, ADR-118 owner):** `RuntimeSkillToolService.executeEngageWithScenario` → POST `/api/v1/internal/runtime/skill/state` → `InternalRuntimeSkillStateService.apply` → `AutoSkillRoutingStateService.persistFromTurnRouting({turnRouting:{skillState:active}})` → DB becomes ACTIVE.
+- **Writer 2 (stale echo, the bug):** turn-end pipeline → `complete-web-post-runtime-turn.persistWebTurnSkillStateAndQueueBackgroundCheck` → `AutoSkillRoutingStateService.persistFromTurnRouting({turnRouting: runtimeResponse.turnRouting})`. Post-Slice-6 `TurnRoutingService` always echoes back `request.skillStateContext.decision` as `routeDecision.skillState` (every code path: `skillState: currentSkillDecision` — line 565, 615, 653, 677, 694, 725, 746, 762). That echo is the snapshot from turn START (before the tool ran), i.e. INACTIVE. Writer 2 fires AFTER writer 1, overwriting ACTIVE → INACTIVE.
+
+### Fix
+
+Split the write surface into two methods with explicit, non-overlapping roles in `auto-skill-routing-state.service.ts`:
+- `persistFromTurnRouting({chatId, turnRouting})` is now **strictly read-only** and returns `readChatSkillState(chatId)` (the freshest DB value, which the tool may have just written). It exists only to feed `engagementSummary` derivation in the post-turn flow.
+- New `persistDecisionState({chatId, nextState})` is the **single authoritative writer**. It does the row write + `skillRetrievalStateService.clearForChatWhenSkillMismatches` in one logical step.
+
+`InternalRuntimeSkillStateService.apply` (the `/internal/runtime/skill/state` handler) switched from `persistFromTurnRouting({turnRouting:{skillState:next}})` to `persistDecisionState({chatId, nextState:next})` for both `engage` and `release` paths. The `persistDecisionIfChanged` / `shouldPersistSkillDecisionState` / `extractDecisionStateFromTurnRouting` orchestration that compared current vs next was deleted along with the write path — no need for "did it change" gating when the tool always passes a deliberate target state.
+
+### Test changes
+
+`apps/api/test/auto-skill-routing-state.service.test.ts` rewritten to lock in the new invariants:
+- `persistFromTurnRouting` produces ZERO writes even when `turnRouting.skillState` disagrees with the DB (was: would have written the stale echo).
+- `persistFromTurnRouting` returns the current DB state regardless of what `turnRouting.skillState` says.
+- `persistDecisionState` writes the new state AND calls `clearForChatWhenSkillMismatches` with the correct `activeSkillId` (the new active one on engage, `null` on release).
+- After a tool engage write, a subsequent `persistFromTurnRouting` call with a stale inactive echo still returns the active state from DB (the regression scenario, now locked).
+
+`apps/api/test/internal-runtime-skill-state.controller.test.ts`, `apps/api/test/send-web-chat-turn.service.test.ts`, `apps/api/test/stream-web-chat-turn.service.test.ts`: unchanged (they mock the service interface — only the implementation changed).
+
+### DB seeding (separate from the fix, same session)
+
+Per user request earlier in the session, 3 marketer SkillScenario rows seeded directly via a one-shot `kubectl exec`'d Prisma script into `persai-dev` DB:
+- Skill: Маркетолог `131c1531-5566-4ad2-9422-3b9b76f6d666` (category=work)
+- `instagram_carousel` (order=100), `content_plan_monthly` (order=200), `landing_audit` (order=300) — all `status="active"`
+- `configDirtyAt = NOW()` bumped on the 2 assistants that have the marketer Skill assigned, so the next turn rematerializes the bundle and the scenarios reach the cache prefix catalog
+- Temp scripts in `%TEMP%` and pod `/tmp` were deleted after run; nothing committed
+
+### Cache prefix invalidation
+
+None. This fix is a behaviour change in the API write path only; cache prefix bytes unchanged.
+
+### Gate green
+
+lint PASS · format:check PASS · api typecheck PASS · web typecheck PASS · `auto-skill-routing-state.service.test.ts` PASS · `internal-runtime-skill-state.controller.test.ts` PASS · `send-web-chat-turn.service.test.ts` PASS (11/11) · `stream-web-chat-turn.service.test.ts` PASS (14/14).
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/auto-skill-routing-state.service.ts` — split write path: `persistFromTurnRouting` becomes read-only; new public `persistDecisionState`; deleted `persistDecisionIfChanged`, `shouldPersistSkillDecisionState`.
+- `apps/api/src/modules/workspace-management/application/internal-runtime-skill-state.service.ts` — switched both engage and release branches to `persistDecisionState`; deleted the misleading `persistFromTurnRouting writes ... in one atomic step` comment.
+- `apps/api/test/auto-skill-routing-state.service.test.ts` — rewritten around new invariants.
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md` — this entry.
+
+### Risk
+
+Low. Tool-driven write path was already the only one carrying new information; the deleted write path was always a stale echo (proven: `TurnRoutingService` produces `routeDecision.skillState` exclusively from `currentSkillDecision = request.skillStateContext.decision`, no derived state, no classifier output to feed back). The two streaming/non-streaming web turn handlers still call `persistFromTurnRouting` for the engagement-summary read-through, which now returns the freshest DB value instead of echoing the runtime snapshot — net behavior is identical when no tool fires, correct when a tool fires.
+
+### Next recommended step
+
+User retests: turn 1 engages a scenario via the `skill` tool → turn 2's provider call should now contain the `<persai_active_scenario>` developer block. If still broken after deploy, check (1) bundle rematerialization actually ran for the assistant (`configDirtyAt` cleared, `scenarios[]` present in bundle), (2) DB shows `activeSkillId + activeScenarioKey` non-null after engage. The `inspect-skill-state.js` pattern from this session can be reused.
+
+---
+
 ## 2026-06-16 — ADR-118 post-Slice-7 production hotfix (Skill ID rendering + selection-guide expansion + `routingExamples` Slice-6 residual cleanup + Clerk middleware admin scenarios registration)
 
 ### Root cause

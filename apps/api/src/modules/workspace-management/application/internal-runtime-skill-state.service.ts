@@ -75,12 +75,7 @@ export class InternalRuntimeSkillStateService {
         activeScenarioDisplayName: null,
         topicSummary: currentState?.topicSummary ?? null
       };
-      // persistFromTurnRouting writes the decision state and calls
-      // skillRetrievalStateService.clearForChatWhenSkillMismatches in one atomic step.
-      await this.autoSkillRoutingStateService.persistFromTurnRouting({
-        chatId,
-        turnRouting: { skillState: nextState }
-      });
+      await this.autoSkillRoutingStateService.persistDecisionState({ chatId, nextState });
       return { action: "released", previousSkillId };
     }
 
@@ -122,10 +117,7 @@ export class InternalRuntimeSkillStateService {
       activeScenarioDisplayName,
       topicSummary: currentState?.topicSummary ?? null
     };
-    await this.autoSkillRoutingStateService.persistFromTurnRouting({
-      chatId,
-      turnRouting: { skillState: nextState }
-    });
+    await this.autoSkillRoutingStateService.persistDecisionState({ chatId, nextState });
 
     return {
       action: "engaged",

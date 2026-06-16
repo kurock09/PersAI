@@ -43,6 +43,17 @@ export class AutoSkillRoutingStateService {
     return this.normalizeDecisionState(input.turnRouting?.skillState);
   }
 
+  /**
+   * ADR-118: read-only path used by post-turn flows.
+   *
+   * The runtime-side `turnRouting.skillState` is always a snapshot of the input state at turn start
+   * (see TurnRoutingService — it never produces a new decision; it only echoes back
+   * `request.skillStateContext.decision`). Writing it back here would overwrite any state that
+   * `RuntimeSkillToolService` persisted in the same turn via `persistDecisionState`.
+   *
+   * Therefore this method does NOT write. It reads through to whatever the tool wrote (or to the
+   * untouched current state when no tool ran) and returns it for the engagement summary.
+   */
   async persistFromTurnRouting(input: {
     chatId: string;
     turnRouting:
@@ -54,58 +65,30 @@ export class AutoSkillRoutingStateService {
   }): Promise<{
     skillDecisionState: RuntimeSkillDecisionState | null;
   }> {
-    const current = await this.readChatSkillState(input.chatId);
-    const nextDecision = this.extractDecisionStateFromTurnRouting({
-      turnRouting: input.turnRouting
-    });
-    if (nextDecision === undefined) {
-      return current;
-    }
-    await this.persistDecisionIfChanged({
-      chatId: input.chatId,
-      currentDecision: current.skillDecisionState,
-      nextDecision
-    });
-    return { skillDecisionState: nextDecision };
+    return await this.readChatSkillState(input.chatId);
   }
 
-  private async persistDecisionIfChanged(input: {
+  /**
+   * ADR-118: the single authoritative write path for skill decision state.
+   * Called by `InternalRuntimeSkillStateService` when the model invokes the `skill` tool.
+   * Persists the new state and clears mismatching retrieval cache in one logical step.
+   */
+  async persistDecisionState(input: {
     chatId: string;
-    currentDecision: RuntimeSkillDecisionState | null;
-    nextDecision: RuntimeSkillDecisionState | null;
-  }): Promise<void> {
-    if (!this.shouldPersistSkillDecisionState(input.currentDecision, input.nextDecision)) {
-      return;
-    }
+    nextState: RuntimeSkillDecisionState | null;
+  }): Promise<{ skillDecisionState: RuntimeSkillDecisionState | null }> {
     await this.persistState({
       chatId: input.chatId,
-      skillDecisionState: input.nextDecision
+      skillDecisionState: input.nextState
     });
     await this.skillRetrievalStateService.clearForChatWhenSkillMismatches({
       chatId: input.chatId,
       activeSkillId:
-        input.nextDecision?.status === "active" ? input.nextDecision.activeSkillId : null
+        input.nextState !== null && input.nextState.status === "active"
+          ? input.nextState.activeSkillId
+          : null
     });
-  }
-
-  private shouldPersistSkillDecisionState(
-    currentState: RuntimeSkillDecisionState | null | undefined,
-    nextState: RuntimeSkillDecisionState | null
-  ): boolean {
-    if (currentState === undefined || currentState === null) {
-      return nextState !== null;
-    }
-    if (nextState === null) {
-      return true;
-    }
-    return (
-      currentState.status !== nextState.status ||
-      currentState.activeSkillId !== nextState.activeSkillId ||
-      currentState.activeSkillName !== nextState.activeSkillName ||
-      currentState.activeScenarioKey !== nextState.activeScenarioKey ||
-      currentState.activeScenarioDisplayName !== nextState.activeScenarioDisplayName ||
-      currentState.topicSummary !== nextState.topicSummary
-    );
+    return { skillDecisionState: input.nextState };
   }
 
   private async readChatSkillState(chatId: string): Promise<{
