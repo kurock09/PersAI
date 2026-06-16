@@ -20,6 +20,7 @@ import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
+import { RuntimeSkillToolService } from "./runtime-skill-tool.service";
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
 import { RuntimeBackgroundTaskEvaluationService } from "./runtime-background-task-evaluation.service";
@@ -68,6 +69,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeImageGenerateToolService,
     RuntimeKnowledgeToolService,
     RuntimeMemoryWriteToolService,
+    RuntimeSkillToolService,
     RuntimeQuotaStatusToolService,
     RuntimeVideoGenerateToolService,
     RuntimeBackgroundTaskToolService,
@@ -106,6 +108,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeImageGenerateToolService,
     RuntimeKnowledgeToolService,
     RuntimeMemoryWriteToolService,
+    RuntimeSkillToolService,
     RuntimeQuotaStatusToolService,
     RuntimeVideoGenerateToolService,
     RuntimeBackgroundTaskToolService,

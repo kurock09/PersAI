@@ -77,6 +77,21 @@ function createService({
 
 async function run(): Promise<void> {
   {
+    // ADR-118 Slice 2: skill tool must be in the catalog.
+    const skillEntry = TOOL_CATALOG.find((entry) => entry.code === "skill");
+    assert.ok(skillEntry, "skill must be present in TOOL_CATALOG");
+    assert.equal(skillEntry?.policyClass, "platform_managed");
+    assert.ok(
+      skillEntry?.modelDescription?.includes("Engage"),
+      "skill modelDescription must mention Engage"
+    );
+    assert.ok(
+      skillEntry?.modelUsageGuidance?.includes("engage"),
+      "skill guidance must mention engage action"
+    );
+  }
+
+  {
     const imageGenerate = TOOL_CATALOG.find((entry) => entry.code === "image_generate");
     const imageEdit = TOOL_CATALOG.find((entry) => entry.code === "image_edit");
     const videoGenerate = TOOL_CATALOG.find((entry) => entry.code === "video_generate");

@@ -394,6 +394,13 @@ export function projectRuntimeNativeTools(
   if (shellPolicy !== null) {
     projectedTools.push(createShellToolDefinition(shellPolicy));
   }
+  // ADR-118 Slice 2: skill tool is omitted when no Skills are enabled for this assistant.
+  // The schema is byte-stable per turn (no per-turn mutation based on chat state).
+  const skillPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "skill");
+  const enabledSkills = bundle.skills?.enabled ?? [];
+  if (skillPolicy !== null && enabledSkills.length > 0) {
+    projectedTools.push(createSkillToolDefinition(skillPolicy));
+  }
 
   return {
     tools: projectedTools,
@@ -1631,6 +1638,42 @@ function createShellToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         cwd: {
           type: "string",
           description: "Optional sandbox-relative working directory."
+        }
+      }
+    }
+  };
+}
+
+// ADR-118 Slice 2: skill tool projection. Schema is byte-stable per turn.
+// Slice 4 will surface the scenario catalog on the bundle; Slice 7 will extend
+// the selection guide to tell the model when to engage.
+function createSkillToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  return {
+    name: "skill",
+    description: resolveToolDefinitionDescription(
+      policy,
+      'Engage or release an enabled Skill for the current chat. Call skill({ action: "engage", skillId }) when the conversation enters a Skill domain. Call skill({ action: "release" }) when leaving. Do not re-engage if the Skill is already active with the same skillId.'
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action"],
+      properties: {
+        action: {
+          type: "string",
+          enum: ["engage", "release"],
+          description:
+            '"engage" activates a Skill (and optionally a scenario workflow). "release" deactivates the current Skill.'
+        },
+        skillId: {
+          type: "string",
+          description:
+            'Required when action is "engage". The id of the enabled Skill to activate. Must be one of the Skill ids listed in the Enabled Skills block.'
+        },
+        scenarioKey: {
+          type: "string",
+          description:
+            'Optional when action is "engage". The key of a specific scenario workflow to run within the Skill (e.g. "instagram_carousel"). If provided and the scenario exists, the tool result includes the structured steps. Omit for free-form domain discussion.'
         }
       }
     }

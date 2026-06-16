@@ -256,6 +256,20 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
+  },
+  {
+    id: "22222222-2222-2222-2222-222222222222",
+    code: "skill",
+    displayName: "Skill",
+    description:
+      "Engage or release an enabled Skill for the current chat. Used by the model to activate domain-specific retrieval priority and, optionally, a structured scenario workflow.",
+    modelDescription:
+      "Engage or release an enabled Skill for the current chat session. Use engage to activate a Skill's domain priority (and optionally a structured scenario workflow). Use release when the conversation leaves the domain.",
+    modelUsageGuidance:
+      'Call skill({ action: "engage", skillId }) at the first turn where the user\'s request falls in an enabled Skill\'s domain. Optionally pass scenarioKey to activate a structured scenario workflow. Call skill({ action: "release" }) when the conversation moves out of the domain. Do not re-engage if the Skill is already active with the same skillId. Only one Skill is active at a time.',
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "platform_managed"
   }
 ];
 

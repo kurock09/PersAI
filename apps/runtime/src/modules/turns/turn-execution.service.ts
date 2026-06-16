@@ -105,6 +105,7 @@ import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
+import { RuntimeSkillToolService } from "./runtime-skill-tool.service";
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
@@ -327,6 +328,7 @@ const REFUNDABLE_TOOL_REQUEST_REJECTION_REASONS = new Set<string>([
   "portrait_alias_unavailable"
 ]);
 const MEMORY_WRITE_TOOL_CODE = "memory_write";
+const SKILL_TOOL_CODE = "skill";
 const QUOTA_STATUS_TOOL_CODE = "quota_status";
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
 const BACKGROUND_TASK_TOOL_CODE = "background_task";
@@ -409,6 +411,7 @@ export class TurnExecutionService {
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
     private readonly runtimeTtsToolService: RuntimeTtsToolService,
     private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService,
+    private readonly runtimeSkillToolService: RuntimeSkillToolService,
     private readonly runtimeObservabilityService: RuntimeObservabilityService,
     private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService
   ) {}
@@ -2979,6 +2982,16 @@ export class TurnExecutionService {
           toolCall,
           conversation: acceptedTurn.session.conversation,
           currentUserMessageId,
+          requestId: acceptedTurn.receipt.requestId
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
+      case SKILL_TOOL_CODE: {
+        // ADR-118 Slice 2: model-owned Skill engage/release. Zero provider cost.
+        const result = await this.runtimeSkillToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          conversation: acceptedTurn.session.conversation,
           requestId: acceptedTurn.receipt.requestId
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);

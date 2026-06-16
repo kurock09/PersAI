@@ -62,7 +62,8 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   shell: "sandbox",
   persai_workspace_attach: "inline",
   persai_tool_quota_status: "inline",
-  cron: "worker"
+  cron: "worker",
+  skill: "inline"
 };
 
 const RUNTIME_TOOL_CODE_BY_INVENTORY_CODE: Record<string, string> = {
@@ -224,7 +225,8 @@ function hasNativeModelExecution(
     runtimeToolCode === "memory_write" ||
     runtimeToolCode === "quota_status" ||
     runtimeToolCode === "scheduled_action" ||
-    runtimeToolCode === "background_task"
+    runtimeToolCode === "background_task" ||
+    runtimeToolCode === "skill"
   ) {
     return true;
   }

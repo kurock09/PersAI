@@ -1281,6 +1281,60 @@ export class PersaiInternalApiClientService {
     );
   }
 
+  // ADR-118 Slice 2: skill tool internal API call.
+  async updateSkillState(input: {
+    assistantId: string;
+    channel: string;
+    surfaceThreadKey: string;
+    action: "engage" | "release";
+    skillId: string | null;
+    scenarioKey: string | null;
+  }): Promise<{
+    skillId: string;
+    skillDisplayName: string;
+    previousSkillId: string | null;
+  }> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/skill/state", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      if (payload?.ok === true) {
+        return {
+          skillId: typeof payload.skillId === "string" ? payload.skillId : "",
+          skillDisplayName:
+            typeof payload.skillDisplayName === "string" ? payload.skillDisplayName : "",
+          previousSkillId:
+            typeof payload.previousSkillId === "string" ? payload.previousSkillId : null
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid skill state response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API skill state request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the skill state request."
+    );
+  }
+
   async closeMostSimilarOpenLoop(
     input: InternalCloseMostSimilarOpenLoopInput
   ): Promise<InternalCloseMostSimilarOpenLoopOutcome> {

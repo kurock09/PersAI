@@ -57,6 +57,7 @@ import { InternalRuntimeCrossSessionMarkFiredController } from "./interface/http
 import { InternalRuntimeTaskRegistryController } from "./interface/http/internal-runtime-task-registry.controller";
 import { InternalRuntimeBackgroundTasksController } from "./interface/http/internal-runtime-background-tasks.controller";
 import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
+import { InternalRuntimeSkillStateController } from "./interface/http/internal-runtime-skill-state.controller";
 import { InternalSmokeReceiptsController } from "./interface/http/internal-smoke-receipts.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
@@ -203,6 +204,7 @@ import { OrchestrateRuntimeRetrievalService } from "./application/orchestrate-ru
 import { SkillRetrievalPolicyService } from "./application/skill-retrieval-policy.service";
 import { SkillRetrievalStateService } from "./application/skill-retrieval-state.service";
 import { AutoSkillRoutingStateService } from "./application/auto-skill-routing-state.service";
+import { InternalRuntimeSkillStateService } from "./application/internal-runtime-skill-state.service";
 import { WriteAssistantMemoryService } from "./application/write-assistant-memory.service";
 import { HydrateMemoryForTurnService } from "./application/hydrate-memory-for-turn.service";
 import { CloseMostSimilarOpenLoopService } from "./application/close-most-similar-open-loop.service";
@@ -454,6 +456,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeTaskRegistryController,
     InternalRuntimeBackgroundTasksController,
     InternalRuntimeToolQuotaController,
+    InternalRuntimeSkillStateController,
     InternalSmokeReceiptsController,
     AdminForceReapplyController,
     MediaAttachmentController,
@@ -623,6 +626,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     SkillRetrievalPolicyService,
     SkillRetrievalStateService,
     AutoSkillRoutingStateService,
+    InternalRuntimeSkillStateService,
     WriteAssistantMemoryService,
     HydrateMemoryForTurnService,
     CloseMostSimilarOpenLoopService,

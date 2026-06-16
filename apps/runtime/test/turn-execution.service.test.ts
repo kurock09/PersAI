@@ -60,6 +60,7 @@ import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { RuntimeKnowledgeToolService } from "../src/modules/turns/runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "../src/modules/turns/runtime-memory-write-tool.service";
+import { RuntimeSkillToolService } from "../src/modules/turns/runtime-skill-tool.service";
 import { RuntimeQuotaStatusToolService } from "../src/modules/turns/runtime-quota-status-tool.service";
 import { RuntimeBackgroundTaskToolService } from "../src/modules/turns/runtime-background-task-tool.service";
 import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-scheduled-action-tool.service";
@@ -2173,6 +2174,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeMemoryWriteToolService = new RuntimeMemoryWriteToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
+  const runtimeSkillToolService = new RuntimeSkillToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
   const runtimeQuotaStatusToolService = new RuntimeQuotaStatusToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
@@ -2234,6 +2238,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService,
+    runtimeSkillToolService,
     runtimeObservabilityService,
     runtimeExecutionAdmissionService
   );
@@ -2401,6 +2406,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService,
+    runtimeSkillToolService,
     runtimeObservabilityService,
     runtimeExecutionAdmissionService
   );
@@ -2474,6 +2480,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService,
+    runtimeSkillToolService,
     runtimeObservabilityService,
     runtimeExecutionAdmissionService
   );
@@ -7641,6 +7648,7 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
     null as never, // runtimeScheduledActionToolService
     null as never, // runtimeTtsToolService
     null as never, // runtimeVideoGenerateToolService
+    null as never, // runtimeSkillToolService
     null as never, // runtimeObservabilityService
     null as never // runtimeExecutionAdmissionService
   );

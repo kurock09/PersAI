@@ -1488,6 +1488,102 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     undefined,
     "Slice 10c projection: mode field must NOT appear in schema when video_generate_talking_avatar ref is absent"
   );
+
+  // ADR-118 Slice 2: skill tool projection tests.
+  // When bundle has no skills.enabled, the skill tool must NOT appear.
+  // (The fixture above has no skills in the bundle, so skill should be absent.)
+  {
+    const skillTool = projected.tools.find((t) => t.name === "skill");
+    assert.equal(
+      skillTool,
+      undefined,
+      "ADR-118 Slice 2: skill tool must NOT be projected when bundle has no enabled Skills"
+    );
+  }
+
+  // When bundle has skills.enabled + a matching policy, the skill tool IS projected.
+  {
+    const bundleWithSkills = compileAssistantRuntimeBundle({
+      metadata: artifact.bundle.metadata,
+      persona: artifact.bundle.persona,
+      userContext: artifact.bundle.userContext,
+      runtime: artifact.bundle.runtime,
+      governance: {
+        ...artifact.bundle.governance,
+        toolPolicies: [
+          ...(artifact.bundle.governance.toolPolicies ?? []),
+          {
+            toolCode: "skill",
+            displayName: "Skill",
+            description: "Engage or release a Skill.",
+            usageGuidance: null,
+            kind: "system",
+            executionMode: "inline",
+            usageRule: "allowed",
+            enabled: true,
+            visibleToModel: true,
+            visibleInPlanEditor: false,
+            dailyCallLimit: null
+          }
+        ]
+      },
+      channels: artifact.bundle.channels,
+      skills: {
+        enabled: [
+          {
+            id: "skill-finance",
+            name: "Finance",
+            description: null,
+            category: "general",
+            tags: []
+          }
+        ]
+      },
+      promptDocuments: artifact.bundle.promptDocuments
+    });
+
+    const projectedWithSkill = projectRuntimeNativeTools(bundleWithSkills.bundle);
+    const skillTool = projectedWithSkill.tools.find((t) => t.name === "skill");
+    assert.ok(
+      skillTool,
+      "ADR-118 Slice 2: skill tool MUST be projected when bundle has at least one enabled Skill and a matching policy"
+    );
+    // Schema has the action property with engage/release enum
+    const schema = skillTool?.inputSchema as {
+      properties?: {
+        action?: { enum?: unknown[] };
+        skillId?: { type?: string };
+        scenarioKey?: { type?: string };
+      };
+    };
+    assert.ok(
+      Array.isArray(schema?.properties?.action?.enum) &&
+        schema.properties.action.enum.includes("engage") &&
+        schema.properties.action.enum.includes("release"),
+      "skill tool schema must have action enum with engage and release"
+    );
+    assert.equal(
+      schema?.properties?.skillId?.type,
+      "string",
+      "skill tool schema must have skillId of type string"
+    );
+    assert.equal(
+      schema?.properties?.scenarioKey?.type,
+      "string",
+      "skill tool schema must have scenarioKey of type string"
+    );
+    // The description should be stable and not empty
+    assert.ok(
+      skillTool?.description && skillTool.description.length > 0,
+      "skill tool must have a non-empty description"
+    );
+    // Schema must be byte-stable: no per-turn mutation (additionalProperties: false)
+    assert.equal(
+      (skillTool?.inputSchema as { additionalProperties?: unknown })?.additionalProperties,
+      false,
+      "skill tool schema must have additionalProperties: false"
+    );
+  }
 }
 
 /**

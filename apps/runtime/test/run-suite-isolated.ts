@@ -74,6 +74,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     modulePath: "./runtime-memory-write-tool.service.test.ts",
     exportName: "runRuntimeMemoryWriteToolServiceTest"
   },
+  {
+    modulePath: "./runtime-skill-tool.service.test.ts",
+    exportName: "runRuntimeSkillToolServiceTest"
+  },
   { modulePath: "./session-store.service.test.ts", exportName: "runSessionStoreServiceTest" },
   { modulePath: "./session-lease.service.test.ts", exportName: "runSessionLeaseServiceTest" },
   {
