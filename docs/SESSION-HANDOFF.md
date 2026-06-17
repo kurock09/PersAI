@@ -3,6 +3,117 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-17 — Production hotfix: Anthropic provider gateway (non-streaming refusal for high max_tokens + maxItems rejected by structured output)
+
+### Root cause
+
+Two independent regressions in `@anthropic-ai/sdk@0.87.0` consumption by `apps/provider-gateway` were observed on `persai-dev` between 21:00 and 06:13 UTC+3 on 2026-06-16/17 (Loki / `kubectl logs`):
+
+**Bug 1 — non-streaming refused when `max_tokens` projects > 10 min:**
+
+```
+Streaming is required for operations that may take longer than 10 minutes.
+See https://github.com/anthropics/anthropic-sdk-typescript#long-requests for more details
+```
+
+Thrown synchronously from `Anthropic.calculateNonstreamingTimeout` (`@anthropic-ai/sdk@0.87.0` client.js:425) before any network call. The SDK precomputes wall-time from `max_tokens` × model token rate. PersAI hits this on PDF content generation in `runtime-document-provider-adapter.service.ts` (caps at `DEFENSIVE_OUTPUT_TOKEN_CAP = 64_000`) AND on the LLM document failure-framing fallback (~220 tokens normally, but routes through the same code path) — net effect: user got `Ассистент временно недоступен. Попробуйте ещё раз.` instead of any real reply (one of `runtime_degraded` / `runtime_unreachable` / `assistant_turn_failed` from `system-copy-catalog.ts`, all mapped to the same string).
+
+**Bug 2 — `maxItems` rejected on `array` type in `output_config.format.schema`:**
+
+```
+400 invalid_request_error: output_config.format.schema:
+For 'array' type, property 'maxItems' is not supported
+```
+
+Anthropic's structured-output schema does not accept `maxItems` (or `minItems`) on array types. Three call sites used it as a soft cap that was already re-enforced server-side after the model returned:
+
+- `apps/runtime/src/modules/turns/auto-extract-to-memory.service.ts:59` — `AUTO_EXTRACT_OUTPUT_SCHEMA.items.maxItems = AUTO_EXTRACT_SOFT_CAP`. Killed the auto-extract background loop every run (~minute cadence), visible as `[auto-extract] Provider call failed for session ... Provider gateway request failed with status 500.` in runtime logs and as `[PersaiBackgroundCompactionSchedulerService] Background compaction job <uuid> deferred for retry (attempt 1, code=provider_error)` retry chains in api logs.
+- `apps/runtime/src/modules/turns/shared-compaction-state.ts:71` — `REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA.properties[*].maxItems = MAX_SECTION_ITEMS`. Killed all durable shared-compaction calls.
+- `apps/api/src/modules/workspace-management/application/generate-skill-authoring-draft.service.ts:260` — `knowledgeCards.maxItems = 5`. Would have killed admin Skill authoring drafts if routed via Anthropic; less visible because the codepath is admin-triggered.
+
+### User-visible symptom timeline
+
+From the founder's `nica` Telegram chat (captured verbatim in the user prompt that opened this slice):
+
+```
+> Alex: Собери подробный pdf
+> Nica: Запрос принят. Готовлю документ и пришлю его отдельно, когда он будет готов.
+> Alex: Еще в работе?
+> Nica: Запрос принят. Готовлю документ и пришлю его отдельно, когда он будет готов.
+> Alex: Делай MD тогда
+> Nica: Ассистент временно недоступен. Попробуйте ещё раз.
+```
+
+3 PDF enqueues all logged as `POST /api/v1/internal/runtime/document-jobs/enqueue 202` in api logs at 23:01:10, 23:03:14, 23:04:35; all 3 immediately triggered `AssistantDocumentJobCompletionTurnService: LLM document failure-framing call failed ... Document-job runtime returned HTTP 400` — the failure-framing LLM call itself crashed under Bug 1, so the user got the generic copy.
+
+### Fix
+
+Both fixes are in `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`. Caller-facing API of `generateText` / `streamText` is unchanged.
+
+**Fix A — Bug 1.** Replace `this.client.messages.create(payload, { signal })` (lines 153-155 pre-fix) with the streaming-aggregation pattern:
+
+```ts
+const stream = this.client.messages.stream(payload, { signal });
+const response = (await stream.finalMessage()) as AnthropicNonStreamingMessage;
+```
+
+`messages.stream()` returns a `MessageStream`; `await stream.finalMessage()` resolves to a fully-assembled `Message` identical in shape to `messages.create()` (same `content`, `stop_reason`, `usage`). The underlying connection is streaming so the SDK's `calculateNonstreamingTimeout` 10-min refusal is bypassed. All downstream logic (`parseAnthropicToolCalls`, `extractAnthropicText`, `anthropic_empty_completion` warn, `toUsageSnapshot`, both tool_calls and completed return branches) preserved verbatim. `streamText()` untouched.
+
+**Fix B — Bug 2.** New private `sanitizeAnthropicStructuredOutputSchema(value: unknown): unknown` walks the schema recursively. For each plain object it constructs a new object skipping keys `maxItems` and `minItems`; for arrays it maps over elements; primitives and `null` pass through. Does NOT mutate the caller's input (verified in tests). `toAnthropicOutputConfig` now calls it before sending and casts the result back to `Record<string, unknown>` (TS sees the input schema as that type from the contract). Tool input schemas (`tools[].input_schema`) untouched — Anthropic accepts `maxItems` there, only `output_config.format.schema` is restricted.
+
+Server-side caller validation that was previously paired with the schema cap is **kept** in both `auto-extract-to-memory.service.ts` (post-response validator drops candidates over the cap) and `shared-compaction-state.ts` (post-response `normalizeReusableCompactionSections` truncates oversize sections). Behaviour is identical when the model returns ≤ cap items; for over-cap returns, the cap is enforced one layer later instead of failing the entire call with a 400.
+
+### Tests
+
+`apps/provider-gateway/test/anthropic-provider.client.test.ts`:
+- Restubbed `installFakeAnthropic` to expose both `client.messages.stream(...).finalMessage()` (new non-streaming path) and `client.messages.create(...)` (still used by `streamText` via the `stream: true` payload branch); `create` now throws if called without `stream: true` to guard against regressions.
+- New test: `generateText` with `maxOutputTokens: 32_000` succeeds — was throwing before this fix.
+- New test: structured request with `outputSchema.schema.properties.items = { type: "array", maxItems: 5, minItems: 1, items: { type: "string" } }` → sent payload's `output_config.format.schema.properties.items.maxItems` and `.minItems` are `undefined`; deep `items.items.type === "string"` preserved; the **original** schema object still has `maxItems: 5` and `minItems: 1` after the call (no mutation).
+- New test: nested schema with `properties.outer = { type: "array", maxItems: 3, items: { type: "object", properties: { inner: { type: "array", maxItems: 7, minItems: 2, items: { ... } } } } }` → `maxItems` stripped at both levels; deepest leaf preserved; original input unchanged at both levels.
+- New test: empty-completion path with the new `finalMessage()` source still triggers `anthropic_empty_completion` warn with `event` + `stopReason` fields.
+
+`apps/provider-gateway/test/anthropic-empty-completion.test.ts`: fake client extended to expose both `stream` and `create` so the legacy stream-path stubs continue working.
+
+Sub-agent left `AbortSignal!.signal` reads as optional-chained which TypeScript narrowed to `never` in strict mode (`Property 'signal' does not exist on type 'never'`) — switched to `!` non-null assertions in two places (lines 320-321, 332) and one warn-event read (1041-1042). Schema sanitizer return type cast to `Record<string, unknown>` in `toAnthropicOutputConfig` to satisfy `ProviderGatewayStructuredOutputSchema.schema` typing.
+
+### Cache prefix invalidation
+
+None. This fix is internal to the provider-gateway request construction layer; system-prefix bytes are unchanged.
+
+### Gate green
+
+- recursive `corepack pnpm -r --if-present run lint` — PASS (14 packages, none skipped)
+- `corepack pnpm run format:check` — PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` — PASS
+- `corepack pnpm --filter @persai/provider-gateway run test` — PASS (exit 0; both `anthropic_empty_completion` warns triggered as expected by tests; `openai_empty_completion` tests also pass)
+- `corepack pnpm --filter @persai/api run typecheck` — PASS
+- `corepack pnpm --filter @persai/web run typecheck` — PASS
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` — Bug 1: switched non-streaming `messages.create` → `messages.stream().finalMessage()`. Bug 2: new `sanitizeAnthropicStructuredOutputSchema` private method; wired into `toAnthropicOutputConfig`.
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts` — restubbed for `messages.stream` path; new tests for high `max_tokens`, schema sanitization (single-level and nested), no-mutation, empty-completion under new path. Sub-agent's `?.` reads switched to `!` non-null assertions where TS narrowed too aggressively after closure capture.
+- `apps/provider-gateway/test/anthropic-empty-completion.test.ts` — fake client extended to expose both `stream` and `create`.
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md` — this entry.
+
+### Risk
+
+Low. The streaming-internal path is the SDK-documented long-form pattern (the error message in Bug 1 explicitly redirects to it); `finalMessage()` produces the same `Message` shape so all downstream parsing/usage/warn paths are unchanged. Schema sanitization is additive and only removes fields Anthropic was already rejecting; caller-side validators still enforce the same caps. Behaviour at small `max_tokens` (≤1024 default for routing / micro-description / failure-framing) is unchanged — the stream returns the full message just as `create` would have.
+
+### Out-of-scope follow-ups
+
+- **Founder owns**: bump `SANDBOX_RUNNING_JOB_GRACE_MS` from `15000` in `infra/helm/values-dev.yaml` and `infra/helm/values.yaml`. The 15-second stale threshold killed `tool=files` workspace operations at 23:08:25 and 23:09:25 during this incident (workspace-hydrate with stale-derivative cleanup can legitimately exceed 15 s). Founder said they would handle this directly.
+- ADR-119 implementation work is paused; this hotfix did not touch ADR-119.
+
+### Next recommended step
+
+1. **Deploy provider-gateway** to `persai-dev` (selective pin, image tag from this commit) — no schema/migration changes, low-risk path. After rollout, observe Loki for the next 10 minutes: there should be ZERO new `Streaming is required` errors and ZERO `output_config.format.schema: For 'array' type, property 'maxItems' is not supported` errors. AutoExtractToMemoryService should start succeeding again (`[auto-extract] success`-style log, currently absent). BackgroundCompactionScheduler should stop entering `attempt N` retry chains for `code=provider_error`.
+2. **Live re-test PDF in `nica` Telegram chat** with the founder's same prompt ("Собери подробный pdf"). Expected: real document delivery (no infinite "Запрос принят…" loop, no "Ассистент временно недоступен"). If the document worker fails for any non-Anthropic reason, the failure-framing LLM call should now succeed and produce an honest user-visible explanation.
+3. **Then** founder bumps `SANDBOX_RUNNING_JOB_GRACE_MS` separately.
+4. **Then** resume ADR-119 Slice 0 (architecture inventory) per the plan agreed in the prior turn.
+
+---
+
 ## 2026-06-16 — ADR-118 post-deploy hotfix (skill state write-race: tool engage was being silently reverted by post-turn turnRouting echo)
 
 ### Root cause

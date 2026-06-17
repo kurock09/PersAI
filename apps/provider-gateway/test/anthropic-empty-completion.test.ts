@@ -47,11 +47,17 @@ function installFakeAnthropic(
   (
     client as unknown as {
       client: {
-        messages: { create: (payload: unknown, options?: unknown) => Promise<unknown> };
+        messages: {
+          stream: (payload: unknown, options?: unknown) => { finalMessage: () => Promise<unknown> };
+          create: (payload: unknown, options?: unknown) => Promise<unknown>;
+        };
       };
     }
   ).client = {
     messages: {
+      stream: () => ({
+        finalMessage: async () => responseFactory()
+      }),
       create: async () => responseFactory()
     }
   };

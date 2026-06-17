@@ -85,11 +85,15 @@ function assertNoDeveloperRole(messages: unknown): void {
 export async function runAnthropicProviderClientTest(): Promise<void> {
   const client = new AnthropicProviderClient(createConfig());
   let capturedGeneratePayload: {
+    max_tokens?: unknown;
     messages?: unknown;
     system?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
     output_config?: unknown;
+  } | null = null;
+  let capturedGenerateOptions: {
+    signal?: AbortSignal;
   } | null = null;
   let capturedStreamPayload: {
     messages?: unknown;
@@ -109,52 +113,72 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   ) => {
     (client as unknown as { client: unknown }).client = {
       messages: {
-        create: async (payload: {
-          stream?: boolean;
-          messages: unknown;
-          tools?: unknown;
-          tool_choice?: unknown;
-        }) => {
-          if (payload.stream) {
-            capturedStreamPayload = payload as unknown as Record<string, unknown>;
-            return createStream(payload);
+        stream: (
+          payload: {
+            max_tokens?: unknown;
+            messages: unknown;
+            system?: unknown;
+            tools?: unknown;
+            tool_choice?: unknown;
+            output_config?: unknown;
+          },
+          options?: {
+            signal?: AbortSignal;
           }
+        ) => {
           capturedGeneratePayload = payload as unknown as Record<string, unknown>;
+          capturedGenerateOptions = options ?? null;
           if (payload.tools !== undefined) {
             return {
+              finalMessage: async () => ({
+                content: [
+                  {
+                    type: "tool_use",
+                    id: "toolu_1",
+                    name: "knowledge_fetch",
+                    input: {
+                      source: "memory",
+                      referenceId: "memory-1"
+                    }
+                  }
+                ],
+                usage: {
+                  input_tokens: 10,
+                  cache_creation_input_tokens: 4,
+                  cache_read_input_tokens: 6,
+                  output_tokens: 2
+                }
+              })
+            };
+          }
+          return {
+            finalMessage: async () => ({
               content: [
                 {
-                  type: "tool_use",
-                  id: "toolu_1",
-                  name: "knowledge_fetch",
-                  input: {
-                    source: "memory",
-                    referenceId: "memory-1"
-                  }
+                  type: "text",
+                  text: "done"
                 }
               ],
               usage: {
                 input_tokens: 10,
                 cache_creation_input_tokens: 4,
                 cache_read_input_tokens: 6,
-                output_tokens: 2
+                output_tokens: 5
               }
-            };
-          }
-          return {
-            content: [
-              {
-                type: "text",
-                text: "done"
-              }
-            ],
-            usage: {
-              input_tokens: 10,
-              cache_creation_input_tokens: 4,
-              cache_read_input_tokens: 6,
-              output_tokens: 5
-            }
+            })
           };
+        },
+        create: async (payload: {
+          stream?: boolean;
+          messages: unknown;
+          tools?: unknown;
+          tool_choice?: unknown;
+        }) => {
+          if (!payload.stream) {
+            throw new Error("Unexpected non-streaming messages.create call in test.");
+          }
+          capturedStreamPayload = payload as unknown as Record<string, unknown>;
+          return createStream(payload);
         }
       }
     };
@@ -292,8 +316,20 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     }
   ]);
   assert.equal(capturedGeneratePayload!.system, "Be concise.");
+  assert.equal(capturedGeneratePayload!.max_tokens, 1_024);
+  assert.ok(capturedGenerateOptions!.signal instanceof AbortSignal);
+  assert.equal(capturedGenerateOptions!.signal!.aborted, false);
   assertNoDeveloperRole(capturedGeneratePayload!.messages);
   const baselineGenerateMessages = capturedGeneratePayload!.messages;
+
+  const highMaxTokensRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    maxOutputTokens: 32_000
+  };
+  const highMaxTokensResult = await client.generateText(highMaxTokensRequest);
+  assert.equal(highMaxTokensResult.text, "done");
+  assert.equal(capturedGeneratePayload!.max_tokens, 32_000);
+  assert.ok(capturedGenerateOptions!.signal instanceof AbortSignal);
 
   const structuredRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
@@ -335,6 +371,117 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       }
     }
   });
+
+  const sanitizationSourceSchema = {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        maxItems: 5,
+        minItems: 1,
+        items: {
+          type: "string"
+        }
+      }
+    }
+  };
+  const sanitizedStructuredRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    outputSchema: {
+      name: "x",
+      description: "x",
+      strict: true,
+      schema: sanitizationSourceSchema
+    }
+  };
+  await client.generateText(sanitizedStructuredRequest);
+  const sanitizedSchema = (
+    capturedGeneratePayload!.output_config as {
+      format?: { schema?: Record<string, unknown> };
+    }
+  ).format?.schema as {
+    properties?: {
+      items?: {
+        type?: unknown;
+        maxItems?: unknown;
+        minItems?: unknown;
+        items?: { type?: unknown };
+      };
+    };
+  };
+  assert.equal(sanitizedSchema.properties?.items?.type, "array");
+  assert.equal(sanitizedSchema.properties?.items?.maxItems, undefined);
+  assert.equal(sanitizedSchema.properties?.items?.minItems, undefined);
+  assert.equal(sanitizedSchema.properties?.items?.items?.type, "string");
+  assert.equal(sanitizationSourceSchema.properties.items.maxItems, 5);
+  assert.equal(sanitizationSourceSchema.properties.items.minItems, 1);
+
+  const nestedSanitizationSourceSchema = {
+    type: "object",
+    properties: {
+      outer: {
+        type: "array",
+        maxItems: 3,
+        items: {
+          type: "object",
+          properties: {
+            inner: {
+              type: "array",
+              maxItems: 7,
+              minItems: 2,
+              items: {
+                type: "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+  await client.generateText({
+    ...request,
+    outputSchema: {
+      name: "nested",
+      strict: true,
+      schema: nestedSanitizationSourceSchema
+    }
+  });
+  const nestedSanitizedSchema = (
+    capturedGeneratePayload!.output_config as {
+      format?: { schema?: Record<string, unknown> };
+    }
+  ).format?.schema as {
+    properties?: {
+      outer?: {
+        maxItems?: unknown;
+        items?: {
+          properties?: {
+            inner?: {
+              maxItems?: unknown;
+              minItems?: unknown;
+              items?: { type?: unknown };
+            };
+          };
+        };
+      };
+    };
+  };
+  assert.equal(nestedSanitizedSchema.properties?.outer?.maxItems, undefined);
+  assert.equal(
+    nestedSanitizedSchema.properties?.outer?.items?.properties?.inner?.maxItems,
+    undefined
+  );
+  assert.equal(
+    nestedSanitizedSchema.properties?.outer?.items?.properties?.inner?.minItems,
+    undefined
+  );
+  assert.equal(
+    nestedSanitizedSchema.properties?.outer?.items?.properties?.inner?.items?.type,
+    "string"
+  );
+  assert.equal(nestedSanitizationSourceSchema.properties.outer.maxItems, 3);
+  assert.equal(nestedSanitizationSourceSchema.properties.outer.items.properties.inner.maxItems, 7);
+  assert.equal(nestedSanitizationSourceSchema.properties.outer.items.properties.inner.minItems, 2);
 
   const toolRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
@@ -845,6 +992,50 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       ]
     }
   ]);
+
+  let warnedEmptyCompletion: Record<string, unknown> | null = null;
+  (client as unknown as { logger: { warn: (value: Record<string, unknown>) => void } }).logger = {
+    warn: (value) => {
+      warnedEmptyCompletion = value;
+    }
+  };
+  (client as unknown as { client: unknown }).client = {
+    messages: {
+      stream: () => ({
+        finalMessage: async () => ({
+          content: [
+            {
+              type: "text",
+              text: "   "
+            }
+          ],
+          stop_reason: "end_turn",
+          usage: {
+            input_tokens: 3,
+            output_tokens: 0
+          }
+        })
+      }),
+      create: async (payload: {
+        stream?: boolean;
+        messages: unknown;
+        tools?: unknown;
+        tool_choice?: unknown;
+      }) => {
+        if (!payload.stream) {
+          throw new Error("Unexpected non-streaming messages.create call in test.");
+        }
+        capturedStreamPayload = payload as unknown as Record<string, unknown>;
+        return createDefaultStream(payload);
+      }
+    }
+  };
+  const emptyCompletionResult = await client.generateText(request);
+  assert.equal(emptyCompletionResult.text, null);
+  assert.equal(warnedEmptyCompletion!.event, "anthropic_empty_completion");
+  assert.equal(warnedEmptyCompletion!.stopReason, "end_turn");
+
+  installFakeAnthropic(createDefaultStream);
 
   const stream = await client.streamText(request);
   const events = await collectStream(stream);

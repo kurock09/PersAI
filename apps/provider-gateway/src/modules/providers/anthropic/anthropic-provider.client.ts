@@ -150,9 +150,8 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       if (outputConfig !== undefined) {
         payload.output_config = outputConfig;
       }
-      const response = (await this.client.messages.create(payload, {
-        signal
-      })) as AnthropicNonStreamingMessage;
+      const stream = this.client.messages.stream(payload, { signal });
+      const response = (await stream.finalMessage()) as AnthropicNonStreamingMessage;
       const toolCalls = this.parseAnthropicToolCalls(response.content);
       if (toolCalls.length > 0) {
         return {
@@ -820,9 +819,30 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     return {
       format: {
         type: "json_schema",
-        schema: outputSchema.schema
+        schema: this.sanitizeAnthropicStructuredOutputSchema(outputSchema.schema) as Record<
+          string,
+          unknown
+        >
       }
     };
+  }
+
+  private sanitizeAnthropicStructuredOutputSchema(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.sanitizeAnthropicStructuredOutputSchema(item));
+    }
+    const objectValue = this.asObject(value);
+    if (objectValue === null) {
+      return value;
+    }
+    const next: Record<string, unknown> = {};
+    for (const [key, entryValue] of Object.entries(objectValue)) {
+      if (key === "maxItems" || key === "minItems") {
+        continue;
+      }
+      next[key] = this.sanitizeAnthropicStructuredOutputSchema(entryValue);
+    }
+    return next;
   }
 
   private parseAnthropicToolCalls(
