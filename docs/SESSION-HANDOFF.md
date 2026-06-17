@@ -3,6 +3,40 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-17 — ADR-119 Slice 0 (inventory ledger, read-only) landed; provider-gateway hotfix deployed
+
+### Slice 0 ledger summary
+
+Read-only subagent produced `docs/ADR/119-prompt-inventory.md` — 1062-line ledger covering every prompt-section writer (W1-W41 detailed), 15 `bootstrap-preset-data.ts` template constants, 7 tool-descriptor surfaces, 5 volatile-context kinds with end-to-end traces, selection-guide single-seat verification, persona compiler duplication audit (the [F1] failure mode), 12 future-slice hit lists, 10 risks, and 8 reachability spot-checks with file:line citations. Orchestrator audit: spot-checks 1-8 all match real code. Gate green (format:check + lint).
+
+### Risks folded back from the ledger (actionable for executor subagents)
+
+The ledger surfaced 10 risks. The 6 most material ones must adjust the executor-subagent prompts for Slices 1-9:
+
+- **R4** — OpenAI today uses `payload.instructions = input.systemPrompt` in both non-streaming (`openai-provider.client.ts:197-199`) and streaming (`openai-provider.client.ts:979-981`). ADR-119 mandates `developer` role inside `input[]` for cache-friendliness. **Slice 2 must include this request-shape migration explicitly**, with behavior risk noted (Responses API treats `developer` role differently from `instructions`).
+
+- **R5** — `parallel_tool_calls = true` is hardcoded whenever tools exist (`openai-provider.client.ts:203-206`, `openai-provider.client.ts:985-988`). **Slice 2 test plan must cover both `skillsEnabled=false` (current behavior preserved) and `skillsEnabled=true` (parallel disabled) cases** to prevent accidental global disable.
+
+- **R6** — Anthropic today emits ONE `cache_control` marker on the whole `systemPrompt` string (`anthropic-provider.client.ts:591-604`). **Slice 2 needs compiled offset metadata** (character positions or pre-split text blocks) from the runtime bundle to split safely into 3 BP boundaries — the provider client cannot infer semantic boundaries from a blob.
+
+- **R8** — Enabled Skills prefix still renders `card.body` + `guardrails` + `examples` (`enabled-skills-prompt-materialization.ts:128-140`). **Slice 3 progressive disclosure must move all three into the `skill({engage})` tool response in the same deploy** — otherwise the model loses access to instruction bodies after Slice 3 lands.
+
+- **R10** — `buildOpenAIInputItems` currently passes all volatile messages as one batch assuming same wrapper (`openai-provider.client.ts:1390-1393`). **Before Slices 4/5/9 add new `volatileKind` values** (`retrieved_knowledge`, `system-reminder`, `environment`, possibly renamed memory), provider clients must group/sort volatile messages by kind or preserve individual wrappers — current batching breaks if mixed kinds arrive in one turn.
+
+- **R7** — `skill_state_classifier` prompt template (orphaned by ADR-118 Slice 6 cadence/classifier deletion) is still seeded at `bootstrap-preset-data.ts:226-240` and materialized into `promptDocuments.skillStateClassifier` at `materialize-assistant-published-version.service.ts:1017-1018`. Adjacent to prompt surface even though unused. **Either fold into Slice 11 closure or schedule a separate micro-slice** — orchestrator note for future planning.
+
+The remaining risks (R1, R2, R3, R9) are textual ADR clarifications (the kind exists today vs introduced; retrieved knowledge migration path; environment migration; background-worker prompt scope) — orchestrator will fold these into the ADR text in the next slice that touches it.
+
+### Provider-gateway hotfix (earlier this session, already deployed)
+
+`7637ba48` on `origin/main`. See "Anthropic provider gateway hotfix" entry in `docs/CHANGELOG.md`. PDF jobs, AutoExtractToMemoryService, and SessionCompactionService unblocked.
+
+### Next recommended step
+
+Execute **ADR-119 Slice 0.5 — Anthropic gateway observability** via executor subagent. Goal: add `[anthropic-stream-start]` and `[anthropic-non-stream-start]` metadata lines mirroring OpenAI's, plus env-flag-gated body dump with base64 redaction. This is foundational for observing Slices 1-11 prompt structure changes from gateway logs. After Slice 0.5 lands and verifies, proceed to Slice 1 (XML compile output + persona deduplication, HIGH risk, batched with Slice 2 in same materialization rollout). Use the ledger Section 7 Slice 0.5 hit list as the file-touch contract.
+
+---
+
 ## 2026-06-17 — Production hotfix: Anthropic provider gateway (non-streaming refusal for high max_tokens + maxItems rejected by structured output)
 
 ### Root cause
