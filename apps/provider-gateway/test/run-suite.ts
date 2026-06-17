@@ -7,6 +7,7 @@ import { runAnthropicProviderClientTest } from "./anthropic-provider.client.test
 import { runAnthropicEmptyCompletionTest } from "./anthropic-empty-completion.test";
 import { runOpenAIProviderClientTest } from "./openai-provider.client.test";
 import { runOpenAIEmptyCompletionTest } from "./openai-empty-completion.test";
+import { runProviderDebugPayloadLoggerTest } from "./provider-debug-payload-logger.test";
 import { runProviderGatewayConfigTest } from "./provider-gateway-config.test";
 import { runProviderTextGenerationControllerTest } from "./provider-text-generation.controller.test";
 import { runProviderTextGenerationServiceTest } from "./provider-text-generation.service.test";
@@ -27,6 +28,7 @@ import { runElevenLabsV3TagCompilerTest } from "./elevenlabs-v3-tag-compiler.tes
 
 async function run(): Promise<void> {
   await runProviderGatewayConfigTest();
+  await runProviderDebugPayloadLoggerTest();
   await runElevenLabsV3TagCompilerTest();
   await runElevenLabsProviderClientTest();
   await runAnthropicProviderClientTest();

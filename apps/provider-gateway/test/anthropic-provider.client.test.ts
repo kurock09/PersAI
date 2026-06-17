@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Logger } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayTextGenerateRequest,
@@ -82,8 +83,63 @@ function assertNoDeveloperRole(messages: unknown): void {
   }
 }
 
+async function withEnv<T>(
+  env: Record<string, string | undefined>,
+  fn: () => Promise<T> | T
+): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(env)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+async function withDebugCapture<T>(fn: (events: unknown[]) => Promise<T> | T): Promise<T> {
+  const events: unknown[] = [];
+  const prototype = Logger.prototype as unknown as {
+    debug(message: unknown): void;
+  };
+  const originalDebug = prototype.debug;
+  prototype.debug = (message: unknown) => {
+    events.push(message);
+  };
+  try {
+    return await fn(events);
+  } finally {
+    prototype.debug = originalDebug;
+  }
+}
+
 export async function runAnthropicProviderClientTest(): Promise<void> {
   const client = new AnthropicProviderClient(createConfig());
+  const logMessages: string[] = [];
+  const callOrder: string[] = [];
+  (
+    client as unknown as {
+      logger: { log: (message: string) => void; warn: (value: Record<string, unknown>) => void };
+    }
+  ).logger = {
+    log: (message) => {
+      logMessages.push(message);
+      callOrder.push(`log:${message}`);
+    },
+    warn: () => {}
+  };
   let capturedGeneratePayload: {
     max_tokens?: unknown;
     messages?: unknown;
@@ -126,6 +182,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
             signal?: AbortSignal;
           }
         ) => {
+          callOrder.push("sdk:generate");
           capturedGeneratePayload = payload as unknown as Record<string, unknown>;
           capturedGenerateOptions = options ?? null;
           if (payload.tools !== undefined) {
@@ -177,6 +234,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
           if (!payload.stream) {
             throw new Error("Unexpected non-streaming messages.create call in test.");
           }
+          callOrder.push("sdk:stream");
           capturedStreamPayload = payload as unknown as Record<string, unknown>;
           return createStream(payload);
         }
@@ -267,7 +325,63 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   installFakeAnthropic(createDefaultStream);
 
   const request = createRequest();
-  const result = await client.generateText(request);
+  request.requestMetadata = {
+    classification: "main_turn",
+    runtimeRequestId: "anthropic-request-1",
+    runtimeSessionId: "anthropic-session-1",
+    toolLoopIteration: 0,
+    compactionToolCode: null
+  };
+  const initialLogCount = logMessages.length;
+  const initialOrderCount = callOrder.length;
+  const result = await withEnv(
+    {
+      PERSAI_DEBUG_PROVIDER_PAYLOAD: undefined,
+      PERSAI_DEBUG_PROVIDER_PAYLOAD_RATE: undefined
+    },
+    () =>
+      withDebugCapture(async (debugEvents) => {
+        const generateResult = await client.generateText(request);
+        assert.equal(debugEvents.length, 0);
+        return generateResult;
+      })
+  );
+  const generateStartLog = logMessages
+    .slice(initialLogCount)
+    .find((message) => message.startsWith("[anthropic-non-stream-start]"));
+  assert.match(
+    generateStartLog ?? "",
+    /^\[anthropic-non-stream-start\] requestId=.* model=.* systemBlockCount=\d+ cacheBreakpoints=\d+ messageCount=\d+ toolCount=\d+ toolHistoryCount=\d+$/
+  );
+  const firstGenerateLogOrderIndex = callOrder
+    .slice(initialOrderCount)
+    .findIndex((entry) => entry.startsWith("log:[anthropic-non-stream-start]"));
+  const firstGenerateSdkOrderIndex = callOrder
+    .slice(initialOrderCount)
+    .findIndex((entry) => entry === "sdk:generate");
+  assert.ok(firstGenerateLogOrderIndex >= 0);
+  assert.ok(firstGenerateSdkOrderIndex >= 0);
+  assert.ok(firstGenerateLogOrderIndex < firstGenerateSdkOrderIndex);
+  await withEnv(
+    {
+      PERSAI_DEBUG_PROVIDER_PAYLOAD: "true",
+      PERSAI_DEBUG_PROVIDER_PAYLOAD_RATE: "1.0"
+    },
+    () =>
+      withDebugCapture(async (debugEvents) => {
+        await client.generateText(request);
+        const dumpEvent = debugEvents.find(
+          (event): event is { event?: unknown; provider?: unknown; requestId?: unknown } =>
+            event !== null &&
+            typeof event === "object" &&
+            (event as { event?: unknown }).event === "provider_payload_dump"
+        );
+        assert.equal(dumpEvent?.provider, "anthropic");
+        assert.equal(dumpEvent?.requestId, "anthropic-request-1");
+        assert.ok(Array.isArray((dumpEvent as { messages?: unknown }).messages));
+        assert.ok((dumpEvent as { system?: unknown }).system);
+      })
+  );
   assert.equal(result.text, "done");
   assert.equal(result.stopReason, "completed");
   assert.deepEqual(result.usage, {
@@ -994,7 +1108,15 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   ]);
 
   let warnedEmptyCompletion: Record<string, unknown> | null = null;
-  (client as unknown as { logger: { warn: (value: Record<string, unknown>) => void } }).logger = {
+  (
+    client as unknown as {
+      logger: { log: (message: string) => void; warn: (value: Record<string, unknown>) => void };
+    }
+  ).logger = {
+    log: (message) => {
+      logMessages.push(message);
+      callOrder.push(`log:${message}`);
+    },
     warn: (value) => {
       warnedEmptyCompletion = value;
     }
@@ -1037,8 +1159,26 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
 
   installFakeAnthropic(createDefaultStream);
 
+  const streamLogCount = logMessages.length;
+  const streamOrderCount = callOrder.length;
   const stream = await client.streamText(request);
   const events = await collectStream(stream);
+  const streamStartLog = logMessages
+    .slice(streamLogCount)
+    .find((message) => message.startsWith("[anthropic-stream-start]"));
+  assert.match(
+    streamStartLog ?? "",
+    /^\[anthropic-stream-start\] requestId=.* model=.* systemBlockCount=\d+ cacheBreakpoints=\d+ messageCount=\d+ toolCount=\d+ toolHistoryCount=\d+$/
+  );
+  const firstStreamLogOrderIndex = callOrder
+    .slice(streamOrderCount)
+    .findIndex((entry) => entry.startsWith("log:[anthropic-stream-start]"));
+  const firstStreamSdkOrderIndex = callOrder
+    .slice(streamOrderCount)
+    .findIndex((entry) => entry === "sdk:stream");
+  assert.ok(firstStreamLogOrderIndex >= 0);
+  assert.ok(firstStreamSdkOrderIndex >= 0);
+  assert.ok(firstStreamLogOrderIndex < firstStreamSdkOrderIndex);
   assert.deepEqual(capturedStreamPayload!.messages, baselineGenerateMessages);
   assert.equal(capturedStreamPayload!.system, "Be concise.");
   assertNoDeveloperRole(capturedStreamPayload!.messages);

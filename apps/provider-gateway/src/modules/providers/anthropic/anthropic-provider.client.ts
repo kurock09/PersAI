@@ -14,6 +14,10 @@ import type {
 import Anthropic from "@anthropic-ai/sdk";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 import type { ProviderWarmableClient } from "../provider-client.types";
+import {
+  PROVIDER_DEBUG_LOGGER_NAME,
+  ProviderDebugPayloadLogger
+} from "../provider-debug-payload-logger";
 
 type AnthropicCreateMessageParams = Parameters<Anthropic["messages"]["create"]>[0];
 type AnthropicNonStreamingCreateMessageParams = Exclude<
@@ -87,6 +91,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   readonly provider = "anthropic" as const;
   readonly catalogSource = "bootstrap_config" as const;
   private readonly logger = new Logger(AnthropicProviderClient.name);
+  private readonly debugPayloadLogger = new ProviderDebugPayloadLogger(PROVIDER_DEBUG_LOGGER_NAME);
   private client: Anthropic | null = null;
 
   constructor(@Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig) {}
@@ -150,6 +155,14 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       if (outputConfig !== undefined) {
         payload.output_config = outputConfig;
       }
+      this.logAnthropicRequestStart("anthropic-non-stream-start", input, payload);
+      this.debugPayloadLogger.dumpRequest({
+        provider: "anthropic",
+        requestId: input.requestMetadata?.runtimeRequestId ?? "unknown",
+        payload,
+        systemPromptText: this.extractAnthropicSystemPromptText(payload.system),
+        messages: Array.isArray(payload.messages) ? payload.messages : []
+      });
       const stream = this.client.messages.stream(payload, { signal });
       const response = (await stream.finalMessage()) as AnthropicNonStreamingMessage;
       const toolCalls = this.parseAnthropicToolCalls(response.content);
@@ -246,6 +259,14 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       if (outputConfig !== undefined) {
         payload.output_config = outputConfig;
       }
+      this.logAnthropicRequestStart("anthropic-stream-start", input, payload);
+      this.debugPayloadLogger.dumpRequest({
+        provider: "anthropic",
+        requestId: input.requestMetadata?.runtimeRequestId ?? "unknown",
+        payload,
+        systemPromptText: this.extractAnthropicSystemPromptText(payload.system),
+        messages: Array.isArray(payload.messages) ? payload.messages : []
+      });
       const stream = (await this.client.messages.create(
         payload as unknown as AnthropicCreateMessageParams,
         { signal: timedSignal }
@@ -445,6 +466,84 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     } finally {
       dispose();
     }
+  }
+
+  private logAnthropicRequestStart(
+    tag: "anthropic-non-stream-start" | "anthropic-stream-start",
+    input: ProviderGatewayTextGenerateRequest,
+    payload: { system?: unknown; messages?: unknown; tools?: unknown }
+  ): void {
+    this.logger.log(
+      `[${tag}] requestId=${input.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${
+        input.requestMetadata?.classification ?? "unknown"
+      } iteration=${
+        input.requestMetadata?.toolLoopIteration === null ||
+        input.requestMetadata?.toolLoopIteration === undefined
+          ? "null"
+          : String(input.requestMetadata.toolLoopIteration)
+      } model=${input.model} systemBlockCount=${String(
+        this.countAnthropicSystemBlocks(payload.system)
+      )} cacheBreakpoints=${String(
+        this.countAnthropicCacheBreakpoints(payload, input)
+      )} messageCount=${String(Array.isArray(payload.messages) ? payload.messages.length : 0)} toolCount=${String(
+        input.tools?.length ?? 0
+      )} toolHistoryCount=${String(input.toolHistory?.length ?? 0)}`
+    );
+  }
+
+  private countAnthropicSystemBlocks(system: unknown): number {
+    if (system === undefined || system === null) {
+      return 0;
+    }
+    if (Array.isArray(system)) {
+      return system.length;
+    }
+    return typeof system === "string" ? 1 : 0;
+  }
+
+  private countAnthropicCacheBreakpoints(
+    payload: { system?: unknown; tools?: unknown },
+    input: ProviderGatewayTextGenerateRequest
+  ): number {
+    const count =
+      this.countCacheControlMarkers(payload.system) + this.countCacheControlMarkers(payload.tools);
+    if (count === 0 && typeof payload.system === "string" && input.promptCache !== undefined) {
+      return 1;
+    }
+    return count;
+  }
+
+  private countCacheControlMarkers(value: unknown): number {
+    if (Array.isArray(value)) {
+      return value.reduce((total, item) => total + this.countCacheControlMarkers(item), 0);
+    }
+    const row = this.asObject(value);
+    if (row === null) {
+      return 0;
+    }
+    return (
+      (row.cache_control !== undefined ? 1 : 0) +
+      Object.entries(row)
+        .filter(([key]) => key !== "cache_control")
+        .reduce((total, [, entryValue]) => total + this.countCacheControlMarkers(entryValue), 0)
+    );
+  }
+
+  private extractAnthropicSystemPromptText(system: unknown): string | null {
+    if (typeof system === "string") {
+      return system;
+    }
+    if (!Array.isArray(system)) {
+      return null;
+    }
+    const text = system
+      .map((block) => {
+        const row = this.asObject(block);
+        return typeof row?.text === "string" ? row.text : null;
+      })
+      .filter((entry): entry is string => entry !== null && entry.length > 0)
+      .join("\n\n");
+    return text.length > 0 ? text : null;
   }
 
   private toUsageSnapshot(

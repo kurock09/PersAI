@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, Logger } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayImageEditRequest,
@@ -82,6 +82,48 @@ async function collectStream(
     events.push(event);
   }
   return events;
+}
+
+async function withEnv<T>(
+  env: Record<string, string | undefined>,
+  fn: () => Promise<T> | T
+): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(env)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+async function withDebugCapture<T>(fn: (events: unknown[]) => Promise<T> | T): Promise<T> {
+  const events: unknown[] = [];
+  const prototype = Logger.prototype as unknown as {
+    debug(message: unknown): void;
+  };
+  const originalDebug = prototype.debug;
+  prototype.debug = (message: unknown) => {
+    events.push(message);
+  };
+  try {
+    return await fn(events);
+  } finally {
+    prototype.debug = originalDebug;
+  }
 }
 
 function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
@@ -508,6 +550,37 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   assert.equal(capturedGeneratePayload!.prompt_cache_key, "persai:ordinary_chat:bundle-hash-1:b03");
   assert.equal(capturedGeneratePayload!.prompt_cache_retention, "in_memory");
   const baselineGenerateInput = capturedGeneratePayload!.input as unknown[];
+  await withEnv(
+    {
+      PERSAI_DEBUG_PROVIDER_PAYLOAD: undefined,
+      PERSAI_DEBUG_PROVIDER_PAYLOAD_RATE: undefined
+    },
+    () =>
+      withDebugCapture(async (debugEvents) => {
+        await client.generateText(request);
+        assert.equal(debugEvents.length, 0);
+      })
+  );
+  await withEnv(
+    {
+      PERSAI_DEBUG_PROVIDER_PAYLOAD: "true",
+      PERSAI_DEBUG_PROVIDER_PAYLOAD_RATE: "1.0"
+    },
+    () =>
+      withDebugCapture(async (debugEvents) => {
+        await client.generateText(request);
+        const dumpEvent = debugEvents.find(
+          (event): event is { event?: unknown; provider?: unknown; requestId?: unknown } =>
+            event !== null &&
+            typeof event === "object" &&
+            (event as { event?: unknown }).event === "provider_payload_dump"
+        );
+        assert.equal(dumpEvent?.provider, "openai");
+        assert.equal(dumpEvent?.requestId, "request-1");
+        assert.ok((dumpEvent as { system?: unknown }).system);
+        assert.ok(Array.isArray((dumpEvent as { messages?: unknown }).messages));
+      })
+  );
 
   await client.generateText({
     ...request,
@@ -723,6 +796,26 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   assert.deepEqual(
     events.map((event) => event.type),
     ["keepalive", "text_delta", "completed"]
+  );
+  await withEnv(
+    {
+      PERSAI_DEBUG_PROVIDER_PAYLOAD: "true",
+      PERSAI_DEBUG_PROVIDER_PAYLOAD_RATE: "1.0"
+    },
+    () =>
+      withDebugCapture(async (debugEvents) => {
+        const debugStream = await client.streamText(request);
+        await collectStream(debugStream);
+        const dumpEvent = debugEvents.find(
+          (event): event is { event?: unknown; provider?: unknown; requestId?: unknown } =>
+            event !== null &&
+            typeof event === "object" &&
+            (event as { event?: unknown }).event === "provider_payload_dump"
+        );
+        assert.equal(dumpEvent?.provider, "openai");
+        assert.equal(dumpEvent?.requestId, "request-1");
+        assert.ok(Array.isArray((dumpEvent as { messages?: unknown }).messages));
+      })
   );
 
   const structuredStream = await client.streamText(structuredRequest);

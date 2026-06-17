@@ -3,6 +3,55 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-17 — ADR-119 Slice 0.5 landed (Anthropic gateway observability)
+
+### Root cause
+
+OpenAI already emitted `[openai-stream-start]` operational metadata for streaming Responses calls, but Anthropic emitted no per-request start metadata on either caller-facing `generateText()` or `streamText()` path. That asymmetry would make ADR-119 prompt-architecture slices hard to observe and compare across providers. Slice 0.5 also required a safe, flag-gated body-dump channel before request-shape refactors start landing.
+
+### Fix
+
+`apps/provider-gateway` now emits always-on INFO start lines before both Anthropic SDK invocations:
+
+- `[anthropic-non-stream-start]` for caller-facing `generateText()` (even though it uses `messages.stream(...).finalMessage()` internally after the provider hotfix).
+- `[anthropic-stream-start]` for `streamText()`.
+
+Both lines include request id, classification, tool-loop iteration, model, system block count, cache breakpoint count, message count, tool count, and tool-history count derived from the assembled Anthropic payload. A shared `ProviderDebugPayloadLogger` now gates provider body dumps behind `PERSAI_DEBUG_PROVIDER_PAYLOAD === "true"` and samples via `PERSAI_DEBUG_PROVIDER_PAYLOAD_RATE` (default/sanitized fallback `0.05`). It uses the separate logger name `persai.debug.provider`, truncates system/message/tool previews, and redacts base64 image/document inputs to `<redacted:<mime>:base64:LENGTH=N>`. OpenAI now calls the same dump helper on its non-streaming and streaming Responses paths while keeping existing metadata behavior.
+
+### Tests
+
+Full Slice 0.5 verification gate passed:
+
+- `corepack pnpm --filter @persai/provider-gateway run lint`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm run format:check`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/provider-debug-payload-logger.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/test/provider-debug-payload-logger.test.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risk
+
+Low with flags off: production behavior is unchanged except for small Anthropic INFO metadata lines. The meaningful risk is accidental prompt/body exposure when debugging is enabled; mitigations are exact-string env gating, sampling, dedicated logger name, truncation, and base64 redaction. Operator follow-up: configure Loki retention for the `persai.debug.provider` channel at 3 days; no Helm/infra files were edited in this slice.
+
+### Next recommended step
+
+Slice 1: XML compile output + persona deduplication.
+
+---
+
 ## 2026-06-17 — ADR-119 Slice 0 (inventory ledger, read-only) landed; provider-gateway hotfix deployed
 
 ### Slice 0 ledger summary

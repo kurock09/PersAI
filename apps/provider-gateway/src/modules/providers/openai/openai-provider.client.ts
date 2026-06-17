@@ -37,6 +37,10 @@ import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 import type { ProviderWarmableClient } from "../provider-client.types";
 import { PersaiInternalApiClientService } from "../persai-internal-api.client.service";
 import { URL } from "node:url";
+import {
+  PROVIDER_DEBUG_LOGGER_NAME,
+  ProviderDebugPayloadLogger
+} from "../provider-debug-payload-logger";
 
 const OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 const OPENAI_IMAGE_GENERATION_MODEL = "gpt-image-1";
@@ -144,6 +148,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   readonly provider = "openai" as const;
   readonly catalogSource = "bootstrap_config" as const;
   private readonly logger = new Logger(OpenAIProviderClient.name);
+  private readonly debugPayloadLogger = new ProviderDebugPayloadLogger(PROVIDER_DEBUG_LOGGER_NAME);
   private client: OpenAI | null = null;
 
   constructor(
@@ -217,6 +222,13 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         ).metadata = metadata;
       }
       this.applyOpenAIPromptCache(payload as Record<string, unknown>, input);
+      this.debugPayloadLogger.dumpRequest({
+        provider: "openai",
+        requestId: input.requestMetadata?.runtimeRequestId ?? "unknown",
+        payload,
+        systemPromptText: this.extractOpenAISystemPromptText(payload),
+        messages: Array.isArray(payload.input) ? payload.input : []
+      });
       const response = (await this.client.responses.create(payload, {
         signal
       })) as OpenAINonStreamingResponse;
@@ -1005,6 +1017,13 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
             : String(input.requestMetadata.toolLoopIteration)
         } model=${input.model} toolCount=${String(input.tools?.length ?? 0)} toolHistoryCount=${String(input.toolHistory?.length ?? 0)}`
       );
+      this.debugPayloadLogger.dumpRequest({
+        provider: "openai",
+        requestId: input.requestMetadata?.runtimeRequestId ?? "unknown",
+        payload,
+        systemPromptText: this.extractOpenAISystemPromptText(payload),
+        messages: Array.isArray(payload.input) ? payload.input : []
+      });
       const stream = (await this.client.responses.create(
         payload as unknown as OpenAIResponseCreateParams,
         {
@@ -1510,6 +1529,46 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     if (promptCache?.retention !== undefined) {
       payload.prompt_cache_retention = promptCache.retention;
     }
+  }
+
+  private extractOpenAISystemPromptText(payload: {
+    instructions?: unknown;
+    input?: unknown;
+  }): string | null {
+    if (typeof payload.instructions === "string" && payload.instructions.length > 0) {
+      return payload.instructions;
+    }
+    if (!Array.isArray(payload.input)) {
+      return null;
+    }
+    const text = payload.input
+      .map((item) => {
+        const row = this.asObject(item);
+        if (row?.role !== "developer") {
+          return null;
+        }
+        return this.extractOpenAIContentText(row.content);
+      })
+      .filter((entry): entry is string => entry !== null && entry.length > 0)
+      .join("\n\n");
+    return text.length > 0 ? text : null;
+  }
+
+  private extractOpenAIContentText(content: unknown): string | null {
+    if (typeof content === "string") {
+      return content;
+    }
+    if (!Array.isArray(content)) {
+      return null;
+    }
+    const text = content
+      .map((block) => {
+        const row = this.asObject(block);
+        return typeof row?.text === "string" ? row.text : null;
+      })
+      .filter((entry): entry is string => entry !== null && entry.length > 0)
+      .join("\n\n");
+    return text.length > 0 ? text : null;
   }
 
   private toOpenAIMetadata(
