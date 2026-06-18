@@ -1498,6 +1498,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   assert.doesNotMatch(reminderText, /<recent_short_memory>/);
   assert.doesNotMatch(reminderText, /<persai_active_scenario>/);
 
+  // ADR-119 Golden Test 4 — Provider request payload flags (Anthropic).
   // ADR-119 Slice 2 — disable_parallel_tool_use + per-block cache markers
 
   // skillsEnabled: true + tools → tool_choice: {type:"auto", disable_parallel_tool_use: true} (generateText)

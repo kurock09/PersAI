@@ -139,6 +139,29 @@ The built-in PersAI Product Overview and Product Principles documents are no lon
 
 Assistant-assisted Skill authoring currently returns a transient draft proposal rather than a persisted `KnowledgeAuthoringDraft` row. The proposal can fill editable Skill draft fields and draft-only knowledge-card editor content; durable `Skill` / `SkillKnowledgeCard` rows are written only when the admin explicitly saves, and runtime retrieval remains gated by `active` lifecycle plus indexing readiness.
 
+## ADR-119 schema additions
+
+The following columns were added by ADR-119 migrations. Both are additive and reversible:
+
+**`AssistantMemoryRegistryItem.provenance`** (`assistant_memory_registry_items.provenance`):
+- Type: `AssistantMemoryProvenance` enum — values: `user_explicit`, `system_inferred`, `auto_extracted`, `legacy`.
+- Added by migration `20260618153000_adr119_memory_provenance`.
+- Default `legacy` used as backfill for all pre-existing rows.
+- Write paths: `WriteAssistantMemoryService` defaults to `system_inferred` when absent; `ManageAssistantWorkspaceMemoryService` uses `user_explicit`; `AutoExtractToMemoryService` uses `auto_extracted`; `RuntimeMemoryWriteToolService` uses `system_inferred`.
+- Rendered in `<persai_memory>` volatile-context block as the `provenance` XML attribute on each `<entry>` element. See `formatDurableMemoryContextualBlock` in `prompt-cache-stable-blocks.ts`.
+
+**`SkillScenario.firstStepPreview`** (`skill_scenarios.first_step_preview`):
+- Type: `VARCHAR(200)`, nullable.
+- Added by migration `20260618160000_adr119_first_step_preview`.
+- Default `null`; `null` means the catalog preview auto-derives from `steps[0].directive`.
+- When non-null/non-empty, the value is rendered verbatim as `<first_step_preview>` in the AOT cached `<enabled_skills>` catalog block, letting admins override the model-visible step-1 summary without editing the full scenario steps.
+
+**`SkillScenarioStep` JSON shape additions** (no migration — `steps` is a JSON column on `skill_scenarios`):
+- `expectedUserResponse?: string | null` — what the model should expect the user to provide to satisfy this step (ADR-119 Slice 4).
+- `nextStepTrigger?: string | null` — explicit transition condition; when true the model advances to the next step (ADR-119 Slice 4).
+- `recoveryGuidance?: string | null` — guidance for recovering if the user's response is off-script (ADR-119 Slice 4).
+- `firstStepPreview?: string | null` — step-1 only catalog preview override, stored in the JSON for admin UI round-trip; scenario-level `first_step_preview` column is the authoritative source for the materializer (ADR-119 Slice 10).
+
 ## Durable assistant memory
 
 Active durable memory persistence lives in `assistant_memory_registry_items` and is split into two real classes at write-time. Each row carries:

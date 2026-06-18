@@ -2057,6 +2057,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     assert.doesNotMatch(devItem!.content as string, /<persai_active_scenario>/);
   }
 
+  // ADR-119 Golden Test 4 — Provider request payload flags (OpenAI).
   // ADR-119 Slice 2 — parallel_tool_calls discipline + developer-role system migration
 
   // skillsEnabled: true + tools → parallel_tool_calls: false (generateText)

@@ -1637,6 +1637,31 @@ Part B (Slice 2 addition — real worker instantiation with in-memory Prisma + m
 
 ---
 
+## ADR-119 golden tests
+
+Six golden tests lock the invariants from the ADR-119 prompt architecture program. All six must pass on every PR. Failure of any golden test indicates a structural regression in the prompt assembly pipeline.
+
+**GT1 — Full materialized system-prefix byte-snapshot** (`apps/api/test/adr119-golden-prompt-snapshot.test.ts`)
+Compiles the full AOT cached system prefix for a representative fixture: Lyra assistant (warm_quiet archetype + flirty `<character_notes>`), one enabled Marketer Skill with a 5-step Instagram-carousel scenario. On first run the expected file is generated at `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt` and committed. Subsequent runs assert byte equality. Catches any unintended template change, persona compiler regression, or enabled-skills materialization drift.
+
+**GT1b — Runtime volatile-context zone structure** (`apps/runtime/test/adr119-golden-prompt-snapshot.test.ts`)
+Runtime-side companion to GT1. Validates that `formatDurableMemoryContextualBlock` assembles memory entries with correct provenance attributes, that volatile messages are classified correctly by `isDurableMemoryContextualMessage`, and that the three-zone boundary (stable prefix / volatile context / conversation tail) is respected. Catches any regression in the runtime's volatile-context construction.
+
+**GT2 — Cache-prefix byte-stability across 5 state variants** (`apps/runtime/test/prompt-cache-stable-blocks.test.ts`)
+Asserts that the stable-prefix tokens (BP1 + BP2) are byte-identical across five distinct state variants: (a) no Skill engaged, (b) Skill engaged no scenario, (c) Skill engaged with active scenario, (d) Skill released, (e) different memory entries retrieved. Catches any code path that accidentally promotes volatile content into the stable-prefix family, which would cause unnecessary provider cache invalidation.
+
+**GT3 — `<priority_order>` enumerates Skills #1** (`apps/runtime/test/native-tool-projection.test.ts`, `runAdr119Invariantstest`)
+Reads `apps/api/prisma/bootstrap-preset-data.ts` and asserts that the `tools` template contains a `<priority_order>` block with "Skills are the gate" as the first entry, followed by Knowledge, Media, and other rules in the correct order. Also verifies `<parallelism>` states `skill({engage})` is ALWAYS solo and `<failure_handling>` mentions `pending_delivery`. Catches selection-guide template edits that would demote Skills from position #1, re-enable parallel skill calls, or remove critical delivery honesty rules.
+
+**GT4 — Provider request payload flags** (`apps/provider-gateway/test/anthropic-provider.client.test.ts` and `openai-provider.client.test.ts`)
+Verifies: when `skillsEnabled === true` and tools are present, Anthropic sets `tool_choice: { type: "auto", disable_parallel_tool_use: true }` and OpenAI sets `parallel_tool_calls: false`. When `skillsEnabled === false` or `undefined`, those flags must not be set (back-compat). Catches any provider-client regression that would re-enable parallel tool calls when Skills are active, which has been observed to cause model misbehavior in production.
+
+**GT5 — Persona deduplication** (`apps/api/test/compile-prompt-constructor.service.test.ts`, `runAdr119GoldenTest5PersonaDedup`)
+Asserts `<character_notes>` appears exactly once when `snapshotInstructions` is non-empty, `<voice>` and `<character_notes>` are textually adjacent with no intervening XML open tags, and `snapshotInstructions` content appears exactly once in the materialized prompt. Also asserts the old compiler bug (snapshotInstructions appearing before `<voice>` as a standalone section) does not regress. Catches any soul-template edit or compile-service change that would re-introduce the persona duplication failure mode [F1] from ADR-119.
+
+**GT6 — Memory provenance set + XML rendering** (`apps/runtime/test/prompt-cache-stable-blocks.test.ts`)
+Verifies all four `AssistantMemoryProvenance` values (`user_explicit`, `system_inferred`, `auto_extracted`, `legacy`) render correctly as `provenance="..."` XML attributes on `<entry>` elements inside `formatDurableMemoryContextualBlock`. Also asserts byte-stability (same input → same output) and entry-order preservation. Catches any regression in the memory XML rendering that would drop provenance attributes or break the `<persai_memory>` format.
+
 ## User-path smoke
 
 At minimum, prove:

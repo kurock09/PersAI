@@ -33,6 +33,8 @@ import { runRuntimeMemoryWriteToolServiceTest } from "./runtime-memory-write-too
 import { runSanitizeToolResultForModelTest } from "./sanitize-tool-result-for-model.test";
 import { runToolBudgetPolicyTest } from "./tool-budget-policy.test";
 import { runBuildSystemReminderBlocksServiceTest } from "./build-system-reminder-blocks.service.test";
+import { runAdr119GoldenPromptSnapshotTest } from "./adr119-golden-prompt-snapshot.test";
+import { runAdr119Invariantstest } from "./native-tool-projection.test";
 
 async function run(): Promise<void> {
   await runRuntimeConfigTest();
@@ -71,6 +73,8 @@ async function run(): Promise<void> {
   await runInternalRuntimeDocumentJobsControllerTest();
   const { runTurnRoutingServiceTest } = await import("./turn-routing.service.test");
   await runTurnRoutingServiceTest();
+  await runAdr119GoldenPromptSnapshotTest();
+  await runAdr119Invariantstest();
 }
 
 run().catch((error) => {

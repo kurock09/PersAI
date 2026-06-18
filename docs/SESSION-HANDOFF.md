@@ -3,6 +3,74 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — ADR-119 CLOSED (golden tests + docs + ADR closure)
+
+### Root cause
+
+Slice 11 is the final closure slice of the ADR-119 program. Locks invariants in tests, propagates the architecture to top-level docs, and marks the ADR Closed with reachability proof.
+
+### Fix scope
+
+- 6 golden tests (1 new file for full-prompt snapshot in api; 1 new runtime-side companion; 5 strengthened/labeled across existing test files).
+- 4 top-level docs updated (ARCHITECTURE, API-BOUNDARY, DATA-MODEL, TEST-PLAN).
+- ADR-119 `Status` = `Closed — 2026-06-18` with closure footer (slice SHA table).
+- ADR-118 (`118-skill-scenarios-and-model-owned-activation.md`) `Status` = `Superseded by ADR-119 — 2026-06-18`.
+
+### Tests
+
+- New: `apps/api/test/adr119-golden-prompt-snapshot.test.ts` with committed expected fixture at `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt`.
+- New: `apps/runtime/test/adr119-golden-prompt-snapshot.test.ts` — runtime volatile-context zone structure (GT1b).
+- Extended `apps/runtime/test/prompt-cache-stable-blocks.test.ts`: GT2 (5 state variants) + GT6 (memory provenance labels).
+- Extended `apps/runtime/test/native-tool-projection.test.ts`: `runAdr119Invariantstest` export (GT3).
+- Labeled `apps/provider-gateway/test/anthropic-provider.client.test.ts` + `openai-provider.client.test.ts`: GT4.
+- Extended `apps/api/test/compile-prompt-constructor.service.test.ts`: `runAdr119GoldenTest5PersonaDedup` (GT5).
+- `apps/runtime/test/run-suite-isolated.ts` + `run-suite.ts` updated to include new runtime tests.
+
+### Files touched
+
+- `apps/api/test/adr119-golden-prompt-snapshot.test.ts` (NEW)
+- `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt` (NEW — committed fixture)
+- `apps/runtime/test/adr119-golden-prompt-snapshot.test.ts` (NEW)
+- `apps/runtime/test/prompt-cache-stable-blocks.test.ts` (extended)
+- `apps/runtime/test/native-tool-projection.test.ts` (extended)
+- `apps/runtime/test/run-suite-isolated.ts` (updated)
+- `apps/runtime/test/run-suite.ts` (updated)
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts` (label)
+- `apps/provider-gateway/test/openai-provider.client.test.ts` (label)
+- `apps/api/test/compile-prompt-constructor.service.test.ts` (extended)
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/ADR/119-prompt-architecture-and-2026-context-engineering.md`
+- `docs/ADR/118-skill-scenarios-and-model-owned-activation.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risk
+
+**Low — closure work.** Golden tests will catch any future structural drift. No code logic changed; all changes are tests, docs, or ADR metadata.
+
+### Acceptance gate deferred
+
+Founder live-test on persai-dev not yet executed. Per ADR rollout policy, the live-test is subjective and post-closure. If regressions discovered, future ADR will address.
+
+### Deviation from instructions
+
+Golden Test 1 (full materialized system-prefix byte-snapshot) lives in `apps/api/test/adr119-golden-prompt-snapshot.test.ts` rather than `apps/runtime/test/adr119-golden-prompt-snapshot.test.ts` as originally specified. Reason: `CompilePromptConstructorService` is an api-package class that cannot be imported in the runtime package without cross-package wiring that would break `corepack pnpm --filter @persai/runtime run typecheck`. The runtime file at `apps/runtime/test/adr119-golden-prompt-snapshot.test.ts` provides GT1b (runtime volatile-context zone structure validation).
+
+### Next recommended step
+
+Founder live-test sequence (a)-(e) per ADR-119 Rollout section:
+- (a) Free-form marketing domain discussion with Marketer Skill enabled.
+- (b) Memory recall accuracy under a new session.
+- (c) Instagram-carousel scenario with reference image; verify no parallel skill+image_edit call.
+- (d) Scenario switch mid-chat.
+- (e) Explicit release; verify UX indicator disappears.
+After successful live-test, the program is fully closed.
+
+---
+
 ## 2026-06-18 — ADR-119 Slice 10 landed (admin UI for new scenario step fields)
 
 ### Root cause

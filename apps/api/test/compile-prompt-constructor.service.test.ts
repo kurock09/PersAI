@@ -754,6 +754,105 @@ async function runMemoryProtocolSlice9(): Promise<void> {
   }
 }
 
+/**
+ * ADR-119 Golden Test 5 — Persona deduplication invariants.
+ *
+ * Asserts that <character_notes> renders EXACTLY ONCE when snapshotInstructions
+ * is non-empty, <voice> and <character_notes> are adjacent (no intervening XML
+ * open tags), and the old top-of-prompt "Instructions" duplicate does NOT appear.
+ */
+async function runAdr119GoldenTest5PersonaDedup(): Promise<void> {
+  const service = new CompilePromptConstructorService();
+
+  // ---- Sub-test A: snapshotInstructions non-empty → <character_notes> exactly once ----
+  {
+    const compiled = service.compile({
+      publishedVersion: fixturePublishedVersion(FIXTURE_FLIRTY_INSTRUCTIONS, {
+        warmth: 75,
+        playfulness: 20
+      }),
+      userContext: FIXTURE_USER_CONTEXT,
+      toolPolicies: [],
+      enabledSkillCards: [],
+      promptTemplates: { ...PROMPT_TEMPLATE_DEFAULTS },
+      voiceDna: FIXTURE_VOICE_DNA
+    });
+    const prompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
+
+    assert.equal(
+      countOccurrencesInPrompt(prompt, "<character_notes>"),
+      1,
+      "ADR-119 GT5: <character_notes> must appear exactly once when snapshotInstructions is non-empty"
+    );
+    assert.equal(
+      countOccurrencesInPrompt(prompt, "</character_notes>"),
+      1,
+      "ADR-119 GT5: </character_notes> must close exactly once"
+    );
+
+    // Sub-test B: <voice> and <character_notes> are adjacent.
+    const voiceCloseIdx = prompt.indexOf("</voice>");
+    const charnOpenIdx = prompt.indexOf("<character_notes>");
+    assert.ok(
+      voiceCloseIdx !== -1 && charnOpenIdx !== -1,
+      "ADR-119 GT5: both tags must be present"
+    );
+    const between = prompt.slice(voiceCloseIdx + "</voice>".length, charnOpenIdx);
+    assert.ok(
+      !/^<[a-zA-Z]/.test(between.trimStart()),
+      "ADR-119 GT5: no other XML open tags between </voice> and <character_notes>"
+    );
+
+    // Sub-test C: old top-of-prompt duplicate must NOT appear BEFORE <voice> in the materialized prompt.
+    // The old compiler emitted snapshotInstructions once at the very top (before any XML structure)
+    // and again inside the Personality Traits block — ADR-119 Slice 1 deletes the top-of-prompt copy.
+    // "## Instructions" is still valid inside <character_notes>; what must be absent is the standalone
+    // occurrence BEFORE the <voice> opening tag.
+    const voiceOpenIdx = prompt.indexOf("<voice>");
+    const firstInstructionsIdx = prompt.indexOf("## Instructions");
+    // Either "## Instructions" is absent entirely, OR it appears only AFTER <voice> opens.
+    const instructionsDuplicatedBeforeVoice =
+      firstInstructionsIdx !== -1 && voiceOpenIdx !== -1 && firstInstructionsIdx < voiceOpenIdx;
+    assert.equal(
+      instructionsDuplicatedBeforeVoice,
+      false,
+      "ADR-119 GT5: snapshotInstructions must NOT appear before <voice> as a standalone section (regression guard against the old top-of-prompt duplicate)"
+    );
+
+    // Sub-test D: snapshotInstructions content appears exactly once (no duplicate outside <character_notes>).
+    assert.equal(
+      countOccurrencesInPrompt(prompt, "Ты женщина игривая"),
+      1,
+      "ADR-119 GT5: snapshotInstructions content appears exactly once — no duplicate outside <character_notes>"
+    );
+  }
+
+  // ---- Sub-test E: no snapshotInstructions → <character_notes> absent ----
+  {
+    const compiled = service.compile({
+      publishedVersion: fixturePublishedVersion(null, { warmth: 75 }),
+      userContext: FIXTURE_USER_CONTEXT,
+      toolPolicies: [],
+      enabledSkillCards: [],
+      promptTemplates: { ...PROMPT_TEMPLATE_DEFAULTS },
+      voiceDna: FIXTURE_VOICE_DNA
+    });
+    const prompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
+
+    assert.equal(
+      countOccurrencesInPrompt(prompt, "<character_notes>"),
+      0,
+      "ADR-119 GT5: <character_notes> must be absent when snapshotInstructions is null"
+    );
+    // <voice> still appears.
+    assert.equal(
+      countOccurrencesInPrompt(prompt, "<voice>"),
+      1,
+      "ADR-119 GT5: <voice> must still appear when snapshotInstructions is null"
+    );
+  }
+}
+
 async function run(): Promise<void> {
   await runTemplatedCompile();
   await runCachedPrefixInvariant();
@@ -764,6 +863,7 @@ async function run(): Promise<void> {
   await runRemindersProtocolSlice5();
   await runMemoryProtocolSlice9();
   await runResponseContractSlice8();
+  await runAdr119GoldenTest5PersonaDedup();
 }
 
 void run();

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Closed — 2026-06-18 (Slice 11 closure)
 
 > Supersedes **ADR-118** (Skill Scenarios and Model-Owned Skill Activation). ADR-118 introduced the three-level engagement model (Enabled / Active / Running scenario), the `skill` tool, the `SkillScenario` entity, and the UX indicator. All of those concepts are **preserved** in ADR-119. The block format (ADR-118 D4 — prose-style `## Active Scenario` markdown), the prompt-section ordering (Selection Guide last), the persona compiler (free-form Instructions duplicated and conflicting with structured archetype), and the implicit single-monolithic-prompt cache strategy are **rewritten**.
 >
@@ -1025,3 +1025,36 @@ Rejected on Anthropic-attention grounds. XML tags route attention more reliably 
 - **No git push, no deploy without explicit user direction** (repo rule). Each slice leaves a clean, green, commit-ready tree.
 - **ADR-117 cache-prefix rollout SHA**: ADR-117 closure section's `PENDING` value must be either resolved before ADR-119 Slice 6 lands (preferred — separate rollouts, cleaner attribution) or absorbed into the same rollout (acceptable).
 - **ADR-118 closure**: when ADR-119 Slice 11 closes, update ADR-118's status header to `Superseded by ADR-119` with a one-line summary pointing to ADR-119's section that replaces ADR-118 D4.
+
+---
+
+## Closure (Slice 11)
+
+**Status: Closed** on 2026-06-18.
+
+**Slice landing SHAs (commit-level reachability proof):**
+
+| Slice | Subject | SHA |
+|-------|---------|-----|
+| 0     | docs(ADR-119): Slice 0 inventory ledger (read-only) | `3054dbc7` |
+| 0.5   | feat(provider-gateway): ADR-119 Slice 0.5 — Anthropic gateway observability + symmetric debug dump | `7ddf95b6` |
+| 1     | feat(ADR-119): Slice 1 - XML compile output + persona deduplication | `3269edff` |
+| 2     | feat(ADR-119): Slice 2 - provider cache_control markers + parallel-tool-calls discipline | `ea45605d` |
+| 3     | feat(ADR-119): Slice 3 - Skills progressive disclosure + first_step_preview | `22d25514` |
+| 4     | feat(ADR-119): Slice 4 - volatile active-scenario XML format + step field extensions | `646bcb91` |
+| 5     | feat(ADR-119): Slice 5 - \<system-reminder\> mid-conversation injection protocol | `1ee92abb` |
+| 6     | feat(ADR-119): Slice 6 - selection guide XML priority order in tools template | `da88c05c` |
+| 7     | feat(ADR-119): Slice 7 - tool descriptor rewrite per Anthropic ACI pattern | `f1acebc2` |
+| 8     | feat(ADR-119): Slice 8 - response contract two-tier \<must\>/\<prefer\> restructure | `c3d977ee` |
+| 9     | feat(ADR-119): Slice 9 - memory protocol + provenance schema + \<persai_memory\> XML | `72d4b428` |
+| 10    | feat(ADR-119): Slice 10 - admin UI for new scenario step fields + first_step_preview | `3d0b1bec` |
+| 10.1  | docs(ADR-119): correct Slice 10 session handoff and changelog accuracy | `b534d852` |
+| 11    | feat(ADR-119): Slice 11 - golden tests + docs + ADR closure | `<THIS-COMMIT-SHA>` |
+
+**Acceptance gate**: founder live-test on persai-dev still pending at closure time. Per ADR rollout policy, live-acceptance is subjective ("any improvement perceptible counts as pass"). This closure freezes the architecture; if live-test reveals regressions, a follow-up ADR will address them — this ADR is not reopened.
+
+**Migration status**: both Prisma migrations (`20260618153000_adr119_memory_provenance`, `20260618160000_adr119_first_step_preview`) applied on persai-dev after explicit `persai-dev-migrations` environment approval. Additive columns; reversible.
+
+**ADR-118 status**: simultaneously updated to `Superseded by ADR-119`. See `docs/ADR/118-skill-scenarios-and-model-owned-activation.md` header.
+
+**Golden tests locked**: 6 invariant tests committed in Slice 11 covering full-prompt snapshot (GT1/GT1b), cache-prefix stability across 5 state variants (GT2), `<priority_order>` Skills #1 (GT3), provider parallel-tool-call flags (GT4), persona deduplication (GT5), memory provenance XML (GT6). See `docs/TEST-PLAN.md` § ADR-119 golden tests.

@@ -139,6 +139,14 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   {
     modulePath: "./native-tool-projection.test.ts",
     exportName: "runAdr119Slice7DescriptorTests"
+  },
+  {
+    modulePath: "./native-tool-projection.test.ts",
+    exportName: "runAdr119Invariantstest"
+  },
+  {
+    modulePath: "./adr119-golden-prompt-snapshot.test.ts",
+    exportName: "runAdr119GoldenPromptSnapshotTest"
   }
 ];
 

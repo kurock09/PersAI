@@ -236,4 +236,231 @@ export async function runPromptCacheStableBlocksTest(): Promise<void> {
   };
   const xmlBlockWithEmpty = formatDurableMemoryContextualBlock([xmlEntry, emptyEntry]);
   assert.ok(!xmlBlockWithEmpty.includes("mem-empty"), "empty-summary entries must be filtered out");
+
+  // -------------------------------------------------------------------------
+  // ADR-119 Golden Test 2 — Cache-prefix byte-stability across 5 state variants.
+  //
+  // The stable prefix (BP1 = identity/voice/character_notes, BP2 = protocols/
+  // contracts) must be byte-identical regardless of which volatile-context
+  // state variant is active. Only the volatile tail changes.
+  // -------------------------------------------------------------------------
+
+  // Shared stable content used across all 5 variants.
+  const GT2_CORE_CONTENT = formatDurableMemoryCoreStableBlock([
+    "- [Long memory write: fact] User name is Alex.",
+    "- [Long memory write: preference] Alex prefers concise answers."
+  ]);
+  const GT2_SUMMARY_CONTENT = formatSharedCompactionStableBlock(
+    "Stable facts:\n- Prefers direct responses."
+  );
+
+  // Stable token values (computed once; all 5 variants must produce these exact tokens).
+  const GT2_EXPECTED_CORE_TOKEN = buildExpectedCoreToken(GT2_CORE_CONTENT);
+  const GT2_EXPECTED_SUMMARY_TOKEN = buildExpectedSharedSummaryToken(GT2_SUMMARY_CONTENT);
+
+  // Variant (a): no Skill engaged — no volatile context other than user message.
+  const gt2VariantA = resolveLeadingHydratedPromptCacheStableBlockTokens([
+    { role: "assistant", content: GT2_CORE_CONTENT },
+    { role: "assistant", content: GT2_SUMMARY_CONTENT },
+    { role: "user", content: "Hello, can you help me with marketing?" }
+  ]);
+  assert.deepEqual(
+    gt2VariantA,
+    [GT2_EXPECTED_CORE_TOKEN, GT2_EXPECTED_SUMMARY_TOKEN],
+    "ADR-119 GT2(a): variant 'no Skill engaged' must yield identical stable tokens"
+  );
+
+  // Variant (b): Skill engaged, no scenario — memory entries added (volatile).
+  const gt2MemEntries: MemoryXmlEntry[] = [
+    {
+      id: "m1",
+      provenance: "system_inferred",
+      writtenAt: "2026-06-01",
+      summary: "Alex works in marketing."
+    }
+  ];
+  const gt2MemContent = formatDurableMemoryContextualBlock(gt2MemEntries);
+  const gt2VariantB = resolveLeadingHydratedPromptCacheStableBlockTokens([
+    { role: "assistant", content: GT2_CORE_CONTENT },
+    { role: "assistant", content: GT2_SUMMARY_CONTENT },
+    {
+      role: "assistant",
+      content: gt2MemContent,
+      cacheRole: "volatile_context",
+      volatileKind: "memory"
+    },
+    { role: "user", content: "Help me with the Marketer Skill." }
+  ]);
+  assert.deepEqual(
+    gt2VariantB,
+    [GT2_EXPECTED_CORE_TOKEN, GT2_EXPECTED_SUMMARY_TOKEN],
+    "ADR-119 GT2(b): variant 'Skill engaged, no scenario' must yield same stable tokens (volatile memory does not invalidate)"
+  );
+
+  // Variant (c): Skill engaged with active scenario — different volatile content.
+  const gt2VariantC = resolveLeadingHydratedPromptCacheStableBlockTokens([
+    { role: "assistant", content: GT2_CORE_CONTENT },
+    { role: "assistant", content: GT2_SUMMARY_CONTENT },
+    {
+      role: "assistant",
+      content: gt2MemContent,
+      cacheRole: "volatile_context",
+      volatileKind: "memory"
+    },
+    {
+      role: "assistant",
+      content:
+        '<persai_active_scenario><step number="1"><directive>Briefing step</directive></step></persai_active_scenario>',
+      cacheRole: "volatile_context",
+      volatileKind: "active_scenario"
+    },
+    { role: "user", content: "Let's start the Instagram carousel." }
+  ]);
+  assert.deepEqual(
+    gt2VariantC,
+    [GT2_EXPECTED_CORE_TOKEN, GT2_EXPECTED_SUMMARY_TOKEN],
+    "ADR-119 GT2(c): variant 'Skill engaged with active scenario' must yield same stable tokens"
+  );
+
+  // Variant (d): Skill released — back to plain user message, no volatile context.
+  const gt2VariantD = resolveLeadingHydratedPromptCacheStableBlockTokens([
+    { role: "assistant", content: GT2_CORE_CONTENT },
+    { role: "assistant", content: GT2_SUMMARY_CONTENT },
+    { role: "user", content: "Let's talk about something else." }
+  ]);
+  assert.deepEqual(
+    gt2VariantD,
+    [GT2_EXPECTED_CORE_TOKEN, GT2_EXPECTED_SUMMARY_TOKEN],
+    "ADR-119 GT2(d): variant 'Skill released' must yield same stable tokens"
+  );
+
+  // Variant (e): memory entries retrieved — different memory content than (b).
+  const gt2MemEntriesE: MemoryXmlEntry[] = [
+    {
+      id: "m2",
+      provenance: "auto_extracted",
+      writtenAt: "2026-06-10",
+      summary: "Prefers 1080x1080 carousel format."
+    },
+    {
+      id: "m3",
+      provenance: "user_explicit",
+      writtenAt: "2026-06-12",
+      summary: "Brand palette: coral and cream."
+    }
+  ];
+  const gt2MemContentE = formatDurableMemoryContextualBlock(gt2MemEntriesE);
+  const gt2VariantE = resolveLeadingHydratedPromptCacheStableBlockTokens([
+    { role: "assistant", content: GT2_CORE_CONTENT },
+    { role: "assistant", content: GT2_SUMMARY_CONTENT },
+    {
+      role: "assistant",
+      content: gt2MemContentE,
+      cacheRole: "volatile_context",
+      volatileKind: "memory"
+    },
+    { role: "user", content: "Apply the brand palette to the carousel." }
+  ]);
+  assert.deepEqual(
+    gt2VariantE,
+    [GT2_EXPECTED_CORE_TOKEN, GT2_EXPECTED_SUMMARY_TOKEN],
+    "ADR-119 GT2(e): variant 'different memory entries retrieved' must yield same stable tokens (volatile memory rotation does not invalidate stable prefix)"
+  );
+
+  // Across all 5 variants: stable tokens are byte-identical.
+  assert.deepEqual(
+    gt2VariantA,
+    gt2VariantB,
+    "ADR-119 GT2: variants A and B stable tokens are byte-identical"
+  );
+  assert.deepEqual(
+    gt2VariantB,
+    gt2VariantC,
+    "ADR-119 GT2: variants B and C stable tokens are byte-identical"
+  );
+  assert.deepEqual(
+    gt2VariantC,
+    gt2VariantD,
+    "ADR-119 GT2: variants C and D stable tokens are byte-identical"
+  );
+  assert.deepEqual(
+    gt2VariantD,
+    gt2VariantE,
+    "ADR-119 GT2: variants D and E stable tokens are byte-identical"
+  );
+
+  // -------------------------------------------------------------------------
+  // ADR-119 Golden Test 6 — Memory.provenance set + XML rendering.
+  //
+  // Every rendered <entry> must carry the provenance attribute byte-stably.
+  // (Primary coverage in the XML entry assertions above; GT6 adds explicit labeling
+  // and the "all four provenance values render" assertion.)
+  // -------------------------------------------------------------------------
+
+  const gt6AllProvenanceEntries: MemoryXmlEntry[] = [
+    {
+      id: "gt6-ue",
+      provenance: "user_explicit",
+      writtenAt: "2026-06-01",
+      summary: "User said something explicitly."
+    },
+    {
+      id: "gt6-si",
+      provenance: "system_inferred",
+      writtenAt: "2026-06-02",
+      summary: "System inferred a preference."
+    },
+    {
+      id: "gt6-ae",
+      provenance: "auto_extracted",
+      writtenAt: "2026-06-03",
+      summary: "Auto-extracted from conversation."
+    },
+    {
+      id: "gt6-lg",
+      provenance: "legacy",
+      writtenAt: "2026-06-04",
+      summary: "Legacy entry without provenance tracking."
+    }
+  ];
+  const gt6Block = formatDurableMemoryContextualBlock(gt6AllProvenanceEntries);
+
+  assert.ok(
+    gt6Block.includes('provenance="user_explicit"'),
+    "ADR-119 GT6: user_explicit provenance rendered in XML"
+  );
+  assert.ok(
+    gt6Block.includes('provenance="system_inferred"'),
+    "ADR-119 GT6: system_inferred provenance rendered in XML"
+  );
+  assert.ok(
+    gt6Block.includes('provenance="auto_extracted"'),
+    "ADR-119 GT6: auto_extracted provenance rendered in XML"
+  );
+  assert.ok(
+    gt6Block.includes('provenance="legacy"'),
+    "ADR-119 GT6: legacy provenance rendered in XML"
+  );
+
+  // Byte-stable: same provenance entries rendered twice produce identical output.
+  const gt6Block2 = formatDurableMemoryContextualBlock(gt6AllProvenanceEntries);
+  assert.equal(
+    gt6Block,
+    gt6Block2,
+    "ADR-119 GT6: <persai_memory> entries must be byte-stable for identical inputs"
+  );
+
+  // Order preserved — provenance values appear in input order.
+  assert.ok(
+    gt6Block.indexOf("gt6-ue") < gt6Block.indexOf("gt6-si"),
+    "ADR-119 GT6: entry order preserved (user_explicit before system_inferred)"
+  );
+  assert.ok(
+    gt6Block.indexOf("gt6-si") < gt6Block.indexOf("gt6-ae"),
+    "ADR-119 GT6: entry order preserved (system_inferred before auto_extracted)"
+  );
+  assert.ok(
+    gt6Block.indexOf("gt6-ae") < gt6Block.indexOf("gt6-lg"),
+    "ADR-119 GT6: entry order preserved (auto_extracted before legacy)"
+  );
 }

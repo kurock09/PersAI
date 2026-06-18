@@ -2646,3 +2646,80 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// ADR-119 Golden Test 3 — <priority_order> enumerates Skills #1.
+//
+// This test explicitly groups the ADR-119 invariants for findability and
+// documents the acceptance criteria. The underlying assertions reference the
+// same bootstrap-preset-data.ts read as the main native-tool-projection suite.
+// ---------------------------------------------------------------------------
+
+export async function runAdr119Invariantstest(): Promise<void> {
+  const repoRoot = findRepoRoot();
+  const bootstrapSource = readRepoFile(repoRoot, "apps/api/prisma/bootstrap-preset-data.ts");
+
+  // --- ADR-119 Golden Test 3: <priority_order> enumerates Skills as #1 ---
+
+  assert.match(
+    bootstrapSource,
+    /<priority_order>/,
+    "ADR-119 GT3: tools template must contain <priority_order> block"
+  );
+  assert.match(
+    bootstrapSource,
+    /Skills are the gate/,
+    "ADR-119 GT3: <priority_order> must enumerate Skills as #1 gate"
+  );
+  // Skills rule must appear BEFORE any other priority rule in the <priority_order> block.
+  const priorityOrderMatch = bootstrapSource.match(/<priority_order>([\s\S]*?)<\/priority_order>/);
+  assert.ok(
+    priorityOrderMatch !== null,
+    "ADR-119 GT3: <priority_order> block must be present and balanced"
+  );
+  const priorityOrderBody = priorityOrderMatch![1] ?? "";
+  const skillsIdx = priorityOrderBody.indexOf("Skills are the gate");
+  const knowledgeIdx = priorityOrderBody.indexOf("Knowledge before web");
+  const mediaIdx = priorityOrderBody.indexOf("Media routing");
+  assert.ok(skillsIdx !== -1, "ADR-119 GT3: 'Skills are the gate' must appear in <priority_order>");
+  assert.ok(
+    skillsIdx < knowledgeIdx || knowledgeIdx === -1,
+    "ADR-119 GT3: Skills rule must appear before 'Knowledge before web' in <priority_order>"
+  );
+  assert.ok(
+    skillsIdx < mediaIdx || mediaIdx === -1,
+    "ADR-119 GT3: Skills rule must appear before 'Media routing' in <priority_order>"
+  );
+
+  // <parallelism> block must state skill({engage}) is solo.
+  assert.match(
+    bootstrapSource,
+    /<parallelism>/,
+    "ADR-119 GT3: tools template must contain <parallelism> block"
+  );
+  assert.match(
+    bootstrapSource,
+    /ALWAYS solo/,
+    "ADR-119 GT3: <parallelism> must state skill({engage}) is ALWAYS solo"
+  );
+
+  // <failure_handling> block must mention pending_delivery.
+  assert.match(
+    bootstrapSource,
+    /<failure_handling>/,
+    "ADR-119 GT3: tools template must contain <failure_handling> block"
+  );
+  assert.match(
+    bootstrapSource,
+    /pending_delivery/,
+    "ADR-119 GT3: <failure_handling> must mention pending_delivery"
+  );
+
+  // <category name="skills"> must exist exactly once.
+  const skillsCategoryMatches = bootstrapSource.match(/<category name="skills">/g) ?? [];
+  assert.equal(
+    skillsCategoryMatches.length,
+    1,
+    "ADR-119 GT3: <category name='skills'> must appear exactly once in the tools template"
+  );
+}

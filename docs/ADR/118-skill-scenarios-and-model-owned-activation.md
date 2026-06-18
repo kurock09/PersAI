@@ -2,9 +2,11 @@
 
 ## Status
 
-Accepted
+Superseded by ADR-119 — 2026-06-18
 
-> Open program. Parallel to ADR-117 (does not block, does not supersede). Supersedes the hidden-classifier + cadence + lexical-gate Skill activation introduced post-ADR-079 (`SkillStateRoutingService`, `AutoSkillRoutingStateService` cadence parts, `matchesSkillLexically`) and **adds a new product concept** — admin-authored `SkillScenario` — that the current Skill data model does not have.
+> ADR-118 introduced the three-level engagement model (Enabled / Active / Running scenario), the `skill` tool, the `SkillScenario` entity, the `:::working` UX indicator, and the model-owned activation mechanism. All of those **concepts are preserved** in ADR-119. The block format (ADR-118 D4 — prose-style `## Active Scenario` markdown), the prompt-section ordering (Selection Guide last), the persona compiler (free-form Instructions duplicated), and the implicit single-monolithic-prompt cache strategy are **rewritten by ADR-119**. Where ADR-118 and ADR-119 disagree, ADR-119 is the authority. ADR-118 remains the reference for the engagement-mechanism rationale.
+
+> Previously: Open program. Parallel to ADR-117 (does not block, does not supersede). Supersedes the hidden-classifier + cadence + lexical-gate Skill activation introduced post-ADR-079 (`SkillStateRoutingService`, `AutoSkillRoutingStateService` cadence parts, `matchesSkillLexically`) and **adds a new product concept** — admin-authored `SkillScenario` — that the current Skill data model does not have.
 
 ---
 
@@ -531,3 +533,20 @@ Rejected on cache-discipline grounds (constraints) and on user direction (post-c
 - Materialization rollout is required at the end of Slice 4 (catalog visible) and again at the end of Slice 7 (selection-guide rule + `tools` template default change). Both must be deliberate rollouts noted in the slice handoff with the resulting prompt-cache prefix change.
 - No git push, no deploy without explicit user direction (repo rule). Each slice leaves a clean, green, commit-ready tree.
 - Live acceptance gate at the end of Slice 7 (before Slice 8 closure): one founder live-test with `alex@agse.ru` on `persai-dev`, exercising (a) free-form domain discussion under enabled Marketer Skill, (b) `instagram_carousel` scenario engage and completion, (c) scenario switch mid-chat, (d) explicit release. UX indicator must show on (a), (b), (c); must be absent on (d) after release.
+
+---
+
+## Superseded by ADR-119
+
+ADR-118's skill-engagement design (Skills + scenarios + volatile active-scenario block + UX indicator) is preserved as the **base mechanism**. ADR-119 builds on top of it with:
+
+- **Progressive disclosure** (Slice 3): skill body moves to `skill({engage})` tool result; compact `<skill>` catalog entry stays in the AOT cached `<enabled_skills>` prefix. Many Skills can be installed without context penalty.
+- **Volatile scenario block restructured to canonical XML** (Slice 4): `<persai_active_scenario>` with structured `<step>`, `<directive>`, `<expected_user_response>`, `<next_step_trigger>`, `<negative_guards>` elements replaces ADR-118 D4's prose `## Active Scenario` markdown.
+- **New step-level fields** (Slice 4 + Slice 10): `expectedUserResponse`, `nextStepTrigger`, `recoveryGuidance` in `SkillScenarioStep` JSON; `firstStepPreview` override at scenario level (Slice 10 migration `20260618160000_adr119_first_step_preview`).
+- **Scenario `firstStepPreview` for catalog override** (Slice 10): admins can override the auto-derived `<first_step_preview>` tag in the AOT Skills catalog.
+- **Selection guide priority order with Skills #1** (Slice 6): `<priority_order>` in the `<tool_usage_policy>` block explicitly lists Skills as the first gate before any media, knowledge, or other tool call.
+- **Provider-level parallel-tool-call discipline** (Slice 2): `disable_parallel_tool_use: true` (Anthropic) / `parallel_tool_calls: false` (OpenAI) when `skillsEnabled === true` and tools are present — the only reliable mitigation against the model firing `skill({engage})` in parallel with a media tool.
+
+Where ADR-118 and ADR-119 disagree, **ADR-119 is the authority**. ADR-118 remains the reference for the engagement-mechanism rationale; ADR-119 is the reference for the prompt-architecture implementation.
+
+**Reachability**: see ADR-119 Closure section for the slice-by-slice commit SHA list. ADR-119 file: `docs/ADR/119-prompt-architecture-and-2026-context-engineering.md`.
