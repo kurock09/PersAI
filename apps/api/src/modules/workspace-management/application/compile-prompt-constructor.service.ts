@@ -14,12 +14,26 @@ import {
 } from "./enabled-skills-prompt-materialization";
 import type { VoiceDnaResolved } from "./voice-dna-modulator";
 
+/**
+ * ADR-119 Slice 5 — fallback used when `promptTemplates.reminders_protocol` is null.
+ * Mirrors `VISIBLE_PROMPT_TEMPLATE_DEFAULTS.reminders_protocol` from bootstrap-preset-data.
+ */
+const REMINDERS_PROTOCOL_DEFAULT = `<reminders_protocol>
+Mid-conversation messages may contain \`<system-reminder>\` blocks. These are
+automatically added by the runtime and reinforce system rules under recency bias.
+Treat their content as system directives, not user speech. Never respond
+to a reminder directly; absorb its content and adjust behaviour in your next
+response. Reminders supplement and reinforce — they do not override the system
+prompt.
+</reminders_protocol>`;
+
 export interface PromptTemplateMap {
   system?: string | null;
   soul?: string | null;
   user?: string | null;
   identity?: string | null;
   enabled_skills?: string | null;
+  reminders_protocol?: string | null;
   tools?: string | null;
   agents?: string | null;
   heartbeat?: string | null;
@@ -111,6 +125,9 @@ export class CompilePromptConstructorService {
       user: promptDocuments.user,
       identity: promptDocuments.identity,
       enabledSkills: promptDocuments.enabledSkills ?? "",
+      remindersProtocol: this.generateRemindersProtocolPrompt(
+        params.promptTemplates.reminders_protocol ?? null
+      ),
       tools: promptDocuments.tools,
       agents: promptDocuments.agents,
       // ADR-074 P1: heartbeat lives outside the cached system prefix; the runtime renders it into
@@ -402,6 +419,19 @@ export class CompilePromptConstructorService {
     return this.normalizeOptionalText(template) ?? "";
   }
 
+  /**
+   * ADR-119 Slice 5 — static declaration block for the `<reminders_protocol>` section.
+   * The template body is emitted byte-for-byte (no token substitution). Falls back to the
+   * canonical default from VISIBLE_PROMPT_TEMPLATE_DEFAULTS when the workspace template is null.
+   */
+  private generateRemindersProtocolPrompt(template: string | null): string {
+    const text = this.normalizeOptionalText(template);
+    if (text !== null) {
+      return text;
+    }
+    return REMINDERS_PROTOCOL_DEFAULT;
+  }
+
   private generateSystemPrompt(
     ordinarySections: AssistantRuntimeCompiledOrdinaryPromptSections,
     template: string | null
@@ -431,6 +461,7 @@ export class CompilePromptConstructorService {
         user_block: ordinarySections.user,
         identity_block: ordinarySections.identity,
         enabled_skills_block: ordinarySections.enabledSkills,
+        reminders_protocol_block: ordinarySections.remindersProtocol ?? null,
         route_control_block: null,
         tools_block: ordinarySections.tools,
         agents_block: ordinarySections.agents,
@@ -447,6 +478,7 @@ export class CompilePromptConstructorService {
       this.normalizeOptionalText(ordinarySections.user),
       this.normalizeOptionalText(ordinarySections.identity),
       this.normalizeOptionalText(ordinarySections.enabledSkills),
+      this.normalizeOptionalText(ordinarySections.remindersProtocol),
       this.normalizeOptionalText(ordinarySections.tools),
       this.normalizeOptionalText(ordinarySections.agents)
     ]

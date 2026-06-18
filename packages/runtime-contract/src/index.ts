@@ -3034,10 +3034,12 @@ export interface ProviderGatewayTextMessage {
    * ADR-118 Slice 4 — discriminates the volatile-context block kind so provider clients
    * can wrap content with the appropriate XML tag. Absent or "memory" → the existing
    * `<recent_short_memory>` / `<persai_contextual_memory>` wrapper. "active_scenario" → the
-   * new `<active_scenario>` / `<persai_active_scenario>` wrapper. Ignored when `cacheRole`
-   * is not "volatile_context".
+   * `<persai_active_scenario>` wrapper. "system_reminder" (ADR-119 Slice 5) → the
+   * `<system-reminder>` wrapper; used by `BuildSystemReminderBlocksService` to inject
+   * mid-conversation reminder messages that reinforce system directives under recency bias.
+   * Ignored when `cacheRole` is not "volatile_context".
    */
-  volatileKind?: "memory" | "active_scenario";
+  volatileKind?: "memory" | "active_scenario" | "system_reminder";
 }
 
 export interface ProviderGatewayTextContentBlock {

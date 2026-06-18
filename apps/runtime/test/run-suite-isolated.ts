@@ -106,6 +106,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   },
   { modulePath: "./tool-budget-policy.test.ts", exportName: "runToolBudgetPolicyTest" },
   {
+    modulePath: "./build-system-reminder-blocks.service.test.ts",
+    exportName: "runBuildSystemReminderBlocksServiceTest"
+  },
+  {
     modulePath: "./sanitize-tool-result-for-model.test.ts",
     exportName: "runSanitizeToolResultForModelTest"
   },

@@ -576,6 +576,72 @@ async function runXmlCanonicalFixtures(): Promise<void> {
   }
 }
 
+async function runRemindersProtocolSlice5(): Promise<void> {
+  const service = new CompilePromptConstructorService();
+
+  // New test: assembled system prompt contains the <reminders_protocol> block when default template used.
+  {
+    const compiled = service.compile({
+      ...baseInput(),
+      promptTemplates: {
+        ...PROMPT_TEMPLATE_DEFAULTS
+      }
+    });
+    const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
+    assert.match(
+      systemPrompt,
+      /<reminders_protocol>/,
+      "default template compile: system prompt must contain <reminders_protocol>"
+    );
+    assert.match(systemPrompt, /<\/reminders_protocol>/);
+  }
+
+  // New test: when promptTemplates.reminders_protocol = null, the fallback default is used.
+  {
+    const compiled = service.compile({
+      ...baseInput(),
+      promptTemplates: {
+        ...PROMPT_TEMPLATE_DEFAULTS,
+        reminders_protocol: null
+      }
+    });
+    const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
+    assert.match(
+      systemPrompt,
+      /<reminders_protocol>/,
+      "null reminders_protocol falls back to default: <reminders_protocol> must appear"
+    );
+    assert.match(systemPrompt, /reinforce system rules under recency bias/);
+  }
+
+  // New test: when a custom reminders_protocol template is provided, it is used verbatim.
+  {
+    const compiled = service.compile({
+      ...baseInput(),
+      promptTemplates: {
+        ...PROMPT_TEMPLATE_DEFAULTS,
+        reminders_protocol: "<reminders_protocol>\nCustom reminder protocol.\n</reminders_protocol>"
+      }
+    });
+    const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
+    assert.match(systemPrompt, /Custom reminder protocol/);
+    assert.doesNotMatch(systemPrompt, /reinforce system rules under recency bias/);
+  }
+
+  // New test: remindersProtocol appears in ordinarySections.
+  {
+    const compiled = service.compile({
+      ...baseInput(),
+      promptTemplates: { ...PROMPT_TEMPLATE_DEFAULTS }
+    });
+    const sections = compiled.promptConstructor.ordinary.sections;
+    assert.ok(
+      typeof sections.remindersProtocol === "string" && sections.remindersProtocol.length > 0,
+      "remindersProtocol section must be non-empty in ordinarySections"
+    );
+  }
+}
+
 async function run(): Promise<void> {
   await runTemplatedCompile();
   await runCachedPrefixInvariant();
@@ -583,6 +649,7 @@ async function run(): Promise<void> {
   await runFallbackCompile();
   await runDefaultPromptTemplateCompile();
   await runXmlCanonicalFixtures();
+  await runRemindersProtocolSlice5();
 }
 
 void run();

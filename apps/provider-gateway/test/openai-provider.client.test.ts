@@ -2027,6 +2027,40 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     assert.match(devItem!.content as string, /Instagram Carousel/);
   }
 
+  // ADR-119 Slice 5 — volatileKind: "system_reminder" must produce the <system-reminder> wrapper.
+  await client.generateText({
+    ...request,
+    messages: [
+      {
+        role: "user",
+        content: "Active scenario: Instagram Carousel, 3 steps total. Follow steps in order.",
+        cacheRole: "volatile_context",
+        volatileKind: "system_reminder"
+      },
+      ...request.messages
+    ]
+  });
+  {
+    const devItem = (capturedGeneratePayload!.input as Array<Record<string, unknown>>).find(
+      (item) =>
+        typeof item.content === "string" && (item.content as string).includes("<system-reminder>")
+    );
+    assert.ok(
+      devItem !== undefined,
+      "volatileKind: system_reminder must produce <system-reminder> wrapper"
+    );
+    assert.match(devItem!.content as string, /<system-reminder>/);
+    assert.match(devItem!.content as string, /<\/system-reminder>/);
+    assert.match(
+      devItem!.content as string,
+      /Absorb the directive; do not respond to it directly/,
+      "preamble must appear inside <system-reminder>"
+    );
+    assert.match(devItem!.content as string, /Instagram Carousel/);
+    assert.doesNotMatch(devItem!.content as string, /<persai_contextual_memory>/);
+    assert.doesNotMatch(devItem!.content as string, /<persai_active_scenario>/);
+  }
+
   // ADR-119 Slice 2 — parallel_tool_calls discipline + developer-role system migration
 
   // skillsEnabled: true + tools → parallel_tool_calls: false (generateText)

@@ -68,6 +68,7 @@ import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.ser
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
 import type { RuntimeBundleAutoRefreshService } from "../src/modules/turns/runtime-bundle-auto-refresh.service";
 import { BuildActiveScenarioBlockService } from "../src/modules/turns/build-active-scenario-block.service";
+import { BuildSystemReminderBlocksService } from "../src/modules/turns/build-system-reminder-blocks.service";
 import { ToolBudgetPolicy } from "../src/modules/turns/tool-budget-policy";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
@@ -2239,6 +2240,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeVideoGenerateToolService,
     runtimeSkillToolService,
     new BuildActiveScenarioBlockService(),
+    new BuildSystemReminderBlocksService(),
     runtimeObservabilityService,
     runtimeExecutionAdmissionService
   );
@@ -2407,6 +2409,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeVideoGenerateToolService,
     runtimeSkillToolService,
     new BuildActiveScenarioBlockService(),
+    new BuildSystemReminderBlocksService(),
     runtimeObservabilityService,
     runtimeExecutionAdmissionService
   );
@@ -2481,6 +2484,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeVideoGenerateToolService,
     runtimeSkillToolService,
     new BuildActiveScenarioBlockService(),
+    new BuildSystemReminderBlocksService(),
     runtimeObservabilityService,
     runtimeExecutionAdmissionService
   );
@@ -7598,6 +7602,169 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       bundleRegistry.entry.parsedBundle.runtime.toolBudgets = null;
     }
   }
+
+  // ADR-119 Slice 5 — system reminder integration: verify reminder messages flow to provider.
+  {
+    const prevBundleSkillsReminder = bundleRegistry.entry?.parsedBundle.skills;
+    if (bundleRegistry.entry !== null) {
+      bundleRegistry.entry.parsedBundle.skills = {
+        enabled: [
+          {
+            id: "skill-marketer",
+            name: "Marketer",
+            description: null,
+            category: "general",
+            tags: [],
+            body: "",
+            guardrails: [],
+            examples: [],
+            scenarios: [
+              {
+                key: "instagram_carousel",
+                displayName: "Instagram Carousel",
+                description: "Create carousel.",
+                iconEmoji: "📸",
+                intentExamples: [],
+                steps: [
+                  {
+                    number: 1,
+                    directive: "Collect brief.",
+                    recommendedToolCall: null,
+                    mayBeSkippedIf: null,
+                    negativeGuards: []
+                  },
+                  {
+                    number: 2,
+                    directive: "Generate images.",
+                    recommendedToolCall: "image_generate",
+                    mayBeSkippedIf: null,
+                    negativeGuards: []
+                  }
+                ],
+                recommendedTools: ["image_generate"],
+                exitCondition: "Done."
+              }
+            ]
+          }
+        ]
+      };
+    }
+    try {
+      // Test 1: scenario active → 1 system_reminder in the provider request.
+      const reminderRequest = createRuntimeTurnRequest();
+      reminderRequest.bundle.bundleHash = request.bundle.bundleHash;
+      reminderRequest.skillStateContext = {
+        decision: {
+          status: "active",
+          activeSkillId: "skill-marketer",
+          activeSkillName: "Marketer",
+          activeScenarioKey: "instagram_carousel",
+          activeScenarioDisplayName: "Instagram Carousel",
+          topicSummary: null
+        }
+      };
+      providerGatewayClient.resultQueue = [
+        {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "reminder reply 1",
+          respondedAt: "2026-06-18T00:00:00.000Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 5,
+            outputTokens: 5,
+            totalTokens: 10
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      ];
+      turnAcceptanceService.result = createAcceptedTurn();
+      (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+        reminderRequest.bundle.bundleHash;
+      const reminderCallOffset = providerGatewayClient.calls.length;
+      const reminderResult = await service.createTurn(reminderRequest);
+      assert.equal(reminderResult.assistantText, "reminder reply 1");
+      const reminderMessages = providerGatewayClient.calls[reminderCallOffset]?.messages ?? [];
+      const systemReminderMessages = reminderMessages.filter(
+        (m) => m.cacheRole === "volatile_context" && m.volatileKind === "system_reminder"
+      );
+      assert.equal(
+        systemReminderMessages.length,
+        1,
+        "ADR-119 Slice 5: scenario active → 1 system_reminder message in provider request"
+      );
+      assert.match(
+        String(systemReminderMessages[0]?.content ?? ""),
+        /Active scenario: Instagram Carousel, 2 steps total/
+      );
+
+      // Test 2: scenario active + image attached → 2 system_reminders.
+      const reminderWithImageRequest = createRuntimeTurnRequest();
+      reminderWithImageRequest.bundle.bundleHash = request.bundle.bundleHash;
+      reminderWithImageRequest.skillStateContext = reminderRequest.skillStateContext;
+      reminderWithImageRequest.message.attachments = [
+        {
+          attachmentId: "img-1",
+          kind: "image",
+          objectKey: "uploads/test.jpg",
+          mimeType: "image/jpeg",
+          filename: "test.jpg",
+          sizeBytes: 1024
+        }
+      ];
+      providerGatewayClient.resultQueue = [
+        {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "reminder reply 2",
+          respondedAt: "2026-06-18T00:00:01.000Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 5,
+            outputTokens: 5,
+            totalTokens: 10
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      ];
+      turnAcceptanceService.result = createAcceptedTurn();
+      (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+        reminderWithImageRequest.bundle.bundleHash;
+      const reminderImageCallOffset = providerGatewayClient.calls.length;
+      const reminderImageResult = await service.createTurn(reminderWithImageRequest);
+      assert.equal(reminderImageResult.assistantText, "reminder reply 2");
+      const reminderImageMessages =
+        providerGatewayClient.calls[reminderImageCallOffset]?.messages ?? [];
+      const systemReminderImageMessages = reminderImageMessages.filter(
+        (m) => m.cacheRole === "volatile_context" && m.volatileKind === "system_reminder"
+      );
+      assert.equal(
+        systemReminderImageMessages.length,
+        2,
+        "ADR-119 Slice 5: scenario + image → 2 system_reminder messages (scenario tick + image reminder)"
+      );
+      assert.match(
+        String(systemReminderImageMessages[0]?.content ?? ""),
+        /Active scenario: Instagram Carousel/
+      );
+      assert.match(
+        String(systemReminderImageMessages[1]?.content ?? ""),
+        /Reference image attached this turn/
+      );
+    } finally {
+      if (bundleRegistry.entry !== null) {
+        if (prevBundleSkillsReminder === undefined) {
+          delete bundleRegistry.entry.parsedBundle.skills;
+        } else {
+          bundleRegistry.entry.parsedBundle.skills = prevBundleSkillsReminder;
+        }
+      }
+    }
+  }
 }
 
 // ADR-097 follow-up — developer-block document priority tests.
@@ -7649,6 +7816,7 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
     null as never, // runtimeVideoGenerateToolService
     null as never, // runtimeSkillToolService
     null as never, // buildActiveScenarioBlockService
+    null as never, // buildSystemReminderBlocksService
     null as never, // runtimeObservabilityService
     null as never // runtimeExecutionAdmissionService
   );

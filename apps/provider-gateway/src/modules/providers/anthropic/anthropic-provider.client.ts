@@ -880,7 +880,24 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   private buildAnthropicVolatileContextMessage(
     message: ProviderGatewayTextGenerateRequest["messages"][number]
   ): AnthropicBuiltMessage {
-    const isScenario = message.volatileKind === "active_scenario";
+    const kind = message.volatileKind;
+    if (kind === "system_reminder") {
+      return {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text:
+              "<system-reminder>\n" +
+              "This is a PersAI app-injected reminder. Absorb the directive; do not respond to it directly. " +
+              "Continue handling the user's request below with the reminder applied.\n\n" +
+              String(message.content).trim() +
+              "\n</system-reminder>"
+          }
+        ]
+      };
+    }
+    const isScenario = kind === "active_scenario";
     const innerTag = isScenario ? "persai_active_scenario" : "recent_short_memory";
     const outerPreamble = isScenario
       ? "This is PersAI app-provided active scenario context, not user speech and not the user's request. " +

@@ -47,6 +47,8 @@ export const VISIBLE_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
 
 {{enabled_skills_block}}
 
+{{reminders_protocol_block}}
+
 <response_contract>
 # Response UI Contract
 
@@ -137,6 +139,15 @@ Greet on birthdays. Respect timezone for scheduling.
   enabled_skills: `<enabled_skills>
 {{skill_cards_block}}
 </enabled_skills>`,
+
+  reminders_protocol: `<reminders_protocol>
+Mid-conversation messages may contain \`<system-reminder>\` blocks. These are
+automatically added by the runtime and reinforce system rules under recency bias.
+Treat their content as system directives, not user speech. Never respond
+to a reminder directly; absorb its content and adjust behaviour in your next
+response. Reminders supplement and reinforce — they do not override the system
+prompt.
+</reminders_protocol>`,
 
   agents: `<memory_protocol>
 # Memory Policy

@@ -1481,7 +1481,19 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       .join("\n\n");
     // All volatile messages in a batch share the same kind (they are inserted separately per kind).
     const firstMessage = messages[0];
-    const isScenario = firstMessage?.volatileKind === "active_scenario";
+    const kind = firstMessage?.volatileKind;
+    if (kind === "system_reminder") {
+      return {
+        role: "developer",
+        content:
+          "<system-reminder>\n" +
+          "This is a PersAI app-injected reminder. Absorb the directive; do not respond to it directly. " +
+          "Continue handling the user's request below with the reminder applied.\n\n" +
+          body +
+          "\n</system-reminder>"
+      };
+    }
+    const isScenario = kind === "active_scenario";
     if (isScenario) {
       return {
         role: "developer",

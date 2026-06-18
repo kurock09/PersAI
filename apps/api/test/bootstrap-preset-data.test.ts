@@ -82,6 +82,7 @@ const EXPECTED_OUTER_TAGS: Record<string, string> = {
   user: "user",
   identity: "identity",
   enabled_skills: "enabled_skills",
+  reminders_protocol: "reminders_protocol",
   tools: "tool_usage_policy",
   agents: "memory_protocol",
   heartbeat: "background_task_evaluation",
@@ -145,10 +146,53 @@ async function runSoulCharacterNotes(): Promise<void> {
   assert.equal(countOccurrences(system, "</response_contract>"), 1);
 }
 
+async function runRemindersProtocolSlice5(): Promise<void> {
+  // ADR-119 Slice 5 — reminders_protocol template must be present, non-empty,
+  // and carry balanced <reminders_protocol> tags.
+  const rp = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.reminders_protocol;
+  assert.ok(
+    rp !== undefined,
+    "reminders_protocol template must exist in VISIBLE_PROMPT_TEMPLATE_DEFAULTS"
+  );
+  assert.ok((rp ?? "").length > 0, "reminders_protocol template must be non-empty");
+  assert.equal(
+    countOccurrences(rp ?? "", "<reminders_protocol>"),
+    1,
+    "reminders_protocol template must open <reminders_protocol> exactly once"
+  );
+  assert.equal(
+    countOccurrences(rp ?? "", "</reminders_protocol>"),
+    1,
+    "reminders_protocol template must close </reminders_protocol> exactly once"
+  );
+
+  // The system template must contain the {{reminders_protocol_block}} placeholder.
+  const system = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system ?? "";
+  assert.ok(
+    system.includes("{{reminders_protocol_block}}"),
+    "system template must contain {{reminders_protocol_block}} placeholder (ADR-119 Slice 5)"
+  );
+
+  // {{reminders_protocol_block}} must appear between {{enabled_skills_block}} and <response_contract>.
+  const skillsIdx = system.indexOf("{{enabled_skills_block}}");
+  const remindersIdx = system.indexOf("{{reminders_protocol_block}}");
+  const contractIdx = system.indexOf("<response_contract>");
+  assert.ok(skillsIdx !== -1 && remindersIdx !== -1 && contractIdx !== -1);
+  assert.ok(
+    remindersIdx > skillsIdx,
+    "{{reminders_protocol_block}} must appear after {{enabled_skills_block}}"
+  );
+  assert.ok(
+    remindersIdx < contractIdx,
+    "{{reminders_protocol_block}} must appear before <response_contract>"
+  );
+}
+
 async function run(): Promise<void> {
   await runXmlBalance();
   await runOuterTagPresence();
   await runSoulCharacterNotes();
+  await runRemindersProtocolSlice5();
 }
 
 void run();

@@ -125,6 +125,18 @@ export const TOOL_HARD_CAP_PER_TURN: Readonly<Record<string, number>> = {
 
 export type ToolBudgetExhaustionReason = "loop_limit" | "per_tool_cap";
 
+/**
+ * ADR-119 Slice 5 — read-only snapshot of per-tool budget state for the current turn.
+ * Consumed by `BuildSystemReminderBlocksService` to emit budget-warning reminders when a
+ * tool has consumed ≥ 80% of its `perToolCap`. Only tools that have a non-null per-tool
+ * cap are included.
+ */
+export type ToolBudgetSnapshot = ReadonlyArray<{
+  toolName: string;
+  perToolCap: number;
+  perToolUsed: number;
+}>;
+
 export type ToolBudgetReservation =
   | { exhausted: false }
   | {
@@ -221,6 +233,44 @@ export class ToolBudgetPolicy {
 
   observedToolCount(toolName: string): number {
     return this.perToolCounts.get(toolName) ?? 0;
+  }
+
+  /**
+   * ADR-119 Slice 5 — returns a snapshot of all tools that have a non-null per-tool cap,
+   * paired with their current observed usage for this turn. Consumed by
+   * `BuildSystemReminderBlocksService` to emit budget-warning reminders.
+   *
+   * Iterates the code-default cap table plus any per-assistant overrides. Tools with a
+   * non-positive or null resolved cap are excluded.
+   */
+  getSnapshot(): ToolBudgetSnapshot {
+    const entries: { toolName: string; perToolCap: number; perToolUsed: number }[] = [];
+    const seen = new Set<string>();
+
+    for (const toolName of Object.keys(TOOL_HARD_CAP_PER_TURN)) {
+      const cap = this.perToolCap(toolName);
+      if (cap !== null) {
+        entries.push({ toolName, perToolCap: cap, perToolUsed: this.observedToolCount(toolName) });
+        seen.add(toolName);
+      }
+    }
+
+    if (this.perToolCapOverrides !== null) {
+      for (const [toolName] of this.perToolCapOverrides) {
+        if (!seen.has(toolName)) {
+          const cap = this.perToolCap(toolName);
+          if (cap !== null) {
+            entries.push({
+              toolName,
+              perToolCap: cap,
+              perToolUsed: this.observedToolCount(toolName)
+            });
+          }
+        }
+      }
+    }
+
+    return entries;
   }
 
   /**

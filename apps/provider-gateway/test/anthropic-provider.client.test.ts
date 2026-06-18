@@ -1461,6 +1461,45 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   assert.doesNotMatch(scenarioText, /<active_scenario>(?!\/)/);
   assert.match(scenarioText, /Instagram Carousel/);
 
+  // ADR-119 Slice 5 — volatileKind: "system_reminder" must produce the <system-reminder> wrapper.
+  const volatileReminderRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    messages: [
+      {
+        role: "user",
+        content: "Active scenario: Instagram Carousel, 3 steps total. Follow steps in order.",
+        cacheRole: "volatile_context",
+        volatileKind: "system_reminder"
+      },
+      ...request.messages
+    ]
+  };
+  await client.generateText(volatileReminderRequest);
+  const reminderVolatileMessage = (
+    capturedGeneratePayload!.messages as Array<{ role?: unknown; content?: unknown }>
+  ).find((msg) => {
+    const firstBlock =
+      Array.isArray(msg.content) && (msg.content[0] as Record<string, unknown> | undefined)?.text;
+    return typeof firstBlock === "string" && (firstBlock as string).includes("<system-reminder>");
+  });
+  assert.ok(
+    reminderVolatileMessage !== undefined,
+    "volatileKind: system_reminder must produce <system-reminder> wrapper"
+  );
+  const reminderText = ((reminderVolatileMessage!.content as Array<{ text?: unknown }>)[0]?.text ??
+    "") as string;
+  assert.match(reminderText, /<system-reminder>/);
+  assert.match(reminderText, /<\/system-reminder>/);
+  assert.match(
+    reminderText,
+    /Absorb the directive; do not respond to it directly/,
+    "preamble must appear inside <system-reminder>"
+  );
+  assert.match(reminderText, /Instagram Carousel/);
+  // Must NOT be double-wrapped in <recent_short_memory> or <persai_active_scenario>.
+  assert.doesNotMatch(reminderText, /<recent_short_memory>/);
+  assert.doesNotMatch(reminderText, /<persai_active_scenario>/);
+
   // ADR-119 Slice 2 — disable_parallel_tool_use + per-block cache markers
 
   // skillsEnabled: true + tools → tool_choice: {type:"auto", disable_parallel_tool_use: true} (generateText)

@@ -44,6 +44,7 @@ import { TurnExecutionService } from "./turn-execution.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
 import { BuildActiveScenarioBlockService } from "./build-active-scenario-block.service";
+import { BuildSystemReminderBlocksService } from "./build-system-reminder-blocks.service";
 import { TurnRoutingService } from "./turn-routing.service";
 
 @Module({
@@ -59,6 +60,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     PersaiInternalApiClientService,
     ProviderGatewayClientService,
     BuildActiveScenarioBlockService,
+    BuildSystemReminderBlocksService,
     RuntimeBrowserToolService,
     RuntimeDocumentToolService,
     RuntimeDocumentProviderAdapterService,
@@ -98,6 +100,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     PersaiInternalApiClientService,
     ProviderGatewayClientService,
     BuildActiveScenarioBlockService,
+    BuildSystemReminderBlocksService,
     RuntimeBrowserToolService,
     RuntimeDocumentToolService,
     RuntimeDocumentProviderAdapterService,

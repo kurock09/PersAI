@@ -3,6 +3,71 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — ADR-119 Slice 5 landed (`<system-reminder>` protocol)
+
+### Root cause
+
+The volatile-context rail (`cacheRole: "volatile_context"`) had no mechanism to inject mid-conversation directive messages. Per ADR-119 D7, the model needs `<system-reminder>` blocks to reinforce rules under recency bias (active scenario tick, reference image warning, tool budget pressure). The `volatileKind` union only had `"memory"` and `"active_scenario"`; both provider clients had no handler for a third kind; the cache prefix had no declaration of the reminder protocol; the compiler had no `reminders_protocol_block` placeholder.
+
+### Fix scope
+
+- `packages/runtime-contract/src/index.ts`: `volatileKind` union extended to `"memory" | "active_scenario" | "system_reminder"`. JSDoc updated.
+- `packages/runtime-bundle/src/index.ts`: `AssistantRuntimeCompiledOrdinaryPromptSections` extended with optional `remindersProtocol?: string`.
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`: `buildAnthropicVolatileContextMessage` extended — `system_reminder` kind wraps content with `<system-reminder>…</system-reminder>` and a preamble directing the model to absorb without responding.
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`: `buildOpenAIVolatileContextItem` extended symmetrically.
+- `apps/api/prisma/bootstrap-preset-data.ts`: `reminders_protocol` template added to `VISIBLE_PROMPT_TEMPLATE_DEFAULTS`; `system` template updated to include `{{reminders_protocol_block}}` between `{{enabled_skills_block}}` and `<response_contract>`.
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts`: `PromptTemplateMap` extended with `reminders_protocol?`; `REMINDERS_PROTOCOL_DEFAULT` constant added; `generateRemindersProtocolPrompt` method added; `remindersProtocol` added to `ordinarySections`; `reminders_protocol_block` added to substitution map and fallback join.
+- `apps/runtime/src/modules/turns/tool-budget-policy.ts`: `ToolBudgetSnapshot` exported type added; `getSnapshot()` method added to `ToolBudgetPolicy`.
+- `apps/runtime/src/modules/turns/build-system-reminder-blocks.service.ts`: NEW — `BuildSystemReminderBlocksService` with three reminder emission rules (scenario tick, image, budget warning).
+- `apps/runtime/src/modules/turns/turns.module.ts`: `BuildSystemReminderBlocksService` added to `providers` and `exports`.
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`: `BuildSystemReminderBlocksService` injected; called after `buildActiveScenarioBlockService.buildBlock()`; reminder blocks appended after the active-scenario block in `hydratedMessages`.
+
+### Tests
+
+- `apps/runtime/test/build-system-reminder-blocks.service.test.ts`: NEW — 11 test cases covering all reminder conditions, stable ordering, cacheRole/volatileKind assertions, byte-stability, graceful degradation.
+- `apps/runtime/test/turn-execution.service.test.ts`: extended with 2 integration scenarios (scenario active → 1 reminder; scenario + image → 2 reminders). All 3 `TurnExecutionService` instantiations updated with `new BuildSystemReminderBlocksService()`.
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`: extended — `system_reminder` wraps with `<system-reminder>`, preamble present, no double-wrapping.
+- `apps/provider-gateway/test/openai-provider.client.test.ts`: symmetric new test for `system_reminder`.
+- `apps/api/test/bootstrap-preset-data.test.ts`: `reminders_protocol` added to `EXPECTED_OUTER_TAGS`; new `runRemindersProtocolSlice5` function checks presence, balance, placeholder position.
+- `apps/api/test/compile-prompt-constructor.service.test.ts`: new `runRemindersProtocolSlice5` function — default template includes `<reminders_protocol>`, null falls back to default, custom template used verbatim, `remindersProtocol` in ordinarySections.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `packages/runtime-bundle/src/index.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts`
+- `apps/runtime/src/modules/turns/tool-budget-policy.ts`
+- `apps/runtime/src/modules/turns/build-system-reminder-blocks.service.ts` (NEW)
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/build-system-reminder-blocks.service.test.ts` (NEW)
+- `apps/runtime/test/run-suite.ts`
+- `apps/runtime/test/run-suite-isolated.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/api/test/bootstrap-preset-data.test.ts`
+- `apps/api/test/compile-prompt-constructor.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risk
+
+**One-time prompt-cache prefix invalidation on rollout** — The stable cache prefix grows by ~6 lines for the new `<reminders_protocol>` declaration (batched with Slice 4 deploy per ADR-119). The `{{reminders_protocol_block}}` placeholder is placed between `{{enabled_skills_block}}` and `<response_contract>` in the system template; existing custom templates that omit the placeholder continue to work (line dropped by `interpolateTemplate`).
+
+**Budget reminder fires with 0% usage at turn prep time** — The `toolBudgetSnapshot` is always empty at message-preparation time (no tools have been called yet). Budget-warning reminders are correct semantically but will not fire in practice in the current turn-start injection. This is acceptable behavior and the API is complete for future toolloop-iteration injection.
+
+**Admin UI for `reminders_protocol` template not exposed** — Custom per-workspace overrides of `reminders_protocol` are respected but not yet exposed in the admin UI (Slice 10 covers that). Default is used for all workspaces.
+
+### Next recommended step
+
+Slice 6 — selection guide priority order (ADR-119 D8: rewrite `tools` template default as priority-ordered XML with Skills-first gate). Key file: `apps/api/prisma/bootstrap-preset-data.ts` `tools` template, ADR-117 golden test must also pass.
+
+---
+
 ## 2026-06-18 — ADR-119 Slice 4 landed (volatile scenario XML format + step field extensions)
 
 ### Root cause

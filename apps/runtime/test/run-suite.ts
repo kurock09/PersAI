@@ -32,6 +32,7 @@ import { runRuntimeVideoGenerateToolServiceTest } from "./runtime-video-generate
 import { runRuntimeMemoryWriteToolServiceTest } from "./runtime-memory-write-tool.service.test";
 import { runSanitizeToolResultForModelTest } from "./sanitize-tool-result-for-model.test";
 import { runToolBudgetPolicyTest } from "./tool-budget-policy.test";
+import { runBuildSystemReminderBlocksServiceTest } from "./build-system-reminder-blocks.service.test";
 
 async function run(): Promise<void> {
   await runRuntimeConfigTest();
@@ -62,6 +63,7 @@ async function run(): Promise<void> {
   await runTurnContextHydrationServiceTest();
   await runToolBudgetPolicyTest();
   await runSanitizeToolResultForModelTest();
+  await runBuildSystemReminderBlocksServiceTest();
   await runTurnExecutionServiceTest();
   await runRecentPdfsHintTests();
   await runTurnFinalizationServiceTest();

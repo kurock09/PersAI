@@ -105,6 +105,7 @@ import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.s
 import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
 import { BuildActiveScenarioBlockService } from "./build-active-scenario-block.service";
+import { BuildSystemReminderBlocksService } from "./build-system-reminder-blocks.service";
 import { RuntimeSkillToolService } from "./runtime-skill-tool.service";
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
@@ -122,7 +123,8 @@ import { SessionCompactionService } from "./session-compaction.service";
 import {
   ToolBudgetPolicy,
   createToolBudgetExhaustedResult,
-  type ToolBudgetExecutionMode
+  type ToolBudgetExecutionMode,
+  type ToolBudgetSnapshot
 } from "./tool-budget-policy";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
@@ -411,6 +413,7 @@ export class TurnExecutionService {
     private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService,
     private readonly runtimeSkillToolService: RuntimeSkillToolService,
     private readonly buildActiveScenarioBlockService: BuildActiveScenarioBlockService,
+    private readonly buildSystemReminderBlocksService: BuildSystemReminderBlocksService,
     private readonly runtimeObservabilityService: RuntimeObservabilityService,
     private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService
   ) {}
@@ -610,10 +613,25 @@ export class TurnExecutionService {
       bundle: bundleEntry.parsedBundle,
       skillDecisionState: input.skillStateContext?.decision ?? null
     });
+    // ADR-119 Slice 5: build system-reminder blocks using an initial empty tool budget snapshot.
+    // The snapshot is empty at turn-prep time (no tools used yet); budget-warning reminders
+    // fire only when the snapshot is non-empty (e.g. across-iteration accumulation in future).
+    const currentTurnHasUserAttachedImage = input.message.attachments.some((a) =>
+      a.mimeType.startsWith("image/")
+    );
+    const initialBudgetSnapshot: ToolBudgetSnapshot = [];
+    const reminderBlocks = this.buildSystemReminderBlocksService.buildBlocks({
+      bundle: bundleEntry.parsedBundle,
+      skillDecisionState: input.skillStateContext?.decision ?? null,
+      currentTurnHasUserAttachedImage,
+      toolBudgetSnapshot: initialBudgetSnapshot
+    });
     const hydratedMessages: ProviderGatewayTextMessage[] =
       activeScenarioBlock !== null
-        ? [activeScenarioBlock, ...hydratedMessagesBase]
-        : hydratedMessagesBase;
+        ? [activeScenarioBlock, ...reminderBlocks, ...hydratedMessagesBase]
+        : reminderBlocks.length > 0
+          ? [...reminderBlocks, ...hydratedMessagesBase]
+          : hydratedMessagesBase;
     options?.trace?.stage("prepare.context_hydrated");
     const presenceBlock = await this.turnContextHydrationService.computePresenceBlock(
       input,
