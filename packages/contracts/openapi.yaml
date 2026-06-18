@@ -9286,6 +9286,15 @@ components:
           type: array
           items:
             type: string
+        expectedUserResponse:
+          type: string
+          nullable: true
+        nextStepTrigger:
+          type: string
+          nullable: true
+        recoveryGuidance:
+          type: string
+          nullable: true
     AdminSkillScenario:
       type: object
       required:
@@ -9333,6 +9342,9 @@ components:
             type: string
         exitCondition:
           type: string
+        firstStepPreview:
+          type: string
+          nullable: true
         status:
           $ref: "#/components/schemas/SkillScenarioStatus"
         displayOrder:
@@ -9383,6 +9395,9 @@ components:
             type: string
         exitCondition:
           type: string
+        firstStepPreview:
+          type: string
+          nullable: true
         status:
           $ref: "#/components/schemas/SkillScenarioStatus"
         displayOrder:
@@ -9412,6 +9427,9 @@ components:
             type: string
         exitCondition:
           type: string
+        firstStepPreview:
+          type: string
+          nullable: true
         status:
           $ref: "#/components/schemas/SkillScenarioStatus"
         displayOrder:

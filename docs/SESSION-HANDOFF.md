@@ -3,6 +3,53 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — ADR-119 Slice 10 landed (admin UI for new scenario step fields)
+
+### Root cause
+
+The Slice 4 scenario step schema extended `SkillScenarioStepState` with `expectedUserResponse`, `nextStepTrigger`, and `recoveryGuidance`. The Slice 3 materializer auto-derives `<first_step_preview>` from `steps[0].directive`. Neither set of fields was exposed in the admin UI — admins had no way to author or override them.
+
+### Fix scope
+
+- `apps/web/app/admin/skills/page.tsx`: `ScenarioStepDraft` extended with 4 new string fields. `EMPTY_SCENARIO_STEP_DRAFT` defaults to `""`. `scenarioToDraft` maps API fields via `?? ""`. `validateScenarioDraft` enforces length limits (400/200/400/200 chars). Both payload serializers trim and null-coerce. Step editor JSX: 3 textareas per step + text input on step 1 only for `firstStepPreview`. `renderActiveScenarioBlockPreview` rewritten to Slice 4 XML format. New `renderScenarioCatalogFirstStepPreview` helper. Catalog preview pane shows `<first_step_preview>` value.
+- `apps/api/src/modules/workspace-management/application/skill-scenario.types.ts`: `SkillScenarioStepState` gains `firstStepPreview: string | null`; `parseStep` validates ≤200 chars; `normalizeStepsState` reads from stored JSON.
+- `apps/api/src/modules/workspace-management/application/enabled-skills-prompt-materialization.ts`: `<first_step_preview>` uses `firstStep.firstStepPreview` verbatim when non-null/non-empty, falls back to auto-derived from `directive`.
+- `packages/contracts/src/generated/model/adminSkillScenarioStep.ts`: optional `expectedUserResponse?`, `nextStepTrigger?`, `recoveryGuidance?`, `firstStepPreview?` added.
+- `packages/runtime-contract/src/index.ts`: `RuntimeBundleSkillScenarioStep` gains optional `firstStepPreview?`.
+
+### Tests
+
+- `apps/web/app/admin/skills/page.test.tsx`: 22 new Slice 10 tests; existing `renderActiveScenarioBlockPreview` and `createScenario` fixture tests updated for new fields and XML format.
+- `apps/api/test/enabled-skills-prompt-materialization.test.ts`: 2 new tests (firstStepPreview override verbatim; fallback to directive when absent).
+- `apps/api/test/manage-skill-scenarios.service.test.ts`: 3 new tests (firstStepPreview persists on step 1; missing fields return null; overlong firstStepPreview rejects).
+
+### Files touched
+
+- `apps/web/app/admin/skills/page.tsx`
+- `apps/web/app/admin/skills/page.test.tsx`
+- `apps/api/src/modules/workspace-management/application/skill-scenario.types.ts`
+- `apps/api/src/modules/workspace-management/application/enabled-skills-prompt-materialization.ts`
+- `packages/contracts/src/generated/model/adminSkillScenarioStep.ts`
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/test/enabled-skills-prompt-materialization.test.ts`
+- `apps/api/test/manage-skill-scenarios.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risk
+
+**Low — UI extension only.** All new fields optional; backward-compatible defaults (`?? ""`). No Prisma migration: `firstStepPreview` stored in existing `steps` JSON column (step-level). The `renderActiveScenarioBlockPreview` format change is visible only in the admin preview pane. Materializer update is additive (falls back to existing auto-derive when `firstStepPreview` is null/empty).
+
+### Deviation from instructions
+
+`firstStepPreview` added at step-level (inside `SkillScenarioStepState`) rather than scenario-level. Reason: `steps` is already a JSON blob in Prisma — step-level storage requires zero migration. Scenario-level would need a new `VARCHAR` column + migration file. This is a deliberate simplification; the field is only meaningful for `steps[0]`.
+
+### Next recommended step
+
+Slice 11 — golden tests + docs + ADR closure (golden test suite, `docs/ARCHITECTURE.md`/`API-BOUNDARY.md`/`DATA-MODEL.md`/`TEST-PLAN.md` updates, ADR-119 `Status: Closed`, ADR-118 `Status: Superseded`).
+
+---
+
 ## 2026-06-18 — ADR-119 Slice 9 landed (memory protocol + provenance)
 
 ### Root cause

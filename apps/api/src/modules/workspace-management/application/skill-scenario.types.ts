@@ -16,6 +16,8 @@ export type SkillScenarioStepState = {
   nextStepTrigger: string | null;
   /** ADR-119 Slice 4 — recovery guidance for off-script user responses. */
   recoveryGuidance: string | null;
+  /** ADR-119 Slice 10 — step 1 only: overrides auto-derived catalog first_step_preview (≤200 chars). */
+  firstStepPreview: string | null;
 };
 
 export type AdminSkillScenarioState = {
@@ -29,6 +31,8 @@ export type AdminSkillScenarioState = {
   steps: SkillScenarioStepState[];
   recommendedTools: string[];
   exitCondition: string;
+  /** ADR-119 Slice 10 — optional override for the catalog <first_step_preview> tag on step 1. */
+  firstStepPreview: string | null;
   status: SkillScenarioStatus;
   displayOrder: number;
   createdAt: string;
@@ -44,6 +48,8 @@ export type CreateSkillScenarioInput = {
   steps: SkillScenarioStepState[];
   recommendedTools: string[];
   exitCondition: string;
+  /** ADR-119 Slice 10 — optional override for the catalog <first_step_preview> tag on step 1. */
+  firstStepPreview: string | null;
   status: SkillScenarioStatus | null;
   displayOrder: number | null;
 };
@@ -56,6 +62,8 @@ export type UpdateSkillScenarioInput = {
   steps?: SkillScenarioStepState[];
   recommendedTools?: string[];
   exitCondition?: string;
+  /** ADR-119 Slice 10 — optional override for the catalog <first_step_preview> tag on step 1. */
+  firstStepPreview?: string | null;
   status?: SkillScenarioStatus;
   displayOrder?: number;
 };
@@ -75,6 +83,7 @@ const MAX_SKIP_CONDITION_CHARS = 240;
 const MAX_EXPECTED_USER_RESPONSE_CHARS = 400;
 const MAX_NEXT_STEP_TRIGGER_CHARS = 400;
 const MAX_RECOVERY_GUIDANCE_CHARS = 400;
+const MAX_FIRST_STEP_PREVIEW_CHARS = 200;
 const KEY_REGEX = /^[a-z][a-z0-9_]{1,63}$/;
 
 export function parseCreateSkillScenarioInput(body: unknown): CreateSkillScenarioInput {
@@ -102,6 +111,11 @@ export function parseCreateSkillScenarioInput(body: unknown): CreateSkillScenari
       "exitCondition",
       1,
       MAX_EXIT_CONDITION_CHARS
+    ),
+    firstStepPreview: parseNullableBoundedString(
+      row.firstStepPreview,
+      "firstStepPreview",
+      MAX_FIRST_STEP_PREVIEW_CHARS
     ),
     status: parseNullableScenarioStatus(row.status, "status"),
     displayOrder: parseNullableInteger(row.displayOrder, "displayOrder")
@@ -155,6 +169,13 @@ export function parseUpdateSkillScenarioInput(body: unknown): UpdateSkillScenari
       MAX_EXIT_CONDITION_CHARS
     );
   }
+  if (row.firstStepPreview !== undefined) {
+    result.firstStepPreview = parseNullableBoundedString(
+      row.firstStepPreview,
+      "firstStepPreview",
+      MAX_FIRST_STEP_PREVIEW_CHARS
+    );
+  }
   if (row.status !== undefined) {
     result.status = parseScenarioStatus(row.status, "status");
   }
@@ -176,6 +197,7 @@ export function toAdminSkillScenarioState(row: SkillScenario): AdminSkillScenari
     steps: normalizeStepsState(row.steps),
     recommendedTools: normalizeStringArray(row.recommendedTools),
     exitCondition: row.exitCondition,
+    firstStepPreview: typeof row.firstStepPreview === "string" ? row.firstStepPreview : null,
     status: row.status as SkillScenarioStatus,
     displayOrder: row.displayOrder,
     createdAt: row.createdAt.toISOString(),
@@ -281,6 +303,15 @@ function parseStep(value: unknown, idx: number): SkillScenarioStepState {
           1,
           MAX_RECOVERY_GUIDANCE_CHARS
         );
+  const firstStepPreview =
+    row.firstStepPreview === undefined || row.firstStepPreview === null
+      ? null
+      : parseBoundedString(
+          row.firstStepPreview,
+          `${path}.firstStepPreview`,
+          1,
+          MAX_FIRST_STEP_PREVIEW_CHARS
+        );
   return {
     number,
     directive,
@@ -289,7 +320,8 @@ function parseStep(value: unknown, idx: number): SkillScenarioStepState {
     negativeGuards,
     expectedUserResponse,
     nextStepTrigger,
-    recoveryGuidance
+    recoveryGuidance,
+    firstStepPreview
   };
 }
 
@@ -407,7 +439,8 @@ function normalizeStepsState(value: unknown): SkillScenarioStepState[] {
         expectedUserResponse:
           typeof row.expectedUserResponse === "string" ? row.expectedUserResponse : null,
         nextStepTrigger: typeof row.nextStepTrigger === "string" ? row.nextStepTrigger : null,
-        recoveryGuidance: typeof row.recoveryGuidance === "string" ? row.recoveryGuidance : null
+        recoveryGuidance: typeof row.recoveryGuidance === "string" ? row.recoveryGuidance : null,
+        firstStepPreview: typeof row.firstStepPreview === "string" ? row.firstStepPreview : null
       };
     });
 }

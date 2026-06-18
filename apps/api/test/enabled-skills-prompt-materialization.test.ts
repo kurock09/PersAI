@@ -419,6 +419,87 @@ async function run(): Promise<void> {
     const block2 = renderEnabledSkillsPromptBlock(cards2);
     assert.equal(block1, block2, "repeated materialization must produce byte-identical output");
   }
+
+  // ADR-119 Slice 10 — firstStepPreview override in catalog rendering
+
+  // When scenario carries firstStepPreview, the materializer uses it verbatim (not auto-derived).
+  {
+    const cardsWithOverride = resolveEnabledSkillPromptCards({
+      locale: "en-US",
+      limit: null,
+      candidates: [
+        {
+          ...baseCandidate("skill-with-preview", {
+            assignmentEnabledAt: "2026-05-01T12:01:00.000Z"
+          }),
+          scenarios: [
+            makeResolvedScenario("sc_override", {
+              displayName: "Scenario Override",
+              description: "Test scenario.",
+              firstStepPreview: "Custom catalog preview text.",
+              steps: [
+                {
+                  number: 1,
+                  directive: "This is the full directive text that would auto-derive.",
+                  recommendedToolCall: null,
+                  mayBeSkippedIf: null,
+                  negativeGuards: []
+                }
+              ]
+            })
+          ]
+        }
+      ]
+    });
+    const overrideBlock = renderEnabledSkillsPromptBlock(cardsWithOverride);
+    assert.match(
+      overrideBlock,
+      /<first_step_preview>Custom catalog preview text\.<\/first_step_preview>/,
+      "firstStepPreview override must be used verbatim in catalog"
+    );
+    assert.doesNotMatch(
+      overrideBlock,
+      /This is the full directive text that would auto-derive\./,
+      "auto-derived directive text must NOT appear when override is set"
+    );
+  }
+
+  // When scenario has no firstStepPreview, the materializer falls back to truncated directive.
+  {
+    const cardsWithFallback = resolveEnabledSkillPromptCards({
+      locale: "en-US",
+      limit: null,
+      candidates: [
+        {
+          ...baseCandidate("skill-with-fallback", {
+            assignmentEnabledAt: "2026-05-01T12:01:00.000Z"
+          }),
+          scenarios: [
+            makeResolvedScenario("sc_fallback", {
+              displayName: "Scenario Fallback",
+              description: "Fallback test.",
+              // firstStepPreview intentionally absent (undefined) — backward compat
+              steps: [
+                {
+                  number: 1,
+                  directive: "Collect the brief from the user via structured questions.",
+                  recommendedToolCall: null,
+                  mayBeSkippedIf: null,
+                  negativeGuards: []
+                }
+              ]
+            })
+          ]
+        }
+      ]
+    });
+    const fallbackBlock = renderEnabledSkillsPromptBlock(cardsWithFallback);
+    assert.match(
+      fallbackBlock,
+      /<first_step_preview>Collect the brief from the user via structured questions\.<\/first_step_preview>/,
+      "fallback to directive text must work when firstStepPreview is absent"
+    );
+  }
 }
 
 void run();

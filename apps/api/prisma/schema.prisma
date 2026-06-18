@@ -2869,6 +2869,7 @@ model SkillScenario {
   steps            Json                @default("[]") @db.JsonB
   recommendedTools Json                @default("[]") @map("recommended_tools") @db.JsonB
   exitCondition    String              @map("exit_condition") @db.Text
+  firstStepPreview String?             @map("first_step_preview") @db.VarChar(200)
   status           SkillScenarioStatus @default(draft)
   displayOrder     Int                 @default(100) @map("display_order")
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)

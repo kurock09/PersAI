@@ -18,6 +18,8 @@ export interface AdminCreateSkillScenarioRequest {
   steps: AdminSkillScenarioStep[];
   recommendedTools: string[];
   exitCondition: string;
+  /** @nullable */
+  firstStepPreview?: string | null;
   status?: SkillScenarioStatus;
   /** @nullable */
   displayOrder?: number | null;

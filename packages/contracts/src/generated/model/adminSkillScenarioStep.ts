@@ -13,4 +13,10 @@ export interface AdminSkillScenarioStep {
   /** @nullable */
   mayBeSkippedIf: string | null;
   negativeGuards: string[];
+  /** @nullable */
+  expectedUserResponse?: string | null;
+  /** @nullable */
+  nextStepTrigger?: string | null;
+  /** @nullable */
+  recoveryGuidance?: string | null;
 }

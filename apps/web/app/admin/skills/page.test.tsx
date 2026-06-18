@@ -14,6 +14,7 @@ import {
   knowledgeCardToDraft,
   NATIVE_SCENARIO_TOOL_KEYS,
   renderActiveScenarioBlockPreview,
+  renderScenarioCatalogFirstStepPreview,
   renderScenarioCatalogLine,
   scenarioDraftToCreatePayload,
   scenarioDraftToUpdatePayload,
@@ -268,16 +269,23 @@ function createScenario(
         directive: "CALL image_generate with outputMode=series, count=8",
         recommendedToolCall: "image_generate",
         mayBeSkippedIf: null,
-        negativeGuards: ["combine slides into one image"]
+        negativeGuards: ["combine slides into one image"],
+        expectedUserResponse: null,
+        nextStepTrigger: null,
+        recoveryGuidance: null
       },
       {
         number: 2,
         directive: "Confirm all slides with user and call skill({ release })",
         recommendedToolCall: null,
         mayBeSkippedIf: null,
-        negativeGuards: []
+        negativeGuards: [],
+        expectedUserResponse: null,
+        nextStepTrigger: null,
+        recoveryGuidance: null
       }
     ],
+    firstStepPreview: null,
     recommendedTools: ["image_generate"],
     exitCondition: "After user confirms all slides call skill({ release }).",
     status,
@@ -374,16 +382,21 @@ describe("admin skills — scenario helper functions", () => {
     expect(payload.status).toBe("archived");
   });
 
-  // Live-preview test: typing in directive updates Pane B output
-  it("renderActiveScenarioBlockPreview reflects directive text changes", () => {
+  // Live-preview test: typing in directive updates Pane B output (Slice 10 — XML format)
+  it("renderActiveScenarioBlockPreview reflects directive text changes in XML format", () => {
     const base = scenarioToDraft(createScenario());
     const preview1 = renderActiveScenarioBlockPreview(base, "Маркетолог");
     expect(preview1).toContain("CALL image_generate with outputMode=series, count=8");
-    expect(preview1).toContain("## Active Scenario: Instagram Carousel (Skill: Маркетолог)");
-    expect(preview1).toContain("Recommended tool: image_generate");
-    expect(preview1).toContain("Guards: Do NOT combine slides into one image.");
+    expect(preview1).toContain("Active: Instagram Carousel (Skill: Маркетолог)");
+    expect(preview1).toContain("<recommended_tool_call>image_generate</recommended_tool_call>");
+    expect(preview1).toContain("<guard>Do NOT combine slides into one image</guard>");
     expect(preview1).toContain(
-      "Exit condition: After user confirms all slides call skill({ release })."
+      "<exit_condition>After user confirms all slides call skill({ release }).</exit_condition>"
+    );
+    expect(preview1).toContain('<step number="1">');
+    expect(preview1).toContain('<step number="2">');
+    expect(preview1).toContain(
+      "<directive>CALL image_generate with outputMode=series, count=8</directive>"
     );
 
     const firstStep = base.steps[0];
@@ -416,10 +429,15 @@ describe("admin skills — scenario helper functions", () => {
       ...scenarioToDraft(createScenario()),
       steps: [
         {
+          number: 1,
           directive: "Do something without releasing",
           recommendedToolCall: "" as string,
           mayBeSkippedIf: "" as string,
-          negativeGuards: [] as string[]
+          negativeGuards: [] as string[],
+          expectedUserResponse: "" as string,
+          nextStepTrigger: "" as string,
+          recoveryGuidance: "" as string,
+          firstStepPreview: "" as string
         }
       ]
     };
@@ -433,5 +451,233 @@ describe("admin skills — scenario helper functions", () => {
     expect(NATIVE_SCENARIO_TOOL_KEYS).toContain("image_generate");
     expect(NATIVE_SCENARIO_TOOL_KEYS).toContain("skill");
     expect(NATIVE_SCENARIO_TOOL_KEYS).toContain("files");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-119 Slice 10 — new scenario step fields
+// ---------------------------------------------------------------------------
+
+describe("ADR-119 Slice 10 — new scenario step fields", () => {
+  it("scenarioToDraft maps null expectedUserResponse to empty string", () => {
+    const scenario = createScenario();
+    const draft = scenarioToDraft(scenario);
+    expect(draft.steps[0]?.expectedUserResponse).toBe("");
+    expect(draft.steps[1]?.expectedUserResponse).toBe("");
+  });
+
+  it("scenarioToDraft maps existing expectedUserResponse, nextStepTrigger, recoveryGuidance", () => {
+    const scenario = createScenario();
+    scenario.steps[0] = {
+      ...scenario.steps[0]!,
+      expectedUserResponse: "User provides 8 image descriptions.",
+      nextStepTrigger: "User confirms image set is ready.",
+      recoveryGuidance: "Ask user to describe each slide briefly."
+    };
+    const draft = scenarioToDraft(scenario);
+    expect(draft.steps[0]?.expectedUserResponse).toBe("User provides 8 image descriptions.");
+    expect(draft.steps[0]?.nextStepTrigger).toBe("User confirms image set is ready.");
+    expect(draft.steps[0]?.recoveryGuidance).toBe("Ask user to describe each slide briefly.");
+  });
+
+  it("scenarioToDraft maps firstStepPreview for step 1, null maps to empty string", () => {
+    const scenario = createScenario();
+    scenario.firstStepPreview = "Brief carousel overview.";
+    const draft = scenarioToDraft(scenario);
+    expect(draft.steps[0]?.firstStepPreview).toBe("Brief carousel overview.");
+    expect(draft.steps[1]?.firstStepPreview).toBe("");
+  });
+
+  it("validates expectedUserResponse length >400 blocks submit", () => {
+    const draft = scenarioToDraft(createScenario());
+    const step0 = draft.steps[0];
+    expect(step0).toBeDefined();
+    const tooLong = {
+      ...draft,
+      steps: [{ ...step0!, expectedUserResponse: "x".repeat(401) }, ...draft.steps.slice(1)]
+    };
+    const { errors } = validateScenarioDraft(tooLong);
+    expect(errors["step_0_expected_user_response"]).toBe("≤400 chars");
+    expect(() => scenarioDraftToCreatePayload(tooLong)).toThrow();
+  });
+
+  it("does NOT error when expectedUserResponse is exactly 400 chars", () => {
+    const draft = scenarioToDraft(createScenario());
+    const step0 = draft.steps[0]!;
+    const ok = {
+      ...draft,
+      steps: [{ ...step0, expectedUserResponse: "x".repeat(400) }, ...draft.steps.slice(1)]
+    };
+    const { errors } = validateScenarioDraft(ok);
+    expect(errors["step_0_expected_user_response"]).toBeUndefined();
+  });
+
+  it("validates nextStepTrigger length >200 blocks submit", () => {
+    const draft = scenarioToDraft(createScenario());
+    const step0 = draft.steps[0]!;
+    const tooLong = {
+      ...draft,
+      steps: [{ ...step0, nextStepTrigger: "y".repeat(201) }, ...draft.steps.slice(1)]
+    };
+    const { errors } = validateScenarioDraft(tooLong);
+    expect(errors["step_0_next_step_trigger"]).toBe("≤200 chars");
+    expect(() => scenarioDraftToCreatePayload(tooLong)).toThrow();
+  });
+
+  it("validates recoveryGuidance length >400 blocks submit", () => {
+    const draft = scenarioToDraft(createScenario());
+    const step0 = draft.steps[0]!;
+    const tooLong = {
+      ...draft,
+      steps: [{ ...step0, recoveryGuidance: "z".repeat(401) }, ...draft.steps.slice(1)]
+    };
+    const { errors } = validateScenarioDraft(tooLong);
+    expect(errors["step_0_recovery_guidance"]).toBe("≤400 chars");
+    expect(() => scenarioDraftToCreatePayload(tooLong)).toThrow();
+  });
+
+  it("validates firstStepPreview length >200 blocks submit on step 1", () => {
+    const draft = scenarioToDraft(createScenario());
+    const step0 = draft.steps[0]!;
+    const tooLong = {
+      ...draft,
+      steps: [{ ...step0, firstStepPreview: "p".repeat(201) }, ...draft.steps.slice(1)]
+    };
+    const { errors } = validateScenarioDraft(tooLong);
+    expect(errors["step_0_first_step_preview"]).toBe("≤200 chars");
+    expect(() => scenarioDraftToCreatePayload(tooLong)).toThrow();
+  });
+
+  it("firstStepPreview validation only applies to step 0 (index 0), not later steps", () => {
+    const draft = scenarioToDraft(createScenario());
+    const step1 = draft.steps[1]!;
+    const modified = {
+      ...draft,
+      steps: [draft.steps[0]!, { ...step1, firstStepPreview: "p".repeat(201) }]
+    };
+    const { errors } = validateScenarioDraft(modified);
+    expect(errors["step_0_first_step_preview"]).toBeUndefined();
+    expect(errors["step_1_first_step_preview"]).toBeUndefined();
+  });
+
+  it("serializes new fields to null when empty strings in create payload", () => {
+    const draft = scenarioToDraft(createScenario());
+    const payload = scenarioDraftToCreatePayload(draft);
+    expect(payload.steps[0]?.expectedUserResponse).toBeNull();
+    expect(payload.steps[0]?.nextStepTrigger).toBeNull();
+    expect(payload.steps[0]?.recoveryGuidance).toBeNull();
+    expect(payload.firstStepPreview).toBeNull();
+  });
+
+  it("serializes non-empty new fields to trimmed strings in create payload", () => {
+    const draft = scenarioToDraft(createScenario());
+    const step0 = draft.steps[0]!;
+    const modified = {
+      ...draft,
+      steps: [
+        {
+          ...step0,
+          expectedUserResponse: "  User sends image details.  ",
+          nextStepTrigger: "  User confirms.  ",
+          recoveryGuidance: "  Ask again.  ",
+          firstStepPreview: "  Create carousel.  "
+        },
+        ...draft.steps.slice(1)
+      ]
+    };
+    const payload = scenarioDraftToCreatePayload(modified);
+    expect(payload.steps[0]?.expectedUserResponse).toBe("User sends image details.");
+    expect(payload.steps[0]?.nextStepTrigger).toBe("User confirms.");
+    expect(payload.steps[0]?.recoveryGuidance).toBe("Ask again.");
+    // firstStepPreview is scenario-level, not step-level
+    expect(payload.firstStepPreview).toBe("Create carousel.");
+  });
+
+  it("firstStepPreview in payload is scenario-level, derived from step 0 draft only", () => {
+    const draft = scenarioToDraft(createScenario());
+    const step1 = draft.steps[1]!;
+    const modified = {
+      ...draft,
+      steps: [draft.steps[0]!, { ...step1, firstStepPreview: "Some preview." }]
+    };
+    const payload = scenarioDraftToCreatePayload(modified);
+    // step 0 has empty firstStepPreview → scenario-level null (step 1+ draft value ignored)
+    expect(payload.firstStepPreview).toBeNull();
+  });
+
+  it("renderActiveScenarioBlockPreview renders expectedUserResponse in XML when non-empty", () => {
+    const draft = scenarioToDraft(createScenario());
+    const step0 = draft.steps[0]!;
+    const modified = {
+      ...draft,
+      steps: [
+        { ...step0, expectedUserResponse: "8 image descriptions from user." },
+        ...draft.steps.slice(1)
+      ]
+    };
+    const preview = renderActiveScenarioBlockPreview(modified, "Marketer");
+    expect(preview).toContain(
+      "<expected_user_response>8 image descriptions from user.</expected_user_response>"
+    );
+  });
+
+  it("renderActiveScenarioBlockPreview renders nextStepTrigger and recoveryGuidance when set", () => {
+    const draft = scenarioToDraft(createScenario());
+    const step0 = draft.steps[0]!;
+    const modified = {
+      ...draft,
+      steps: [
+        {
+          ...step0,
+          nextStepTrigger: "User says ready.",
+          recoveryGuidance: "Re-ask for details."
+        },
+        ...draft.steps.slice(1)
+      ]
+    };
+    const preview = renderActiveScenarioBlockPreview(modified, "Marketer");
+    expect(preview).toContain("<next_step_trigger>User says ready.</next_step_trigger>");
+    expect(preview).toContain("<recovery_guidance>Re-ask for details.</recovery_guidance>");
+  });
+
+  it("renderActiveScenarioBlockPreview omits new XML tags when fields are empty", () => {
+    const draft = scenarioToDraft(createScenario());
+    const preview = renderActiveScenarioBlockPreview(draft, "Marketer");
+    expect(preview).not.toContain("<expected_user_response>");
+    expect(preview).not.toContain("<next_step_trigger>");
+    expect(preview).not.toContain("<recovery_guidance>");
+  });
+
+  it("renderScenarioCatalogFirstStepPreview uses firstStepPreview override when set", () => {
+    const scenario = createScenario();
+    scenario.firstStepPreview = "Quick carousel creation.";
+    const draft = scenarioToDraft(scenario);
+    const preview = renderScenarioCatalogFirstStepPreview(draft);
+    expect(preview).toBe("Quick carousel creation.");
+  });
+
+  it("renderScenarioCatalogFirstStepPreview auto-derives from directive when firstStepPreview is blank", () => {
+    const draft = scenarioToDraft(createScenario());
+    const preview = renderScenarioCatalogFirstStepPreview(draft);
+    expect(preview).toBe("CALL image_generate with outputMode=series, count=8");
+  });
+
+  it("renderScenarioCatalogFirstStepPreview truncates long directive to 200 chars with ellipsis", () => {
+    const base = scenarioToDraft(createScenario());
+    const step0 = base.steps[0]!;
+    const longDirective = "A".repeat(250);
+    const modified = {
+      ...base,
+      steps: [{ ...step0, directive: longDirective, firstStepPreview: "" }, ...base.steps.slice(1)]
+    };
+    const preview = renderScenarioCatalogFirstStepPreview(modified);
+    expect(preview.length).toBeLessThanOrEqual(200);
+    expect(preview.endsWith("\u2026")).toBe(true);
+  });
+
+  it("renderScenarioCatalogFirstStepPreview returns empty string when no steps", () => {
+    const draft = { ...scenarioToDraft(createScenario()), steps: [] };
+    const preview = renderScenarioCatalogFirstStepPreview(draft);
+    expect(preview).toBe("");
   });
 });

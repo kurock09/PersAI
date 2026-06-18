@@ -3005,6 +3005,8 @@ export interface RuntimeBundleSkillScenarioStep {
   nextStepTrigger?: string | null;
   /** ADR-119 Slice 4 — guidance for recovering if the user's response is off-script. */
   recoveryGuidance?: string | null;
+  /** ADR-119 Slice 10 — step 1 only: overrides auto-derived catalog first_step_preview (≤200 chars). */
+  firstStepPreview?: string | null;
 }
 
 export interface RuntimeBundleSkillScenario {
@@ -3016,6 +3018,8 @@ export interface RuntimeBundleSkillScenario {
   steps: RuntimeBundleSkillScenarioStep[];
   recommendedTools: string[];
   exitCondition: string;
+  /** ADR-119 Slice 10 — override for the catalog <first_step_preview> tag; null = auto-derive from steps[0].directive. */
+  firstStepPreview?: string | null;
 }
 
 export interface ProviderGatewayTextMessage {

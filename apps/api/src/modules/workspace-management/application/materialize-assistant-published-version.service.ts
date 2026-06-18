@@ -1821,7 +1821,8 @@ export class MaterializeAssistantPublishedVersionService {
       intentExamples: normalizeStringArray(row.intentExamples),
       steps: normalizeSkillScenarioSteps(row.steps),
       recommendedTools: normalizeStringArray(row.recommendedTools),
-      exitCondition: row.exitCondition
+      exitCondition: row.exitCondition,
+      firstStepPreview: typeof row.firstStepPreview === "string" ? row.firstStepPreview : null
     }));
     return resolveEnabledSkillScenariosForBundle({
       candidates: scenarioCandidates,

@@ -57,6 +57,8 @@ export type EnabledSkillScenarioCandidate = {
   steps: RuntimeBundleSkillScenario["steps"];
   recommendedTools: string[];
   exitCondition: string;
+  /** ADR-119 Slice 10 — optional override for the catalog <first_step_preview> tag; null = auto-derive. */
+  firstStepPreview?: string | null;
 };
 
 /** ADR-118 Slice 4 — maximum scenarios rendered per skill in the cached prefix. */
@@ -142,7 +144,10 @@ function renderSkillCard(card: EnabledSkillPromptCard): string[] {
       lines.push(`      <one_line>${escapeXml(oneLine)}</one_line>`);
       const firstStep = scenario.steps[0] ?? null;
       if (firstStep !== null) {
-        const preview = buildFirstStepPreview(firstStep.directive);
+        const preview =
+          scenario.firstStepPreview != null && scenario.firstStepPreview.trim().length > 0
+            ? scenario.firstStepPreview.trim()
+            : buildFirstStepPreview(firstStep.directive);
         lines.push(`      <first_step_preview>${escapeXml(preview)}</first_step_preview>`);
       }
       if (scenario.recommendedTools.length > 0) {
@@ -181,7 +186,8 @@ export function resolveEnabledSkillScenariosForBundle(params: {
       intentExamples: candidate.intentExamples,
       steps: candidate.steps,
       recommendedTools: candidate.recommendedTools,
-      exitCondition: candidate.exitCondition
+      exitCondition: candidate.exitCondition,
+      firstStepPreview: candidate.firstStepPreview ?? null
     };
     const existing = result.get(candidate.skillId) ?? [];
     existing.push(scenario);

@@ -94,10 +94,19 @@ type SkillKnowledgeCardDraft = {
 };
 
 type ScenarioStepDraft = {
+  number: number;
   directive: string;
   recommendedToolCall: string;
   mayBeSkippedIf: string;
   negativeGuards: string[];
+  /** ADR-119 Slice 10 — what the model should expect the user to provide to satisfy this step. */
+  expectedUserResponse: string;
+  /** ADR-119 Slice 10 — explicit transition condition for moving to the next step. */
+  nextStepTrigger: string;
+  /** ADR-119 Slice 10 — guidance for recovering if the user response is off-script. Optional. */
+  recoveryGuidance: string;
+  /** ADR-119 Slice 10 — step 1 only: overrides auto-derived catalog first_step_preview (≤200 chars). */
+  firstStepPreview: string;
 };
 
 type ScenarioDraft = {
@@ -181,10 +190,15 @@ export const NATIVE_SCENARIO_TOOL_KEYS = [
 ] as const;
 
 const EMPTY_SCENARIO_STEP_DRAFT: ScenarioStepDraft = {
+  number: 1,
   directive: "",
   recommendedToolCall: "",
   mayBeSkippedIf: "",
-  negativeGuards: []
+  negativeGuards: [],
+  expectedUserResponse: "",
+  nextStepTrigger: "",
+  recoveryGuidance: "",
+  firstStepPreview: ""
 };
 
 const EMPTY_SCENARIO_DRAFT: ScenarioDraft = {
@@ -538,11 +552,16 @@ export function scenarioToDraft(scenario: AdminSkillScenario | null): ScenarioDr
     intentExamples: scenario.intentExamples.length > 0 ? scenario.intentExamples : [],
     recommendedTools: scenario.recommendedTools,
     exitCondition: scenario.exitCondition,
-    steps: scenario.steps.map((step) => ({
+    steps: scenario.steps.map((step, index) => ({
+      number: step.number,
       directive: step.directive,
       recommendedToolCall: step.recommendedToolCall ?? "",
       mayBeSkippedIf: step.mayBeSkippedIf ?? "",
-      negativeGuards: step.negativeGuards
+      negativeGuards: step.negativeGuards,
+      expectedUserResponse: step.expectedUserResponse ?? "",
+      nextStepTrigger: step.nextStepTrigger ?? "",
+      recoveryGuidance: step.recoveryGuidance ?? "",
+      firstStepPreview: index === 0 ? (scenario.firstStepPreview ?? "") : ""
     }))
   };
 }
@@ -570,6 +589,18 @@ export function validateScenarioDraft(draft: ScenarioDraft): {
     if (!step.directive.trim()) {
       errors[`step_${String(i)}_directive`] =
         `Шаг ${String(i + 1)}: директива не может быть пустой.`;
+    }
+    if (step.expectedUserResponse.length > 400) {
+      errors[`step_${String(i)}_expected_user_response`] = "≤400 chars";
+    }
+    if (step.nextStepTrigger.length > 200) {
+      errors[`step_${String(i)}_next_step_trigger`] = "≤200 chars";
+    }
+    if (step.recoveryGuidance.length > 400) {
+      errors[`step_${String(i)}_recovery_guidance`] = "≤400 chars";
+    }
+    if (i === 0 && step.firstStepPreview.length > 200) {
+      errors["step_0_first_step_preview"] = "≤200 chars";
     }
   });
 
@@ -612,8 +643,13 @@ export function scenarioDraftToCreatePayload(
       directive: step.directive.trim(),
       recommendedToolCall: step.recommendedToolCall.trim() || null,
       mayBeSkippedIf: step.mayBeSkippedIf.trim() || null,
-      negativeGuards: step.negativeGuards.filter(Boolean)
+      negativeGuards: step.negativeGuards.filter(Boolean),
+      expectedUserResponse: step.expectedUserResponse.trim() || null,
+      nextStepTrigger: step.nextStepTrigger.trim() || null,
+      recoveryGuidance: step.recoveryGuidance.trim() || null,
+      firstStepPreview: index === 0 ? step.firstStepPreview.trim() || null : null
     })),
+    firstStepPreview: draft.steps[0]?.firstStepPreview.trim() || null,
     recommendedTools: draft.recommendedTools,
     exitCondition: draft.exitCondition.trim(),
     status: draft.status,
@@ -645,8 +681,13 @@ export function scenarioDraftToUpdatePayload(
       directive: step.directive.trim(),
       recommendedToolCall: step.recommendedToolCall.trim() || null,
       mayBeSkippedIf: step.mayBeSkippedIf.trim() || null,
-      negativeGuards: step.negativeGuards.filter(Boolean)
+      negativeGuards: step.negativeGuards.filter(Boolean),
+      expectedUserResponse: step.expectedUserResponse.trim() || null,
+      nextStepTrigger: step.nextStepTrigger.trim() || null,
+      recoveryGuidance: step.recoveryGuidance.trim() || null,
+      firstStepPreview: index === 0 ? step.firstStepPreview.trim() || null : null
     })),
+    firstStepPreview: draft.steps[0]?.firstStepPreview.trim() || null,
     recommendedTools: draft.recommendedTools,
     exitCondition: draft.exitCondition.trim(),
     status: draft.status,
@@ -674,37 +715,102 @@ export function renderScenarioCatalogLine(draft: ScenarioDraft, locale: "ru" | "
 }
 
 /**
- * Renders the active scenario developer block preview.
- * Intentional duplicate of renderActiveScenarioBlock in
- * apps/runtime/src/modules/turns/build-active-scenario-block.service.ts
- * (private function, not exported). Must stay byte-for-byte identical in format.
+ * Derives the first_step_preview value for the catalog block.
+ * Uses step 1's firstStepPreview if non-empty, otherwise auto-derives from steps[0].directive
+ * (truncated to 200 chars). Mirrors the fallback in enabled-skills-prompt-materialization.ts.
+ */
+export function renderScenarioCatalogFirstStepPreview(draft: ScenarioDraft): string {
+  const firstStep = draft.steps[0];
+  if (firstStep === undefined) return "";
+  const override = firstStep.firstStepPreview.trim();
+  if (override.length > 0) return override;
+  const directive = firstStep.directive.replace(/\s+/g, " ").trim();
+  if (directive.length <= 200) return directive;
+  return `${directive.slice(0, 199).trimEnd()}\u2026`;
+}
+
+function escapeXmlPreview(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/**
+ * Renders a single scenario step in the XML format used by build-active-scenario-block.service.ts.
+ * Port of the private renderStep function — kept in sync manually.
+ */
+function renderStepPreview(step: ScenarioStepDraft, stepNumber: number): string {
+  const lines: string[] = [`<step number="${String(stepNumber)}">`];
+
+  lines.push(
+    `  <directive>${escapeXmlPreview(step.directive.trim() || "(пустая директива)")}</directive>`
+  );
+
+  if (step.recommendedToolCall.trim()) {
+    lines.push(
+      `  <recommended_tool_call>${escapeXmlPreview(step.recommendedToolCall.trim())}</recommended_tool_call>`
+    );
+  }
+
+  if (step.expectedUserResponse.trim()) {
+    lines.push(
+      `  <expected_user_response>${escapeXmlPreview(step.expectedUserResponse.trim())}</expected_user_response>`
+    );
+  }
+
+  if (step.nextStepTrigger.trim()) {
+    lines.push(
+      `  <next_step_trigger>${escapeXmlPreview(step.nextStepTrigger.trim())}</next_step_trigger>`
+    );
+  }
+
+  if (step.recoveryGuidance.trim()) {
+    lines.push(
+      `  <recovery_guidance>${escapeXmlPreview(step.recoveryGuidance.trim())}</recovery_guidance>`
+    );
+  }
+
+  if (step.mayBeSkippedIf.trim()) {
+    lines.push(
+      `  <may_be_skipped_if>${escapeXmlPreview(step.mayBeSkippedIf.trim())}</may_be_skipped_if>`
+    );
+  }
+
+  const guards = step.negativeGuards.filter(Boolean);
+  if (guards.length > 0) {
+    lines.push("  <negative_guards>");
+    for (const guard of guards) {
+      lines.push(`    <guard>Do NOT ${escapeXmlPreview(guard)}</guard>`);
+    }
+    lines.push("  </negative_guards>");
+  }
+
+  lines.push("</step>");
+  return lines.join("\n");
+}
+
+/**
+ * Renders the active scenario developer block preview using the Slice 4 XML format.
+ * Mirrors renderActiveScenarioBlock in build-active-scenario-block.service.ts.
  */
 export function renderActiveScenarioBlockPreview(
   draft: ScenarioDraft,
   skillDisplayName: string
 ): string {
   const displayName = draft.displayNameEn.trim() || draft.displayNameRu.trim() || "(без названия)";
-  const lines: string[] = [
-    `## Active Scenario: ${displayName} (Skill: ${skillDisplayName})`,
-    "",
-    "Follow steps in order. Do not skip, do not combine, do not respond to the user without making progress on a step.",
-    "",
-    "Steps:"
-  ];
+  const parts: string[] = [`Active: ${displayName} (Skill: ${skillDisplayName})`, ""];
 
   draft.steps.forEach((step, i) => {
-    lines.push(`${String(i + 1)}. ${step.directive.trim() || "(пустая директива)"}`);
-    if (step.recommendedToolCall.trim()) {
-      lines.push(`   Recommended tool: ${step.recommendedToolCall.trim()}`);
-    }
-    const guards = step.negativeGuards.filter(Boolean);
-    if (guards.length > 0) {
-      lines.push(`   Guards: ${guards.map((g) => `Do NOT ${g}`).join(". ")}.`);
-    }
+    parts.push(renderStepPreview(step, i + 1));
   });
 
-  lines.push("", `Exit condition: ${draft.exitCondition.trim() || "(не задано)"}`);
-  return lines.join("\n");
+  parts.push(
+    `<exit_condition>${escapeXmlPreview(draft.exitCondition.trim() || "(не задано)")}</exit_condition>`
+  );
+  return parts.join("\n");
 }
 
 function statusTone(status: string): string {
@@ -2641,6 +2747,105 @@ export default function AdminSkillsPage() {
                                     ))}
                                   </div>
                                 </div>
+                                <Field
+                                  label="Expected user response"
+                                  error={
+                                    scenarioValidation.errors[
+                                      `step_${String(stepIdx)}_expected_user_response`
+                                    ]
+                                  }
+                                >
+                                  <textarea
+                                    value={step.expectedUserResponse}
+                                    onChange={(e) =>
+                                      setScenarioDraft((prev) => ({
+                                        ...prev,
+                                        steps: prev.steps.map((s, i) =>
+                                          i === stepIdx
+                                            ? { ...s, expectedUserResponse: e.target.value }
+                                            : s
+                                        )
+                                      }))
+                                    }
+                                    rows={2}
+                                    maxLength={400}
+                                    className={`${FIELD_CLASS} resize-y`}
+                                    placeholder="What user response satisfies this step (≤400 chars)?"
+                                  />
+                                </Field>
+                                <Field
+                                  label="Next step trigger"
+                                  error={
+                                    scenarioValidation.errors[
+                                      `step_${String(stepIdx)}_next_step_trigger`
+                                    ]
+                                  }
+                                >
+                                  <textarea
+                                    value={step.nextStepTrigger}
+                                    onChange={(e) =>
+                                      setScenarioDraft((prev) => ({
+                                        ...prev,
+                                        steps: prev.steps.map((s, i) =>
+                                          i === stepIdx
+                                            ? { ...s, nextStepTrigger: e.target.value }
+                                            : s
+                                        )
+                                      }))
+                                    }
+                                    rows={2}
+                                    maxLength={200}
+                                    className={`${FIELD_CLASS} resize-y`}
+                                    placeholder="Explicit condition for moving to the next step (≤200 chars)."
+                                  />
+                                </Field>
+                                <Field
+                                  label="Recovery guidance"
+                                  error={
+                                    scenarioValidation.errors[
+                                      `step_${String(stepIdx)}_recovery_guidance`
+                                    ]
+                                  }
+                                >
+                                  <textarea
+                                    value={step.recoveryGuidance}
+                                    onChange={(e) =>
+                                      setScenarioDraft((prev) => ({
+                                        ...prev,
+                                        steps: prev.steps.map((s, i) =>
+                                          i === stepIdx
+                                            ? { ...s, recoveryGuidance: e.target.value }
+                                            : s
+                                        )
+                                      }))
+                                    }
+                                    rows={2}
+                                    maxLength={400}
+                                    className={`${FIELD_CLASS} resize-y`}
+                                    placeholder="What to do if the user response is off-script (≤400 chars). Optional."
+                                  />
+                                </Field>
+                                {stepIdx === 0 && (
+                                  <Field
+                                    label="First step preview (catalog)"
+                                    error={scenarioValidation.errors["step_0_first_step_preview"]}
+                                  >
+                                    <input
+                                      value={step.firstStepPreview}
+                                      onChange={(e) =>
+                                        setScenarioDraft((prev) => ({
+                                          ...prev,
+                                          steps: prev.steps.map((s, i) =>
+                                            i === 0 ? { ...s, firstStepPreview: e.target.value } : s
+                                          )
+                                        }))
+                                      }
+                                      maxLength={200}
+                                      className={FIELD_CLASS}
+                                      placeholder="≤200-char excerpt shown in the Skill catalog. Leave blank to auto-derive from directive."
+                                    />
+                                  </Field>
+                                )}
                               </div>
                             </div>
                           );
@@ -2695,6 +2900,16 @@ export default function AdminSkillsPage() {
                         <pre className="whitespace-pre-wrap break-all rounded-lg border border-border bg-surface p-3 font-mono text-[10px] text-text-muted">
                           {renderScenarioCatalogLine(debouncedScenarioDraft, previewLocale)}
                         </pre>
+                        {debouncedScenarioDraft.steps.length > 0 && (
+                          <div className="mt-2">
+                            <span className="text-[10px] font-medium text-text-muted">
+                              &lt;first_step_preview&gt;
+                            </span>
+                            <pre className="mt-0.5 whitespace-pre-wrap break-all rounded-lg border border-border bg-surface p-2 font-mono text-[10px] text-text-muted">
+                              {renderScenarioCatalogFirstStepPreview(debouncedScenarioDraft)}
+                            </pre>
+                          </div>
+                        )}
                       </div>
                       <div className="rounded-xl border border-border/60 bg-background p-3">
                         <div className="mb-2">

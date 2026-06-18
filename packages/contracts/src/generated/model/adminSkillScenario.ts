@@ -20,6 +20,8 @@ export interface AdminSkillScenario {
   steps: AdminSkillScenarioStep[];
   recommendedTools: string[];
   exitCondition: string;
+  /** @nullable */
+  firstStepPreview?: string | null;
   status: SkillScenarioStatus;
   displayOrder: number;
   createdAt: string;

@@ -339,6 +339,69 @@ async function run(): Promise<void> {
     assert.equal(assistantDirtyUpdates.length, 3, "dirty-marker called on every mutation");
   }
 
+  // --- ADR-119 Slice 10: firstStepPreview persists on step 1 ---
+  {
+    const { svc } = buildHarness();
+    const inputWithPreview = {
+      ...VALID_CREATE_INPUT,
+      steps: [
+        {
+          ...VALID_STEP,
+          expectedUserResponse: "User provides 8 image ideas.",
+          nextStepTrigger: "User confirms all ideas.",
+          recoveryGuidance: "Ask for more specific descriptions.",
+          firstStepPreview: "Create an 8-slide Instagram carousel."
+        }
+      ]
+    };
+    const result = await svc.createScenario(
+      ADMIN_USER,
+      "skill-1",
+      svc.parseCreateInput(inputWithPreview)
+    );
+    assert.equal(result.steps.length, 1);
+    const step1 = result.steps[0];
+    assert.ok(step1 !== undefined, "step 1 must exist");
+    const step1State = step1 as Record<string, unknown>;
+    assert.equal(step1State["expectedUserResponse"], "User provides 8 image ideas.");
+    assert.equal(step1State["nextStepTrigger"], "User confirms all ideas.");
+    assert.equal(step1State["recoveryGuidance"], "Ask for more specific descriptions.");
+    assert.equal(step1State["firstStepPreview"], "Create an 8-slide Instagram carousel.");
+  }
+
+  // --- ADR-119 Slice 10: loading scenario without firstStepPreview returns null (backward compat) ---
+  {
+    const { svc } = buildHarness();
+    const result = await svc.createScenario(ADMIN_USER, "skill-1", VALID_CREATE_INPUT);
+    assert.equal(result.steps.length, 1);
+    const step1State = result.steps[0] as Record<string, unknown>;
+    assert.equal(step1State["firstStepPreview"], null, "missing firstStepPreview returns null");
+    assert.equal(
+      step1State["expectedUserResponse"],
+      null,
+      "missing expectedUserResponse returns null"
+    );
+    assert.equal(step1State["nextStepTrigger"], null, "missing nextStepTrigger returns null");
+    assert.equal(step1State["recoveryGuidance"], null, "missing recoveryGuidance returns null");
+  }
+
+  // --- ADR-119 Slice 10: firstStepPreview validation: >200 chars rejects ---
+  {
+    const { svc } = buildHarness();
+    try {
+      svc.parseCreateInput({
+        ...VALID_CREATE_INPUT,
+        steps: [{ ...VALID_STEP, firstStepPreview: "x".repeat(201) }]
+      });
+      assert.fail("should have thrown for overlong firstStepPreview");
+    } catch (e) {
+      assert.ok(
+        e instanceof BadRequestException,
+        "overlong firstStepPreview throws BadRequestException"
+      );
+    }
+  }
+
   console.log("manage-skill-scenarios.service.test.ts: all tests passed");
 }
 

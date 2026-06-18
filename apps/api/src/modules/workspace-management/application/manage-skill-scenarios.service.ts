@@ -111,6 +111,7 @@ export class ManageSkillScenariosService {
         steps: input.steps as Prisma.InputJsonValue,
         recommendedTools: input.recommendedTools as Prisma.InputJsonValue,
         exitCondition: input.exitCondition,
+        firstStepPreview: input.firstStepPreview ?? null,
         status,
         displayOrder: input.displayOrder ?? 100
       }
@@ -163,6 +164,9 @@ export class ManageSkillScenariosService {
           ? { recommendedTools: input.recommendedTools as Prisma.InputJsonValue }
           : {}),
         ...(input.exitCondition !== undefined ? { exitCondition: input.exitCondition } : {}),
+        ...(input.firstStepPreview !== undefined
+          ? { firstStepPreview: input.firstStepPreview }
+          : {}),
         ...(input.status !== undefined ? { status: input.status } : {}),
         ...(input.displayOrder !== undefined ? { displayOrder: input.displayOrder } : {})
       }
