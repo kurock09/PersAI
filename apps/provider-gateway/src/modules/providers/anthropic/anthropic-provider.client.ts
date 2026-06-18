@@ -165,6 +165,20 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       });
       const stream = this.client.messages.stream(payload, { signal });
       const response = (await stream.finalMessage()) as AnthropicNonStreamingMessage;
+      const finalUsage = this.toUsageSnapshot(input.model, response.usage);
+      // ADR-119 live-test enablement: always-on terminal metadata so the
+      // operator can see cache hit/miss for every turn without enabling
+      // the full response dump. Mirrors `[anthropic-stream-end]` below.
+      this.logAnthropicRequestEnd("anthropic-non-stream-end", input, {
+        stopReason: response.stop_reason ?? null,
+        usage: finalUsage,
+        toolCallCount: this.parseAnthropicToolCalls(response.content).length
+      });
+      this.debugPayloadLogger.dumpResponse({
+        provider: "anthropic",
+        requestId: input.requestMetadata?.runtimeRequestId ?? "unknown",
+        response
+      });
       const toolCalls = this.parseAnthropicToolCalls(response.content);
       if (toolCalls.length > 0) {
         return {
@@ -172,7 +186,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           model: input.model,
           text: this.extractAnthropicText(response.content),
           respondedAt: new Date().toISOString(),
-          usage: this.toUsageSnapshot(input.model, response.usage),
+          usage: finalUsage,
           stopReason: "tool_calls",
           toolCalls
         };
@@ -199,7 +213,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         model: input.model,
         text: text.length === 0 ? null : text,
         respondedAt: new Date().toISOString(),
-        usage: this.toUsageSnapshot(input.model, response.usage),
+        usage: finalUsage,
         stopReason: "completed",
         toolCalls: []
       };
@@ -390,6 +404,21 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
               yield failedEvent;
               return;
             }
+            this.logAnthropicRequestEnd("anthropic-stream-end", input, {
+              stopReason: latestStopReason ?? "tool_use",
+              usage: latestUsage,
+              toolCallCount: toolCalls.length
+            });
+            this.debugPayloadLogger.dumpResponse({
+              provider: "anthropic",
+              requestId: input.requestMetadata?.runtimeRequestId ?? "unknown",
+              response: {
+                stop_reason: latestStopReason,
+                usage: latestUsage,
+                tool_call_count: toolCalls.length,
+                text: this.normalizeOptionalText(accumulatedText)
+              }
+            });
             const toolCallsEvent: ProviderGatewayTextToolCallsEvent = {
               type: "tool_calls",
               result: {
@@ -419,6 +448,21 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
             });
           }
 
+          this.logAnthropicRequestEnd("anthropic-stream-end", input, {
+            stopReason: latestStopReason ?? "completed",
+            usage: latestUsage,
+            toolCallCount: 0
+          });
+          this.debugPayloadLogger.dumpResponse({
+            provider: "anthropic",
+            requestId: input.requestMetadata?.runtimeRequestId ?? "unknown",
+            response: {
+              stop_reason: latestStopReason,
+              usage: latestUsage,
+              tool_call_count: 0,
+              text: text.length === 0 ? null : text
+            }
+          });
           const completedEvent: ProviderGatewayTextCompletedEvent = {
             type: "completed",
             result: {
@@ -488,6 +532,52 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       )} messageCount=${String(Array.isArray(payload.messages) ? payload.messages.length : 0)} toolCount=${String(
         input.tools?.length ?? 0
       )} toolHistoryCount=${String(input.toolHistory?.length ?? 0)}`
+    );
+  }
+
+  // ADR-119 live-test enablement: always-on terminal metadata so operators
+  // can read per-turn `input_tokens / cache_creation / cache_read / output`
+  // straight from `provider-gateway` stdout, no debug toggle required. Keep
+  // this fast and printf-friendly (single info line, no JSON), and never
+  // include user content here — full payloads stay behind
+  // `PERSAI_DEBUG_PROVIDER_PAYLOAD` via `debugPayloadLogger.dumpResponse`.
+  private logAnthropicRequestEnd(
+    tag: "anthropic-non-stream-end" | "anthropic-stream-end",
+    input: ProviderGatewayTextGenerateRequest,
+    detail: {
+      stopReason: string | null;
+      usage: RuntimeUsageSnapshot | null;
+      toolCallCount: number;
+    }
+  ): void {
+    const usage = detail.usage;
+    this.logger.log(
+      `[${tag}] requestId=${input.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${
+        input.requestMetadata?.classification ?? "unknown"
+      } iteration=${
+        input.requestMetadata?.toolLoopIteration === null ||
+        input.requestMetadata?.toolLoopIteration === undefined
+          ? "null"
+          : String(input.requestMetadata.toolLoopIteration)
+      } model=${input.model} stopReason=${detail.stopReason ?? "unknown"} toolCalls=${String(
+        detail.toolCallCount
+      )} inputTokens=${usage?.inputTokens === null || usage?.inputTokens === undefined ? "null" : String(usage.inputTokens)} cacheCreationInputTokens=${
+        usage?.cacheCreationInputTokens === null || usage?.cacheCreationInputTokens === undefined
+          ? "null"
+          : String(usage.cacheCreationInputTokens)
+      } cacheReadInputTokens=${
+        usage?.cachedInputTokens === null || usage?.cachedInputTokens === undefined
+          ? "null"
+          : String(usage.cachedInputTokens)
+      } outputTokens=${
+        usage?.outputTokens === null || usage?.outputTokens === undefined
+          ? "null"
+          : String(usage.outputTokens)
+      } totalTokens=${
+        usage?.totalTokens === null || usage?.totalTokens === undefined
+          ? "null"
+          : String(usage.totalTokens)
+      }`
     );
   }
 

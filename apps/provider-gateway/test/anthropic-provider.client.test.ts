@@ -366,6 +366,13 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     generateStartLog ?? "",
     /^\[anthropic-non-stream-start\] requestId=.* model=.* systemBlockCount=\d+ cacheBreakpoints=\d+ messageCount=\d+ toolCount=\d+ toolHistoryCount=\d+$/
   );
+  const generateEndLog = logMessages
+    .slice(initialLogCount)
+    .find((message) => message.startsWith("[anthropic-non-stream-end]"));
+  assert.match(
+    generateEndLog ?? "",
+    /^\[anthropic-non-stream-end\] requestId=.* model=.* stopReason=.* toolCalls=\d+ inputTokens=(\d+|null) cacheCreationInputTokens=(\d+|null) cacheReadInputTokens=(\d+|null) outputTokens=(\d+|null) totalTokens=(\d+|null)$/
+  );
   const firstGenerateLogOrderIndex = callOrder
     .slice(initialOrderCount)
     .findIndex((entry) => entry.startsWith("log:[anthropic-non-stream-start]"));
@@ -1183,6 +1190,21 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     streamStartLog ?? "",
     /^\[anthropic-stream-start\] requestId=.* model=.* systemBlockCount=\d+ cacheBreakpoints=\d+ messageCount=\d+ toolCount=\d+ toolHistoryCount=\d+$/
   );
+  // ADR-119 live-test enablement: terminal metadata must surface cache
+  // hit/miss tokens on a single info line so operators can read it from
+  // `provider-gateway` stdout without enabling the full debug dump.
+  const streamEndLog = logMessages
+    .slice(streamLogCount)
+    .find((message) => message.startsWith("[anthropic-stream-end]"));
+  assert.match(
+    streamEndLog ?? "",
+    /^\[anthropic-stream-end\] requestId=.* model=.* stopReason=.* toolCalls=\d+ inputTokens=\d+ cacheCreationInputTokens=\d+ cacheReadInputTokens=\d+ outputTokens=\d+ totalTokens=\d+$/
+  );
+  assert.match(streamEndLog ?? "", /inputTokens=10/);
+  assert.match(streamEndLog ?? "", /cacheCreationInputTokens=4/);
+  assert.match(streamEndLog ?? "", /cacheReadInputTokens=6/);
+  assert.match(streamEndLog ?? "", /outputTokens=5/);
+  assert.match(streamEndLog ?? "", /totalTokens=25/);
   const firstStreamLogOrderIndex = callOrder
     .slice(streamOrderCount)
     .findIndex((entry) => entry.startsWith("log:[anthropic-stream-start]"));

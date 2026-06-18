@@ -3,6 +3,47 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — Anthropic terminal usage metadata + wired `dumpResponse` (live-test blocker fix)
+
+### Root cause
+
+Browser-use live-test runner reported a P0 blocker mid-matrix: Zone F (cache effectiveness) cannot be measured because `provider_payload_response_dump` events never appear in `provider-gateway` logs even with `PERSAI_DEBUG_PROVIDER_PAYLOAD=true` and `RATE=1.0`. Audit of `apps/provider-gateway/src/` confirmed `ProviderDebugPayloadLogger.dumpResponse()` is defined since Slice 0.5 but has **zero call sites in any provider client** — only `dumpRequest()` was wired. Without an end-of-turn log line carrying the `usage` block, neither the matrix runner nor a human operator can read `cache_creation_input_tokens` / `cache_read_input_tokens` per turn.
+
+### Fix scope
+
+Anthropic-only (live test uses claude-sonnet-4-6; OpenAI symmetry deferred). In `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`:
+
+- New private `logAnthropicRequestEnd("anthropic-non-stream-end" | "anthropic-stream-end", input, {stopReason, usage, toolCallCount})` emits one always-on info line per turn with the printf grammar: `[<tag>] requestId=<id> classification=<c> iteration=<i> model=<m> stopReason=<r> toolCalls=<n> inputTokens=<n|null> cacheCreationInputTokens=<n|null> cacheReadInputTokens=<n|null> outputTokens=<n|null> totalTokens=<n|null>`. No user content; always-on; readable from `kubectl logs` without any toggle.
+- `generateText()` (non-stream caller path, runs via `messages.stream(...).finalMessage()` under the hood) now calls `logAnthropicRequestEnd("anthropic-non-stream-end", ...)` and `debugPayloadLogger.dumpResponse(...)` once `finalMessage()` resolves, with the full SDK response object as the dump payload.
+- `streamText()` calls both at `message_stop` for both the `tool_use → tool_calls` branch and the `completed` branch, with the aggregated `latestUsage`/`latestStopReason` and a synthesized response object (`{stop_reason, usage, tool_call_count, text}`) to keep the dump bounded.
+- `usage` is computed once per turn (`finalUsage`) and reused for the metadata line, the `dumpResponse` payload, and the runtime contract result — no double computation.
+
+### Tests
+
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts` — existing fixture extended:
+  - Non-stream path now asserts a `[anthropic-non-stream-end]` log line matching the printf grammar (regex accepts `<n|null>` per token field).
+  - Streaming path now asserts a `[anthropic-stream-end]` log line AND the exact figures from the existing stream-cache fixture: `inputTokens=10`, `cacheCreationInputTokens=4`, `cacheReadInputTokens=6`, `outputTokens=5`, `totalTokens=25`. This locks the field order and surface for the live-test runner.
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risks / residuals
+
+- OpenAI client is NOT updated in this slice — `dumpResponse` still has zero call sites there. If the live test pivots to GPT-5.x, a symmetric patch is needed.
+- The `dumpResponse` payload is the SDK message object (non-stream) or a synthesized minimal object (stream) — no system prompt or message bodies are included, but downstream redaction in `sanitizeResponseValue` still applies bounded preview / base64 redaction defensively.
+- Always-on `[anthropic-*-end]` line is one extra info-level log per provider call. Negligible volume vs. `[anthropic-*-start]` already emitted.
+- Cache-prefix bytes UNCHANGED.
+
+### Next recommended step
+
+Push to `main`, wait for `Dev Image Publish` → GitOps reconcile, then re-launch the browser-use subagent against the unchanged `docs/ADR/119-live-test-plan.md`. Zone F should now read `cacheReadInputTokens=N` directly from the `[anthropic-stream-end]` line for every turn; the test plan's "Cache hit/miss" acceptance criterion is now satisfiable.
+
+---
+
 ## 2026-06-18 — ADR-119 live-test enablement (Slice 14 partial + comprehensive plan)
 
 ### Root cause
@@ -100,12 +141,13 @@ Golden Test 1 (full materialized system-prefix byte-snapshot) lives in `apps/api
 ### Next recommended step
 
 Founder live-test sequence (a)-(e) per ADR-119 Rollout section:
+
 - (a) Free-form marketing domain discussion with Marketer Skill enabled.
 - (b) Memory recall accuracy under a new session.
 - (c) Instagram-carousel scenario with reference image; verify no parallel skill+image_edit call.
 - (d) Scenario switch mid-chat.
 - (e) Explicit release; verify UX indicator disappears.
-After successful live-test, the program is fully closed.
+  After successful live-test, the program is fully closed.
 
 ---
 
