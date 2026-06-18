@@ -73,7 +73,9 @@ async function runTemplatedCompile(): Promise<void> {
         title: "Accounting mode",
         body: "Use accounting knowledge carefully.",
         guardrails: ["No legal guarantees"],
-        examples: ["Explain tax categories"]
+        examples: ["Explain tax categories"],
+        whenToUse: "",
+        scenarios: []
       }
     ],
     promptTemplates: {
@@ -111,8 +113,11 @@ When you need multiple independent tool results, return them in a single respons
   const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
 
   assert.match(systemPrompt, /Core Persona/);
+  // ADR-119 Slice 3: Skills block is now XML; "Enabled Skills" appears in the XML comment
   assert.match(systemPrompt, /Enabled Skills/);
-  assert.match(systemPrompt, /Accounting mode/);
+  // ADR-119 Slice 3: card renders <display_name>Accountant</display_name>, not the old "title" heading
+  assert.match(systemPrompt, /Accountant/);
+  assert.doesNotMatch(systemPrompt, /Accounting mode/);
   assert.match(systemPrompt, /Native tool runtime/);
   assert.match(systemPrompt, /Governance/);
 

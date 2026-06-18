@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { ProviderGatewayToolCall, RuntimeBundleSkillScenario } from "@persai/runtime-contract";
 import type { PersaiInternalApiClientService } from "../src/modules/turns/persai-internal-api.client.service";
-import { RuntimeSkillToolService } from "../src/modules/turns/runtime-skill-tool.service";
+import {
+  RuntimeSkillToolService,
+  type RuntimeSkillEngageInstruction,
+  type RuntimeSkillEngageScenario
+} from "../src/modules/turns/runtime-skill-tool.service";
 
 const INSTAGRAM_CAROUSEL_SCENARIO: RuntimeBundleSkillScenario = {
   key: "instagram_carousel",
@@ -24,7 +28,14 @@ const INSTAGRAM_CAROUSEL_SCENARIO: RuntimeBundleSkillScenario = {
 };
 
 function createBundle(opts?: {
-  enabledSkills?: Array<{ id: string; name: string; scenarios?: RuntimeBundleSkillScenario[] }>;
+  enabledSkills?: Array<{
+    id: string;
+    name: string;
+    body?: string;
+    guardrails?: string[];
+    examples?: string[];
+    scenarios?: RuntimeBundleSkillScenario[];
+  }>;
 }) {
   const enabledSkills = (opts?.enabledSkills ?? []).map((s) => ({
     id: s.id,
@@ -32,6 +43,9 @@ function createBundle(opts?: {
     description: null,
     category: "general",
     tags: [],
+    body: s.body ?? "",
+    guardrails: s.guardrails ?? [],
+    examples: s.examples ?? [],
     ...(s.scenarios !== undefined ? { scenarios: s.scenarios } : {})
   }));
   return compileAssistantRuntimeBundle({
@@ -218,20 +232,31 @@ class FakeInternalApi {
 
 export async function runRuntimeSkillToolServiceTest(): Promise<void> {
   const bundleWithSkill = createBundle({
-    enabledSkills: [{ id: "skill-finance", name: "Finance" }]
+    enabledSkills: [
+      {
+        id: "skill-finance",
+        name: "Finance",
+        body: "Finance body content.",
+        guardrails: ["Do not guarantee returns."],
+        examples: ["Explain the tax rule."]
+      }
+    ]
   });
   const bundleWithSkillAndScenarios = createBundle({
     enabledSkills: [
       {
         id: "skill-marketer",
         name: "Marketer",
+        body: "Marketer body content.",
+        guardrails: ["No unsupported claims."],
+        examples: ["Describe the campaign."],
         scenarios: [INSTAGRAM_CAROUSEL_SCENARIO]
       }
     ]
   });
   const bundleEmpty = createBundle({ enabledSkills: [] });
 
-  // (a) Happy path: engage without scenarioKey
+  // (a) Happy path: engage without scenarioKey — includes instruction, scenario:null
   {
     const api = new FakeInternalApi();
     const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
@@ -245,11 +270,35 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
       action: "engaged";
       skillId: string;
       skillDisplayName: string;
+      scenarioKey: null;
+      instruction: RuntimeSkillEngageInstruction;
+      scenario: null;
     };
     assert.equal(engagePayload.action, "engaged");
     assert.equal(engagePayload.skillId, "skill-finance");
     assert.equal(engagePayload.skillDisplayName, "Finance");
+    assert.equal(engagePayload.scenarioKey, null);
     assert.equal(result.isError, false);
+
+    // ADR-119 Slice 3 — instruction payload
+    assert.ok(engagePayload.instruction !== undefined, "instruction must be present");
+    assert.equal(
+      engagePayload.instruction.body,
+      "Finance body content.",
+      "instruction.body must match bundle field"
+    );
+    assert.deepEqual(
+      engagePayload.instruction.guardrails,
+      ["Do not guarantee returns."],
+      "instruction.guardrails must match bundle field"
+    );
+    assert.deepEqual(
+      engagePayload.instruction.examples,
+      ["Explain the tax rule."],
+      "instruction.examples must match bundle field"
+    );
+    assert.equal(engagePayload.scenario, null, "scenario must be null when no scenarioKey");
+
     assert.equal(api.skillStateCalls.length, 1);
     assert.deepEqual(api.skillStateCalls[0], {
       assistantId: "assistant-1",
@@ -356,7 +405,7 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
     );
   }
 
-  // (j) Happy path: engage-with-scenario — returns full scenario payload
+  // (j) Happy path: engage-with-scenario — returns instruction + full scenario object
   {
     const api = new FakeInternalApi();
     api.skillStateResult = {
@@ -381,19 +430,43 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
       skillId: string;
       skillDisplayName: string;
       scenarioKey: string;
-      scenarioDisplayName: string;
-      steps: unknown[];
-      recommendedTools: string[];
-      exitCondition: string;
+      instruction: RuntimeSkillEngageInstruction;
+      scenario: RuntimeSkillEngageScenario;
     };
     assert.equal(payload.action, "engaged");
     assert.equal(payload.skillId, "skill-marketer");
     assert.equal(payload.skillDisplayName, "Marketer");
     assert.equal(payload.scenarioKey, "instagram_carousel");
-    assert.equal(payload.scenarioDisplayName, "Instagram Carousel");
-    assert.equal(payload.steps.length, 1);
-    assert.deepEqual(payload.recommendedTools, ["image_generate"]);
-    assert.equal(payload.exitCondition, "All 8 slides are confirmed and the user is satisfied.");
+
+    // ADR-119 Slice 3 — instruction payload present on engage-with-scenario
+    assert.ok(payload.instruction !== undefined, "instruction must be present");
+    assert.equal(payload.instruction.body, "Marketer body content.");
+    assert.deepEqual(payload.instruction.guardrails, ["No unsupported claims."]);
+    assert.deepEqual(payload.instruction.examples, ["Describe the campaign."]);
+
+    // ADR-119 Slice 3 — nested scenario object
+    assert.ok(
+      payload.scenario !== null && payload.scenario !== undefined,
+      "scenario must be present"
+    );
+    assert.equal(payload.scenario.key, "instagram_carousel");
+    assert.equal(payload.scenario.displayName, "Instagram Carousel");
+    assert.equal(payload.scenario.description, "Create an Instagram carousel post.");
+    assert.equal(payload.scenario.steps.length, 1);
+    assert.equal(payload.scenario.steps[0]?.number, 1);
+    assert.equal(
+      payload.scenario.steps[0]?.directive,
+      "CALL image_generate with outputMode=series, count=8"
+    );
+    assert.equal(payload.scenario.steps[0]?.recommendedToolCall, "image_generate");
+    assert.equal(payload.scenario.steps[0]?.mayBeSkippedIf, null);
+    assert.deepEqual(payload.scenario.steps[0]?.negativeGuards, ["Do not collapse into one call"]);
+    assert.deepEqual(payload.scenario.recommendedTools, ["image_generate"]);
+    assert.equal(
+      payload.scenario.exitCondition,
+      "All 8 slides are confirmed and the user is satisfied."
+    );
+
     assert.equal(api.skillStateCalls.length, 1);
     assert.deepEqual(api.skillStateCalls[0], {
       assistantId: "assistant-1",
@@ -403,6 +476,50 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
       skillId: "skill-marketer",
       scenarioKey: "instagram_carousel"
     });
+  }
+
+  // (j2) instruction payload content is byte-for-byte match to bundle fields
+  {
+    const bundleWithRichSkill = createBundle({
+      enabledSkills: [
+        {
+          id: "skill-rich",
+          name: "Rich Skill",
+          body: "SENTINEL_BODY_CONTENT",
+          guardrails: ["SENTINEL_GUARDRAIL_1", "SENTINEL_GUARDRAIL_2"],
+          examples: ["SENTINEL_EXAMPLE_1"]
+        }
+      ]
+    });
+    const api = new FakeInternalApi();
+    api.skillStateResult = {
+      skillId: "skill-rich",
+      skillDisplayName: "Rich Skill",
+      previousSkillId: null
+    };
+    const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle: bundleWithRichSkill,
+      toolCall: createToolCall({ action: "engage", skillId: "skill-rich" }),
+      conversation: webConversation,
+      requestId: "req-j2"
+    });
+    const p = result.payload as { instruction: RuntimeSkillEngageInstruction };
+    assert.equal(
+      p.instruction.body,
+      "SENTINEL_BODY_CONTENT",
+      "instruction.body must be byte-for-byte from bundle"
+    );
+    assert.deepEqual(
+      p.instruction.guardrails,
+      ["SENTINEL_GUARDRAIL_1", "SENTINEL_GUARDRAIL_2"],
+      "instruction.guardrails must be byte-for-byte from bundle"
+    );
+    assert.deepEqual(
+      p.instruction.examples,
+      ["SENTINEL_EXAMPLE_1"],
+      "instruction.examples must be byte-for-byte from bundle"
+    );
   }
 
   // (e) Error: invalid_arguments — unknown extra key

@@ -1001,6 +1001,9 @@ export class MaterializeAssistantPublishedVersionService {
           category: card.category,
           tags: card.tags.slice(0, 2),
           iconEmoji: card.iconEmoji,
+          body: card.body,
+          guardrails: card.guardrails,
+          examples: card.examples,
           scenarios: enabledSkillScenarios.get(card.id) ?? []
         }))
       },
@@ -2135,14 +2138,15 @@ function normalizeSkillScenarioSteps(
 
 function normalizeInstructionCard(value: unknown): EnabledSkillPromptInstructionCard {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return { title: "", body: "", guardrails: [], examples: [] };
+    return { title: "", body: "", guardrails: [], examples: [], whenToUse: "" };
   }
   const row = value as Record<string, unknown>;
   return {
     title: typeof row.title === "string" ? row.title : "",
     body: typeof row.body === "string" ? row.body : "",
     guardrails: normalizeStringArray(row.guardrails),
-    examples: normalizeStringArray(row.examples)
+    examples: normalizeStringArray(row.examples),
+    whenToUse: typeof row.whenToUse === "string" ? row.whenToUse : ""
   };
 }
 

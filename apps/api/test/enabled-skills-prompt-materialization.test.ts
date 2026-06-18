@@ -89,23 +89,37 @@ async function run(): Promise<void> {
     "only active enabled Skills within the plan limit should materialize"
   );
 
+  // ADR-119 Slice 3 — new XML format
   const block = renderEnabledSkillsPromptBlock(cards);
-  assert.match(block, /# Enabled Skills/);
-  assert.match(block, /accounting mode/);
-  assert.match(block, /legal mode/);
-  assert.doesNotMatch(block, /disabled mode/);
-  assert.doesNotMatch(block, /archived mode/);
-  assert.doesNotMatch(block, /over-limit mode/);
 
-  // ADR-118 post-Slice-7 hotfix — the Skill ID MUST be rendered in the card so
-  // the model can pass it verbatim to `skill({ action: "engage", skillId })`.
-  // Without this line, the model has no source of truth for skillId and is
-  // forced to guess (caught in production at SHA 079910fc-deploy where the
-  // model passed display names "Диетолог" / "1" and got skill_not_enabled).
-  assert.match(block, /- Skill ID: accounting/);
-  assert.match(block, /- Skill ID: legal/);
-  assert.match(block, /- Display name: /);
-  assert.match(block, /Skill ID.*EXACT opaque identifier/);
+  // Contains skill XML tags with id attribute
+  assert.match(block, /<skill id="accounting"/);
+  assert.match(block, /<skill id="legal"/);
+  assert.doesNotMatch(block, /<skill id="disabled"/);
+  assert.doesNotMatch(block, /<skill id="archived"/);
+  assert.doesNotMatch(block, /<skill id="over-limit"/);
+
+  // key attribute present (falls back to id since no slug field)
+  assert.match(block, /key="accounting"/);
+  assert.match(block, /key="legal"/);
+
+  // display_name and summary tags
+  assert.match(block, /<display_name>/);
+
+  // XML comment intro contains engage guidance
+  assert.match(block, /<!--.*skillId.*skill\(\{action:"engage"\}\)/);
+
+  // R8 critical: body/guardrails/examples must NOT appear in the prefix block
+  assert.doesNotMatch(block, /Body:/);
+  assert.doesNotMatch(block, /Guardrails:/);
+  assert.doesNotMatch(block, /Examples:/);
+
+  // R8 critical: verbatim instructionCard.body content must NOT appear in the prefix block
+  assert.doesNotMatch(block, /Use accounting knowledge carefully\./);
+  assert.doesNotMatch(block, /Use legal knowledge carefully\./);
+
+  // Closing skill tags
+  assert.match(block, /<\/skill>/);
 
   assert.equal(
     renderEnabledSkillsPromptBlock(
@@ -119,7 +133,7 @@ async function run(): Promise<void> {
     "plan-disabled assignments should disappear from prompt materialization"
   );
 
-  // ADR-118 Slice 4 — scenario catalog rendering in the cached prefix
+  // ADR-118 Slice 4 — scenario catalog rendering in the cached prefix (new XML format)
 
   // Scenario catalog: 3 scenarios, with and without recommendedTools
   {
@@ -133,7 +147,16 @@ async function run(): Promise<void> {
             makeResolvedScenario("instagram_carousel", {
               displayName: "Instagram Carousel",
               description: "Create an 8-slide post.",
-              recommendedTools: ["image_generate", "text_format"]
+              recommendedTools: ["image_generate", "text_format"],
+              steps: [
+                {
+                  number: 1,
+                  directive: "Collect the brief from user",
+                  recommendedToolCall: null,
+                  mayBeSkippedIf: null,
+                  negativeGuards: []
+                }
+              ]
             }),
             makeResolvedScenario("linkedin_post", {
               displayName: "LinkedIn Post",
@@ -152,23 +175,48 @@ async function run(): Promise<void> {
     assert.equal(cardsWithScenarios.length, 1);
     assert.equal(cardsWithScenarios[0]?.scenarios.length, 3);
     const catalogBlock = renderEnabledSkillsPromptBlock(cardsWithScenarios);
-    assert.match(catalogBlock, /Available scenarios:/);
-    // With tools — parenthetical included
+
+    // Scenario XML structure
+    assert.match(catalogBlock, /<scenario key="instagram_carousel">/);
+    assert.match(catalogBlock, /<name>Instagram Carousel<\/name>/);
+    assert.match(catalogBlock, /<one_line>Create an 8-slide post\.<\/one_line>/);
+
+    // first_step_preview present when steps[0] exists
     assert.match(
       catalogBlock,
-      /- instagram_carousel: Instagram Carousel — Create an 8-slide post\. \(recommended: image_generate, text_format\)/
+      /<first_step_preview>Collect the brief from user<\/first_step_preview>/
     );
-    // No tools — parenthetical omitted
-    assert.match(catalogBlock, /- linkedin_post: LinkedIn Post — Write a professional post\./);
-    assert.doesNotMatch(catalogBlock, /linkedin_post.*recommended:/);
-    // With tools again
+
+    // recommended_tools present
     assert.match(
       catalogBlock,
-      /- email_campaign: Email Campaign — Draft a marketing email\. \(recommended: email_draft\)/
+      /<recommended_tools>image_generate, text_format<\/recommended_tools>/
+    );
+
+    // No recommended_tools tag when empty
+    assert.match(catalogBlock, /<scenario key="linkedin_post">/);
+    assert.doesNotMatch(
+      catalogBlock.slice(
+        catalogBlock.indexOf('<scenario key="linkedin_post">'),
+        catalogBlock.indexOf("</scenario>", catalogBlock.indexOf('<scenario key="linkedin_post">'))
+      ),
+      /<recommended_tools>/
+    );
+
+    // email_campaign with tools
+    assert.match(catalogBlock, /<recommended_tools>email_draft<\/recommended_tools>/);
+
+    // first_step_preview absent when steps is empty
+    assert.doesNotMatch(
+      catalogBlock.slice(
+        catalogBlock.indexOf('<scenario key="linkedin_post">'),
+        catalogBlock.indexOf("</scenario>", catalogBlock.indexOf('<scenario key="linkedin_post">'))
+      ),
+      /<first_step_preview>/
     );
   }
 
-  // Scenario catalog: zero scenarios — "Available scenarios:" section omitted entirely
+  // Scenario catalog: zero scenarios — <available_scenarios /> self-closing
   {
     const cardsNoScenarios = resolveEnabledSkillPromptCards({
       locale: "en-US",
@@ -178,10 +226,11 @@ async function run(): Promise<void> {
       ]
     });
     const blockNoScenarios = renderEnabledSkillsPromptBlock(cardsNoScenarios);
-    assert.doesNotMatch(blockNoScenarios, /Available scenarios:/);
+    assert.match(blockNoScenarios, /<available_scenarios \/>/);
+    assert.doesNotMatch(blockNoScenarios, /<available_scenarios>/);
   }
 
-  // Scenario catalog: 10 scenarios → renders SCENARIO_CATALOG_RENDER_LIMIT items + "... +N more" footer
+  // Scenario catalog: 10 scenarios → renders SCENARIO_CATALOG_RENDER_LIMIT items, no +N more in XML format
   {
     assert.equal(SCENARIO_CATALOG_RENDER_LIMIT, 8, "SCENARIO_CATALOG_RENDER_LIMIT must be 8");
     const tenScenarios = Array.from({ length: 10 }, (_, i) =>
@@ -200,10 +249,53 @@ async function run(): Promise<void> {
       ]
     });
     const blockOverLimit = renderEnabledSkillsPromptBlock(cardsOverLimit);
-    assert.match(blockOverLimit, /\.\.\. \+2 more/, "must show +2 more footer for 10 scenarios");
-    // Exactly 8 scenario lines rendered (LIMIT)
-    const scenarioLines = (blockOverLimit.match(/^- scenario_/gm) ?? []).length;
-    assert.equal(scenarioLines, SCENARIO_CATALOG_RENDER_LIMIT);
+    // Exactly 8 scenario elements rendered (LIMIT)
+    const scenarioMatches = blockOverLimit.match(/<scenario key="scenario_/g) ?? [];
+    assert.equal(
+      scenarioMatches.length,
+      SCENARIO_CATALOG_RENDER_LIMIT,
+      "must render exactly SCENARIO_CATALOG_RENDER_LIMIT scenario elements"
+    );
+    // scenario_9 and scenario_10 should be absent
+    assert.doesNotMatch(blockOverLimit, /<scenario key="scenario_9"/);
+    assert.doesNotMatch(blockOverLimit, /<scenario key="scenario_10"/);
+  }
+
+  // first_step_preview: truncate at 200 chars + ellipsis
+  {
+    const longDirective = "A".repeat(250);
+    const cardsWithLongStep = resolveEnabledSkillPromptCards({
+      locale: "en-US",
+      limit: null,
+      candidates: [
+        {
+          ...baseCandidate("skill-preview", { assignmentEnabledAt: "2026-05-01T12:01:00.000Z" }),
+          scenarios: [
+            makeResolvedScenario("sc_long", {
+              steps: [
+                {
+                  number: 1,
+                  directive: longDirective,
+                  recommendedToolCall: null,
+                  mayBeSkippedIf: null,
+                  negativeGuards: []
+                }
+              ]
+            })
+          ]
+        }
+      ]
+    });
+    const previewBlock = renderEnabledSkillsPromptBlock(cardsWithLongStep);
+    // first_step_preview content should be ≤200 chars (after escaping) and end with ellipsis
+    const previewMatch = previewBlock.match(/<first_step_preview>([\s\S]*?)<\/first_step_preview>/);
+    assert.ok(previewMatch, "first_step_preview tag must be present");
+    const previewContent = previewMatch![1]!;
+    assert.ok(previewContent.length <= 200, "first_step_preview content must be ≤200 chars");
+    assert.ok(
+      previewContent.endsWith("\u2026") || previewContent.endsWith("..."),
+      "truncated preview must end with ellipsis"
+    );
   }
 
   // resolveEnabledSkillScenariosForBundle: locale resolution + grouping per skillId
@@ -232,9 +324,7 @@ async function run(): Promise<void> {
     assert.equal(ruMap.get("skill-a")?.[0]?.displayName, "Русское Название");
   }
 
-  // Cache-prefix byte-stability: the scenario catalog section must be identical regardless of
-  // which scenario is "active" — that state lives in the volatile block, not the prefix.
-  // Two renders with the same candidate list must produce byte-identical output.
+  // Cache-prefix byte-stability: two renders with the same card list must be byte-identical.
   {
     const stable = resolveEnabledSkillPromptCards({
       locale: "en-US",
@@ -256,10 +346,78 @@ async function run(): Promise<void> {
       render2,
       "scenario catalog rendering must be deterministic (cache-prefix byte-stability)"
     );
-    // Verify neither active scenario key appears as a "state marker" — the prefix shows the
-    // catalog (both keys listed) not any per-turn selection.
+    // Both scenario keys appear in the catalog
     assert.match(render1, /sc_a/);
     assert.match(render1, /sc_b/);
+  }
+
+  // R8 critical: body/guardrails/examples must NOT appear in prefix for skill with rich instructionCard
+  {
+    const richCandidate = baseCandidate("rich-skill", {
+      assignmentEnabledAt: "2026-05-01T12:01:00.000Z",
+      instructionCard: {
+        title: "Rich Skill",
+        body: "RICH_BODY_CONTENT_SENTINEL",
+        guardrails: ["RICH_GUARDRAIL_SENTINEL"],
+        examples: ["RICH_EXAMPLE_SENTINEL"]
+      }
+    });
+    const richCards = resolveEnabledSkillPromptCards({
+      locale: "en-US",
+      limit: null,
+      candidates: [richCandidate]
+    });
+    const richBlock = renderEnabledSkillsPromptBlock(richCards);
+    assert.doesNotMatch(richBlock, /RICH_BODY_CONTENT_SENTINEL/, "body must not appear in prefix");
+    assert.doesNotMatch(
+      richBlock,
+      /RICH_GUARDRAIL_SENTINEL/,
+      "guardrails must not appear in prefix"
+    );
+    assert.doesNotMatch(richBlock, /RICH_EXAMPLE_SENTINEL/, "examples must not appear in prefix");
+
+    // R8 invariant: card object DOES carry body/guardrails/examples for bundle population
+    assert.equal(
+      richCards[0]?.body,
+      "RICH_BODY_CONTENT_SENTINEL",
+      "card.body must be preserved for bundle"
+    );
+    assert.deepEqual(
+      richCards[0]?.guardrails,
+      ["RICH_GUARDRAIL_SENTINEL"],
+      "card.guardrails must be preserved for bundle"
+    );
+    assert.deepEqual(
+      richCards[0]?.examples,
+      ["RICH_EXAMPLE_SENTINEL"],
+      "card.examples must be preserved for bundle"
+    );
+  }
+
+  // Bundle byte-stability: resolveEnabledSkillPromptCards + renderEnabledSkillsPromptBlock is deterministic
+  {
+    const stableCandidate = baseCandidate("stable-skill", {
+      assignmentEnabledAt: "2026-05-01T12:01:00.000Z",
+      instructionCard: {
+        title: "Stable",
+        body: "Stable body.",
+        guardrails: ["Guard 1", "Guard 2"],
+        examples: ["Example 1"]
+      }
+    });
+    const cards1 = resolveEnabledSkillPromptCards({
+      locale: "en-US",
+      limit: null,
+      candidates: [stableCandidate]
+    });
+    const cards2 = resolveEnabledSkillPromptCards({
+      locale: "en-US",
+      limit: null,
+      candidates: [stableCandidate]
+    });
+    const block1 = renderEnabledSkillsPromptBlock(cards1);
+    const block2 = renderEnabledSkillsPromptBlock(cards2);
+    assert.equal(block1, block2, "repeated materialization must produce byte-identical output");
   }
 }
 

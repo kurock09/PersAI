@@ -1535,7 +1535,10 @@ export async function runNativeToolProjectionTest(): Promise<void> {
             name: "Finance",
             description: null,
             category: "general",
-            tags: []
+            tags: [],
+            body: "",
+            guardrails: [],
+            examples: []
           }
         ]
       },

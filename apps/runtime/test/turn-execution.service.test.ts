@@ -3301,7 +3301,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           description: "Nutrition planning",
           category: "personal",
           tags: ["nutrition"],
-          iconEmoji: "🥦"
+          iconEmoji: "🥦",
+          body: "",
+          guardrails: [],
+          examples: []
         }
       ]
     };
@@ -3771,7 +3774,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           description: "Nutrition coaching.",
           category: "health",
           tags: ["nutrition"],
-          iconEmoji: "🥦"
+          iconEmoji: "🥦",
+          body: "",
+          guardrails: [],
+          examples: []
         }
       ]
     };

@@ -3,8 +3,35 @@ import type {
   AssistantRuntimeBundle,
   AssistantRuntimeEnabledSkillSummary
 } from "@persai/runtime-bundle";
-import type { ProviderGatewayToolCall, RuntimeConversationAddress } from "@persai/runtime-contract";
+import type {
+  ProviderGatewayToolCall,
+  RuntimeBundleSkillScenarioStep,
+  RuntimeConversationAddress
+} from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
+
+/** ADR-119 Slice 3 — full instruction payload served on engage; removed from cache prefix. */
+export interface RuntimeSkillEngageInstruction {
+  body: string;
+  guardrails: string[];
+  examples: string[];
+}
+
+/** ADR-119 Slice 3 — full scenario object served on engage-with-scenario. */
+export interface RuntimeSkillEngageScenario {
+  key: string;
+  displayName: string;
+  description: string;
+  steps: Array<{
+    number: number;
+    directive: string;
+    recommendedToolCall: string | null;
+    mayBeSkippedIf: string | null;
+    negativeGuards: string[];
+  }>;
+  recommendedTools: string[];
+  exitCondition: string | null;
+}
 
 export type RuntimeSkillToolResult =
   | {
@@ -12,16 +39,16 @@ export type RuntimeSkillToolResult =
       skillId: string;
       skillDisplayName: string;
       scenarioKey: null;
+      instruction: RuntimeSkillEngageInstruction;
+      scenario: null;
     }
   | {
       action: "engaged";
       skillId: string;
       skillDisplayName: string;
       scenarioKey: string;
-      scenarioDisplayName: string;
-      steps: import("@persai/runtime-contract").RuntimeBundleSkillScenarioStep[];
-      recommendedTools: string[];
-      exitCondition: string;
+      instruction: RuntimeSkillEngageInstruction;
+      scenario: RuntimeSkillEngageScenario;
     }
   | {
       action: "released";
@@ -121,7 +148,9 @@ export class RuntimeSkillToolService {
           action: "engaged",
           skillId: outcome.skillId,
           skillDisplayName: outcome.skillDisplayName,
-          scenarioKey: null
+          scenarioKey: null,
+          instruction: buildInstruction(skill),
+          scenario: null
         },
         isError: false
       };
@@ -170,16 +199,29 @@ export class RuntimeSkillToolService {
         scenarioKey
       });
 
+      const scenarioPayload: RuntimeSkillEngageScenario = {
+        key: scenario.key,
+        displayName: scenario.displayName,
+        description: scenario.description,
+        steps: scenario.steps.map((step: RuntimeBundleSkillScenarioStep) => ({
+          number: step.number,
+          directive: step.directive,
+          recommendedToolCall: step.recommendedToolCall,
+          mayBeSkippedIf: step.mayBeSkippedIf,
+          negativeGuards: step.negativeGuards
+        })),
+        recommendedTools: scenario.recommendedTools,
+        exitCondition: scenario.exitCondition
+      };
+
       return {
         payload: {
           action: "engaged",
           skillId: outcome.skillId,
           skillDisplayName: outcome.skillDisplayName,
           scenarioKey: scenario.key,
-          scenarioDisplayName: scenario.displayName,
-          steps: scenario.steps,
-          recommendedTools: scenario.recommendedTools,
-          exitCondition: scenario.exitCondition
+          instruction: buildInstruction(skill),
+          scenario: scenarioPayload
         },
         isError: false
       };
@@ -291,4 +333,14 @@ export class RuntimeSkillToolService {
     }
     return undefined;
   }
+}
+
+function buildInstruction(
+  skill: AssistantRuntimeEnabledSkillSummary
+): RuntimeSkillEngageInstruction {
+  return {
+    body: skill.body,
+    guardrails: skill.guardrails,
+    examples: skill.examples
+  };
 }

@@ -3,6 +3,52 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-17 — ADR-119 Slice 3 landed (Skills progressive disclosure + first_step_preview)
+
+### Root cause
+
+The `enabled-skills-prompt-materialization.ts` Markdown card renderer emitted the full `instructionCard.body` (up to 1,200 chars), `guardrails`, and `examples` for every enabled Skill directly into the stable cache prefix. This was risk R8 from ADR-119 inventory: ~1,500 chars × 3 Skills ≈ ~4,500 chars (~1,100 tokens) wasted on every request even when no Skill was ever engaged. Additionally, the model had no compact step-1 guidance before calling `skill({engage})`, triggering parallel tool-call races ([F3]).
+
+### Fix scope
+
+- `apps/api/src/modules/workspace-management/application/enabled-skills-prompt-materialization.ts`: `renderSkillCard` and `renderEnabledSkillsPromptBlock` rewritten to emit compact XML per ADR-119 D4. Body/guardrails/examples removed from the prefix block. New fields added: `whenToUse` (optional InstructionCard field), `first_step_preview` per scenario (≤200-char excerpt of `steps[0].directive`). `escapeXml` helper added. Locale fallback order for `localize` updated to prefer `ru` before `en` (per ADR).
+- `packages/runtime-bundle/src/index.ts`: `AssistantRuntimeEnabledSkillSummary` extended with required `body: string`, `guardrails: string[]`, `examples: string[]` fields.
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`: `normalizeInstructionCard` extended to extract `whenToUse`; `skills.enabled` bundle mapping extended to include `body`, `guardrails`, `examples` from the card.
+- `apps/runtime/src/modules/turns/runtime-skill-tool.service.ts`: `RuntimeSkillToolResult` engaged variants extended with `instruction: {body, guardrails, examples}` and `scenario: {key, displayName, description, steps, recommendedTools, exitCondition} | null`. `buildInstruction` helper added.
+
+### Tests
+
+- `apps/api/test/enabled-skills-prompt-materialization.test.ts`: fully rewritten for XML format — `<skill id>` tags, `key` attribute, `<first_step_preview>` present/absent, R8 sentinel assertions (body/guardrails/examples NOT in prefix), R8 invariant assertion (body/guardrails/examples ARE on card objects), byte-stability test.
+- `apps/runtime/test/runtime-skill-tool.service.test.ts`: `createBundle` updated to include `body/guardrails/examples`; new assertions for `instruction.body`, `instruction.guardrails`, `instruction.examples` on both engage paths; `scenario` nested object assertions (key, displayName, description, steps shape); byte-match sentinel test.
+- `apps/runtime/test/native-tool-projection.test.ts`: skill fixture updated with `body: "", guardrails: [], examples: []`.
+- `apps/runtime/test/turn-routing.service.test.ts`: skill fixtures updated with `body: "", guardrails: [], examples: []`.
+
+### Files touched
+
+- `packages/runtime-bundle/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/enabled-skills-prompt-materialization.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/runtime/src/modules/turns/runtime-skill-tool.service.ts`
+- `apps/api/test/enabled-skills-prompt-materialization.test.ts`
+- `apps/runtime/test/runtime-skill-tool.service.test.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `apps/runtime/test/turn-routing.service.test.ts`
+- `apps/web/app/admin/presets/page.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risk
+
+**One-time prompt-cache prefix invalidation on rollout** — the XML card bytes replacing the Markdown format change the stable prefix bytes for every assistant with enabled Skills; all provider-side cache entries invalidate once. R8 invariant is maintained: `body/guardrails/examples` are added to the bundle type AND materialized AND returned by the engage tool in this same commit, so the model always receives full instructions on `skill({engage})`.
+
+**`body/guardrails/examples` required on `AssistantRuntimeEnabledSkillSummary`** — older bundle JSON files (from pre-Slice-3 materialization) will deserialize with `undefined` for these fields. The runtime `buildInstruction` helper will return empty strings/arrays — safe degradation, no crash. Next turn rematerializes the bundle and picks up the new fields.
+
+### Next recommended step
+
+Slice 4 — volatile scenario block XML format (`<persai_active_scenario>` per ADR-119 D5). Rewrites `BuildActiveScenarioBlockService` to emit structured XML with `<step number status>`, `<directive>`, `<next_step_trigger>`, `<negative_guards>`, and `<exit_condition>` instead of the current Markdown developer block.
+
+---
+
 ## 2026-06-17 — ADR-119 Slice 2 landed (provider cache_control markers + parallel-tool-calls discipline)
 
 ### Root cause

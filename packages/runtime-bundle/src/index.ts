@@ -52,6 +52,14 @@ export interface AssistantRuntimeEnabledSkillSummary {
   category: string;
   tags: string[];
   iconEmoji?: string | null;
+  /**
+   * ADR-119 Slice 3 — full instruction payload moved out of the cache prefix
+   * into the `skill({engage})` tool result. These fields are NOT rendered in the
+   * compact XML catalog block; they are served by the runtime only on engage.
+   */
+  body: string;
+  guardrails: string[];
+  examples: string[];
   /** ADR-118 Slice 4 — active scenarios materialized into the bundle. */
   scenarios?: RuntimeBundleSkillScenario[];
 }

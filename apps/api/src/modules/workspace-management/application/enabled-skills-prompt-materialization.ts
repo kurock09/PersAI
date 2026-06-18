@@ -11,6 +11,8 @@ export type EnabledSkillPromptInstructionCard = {
   body: string;
   guardrails: string[];
   examples: string[];
+  /** ADR-119 Slice 3 — optional field; empty string if not yet authored by Skill creator. */
+  whenToUse?: string;
 };
 
 export type EnabledSkillPromptCandidate = {
@@ -40,6 +42,8 @@ export type EnabledSkillPromptCard = {
   body: string;
   guardrails: string[];
   examples: string[];
+  /** ADR-119 Slice 3 — kept in prefix as compact XML hint; empty string if not authored. */
+  whenToUse: string;
   scenarios: RuntimeBundleSkillScenario[];
 };
 
@@ -63,6 +67,8 @@ const MAX_RENDERED_GUARDRAILS = 6;
 const MAX_RENDERED_EXAMPLES = 3;
 const MAX_RENDERED_BODY_CHARS = 1_200;
 const MAX_RENDERED_ITEM_CHARS = 240;
+/** ADR-119 Slice 3 — first_step_preview maximum chars per scenario step 1 directive. */
+const MAX_FIRST_STEP_PREVIEW_CHARS = 200;
 
 export function resolveEnabledSkillPromptCards(params: {
   candidates: EnabledSkillPromptCandidate[];
@@ -89,6 +95,7 @@ export function resolveEnabledSkillPromptCards(params: {
     body: truncateText(candidate.instructionCard.body, MAX_RENDERED_BODY_CHARS),
     guardrails: normalizeBoundedList(candidate.instructionCard.guardrails, MAX_RENDERED_GUARDRAILS),
     examples: normalizeBoundedList(candidate.instructionCard.examples, MAX_RENDERED_EXAMPLES),
+    whenToUse: normalizeSingleLine(candidate.instructionCard.whenToUse ?? ""),
     scenarios: candidate.scenarios ?? []
   }));
 }
@@ -98,70 +105,64 @@ export function renderEnabledSkillsPromptBlock(cards: EnabledSkillPromptCard[]):
     return "";
   }
 
+  const cardXml = cards.flatMap((card) => renderSkillCard(card)).join("\n");
   return [
-    "# Enabled Skills",
-    "",
-    'These professional Skill cards are enabled by the user for this assistant. Apply them when relevant, but do not invent document knowledge that is not present in the conversation or retrieved context. The `Skill ID` field of each card below is the EXACT opaque identifier to pass as `skillId` when calling `skill({ action: "engage", skillId, scenarioKey? })` — never substitute the display name or category.',
-    "",
-    ...cards.flatMap((card, index) => renderSkillCard(card, index + 1))
-  ]
-    .join("\n")
-    .trimEnd();
+    '<!-- Enabled Skills catalog. Pass <skill id="..."> value verbatim as skillId to skill({action:"engage"}) to activate. -->',
+    cardXml
+  ].join("\n");
 }
 
-function renderSkillCard(card: EnabledSkillPromptCard, position: number): string[] {
-  const lines = [
-    `## ${String(position)}. ${card.title}`,
-    "",
-    `- Skill ID: ${card.id}`,
-    `- Display name: ${card.name}`
-  ];
-  if (card.description !== null) {
-    lines.push(`- Summary: ${card.description}`);
+function renderSkillCard(card: EnabledSkillPromptCard): string[] {
+  const lines: string[] = [];
+  // key attribute: no slug on Skill model, fall back to id
+  lines.push(`<skill id="${escapeXml(card.id)}" key="${escapeXml(card.id)}">`);
+  lines.push(`  <display_name>${escapeXml(card.name)}</display_name>`);
+  if (card.description !== null && card.description.length > 0) {
+    lines.push(`  <summary>${escapeXml(card.description)}</summary>`);
+  }
+  const whenToUse = card.whenToUse ?? "";
+  if (whenToUse.length > 0) {
+    lines.push(`  <when_to_use>${escapeXml(whenToUse)}</when_to_use>`);
   }
   if (card.category.length > 0) {
-    lines.push(`- Category: ${card.category}`);
+    lines.push(`  <category>${escapeXml(card.category)}</category>`);
   }
   if (card.tags.length > 0) {
-    lines.push(`- Tags: ${card.tags.join(", ")}`);
+    lines.push(`  <tags>${escapeXml(card.tags.join(", "))}</tags>`);
   }
-  lines.push("", card.body);
-  if (card.guardrails.length > 0) {
-    lines.push("", "Guardrails:");
-    for (const guardrail of card.guardrails) {
-      lines.push(`- ${guardrail}`);
-    }
-  }
-  if (card.examples.length > 0) {
-    lines.push("", "Examples:");
-    for (const example of card.examples) {
-      lines.push(`- ${example}`);
-    }
-  }
-  if ((card.scenarios ?? []).length > 0) {
-    const scenarios = card.scenarios ?? [];
-    lines.push("", "Available scenarios:");
+
+  const scenarios = card.scenarios ?? [];
+  if (scenarios.length > 0) {
+    lines.push("  <available_scenarios>");
     const rendered = scenarios.slice(0, SCENARIO_CATALOG_RENDER_LIMIT);
-    const surplus = scenarios.length - rendered.length;
     for (const scenario of rendered) {
-      const toolsHint =
-        scenario.recommendedTools.length > 0
-          ? ` (recommended: ${scenario.recommendedTools.join(", ")})`
-          : "";
-      lines.push(
-        `- ${scenario.key}: ${scenario.displayName} — ${scenario.description}${toolsHint}`
-      );
+      lines.push(`    <scenario key="${escapeXml(scenario.key)}">`);
+      lines.push(`      <name>${escapeXml(scenario.displayName)}</name>`);
+      const oneLine = truncateSingleLine(scenario.description, MAX_FIRST_STEP_PREVIEW_CHARS);
+      lines.push(`      <one_line>${escapeXml(oneLine)}</one_line>`);
+      const firstStep = scenario.steps[0] ?? null;
+      if (firstStep !== null) {
+        const preview = buildFirstStepPreview(firstStep.directive);
+        lines.push(`      <first_step_preview>${escapeXml(preview)}</first_step_preview>`);
+      }
+      if (scenario.recommendedTools.length > 0) {
+        lines.push(
+          `      <recommended_tools>${escapeXml(scenario.recommendedTools.join(", "))}</recommended_tools>`
+        );
+      }
+      lines.push("    </scenario>");
     }
-    if (surplus > 0) {
-      lines.push(`... +${String(surplus)} more`);
-    }
+    lines.push("  </available_scenarios>");
+  } else {
+    lines.push("  <available_scenarios />");
   }
-  lines.push("");
+
+  lines.push("</skill>");
   return lines;
 }
 
 /**
- * ADR-118 Slice 4 — resolve active scenarios for the runtime bundle (not for the prompt card).
+ * ADR-119 Slice 4 — resolve active scenarios for the runtime bundle (not for the prompt card).
  * Returns a Map<skillId, RuntimeBundleSkillScenario[]> for all provided candidates.
  */
 export function resolveEnabledSkillScenariosForBundle(params: {
@@ -229,7 +230,7 @@ function localize(value: Record<string, string>, locale: string): string | null 
   if (languageValue.length > 0) {
     return languageValue;
   }
-  for (const fallbackKey of ["en", "ru"]) {
+  for (const fallbackKey of ["ru", "en"]) {
     const fallback = normalizeSingleLine(value[fallbackKey] ?? "");
     if (fallback.length > 0) {
       return fallback;
@@ -266,4 +267,31 @@ function truncateText(value: string, maxChars: number): string {
     return normalized;
   }
   return `${normalized.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+/** Strip newlines, truncate to ≤maxChars, append … if truncated. */
+function truncateSingleLine(value: string, maxChars: number): string {
+  const flat = normalizeSingleLine(value);
+  if (flat.length <= maxChars) {
+    return flat;
+  }
+  return `${flat.slice(0, Math.max(0, maxChars - 1)).trimEnd()}\u2026`;
+}
+
+/**
+ * ADR-119 Slice 3 — derive first_step_preview from steps[0].directive:
+ * strip newlines, truncate to ≤200 chars, append … if truncated.
+ */
+function buildFirstStepPreview(directive: string): string {
+  return truncateSingleLine(directive, MAX_FIRST_STEP_PREVIEW_CHARS);
+}
+
+/** Escape XML special characters for attribute values and text content. */
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

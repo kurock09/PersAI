@@ -92,6 +92,9 @@ function createBundle(
     category: string;
     tags: string[];
     iconEmoji: string;
+    body?: string;
+    guardrails?: string[];
+    examples?: string[];
   }>
 ) {
   return compileAssistantRuntimeBundle({
@@ -249,24 +252,37 @@ function createBundle(
     },
     skills: {
       enabled: includeSkills
-        ? (enabledSkills ?? [
-            {
-              id: "skill-accounting",
-              name: "Accountant",
-              description: "Accounting and tax support",
-              category: "finance",
-              tags: ["tax", "books"],
-              iconEmoji: "🧾"
-            },
-            {
-              id: "skill-legal",
-              name: "Lawyer",
-              description: "Legal drafting support",
-              category: "law",
-              tags: ["contracts", "risk"],
-              iconEmoji: "⚖️"
-            }
-          ])
+        ? (
+            enabledSkills ?? [
+              {
+                id: "skill-accounting",
+                name: "Accountant",
+                description: "Accounting and tax support",
+                category: "finance",
+                tags: ["tax", "books"],
+                iconEmoji: "🧾",
+                body: "",
+                guardrails: [],
+                examples: []
+              },
+              {
+                id: "skill-legal",
+                name: "Lawyer",
+                description: "Legal drafting support",
+                category: "law",
+                tags: ["contracts", "risk"],
+                iconEmoji: "⚖️",
+                body: "",
+                guardrails: [],
+                examples: []
+              }
+            ]
+          ).map((s) => ({
+            ...s,
+            body: s.body ?? "",
+            guardrails: s.guardrails ?? [],
+            examples: s.examples ?? []
+          }))
         : []
     }
   }).bundle;
@@ -957,7 +973,10 @@ async function runAutoSkillRoutingHardeningTests(): Promise<void> {
       "Extremely verbose description that should never be copied into the routing prompt because it wastes tokens.",
     category: "health-and-wellness",
     tags: ["nutrition", "metabolism", "diabetes"],
-    iconEmoji: "x"
+    iconEmoji: "x",
+    body: "",
+    guardrails: [],
+    examples: []
   }));
   const decision = await service.decide({
     bundle: createBundle(undefined, true, enabledSkills),

@@ -173,6 +173,9 @@ function createBundle(
               description: null,
               category: "general",
               tags: [],
+              body: "",
+              guardrails: [],
+              examples: [],
               ...(s.scenarios !== undefined ? { scenarios: s.scenarios } : {})
             }))
           }
