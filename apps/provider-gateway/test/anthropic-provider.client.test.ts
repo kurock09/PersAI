@@ -1127,6 +1127,133 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     }
   ]);
 
+  // ADR-119 live-test 2026-06-18 — regression coverage for the tool-loop case
+  // that the original moving-history-breakpoint implementation silently
+  // skipped: assistant messages emitted from `toolHistory` are pure
+  // `tool_use`-block content. The breakpoint must (a) accept them as a
+  // candidate, (b) attach `cache_control` to the LAST block, (c) preserve
+  // every original block byte-for-byte (no destructive content replacement).
+  const toolHistoryBreakpointRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    promptCache: {
+      anthropicHistoryBreakpointMinTokens: 10
+    },
+    messages: [
+      {
+        role: "user",
+        content: "u".repeat(50)
+      }
+    ],
+    tools: [
+      {
+        name: "knowledge_search",
+        description: "Search durable memory.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            source: { type: "string" },
+            query: { type: "string" }
+          }
+        }
+      }
+    ],
+    toolChoice: "auto",
+    toolHistory: [
+      {
+        toolCall: {
+          id: "toolu_a",
+          name: "knowledge_search",
+          arguments: {
+            source: "memory",
+            query: "q".repeat(60)
+          }
+        },
+        toolResult: {
+          toolCallId: "toolu_a",
+          name: "knowledge_search",
+          content: "r".repeat(80),
+          isError: false
+        }
+      }
+    ]
+  };
+  await client.generateText(toolHistoryBreakpointRequest);
+  const toolHistoryMessages = capturedGeneratePayload!.messages as Array<{
+    role: string;
+    content: unknown;
+  }>;
+  // Order from buildAnthropicMessages: [user]→[assistant tool_use]→[user tool_result].
+  assert.equal(toolHistoryMessages[0]?.role, "user");
+  assert.equal(toolHistoryMessages[1]?.role, "assistant");
+  assert.equal(toolHistoryMessages[2]?.role, "user");
+  // The pure-`tool_use` assistant message must remain intact AND carry the
+  // moving cache_control marker on its sole block.
+  assert.deepEqual(toolHistoryMessages[1], {
+    role: "assistant",
+    content: [
+      {
+        type: "tool_use",
+        id: "toolu_a",
+        name: "knowledge_search",
+        input: {
+          source: "memory",
+          query: "q".repeat(60)
+        },
+        cache_control: { type: "ephemeral" }
+      }
+    ]
+  });
+  // The tool_result block must stay byte-identical (no marker attached because
+  // it is the `user` side, not the assistant candidate).
+  assert.deepEqual(toolHistoryMessages[2], {
+    role: "user",
+    content: [
+      {
+        type: "tool_result",
+        tool_use_id: "toolu_a",
+        content: "r".repeat(80),
+        is_error: false
+      }
+    ]
+  });
+
+  // Independent sanity check on byte accounting: a tool_use-only history of
+  // very small payloads must NOT trip the breakpoint (no candidate accepted)
+  // — guards against over-aggressive caching on short turns.
+  const shortToolHistoryRequest: ProviderGatewayTextGenerateRequest = {
+    ...toolHistoryBreakpointRequest,
+    toolHistory: [
+      {
+        toolCall: {
+          id: "toolu_short",
+          name: "knowledge_search",
+          arguments: {}
+        },
+        toolResult: {
+          toolCallId: "toolu_short",
+          name: "knowledge_search",
+          content: "ok",
+          isError: false
+        }
+      }
+    ],
+    messages: [
+      {
+        role: "user",
+        content: "u"
+      }
+    ]
+  };
+  await client.generateText(shortToolHistoryRequest);
+  const shortToolHistoryMessages = capturedGeneratePayload!.messages as Array<{
+    role: string;
+    content: unknown;
+  }>;
+  const assistantBlock = shortToolHistoryMessages[1]?.content;
+  assert.ok(Array.isArray(assistantBlock));
+  // No cache_control attached when chunk math says not yet.
+  assert.equal((assistantBlock as Array<{ cache_control?: unknown }>)[0]?.cache_control, undefined);
+
   let warnedEmptyCompletion: Record<string, unknown> | null = null;
   (
     client as unknown as {

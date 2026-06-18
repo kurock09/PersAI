@@ -56,6 +56,7 @@ type AnthropicBuiltMessageContent =
             media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
             data: string;
           };
+          cache_control?: AnthropicPromptCacheControl;
         }
       | {
           type: "document";
@@ -65,18 +66,21 @@ type AnthropicBuiltMessageContent =
             data: string;
           };
           title?: string | null;
+          cache_control?: AnthropicPromptCacheControl;
         }
       | {
           type: "tool_use";
           id: string;
           name: string;
           input: Record<string, unknown>;
+          cache_control?: AnthropicPromptCacheControl;
         }
       | {
           type: "tool_result";
           tool_use_id: string;
           content: string;
           is_error: boolean;
+          cache_control?: AnthropicPromptCacheControl;
         }
     >;
 type AnthropicBuiltMessage = {
@@ -592,11 +596,13 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   }
 
   private countAnthropicCacheBreakpoints(
-    payload: { system?: unknown; tools?: unknown },
+    payload: { system?: unknown; tools?: unknown; messages?: unknown },
     input: ProviderGatewayTextGenerateRequest
   ): number {
     const count =
-      this.countCacheControlMarkers(payload.system) + this.countCacheControlMarkers(payload.tools);
+      this.countCacheControlMarkers(payload.system) +
+      this.countCacheControlMarkers(payload.tools) +
+      this.countCacheControlMarkers(payload.messages);
     if (count === 0 && typeof payload.system === "string" && input.promptCache !== undefined) {
       return 1;
     }
@@ -890,6 +896,25 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     };
   }
 
+  /**
+   * Place a "moving" Anthropic cache_control marker inside the message history so
+   * the growing conversation gets folded into the cached prefix in fixed-size
+   * chunks. Without this, every turn would pay `inputTokens` for the entire
+   * history; with it, only the trailing `~minTokens` chunk stays uncached.
+   *
+   * ADR-119 live-test 2026-06-18 — earlier implementation only accepted
+   * assistant messages whose content was a single plain text block. In real
+   * tool-loop conversations the assistant frequently emits multi-block content
+   * (text + `tool_use`, or pure `tool_use`), which made the candidate set
+   * empty and silently disabled history caching. The replacement also
+   * destroyed the original content array, which risked corrupting tool calls.
+   *
+   * The fix: (1) any assistant message is a candidate; (2) we never replace
+   * the original content — we only attach `cache_control` to the last
+   * cache-control-capable block; (3) byte accounting now includes `tool_use`
+   * arguments and `tool_result` payloads so the chunk math reflects real
+   * history size on tool-heavy turns.
+   */
   private applyAnthropicMovingHistoryBreakpoint(
     messages: AnthropicBuiltMessage[],
     promptCache: ProviderGatewayTextGenerateRequest["promptCache"] | undefined
@@ -899,55 +924,91 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       return;
     }
     const minTailChars = Math.ceil(minTokens * APPROX_ANTHROPIC_CHARS_PER_TOKEN);
-    const totalTextChars = messages.reduce((total, message) => {
-      return total + this.measureAnthropicTextTailChars(message);
+    const totalContentChars = messages.reduce((total, message) => {
+      return total + this.measureAnthropicMessageContentChars(message);
     }, 0);
+    // Keep the "chunked" cache-prefix advance so cache keys are stable across
+    // multiple turns within the same `minTailChars`-sized window. Without the
+    // floor() quantization the marker would shift on every user reply, which
+    // would invalidate the cache constantly and cost more than not caching.
     const maxCachedPrefixChars =
-      Math.floor((totalTextChars - minTailChars) / minTailChars) * minTailChars;
+      Math.floor((totalContentChars - minTailChars) / minTailChars) * minTailChars;
     if (maxCachedPrefixChars < minTailChars) {
       return;
     }
 
-    let cachedPrefixTextChars = 0;
-    let candidate: {
-      index: number;
-      text: string;
-    } | null = null;
+    let cachedPrefixChars = 0;
+    let candidateIndex: number | null = null;
     for (let index = 0; index < messages.length; index += 1) {
       const message = messages[index];
       if (message === undefined) {
         continue;
       }
-      cachedPrefixTextChars += this.measureAnthropicTextTailChars(message);
-      const breakpointText = this.resolveAnthropicHistoryBreakpointText(message.content);
-      if (
-        message.role === "assistant" &&
-        breakpointText !== null &&
-        cachedPrefixTextChars <= maxCachedPrefixChars
-      ) {
-        candidate = {
-          index,
-          text: breakpointText
-        };
+      cachedPrefixChars += this.measureAnthropicMessageContentChars(message);
+      if (message.role === "assistant" && cachedPrefixChars <= maxCachedPrefixChars) {
+        candidateIndex = index;
       }
     }
-    if (candidate === null) {
+    if (candidateIndex === null) {
       return;
     }
-    const message = messages[candidate.index];
+    const message = messages[candidateIndex];
     if (message === undefined) {
       return;
     }
-    messages[candidate.index] = {
-      ...message,
-      content: [
-        {
-          type: "text",
-          text: candidate.text,
-          cache_control: this.buildAnthropicCacheControl(promptCache)
-        }
-      ]
-    };
+    const updated = this.attachCacheControlToLastBlock(message, promptCache);
+    if (updated !== null) {
+      messages[candidateIndex] = updated;
+    }
+  }
+
+  /**
+   * Attach `cache_control` to the LAST cache-control-capable block of an
+   * assistant message without altering any other block. If the message is a
+   * raw string, normalize it to a one-element text-block array (preserving the
+   * exact original text) before applying the marker.
+   *
+   * Returns `null` if no eligible block exists (e.g., only `image`-only
+   * content), so the caller can skip the candidate.
+   */
+  private attachCacheControlToLastBlock(
+    message: AnthropicBuiltMessage,
+    promptCache: ProviderGatewayTextGenerateRequest["promptCache"] | undefined
+  ): AnthropicBuiltMessage | null {
+    const cacheControl = this.buildAnthropicCacheControl(promptCache);
+    if (typeof message.content === "string") {
+      return {
+        ...message,
+        content: [
+          {
+            type: "text",
+            text: message.content,
+            cache_control: cacheControl
+          }
+        ]
+      };
+    }
+    if (message.content.length === 0) {
+      return null;
+    }
+    const updatedContent = [...message.content];
+    for (let i = updatedContent.length - 1; i >= 0; i -= 1) {
+      const block = updatedContent[i];
+      if (block === undefined) {
+        continue;
+      }
+      if (
+        block.type === "text" ||
+        block.type === "tool_use" ||
+        block.type === "tool_result" ||
+        block.type === "image" ||
+        block.type === "document"
+      ) {
+        updatedContent[i] = { ...block, cache_control: cacheControl };
+        return { ...message, content: updatedContent };
+      }
+    }
+    return null;
   }
 
   private shouldApplyAnthropicMovingHistoryBreakpoint(
@@ -1016,25 +1077,39 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     };
   }
 
-  private resolveAnthropicHistoryBreakpointText(
-    content: AnthropicBuiltMessageContent
-  ): string | null {
-    if (typeof content === "string") {
-      return content.length > 0 ? content : null;
-    }
-    if (content.length !== 1) {
-      return null;
-    }
-    const block = content[0];
-    return block?.type === "text" && block.text.length > 0 ? block.text : null;
-  }
-
-  private measureAnthropicTextTailChars(message: AnthropicBuiltMessage): number {
+  /**
+   * Approximate the wire-size of an assistant/user message content. Used to
+   * decide where the moving Anthropic cache_control breakpoint lands. Counts:
+   *
+   *   - raw string content → its length
+   *   - `text` block → its `text` length
+   *   - `tool_use` block → JSON-serialised arguments length (best-effort)
+   *   - `tool_result` block → its string content length when textual
+   *
+   * `image` and `document` (base64) blocks intentionally return zero — they are
+   * not part of the textual prefix that determines a cache hit and counting
+   * megabyte-sized base64 payloads here would push the breakpoint past the end
+   * of the message body on every tool-image turn.
+   */
+  private measureAnthropicMessageContentChars(message: AnthropicBuiltMessage): number {
     if (typeof message.content === "string") {
       return message.content.length;
     }
     return message.content.reduce((total, block) => {
-      return block.type === "text" ? total + block.text.length : total;
+      if (block.type === "text") {
+        return total + block.text.length;
+      }
+      if (block.type === "tool_use") {
+        try {
+          return total + JSON.stringify(block.input ?? {}).length;
+        } catch {
+          return total;
+        }
+      }
+      if (block.type === "tool_result") {
+        return total + (typeof block.content === "string" ? block.content.length : 0);
+      }
+      return total;
     }, 0);
   }
 

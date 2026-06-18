@@ -3,6 +3,77 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — ADR-119 follow-up: Anthropic moving-history-breakpoint fix for tool-loop conversations
+
+### Root cause
+
+Founder live-test observation: `inputTokens` per turn kept climbing past the 3,000-token `anthropicHistoryBreakpointMinTokens` threshold even on long conversations — the moving history `cache_control` marker was never landing on assistant messages. Symptom: a 14k cached prefix grows to 20k+ over a long chat and every turn re-pays the per-turn input cost.
+
+Audit of `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` revealed four compounding bugs:
+
+1. `applyAnthropicMovingHistoryBreakpoint` used a now-deleted `resolveAnthropicHistoryBreakpointText` helper that returned `null` whenever an assistant message's content was anything other than a single `text` block. The provider client emits `toolHistory` exchanges as `assistant: [{ type: "tool_use", … }]` + `user: [{ type: "tool_result", … }]`. **Any** turn where the model called a tool produces pure-`tool_use` assistant messages — i.e. the breakpoint silently skipped real production tool-loop conversations entirely.
+2. When a candidate was found, the function **destructively replaced** the message's content array with `[{type:"text", text: …, cache_control: …}]`, which would have corrupted multi-block messages (e.g. text+tool_use, image content).
+3. `measureAnthropicTextTailChars` (the byte counter feeding the chunked-cache math) only counted `text` block lengths; `tool_use` JSON args and `tool_result` content contributed zero. On tool-heavy turns the chunked math therefore under-estimated the prefix size, biasing the candidate-search threshold toward "not enough yet" and pushing the marker further back even when it could have placed.
+4. `countAnthropicCacheBreakpoints` walked `system` and `tools` only — even when the moving marker was placed, the `cacheBreakpoints=N` log line stayed at the system-prefix count, masking the bug from operations.
+
+### Fix scope
+
+- **`AnthropicBuiltMessageContent` type** — extended to allow `cache_control?: AnthropicPromptCacheControl` on `image`, `document`, `tool_use`, and `tool_result` blocks (previously text-only).
+- **`applyAnthropicMovingHistoryBreakpoint`** — rewritten. Accepts **any** assistant message as a candidate, walks chunked-cache math (`totalContentChars`, `minTailChars`, `targetBoundary`, `maxCachedPrefixChars`) using the new `measureAnthropicMessageContentChars`, and delegates marker placement to the new `attachCacheControlToLastBlock` helper.
+- **`attachCacheControlToLastBlock`** (new) — non-destructively clones the candidate message; if content is a string, wraps it in a single `text` block carrying `cache_control`; if content is an array, walks blocks back-to-front and attaches `cache_control` to the **last** block whose type accepts it (text/image/document/tool_use/tool_result).
+- **`measureAnthropicMessageContentChars`** (renamed from `measureAnthropicTextTailChars`) — counts `text` text length, `tool_use` `JSON.stringify(input ?? {}).length`, and `tool_result` string-content length. `image` and `document` blocks count as zero (base64 data is not part of the textual cache key Anthropic uses).
+- **`countAnthropicCacheBreakpoints`** — extended to also walk `payload.messages` so the `[anthropic-non-stream-start]` / `[anthropic-stream-start]` log lines surface message-level markers (operational visibility for ops + future cache audits).
+
+### Tests
+
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts` — full existing breakpoint suite passes unchanged.
+- New `toolHistoryBreakpointRequest` case — supplies a single tool exchange via `toolHistory` (the realistic prod path), forces the breakpoint via `anthropicHistoryBreakpointMinTokens: 10`, asserts:
+  - the pure-`tool_use` assistant message emitted from `toolHistory` is byte-preserved (no destructive content rewrite);
+  - `cache_control: { type: "ephemeral" }` is correctly attached to the last (and only) `tool_use` block;
+  - the user-side `tool_result` message stays byte-identical (markers belong to assistant turns, not user replies).
+- New `shortToolHistoryRequest` case — tiny `toolHistory` payload + 1-char user message asserts that the chunked-cache math still gates correctly and **no** marker is placed when the history is below the breakpoint threshold (guards against over-aggressive caching on short turns).
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Gate
+
+- `corepack pnpm --filter @persai/provider-gateway run lint` PASS
+- `corepack pnpm run format:check` PASS (one auto-fix applied to the test file)
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` PASS
+- `corepack pnpm --filter @persai/provider-gateway run test` PASS (full suite, incl. 2 new tool-loop cases)
+
+### Cache prefix impact
+
+None on the **system prefix** — the fix only changes per-turn placement of `cache_control` markers inside `messages[]`. Anthropic now sees the message-history cache key it was always supposed to see, so post-deploy:
+
+- Conversations with no tool calls: marker placement already worked → no behavior change.
+- Conversations with tool calls (the prod-realistic case): first post-deploy turn writes the message-history cache (`cache_creation_input_tokens` rises by the cached chunk size); subsequent turns reuse it (`cache_read_input_tokens` grows accordingly; `inputTokens` per turn drops).
+- `cacheBreakpoints=N` log line now reflects total markers (system + tools + messages) instead of system+tools only — operations should expect higher values post-deploy.
+
+### Live-test validation plan (next session)
+
+1. Open chat → call 2-3 tools across 3-4 turns → `kubectl logs deployment/persai-provider-gateway -f` and watch `cacheBreakpoints=N` rise once the assistant-side total content crosses 3k tokens.
+2. Confirm `cache_read_input_tokens` on turn N+1 includes the prior turn's tool-message bytes (delta on top of the system prefix).
+3. Confirm `inputTokens` (raw) on long tool-loop chats no longer grows linearly with conversation length.
+
+### Risks / residuals
+
+- The new marker placement targets the *last* cache-control-capable block in an assistant message. For multi-block messages (text + tool_use), the marker lands on `tool_use`. Anthropic accepts `cache_control` on `tool_use` (verified via type extension + their docs), but if a future API change disallowed it, the fix would need to prefer text-block placement when both are present. **Not a current risk** but flagged.
+- Provider-gateway test suite has long-running fixtures (≈5 min for the full suite). The breakpoint fix added two cases at the very end of the file; ensure new contributors don't add tests *after* them without timing budget.
+- OpenAI symmetric breakpoint placement is out of scope (OpenAI does not have an equivalent moving `cache_control` mechanism — it caches whole prefixes implicitly).
+
+### Next recommended step
+
+Commit the fix, push, monitor CI, then run a live-test on `persai-dev` (open chat → tool-heavy conversation → grep `cache_read_input_tokens` and `cacheBreakpoints` in provider-gateway logs across 3-4 turns) to confirm the moving history cache starts firing.
+
 ## 2026-06-18 — ADR-119 cleanup slice (template + tool descriptor normalization + legacy fallback canonicalization)
 
 ### Root cause
