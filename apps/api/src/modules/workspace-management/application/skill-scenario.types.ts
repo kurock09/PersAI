@@ -10,6 +10,12 @@ export type SkillScenarioStepState = {
   recommendedToolCall: string | null;
   mayBeSkippedIf: string | null;
   negativeGuards: string[];
+  /** ADR-119 Slice 4 — what the model should expect the user to provide to satisfy this step. */
+  expectedUserResponse: string | null;
+  /** ADR-119 Slice 4 — explicit transition condition. */
+  nextStepTrigger: string | null;
+  /** ADR-119 Slice 4 — recovery guidance for off-script user responses. */
+  recoveryGuidance: string | null;
 };
 
 export type AdminSkillScenarioState = {
@@ -66,6 +72,9 @@ const MAX_EXIT_CONDITION_CHARS = 400;
 const MAX_NEGATIVE_GUARDS = 8;
 const MAX_NEGATIVE_GUARD_CHARS = 240;
 const MAX_SKIP_CONDITION_CHARS = 240;
+const MAX_EXPECTED_USER_RESPONSE_CHARS = 400;
+const MAX_NEXT_STEP_TRIGGER_CHARS = 400;
+const MAX_RECOVERY_GUIDANCE_CHARS = 400;
 const KEY_REGEX = /^[a-z][a-z0-9_]{1,63}$/;
 
 export function parseCreateSkillScenarioInput(body: unknown): CreateSkillScenarioInput {
@@ -245,7 +254,43 @@ function parseStep(value: unknown, idx: number): SkillScenarioStepState {
     MAX_NEGATIVE_GUARDS,
     MAX_NEGATIVE_GUARD_CHARS
   );
-  return { number, directive, recommendedToolCall, mayBeSkippedIf, negativeGuards };
+  const expectedUserResponse =
+    row.expectedUserResponse === undefined || row.expectedUserResponse === null
+      ? null
+      : parseBoundedString(
+          row.expectedUserResponse,
+          `${path}.expectedUserResponse`,
+          1,
+          MAX_EXPECTED_USER_RESPONSE_CHARS
+        );
+  const nextStepTrigger =
+    row.nextStepTrigger === undefined || row.nextStepTrigger === null
+      ? null
+      : parseBoundedString(
+          row.nextStepTrigger,
+          `${path}.nextStepTrigger`,
+          1,
+          MAX_NEXT_STEP_TRIGGER_CHARS
+        );
+  const recoveryGuidance =
+    row.recoveryGuidance === undefined || row.recoveryGuidance === null
+      ? null
+      : parseBoundedString(
+          row.recoveryGuidance,
+          `${path}.recoveryGuidance`,
+          1,
+          MAX_RECOVERY_GUIDANCE_CHARS
+        );
+  return {
+    number,
+    directive,
+    recommendedToolCall,
+    mayBeSkippedIf,
+    negativeGuards,
+    expectedUserResponse,
+    nextStepTrigger,
+    recoveryGuidance
+  };
 }
 
 function parseStringList(
@@ -358,7 +403,11 @@ function normalizeStepsState(value: unknown): SkillScenarioStepState[] {
         recommendedToolCall:
           typeof row.recommendedToolCall === "string" ? row.recommendedToolCall : null,
         mayBeSkippedIf: typeof row.mayBeSkippedIf === "string" ? row.mayBeSkippedIf : null,
-        negativeGuards: normalizeStringArray(row.negativeGuards)
+        negativeGuards: normalizeStringArray(row.negativeGuards),
+        expectedUserResponse:
+          typeof row.expectedUserResponse === "string" ? row.expectedUserResponse : null,
+        nextStepTrigger: typeof row.nextStepTrigger === "string" ? row.nextStepTrigger : null,
+        recoveryGuidance: typeof row.recoveryGuidance === "string" ? row.recoveryGuidance : null
       };
     });
 }

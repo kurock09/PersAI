@@ -2115,7 +2115,7 @@ function normalizeStringArray(value: unknown): string[] {
     : [];
 }
 
-function normalizeSkillScenarioSteps(
+export function normalizeSkillScenarioSteps(
   value: unknown
 ): import("@persai/runtime-contract").RuntimeBundleSkillScenarioStep[] {
   if (!Array.isArray(value)) {
@@ -2131,7 +2131,11 @@ function normalizeSkillScenarioSteps(
         recommendedToolCall:
           typeof row.recommendedToolCall === "string" ? row.recommendedToolCall : null,
         mayBeSkippedIf: typeof row.mayBeSkippedIf === "string" ? row.mayBeSkippedIf : null,
-        negativeGuards: normalizeStringArray(row.negativeGuards)
+        negativeGuards: normalizeStringArray(row.negativeGuards),
+        expectedUserResponse:
+          typeof row.expectedUserResponse === "string" ? row.expectedUserResponse : null,
+        nextStepTrigger: typeof row.nextStepTrigger === "string" ? row.nextStepTrigger : null,
+        recoveryGuidance: typeof row.recoveryGuidance === "string" ? row.recoveryGuidance : null
       };
     });
 }

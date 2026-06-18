@@ -3,6 +3,7 @@ import {
   buildImageEditToolCredentialRef,
   buildImageGenerateToolCredentialRef,
   buildVideoGenerateToolCredentialRef,
+  normalizeSkillScenarioSteps,
   resolveAllowedPlanCapabilityModelKey,
   resolveAllowedPlanPrimaryModelKey,
   resolveTtsModelKeyForProvider,
@@ -845,6 +846,86 @@ async function run(): Promise<void> {
       "Slice 10c: plan model key not in catalog → falls back to first active row"
     );
     console.log("PASS Slice 10c materializ: plan model key not in catalog → first row fallback");
+  }
+
+  // ADR-119 Slice 4 — normalizeSkillScenarioSteps new optional fields
+  {
+    // New fields present → values flow through to the bundle step
+    const steps = normalizeSkillScenarioSteps([
+      {
+        number: 1,
+        directive: "Ask for brief.",
+        recommendedToolCall: null,
+        mayBeSkippedIf: null,
+        negativeGuards: [],
+        expectedUserResponse: "4 brief items",
+        nextStepTrigger: "All 4 items collected.",
+        recoveryGuidance: "Re-ask for missing items."
+      }
+    ]);
+    assert.equal(steps.length, 1);
+    assert.equal(
+      steps[0]!.expectedUserResponse,
+      "4 brief items",
+      "expectedUserResponse flows through from row to bundle step"
+    );
+    assert.equal(
+      steps[0]!.nextStepTrigger,
+      "All 4 items collected.",
+      "nextStepTrigger flows through from row to bundle step"
+    );
+    assert.equal(
+      steps[0]!.recoveryGuidance,
+      "Re-ask for missing items.",
+      "recoveryGuidance flows through from row to bundle step"
+    );
+    console.log("PASS ADR-119 Slice 4 materializ: new step fields flow through when present");
+  }
+
+  {
+    // New fields absent → materialized bundle has null (not undefined)
+    const steps = normalizeSkillScenarioSteps([
+      {
+        number: 1,
+        directive: "No new fields.",
+        recommendedToolCall: null,
+        mayBeSkippedIf: null,
+        negativeGuards: []
+      }
+    ]);
+    assert.equal(steps.length, 1);
+    assert.equal(
+      steps[0]!.expectedUserResponse,
+      null,
+      "missing expectedUserResponse → null (not undefined)"
+    );
+    assert.equal(steps[0]!.nextStepTrigger, null, "missing nextStepTrigger → null (not undefined)");
+    assert.equal(
+      steps[0]!.recoveryGuidance,
+      null,
+      "missing recoveryGuidance → null (not undefined)"
+    );
+    console.log("PASS ADR-119 Slice 4 materializ: missing new step fields → null (not undefined)");
+  }
+
+  {
+    // New fields explicitly set to null → materialized bundle has null
+    const steps = normalizeSkillScenarioSteps([
+      {
+        number: 1,
+        directive: "Explicit nulls.",
+        recommendedToolCall: null,
+        mayBeSkippedIf: null,
+        negativeGuards: [],
+        expectedUserResponse: null,
+        nextStepTrigger: null,
+        recoveryGuidance: null
+      }
+    ]);
+    assert.equal(steps[0]!.expectedUserResponse, null);
+    assert.equal(steps[0]!.nextStepTrigger, null);
+    assert.equal(steps[0]!.recoveryGuidance, null);
+    console.log("PASS ADR-119 Slice 4 materializ: explicit null new step fields → null");
   }
 }
 

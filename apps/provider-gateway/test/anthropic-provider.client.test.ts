@@ -1423,16 +1423,16 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   const memoryText = ((memoryVolatileMessage!.content as Array<{ text?: unknown }>)[0]?.text ??
     "") as string;
   assert.match(memoryText, /<recent_short_memory>/);
-  assert.doesNotMatch(memoryText, /<active_scenario>/);
+  assert.doesNotMatch(memoryText, /<persai_active_scenario>/);
 
-  // volatileKind: "active_scenario" must produce the <active_scenario> wrapper.
+  // ADR-119 Slice 4 — volatileKind: "active_scenario" must produce the <persai_active_scenario> wrapper.
   const volatileScenarioRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
     messages: [
       {
         role: "user",
         content:
-          "## Active Scenario: Instagram Carousel (Skill: Marketer)\n\nFollow steps in order.",
+          'Active: Instagram Carousel (Skill: Marketer)\n\n<step number="1">\n  <directive>Write the caption.</directive>\n</step>\n<exit_condition>Done.</exit_condition>',
         cacheRole: "volatile_context",
         volatileKind: "active_scenario"
       },
@@ -1445,17 +1445,20 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   ).find((msg) => {
     const firstBlock =
       Array.isArray(msg.content) && (msg.content[0] as Record<string, unknown> | undefined)?.text;
-    return typeof firstBlock === "string" && (firstBlock as string).includes("<active_scenario>");
+    return (
+      typeof firstBlock === "string" && (firstBlock as string).includes("<persai_active_scenario>")
+    );
   });
   assert.ok(
     scenarioVolatileMessage !== undefined,
-    "volatileKind: active_scenario must produce <active_scenario> wrapper"
+    "volatileKind: active_scenario must produce <persai_active_scenario> wrapper"
   );
   const scenarioText = ((scenarioVolatileMessage!.content as Array<{ text?: unknown }>)[0]?.text ??
     "") as string;
-  assert.match(scenarioText, /<active_scenario>/);
-  assert.match(scenarioText, /<\/active_scenario>/);
+  assert.match(scenarioText, /<persai_active_scenario>/);
+  assert.match(scenarioText, /<\/persai_active_scenario>/);
   assert.doesNotMatch(scenarioText, /<recent_short_memory>/);
+  assert.doesNotMatch(scenarioText, /<active_scenario>(?!\/)/);
   assert.match(scenarioText, /Instagram Carousel/);
 
   // ADR-119 Slice 2 — disable_parallel_tool_use + per-block cache markers

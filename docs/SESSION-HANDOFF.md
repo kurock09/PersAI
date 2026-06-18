@@ -3,6 +3,55 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — ADR-119 Slice 4 landed (volatile scenario XML format + step field extensions)
+
+### Root cause
+
+`BuildActiveScenarioBlockService` was emitting the active-scenario volatile block in Markdown format (`## Active Scenario: …`, `Steps:`, `Recommended tool:`, `Guards:`). Per ADR-119 D5 the block must be structured XML so the model can parse individual step fields reliably. Additionally, three new optional step-level fields (`expectedUserResponse`, `nextStepTrigger`, `recoveryGuidance`) were spec'd in D5 but had never been added to the schema or the materializer. The Anthropic provider client still used the old inner tag name `active_scenario` (the OpenAI client was already using `persai_active_scenario` since ADR-118 Slice 4 — an inconsistency introduced then).
+
+### Fix scope
+
+- `packages/runtime-contract/src/index.ts`: `RuntimeBundleSkillScenarioStep` extended with three optional fields (`expectedUserResponse?`, `nextStepTrigger?`, `recoveryGuidance?`).
+- `apps/api/src/modules/workspace-management/application/skill-scenario.types.ts`: `SkillScenarioStepState` extended with the same three fields (non-optional, `null`-default); `parseStep` validates each up to 400 chars; three new `MAX_*` constants added.
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`: `normalizeSkillScenarioSteps` populates new fields with `null` when absent (never `undefined`); exported for direct unit testing.
+- `apps/runtime/src/modules/turns/build-active-scenario-block.service.ts`: `renderActiveScenarioBlock` fully rewritten from Markdown to canonical XML per ADR-119 D5; `renderStep`/`escapeXml` helpers added; `appendStepDetails` removed.
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`: `innerTag` for `volatileKind === "active_scenario"` renamed `active_scenario` → `persai_active_scenario`.
+
+### Tests
+
+- `apps/runtime/test/build-active-scenario-block.service.test.ts`: 8 existing cases updated (Markdown → XML assertions); 10 new cases added (XML step tag, recommendedToolCall present/absent, expectedUserResponse present/absent, nextStepTrigger present/absent, recoveryGuidance present/absent, empty negativeGuards → tag absent, guard format, exit_condition tag, byte-stability).
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`: updated scenario test to assert `<persai_active_scenario>` (NOT `<active_scenario>`).
+- `apps/provider-gateway/test/openai-provider.client.test.ts`: added negative assertion `must NOT use bare <active_scenario>`.
+- `apps/api/test/materialize-assistant-published-version.service.test.ts`: 3 new unit tests for `normalizeSkillScenarioSteps` (new fields flow through, missing → null, explicit null → null).
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/skill-scenario.types.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/runtime/src/modules/turns/build-active-scenario-block.service.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/runtime/test/build-active-scenario-block.service.test.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/api/test/materialize-assistant-published-version.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risk
+
+**One-time prompt-cache prefix invalidation on rollout** — The volatile `active_scenario` block bytes change shape (Markdown → XML). This block is projected at runtime (volatile, not cached), so cache invalidation is limited to the volatile block itself. No stable prefix bytes change in this slice. The Anthropic inner-tag rename (`active_scenario` → `persai_active_scenario`) also affects only the volatile volatile-tail projection.
+
+**Additive contract change** — `RuntimeBundleSkillScenarioStep` new fields are optional. Existing bundle JSON files (pre-Slice-4 materialization) will deserialize with `undefined` for these fields; the renderer treats `undefined` as null (both checks use `?? null`). Safe degradation, no crash.
+
+**Admin UI for new fields deferred** — New `expectedUserResponse`, `nextStepTrigger`, `recoveryGuidance` fields are not yet exposed in the admin scenario editor (Slice 10). Existing scenarios continue to work unchanged; new fields default to null until an admin edits and saves a scenario after Slice 10 ships.
+
+### Next recommended step
+
+Slice 5 — system-reminder protocol. Will batch with Slice 4 in the same volatile-tail format deploy per ADR-119. Key files: `packages/runtime-contract/src/index.ts` (add `system_reminder` to `volatileKind`), `apps/runtime/src/modules/turns/build-system-reminder.service.ts` (new), `apps/runtime/src/modules/turns/turn-execution.service.ts` (inject reminder before memory), both provider clients (add `<system-reminder>` wrapper for the new kind).
+
+---
+
 ## 2026-06-17 — ADR-119 Slice 3 landed (Skills progressive disclosure + first_step_preview)
 
 ### Root cause

@@ -1992,14 +1992,14 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     assert.doesNotMatch(devItem!.content as string, /<persai_active_scenario>/);
   }
 
-  // volatileKind: "active_scenario" must produce the <persai_active_scenario> wrapper.
+  // ADR-119 Slice 4 — volatileKind: "active_scenario" must produce the <persai_active_scenario> wrapper (NOT <active_scenario>).
   await client.generateText({
     ...request,
     messages: [
       {
         role: "user",
         content:
-          "## Active Scenario: Instagram Carousel (Skill: Marketer)\n\nFollow steps in order.",
+          'Active: Instagram Carousel (Skill: Marketer)\n\n<step number="1">\n  <directive>Write the caption.</directive>\n</step>\n<exit_condition>Done.</exit_condition>',
         cacheRole: "volatile_context",
         volatileKind: "active_scenario"
       },
@@ -2019,6 +2019,11 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     assert.match(devItem!.content as string, /<persai_active_scenario>/);
     assert.match(devItem!.content as string, /<\/persai_active_scenario>/);
     assert.doesNotMatch(devItem!.content as string, /<persai_contextual_memory>/);
+    assert.doesNotMatch(
+      devItem!.content as string,
+      /<active_scenario>(?!\/)/,
+      "must NOT use bare <active_scenario> tag (ADR-119 Slice 4 rename)"
+    );
     assert.match(devItem!.content as string, /Instagram Carousel/);
   }
 

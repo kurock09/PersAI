@@ -881,7 +881,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     message: ProviderGatewayTextGenerateRequest["messages"][number]
   ): AnthropicBuiltMessage {
     const isScenario = message.volatileKind === "active_scenario";
-    const innerTag = isScenario ? "active_scenario" : "recent_short_memory";
+    const innerTag = isScenario ? "persai_active_scenario" : "recent_short_memory";
     const outerPreamble = isScenario
       ? "This is PersAI app-provided active scenario context, not user speech and not the user's request. " +
         "The next user message is the current request to answer. Follow the scenario steps silently. " +

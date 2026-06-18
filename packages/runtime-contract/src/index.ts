@@ -2999,6 +2999,12 @@ export interface RuntimeBundleSkillScenarioStep {
   recommendedToolCall: string | null;
   mayBeSkippedIf: string | null;
   negativeGuards: string[];
+  /** ADR-119 Slice 4 — what the model should expect the user to provide to satisfy this step. */
+  expectedUserResponse?: string | null;
+  /** ADR-119 Slice 4 — explicit transition condition; when true the model advances to the next step. */
+  nextStepTrigger?: string | null;
+  /** ADR-119 Slice 4 — guidance for recovering if the user's response is off-script. */
+  recoveryGuidance?: string | null;
 }
 
 export interface RuntimeBundleSkillScenario {
