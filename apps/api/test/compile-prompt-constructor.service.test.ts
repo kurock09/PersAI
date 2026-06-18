@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { PROMPT_TEMPLATE_DEFAULTS } from "../prisma/bootstrap-preset-data";
 import { CompilePromptConstructorService } from "../src/modules/workspace-management/application/compile-prompt-constructor.service";
+import type { VoiceDnaResolved } from "../src/modules/workspace-management/application/voice-dna-modulator";
 
 const baseInput = () => ({
   publishedVersion: {
@@ -364,12 +365,219 @@ async function runDefaultPromptTemplateCompile(): Promise<void> {
   );
 }
 
+// ADR-119 Slice 1 D3 — three fixture snapshots covering the three persona compile paths.
+// Each fixture additionally asserts <voice>/<character_notes> structural invariants.
+
+const FIXTURE_VOICE_DNA: VoiceDnaResolved = {
+  archetypeKey: "warm_quiet",
+  archetypeLabel: "Тёплый и тихий",
+  archetypeDescription: "тёплый и немногословный",
+  voice: { sentenceLength: "short", pace: "slow", irony: 5 },
+  openingsAllowed: ["Слышу.", "Понимаю.", "Тут я."],
+  openingsForbidden: ["Боже мой!", "Ого!"],
+  behaviors: {
+    whenUserUpset: "Не утешаешь словами. Признаёшь то, что слышишь.",
+    whenUserExcited: "Радуешься тихо. Одна короткая искренняя фраза.",
+    whenUserTired: "Снижаешь требования. Короче, мягче.",
+    whenUserAngry: "Не споришь, не оправдываешься. Слышишь."
+  },
+  silenceRule: "Если нечего добавить — не добавляешь. Тишина — нормально.",
+  examples: [{ context: "Сегодня тяжёлый день был.", reply: "Слышу. Тут я, если что." }],
+  traits: { formality: 30, verbosity: 40, playfulness: 20, initiative: 40, warmth: 75 }
+};
+
+const FIXTURE_FLIRTY_INSTRUCTIONS =
+  "Ты женщина игривая и сексуальная, всегда флиртуешь и не боишься откровенных тем.";
+
+function fixturePublishedVersion(
+  instructions: string | null,
+  traits: Record<string, number> | null
+) {
+  return {
+    id: "v-snap-1",
+    assistantId: "a-snap-1",
+    version: 1,
+    snapshotDisplayName: "Лира",
+    snapshotInstructions: instructions,
+    snapshotTraits: traits,
+    snapshotAvatarEmoji: "🌙",
+    snapshotAvatarUrl: null,
+    snapshotAssistantGender: "female" as const,
+    snapshotVoiceProfile: null,
+    publishedByUserId: "u-snap-1",
+    createdAt: new Date("2026-01-01T00:00:00.000Z")
+  };
+}
+
+const FIXTURE_USER_CONTEXT = {
+  displayName: "Алексей",
+  birthday: null as string | null,
+  gender: "male",
+  locale: "ru-RU",
+  timezone: "Europe/Moscow"
+};
+
+function countOccurrencesInPrompt(haystack: string, needle: string): number {
+  let count = 0;
+  let index = haystack.indexOf(needle);
+  while (index !== -1) {
+    count += 1;
+    index = haystack.indexOf(needle, index + needle.length);
+  }
+  return count;
+}
+
+async function runXmlCanonicalFixtures(): Promise<void> {
+  const service = new CompilePromptConstructorService();
+
+  // Fixture 1 — archetype-only: voiceDna present, no snapshotInstructions.
+  const archetypeOnly = service.compile({
+    publishedVersion: fixturePublishedVersion(null, { warmth: 75, playfulness: 20 }),
+    userContext: FIXTURE_USER_CONTEXT,
+    toolPolicies: [],
+    enabledSkillCards: [],
+    promptTemplates: { ...PROMPT_TEMPLATE_DEFAULTS },
+    voiceDna: FIXTURE_VOICE_DNA
+  });
+
+  // Fixture 2 — free-form-only: snapshotInstructions populated, no voiceDna.
+  const freeFormOnly = service.compile({
+    publishedVersion: fixturePublishedVersion(FIXTURE_FLIRTY_INSTRUCTIONS, null),
+    userContext: FIXTURE_USER_CONTEXT,
+    toolPolicies: [],
+    enabledSkillCards: [],
+    promptTemplates: { ...PROMPT_TEMPLATE_DEFAULTS },
+    voiceDna: null
+  });
+
+  // Fixture 3 — archetype + instructions: both voiceDna and snapshotInstructions populated.
+  const archetypePlus = service.compile({
+    publishedVersion: fixturePublishedVersion(FIXTURE_FLIRTY_INSTRUCTIONS, {
+      warmth: 75,
+      playfulness: 20
+    }),
+    userContext: FIXTURE_USER_CONTEXT,
+    toolPolicies: [],
+    enabledSkillCards: [],
+    promptTemplates: { ...PROMPT_TEMPLATE_DEFAULTS },
+    voiceDna: FIXTURE_VOICE_DNA
+  });
+
+  // All three fixtures must emit xml_canonical_v1 (inline snapshot).
+  assert.equal(archetypeOnly.promptConstructor.ordinary.compileMode, "xml_canonical_v1");
+  assert.equal(freeFormOnly.promptConstructor.ordinary.compileMode, "xml_canonical_v1");
+  assert.equal(archetypePlus.promptConstructor.ordinary.compileMode, "xml_canonical_v1");
+
+  const aOnlyPrompt = archetypeOnly.promptConstructor.ordinary.systemPrompt ?? "";
+  const freePrompt = freeFormOnly.promptConstructor.ordinary.systemPrompt ?? "";
+  const plusPrompt = archetypePlus.promptConstructor.ordinary.systemPrompt ?? "";
+
+  // --- Fixture 1: archetype-only ---
+  assert.equal(
+    countOccurrencesInPrompt(aOnlyPrompt, "<voice>"),
+    1,
+    "archetype-only: <voice> exactly once"
+  );
+  assert.equal(
+    countOccurrencesInPrompt(aOnlyPrompt, "</voice>"),
+    1,
+    "archetype-only: </voice> exactly once"
+  );
+  // Empty <character_notes> shell is stripped — at most zero occurrences.
+  assert.equal(
+    countOccurrencesInPrompt(aOnlyPrompt, "<character_notes>"),
+    0,
+    "archetype-only: <character_notes> absent when snapshotInstructions is null"
+  );
+  assert.ok(
+    aOnlyPrompt.includes("Тёплый и тихий"),
+    "archetype-only: archetype label rendered inside <voice>"
+  );
+  assert.ok(
+    archetypeOnly.promptDocuments.soul.startsWith("<voice>"),
+    "archetype-only: compiled soul document starts with <voice>"
+  );
+
+  // --- Fixture 2: free-form-only ---
+  assert.equal(
+    countOccurrencesInPrompt(freePrompt, "<voice>"),
+    1,
+    "free-form-only: <voice> exactly once"
+  );
+  assert.equal(
+    countOccurrencesInPrompt(freePrompt, "</voice>"),
+    1,
+    "free-form-only: </voice> exactly once"
+  );
+  assert.equal(
+    countOccurrencesInPrompt(freePrompt, "<character_notes>"),
+    1,
+    "free-form-only: <character_notes> exactly once"
+  );
+  // snapshotInstructions content appears exactly once (persona dedup [F1] invariant).
+  assert.equal(
+    countOccurrencesInPrompt(freePrompt, "Ты женщина игривая"),
+    1,
+    "free-form-only: snapshotInstructions appears exactly once in materialized prompt"
+  );
+  // <voice> and <character_notes> are textually adjacent — no other XML tags between them.
+  {
+    const voiceCloseIdx = freePrompt.indexOf("</voice>");
+    const charnOpenIdx = freePrompt.indexOf("<character_notes>");
+    assert.ok(voiceCloseIdx !== -1 && charnOpenIdx !== -1);
+    const between = freePrompt.slice(voiceCloseIdx + "</voice>".length, charnOpenIdx);
+    assert.ok(
+      !/^<[a-zA-Z]/.test(between.trimStart()),
+      "free-form-only: no other XML tags between </voice> and <character_notes>"
+    );
+  }
+
+  // --- Fixture 3: archetype + instructions ---
+  assert.equal(
+    countOccurrencesInPrompt(plusPrompt, "<voice>"),
+    1,
+    "archetype+instructions: <voice> exactly once"
+  );
+  assert.equal(
+    countOccurrencesInPrompt(plusPrompt, "</voice>"),
+    1,
+    "archetype+instructions: </voice> exactly once"
+  );
+  assert.equal(
+    countOccurrencesInPrompt(plusPrompt, "<character_notes>"),
+    1,
+    "archetype+instructions: <character_notes> exactly once"
+  );
+  // snapshotInstructions appears exactly once — not duplicated into the system-level section.
+  assert.equal(
+    countOccurrencesInPrompt(plusPrompt, "Ты женщина игривая"),
+    1,
+    "archetype+instructions: snapshotInstructions appears exactly once (persona dedup)"
+  );
+  assert.ok(
+    plusPrompt.includes("Тёплый и тихий"),
+    "archetype+instructions: archetype label also present"
+  );
+  // <voice> and <character_notes> are textually adjacent.
+  {
+    const voiceCloseIdx = plusPrompt.indexOf("</voice>");
+    const charnOpenIdx = plusPrompt.indexOf("<character_notes>");
+    assert.ok(voiceCloseIdx !== -1 && charnOpenIdx !== -1);
+    const between = plusPrompt.slice(voiceCloseIdx + "</voice>".length, charnOpenIdx);
+    assert.ok(
+      !/^<[a-zA-Z]/.test(between.trimStart()),
+      "archetype+instructions: no other XML tags between </voice> and <character_notes>"
+    );
+  }
+}
+
 async function run(): Promise<void> {
   await runTemplatedCompile();
   await runCachedPrefixInvariant();
   await runPresenceCachedPrefixInvariant();
   await runFallbackCompile();
   await runDefaultPromptTemplateCompile();
+  await runXmlCanonicalFixtures();
 }
 
 void run();

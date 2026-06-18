@@ -198,11 +198,23 @@ export interface AssistantRuntimePromptStablePrefix {
   hash: string | null;
 }
 
+/**
+ * ADR-119 Slice 1 — describes how the ordinary system prefix was compiled.
+ * `xml_canonical_v1` is the canonical XML-tagged compile output produced by
+ * `CompilePromptConstructorService`. `legacy_markdown` is reserved for the
+ * fallback synthesizer / pre-ADR-119 bundles and signals to downstream
+ * rolling-window cache code that no XML zone boundaries are available to hint
+ * provider cache markers (Slice 2 consumes this).
+ */
+export type AssistantRuntimePromptCompileMode = "xml_canonical_v1" | "legacy_markdown";
+
 export interface AssistantRuntimePromptConstructor {
   ordinary: {
     sections: AssistantRuntimeCompiledOrdinaryPromptSections;
     systemPrompt: string | null;
     stablePrefix?: AssistantRuntimePromptStablePrefix;
+    /** ADR-119 Slice 1 — additive compile-mode metadata; absent on legacy bundles. */
+    compileMode?: AssistantRuntimePromptCompileMode;
   };
   onboarding: {
     previewTurnPrompt: string;
@@ -285,6 +297,10 @@ export function createAssistantRuntimeBundle(
 ): AssistantRuntimeBundle {
   const promptConstructor: AssistantRuntimePromptConstructor = input.promptConstructor ?? {
     ordinary: {
+      // ADR-119 Slice 1 — the fallback synthesizer is the legacy concatenation
+      // path (no XML zone boundary metadata); the canonical compiler emits
+      // `xml_canonical_v1` instead.
+      compileMode: "legacy_markdown",
       sections: {
         assistantIdentity:
           input.persona.displayName === null

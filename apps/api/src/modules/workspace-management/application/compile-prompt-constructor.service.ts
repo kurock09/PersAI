@@ -128,6 +128,10 @@ export class CompilePromptConstructorService {
       promptDocuments,
       promptConstructor: {
         ordinary: {
+          // ADR-119 Slice 1 — canonical XML-tagged compile output. Downstream
+          // rolling-window cache code (Slice 2) reads this to hint provider
+          // cache markers.
+          compileMode: "xml_canonical_v1",
           sections: ordinarySections,
           systemPrompt: systemPrompt.length > 0 ? systemPrompt : null,
           stablePrefix: toStablePrefix(systemPrompt)
@@ -206,13 +210,19 @@ export class CompilePromptConstructorService {
             voice_examples_block: null
           };
 
-      return this.interpolateTemplate(template, {
+      const rendered = this.interpolateTemplate(template, {
         assistant_name: pv.snapshotDisplayName ?? "an assistant",
         assistant_gender_line: assistantGender ? `- **Gender**: ${assistantGender}` : null,
         ...voiceVars,
         traits_block: traitsBlock,
         instructions_block: instructionsBlock
       });
+      // ADR-119 Slice 1 D3: `<character_notes>` carries `snapshotInstructions`.
+      // When there are no instructions the placeholder line is stripped during
+      // interpolation, leaving an empty `<character_notes></character_notes>`
+      // shell. Collapse that empty shell so persona-less assistants don't carry
+      // a hollow block (keeps `<character_notes>` "at most once / absent").
+      return this.stripEmptyCharacterNotes(rendered);
     }
 
     const lines: string[] = ["# Core Persona", ""];
@@ -255,6 +265,14 @@ export class CompilePromptConstructorService {
       lines.push("");
     }
     return lines.join("\n").trimEnd();
+  }
+
+  private stripEmptyCharacterNotes(rendered: string): string {
+    // Collapse an empty `<character_notes>` block (only whitespace between the
+    // open/close tags) plus any surrounding blank lines down to a single
+    // separating newline. Non-empty blocks and custom templates without the
+    // block are left untouched.
+    return rendered.replace(/\n*<character_notes>\s*<\/character_notes>\n*/g, "\n").trimEnd();
   }
 
   private formatPhraseList(items: string[]): string {
@@ -394,13 +412,21 @@ export class CompilePromptConstructorService {
     // - `route_control_block` is also a developer-message tail rendered by the runtime.
     // Both placeholders are passed as null so legacy custom templates that still reference them
     // simply drop the placeholder line in `interpolateTemplate` instead of leaking a literal token.
+    // ADR-119 Slice 1 [F1] persona deduplication: `snapshotInstructions` is now
+    // rendered exactly once, inside the `<character_notes>` block emitted by
+    // `generateSoulPrompt`. The former system-level `{{persona_instructions_block}}`
+    // placeholder (and its fallback-join sibling) is intentionally dropped so the
+    // value is not duplicated across the system prefix and the soul block.
     if (template) {
       return this.interpolateTemplate(template, {
         assistant_identity_block: ordinarySections.assistantIdentity,
         user_identity_block: ordinarySections.userIdentity,
         locale_block: ordinarySections.locale,
         timezone_block: ordinarySections.timezone,
-        persona_instructions_block: ordinarySections.personaInstructions,
+        // [F1] dedup: resolve to null so any legacy custom template that still
+        // references `{{persona_instructions_block}}` drops the line instead of
+        // re-rendering `snapshotInstructions` a second time.
+        persona_instructions_block: null,
         soul_block: ordinarySections.soul,
         user_block: ordinarySections.user,
         identity_block: ordinarySections.identity,
@@ -417,7 +443,6 @@ export class CompilePromptConstructorService {
       ordinarySections.userIdentity,
       ordinarySections.locale,
       ordinarySections.timezone,
-      ordinarySections.personaInstructions,
       this.normalizeOptionalText(ordinarySections.soul),
       this.normalizeOptionalText(ordinarySections.user),
       this.normalizeOptionalText(ordinarySections.identity),

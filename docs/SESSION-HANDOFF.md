@@ -3,6 +3,57 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-17 — ADR-119 Slice 1 landed (XML compile output + persona deduplication)
+
+### Root cause
+
+The materialized system prompt had no structural XML boundaries — it was a single Markdown blob. `snapshotInstructions` was rendered through two paths simultaneously (`{{persona_instructions_block}}` in the system template AND `{{instructions_block}}` inside the soul template), causing the [F1] persona duplication failure mode documented in ADR-119. Downstream Slice 2 cache-control marker splitting requires character-offset metadata from the compiler, which only makes sense once XML zone boundaries exist.
+
+### Fix scope
+
+- `apps/api/prisma/bootstrap-preset-data.ts`: all eight visible templates wrapped with canonical ADR-119 outer XML tags; `soul` split into adjacent `<voice>` + `<character_notes>` blocks; `system` Response UI Contract section wrapped in `<response_contract>`.
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts`: `{{persona_instructions_block}}` dropped (resolves to `null`, so legacy custom templates drop the line silently); `stripEmptyCharacterNotes` added to collapse empty shell on persona-less assistants; `compileMode: "xml_canonical_v1"` emitted on every new materialization.
+- `packages/runtime-bundle/src/index.ts`: `AssistantRuntimePromptCompileMode` type added; optional `compileMode` field added to `AssistantRuntimePromptConstructor.ordinary`; fallback synthesizer emits `"legacy_markdown"`.
+- `apps/api/test/bootstrap-preset-data.test.ts`: new file — XML balance validator (stack-based, strips fenced code/backticks/placeholders) + outer-tag presence + `<character_notes>`/`{{instructions_block}}` placement assertions.
+- `apps/api/test/compile-prompt-constructor.service.test.ts`: three fixture snapshots added (archetype-only, free-form-only, archetype+instructions); each asserts `compileMode`, `<voice>` count, `<character_notes>` count, single-occurrence of `snapshotInstructions`, and `<voice>`/`<character_notes>` adjacency.
+- `apps/runtime/test/native-tool-projection.test.ts`: ADR-117 golden test updated for `<tool_usage_policy>` and `<memory_protocol>` outer tags (inner heading assertions preserved).
+
+### Tests
+
+Full verification gate passed:
+
+- `corepack pnpm prisma:generate` PASS
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime-contract run typecheck` PASS
+- `corepack pnpm --filter @persai/api run test` PASS
+- `corepack pnpm --filter @persai/runtime run test` PASS
+
+### Files touched
+
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts`
+- `packages/runtime-bundle/src/index.ts`
+- `apps/api/test/bootstrap-preset-data.test.ts` (new)
+- `apps/api/test/compile-prompt-constructor.service.test.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risk
+
+**One-time prompt-cache prefix invalidation on rollout** — the XML tag bytes added to every cached template change the stable prefix bytes; all provider-side cache entries are invalidated once on the first materialization after deploy. `configDirtyAt` is cleared implicitly on next materialization (existing flow). Low functional risk: inner template content is byte-identical. R7 (`skill_state_classifier` orphan) and R8 (Skills progressive disclosure) remain deferred per slice boundary.
+
+### Next recommended step
+
+Slice 2 — provider cache_control markers + parallel-tool-calls discipline. **BATCH WITH SLICE 1 IN SAME DEPLOY**: Slice 2 requires the `compileMode: "xml_canonical_v1"` field from Slice 1 to safely split the Anthropic `cache_control` marker into 3 BP boundaries (BP1/BP2/BP3). OpenAI `developer` role migration (R4) and parallel-tool-calls discipline (R5) are also Slice 2 scope.
+
+---
+
 ## 2026-06-17 — ADR-119 Slice 0.5 landed (Anthropic gateway observability)
 
 ### Root cause

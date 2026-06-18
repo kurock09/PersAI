@@ -1727,15 +1727,18 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
     );
   }
 
+  // ADR-119 Slice 1: tools and agents templates are now wrapped with outer XML
+  // tags (<tool_usage_policy> and <memory_protocol>). The inner content and
+  // inner headings remain unchanged; only the outer wrap changed.
   assert.match(
     bootstrapSource,
-    /tools:\s*`# Native Tool Runtime — Selection Guide/,
-    `Selection guide presence: ${bootstrapPath} must seed the Native Tool Runtime selection guide in the tools block`
+    /tools:\s*`<tool_usage_policy>\n# Native Tool Runtime — Selection Guide/,
+    `Selection guide presence: ${bootstrapPath} must seed the Native Tool Runtime selection guide in the tools block (XML-wrapped)`
   );
   assert.match(
     bootstrapSource,
-    /agents:\s*`# Memory Policy/,
-    `Selection guide presence: ${bootstrapPath} must keep the agents block reduced to Memory Policy`
+    /agents:\s*`<memory_protocol>\n# Memory Policy/,
+    `Selection guide presence: ${bootstrapPath} must keep the agents block reduced to Memory Policy (XML-wrapped)`
   );
   assert.doesNotMatch(
     bootstrapSource,
