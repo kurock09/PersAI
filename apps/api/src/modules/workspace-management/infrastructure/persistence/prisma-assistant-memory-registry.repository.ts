@@ -2,7 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { Prisma, type AssistantMemoryRegistryItem as PrismaItem } from "@prisma/client";
 import type {
   AssistantMemoryRegistryClass,
-  AssistantMemoryRegistryItem
+  AssistantMemoryRegistryItem,
+  AssistantMemoryRegistryProvenance
 } from "../../domain/assistant-memory-registry-item.entity";
 import type {
   AssistantMemoryRegistryRepository,
@@ -32,6 +33,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
         kind: input.kind,
         durability: input.durability,
         stability: input.stability,
+        provenance: input.provenance,
         confidence: input.confidence
       }
     });
@@ -506,6 +508,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       kind: row.kind,
       durability: row.durability,
       stability: row.stability,
+      provenance: row.provenance as AssistantMemoryRegistryProvenance,
       confidence: row.confidence,
       embeddingVector: parseEmbeddingVector(row.embeddingVector),
       embeddingModelKey: normalizeOptionalString(row.embeddingModelKey),

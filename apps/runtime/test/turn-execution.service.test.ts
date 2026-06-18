@@ -4004,7 +4004,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
     relatedUserMessageId: null,
-    requestId: "request-1"
+    requestId: "request-1",
+    provenance: "system_inferred"
   });
   const memoryWriteToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"

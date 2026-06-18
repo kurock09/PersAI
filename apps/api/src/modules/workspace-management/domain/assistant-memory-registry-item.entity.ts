@@ -8,6 +8,13 @@ export type AssistantMemoryRegistryDurability = "identity" | "episodic";
 
 export type AssistantMemoryRegistryStability = "stable" | "time_bound";
 
+/** ADR-119 Slice 9 — tracks how a memory entry was created. */
+export type AssistantMemoryRegistryProvenance =
+  | "user_explicit"
+  | "system_inferred"
+  | "auto_extracted"
+  | "legacy";
+
 export type AssistantMemoryRegistryItem = {
   id: string;
   assistantId: string;
@@ -23,6 +30,8 @@ export type AssistantMemoryRegistryItem = {
   kind: AssistantMemoryRegistryKind | null;
   durability: AssistantMemoryRegistryDurability | null;
   stability: AssistantMemoryRegistryStability | null;
+  /** ADR-119 Slice 9 — provenance of this memory entry. */
+  provenance: AssistantMemoryRegistryProvenance;
   confidence: number | null;
   embeddingVector: number[] | null;
   embeddingModelKey: string | null;

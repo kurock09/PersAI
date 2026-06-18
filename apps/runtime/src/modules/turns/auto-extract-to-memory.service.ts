@@ -160,6 +160,7 @@ export class AutoExtractToMemoryService {
           confidence: candidate.confidence,
           transportSurface,
           sourceTrust,
+          provenance: "auto_extracted",
           relatedUserMessageId: null,
           requestId: input.runtimeRequestId
         });

@@ -83,8 +83,8 @@ const EXPECTED_OUTER_TAGS: Record<string, string> = {
   identity: "identity",
   enabled_skills: "enabled_skills",
   reminders_protocol: "reminders_protocol",
+  memory_protocol: "memory_protocol",
   tools: "tool_usage_policy",
-  agents: "memory_protocol",
   heartbeat: "background_task_evaluation",
   presence: "persai_environment"
 };
@@ -188,8 +188,76 @@ async function runRemindersProtocolSlice5(): Promise<void> {
   );
 }
 
+async function runMemoryProtocolSlice9(): Promise<void> {
+  // ADR-119 Slice 9 — memory_protocol template must be present, non-empty,
+  // and carry balanced <memory_protocol>, <read>, <write> tags.
+  const mp = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.memory_protocol;
+  assert.ok(
+    mp !== undefined,
+    "memory_protocol template must exist in VISIBLE_PROMPT_TEMPLATE_DEFAULTS"
+  );
+  assert.ok((mp ?? "").length > 0, "memory_protocol template must be non-empty");
+  assert.equal(
+    countOccurrences(mp ?? "", "<memory_protocol>"),
+    1,
+    "memory_protocol template must open <memory_protocol> exactly once"
+  );
+  assert.equal(
+    countOccurrences(mp ?? "", "</memory_protocol>"),
+    1,
+    "memory_protocol template must close </memory_protocol> exactly once"
+  );
+  assert.equal(
+    countOccurrences(mp ?? "", "<read>"),
+    1,
+    "memory_protocol template must contain exactly one <read> block"
+  );
+  assert.equal(
+    countOccurrences(mp ?? "", "</read>"),
+    1,
+    "memory_protocol template must close </read> exactly once"
+  );
+  assert.equal(
+    countOccurrences(mp ?? "", "<write>"),
+    1,
+    "memory_protocol template must contain exactly one <write> block"
+  );
+  assert.equal(
+    countOccurrences(mp ?? "", "</write>"),
+    1,
+    "memory_protocol template must close </write> exactly once"
+  );
+
+  // The system template must contain the {{memory_protocol_block}} placeholder.
+  const system = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system ?? "";
+  assert.ok(
+    system.includes("{{memory_protocol_block}}"),
+    "system template must contain {{memory_protocol_block}} placeholder (ADR-119 Slice 9)"
+  );
+
+  // {{memory_protocol_block}} must appear between {{reminders_protocol_block}} and <response_contract>.
+  const remindersIdx = system.indexOf("{{reminders_protocol_block}}");
+  const memoryIdx = system.indexOf("{{memory_protocol_block}}");
+  const contractIdx = system.indexOf("<response_contract>");
+  assert.ok(remindersIdx !== -1 && memoryIdx !== -1 && contractIdx !== -1);
+  assert.ok(
+    memoryIdx > remindersIdx,
+    "{{memory_protocol_block}} must appear after {{reminders_protocol_block}}"
+  );
+  assert.ok(
+    memoryIdx < contractIdx,
+    "{{memory_protocol_block}} must appear before <response_contract>"
+  );
+
+  // agents template must no longer contain a <memory_protocol> inner block.
+  const agents = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.agents ?? "";
+  assert.ok(
+    !agents.includes("<memory_protocol>"),
+    "agents template must not duplicate <memory_protocol> (now a standalone template, ADR-119 Slice 9)"
+  );
+}
+
 async function runResponseContractSlice8(): Promise<void> {
-  // ADR-119 Slice 8 — response contract two-tier <must>/<prefer> restructure.
   const system = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system ?? "";
 
   // New test: system template contains <must> and <prefer> nested inside <response_contract>.
@@ -280,6 +348,7 @@ async function run(): Promise<void> {
   await runOuterTagPresence();
   await runSoulCharacterNotes();
   await runRemindersProtocolSlice5();
+  await runMemoryProtocolSlice9();
   await runResponseContractSlice8();
 }
 

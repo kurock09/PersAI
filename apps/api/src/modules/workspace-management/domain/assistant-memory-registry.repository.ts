@@ -3,6 +3,7 @@ import type {
   AssistantMemoryRegistryDurability,
   AssistantMemoryRegistryItem,
   AssistantMemoryRegistryKind,
+  AssistantMemoryRegistryProvenance,
   AssistantMemoryRegistryStability
 } from "./assistant-memory-registry-item.entity";
 
@@ -22,6 +23,8 @@ export type CreateAssistantMemoryRegistryItemInput = {
   kind: AssistantMemoryRegistryKind | null;
   durability: AssistantMemoryRegistryDurability | null;
   stability: AssistantMemoryRegistryStability | null;
+  /** ADR-119 Slice 9 — provenance of this memory entry. */
+  provenance: AssistantMemoryRegistryProvenance;
   confidence: number | null;
 };
 

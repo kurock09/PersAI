@@ -215,7 +215,8 @@ async function run(): Promise<void> {
     kind: "preference",
     durability: "identity",
     stability: "stable",
-    confidence: 0.91
+    confidence: 0.91,
+    provenance: "system_inferred"
   });
   assert.equal(happy.demoteCalls.length, 0);
   assert.equal(happy.auditCalls.length, 1);

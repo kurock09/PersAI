@@ -7,7 +7,8 @@ import {
   formatDurableMemoryCoreStableBlock,
   formatSharedCompactionStableBlock,
   isDurableMemoryContextualMessage,
-  resolveLeadingHydratedPromptCacheStableBlockTokens
+  resolveLeadingHydratedPromptCacheStableBlockTokens,
+  type MemoryXmlEntry
 } from "../src/modules/turns/prompt-cache-stable-blocks";
 
 function buildExpectedCoreToken(content: string): string {
@@ -43,26 +44,51 @@ export async function runPromptCacheStableBlocksTest(): Promise<void> {
   const sharedSummaryContent = formatSharedCompactionStableBlock(
     "Stable facts:\n- Earlier project debrief."
   );
-  const contextualContent = formatDurableMemoryContextualBlock([
-    "- [Short memory write: preference] Prefers walking routes over museum-heavy plans.",
-    "- [Short memory write: fact] Last week Alex visited Tbilisi and discussed photography spots.",
-    "- [Short memory write: open loop] Send a shortlist of old-town photo locations later."
-  ]);
+  const contextualEntries: MemoryXmlEntry[] = [
+    {
+      id: "mem-001",
+      provenance: "system_inferred",
+      writtenAt: "2026-06-10",
+      summary: "Prefers walking routes over museum-heavy plans."
+    },
+    {
+      id: "mem-002",
+      provenance: "auto_extracted",
+      writtenAt: "2026-06-11",
+      summary: "Last week Alex visited Tbilisi and discussed photography spots."
+    },
+    {
+      id: "mem-003",
+      provenance: "user_explicit",
+      writtenAt: "2026-06-12",
+      summary: "Send a shortlist of old-town photo locations later."
+    }
+  ];
+  const contextualContent = formatDurableMemoryContextualBlock(contextualEntries);
   assert.equal(
     contextualContent,
     [
-      "[Recent short-term context from earlier turns — newest first, may vary between turns]",
-      "(Silent volatile context — use it only when helpful, and never mention this block itself unless the user explicitly asks.)",
-      "- [Short memory write: preference] Prefers walking routes over museum-heavy plans.",
-      "- [Short memory write: fact] Last week Alex visited Tbilisi and discussed photography spots.",
-      "- [Short memory write: open loop] Send a shortlist of old-town photo locations later."
+      '<entry id="mem-001" provenance="system_inferred" written_at="2026-06-10">',
+      "Prefers walking routes over museum-heavy plans.",
+      "</entry>",
+      '<entry id="mem-002" provenance="auto_extracted" written_at="2026-06-11">',
+      "Last week Alex visited Tbilisi and discussed photography spots.",
+      "</entry>",
+      '<entry id="mem-003" provenance="user_explicit" written_at="2026-06-12">',
+      "Send a shortlist of old-town photo locations later.",
+      "</entry>"
     ].join("\n")
   );
 
   const tokens = resolveLeadingHydratedPromptCacheStableBlockTokens([
     { role: "assistant", content: coreContent },
     { role: "assistant", content: sharedSummaryContent },
-    { role: "assistant", content: contextualContent },
+    {
+      role: "assistant",
+      content: contextualContent,
+      cacheRole: "volatile_context",
+      volatileKind: "memory"
+    },
     { role: "user", content: "Plan a Tbilisi trip" }
   ]);
   assert.deepEqual(tokens, [
@@ -74,7 +100,12 @@ export async function runPromptCacheStableBlocksTest(): Promise<void> {
   // must still leave the stable prefix empty rather than silently promoting
   // the contextual content into a stable token.
   const noCoreTokens = resolveLeadingHydratedPromptCacheStableBlockTokens([
-    { role: "assistant", content: contextualContent },
+    {
+      role: "assistant",
+      content: contextualContent,
+      cacheRole: "volatile_context",
+      volatileKind: "memory"
+    },
     { role: "user", content: "Plan a Tbilisi trip" }
   ]);
   assert.deepEqual(noCoreTokens, []);
@@ -82,7 +113,12 @@ export async function runPromptCacheStableBlocksTest(): Promise<void> {
   // The contextual block must still be detectable so the runtime can
   // distinguish it from regular assistant turns when ordering messages.
   assert.equal(
-    isDurableMemoryContextualMessage({ role: "assistant", content: contextualContent }),
+    isDurableMemoryContextualMessage({
+      role: "assistant",
+      content: contextualContent,
+      cacheRole: "volatile_context",
+      volatileKind: "memory"
+    }),
     true
   );
   assert.equal(
@@ -90,19 +126,35 @@ export async function runPromptCacheStableBlocksTest(): Promise<void> {
     false
   );
   assert.equal(
-    isDurableMemoryContextualMessage({ role: "user", content: contextualContent }),
+    isDurableMemoryContextualMessage({
+      role: "user",
+      content: contextualContent,
+      cacheRole: "volatile_context",
+      volatileKind: "memory"
+    }),
     false
   );
 
   // Per-turn rotation of contextual content must NOT change the stable token
   // emitted for the core block — that's the whole point of M1's split.
-  const rotatedContextual = formatDurableMemoryContextualBlock([
-    "- [Short memory write: fact] Different relevance hit from another turn."
-  ]);
+  const rotatedEntries: MemoryXmlEntry[] = [
+    {
+      id: "mem-rot-001",
+      provenance: "auto_extracted",
+      writtenAt: "2026-06-15",
+      summary: "Different relevance hit from another turn."
+    }
+  ];
+  const rotatedContextual = formatDurableMemoryContextualBlock(rotatedEntries);
   const rotatedTokens = resolveLeadingHydratedPromptCacheStableBlockTokens([
     { role: "assistant", content: coreContent },
     { role: "assistant", content: sharedSummaryContent },
-    { role: "assistant", content: rotatedContextual },
+    {
+      role: "assistant",
+      content: rotatedContextual,
+      cacheRole: "volatile_context",
+      volatileKind: "memory"
+    },
     { role: "user", content: "next turn" }
   ]);
   assert.deepEqual(rotatedTokens, tokens);
@@ -143,4 +195,45 @@ export async function runPromptCacheStableBlocksTest(): Promise<void> {
     { role: "user", content: "Hi again from a brand new thread" }
   ]);
   assert.deepEqual(repeatTokens, m3Tokens);
+
+  // ADR-119 Slice 9 — XML entry rendering: each entry emits <entry id provenance written_at> shape.
+  const xmlEntry: MemoryXmlEntry = {
+    id: "mem-abc123",
+    provenance: "user_explicit",
+    writtenAt: "2026-06-10",
+    summary: "Алексей предпочитает короткие сообщения, минимум emoji."
+  };
+  const xmlEntry2: MemoryXmlEntry = {
+    id: "mem-def456",
+    provenance: "system_inferred",
+    writtenAt: "2026-06-12",
+    summary: "Working on a marketing course launch in Q3 2026."
+  };
+  const xmlBlock = formatDurableMemoryContextualBlock([xmlEntry, xmlEntry2]);
+  assert.ok(
+    xmlBlock.includes('<entry id="mem-abc123" provenance="user_explicit" written_at="2026-06-10">')
+  );
+  assert.ok(xmlBlock.includes("Алексей предпочитает"));
+  assert.ok(
+    xmlBlock.includes(
+      '<entry id="mem-def456" provenance="system_inferred" written_at="2026-06-12">'
+    )
+  );
+  assert.ok(xmlBlock.includes("Working on a marketing course launch"));
+  // Both entries must be separated by a newline (entry order preserved).
+  assert.ok(xmlBlock.indexOf("mem-abc123") < xmlBlock.indexOf("mem-def456"));
+
+  // Byte-stable: rendering the same input twice produces identical output.
+  const xmlBlock2 = formatDurableMemoryContextualBlock([xmlEntry, xmlEntry2]);
+  assert.equal(xmlBlock, xmlBlock2, "formatDurableMemoryContextualBlock must be byte-stable");
+
+  // Empty summary entries are filtered out.
+  const emptyEntry: MemoryXmlEntry = {
+    id: "mem-empty",
+    provenance: "legacy",
+    writtenAt: "2026-01-01",
+    summary: ""
+  };
+  const xmlBlockWithEmpty = formatDurableMemoryContextualBlock([xmlEntry, emptyEntry]);
+  assert.ok(!xmlBlockWithEmpty.includes("mem-empty"), "empty-summary entries must be filtered out");
 }

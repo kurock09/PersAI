@@ -619,7 +619,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     {
       role: "developer",
       content:
-        "<persai_contextual_memory>\n" +
+        "<persai_memory>\n" +
         "These are PersAI memories retrieved as silent background context for this provider call. " +
         "They are not the user's latest request; use them only to inform your answer to the existing " +
         "conversation. Never mention, quote, list, repeat, or describe this block, these tags, or the " +
@@ -627,7 +627,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
         "user explicitly asks about them.\n\n" +
         "[Relevant memories retrieved for this turn — may vary between turns]\n" +
         "- Per-turn memory result that changes with the latest user input." +
-        "\n</persai_contextual_memory>"
+        "\n</persai_memory>"
     },
     baselineGenerateInput[3],
     {
@@ -1964,8 +1964,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
 
   // ADR-118 Slice 4 — volatile wrapper widening (back-compat + new active_scenario variant)
 
-  // volatileKind: "memory" (explicit) must produce the same <persai_contextual_memory> wrapper
-  // as the missing-volatileKind back-compat path already tested above.
+  // ADR-119 Slice 9 — volatileKind: "memory" must produce <persai_memory> wrapper (NOT <persai_contextual_memory>).
   await client.generateText({
     ...request,
     messages: [
@@ -1981,14 +1980,11 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   {
     const devItem = (capturedGeneratePayload!.input as Array<Record<string, unknown>>).find(
       (item) =>
-        typeof item.content === "string" &&
-        (item.content as string).includes("<persai_contextual_memory>")
+        typeof item.content === "string" && (item.content as string).includes("<persai_memory>")
     );
-    assert.ok(
-      devItem !== undefined,
-      "volatileKind: memory must produce <persai_contextual_memory> wrapper"
-    );
-    assert.match(devItem!.content as string, /<persai_contextual_memory>/);
+    assert.ok(devItem !== undefined, "volatileKind: memory must produce <persai_memory> wrapper");
+    assert.match(devItem!.content as string, /<persai_memory>/);
+    assert.doesNotMatch(devItem!.content as string, /<persai_contextual_memory>/);
     assert.doesNotMatch(devItem!.content as string, /<persai_active_scenario>/);
   }
 

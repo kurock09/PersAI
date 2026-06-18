@@ -6,7 +6,8 @@ import {
 import { MEMORY_CORE_HARD_CAP } from "../domain/memory-class-policy";
 import type {
   AssistantMemoryRegistryClass,
-  AssistantMemoryRegistryKind
+  AssistantMemoryRegistryKind,
+  AssistantMemoryRegistryProvenance
 } from "../domain/assistant-memory-registry-item.entity";
 import { isObviouslyNonDurableMemorySummary, normalizeMemoryText } from "./memory-summary.util";
 
@@ -38,6 +39,8 @@ export type HydratedDurableMemoryItem = {
   sourceLabel: string | null;
   memoryClass: AssistantMemoryRegistryClass;
   kind: AssistantMemoryRegistryKind | null;
+  /** ADR-119 Slice 9 — provenance for use in <persai_memory> XML rendering. */
+  provenance: AssistantMemoryRegistryProvenance;
   createdAt: string;
   score: number | null;
 };
@@ -107,6 +110,7 @@ export class HydrateMemoryForTurnService {
       sourceLabel: row.sourceLabel,
       memoryClass: row.memoryClass,
       kind: row.kind,
+      provenance: row.provenance,
       createdAt: row.createdAt.toISOString(),
       score: null
     }));
@@ -135,6 +139,7 @@ export class HydrateMemoryForTurnService {
         sourceLabel: row.sourceLabel,
         memoryClass: row.memoryClass,
         kind: row.kind,
+        provenance: row.provenance,
         createdAt: row.createdAt.toISOString(),
         score: null
       }))

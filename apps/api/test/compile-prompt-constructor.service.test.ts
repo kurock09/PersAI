@@ -684,6 +684,76 @@ async function runResponseContractSlice8(): Promise<void> {
   );
 }
 
+async function runMemoryProtocolSlice9(): Promise<void> {
+  const service = new CompilePromptConstructorService();
+
+  // New test: compiled system prompt contains <memory_protocol> with <read> and <write> when default template used.
+  {
+    const compiled = service.compile({
+      ...baseInput(),
+      promptTemplates: { ...PROMPT_TEMPLATE_DEFAULTS }
+    });
+    const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
+    assert.match(
+      systemPrompt,
+      /<memory_protocol>/,
+      "default template compile: system prompt must contain <memory_protocol>"
+    );
+    assert.match(systemPrompt, /<\/memory_protocol>/);
+    assert.match(systemPrompt, /<read>/);
+    assert.match(systemPrompt, /<\/read>/);
+    assert.match(systemPrompt, /<write>/);
+    assert.match(systemPrompt, /<\/write>/);
+    assert.match(systemPrompt, /persai_memory/);
+  }
+
+  // New test: when promptTemplates.memory_protocol = null, the fallback default is used.
+  {
+    const compiled = service.compile({
+      ...baseInput(),
+      promptTemplates: {
+        ...PROMPT_TEMPLATE_DEFAULTS,
+        memory_protocol: null
+      }
+    });
+    const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
+    assert.match(
+      systemPrompt,
+      /<memory_protocol>/,
+      "null memory_protocol falls back to default: <memory_protocol> must appear"
+    );
+    assert.match(systemPrompt, /same turn you learn it/);
+  }
+
+  // New test: when a custom memory_protocol template is provided, it is used verbatim.
+  {
+    const compiled = service.compile({
+      ...baseInput(),
+      promptTemplates: {
+        ...PROMPT_TEMPLATE_DEFAULTS,
+        memory_protocol:
+          "<memory_protocol><read>Custom read.</read><write>Custom write.</write></memory_protocol>"
+      }
+    });
+    const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
+    assert.match(systemPrompt, /Custom read/);
+    assert.doesNotMatch(systemPrompt, /same turn you learn it/);
+  }
+
+  // New test: memoryProtocol appears in ordinarySections.
+  {
+    const compiled = service.compile({
+      ...baseInput(),
+      promptTemplates: { ...PROMPT_TEMPLATE_DEFAULTS }
+    });
+    const sections = compiled.promptConstructor.ordinary.sections;
+    assert.ok(
+      typeof sections.memoryProtocol === "string" && sections.memoryProtocol.length > 0,
+      "memoryProtocol section must be non-empty in ordinarySections"
+    );
+  }
+}
+
 async function run(): Promise<void> {
   await runTemplatedCompile();
   await runCachedPrefixInvariant();
@@ -692,6 +762,7 @@ async function run(): Promise<void> {
   await runDefaultPromptTemplateCompile();
   await runXmlCanonicalFixtures();
   await runRemindersProtocolSlice5();
+  await runMemoryProtocolSlice9();
   await runResponseContractSlice8();
 }
 

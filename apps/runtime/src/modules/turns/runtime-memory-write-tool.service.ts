@@ -218,6 +218,7 @@ export class RuntimeMemoryWriteToolService {
         confidence: request.confidence,
         transportSurface,
         sourceTrust: params.conversation.mode === "direct" ? "trusted_1to1" : "group",
+        provenance: "system_inferred",
         relatedUserMessageId,
         requestId: params.requestId
       });

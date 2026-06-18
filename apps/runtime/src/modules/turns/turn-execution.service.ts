@@ -949,15 +949,31 @@ export class TurnExecutionService {
       if (!isDurableMemoryContextualMessage(message) || typeof message.content !== "string") {
         continue;
       }
-      for (const line of message.content.split("\n")) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("- ")) {
-          continue;
-        }
-        const summary = trimmed.replace(/^- \[[^\]]+\]\s*/, "").trim();
+      const content = message.content;
+      // ADR-119 Slice 9 — new XML format: extract text content from <entry> elements.
+      const entryPattern = /<entry[^>]*>\n?([\s\S]*?)\n?<\/entry>/g;
+      let match: RegExpExecArray | null;
+      let xmlMatched = false;
+      while ((match = entryPattern.exec(content)) !== null) {
+        xmlMatched = true;
+        const summary = match[1]?.trim() ?? "";
         const normalized = this.normalizeRetrievedKnowledgeSummary(summary);
         if (normalized.length > 0) {
           summaries.add(normalized);
+        }
+      }
+      if (!xmlMatched) {
+        // Back-compat: parse legacy "- [label] summary" lines.
+        for (const line of content.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("- ")) {
+            continue;
+          }
+          const summary = trimmed.replace(/^- \[[^\]]+\]\s*/, "").trim();
+          const normalized = this.normalizeRetrievedKnowledgeSummary(summary);
+          if (normalized.length > 0) {
+            summaries.add(normalized);
+          }
         }
       }
     }

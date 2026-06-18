@@ -1738,10 +1738,17 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
     /tools:\s*`<tool_usage_policy>\nUse only the machine-readable tools/,
     `Selection guide presence: ${bootstrapPath} must seed the tool usage policy in the tools block (XML priority-ordered)`
   );
+  // ADR-119 Slice 9: <memory_protocol> block moved to the dedicated `memory_protocol`
+  // template; the `agents` selection-guide seat is now empty.
+  assert.doesNotMatch(
+    bootstrapSource,
+    /agents:\s*`<memory_protocol>/,
+    `Selection guide presence: ${bootstrapPath} agents block must NOT contain inline <memory_protocol> (moved to dedicated template)`
+  );
   assert.match(
     bootstrapSource,
-    /agents:\s*`<memory_protocol>\n# Memory Policy/,
-    `Selection guide presence: ${bootstrapPath} must keep the agents block reduced to Memory Policy (XML-wrapped)`
+    /memory_protocol:\s*`<memory_protocol>/,
+    `Selection guide presence: ${bootstrapPath} must have a dedicated memory_protocol template with <memory_protocol> block`
   );
   // (a) Tasks Policy must NOT be reintroduced.
   assert.doesNotMatch(

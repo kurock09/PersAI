@@ -144,6 +144,13 @@ enum AssistantMemoryRegistryDurability {
   episodic
 }
 
+enum AssistantMemoryProvenance {
+  user_explicit
+  system_inferred
+  auto_extracted
+  legacy
+}
+
 enum AssistantMemoryRegistryStability {
   stable
   time_bound
@@ -2495,6 +2502,7 @@ model AssistantMemoryRegistryItem {
   kind                      AssistantMemoryRegistryKind?       @map("kind")
   durability                AssistantMemoryRegistryDurability? @map("durability")
   stability                 AssistantMemoryRegistryStability?  @map("stability")
+  provenance                AssistantMemoryProvenance          @default(legacy) @map("provenance")
   confidence                Float?                             @map("confidence")
   embeddingVector           Json?                              @map("embedding_vector") @db.JsonB
   embeddingModelKey         String?                            @map("embedding_model_key") @db.VarChar(255)

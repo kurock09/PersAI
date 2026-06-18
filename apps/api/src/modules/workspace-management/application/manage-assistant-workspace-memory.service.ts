@@ -92,7 +92,8 @@ export class ManageAssistantWorkspaceMemoryService {
       kind: "fact",
       durability: "identity",
       stability: "stable",
-      confidence: null
+      confidence: null,
+      provenance: "user_explicit"
     });
     return this.toWorkspaceMemoryItem(created);
   }

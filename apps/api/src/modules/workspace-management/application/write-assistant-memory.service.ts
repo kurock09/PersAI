@@ -28,6 +28,7 @@ import {
 } from "../domain/memory-source-policy";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { isObviouslyNonDurableMemorySummary } from "./memory-summary.util";
+import type { AssistantMemoryRegistryProvenance } from "../domain/assistant-memory-registry-item.entity";
 
 export interface WriteAssistantMemoryInput {
   assistantId: string;
@@ -37,6 +38,8 @@ export interface WriteAssistantMemoryInput {
   confidence: number | null;
   transportSurface: MemoryTransportSurface;
   sourceTrust: MemorySourceTrustClass;
+  /** ADR-119 Slice 9 — provenance of this write. */
+  provenance: AssistantMemoryRegistryProvenance;
   relatedUserMessageId: string | null;
   requestId: string | null;
 }
@@ -76,6 +79,7 @@ export class WriteAssistantMemoryService {
     const confidence = this.asOptionalConfidence(row.confidence);
     const transportSurface = this.asTransportSurface(row.transportSurface);
     const sourceTrust = this.asSourceTrust(row.sourceTrust);
+    const provenance = this.asProvenance(row.provenance);
     const relatedUserMessageId = this.asNullableString(row.relatedUserMessageId);
     const requestId = this.asNullableString(row.requestId);
 
@@ -88,6 +92,7 @@ export class WriteAssistantMemoryService {
         key !== "confidence" &&
         key !== "transportSurface" &&
         key !== "sourceTrust" &&
+        key !== "provenance" &&
         key !== "relatedUserMessageId" &&
         key !== "requestId"
     );
@@ -100,6 +105,7 @@ export class WriteAssistantMemoryService {
       layer === null ||
       confidence === undefined ||
       transportSurface === null ||
+      provenance === null ||
       sourceTrust === null
     ) {
       throw new BadRequestException("Memory write payload is invalid.");
@@ -113,6 +119,7 @@ export class WriteAssistantMemoryService {
       confidence,
       transportSurface,
       sourceTrust,
+      provenance,
       relatedUserMessageId,
       requestId
     };
@@ -282,6 +289,7 @@ export class WriteAssistantMemoryService {
       kind: input.kind,
       durability: route.durability,
       stability: route.stability,
+      provenance: input.provenance,
       confidence: input.confidence
     });
 
@@ -362,6 +370,21 @@ export class WriteAssistantMemoryService {
 
   private asSourceTrust(value: unknown): MemorySourceTrustClass | null {
     return value === "trusted_1to1" || value === "group" ? value : null;
+  }
+
+  private asProvenance(value: unknown): AssistantMemoryRegistryProvenance | null {
+    // Default to system_inferred when provenance is not supplied — callers that
+    // cannot distinguish user_explicit from system_inferred omit the field.
+    if (value === undefined || value === null) return "system_inferred";
+    if (
+      value === "user_explicit" ||
+      value === "system_inferred" ||
+      value === "auto_extracted" ||
+      value === "legacy"
+    ) {
+      return value;
+    }
+    return null;
   }
 
   private asNonEmptyString(value: unknown): string | null {

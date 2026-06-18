@@ -30,7 +30,8 @@ import {
   formatCrossSessionCarryOverStableBlock,
   formatDurableMemoryContextualBlock,
   formatDurableMemoryCoreStableBlock,
-  formatSharedCompactionStableBlock
+  formatSharedCompactionStableBlock,
+  type MemoryXmlEntry
 } from "./prompt-cache-stable-blocks";
 import { renderCrossSessionCarryOverBlock } from "./cross-session-carry-over-renderer";
 import { renderPresenceBlock } from "./presence-renderer";
@@ -1394,16 +1395,19 @@ export class TurnContextHydrationService {
     if (budget.itemBudget <= 0 || budget.charBudget <= 0) {
       return null;
     }
-    const lines = this.takeMemoryLines(
+    const entries = this.takeMemoryXmlEntries(
       items.filter((item) => item.kind !== "open_loop"),
       budget
     );
-    if (lines.length === 0) {
+    if (entries.length === 0) {
       return null;
     }
     return {
       role: "assistant",
-      content: formatDurableMemoryContextualBlock(lines),
+      content: formatDurableMemoryContextualBlock(entries),
+      // ADR-119 Slice 9: explicit volatileKind so provider clients and detection
+      // helpers can identify this block without header-string matching.
+      volatileKind: "memory",
       // ADR-110: per-turn recent short memory is volatile and must never sit inside the
       // cached prompt prefix. The typed flag lets each provider client reposition it next to the
       // latest user message without relying on fragile string matching of the block header.
@@ -1440,6 +1444,36 @@ export class TurnContextHydrationService {
       lines.push(sourceNote);
     }
     return lines;
+  }
+
+  /**
+   * ADR-119 Slice 9 — produces XML entry objects for the new `<persai_memory>` volatile block.
+   * Items arrive ordered by the caller (newest first). Budget is enforced the same way as
+   * `takeMemoryLines`; each entry's cost is estimated as the rendered XML entry byte length.
+   */
+  private takeMemoryXmlEntries(
+    items: InternalHydratedDurableMemoryItem[],
+    budget: { itemBudget: number; charBudget: number; currentChatId: string | null }
+  ): MemoryXmlEntry[] {
+    const entries: MemoryXmlEntry[] = [];
+    let totalChars = 0;
+    for (const item of items) {
+      const summary = item.summary.trim();
+      if (summary.length === 0) {
+        continue;
+      }
+      const writtenAt = item.createdAt.slice(0, 10);
+      const entryText = `<entry id="${item.id}" provenance="${item.provenance}" written_at="${writtenAt}">\n${summary}\n</entry>`;
+      if (
+        entries.length >= budget.itemBudget ||
+        totalChars + entryText.length > budget.charBudget
+      ) {
+        break;
+      }
+      entries.push({ id: item.id, provenance: item.provenance, writtenAt, summary });
+      totalChars += entryText.length;
+    }
+    return entries;
   }
 
   private resolveMemorySourceMarker(

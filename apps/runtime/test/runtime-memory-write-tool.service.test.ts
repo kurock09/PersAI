@@ -332,7 +332,8 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     transportSurface: "web",
     sourceTrust: "trusted_1to1",
     relatedUserMessageId: null,
-    requestId: "request-1"
+    requestId: "request-1",
+    provenance: "system_inferred"
   });
 
   const invalid = await service.executeToolCall({

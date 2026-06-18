@@ -269,6 +269,8 @@ export type InternalMemoryWriteInput = {
   confidence: number | null;
   transportSurface: "web" | "telegram";
   sourceTrust: "trusted_1to1" | "group";
+  /** ADR-119 Slice 9 — provenance of this write. */
+  provenance: "user_explicit" | "system_inferred" | "auto_extracted" | "legacy";
   relatedUserMessageId: string | null;
   requestId: string | null;
 };
@@ -288,6 +290,8 @@ export type InternalHydratedDurableMemoryItem = {
   sourceLabel: string | null;
   memoryClass: "core" | "contextual";
   kind: "fact" | "preference" | "open_loop" | null;
+  /** ADR-119 Slice 9 — provenance for use in <persai_memory> XML rendering. */
+  provenance: "user_explicit" | "system_inferred" | "auto_extracted" | "legacy";
   createdAt: string;
   score: number | null;
 };
@@ -1979,6 +1983,10 @@ export class PersaiInternalApiClientService {
         row.kind === "fact" ||
         row.kind === "preference" ||
         row.kind === "open_loop") &&
+      (row.provenance === "user_explicit" ||
+        row.provenance === "system_inferred" ||
+        row.provenance === "auto_extracted" ||
+        row.provenance === "legacy") &&
       typeof row.createdAt === "string" &&
       (row.score === null || typeof row.score === "number")
     );

@@ -30,8 +30,6 @@ const DURABLE_MEMORY_CORE_GROUNDING_NOTE =
   "(Silent background context — use it to inform your answers, but never mention, quote, list, or describe these memories or this block to the user unless they explicitly ask.)";
 const DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER =
   "[Recent short-term context from earlier turns — newest first, may vary between turns]";
-const DURABLE_MEMORY_CONTEXTUAL_GROUNDING_NOTE =
-  "(Silent volatile context — use it only when helpful, and never mention this block itself unless the user explicitly asks.)";
 const ROLLING_SESSION_SYNOPSIS_PREFIX_HEADER =
   "[Rolling session synopsis — what we have established so far in this conversation]";
 const CROSS_SESSION_CARRY_OVER_PREFIX_HEADER =
@@ -71,9 +69,36 @@ export function formatDurableMemoryCoreStableBlock(lines: string[]): string {
   return `${DURABLE_MEMORY_CORE_PREFIX_HEADER}\n${DURABLE_MEMORY_CORE_GROUNDING_NOTE}\n${lines.join("\n")}`;
 }
 
-export function formatDurableMemoryContextualBlock(lines: string[]): string {
-  const renderedLines = lines.filter((line) => line.trim().length > 0);
-  return `${DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER}\n${DURABLE_MEMORY_CONTEXTUAL_GROUNDING_NOTE}\n${renderedLines.join("\n")}`;
+/** ADR-119 Slice 9 — typed entry for the new <persai_memory> XML rendering. */
+export type MemoryXmlEntry = {
+  id: string;
+  provenance: "user_explicit" | "system_inferred" | "auto_extracted" | "legacy";
+  writtenAt: string;
+  summary: string;
+};
+
+/**
+ * ADR-119 Slice 9 — renders the inner content for the volatile `<persai_memory>` block.
+ * Each entry is emitted as `<entry id="..." provenance="..." written_at="...">summary</entry>`.
+ * The outer `<persai_memory>` wrapper is added by the provider clients.
+ * Byte-stable: same input → same output; entries are rendered in input order (caller controls order).
+ */
+export function formatDurableMemoryContextualBlock(entries: MemoryXmlEntry[]): string {
+  return entries
+    .filter((entry) => entry.summary.trim().length > 0)
+    .map(
+      (entry) =>
+        `<entry id="${xmlAttr(entry.id)}" provenance="${xmlAttr(entry.provenance)}" written_at="${xmlAttr(entry.writtenAt)}">\n${entry.summary.trim()}\n</entry>`
+    )
+    .join("\n");
+}
+
+function xmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export function formatSharedCompactionStableBlock(summaryText: string): string {
@@ -85,6 +110,16 @@ export function formatCrossSessionCarryOverStableBlock(bodyText: string): string
 }
 
 export function isDurableMemoryContextualMessage(message: ProviderGatewayTextMessage): boolean {
+  // ADR-119 Slice 9 — prefer the explicit volatileKind discriminant (new format).
+  // Only assistant messages carry contextual memory blocks.
+  if (
+    message.role === "assistant" &&
+    message.cacheRole === "volatile_context" &&
+    message.volatileKind === "memory"
+  ) {
+    return true;
+  }
+  // Back-compat: old-format messages carry the legacy header prefix.
   if (message.role !== "assistant" || typeof message.content !== "string") {
     return false;
   }
@@ -131,6 +166,11 @@ function resolveHydratedPromptCacheStableBlockToken(
 }
 
 function isHydratedNonStableHeaderMessage(message: ProviderGatewayTextMessage): boolean {
+  // ADR-119 Slice 9 — new format: detect via volatileKind discriminant.
+  if (message.cacheRole === "volatile_context" && message.volatileKind === "memory") {
+    return true;
+  }
+  // Back-compat: old-format messages use the legacy header.
   if (message.role !== "assistant" || typeof message.content !== "string") {
     return false;
   }

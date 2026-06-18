@@ -3,6 +3,58 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — ADR-119 Slice 9 landed (memory protocol + provenance)
+
+### Root cause
+
+The volatile memory rail lacked a formal protocol declaration in the cache prefix, memory entries carried no provenance, and the inner rendering used legacy markdown-list / old wrapper tags (`<recent_short_memory>`, `<persai_contextual_memory>`) rather than the canonical `<persai_memory>` / `<entry>` XML from ADR D10.
+
+### Fix scope
+
+- `apps/api/prisma/schema.prisma`: `AssistantMemoryProvenance` enum + `provenance` column on `AssistantMemoryRegistryItem` (DEFAULT `legacy`).
+- `apps/api/prisma/migrations/20260618153000_adr119_memory_provenance/migration.sql`: additive migration; existing rows backfill to `legacy`.
+- `apps/api/src/modules/workspace-management/domain/assistant-memory-registry-item.entity.ts`: `provenance` field.
+- `apps/api/src/modules/workspace-management/domain/assistant-memory-registry.repository.ts`: `provenance` in `CreateAssistantMemoryRegistryItemInput`.
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-memory-registry.repository.ts`: create + mapToDomain carry provenance.
+- `apps/api/src/modules/workspace-management/application/write-assistant-memory.service.ts`: `provenance` in `WriteAssistantMemoryInput`; `parseInput` defaults to `system_inferred` when absent; `asProvenance` updated.
+- `apps/api/src/modules/workspace-management/application/manage-assistant-workspace-memory.service.ts`: `user_explicit` provenance on workspace-memory writes.
+- `apps/api/src/modules/workspace-management/application/hydrate-memory-for-turn.service.ts`: `provenance` in `HydratedDurableMemoryItem`.
+- `apps/api/prisma/bootstrap-preset-data.ts`: new `memory_protocol` template; `{{memory_protocol_block}}` in `system` template; `agents` template emptied.
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts`: `generateMemoryProtocolPrompt` + `memory_protocol_block` substitution.
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`: `provenance` in `InternalMemoryWriteInput` + `InternalHydratedDurableMemoryItem`.
+- `apps/runtime/src/modules/turns/auto-extract-to-memory.service.ts`: `provenance: "auto_extracted"`.
+- `apps/runtime/src/modules/turns/runtime-memory-write-tool.service.ts`: `provenance: "system_inferred"`.
+- `apps/runtime/src/modules/turns/prompt-cache-stable-blocks.ts`: `MemoryXmlEntry` type; `formatDurableMemoryContextualBlock` accepts `MemoryXmlEntry[]`, emits XML; `isDurableMemoryContextualMessage` requires `role === "assistant"` guard.
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`: `buildContextualMemoryMessage` uses `takeMemoryXmlEntries` + `volatileKind: "memory"`.
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`: `extractRenderedShortMemorySummaries` dual-parses XML and legacy markdown.
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`: wrapper tag `<persai_memory>`.
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`: wrapper tag `<persai_memory>`.
+- `packages/runtime-bundle/src/index.ts`: `memoryProtocol?` in `AssistantRuntimeCompiledOrdinaryPromptSections`.
+- `packages/runtime-contract/src/index.ts`: JSDoc updated for `volatileKind`.
+
+### Tests
+
+- `apps/api/test/bootstrap-preset-data.test.ts`: `memory_protocol` template XML balance; `system` template contains `{{memory_protocol_block}}`; `agents` template does not contain inline `<memory_protocol>` block.
+- `apps/api/test/compile-prompt-constructor.service.test.ts`: compiled system prompt includes `<memory_protocol>` with `<read>` and `<write>`.
+- `apps/api/test/write-assistant-memory.service.test.ts`: `deepEqual` fixture updated to include `provenance: "system_inferred"`.
+- `apps/runtime/test/prompt-cache-stable-blocks.test.ts`: XML entry rendering, byte-stability, `isDurableMemoryContextualMessage` with role guard.
+- `apps/runtime/test/turn-context-hydration.service.test.ts`: contextual memory assertions updated to new XML format; all fixtures carry `provenance: "legacy"`.
+- `apps/runtime/test/runtime-memory-write-tool.service.test.ts`: `deepEqual` fixture updated with `provenance: "system_inferred"`.
+- `apps/runtime/test/turn-execution.service.test.ts`: `deepEqual` fixture updated with `provenance: "system_inferred"`.
+- `apps/runtime/test/native-tool-projection.test.ts`: updated ADR-117 golden test — `agents` block no longer contains `<memory_protocol>`; new assertion verifies dedicated `memory_protocol` template is present.
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`: `<persai_memory>` wrapper assertions; `<recent_short_memory>` no longer fires.
+- `apps/provider-gateway/test/openai-provider.client.test.ts`: `<persai_memory>` wrapper assertions; `<persai_contextual_memory>` no longer fires.
+
+### Risk
+
+**Medium — migration gate.** `20260618153000_adr119_memory_provenance` is an additive column with DEFAULT, so production rollback is safe (drop column). Per AGENTS.md, Prisma migration changes cause Dev Image Publish to pause on the `persai-dev-migrations` GitHub Environment and wait for manual approval. This is expected — user must approve in GitHub after push. One-time prompt-cache prefix invalidation deliberate (batched with Slice 8).
+
+### Next recommended step
+
+Slice 10 — admin UI for new scenario fields (`expectedUserResponse`, `nextStepTrigger`, `recoveryGuidance`) exposed in the skill scenario editor.
+
+---
+
 ## 2026-06-18 — ADR-119 Slice 8 landed (response contract `<must>`/`<prefer>` restructure)
 
 ### Root cause
@@ -512,6 +564,7 @@ Server-side caller validation that was previously paired with the schema cap is 
 ### Tests
 
 `apps/provider-gateway/test/anthropic-provider.client.test.ts`:
+
 - Restubbed `installFakeAnthropic` to expose both `client.messages.stream(...).finalMessage()` (new non-streaming path) and `client.messages.create(...)` (still used by `streamText` via the `stream: true` payload branch); `create` now throws if called without `stream: true` to guard against regressions.
 - New test: `generateText` with `maxOutputTokens: 32_000` succeeds — was throwing before this fix.
 - New test: structured request with `outputSchema.schema.properties.items = { type: "array", maxItems: 5, minItems: 1, items: { type: "string" } }` → sent payload's `output_config.format.schema.properties.items.maxItems` and `.minItems` are `undefined`; deep `items.items.type === "string"` preserved; the **original** schema object still has `maxItems: 5` and `minItems: 1` after the call (no mutation).
@@ -567,12 +620,14 @@ Low. The streaming-internal path is the SDK-documented long-form pattern (the er
 Model successfully called `skill({action:"engage", skillId:"131c1531-...", scenarioKey:"instagram_carousel"})` (verified via Function Call in the user UI) and the tool returned `{action:"engaged", ...}`. But on the NEXT turn no `<persai_active_scenario>` developer block appeared. DB inspection (`assistant_chats.skill_decision_state` for the most recent chat) showed `{status:"inactive", activeSkillId:null, activeScenarioKey:null}` — i.e. the tool's persisted ACTIVE state was overwritten with INACTIVE between tool execution and the next turn.
 
 Two writers on the same JSONB column inside one turn:
+
 - **Writer 1 (correct, ADR-118 owner):** `RuntimeSkillToolService.executeEngageWithScenario` → POST `/api/v1/internal/runtime/skill/state` → `InternalRuntimeSkillStateService.apply` → `AutoSkillRoutingStateService.persistFromTurnRouting({turnRouting:{skillState:active}})` → DB becomes ACTIVE.
 - **Writer 2 (stale echo, the bug):** turn-end pipeline → `complete-web-post-runtime-turn.persistWebTurnSkillStateAndQueueBackgroundCheck` → `AutoSkillRoutingStateService.persistFromTurnRouting({turnRouting: runtimeResponse.turnRouting})`. Post-Slice-6 `TurnRoutingService` always echoes back `request.skillStateContext.decision` as `routeDecision.skillState` (every code path: `skillState: currentSkillDecision` — line 565, 615, 653, 677, 694, 725, 746, 762). That echo is the snapshot from turn START (before the tool ran), i.e. INACTIVE. Writer 2 fires AFTER writer 1, overwriting ACTIVE → INACTIVE.
 
 ### Fix
 
 Split the write surface into two methods with explicit, non-overlapping roles in `auto-skill-routing-state.service.ts`:
+
 - `persistFromTurnRouting({chatId, turnRouting})` is now **strictly read-only** and returns `readChatSkillState(chatId)` (the freshest DB value, which the tool may have just written). It exists only to feed `engagementSummary` derivation in the post-turn flow.
 - New `persistDecisionState({chatId, nextState})` is the **single authoritative writer**. It does the row write + `skillRetrievalStateService.clearForChatWhenSkillMismatches` in one logical step.
 
@@ -581,6 +636,7 @@ Split the write surface into two methods with explicit, non-overlapping roles in
 ### Test changes
 
 `apps/api/test/auto-skill-routing-state.service.test.ts` rewritten to lock in the new invariants:
+
 - `persistFromTurnRouting` produces ZERO writes even when `turnRouting.skillState` disagrees with the DB (was: would have written the stale echo).
 - `persistFromTurnRouting` returns the current DB state regardless of what `turnRouting.skillState` says.
 - `persistDecisionState` writes the new state AND calls `clearForChatWhenSkillMismatches` with the correct `activeSkillId` (the new active one on engage, `null` on release).
@@ -591,6 +647,7 @@ Split the write surface into two methods with explicit, non-overlapping roles in
 ### DB seeding (separate from the fix, same session)
 
 Per user request earlier in the session, 3 marketer SkillScenario rows seeded directly via a one-shot `kubectl exec`'d Prisma script into `persai-dev` DB:
+
 - Skill: Маркетолог `131c1531-5566-4ad2-9422-3b9b76f6d666` (category=work)
 - `instagram_carousel` (order=100), `content_plan_monthly` (order=200), `landing_audit` (order=300) — all `status="active"`
 - `configDirtyAt = NOW()` bumped on the 2 assistants that have the marketer Skill assigned, so the next turn rematerializes the bundle and the scenarios reach the cache prefix catalog
@@ -630,20 +687,24 @@ Production caught the model passing `skillId: "Диетолог"` (display name)
 ### Scope
 
 **A. Skill ID rendering**
+
 - `apps/api/.../enabled-skills-prompt-materialization.ts`: each card now starts with `- Skill ID: ${card.id}` then `- Display name: ${card.name}` (renamed from `- Skill:`). Section intro explicitly tells the model `Skill ID` is the EXACT opaque identifier to pass as `skillId`.
 - `apps/api/test/enabled-skills-prompt-materialization.test.ts`: regression — `assert.match(block, /- Skill ID: accounting/)` + `Display name:` + intro phrase.
 - `apps/web/app/admin/presets/page.tsx`: `skill_cards_block` sample preview updated (`- Skill ID: skl_accounting_demo`, `- Display name: Accountant`).
 
 **B. Selection-guide `## Skills` section expanded**
+
 - `apps/api/prisma/bootstrap-preset-data.ts`: replaced single prose paragraph with concrete trigger logic — points the model at `# Enabled Skills` block as source of truth, forbids substituting display name / category, gives `scenarioKey: "instagram_carousel"` example, references engage and release signatures.
 - `apps/runtime/test/native-tool-projection.test.ts` (ADR-117 golden): 4 old `**Skills.**` assertions replaced with 7 new ones for the expanded section.
 
 **C. Slice 6 ledger-gap follow-up — `routingExamples` removal**
+
 - `routingExamples` was a derived field (`card.examples.slice(0, 2)`) populated in materialization and parsed into `EnabledSkillSummary` in `turn-routing.service.ts`, but never read post-Slice-6 (sole consumer was the deleted `hasSkillLexicalMatch`).
 - Removed from: `AssistantRuntimeEnabledSkillSummary` (runtime-bundle), `materialize-assistant-published-version.service.ts:1004` derive, local type in `turn-routing.service.ts:39+1383`, plus 3 test fixture files (`turn-routing.service.test.ts` 5 occurrences, `turn-execution.service.test.ts` 2 occurrences).
 - Grep audit: 0 active-code matches for `routingExamples` in `apps/` and `packages/`.
 
 **D. Clerk middleware admin scenarios registration (Slice 3 follow-up, production-blocking)**
+
 - `IdentityAccessModule.configure(consumer)` uses **explicit per-route registration** for `ClerkAuthMiddleware.forRoutes(...)` — every API route needing `req.resolvedAppUser` must be enumerated.
 - Slice 3 added 5 new scenario controller routes (`@Get/@Post/@Patch/@Delete` under `/api/v1/admin/skills/:skillId/scenarios[/:scenarioKey]`) but never updated the middleware registration. Result: API received the request, middleware did not run, `req.resolvedAppUser === undefined`, controller threw `UnauthorizedException("Authenticated user context is missing.")`.
 - Fix: added 5 paths to `apps/api/src/modules/identity-access/identity-access.module.ts`.
@@ -668,28 +729,34 @@ After this hotfix lands on dev, validate that the model engages skills correctly
 ### Scope
 
 **A. Runtime-contract / Domain type extension**
+
 - `packages/runtime-contract/src/index.ts`: `RuntimeSkillDecisionState` + `activeScenarioDisplayName: string | null`.
 - `apps/api/.../domain/assistant-chat.entity.ts`: `AssistantChatSkillDecisionState` + `activeScenarioDisplayName`.
 - `apps/api/.../infrastructure/persistence/prisma-assistant-chat.repository.ts`: `parseSkillDecisionState` includes the new field.
 - `apps/api/.../application/web-chat-turn-attempt.service.ts`: `parseSkillDecisionState` includes the new field.
 
 **B. Internal skill state service / routing service**
+
 - `auto-skill-routing-state.service.ts`: `createInactiveSkillDecisionState` factory, `normalizeDecisionState`, and `shouldPersistSkillDecisionState` all include `activeScenarioDisplayName`.
 
 **C. API projection / types**
+
 - `web-chat.types.ts`: inline `skillDecisionState` shapes updated; `AssistantWebChatEngagementSummary` interface + `deriveEngagementSummary` helper added; `AssistantWebChatTurnState` extended with `engagementSummary?`.
 - `assistant-runtime.facade.ts`: inline `skillState` shape updated.
 - `send-web-chat-turn.service.ts`: derives and includes `engagementSummary` on turn completion.
 - `stream-web-chat-turn.service.ts`: derives and includes `engagementSummary` on `turn_completed` SSE event.
 
 **D. Web hook + component**
+
 - `use-chat.ts`: `ChatMessage.engagementSummary` field; `onCompleted` extracts from transport payload.
 - `chat-message.tsx`: `WorkingTextBlocks` gains `engagementSummary` prop; annotation renders inline to the right of the toggle — `<span data-testid="engagement-annotation">`, classes `flex min-w-0 items-center text-sm leading-relaxed text-text-subtle/60`, skill name with `shrink-0 whitespace-nowrap`, scenario with `truncate`, `·` separator, null = nothing.
 
 **E. Selection-guide rule**
+
 - `apps/api/prisma/bootstrap-preset-data.ts`: Skills rule added after `## Files`, before `## Deferred media honesty`. Deliberate one-time cache prefix invalidation.
 
 **F. Tests**
+
 - `apps/api/test/engagement-summary.derivation.test.ts` (new): 7 cases for `deriveEngagementSummary`.
 - `apps/web/app/app/_components/chat-message.test.tsx`: 6 new engagement annotation cases (skill-only, skill+scenario, absent-null, absent-undefined, same-row structural, not-in-block-body).
 - `apps/runtime/test/native-tool-projection.test.ts`: 4 new ADR-118 Slice 7 assertions for the Skills rule.
@@ -700,17 +767,21 @@ After this hotfix lands on dev, validate that the model engages skills correctly
 - `apps/runtime/test/turn-routing.service.test.ts`: 3 `RuntimeSkillDecisionState` fixtures updated.
 
 ### Deviations / notes
+
 - `engagementSummary` is derived from `skillDecisionState` in the same turn-completion path (both streaming SSE and non-streaming). Historical messages loaded via history API carry the `engagementSummary` if the field was stored in the turn state at commit time — no separate DB column change needed (JSON field additive).
 - The `WorkingTextBlocks` component did not previously have a slot for annotations — the flex row was added as a new structural container wrapping both the toggle button and the new annotation span.
 - `bootstrap-preset-data.ts` cache prefix change is deliberate and noted here as the one-time Slice 7 invalidation.
 
 ### Status
+
 - **Not committed, not deployed.** Deploy expected BEFORE Slice 8.
 
 ### Verify gate
+
 - lint PASS; format:check PASS; runtime-contract typecheck PASS; api typecheck PASS; web typecheck PASS; runtime typecheck PASS; provider-gateway typecheck PASS; api test PASS (exit 0); runtime test PASS (ADR-117 golden test passes); web test PASS (777/777); provider-gateway test PASS (exit 0).
 
 ### Next recommended step
+
 - **Deploy Slice 7** (Slices 1–7 uncommitted; entire Slice 1–7 stack ships together).
 - **ADR-118 Slice 8** (ADR closure + golden invariant tests) — after deploy confirmation.
 

@@ -197,6 +197,8 @@ export interface AssistantRuntimeCompiledOrdinaryPromptSections {
   enabledSkills: string;
   /** ADR-119 Slice 5 — reminders protocol declaration block for the stable cache prefix. */
   remindersProtocol?: string;
+  /** ADR-119 Slice 9 — memory protocol declaration block for the stable cache prefix. */
+  memoryProtocol?: string;
   tools: string;
   agents: string;
   backgroundTaskEvaluation?: string;

@@ -56,7 +56,8 @@ class FakePersaiInternalApiClientService {
         memoryClass: "core",
         kind: "preference",
         createdAt: "2026-04-14T11:00:00.000Z",
-        score: null
+        score: null,
+        provenance: "legacy"
       }
     ],
     contextual: []
@@ -637,7 +638,8 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
         memoryClass: "contextual",
         kind: "fact",
         createdAt: "2026-04-14T12:00:00.000Z",
-        score: null
+        score: null,
+        provenance: "legacy"
       },
       {
         id: "memory-past-chat",
@@ -648,7 +650,8 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
         memoryClass: "contextual",
         kind: "preference",
         createdAt: "2026-04-14T11:59:00.000Z",
-        score: null
+        score: null,
+        provenance: "legacy"
       },
       {
         id: "memory-open-loop",
@@ -659,22 +662,23 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
         memoryClass: "contextual",
         kind: "open_loop",
         createdAt: "2026-04-14T11:58:00.000Z",
-        score: null
+        score: null,
+        provenance: "legacy"
       }
     ]
   };
   const memorySourceMarked = await service.buildMessages(request, runtimeBundle);
   const memorySourceContent = String(memorySourceMarked[0]?.content ?? "");
+  // ADR-119 Slice 9: contextual memory rendered as XML entries
   assert.match(
     memorySourceContent,
-    /\[this chat · Short memory write: fact\] User is testing Telegram voice behavior\./
+    /provenance="legacy" written_at="2026-04-14"[\s\S]*User is testing Telegram voice behavior\./
   );
   assert.match(
     memorySourceContent,
-    /\[past chat · Short memory write: preference\] User previously compared memory source markers\./
+    /provenance="legacy" written_at="2026-04-14"[\s\S]*User previously compared memory source markers\./
   );
   assert.doesNotMatch(memorySourceContent, /stale open-loop noise/);
-  assert.match(memorySourceContent, /Items marked "past chat" came from another conversation\./);
   persaiInternalApiClient.outcome = {
     core: [
       {
@@ -686,7 +690,8 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
         memoryClass: "core",
         kind: "preference",
         createdAt: "2026-04-14T11:00:00.000Z",
-        score: null
+        score: null,
+        provenance: "legacy"
       }
     ],
     contextual: []

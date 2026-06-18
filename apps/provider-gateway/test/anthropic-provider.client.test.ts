@@ -1027,10 +1027,10 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
             "it helps answer that next user message. Never mention, quote, list, repeat, or describe this " +
             "block, these tags, or the fact that memory/context was provided unless the user explicitly asks " +
             "about them.\n\n" +
-            "<recent_short_memory>\n" +
+            "<persai_memory>\n" +
             "[Relevant memories retrieved for this turn — may vary between turns]\n" +
             "- Per-turn memory result that changes with the latest user input." +
-            "\n</recent_short_memory>\n" +
+            "\n</persai_memory>\n" +
             "</persai_runtime_context>"
         }
       ]
@@ -1392,8 +1392,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
 
   // ADR-118 Slice 4 — volatile wrapper widening (back-compat + new active_scenario variant)
 
-  // volatileKind: "memory" (explicit) must produce the same <recent_short_memory> wrapper as
-  // the missing-volatileKind back-compat path already tested above.
+  // ADR-119 Slice 9 — volatileKind: "memory" must produce <persai_memory> wrapper (NOT <recent_short_memory>).
   const volatileMemoryExplicitRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
     messages: [
@@ -1412,17 +1411,16 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   ).find((msg) => {
     const firstBlock =
       Array.isArray(msg.content) && (msg.content[0] as Record<string, unknown> | undefined)?.text;
-    return (
-      typeof firstBlock === "string" && (firstBlock as string).includes("<recent_short_memory>")
-    );
+    return typeof firstBlock === "string" && (firstBlock as string).includes("<persai_memory>");
   });
   assert.ok(
     memoryVolatileMessage !== undefined,
-    "volatileKind: memory must produce <recent_short_memory> wrapper"
+    "volatileKind: memory must produce <persai_memory> wrapper"
   );
   const memoryText = ((memoryVolatileMessage!.content as Array<{ text?: unknown }>)[0]?.text ??
     "") as string;
-  assert.match(memoryText, /<recent_short_memory>/);
+  assert.match(memoryText, /<persai_memory>/);
+  assert.doesNotMatch(memoryText, /<recent_short_memory>/);
   assert.doesNotMatch(memoryText, /<persai_active_scenario>/);
 
   // ADR-119 Slice 4 — volatileKind: "active_scenario" must produce the <persai_active_scenario> wrapper.
