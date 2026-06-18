@@ -1049,7 +1049,7 @@ Rejected on Anthropic-attention grounds. XML tags route attention more reliably 
 | 9     | feat(ADR-119): Slice 9 - memory protocol + provenance schema + \<persai_memory\> XML | `72d4b428` |
 | 10    | feat(ADR-119): Slice 10 - admin UI for new scenario step fields + first_step_preview | `3d0b1bec` |
 | 10.1  | docs(ADR-119): correct Slice 10 session handoff and changelog accuracy | `b534d852` |
-| 11    | feat(ADR-119): Slice 11 - golden tests + docs + ADR closure | `<THIS-COMMIT-SHA>` |
+| 11    | feat(ADR-119): Slice 11 - golden tests + docs + ADR closure | `125e2b70` |
 
 **Acceptance gate**: founder live-test on persai-dev still pending at closure time. Per ADR rollout policy, live-acceptance is subjective ("any improvement perceptible counts as pass"). This closure freezes the architecture; if live-test reveals regressions, a follow-up ADR will address them — this ADR is not reopened.
 
