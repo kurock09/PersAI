@@ -1730,67 +1730,108 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
     );
   }
 
-  // ADR-119 Slice 1: tools and agents templates are now wrapped with outer XML
-  // tags (<tool_usage_policy> and <memory_protocol>). The inner content and
-  // inner headings remain unchanged; only the outer wrap changed.
+  // ADR-119 Slice 6: tools template rewritten to canonical XML priority order.
+  // The outer <tool_usage_policy> wrapper is preserved (ADR-119 Slice 1 invariant).
+  // The inner Markdown headings are replaced by XML structure with Skills-first gate.
   assert.match(
     bootstrapSource,
-    /tools:\s*`<tool_usage_policy>\n# Native Tool Runtime — Selection Guide/,
-    `Selection guide presence: ${bootstrapPath} must seed the Native Tool Runtime selection guide in the tools block (XML-wrapped)`
+    /tools:\s*`<tool_usage_policy>\nUse only the machine-readable tools/,
+    `Selection guide presence: ${bootstrapPath} must seed the tool usage policy in the tools block (XML priority-ordered)`
   );
   assert.match(
     bootstrapSource,
     /agents:\s*`<memory_protocol>\n# Memory Policy/,
     `Selection guide presence: ${bootstrapPath} must keep the agents block reduced to Memory Policy (XML-wrapped)`
   );
+  // (a) Tasks Policy must NOT be reintroduced.
   assert.doesNotMatch(
     bootstrapSource,
     /# Tasks Policy/,
     `Selection guide presence: ${bootstrapPath} must not reintroduce a Tasks Policy section into the agents block`
   );
-  // ADR-118 Slice 7 + hotfix — Skills section must appear exactly once and
-  // give the model concrete activation guidance (Skill ID source of truth,
-  // trigger logic, scenario routing, release semantics).
+  // (b) Selection-guide-shaped seat preserved — single template hosting cross-tool rules.
   assert.match(
     bootstrapSource,
-    /## Skills/,
-    `ADR-118: ${bootstrapPath} must include the Skills section in the selection guide`
+    /<tool_usage_policy>/,
+    `ADR-117 (b): ${bootstrapPath} must preserve the <tool_usage_policy> seat`
+  );
+  // (c) tool-catalog-data.ts must not duplicate cross-tool selection prose (checked below).
+  // ADR-118: Skills activation guidance now lives in <category name="skills"> and
+  // <priority_order> block (XML form replacing the old ## Skills Markdown section).
+  assert.match(
+    bootstrapSource,
+    /<category name="skills">/,
+    `ADR-118: ${bootstrapPath} must include the skills category in the selection guide`
   );
   assert.match(
     bootstrapSource,
-    /The \\`# Enabled Skills\\` block lists professional Skills/,
-    `ADR-118: Skills section must point the model at the # Enabled Skills block as the source of truth`
+    /The \\`<enabled_skills>\\` block lists professional Skills/,
+    `ADR-118: skills category must point the model at the <enabled_skills> block as the source of truth`
   );
   assert.match(
     bootstrapSource,
-    /\\`Skill ID\\` — the exact opaque identifier/,
-    `ADR-118: Skills section must call out Skill ID as the exact identifier to pass as skillId`
+    /\\`id\\` attribute — the exact opaque identifier to pass as \\`skillId\\`/,
+    `ADR-118: skills category must call out the id attribute as the exact identifier to pass as skillId`
   );
   assert.match(
     bootstrapSource,
     /NEVER substitute the display name, category, or any other value/,
-    `ADR-118: Skills section must forbid substituting display name for skillId`
+    `ADR-118: skills category must forbid substituting display name for skillId`
   );
   assert.match(
     bootstrapSource,
-    /skill\(\{ action: "engage", skillId \}\)/,
-    `ADR-118: Skills section must reference the engage call signature`
+    /skill\(\{action:"engage", skillId\}\)/,
+    `ADR-118: skills category must reference the engage call signature`
   );
   assert.match(
     bootstrapSource,
-    /scenarioKey: "instagram_carousel"/,
-    `ADR-118: Skills section must include a concrete scenarioKey example`
+    /scenarioKey:"instagram_carousel"/,
+    `ADR-118: skills category must include a concrete scenarioKey example`
   );
   assert.match(
     bootstrapSource,
-    /skill\(\{ action: "release" \}\)/,
-    `ADR-118: Skills section must reference the release call`
+    /skill\(\{action:"release"\}\)/,
+    `ADR-118: skills category must reference the release call`
   );
-  const skillsSectionOccurrences = (bootstrapSource.match(/## Skills\n/g) ?? []).length;
+  const skillsCategoryOccurrences = (bootstrapSource.match(/<category name="skills">/g) ?? [])
+    .length;
   assert.equal(
-    skillsSectionOccurrences,
+    skillsCategoryOccurrences,
     1,
-    `ADR-118: ## Skills section must appear exactly once in ${bootstrapPath}`
+    `ADR-118: <category name="skills"> must appear exactly once in ${bootstrapPath}`
+  );
+  // (d) ADR-119 Slice 6: <priority_order> block must enumerate Skills as #1.
+  assert.match(
+    bootstrapSource,
+    /<priority_order>/,
+    `ADR-119 Slice 6 (d): tools template must contain <priority_order> block`
+  );
+  assert.match(
+    bootstrapSource,
+    /Skills are the gate/,
+    `ADR-119 Slice 6 (d): <priority_order> must enumerate Skills as #1 gate`
+  );
+  // (e) ADR-119 Slice 6: <parallelism> block must state skill({engage}) is solo.
+  assert.match(
+    bootstrapSource,
+    /<parallelism>/,
+    `ADR-119 Slice 6 (e): tools template must contain <parallelism> block`
+  );
+  assert.match(
+    bootstrapSource,
+    /ALWAYS solo/,
+    `ADR-119 Slice 6 (e): <parallelism> must state skill({engage}) is ALWAYS solo`
+  );
+  // ADR-119 Slice 6: <failure_handling> block must mention pending_delivery.
+  assert.match(
+    bootstrapSource,
+    /<failure_handling>/,
+    `ADR-119 Slice 6: tools template must contain <failure_handling> block`
+  );
+  assert.match(
+    bootstrapSource,
+    /pending_delivery/,
+    `ADR-119 Slice 6: <failure_handling> must mention pending_delivery`
   );
 
   // Rule A must NOT appear inline in the model-facing image tool descriptions.

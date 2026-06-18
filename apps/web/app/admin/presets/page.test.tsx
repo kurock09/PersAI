@@ -240,7 +240,7 @@ describe("AdminPresetsPage tool prompt defaults", () => {
           presets: [
             {
               id: "tools",
-              template: "# Native Tool Runtime — Selection Guide\n\nUse only the declared tools.",
+              template: "<tool_usage_policy>\nUse only the declared tools.\n</tool_usage_policy>",
               updatedAt: "2026-01-01T00:00:00.000Z"
             }
           ]

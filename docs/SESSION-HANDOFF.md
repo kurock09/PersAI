@@ -3,6 +3,44 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — ADR-119 Slice 6 landed (selection guide XML priority order)
+
+### Root cause
+
+The `tools` prompt template was written as a flat Markdown document (`# Native Tool Runtime — Selection Guide` heading + `##` sections). Per ADR-119 D8, the canonical form must be structured XML with a `<priority_order>` block placing Skills first, `<parallelism>` block constraining `skill({engage})` as solo, `<failure_handling>` block with `pending_delivery` and error honesty rules, and `<category_rules>` with per-domain `<category>` elements. The ADR-118 D7 one-rule Skills contribution was embedded in the old `## Skills` Markdown section and needed migrating into the new XML structure.
+
+### Fix scope
+
+- `apps/api/prisma/bootstrap-preset-data.ts`: `tools` template rewritten from Markdown to canonical XML `<tool_usage_policy>` structure. Old `# Native Tool Runtime — Selection Guide` heading removed. `<priority_order>` with 6 numbered rules (Skills gate #1, active scenario #2, knowledge-before-web #3, media routing #4, memory #5, files/docs/tasks #6). `<parallelism>` block. `<failure_handling>` block (error/denied/pending_delivery/budget). `<category_rules>` with five `<category>` elements: files, documents, tasks, browser, skills.
+- `apps/runtime/test/native-tool-projection.test.ts`: ADR-117 golden test invariants updated for new XML form. Old assertions on Markdown headings (`# Native Tool Runtime — Selection Guide`, `## Skills`, `` `# Enabled Skills` ``, `` `Skill ID` ``, `skill({ action: "engage" })` spacing) replaced with XML-form equivalents. New assertions added: (d) `<priority_order>` + "Skills are the gate", (e) `<parallelism>` + "ALWAYS solo", `<failure_handling>` + "pending_delivery".
+- `apps/web/app/admin/presets/page.test.tsx`: mock template for "renders the tools section as selection guide" test updated from old Markdown heading to new XML snippet.
+
+### Tests
+
+- `apps/runtime/test/native-tool-projection.test.ts`: ADR-117 golden test updated (0 new cases; existing assertions replaced/extended).
+- `apps/api/test/bootstrap-preset-data.test.ts`: Slice 1 XML balance validator passes unchanged (new template is balanced; `tool_usage_policy` outer tag already in `EXPECTED_OUTER_TAGS`).
+- `apps/web/app/admin/presets/page.test.tsx`: mock template updated; 0 new cases.
+
+### Files touched
+
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `apps/web/app/admin/presets/page.test.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risk
+
+**One-time prompt-cache prefix invalidation on rollout** — The `tools` block content and structure change completely; the stable cache prefix is invalidated for all workspaces on first materialization after deploy. This is deliberate and batched with Slice 7 (per-tool descriptor rewrite) so there is only one combined invalidation event.
+
+**Admin UI for custom `tools` template** — Admins with a custom `tools` template will see the old Markdown heading in their override. `reset-to-default` delivers the new XML form. No migration needed; custom overrides are respected.
+
+### Next recommended step
+
+Slice 7 — per-tool descriptor rewrite (`tool-catalog-data.ts`): rewrite each high-traffic tool description to Anthropic ACI best-practices format (role / when_to_use / when_not_to_use / examples / gotchas). Update ADR-117 golden test Slice 7 contribution from ADR-118. Batch deploy with Slice 6 cache-prefix invalidation.
+
+---
+
 ## 2026-06-18 — ADR-119 Slice 5 landed (`<system-reminder>` protocol)
 
 ### Root cause
