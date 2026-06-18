@@ -199,15 +199,16 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         model: input.model,
         input: this.buildOpenAIInputItems(input) as OpenAIResponseInputParam
       };
-      if (input.systemPrompt !== null) {
-        payload.instructions = input.systemPrompt;
-      }
+      // ADR-119 Slice 2: system prompt is now prepended as developer-role items inside input[];
+      // the separate `instructions` parameter is removed from the Responses API payload.
       if (input.maxOutputTokens !== undefined) {
         payload.max_output_tokens = input.maxOutputTokens;
       }
       if ((input.tools?.length ?? 0) > 0) {
         payload.tools = this.toOpenAITools(input) as OpenAIResponseToolsParam;
-        payload.parallel_tool_calls = true;
+        // ADR-119 Slice 2: disable parallel tool calls when Skills are enabled to prevent the
+        // model from co-firing skill({engage}) with a media tool in the same response.
+        payload.parallel_tool_calls = input.skillsEnabled === true ? false : true;
       }
       if (toolChoice !== undefined) {
         payload.tool_choice = toolChoice;
@@ -988,15 +989,16 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         input: this.buildOpenAIInputItems(input) as OpenAIResponseInputParam,
         stream: true
       };
-      if (input.systemPrompt !== null) {
-        payload.instructions = input.systemPrompt;
-      }
+      // ADR-119 Slice 2: system prompt is now prepended as developer-role items inside input[];
+      // the separate `instructions` parameter is removed from the Responses API payload.
       if (input.maxOutputTokens !== undefined) {
         payload.max_output_tokens = input.maxOutputTokens;
       }
       if ((input.tools?.length ?? 0) > 0) {
         payload.tools = this.toOpenAITools(input) as OpenAIResponseToolsParam;
-        payload.parallel_tool_calls = true;
+        // ADR-119 Slice 2: disable parallel tool calls when Skills are enabled to prevent the
+        // model from co-firing skill({engage}) with a media tool in the same response.
+        payload.parallel_tool_calls = input.skillsEnabled === true ? false : true;
       }
       if (toolChoice !== undefined) {
         payload.tool_choice = toolChoice;
@@ -1365,9 +1367,45 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     }
   }
 
+  /**
+   * ADR-119 Slice 2: build the ordered list of developer-role items that represent the system
+   * prompt prefix inside `input[]`. When `systemPromptBlocks` is provided, emit one item per
+   * block (preserving order) so each block maps to its own developer entry and the OpenAI Responses
+   * API prefix-match cache sees a stable, block-granular prefix. Otherwise emit a single developer
+   * item containing the full `systemPrompt`.
+   *
+   * These items must be FIRST in `input[]` so the stable system content forms the cache prefix.
+   */
+  private buildOpenAISystemDeveloperItems(
+    input: ProviderGatewayTextGenerateRequest
+  ): OpenAIBuiltInputItem[] {
+    const blocks = input.systemPromptBlocks;
+    if (blocks !== undefined && blocks.length > 0) {
+      return blocks.map((block) => ({
+        role: "developer" as const,
+        content: [{ type: "input_text" as const, text: block.text }]
+      }));
+    }
+    const systemPrompt =
+      typeof input.systemPrompt === "string" && input.systemPrompt.length > 0
+        ? input.systemPrompt
+        : null;
+    if (systemPrompt !== null) {
+      return [
+        {
+          role: "developer" as const,
+          content: [{ type: "input_text" as const, text: systemPrompt }]
+        }
+      ];
+    }
+    return [];
+  }
+
   private buildOpenAIInputItems(input: ProviderGatewayTextGenerateRequest): OpenAIBuiltInputItem[] {
     const volatileContextMessages: ProviderGatewayTextGenerateRequest["messages"] = [];
-    const items: OpenAIBuiltInputItem[] = [];
+    // ADR-119 Slice 2: system prompt is prepended as developer-role items so OpenAI Responses API
+    // prefix-match caching sees the large stable system content at index 0 of input[].
+    const items: OpenAIBuiltInputItem[] = this.buildOpenAISystemDeveloperItems(input);
     for (const message of input.messages) {
       if (this.isOpenAIVolatileContextMessage(message)) {
         volatileContextMessages.push(message);

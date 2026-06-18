@@ -649,7 +649,8 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   }
 
   /**
-   * ADR-074 P1: separate the cached system prefix from per-turn developer instructions.
+   * ADR-074 P1 / ADR-119 Slice 2: separate the cached system prefix from per-turn developer
+   * instructions and emit per-block `cache_control` markers when `systemPromptBlocks` is provided.
    *
    * Anthropic accepts `system` as either a string or an array of `TextBlockParam`. When prompt
    * cache intent or per-turn developer guidance is present, we project system content as explicit
@@ -659,6 +660,13 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
    * `tools -> system -> messages` cache order and force a fresh history cache write every turn.
    * When only `systemPrompt` is set and no Anthropic cache breakpoint is requested, we keep the
    * legacy string form to minimize behavioural drift.
+   *
+   * ADR-119 Slice 2 multi-block path: when `systemPromptBlocks` is provided and non-empty,
+   * emit one block per entry with `cache_control: {type:"ephemeral"}`. Anthropic's 4-breakpoint
+   * limit means at most 3 system blocks can carry markers (the 4th breakpoint is reserved for
+   * the moving-history window). Blocks beyond position 3 are emitted as plain text blocks.
+   * Validation: `blocks.map(b=>b.text).join("")` must equal `systemPrompt`; on mismatch, fall
+   * back to single-block legacy mode rather than crashing.
    */
   private buildAnthropicSystemBlocks(
     input: ProviderGatewayTextGenerateRequest
@@ -674,6 +682,46 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         : null;
     const developerInstructionsAsMessageSuffix =
       this.shouldProjectDeveloperInstructionsAsMessageSuffix(input);
+
+    // ADR-119 Slice 2: multi-block path — validate and emit per-block cache markers.
+    const systemPromptBlocks = input.systemPromptBlocks;
+    if (
+      systemPromptBlocks !== undefined &&
+      systemPromptBlocks.length > 0 &&
+      systemPrompt !== null
+    ) {
+      const concatenated = systemPromptBlocks.map((b) => b.text).join("");
+      if (concatenated !== systemPrompt) {
+        this.logger.warn({
+          event: "anthropic_system_blocks_mismatch",
+          expectedLength: systemPrompt.length,
+          actualLength: concatenated.length
+        });
+        // Fall through to legacy single-block path below.
+      } else {
+        const ANTHROPIC_MAX_SYSTEM_CACHE_MARKERS = 3;
+        if (systemPromptBlocks.length > ANTHROPIC_MAX_SYSTEM_CACHE_MARKERS) {
+          this.logger.warn({
+            event: "anthropic_cache_breakpoints_truncated",
+            totalBlocks: systemPromptBlocks.length,
+            markedBlocks: ANTHROPIC_MAX_SYSTEM_CACHE_MARKERS
+          });
+        }
+        const blocks: AnthropicSystemTextBlock[] = systemPromptBlocks.map((block, index) => ({
+          type: "text" as const,
+          text: block.text,
+          ...(index < ANTHROPIC_MAX_SYSTEM_CACHE_MARKERS
+            ? { cache_control: this.buildAnthropicCacheControl(input.promptCache) }
+            : {})
+        }));
+        if (developerInstructions !== null && !developerInstructionsAsMessageSuffix) {
+          blocks.push({ type: "text", text: developerInstructions });
+        }
+        return blocks;
+      }
+    }
+
+    // Legacy single-block path.
     const cacheStableSystemPrompt = systemPrompt !== null && input.promptCache !== undefined;
     if (
       systemPrompt === null &&
@@ -894,6 +942,11 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   private toAnthropicToolChoice(
     input: ProviderGatewayTextGenerateRequest
   ): AnthropicToolChoice | undefined {
+    // ADR-119 Slice 2: when Skills are enabled and tools are present, disable parallel tool use
+    // to prevent the model from firing skill({engage}) and a media tool in the same response.
+    if (input.skillsEnabled === true && (input.tools?.length ?? 0) > 0) {
+      return { type: "auto", disable_parallel_tool_use: true };
+    }
     if (input.toolChoice === undefined || input.toolChoice === "none") {
       return undefined;
     }

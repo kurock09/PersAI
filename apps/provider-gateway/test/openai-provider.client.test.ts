@@ -260,6 +260,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   const sharp = (await import("sharp")).default;
   let capturedGeneratePayload: {
     input?: unknown;
+    instructions?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
     parallel_tool_calls?: unknown;
@@ -270,6 +271,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   } | null = null;
   let capturedStreamPayload: {
     input?: unknown;
+    instructions?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
     parallel_tool_calls?: unknown;
@@ -511,7 +513,18 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   const result = await client.generateText(request);
   assert.equal(result.text, "done");
   assert.equal(result.stopReason, "completed");
+  // ADR-119 Slice 2: system prompt is now the first developer-role item in input[]; instructions
+  // field is removed from the Responses API payload.
+  assert.equal(
+    capturedGeneratePayload!.instructions,
+    undefined,
+    "instructions must be absent after ADR-119 migration"
+  );
   assert.deepEqual(capturedGeneratePayload!.input, [
+    {
+      role: "developer",
+      content: [{ type: "input_text", text: "Be concise." }]
+    },
     {
       role: "user",
       content: [
@@ -598,9 +611,11 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   // The flagged volatile-context block is moved out of the cached prefix and projected as a `user`
   // block immediately before the current user question (symmetric with Anthropic). Developer
   // instructions stay a provider-native `developer` suffix at the very end.
+  // ADR-119 Slice 2: baselineGenerateInput[0] is now the developer-system item; indices shift.
   assert.deepEqual(capturedGeneratePayload!.input, [
     baselineGenerateInput[0],
     baselineGenerateInput[1],
+    baselineGenerateInput[2],
     {
       role: "developer",
       content:
@@ -614,7 +629,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
         "- Per-turn memory result that changes with the latest user input." +
         "\n</persai_contextual_memory>"
     },
-    baselineGenerateInput[2],
+    baselineGenerateInput[3],
     {
       role: "developer",
       content: [
@@ -742,6 +757,10 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   });
   assert.deepEqual(capturedGeneratePayload!.input, [
     {
+      role: "developer",
+      content: [{ type: "input_text", text: "Be concise." }]
+    },
+    {
       role: "user",
       content: [
         {
@@ -783,6 +802,12 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
 
   const stream = await client.streamText(request);
   const events = await collectStream(stream);
+  // ADR-119 Slice 2: instructions must be absent in streaming path too.
+  assert.equal(
+    capturedStreamPayload!.instructions,
+    undefined,
+    "instructions must be absent after ADR-119 migration"
+  );
   assert.deepEqual(capturedStreamPayload!.input, baselineGenerateInput);
   assert.deepEqual(capturedStreamPayload!.metadata, {
     persai_request_classification: "main_turn",
@@ -895,6 +920,10 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     }
   ]);
   assert.deepEqual(capturedStreamPayload!.input, [
+    {
+      role: "developer",
+      content: [{ type: "input_text", text: "Be concise." }]
+    },
     {
       role: "user",
       content: [
@@ -1991,5 +2020,145 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     assert.match(devItem!.content as string, /<\/persai_active_scenario>/);
     assert.doesNotMatch(devItem!.content as string, /<persai_contextual_memory>/);
     assert.match(devItem!.content as string, /Instagram Carousel/);
+  }
+
+  // ADR-119 Slice 2 — parallel_tool_calls discipline + developer-role system migration
+
+  // skillsEnabled: true + tools → parallel_tool_calls: false (generateText)
+  const skillsEnabledToolRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    skillsEnabled: true,
+    tools: [
+      {
+        name: "skill",
+        description: "Engage a Skill.",
+        inputSchema: {
+          type: "object",
+          properties: { action: { type: "string" } }
+        }
+      }
+    ],
+    toolChoice: "auto"
+  };
+  await client.generateText(skillsEnabledToolRequest);
+  assert.equal(
+    capturedGeneratePayload!.parallel_tool_calls,
+    false,
+    "skillsEnabled:true + tools must set parallel_tool_calls: false (generateText)"
+  );
+
+  // skillsEnabled: true + tools → parallel_tool_calls: false (streamText)
+  const skillsEnabledToolStream = await client.streamText(skillsEnabledToolRequest);
+  await collectStream(skillsEnabledToolStream);
+  assert.equal(
+    capturedStreamPayload!.parallel_tool_calls,
+    false,
+    "skillsEnabled:true + tools must set parallel_tool_calls: false (streamText)"
+  );
+
+  // skillsEnabled: false + tools → parallel_tool_calls: true (back-compat, generateText)
+  const skillsDisabledToolRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    skillsEnabled: false,
+    tools: [
+      {
+        name: "knowledge_search",
+        description: "Search enabled knowledge sources.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            source: { type: "string" },
+            query: { type: "string" }
+          }
+        }
+      }
+    ],
+    toolChoice: "auto"
+  };
+  await client.generateText(skillsDisabledToolRequest);
+  assert.equal(
+    capturedGeneratePayload!.parallel_tool_calls,
+    true,
+    "skillsEnabled:false + tools must keep parallel_tool_calls: true (back-compat)"
+  );
+
+  // skillsEnabled: undefined + tools → parallel_tool_calls: true (back-compat, generateText)
+  const skillsUndefinedToolRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    tools: [
+      {
+        name: "knowledge_search",
+        description: "Search enabled knowledge sources.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            source: { type: "string" },
+            query: { type: "string" }
+          }
+        }
+      }
+    ],
+    toolChoice: "auto"
+  };
+  await client.generateText(skillsUndefinedToolRequest);
+  assert.equal(
+    capturedGeneratePayload!.parallel_tool_calls,
+    true,
+    "skillsEnabled:undefined + tools must keep parallel_tool_calls: true (back-compat)"
+  );
+
+  // systemPromptBlocks populated → one developer item per block (generateText)
+  const blocksRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    systemPrompt: "BP1_content.BP2_content.",
+    systemPromptBlocks: [
+      { id: "BP1", text: "BP1_content." },
+      { id: "BP2", text: "BP2_content." }
+    ]
+  };
+  await client.generateText(blocksRequest);
+  {
+    const inputItems = capturedGeneratePayload!.input as Array<Record<string, unknown>>;
+    const devItems = inputItems.filter((item) => item.role === "developer");
+    // Two developer items from systemPromptBlocks (before any per-turn developer tail).
+    assert.ok(devItems.length >= 2, "systemPromptBlocks: must emit one developer item per block");
+    assert.deepEqual(devItems[0], {
+      role: "developer",
+      content: [{ type: "input_text", text: "BP1_content." }]
+    });
+    assert.deepEqual(devItems[1], {
+      role: "developer",
+      content: [{ type: "input_text", text: "BP2_content." }]
+    });
+    assert.equal(
+      capturedGeneratePayload!.instructions,
+      undefined,
+      "instructions must remain absent when systemPromptBlocks is used"
+    );
+  }
+
+  // systemPromptBlocks populated → one developer item per block (streamText)
+  const blocksStream = await client.streamText(blocksRequest);
+  await collectStream(blocksStream);
+  {
+    const inputItems = capturedStreamPayload!.input as Array<Record<string, unknown>>;
+    const devItems = inputItems.filter((item) => item.role === "developer");
+    assert.ok(
+      devItems.length >= 2,
+      "streamText + systemPromptBlocks: must emit one developer item per block"
+    );
+    assert.deepEqual(devItems[0], {
+      role: "developer",
+      content: [{ type: "input_text", text: "BP1_content." }]
+    });
+    assert.deepEqual(devItems[1], {
+      role: "developer",
+      content: [{ type: "input_text", text: "BP2_content." }]
+    });
+    assert.equal(
+      capturedStreamPayload!.instructions,
+      undefined,
+      "instructions must remain absent in streamText when systemPromptBlocks is used"
+    );
   }
 }

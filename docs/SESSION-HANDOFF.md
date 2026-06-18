@@ -3,6 +3,49 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-17 — ADR-119 Slice 2 landed (provider cache_control markers + parallel-tool-calls discipline)
+
+### Root cause
+
+Production observed the model co-firing `skill({engage})` and a media generation tool in the same response (parallel tool call), bypassing the intended Skill activation gate. Concurrently, the OpenAI Responses API was receiving the system prompt via the legacy `payload.instructions` parameter instead of inside `input[]`, meaning the stable system prefix was NOT the cache prefix — invalidating OpenAI prefix-match caching on every structural change. Anthropic still emitted only a single `cache_control` marker on the whole system prompt, blocking the planned 3-zone BP boundary split.
+
+### Fix scope
+
+- `packages/runtime-contract/src/index.ts`: `ProviderGatewayTextGenerateRequest` extended with `skillsEnabled?: boolean` and `systemPromptBlocks?: Array<{id:string, text:string}>`.
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`: `buildAnthropicSystemBlocks` extended for multi-block path; `toAnthropicToolChoice` returns `{type:"auto", disable_parallel_tool_use:true}` when `skillsEnabled && tools`.
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`: `payload.instructions` removed from both non-streaming and streaming paths; `buildOpenAISystemDeveloperItems` helper added; `buildOpenAIInputItems` prepends developer-role items; `parallel_tool_calls` is `false` when `skillsEnabled===true`, otherwise `true`.
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`: `buildProviderRequest` now passes `skillsEnabled: bundle.skills?.enabled.length > 0`.
+- **Minimal path**: `systemPromptBlocks` is wired through the contract and provider clients but NOT yet populated from materialization. Providers fall back to single-block until a follow-up micro-slice exposes compiler block offsets.
+
+### Tests
+
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`: new Slice 2 cases — `skillsEnabled:true + tools`, `skillsEnabled:true + no tools`, `skillsEnabled:false + tools`, `skillsEnabled:undefined + tools`, 3-block / 4-block / mismatch `systemPromptBlocks` (generate + stream mirrors).
+- `apps/provider-gateway/test/openai-provider.client.test.ts`: new Slice 2 cases — `skillsEnabled:true/false/undefined + tools`, `systemPromptBlocks` 2-block (generate + stream), `instructions`-absent assertions on generate + stream baseline.
+- Updated existing input-array assertions throughout `openai-provider.client.test.ts` to include the new developer-system item at `input[0]`.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risk
+
+**OpenAI one-time prompt-cache prefix invalidation** — moving system prompt from `instructions` to `input[0]` as developer items changes the Responses API cache key; all cached prefixes are invalidated once on rollout. Functional behavior is unchanged. **Back-compat**: `skillsEnabled===false/undefined` paths preserve `parallel_tool_calls:true` (OpenAI) and no `disable_parallel_tool_use` (Anthropic) — tested in both directions.
+
+**Deviation from spec:** `cacheBreakpoints: number[]` replaced by `systemPromptBlocks: Array<{id,text}>` — named blocks are safer than byte-offsets under string normalization differences.
+
+### Next recommended step
+
+Slice 3 — Skills progressive disclosure + `first_step_preview`. **BATCH Slices 1 + 2 + 3 in one persai-dev deploy** per ADR-119 (Slices 1+2 must land together; Slice 3 also batched for deploy efficiency). Slice 3 requires Slice 1's `compileMode` field to be present. A follow-up micro-slice (between Slice 2 and Slice 3) should populate `systemPromptBlocks` from materialization output using the `xml_canonical_v1` zone boundaries.
+
+---
+
 ## 2026-06-17 — ADR-119 Slice 1 landed (XML compile output + persona deduplication)
 
 ### Root cause

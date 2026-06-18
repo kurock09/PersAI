@@ -1457,4 +1457,248 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   assert.match(scenarioText, /<\/active_scenario>/);
   assert.doesNotMatch(scenarioText, /<recent_short_memory>/);
   assert.match(scenarioText, /Instagram Carousel/);
+
+  // ADR-119 Slice 2 — disable_parallel_tool_use + per-block cache markers
+
+  // skillsEnabled: true + tools → tool_choice: {type:"auto", disable_parallel_tool_use: true} (generateText)
+  const skillsEnabledRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    skillsEnabled: true,
+    tools: [
+      {
+        name: "skill",
+        description: "Engage a Skill.",
+        inputSchema: {
+          type: "object",
+          properties: { action: { type: "string" } }
+        }
+      }
+    ]
+  };
+  await client.generateText(skillsEnabledRequest);
+  assert.deepEqual(
+    capturedGeneratePayload!.tool_choice,
+    { type: "auto", disable_parallel_tool_use: true },
+    "skillsEnabled:true + tools must set tool_choice.disable_parallel_tool_use (generateText)"
+  );
+
+  // skillsEnabled: true + tools → tool_choice: {type:"auto", disable_parallel_tool_use: true} (streamText)
+  const skillsEnabledStream = await client.streamText(skillsEnabledRequest);
+  await collectStream(skillsEnabledStream);
+  assert.deepEqual(
+    capturedStreamPayload!.tool_choice,
+    { type: "auto", disable_parallel_tool_use: true },
+    "skillsEnabled:true + tools must set tool_choice.disable_parallel_tool_use (streamText)"
+  );
+
+  // skillsEnabled: true + NO tools → tool_choice NOT set (flag is inert without tools)
+  const skillsEnabledNoToolsRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    skillsEnabled: true
+  };
+  await client.generateText(skillsEnabledNoToolsRequest);
+  assert.equal(
+    capturedGeneratePayload!.tool_choice,
+    undefined,
+    "skillsEnabled:true + no tools must NOT set tool_choice"
+  );
+
+  // skillsEnabled: false + tools → tool_choice NOT set (toolChoice not specified → undefined)
+  const skillsDisabledRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    skillsEnabled: false,
+    tools: [
+      {
+        name: "skill",
+        description: "Engage a Skill.",
+        inputSchema: {
+          type: "object",
+          properties: { action: { type: "string" } }
+        }
+      }
+    ]
+  };
+  await client.generateText(skillsDisabledRequest);
+  assert.equal(
+    capturedGeneratePayload!.tool_choice,
+    undefined,
+    "skillsEnabled:false + tools (no toolChoice) must NOT set tool_choice"
+  );
+
+  // skillsEnabled: undefined + tools → tool_choice NOT set (back-compat)
+  const skillsUndefinedRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    tools: [
+      {
+        name: "skill",
+        description: "Engage a Skill.",
+        inputSchema: {
+          type: "object",
+          properties: { action: { type: "string" } }
+        }
+      }
+    ]
+  };
+  await client.generateText(skillsUndefinedRequest);
+  assert.equal(
+    capturedGeneratePayload!.tool_choice,
+    undefined,
+    "skillsEnabled:undefined + tools (no toolChoice) must NOT set tool_choice"
+  );
+
+  // systemPromptBlocks — 3 blocks, all get cache_control (generateText)
+  const threeBlocksRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    systemPrompt: "AAABBBCCC",
+    systemPromptBlocks: [
+      { id: "BP1", text: "AAA" },
+      { id: "BP2", text: "BBB" },
+      { id: "BP3", text: "CCC" }
+    ]
+  };
+  await client.generateText(threeBlocksRequest);
+  assert.deepEqual(
+    capturedGeneratePayload!.system,
+    [
+      { type: "text", text: "AAA", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "BBB", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "CCC", cache_control: { type: "ephemeral" } }
+    ],
+    "3 systemPromptBlocks: all must carry cache_control (generateText)"
+  );
+
+  // systemPromptBlocks — 3 blocks, all get cache_control (streamText)
+  const threeBlocksStream = await client.streamText(threeBlocksRequest);
+  await collectStream(threeBlocksStream);
+  assert.deepEqual(
+    capturedStreamPayload!.system,
+    [
+      { type: "text", text: "AAA", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "BBB", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "CCC", cache_control: { type: "ephemeral" } }
+    ],
+    "3 systemPromptBlocks: all must carry cache_control (streamText)"
+  );
+
+  // systemPromptBlocks — 4 blocks: first 3 marked, 4th plain, truncation warn fires
+  {
+    const warnEvents: Array<Record<string, unknown>> = [];
+    (
+      client as unknown as {
+        logger: { warn: (value: Record<string, unknown>) => void };
+      }
+    ).logger.warn = (value) => {
+      warnEvents.push(value);
+    };
+
+    const fourBlocksRequest: ProviderGatewayTextGenerateRequest = {
+      ...request,
+      systemPrompt: "AAAABBBBCCCCDDDD",
+      systemPromptBlocks: [
+        { id: "BP1", text: "AAAA" },
+        { id: "BP2", text: "BBBB" },
+        { id: "BP3", text: "CCCC" },
+        { id: "BP4", text: "DDDD" }
+      ]
+    };
+    await client.generateText(fourBlocksRequest);
+    assert.deepEqual(
+      capturedGeneratePayload!.system,
+      [
+        { type: "text", text: "AAAA", cache_control: { type: "ephemeral" } },
+        { type: "text", text: "BBBB", cache_control: { type: "ephemeral" } },
+        { type: "text", text: "CCCC", cache_control: { type: "ephemeral" } },
+        { type: "text", text: "DDDD" }
+      ],
+      "4 systemPromptBlocks: first 3 must carry cache_control, 4th must be plain text"
+    );
+    const truncWarn = warnEvents.find((e) => e.event === "anthropic_cache_breakpoints_truncated");
+    assert.ok(
+      truncWarn !== undefined,
+      "4 blocks must emit anthropic_cache_breakpoints_truncated warn"
+    );
+
+    // streamText mirror
+    warnEvents.length = 0;
+    const fourBlocksStream = await client.streamText(fourBlocksRequest);
+    await collectStream(fourBlocksStream);
+    assert.deepEqual(
+      capturedStreamPayload!.system,
+      [
+        { type: "text", text: "AAAA", cache_control: { type: "ephemeral" } },
+        { type: "text", text: "BBBB", cache_control: { type: "ephemeral" } },
+        { type: "text", text: "CCCC", cache_control: { type: "ephemeral" } },
+        { type: "text", text: "DDDD" }
+      ],
+      "4 systemPromptBlocks streamText: first 3 must carry cache_control, 4th must be plain"
+    );
+    const truncWarnStream = warnEvents.find(
+      (e) => e.event === "anthropic_cache_breakpoints_truncated"
+    );
+    assert.ok(
+      truncWarnStream !== undefined,
+      "4 blocks streamText must emit anthropic_cache_breakpoints_truncated warn"
+    );
+
+    // Restore warn to no-op
+    (
+      client as unknown as {
+        logger: { warn: (value: Record<string, unknown>) => void };
+      }
+    ).logger.warn = () => {};
+  }
+
+  // systemPromptBlocks — mismatch: fallback to single-block, mismatch warn fires
+  {
+    const warnEvents: Array<Record<string, unknown>> = [];
+    (
+      client as unknown as {
+        logger: { warn: (value: Record<string, unknown>) => void };
+      }
+    ).logger.warn = (value) => {
+      warnEvents.push(value);
+    };
+
+    const mismatchBlocksRequest: ProviderGatewayTextGenerateRequest = {
+      ...request,
+      systemPrompt: "Be concise.",
+      systemPromptBlocks: [{ id: "BP1", text: "Wrong content that does not match systemPrompt" }]
+    };
+    await client.generateText(mismatchBlocksRequest);
+    // Fallback: no promptCache → single-block returns plain string
+    assert.equal(
+      capturedGeneratePayload!.system,
+      "Be concise.",
+      "systemPromptBlocks mismatch must fall back to plain string (no promptCache)"
+    );
+    const mismatchWarn = warnEvents.find((e) => e.event === "anthropic_system_blocks_mismatch");
+    assert.ok(
+      mismatchWarn !== undefined,
+      "systemPromptBlocks mismatch must emit anthropic_system_blocks_mismatch warn"
+    );
+
+    // streamText mirror
+    warnEvents.length = 0;
+    const mismatchStream = await client.streamText(mismatchBlocksRequest);
+    await collectStream(mismatchStream);
+    assert.equal(
+      capturedStreamPayload!.system,
+      "Be concise.",
+      "systemPromptBlocks mismatch streamText must fall back to plain string"
+    );
+    const mismatchWarnStream = warnEvents.find(
+      (e) => e.event === "anthropic_system_blocks_mismatch"
+    );
+    assert.ok(
+      mismatchWarnStream !== undefined,
+      "systemPromptBlocks mismatch streamText must emit warn"
+    );
+
+    // Restore warn to no-op
+    (
+      client as unknown as {
+        logger: { warn: (value: Record<string, unknown>) => void };
+      }
+    ).logger.warn = () => {};
+  }
 }
