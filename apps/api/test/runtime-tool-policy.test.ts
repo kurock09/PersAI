@@ -229,9 +229,14 @@ async function run(): Promise<void> {
   const filesPolicy = toolPolicies.find((tool) => tool.toolCode === "files");
   assert.match(filesPolicy?.description ?? "", /write-and-send/);
   assert.match(filesPolicy?.description ?? "", /preview/);
-  assert.match(filesPolicy?.usageGuidance ?? "", /files\.write_and_send when the user asks/);
-  assert.match(filesPolicy?.usageGuidance ?? "", /filename is only a delivery-name override/);
-  assert.match(filesPolicy?.usageGuidance ?? "", /Do not claim a file was sent unless/);
+  // ADR-119 cleanup slice — files override is now in canonical ACI 4-section form.
+  assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN TO USE:/m);
+  assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN NOT TO USE:/m);
+  assert.match(filesPolicy?.usageGuidance ?? "", /^EXAMPLES:/m);
+  assert.match(filesPolicy?.usageGuidance ?? "", /^GOTCHAS:/m);
+  assert.match(filesPolicy?.usageGuidance ?? "", /files\.write_and_send/);
+  assert.match(filesPolicy?.usageGuidance ?? "", /`filename` is only a delivery-name override/);
+  assert.match(filesPolicy?.usageGuidance ?? "", /Never claim a file was sent unless/);
   assert.match(filesPolicy?.usageGuidance ?? "", /files\.inspect/);
   assert.equal(filesPolicy?.maxFilePreviewBytes, 1_048_576);
   assert.equal(filesPolicy?.maxFilePreviewEdgePx, 1024);

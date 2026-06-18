@@ -7,6 +7,7 @@ const TEMPLATE = `# Sense of Time
 - Anywhere: {{time_since_last_user_message_anywhere}}
 - Local time: {{current_local_time}}
 - Local weekday: {{current_local_weekday}}
+- Local date: {{current_local_date}}
 
 Do not recite this back.`;
 
@@ -35,6 +36,8 @@ export async function runPresenceRendererTest(): Promise<void> {
     "Local time formatted HH:MM in Europe/Moscow tz"
   );
   assert.match(englishOutput, /Local weekday: Wednesday/, "English weekday name");
+  // ADR-119 Slice 12: absolute date is mandatory so the model never invents a year.
+  assert.match(englishOutput, /Local date: April 22, 2026/, "English absolute date (long style)");
   assert.match(englishOutput, /Do not recite this back\./, "Usage rule line preserved verbatim");
 
   const russianOutput = renderPresenceBlock({
@@ -55,6 +58,8 @@ export async function runPresenceRendererTest(): Promise<void> {
   );
   // Russian weekday for 2026-04-22 (Wednesday) → "среда"
   assert.match(russianOutput, /Local weekday: среда/, "Russian weekday name");
+  // Russian absolute date for 2026-04-22 → "22 апреля 2026 г." (Intl long style)
+  assert.match(russianOutput, /Local date: 22 апреля 2026 г\./, "Russian absolute date");
 
   // "Never" fallback — both timestamps null but block still renders all four lines.
   const neverOutput = renderPresenceBlock({

@@ -104,8 +104,14 @@ GOTCHAS:
     description:
       "Generate a short video clip from a text prompt, optionally guided by one current or recent chat reference image.",
     modelDescription: "Generate a short brand-new video clip from a text prompt.",
-    modelUsageGuidance:
-      "You may guide the result with one current or recent chat image via `referenceImageAlias`.",
+    modelUsageGuidance: `WHEN TO USE: User wants a short animated clip, talking-avatar, or cinematic motion from a text prompt.
+WHEN NOT TO USE: User wants a still image (use image_generate or image_edit). User wants only audio (use tts).
+EXAMPLES:
+- video_generate({prompt:"…"}) — text-only short clip.
+- video_generate({prompt:"…", referenceImageAlias:"…"}) — clip guided by one current or recent chat image.
+GOTCHAS:
+- Single source-image guidance only; do not pass multiple reference aliases.
+- Output may arrive asynchronously; do not claim the clip is delivered until the tool result confirms success.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -119,8 +125,16 @@ GOTCHAS:
       "Create and revise user-ready PDF documents and presentations through async document providers.",
     modelDescription:
       "Create or revise user-ready business documents, reports, proposals, and slide decks through the unified document tool.",
-    modelUsageGuidance:
-      "Use this when the user explicitly wants a generated PDF, presentation, deck, proposal, report, or a revision to an existing PersAI document. Match the mode to the real intent: create a new document, revise an existing one, or redeliver/export an existing result. For presentations, treat delivery as PDF-first unless the user explicitly wants editable PPTX/PowerPoint output. Fill `visualStyle`, `imagePolicy`, and `visualDensity` only when the user's visual intent is clear. For ordinary school, educational, and standard business decks, prefer visual defaults that stay readable and presentation-native; use `text_only` only when the user explicitly wants no images, and use `text_heavy` only when they explicitly want dense slide copy. If the run goes async, say it is in progress until the delivered file actually arrives.",
+    modelUsageGuidance: `WHEN TO USE: User explicitly asks for a generated PDF, presentation, deck, proposal, report, or a revision to an existing PersAI document.
+WHEN NOT TO USE: User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (use files.send).
+EXAMPLES:
+- document({mode:"create", brief:"…"}) — produce a new document.
+- document({mode:"revise", documentId:"…", brief:"…"}) — apply revisions to an existing document.
+- document({mode:"export", documentId:"…", format:"pptx"}) — re-export an existing result.
+GOTCHAS:
+- Presentations: PDF-first unless the user explicitly wants editable PPTX/PowerPoint.
+- Fill \`visualStyle\`, \`imagePolicy\`, and \`visualDensity\` only when the user's visual intent is clear. For ordinary school, educational, and standard business decks, prefer visual defaults that stay readable and presentation-native. Use \`text_only\` only when the user explicitly wants no images; use \`text_heavy\` only when they explicitly want dense slide copy.
+- Runs may go async. Never claim delivery until the delivered file actually arrives; until then, say it is in progress.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -132,8 +146,13 @@ GOTCHAS:
     description:
       "Text-to-speech synthesis via provider-specific TTS credentials with native provider fallback.",
     modelDescription: "Generate spoken audio for the current assistant persona.",
-    modelUsageGuidance:
-      "Use this only when the user explicitly wants a voice note, spoken reply, narration, or audio version of text. If they only want text, reply in text.",
+    modelUsageGuidance: `WHEN TO USE: User explicitly asks for a voice note, spoken reply, narration, or audio version of text.
+WHEN NOT TO USE: User only wants a text reply. Quiet background context with no audio output requested.
+EXAMPLES:
+- tts({text:"…"}) — synthesize spoken audio using the assistant persona voice.
+GOTCHAS:
+- Voice is bound to the configured assistant persona; do not announce voice or speaker choice unless the user explicitly asks.
+- Output is an audio file; never claim audio was sent unless this turn produced a successful tts result.`,
     capabilityGroup: "communication" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -145,8 +164,14 @@ GOTCHAS:
     description: "Automated web browser for interactive page navigation and content extraction.",
     modelDescription:
       "Use a real browser for JavaScript-rendered or interactive pages when web_search or web_fetch are insufficient.",
-    modelUsageGuidance:
-      "Use snapshot first to inspect the page. Use act only when the user explicitly wants interaction or when static web tools cannot reach the needed state.",
+    modelUsageGuidance: `WHEN TO USE: Live, interactive, JavaScript-rendered, or logged-in web pages where plain web_fetch cannot reach the needed state.
+WHEN NOT TO USE: Static page content (use web_fetch). No URL in hand (use web_search). The user only wants a textual description of a page.
+EXAMPLES:
+- browser({action:"snapshot", url:"…"}) — inspect a live page's current state.
+- browser({action:"act", url:"…", task:"…"}) — drive a multi-step interaction.
+GOTCHAS:
+- Prefer \`snapshot\` first to inspect the page. Use \`act\` only when the user explicitly wants interaction or when static tools cannot reach the needed state.
+- Sessions are bounded and ephemeral; do not assume login or cookies persist between calls.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_browser",
@@ -207,8 +232,16 @@ GOTCHAS:
     displayName: "Scheduled Action",
     description: "Schedule simple unconditional user-visible reminders.",
     modelDescription: "Schedule simple unconditional user-visible reminders.",
-    modelUsageGuidance:
-      'Use this only for unconditional user-visible reminders such as "remind me in 10 minutes", "ping me tomorrow", or "daily check-in". For create, use `kind="user_reminder"` with `title`, `reminderText`, and exactly one schedule (`runAt`, `delayMs`, `everyMs`, or `cronExpr`). Never confirm success unless this turn returned a tool result with `action="created"`. If the result was `action="skipped"` or no success arrived, say scheduling failed. Prefer taskId for pause/resume/cancel; otherwise use titleMatch.',
+    modelUsageGuidance: `WHEN TO USE: User asks for an unconditional user-visible reminder ("remind me in 10 minutes", "ping me tomorrow", "daily check-in at 9 AM").
+WHEN NOT TO USE: The task is conditional ("if X then ping me"), needs evaluation logic, or should stay quiet (use background_task). The user wants a one-off chat message right now, not a future ping.
+EXAMPLES:
+- scheduled_action({action:"create", kind:"user_reminder", title:"…", reminderText:"…", delayMs:600000}) — remind in 10 minutes.
+- scheduled_action({action:"create", kind:"user_reminder", title:"…", reminderText:"…", cronExpr:"0 9 * * *"}) — daily 9 AM ping.
+- scheduled_action({action:"pause", taskId:"…"}) / {action:"cancel", titleMatch:"…"} — manage existing reminders.
+GOTCHAS:
+- For create, provide exactly ONE schedule field (\`runAt\`, \`delayMs\`, \`everyMs\`, or \`cronExpr\`); do not combine them.
+- Never confirm success unless this turn returned \`action="created"\`. If the result was \`action="skipped"\` or no success arrived, say scheduling failed honestly.
+- Prefer \`taskId\` for pause/resume/cancel; fall back to \`titleMatch\` only when the user did not give a task id.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -220,8 +253,16 @@ GOTCHAS:
     description: "Create and manage quiet assistant-side background tasks.",
     modelDescription:
       "Create and manage quiet assistant-side background tasks that the platform later evaluates and may push to the user.",
-    modelUsageGuidance:
-      'Use this for conditional checks and quiet assistant follow-through such as "поставь себе фоновую задачу", "тихо проверь", or "if X happens, ping me". One background_task may later use allowed tools, generate supported artifacts, and then decide whether to push. If the user asks "check X later and if condition Y then send or generate Y", create one background_task whose brief includes the condition, any needed tools or artifacts, and the push-vs-silence rule. For create, provide a short `title`, a precise `brief`, and exactly one schedule (`runAt`, `delayMs`, `everyMs`, or `cronExpr`).',
+    modelUsageGuidance: `WHEN TO USE: Conditional checks ("if X then ping me"), quiet monitoring ("тихо проверь"), or delayed assistant-side follow-through that may or may not surface to the user.
+WHEN NOT TO USE: Simple unconditional reminder (use scheduled_action). One-off chat-message work that should happen this turn.
+EXAMPLES:
+- background_task({action:"create", title:"…", brief:"Check X later; if condition Y holds, send the user a short summary and a PDF.", delayMs:3600000}) — conditional check + artifact.
+- background_task({action:"create", title:"…", brief:"…", cronExpr:"0 8 * * 1"}) — recurring quiet weekly check.
+- background_task({action:"cancel", taskId:"…"}) — stop an existing task.
+GOTCHAS:
+- For create, provide a short \`title\`, a precise \`brief\` describing condition + push-vs-silence rule + any needed tools/artifacts, and exactly ONE schedule (\`runAt\`, \`delayMs\`, \`everyMs\`, or \`cronExpr\`).
+- Do NOT create a nested scheduled_action or another background_task from inside a background-task run.
+- The background run may use allowed tools and produce supported artifacts; platform delivery sends them with the push when supported.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -246,8 +287,15 @@ GOTCHAS:
       "Read live quota and plan state from PersAI control plane for the current assistant, including checkout-link creation from the same bounded surface.",
     modelDescription:
       "Read live quota status for the current assistant, including current plan, public plan comparison, non-media daily tool counters, main quota buckets, monthly media quotas, and checkout-link creation from the same tool surface.",
-    modelUsageGuidance:
-      "Use this when the user asks about remaining usage, current quota pressure, whether a quota-governed tool is available, which paid plan to choose, or when they want the checkout link opened now. For image/video/edit quota questions, read the monthly media quota block instead of daily counters.",
+    modelUsageGuidance: `WHEN TO USE: User asks about remaining usage, current quota pressure, whether a quota-governed tool is available, which paid plan to choose, or wants the checkout link opened now. Use BEFORE knowledge retrieval for live plan and quota facts.
+WHEN NOT TO USE: Generic product-info questions that do not depend on the current user's live quotas (use knowledge_search).
+EXAMPLES:
+- persai_tool_quota_status({}) — read full quota snapshot for the current assistant.
+- persai_tool_quota_status({intent:"create_checkout", planCode:"…"}) — produce a checkout link for the requested plan.
+GOTCHAS:
+- For plan and media-package prices, always quote \`priceLabel\` or \`amountMajor\`; NEVER quote raw \`amountMinor\` (kopecks/cents). Example: \`amountMinor\` 20000 with RUB means 200 ₽, not 20 000 ₽.
+- For image/video/edit/document quota questions, read \`monthlyMediaQuotas\`, NOT \`dailyCallLimit\`.
+- A \`create_checkout\` request may return \`action="checkout_created"\` with a payment page OR \`action="subscription_updated"\` when the requested paid downgrade / FREE change was scheduled at period end.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "platform_managed"
@@ -263,8 +311,19 @@ GOTCHAS:
     // policy-overridden: the real model-facing text is supplied by
     // runtime-tool-policy.ts resolveRuntimeToolUsageGuidance and always
     // supersedes this catalog value. Edit the hardcoded override there, not here.
-    modelUsageGuidance:
-      "Use files.write_and_send when the user wants a file created or saved and delivered in chat right away. Use files.write when it should only be saved. For writes, prefer a non-empty relative path as the canonical target; filename is only a delivery-name override. Use files.delete for cleanup. Use files.list for an exact inventory and files.search with a non-empty query when you need discovery by name. By default, summarize inventories by workspace/uploads/artifacts and hide raw service paths or UUID folders unless the user explicitly asks for the raw list. When you already know the target, prefer a working-file alias first, then relativePath, then query. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep shell and exec for real process execution only.",
+    modelUsageGuidance: `WHEN TO USE: Any file-system work in the assistant's managed workspace — list, search, inspect, read, preview, write, write-and-send, edit, delete, or send.
+WHEN NOT TO USE: Real process execution (use exec or shell). Producing a NEW deliverable PDF, deck, or structured document (use document).
+EXAMPLES:
+- files({action:"write_and_send", relativePath:"…", contents:"…"}) — save and immediately deliver in chat.
+- files({action:"write", relativePath:"…", contents:"…"}) — save only.
+- files({action:"send", workingFileAlias:"…"}) — deliver an existing file the user already references.
+- files({action:"list"}) — inventory by workspace / uploads / artifacts.
+- files({action:"search", query:"…"}) — discover by name.
+GOTCHAS:
+- Alias-first: when a working-file alias is available, use that alias; otherwise use \`relativePath\`; fall back to \`query\` only when discovery is needed.
+- For writes, prefer a non-empty relativePath as the canonical save target; \`filename\` is only a delivery-name override, not the canonical save path.
+- Delivery honesty: never claim a file was sent unless \`files.send\` or \`files.write_and_send\` succeeded THIS turn. Discovering, reading, or describing a file is NOT delivery.
+- Inventories: summarize by workspace / uploads / artifacts and hide raw service paths or UUID folders by default; only enumerate every raw relativePath when the user explicitly asks for the raw list.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -276,8 +335,15 @@ GOTCHAS:
     description: "Run a bounded executable inside the isolated sandbox workspace.",
     modelDescription:
       "Run one bounded executable with explicit arguments inside the assistant sandbox workspace.",
-    modelUsageGuidance:
-      "Use this only when a real process execution is necessary. Refer to files in the assistant workspace by relative path and stay within the sandbox limits.",
+    modelUsageGuidance: `WHEN TO USE: A real bounded executable must run with explicit arguments inside the assistant sandbox workspace.
+WHEN NOT TO USE: Plain file IO (use files). Multi-step shell pipelines or shell builtins (use shell).
+EXAMPLES:
+- exec({command:"python", args:["script.py", "input.txt"]}) — run a script in the sandbox.
+- exec({command:"ffmpeg", args:["-i","input.mp4","output.mp4"]}) — bounded transform.
+GOTCHAS:
+- Refer to workspace files by relative path; absolute paths outside the sandbox will be rejected.
+- Stay within sandbox CPU / memory / time limits; the call is killed when limits are exceeded.
+- Do NOT use exec to substitute for the document, image, or web tools; those have dedicated providers.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -288,8 +354,15 @@ GOTCHAS:
     displayName: "Shell",
     description: "Run a bounded shell command inside the isolated sandbox workspace.",
     modelDescription: "Run a bounded shell command inside the assistant sandbox workspace.",
-    modelUsageGuidance:
-      "Use this only when a shell command is actually needed. Refer to files in the assistant workspace by relative path and prefer the files tool for normal file IO.",
+    modelUsageGuidance: `WHEN TO USE: A shell command (pipes, redirects, shell builtins, multi-step composition) is genuinely needed inside the sandbox.
+WHEN NOT TO USE: Plain file IO (use files). A single bounded executable with explicit arguments (use exec). Producing a document, image, or web result (use the dedicated tool).
+EXAMPLES:
+- shell({command:"grep -r 'TODO' src/"}) — pipeline-style search.
+- shell({command:"ls -la artifacts/ | head -20"}) — composed shell pipeline.
+GOTCHAS:
+- Refer to workspace files by relative path; absolute paths outside the sandbox are rejected.
+- Stay within sandbox CPU / memory / time limits.
+- Prefer the \`files\` tool for normal file IO and \`exec\` for single-command runs; reserve shell for genuine shell composition.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"

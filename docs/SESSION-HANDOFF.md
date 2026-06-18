@@ -3,6 +3,89 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — ADR-119 cleanup slice (template + tool descriptor normalization + legacy fallback canonicalization)
+
+### Root cause
+
+Post-live-test audit by the founder surfaced five structural inconsistencies that the staged ADR-119 slices left behind:
+
+1. Markdown `# X` / `## X` headings still surfaced *inside* the XML-wrapped templates (e.g. `# Core Persona` inside `<voice>`, `# Sense of Time` inside `<persai_environment>`). The XML tag IS the heading; duplicating it as markdown is noise and pushes the model toward emitting markdown headings in its own output.
+2. Four prompt templates (`router_classifier`, `skill_state_classifier`, `preview_bootstrap`, `welcome_bootstrap`) were *never* wrapped in canonical XML — they shipped as raw markdown prompts. They had been excluded from the Slice 1 XML balance validator via `SKIPPED_TEMPLATE_KEYS`.
+3. Slice 7 rewrote 8/20 catalog tools and 3/5 hidden synthetics to the canonical 4-section ACI format (`WHEN TO USE` / `WHEN NOT TO USE` / `EXAMPLES` / `GOTCHAS`). The remaining 12 catalog tools (incl. `video_generate`, `document`, `tts`, `browser`, `scheduled_action`, `background_task`, `persai_tool_quota_status`, `files`, `exec`, `shell`) and 2 synthetics (`summarize_context`, `compact_context`, `quota_status`) still used one-liner prose, so admin UI and tool projection produced inconsistent surfaces.
+4. `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts` carried legacy markdown-heading fallback paths in `generateSoulPrompt`, `generateUserPrompt`, `generateIdentityPrompt`, `generatePreviewPrompt`, and `generateWelcomePrompt`. They fire only when a template is null (test fixtures, fresh DB) but still produce `# Identity` / `# User Context` / `# Character Preview` / `# First Conversation` — exactly the markdown surface the user saw in live-test screenshots.
+5. `renderTraitsBlock` emitted `## Personality Traits\n\n- **trait**: N/100` markdown inside the `<voice>` block via the `{{traits_block}}` placeholder, regardless of which template was in use — visible in the live-test prompt.
+
+### Fix scope (single integral cleanup slice)
+
+- **Visible templates (`apps/api/prisma/bootstrap-preset-data.ts`)** — `soul`, `user`, `identity`, `memory_protocol`, `tools`, `heartbeat`, `presence` had every `# H1` / `## H2` markdown heading replaced with nested canonical XML elements (`<core_persona>`, `<gendered_self_reference>`, `<style>`, `<openings>`, `<emotion_response>`, `<silence>`, `<examples>`, `<sense_of_time>`, `<usage>`). The numbered priority list in `<tool_usage_policy>` lifted from Markdown `1. … 6. …` to canonical XML `<rule order="N">…</rule>` inside `<priority_order>`. List labels normalized: `- **Name**: value` → `- Name: value` (bold inline emphasis stripped from list-item labels; true emphasis like `**${assistantName}**` kept).
+- **Missed templates** — `router_classifier` → `<router_classifier>` with `<modes>`, `<retrieval_plan>`, `<tool_hints>`; `skill_state_classifier` → `<skill_state_classifier>` with `<rules>`; `preview_bootstrap` → `<character_preview>` with `<task>`, `<constraints>`; `welcome_bootstrap` → `<first_conversation_greeting>` with `<task>`, `<opening_requirements>`, `<middle_section>`, `<closing_requirements>`, `<formatting_constraints>`.
+- **Tool descriptors (`apps/api/prisma/tool-catalog-data.ts`)** — full 4-section ACI conversion for 10 remaining catalog entries: `video_generate`, `document`, `tts`, `browser`, `scheduled_action`, `background_task`, `persai_tool_quota_status`, `files`, `exec`, `shell`. `files` override mirrored in `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts` (policy override path that supersedes catalog). Hidden synthetics in `HIDDEN_PROMPT_TEMPLATE_DEFAULTS` — `summarize_context`, `compact_context`, `quota_status` converted to the same shape. `cron` and `persai_workspace_attach` keep one-liner shape (hidden-internal / migration-only, never model-visible).
+- **Legacy fallback canonicalization (`compile-prompt-constructor.service.ts`)** — the `template === null` branch of `generateSoulPrompt` rebuilt to emit `<voice>` + `<character_notes>` instead of `# Core Persona` / `## Voice` / `## How you may open` etc.; `generateUserPrompt` → `<user>`; `generateIdentityPrompt` → `<identity>`; `generatePreviewPrompt` → `<character_preview>`; `generateWelcomePrompt` → `<first_conversation_greeting>`. `renderTraitsBlock` rewritten from `## Personality Traits\n\n- **trait**: …` to `<personality_traits>\n- trait: …\n</personality_traits>`. `interpolateTemplate` line-builders (`user_name_line`, `assistant_gender_line`, `archetype_label_line`, etc.) updated to feed `- Name: value` style into the placeholders, matching the new template defaults.
+- **Memory `<read>` provenance documentation** — added a 4-line enum reference inside `<memory_protocol><read>` so the model interprets `user_explicit` / `system_inferred` / `auto_extracted` / `legacy` correctly (the live-test "P1 provenance" finding was an older backfill entry, not a write-path bug; write paths already set the correct enum per audit of `RuntimeMemoryWriteToolService`, `ManageAssistantWorkspaceMemoryService.add`, `AutoExtractToMemoryService`).
+
+### Tests
+
+- `apps/api/test/bootstrap-preset-data.test.ts` — `SKIPPED_TEMPLATE_KEYS` emptied (every template now must pass XML balance); `EXPECTED_OUTER_TAGS` extended with the 4 newly-wrapped templates and their canonical outer tags; new `runNoMarkdownHeadings` invariant function asserts no `^#{1,6}\s` markdown headings inside any visible/hidden template after stripping fenced code blocks, inline backticks, and `{{placeholders}}`.
+- `apps/api/test/seed-tool-catalog.test.ts` — the Slice 7 8-tool ACI shape check generalized to "every model-visible catalog entry must carry the 4-section ACI shape" (`HIDDEN_ONELINER_CODES` skips only `cron` and `persai_workspace_attach`); cross-tool drift `ALLOW_LIST` expanded with the new legitimate cross-references (`browser ↔ web_search/web_fetch`; `video_generate → image_generate/image_edit/tts`; `document → files`; `scheduled_action ↔ background_task`; `persai_tool_quota_status → knowledge_search/document`; `files ↔ exec/shell/document`; `exec → shell/files/document`; `shell → files/exec/document`); restructured-catalog set renamed to `ACI_CATALOG_CODES` and extended to cover all 18 in-scope tools.
+- `apps/api/test/runtime-tool-policy.test.ts` — `files` override assertions updated for the canonical 4-section shape (asserts each section header line, plus the canonical phrasings inside `GOTCHAS`).
+- Golden snapshot — `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt` deleted and regenerated against the new prompt bytes (11346 bytes vs prior 11007).
+
+### Files touched
+
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/test/bootstrap-preset-data.test.ts`
+- `apps/api/test/seed-tool-catalog.test.ts`
+- `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt` (regenerated)
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Gate
+
+- `corepack pnpm -r --if-present run lint` PASS (all packages)
+- `corepack pnpm run format:check` PASS (3 auto-fixes applied during the slice)
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm --filter @persai/api run test` PASS (full suite, incl. new invariants and regenerated golden snapshot)
+- `corepack pnpm --filter @persai/runtime run test` PASS
+- `corepack pnpm --filter @persai/provider-gateway run test` PASS
+- `corepack pnpm --filter @persai/web run test` PASS
+
+### Reset-to-default checklist (founder runs after deploy)
+
+Existing assistants carry their own snapshot copies of every visible template in DB. The new defaults only take effect on `Reset to default`. After GitOps reconcile, visit `/admin/presets/[assistant]` for each affected assistant and click `Reset to default` on these template rows:
+
+- `system`
+- `soul`
+- `user`
+- `identity`
+- `memory_protocol`
+- `tools`
+- `heartbeat`
+- `presence`
+- `router_classifier`
+- `skill_state_classifier`
+- `preview_bootstrap`
+- `welcome_bootstrap`
+
+Tool catalog: nothing to click. `SeedToolCatalogService` auto-applies the new `modelDescription` / `modelUsageGuidance` strings on every API pod startup (`startup_idempotent: true`), so the new ACI shape ships with the next deploy automatically.
+
+### Risks / residuals
+
+- **One-time prompt-cache prefix invalidation on rollout** — all template bytes change in this slice, so the Anthropic and OpenAI cache prefixes invalidate once and rebuild on the next turn. Per ADR-119 D11 this is acceptable; expected on cleanup waves.
+- The `runNoMarkdownHeadings` invariant is intentionally strict — any future template work that uses `^#{1,6}\s` will fail the test. Backtick the example or lift it to nested XML.
+- OpenAI symmetry for the wider response-dump path (not in this slice, separate residual from prior follow-up): if the live test pivots to GPT-5.x, OpenAI client still needs the `dumpResponse` wiring done for Anthropic.
+- Bold inline emphasis `**X**` is still used in true-emphasis spots (`**${assistantName}**`, `**${humanName}**`, `Your voice is **${voiceDna.archetypeLabel}**`). This is intentional and Anthropic-standard; only list-item label bold was stripped.
+
+### Next recommended step
+
+Push to `main`, wait for `Dev Image Publish` → GitOps reconcile, run the Reset-to-default checklist on the founder's assistants, then re-launch the browser-use subagent against `docs/ADR/119-live-test-plan.md`. With every template now XML-canonical and every model-visible tool descriptor in 4-section ACI shape, the cache-effectiveness zone (F) should now read clean cache-prefix hits across turns; the model's own response markdown should no longer be biased by markdown headings in the system prompt; and tool selection across Zones C/D should be tighter because the descriptors all carry explicit WHEN/NOT/EXAMPLES/GOTCHAS routing.
+
+---
+
 ## 2026-06-18 — Anthropic terminal usage metadata + wired `dumpResponse` (live-test blocker fix)
 
 ### Root cause

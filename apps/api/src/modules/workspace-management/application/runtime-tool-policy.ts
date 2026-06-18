@@ -131,7 +131,21 @@ function resolveRuntimeToolUsageGuidance(
     return "Keep this helper off the normal model-visible path.";
   }
   if (runtimeToolCode === "files") {
-    return "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. For files.write and files.write_and_send, always prefer a non-empty relative path as the save target; filename is only a delivery-name override, not the canonical save path. Use files.delete for cleanup of obsolete files or directory trees. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. By default, present file inventories as a short grouped summary (workspace, uploads, artifacts) and hide raw service paths or UUID folders; only enumerate every raw relativePath when the user explicitly asks for the full raw list. When a working-file alias is available, use that alias first with files.inspect, files.read, files.preview, files.edit, files.delete, or files.send; otherwise use relativePath or query. Use files.inspect before files.read or files.preview to see capabilities and size limits. If the user asks you to send, resend, attach, or share an existing file, discovering or reading that file is not enough: call files.send in the same turn. A working-file alias, relativePath, filename, or markdown link is not a substitute for delivery. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep exec and shell for actual process execution only.";
+    return `WHEN TO USE: Any file-system work in the assistant's managed workspace — list, search, inspect, read, preview, write, write-and-send, edit, delete, or send.
+WHEN NOT TO USE: Real process execution (use exec or shell). Producing a NEW deliverable PDF, deck, or structured document (use document).
+EXAMPLES:
+- files.write_and_send({relativePath:"…", contents:"…"}) — save and immediately deliver in chat.
+- files.write({relativePath:"…", contents:"…"}) — save only.
+- files.send({workingFileAlias:"…"}) — deliver an existing file the user already references.
+- files.list({}) — inventory by workspace / uploads / artifacts.
+- files.search({query:"…"}) — discover by name.
+- files.inspect({…}) — see capabilities and size limits before files.read or files.preview.
+GOTCHAS:
+- Alias-first: when a working-file alias is available, use that alias for files.inspect / files.read / files.preview / files.edit / files.delete / files.send; otherwise use relativePath, then query.
+- For files.write and files.write_and_send, always prefer a non-empty relativePath as the canonical save target; \`filename\` is only a delivery-name override, NOT the canonical save path.
+- Delivery honesty: if the user asks you to send, resend, attach, or share an existing file, discovering or reading that file is NOT delivery. Call files.send in the same turn. A working-file alias, relativePath, filename, or markdown link is NOT a substitute for delivery. Never claim a file was sent unless files.send or files.write_and_send succeeded THIS turn.
+- Inventories: by default, present file inventories as a short grouped summary (workspace, uploads, artifacts) and hide raw service paths or UUID folders; only enumerate every raw relativePath when the user explicitly asks for the full raw list.
+- Keep exec and shell for actual process execution only.`;
   }
   return tool.modelUsageGuidance;
 }

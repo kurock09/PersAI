@@ -13,8 +13,10 @@ import { VISIBLE_PROMPT_TEMPLATE_DEFAULTS } from "../prisma/bootstrap-preset-dat
 // tokens are substituted with inert safe content so the validator only inspects
 // structural tag balance, never the interpolated values.
 
-// Hidden classifier templates are JSON-instruction prompts with no XML structure.
-const SKIPPED_TEMPLATE_KEYS = new Set(["router_classifier", "skill_state_classifier"]);
+// After the ADR-119 cleanup slice EVERY default template carries a canonical
+// XML wrapper, including the hidden classifier and bootstrap templates. The
+// skip set is empty — every template must pass XML balance.
+const SKIPPED_TEMPLATE_KEYS = new Set<string>();
 
 const TAG_RE = /<(\/?)([a-zA-Z][\w-]*)((?:\s+[^<>]*?)?)(\/?)>/g;
 
@@ -86,7 +88,11 @@ const EXPECTED_OUTER_TAGS: Record<string, string> = {
   memory_protocol: "memory_protocol",
   tools: "tool_usage_policy",
   heartbeat: "background_task_evaluation",
-  presence: "persai_environment"
+  presence: "persai_environment",
+  router_classifier: "router_classifier",
+  skill_state_classifier: "skill_state_classifier",
+  preview_bootstrap: "character_preview",
+  welcome_bootstrap: "first_conversation_greeting"
 };
 
 async function runXmlBalance(): Promise<void> {
@@ -343,13 +349,61 @@ async function runResponseContractSlice8(): Promise<void> {
   );
 }
 
+async function runNoMarkdownHeadings(): Promise<void> {
+  // ADR-119 cleanup slice — no markdown headings (`# `, `## `, `### ` …) inside
+  // any XML-wrapped template. The XML tag IS the heading. Backticked spans and
+  // fenced code blocks are stripped before the check (they may carry literal
+  // markdown examples meant as instructions to the model, e.g. \`## What I can do\`).
+  const HEADING_RE = /^#{1,6}\s/m;
+  for (const [key, template] of Object.entries(VISIBLE_PROMPT_TEMPLATE_DEFAULTS)) {
+    const cleaned = stripCodeAndPlaceholders(template);
+    assert.doesNotMatch(
+      cleaned,
+      HEADING_RE,
+      `Template "${key}" must not contain markdown headings (#, ##, ### …) inside XML tags. ` +
+        `The XML tag is the heading; lift section structure to nested XML or backtick the example.`
+    );
+  }
+}
+
+async function runPresenceSlice12(): Promise<void> {
+  // ADR-119 Slice 12 — <persai_environment> presence template MUST carry the
+  // {{current_local_date}} placeholder so the runtime renderer can substitute
+  // the absolute date. Without it the model invents the year (live-test row
+  // A2 confabulated "19 июня 2025" when the real date was "18 июня 2026").
+  const presence = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.presence ?? "";
+  assert.ok(presence.length > 0, "presence template must be non-empty");
+  assert.ok(
+    presence.includes("{{current_local_date}}"),
+    "presence template must include {{current_local_date}} placeholder"
+  );
+  assert.ok(
+    presence.includes("{{current_local_weekday}}"),
+    "presence template must keep {{current_local_weekday}} placeholder"
+  );
+  assert.ok(
+    presence.includes("{{current_local_time}}"),
+    "presence template must keep {{current_local_time}} placeholder"
+  );
+  // Guard against re-confabulation: the template should explicitly remind the
+  // model to never invent a year. Be lenient on phrasing but require both
+  // "Never invent" and "year" tokens on the same line.
+  assert.match(
+    presence,
+    /Never invent a year/,
+    "presence template must instruct the model to never invent a year"
+  );
+}
+
 async function run(): Promise<void> {
   await runXmlBalance();
   await runOuterTagPresence();
+  await runNoMarkdownHeadings();
   await runSoulCharacterNotes();
   await runRemindersProtocolSlice5();
   await runMemoryProtocolSlice9();
   await runResponseContractSlice8();
+  await runPresenceSlice12();
 }
 
 void run();

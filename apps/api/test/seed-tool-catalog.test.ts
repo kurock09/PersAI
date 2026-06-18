@@ -122,36 +122,33 @@ async function run(): Promise<void> {
     assert.ok(videoGenerate?.modelUsageGuidance?.includes("referenceImageAlias"));
   }
 
-  // ADR-119 Slice 7: per-tool descriptor shape — all 8 rewritten tools must have
-  // modelDescription and modelUsageGuidance with the 4 structured sections.
+  // ADR-119 Slice 7 + cleanup slice: per-tool descriptor shape — every catalog
+  // entry that is model-visible must carry the canonical 4-section ACI shape
+  // (WHEN TO USE / WHEN NOT TO USE / EXAMPLES / GOTCHAS).
   {
-    const SLICE7_TOOL_CODES = [
-      "web_search",
-      "web_fetch",
-      "image_generate",
-      "image_edit",
-      "skill",
-      "memory_search", // projected as knowledge_search
-      "memory_get", // projected as knowledge_fetch
-      "memory_write"
-    ];
+    // Hidden-internal or migration-only tools are not model-visible and keep
+    // their short one-liner descriptors deliberately. Everything else must
+    // follow the canonical 4-section shape.
+    const HIDDEN_ONELINER_CODES = new Set([
+      "cron", // hidden_internal scheduler bridge
+      "persai_workspace_attach" // platform_managed migration-only helper
+    ]);
     const REQUIRED_SECTIONS = ["WHEN TO USE:", "WHEN NOT TO USE:", "EXAMPLES:", "GOTCHAS:"];
 
-    for (const code of SLICE7_TOOL_CODES) {
-      const entry = TOOL_CATALOG.find((e) => e.code === code);
-      assert.ok(entry, `ADR-119 Slice 7: ${code} must be present in TOOL_CATALOG`);
+    for (const entry of TOOL_CATALOG) {
+      if (HIDDEN_ONELINER_CODES.has(entry.code)) continue;
       assert.ok(
-        entry?.modelDescription && entry.modelDescription.trim().length > 0,
-        `ADR-119 Slice 7: ${code}.modelDescription must be non-empty`
+        entry.modelDescription && entry.modelDescription.trim().length > 0,
+        `ACI: ${entry.code}.modelDescription must be non-empty`
       );
       assert.ok(
-        entry?.modelUsageGuidance && entry.modelUsageGuidance.trim().length > 0,
-        `ADR-119 Slice 7: ${code}.modelUsageGuidance must be non-empty`
+        entry.modelUsageGuidance && entry.modelUsageGuidance.trim().length > 0,
+        `ACI: ${entry.code}.modelUsageGuidance must be non-empty`
       );
       for (const section of REQUIRED_SECTIONS) {
         assert.ok(
-          entry?.modelUsageGuidance?.includes(section),
-          `ADR-119 Slice 7: ${code}.modelUsageGuidance must contain "${section}"`
+          entry.modelUsageGuidance?.includes(section),
+          `ACI: ${entry.code}.modelUsageGuidance must contain "${section}"`
         );
       }
     }
@@ -180,36 +177,53 @@ async function run(): Promise<void> {
       "background_task"
     ];
     // Map catalog code → allowed mentions of OTHER projected tool codes.
-    // Chain-link exceptions per ADR-119 Slice 7:
-    //   web_search  → may mention web_fetch
-    //   web_fetch   → may mention web_search, browser
-    //   memory_search (knowledge_search) → may mention knowledge_fetch
-    //   memory_get  (knowledge_fetch)    → may mention knowledge_search
+    // Allowed cross-references are deliberate routing guidance (the 4-section
+    // ACI shape explicitly states WHEN NOT TO USE in terms of the alternative
+    // tool the model should pick instead).
     const ALLOW_LIST: Record<string, string[]> = {
       web_search: ["web_fetch"],
       web_fetch: ["web_search", "browser"],
-      memory_search: ["knowledge_fetch", "knowledge_search"], // own projected name + chain
-      memory_get: ["knowledge_search", "knowledge_fetch"], // own projected name + chain
-      // shell guidance pre-dates Slice 7; it mentions "the files tool" for IO routing.
-      shell: ["files"]
+      browser: ["web_search", "web_fetch"],
+      memory_search: ["knowledge_fetch", "knowledge_search"],
+      memory_get: ["knowledge_search", "knowledge_fetch"],
+      image_generate: ["image_edit"],
+      image_edit: ["image_generate"],
+      video_generate: ["image_generate", "image_edit", "tts"],
+      document: ["files"],
+      scheduled_action: ["background_task"],
+      background_task: ["scheduled_action"],
+      persai_tool_quota_status: ["knowledge_search", "document"],
+      files: ["exec", "shell", "document"],
+      exec: ["shell", "files", "document"],
+      shell: ["files", "exec", "document"]
     };
 
-    // Only enforce on the 8 rewritten tools — other existing entries have not been
-    // audited for cross-tool prose yet (they may use tool names as English words).
-    const SLICE7_CATALOG_CODES = new Set([
+    // Restructured-catalog set: every model-visible catalog entry that carries
+    // the canonical 4-section ACI shape. The drift check runs on all of them.
+    const ACI_CATALOG_CODES = new Set([
       "web_search",
       "web_fetch",
       "image_generate",
       "image_edit",
-      "skill",
+      "video_generate",
+      "document",
+      "tts",
+      "browser",
       "memory_search",
       "memory_get",
+      "scheduled_action",
+      "background_task",
+      "persai_tool_quota_status",
+      "files",
+      "exec",
+      "shell",
+      "skill",
       "memory_write"
     ]);
 
     for (const entry of TOOL_CATALOG) {
       if (!entry.modelUsageGuidance) continue;
-      if (!SLICE7_CATALOG_CODES.has(entry.code)) continue;
+      if (!ACI_CATALOG_CODES.has(entry.code)) continue;
       const allowed = ALLOW_LIST[entry.code] ?? [];
       for (const forbidden of ALL_PROJECTED_CODES) {
         if (forbidden === entry.code) continue;

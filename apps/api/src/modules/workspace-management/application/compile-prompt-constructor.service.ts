@@ -220,7 +220,7 @@ export class CompilePromptConstructorService {
     if (template) {
       const voiceVars: Record<string, string | null> = voiceDna
         ? {
-            archetype_label_line: `- **Archetype**: ${voiceDna.archetypeLabel}`,
+            archetype_label_line: `- Archetype: ${voiceDna.archetypeLabel}`,
             voice_sentence_length: voiceDna.voice.sentenceLength,
             voice_pace: voiceDna.voice.pace,
             voice_irony: String(voiceDna.voice.irony),
@@ -250,7 +250,7 @@ export class CompilePromptConstructorService {
 
       const rendered = this.interpolateTemplate(template, {
         assistant_name: pv.snapshotDisplayName ?? "an assistant",
-        assistant_gender_line: assistantGender ? `- **Gender**: ${assistantGender}` : null,
+        assistant_gender_line: assistantGender ? `- Gender: ${assistantGender}` : null,
         ...voiceVars,
         traits_block: traitsBlock,
         instructions_block: instructionsBlock
@@ -263,46 +263,65 @@ export class CompilePromptConstructorService {
       return this.stripEmptyCharacterNotes(rendered);
     }
 
-    const lines: string[] = ["# Core Persona", ""];
-    lines.push(`You are **${pv.snapshotDisplayName ?? "an assistant"}**.`);
+    // Canonical XML fallback (fires only when no `soul` template is supplied).
+    // Mirrors the default template structure: <voice> with nested sections,
+    // followed by <character_notes>. Keeps the no-markdown-headings invariant.
+    const voiceLines: string[] = ["<voice>", "<core_persona>"];
+    voiceLines.push(`You are **${pv.snapshotDisplayName ?? "an assistant"}**.`);
     if (assistantGender) {
-      lines.push(`- **Gender**: ${assistantGender}`);
+      voiceLines.push(`- Gender: ${assistantGender}`);
     }
     if (voiceDna) {
-      lines.push(`- **Archetype**: ${voiceDna.archetypeLabel}`);
-      lines.push("");
-      lines.push("## Voice");
-      lines.push(`- Sentence length: ${voiceDna.voice.sentenceLength}`);
-      lines.push(`- Pace: ${voiceDna.voice.pace}`);
-      lines.push(`- Irony: ${String(voiceDna.voice.irony)}/100`);
-      lines.push("");
-      lines.push("## How you may open");
-      lines.push(`Allowed: ${this.formatPhraseList(voiceDna.openingsAllowed)}.`);
-      lines.push(`Forbidden: ${this.formatPhraseList(voiceDna.openingsForbidden)}.`);
-      lines.push("");
-      lines.push("## Behavior under emotion");
-      lines.push(`- When the user is upset: ${voiceDna.behaviors.whenUserUpset}`);
-      lines.push(`- When the user is excited: ${voiceDna.behaviors.whenUserExcited}`);
-      lines.push(`- When the user is tired: ${voiceDna.behaviors.whenUserTired}`);
-      lines.push(`- When the user is angry: ${voiceDna.behaviors.whenUserAngry}`);
-      lines.push("");
-      lines.push("## Silence");
-      lines.push(voiceDna.silenceRule);
-      lines.push("");
-      lines.push("## How you actually sound");
-      lines.push(this.renderVoiceExamplesBlock(voiceDna.examples));
-      lines.push("");
+      voiceLines.push(`- Archetype: ${voiceDna.archetypeLabel}`);
     }
-    lines.push("");
+    voiceLines.push("</core_persona>");
+    if (voiceDna) {
+      voiceLines.push("");
+      voiceLines.push("<style>");
+      voiceLines.push(`- Sentence length: ${voiceDna.voice.sentenceLength}`);
+      voiceLines.push(`- Pace: ${voiceDna.voice.pace}`);
+      voiceLines.push(`- Irony: ${String(voiceDna.voice.irony)}/100`);
+      voiceLines.push("</style>");
+      voiceLines.push("");
+      voiceLines.push("<openings>");
+      voiceLines.push(
+        `You may open with phrasings like: ${this.formatPhraseList(voiceDna.openingsAllowed)}.`
+      );
+      voiceLines.push(
+        `Never open with phrasings like: ${this.formatPhraseList(voiceDna.openingsForbidden)}.`
+      );
+      voiceLines.push("</openings>");
+      voiceLines.push("");
+      voiceLines.push("<emotion_response>");
+      voiceLines.push(`- When the user is upset: ${voiceDna.behaviors.whenUserUpset}`);
+      voiceLines.push(`- When the user is excited: ${voiceDna.behaviors.whenUserExcited}`);
+      voiceLines.push(`- When the user is tired: ${voiceDna.behaviors.whenUserTired}`);
+      voiceLines.push(`- When the user is angry: ${voiceDna.behaviors.whenUserAngry}`);
+      voiceLines.push("</emotion_response>");
+      voiceLines.push("");
+      voiceLines.push("<silence>");
+      voiceLines.push(voiceDna.silenceRule);
+      voiceLines.push("</silence>");
+      const examples = this.renderVoiceExamplesBlock(voiceDna.examples);
+      if (examples.length > 0) {
+        voiceLines.push("");
+        voiceLines.push("<examples>");
+        voiceLines.push(examples);
+        voiceLines.push("</examples>");
+      }
+    }
     if (traitsBlock) {
-      lines.push(traitsBlock);
-      lines.push("");
+      voiceLines.push("");
+      voiceLines.push(traitsBlock);
     }
+    voiceLines.push("</voice>");
     if (instructionsBlock) {
-      lines.push(instructionsBlock);
-      lines.push("");
+      voiceLines.push("");
+      voiceLines.push("<character_notes>");
+      voiceLines.push(instructionsBlock);
+      voiceLines.push("</character_notes>");
     }
-    return lines.join("\n").trimEnd();
+    return voiceLines.join("\n").trimEnd();
   }
 
   private stripEmptyCharacterNotes(rendered: string): string {
@@ -329,10 +348,15 @@ export class CompilePromptConstructorService {
 
   private renderTraitsBlock(traits: Record<string, number> | null): string {
     if (!traits || Object.keys(traits).length === 0) return "";
-    const lines = ["## Personality Traits", ""];
+    // Canonical XML form: the surrounding template wraps this block inside
+    // <voice>, so we nest it as a <personality_traits> child rather than
+    // emitting a markdown heading (which would violate the no-markdown-
+    // headings-inside-XML invariant enforced in bootstrap-preset-data.test).
+    const lines = ["<personality_traits>"];
     for (const [trait, value] of Object.entries(traits)) {
-      lines.push(`- **${trait}**: ${String(value)}/100`);
+      lines.push(`- ${trait}: ${String(value)}/100`);
     }
+    lines.push("</personality_traits>");
     return lines.join("\n");
   }
 
@@ -348,20 +372,22 @@ export class CompilePromptConstructorService {
   ): string {
     if (template) {
       return this.interpolateTemplate(template, {
-        user_name_line: userCtx.displayName ? `- **Name**: ${userCtx.displayName}` : null,
-        user_birthday_line: userCtx.birthday ? `- **Birthday**: ${userCtx.birthday}` : null,
-        user_gender_line: userCtx.gender ? `- **Gender**: ${userCtx.gender}` : null,
+        user_name_line: userCtx.displayName ? `- Name: ${userCtx.displayName}` : null,
+        user_birthday_line: userCtx.birthday ? `- Birthday: ${userCtx.birthday}` : null,
+        user_gender_line: userCtx.gender ? `- Gender: ${userCtx.gender}` : null,
         user_locale: userCtx.locale,
         user_timezone: userCtx.timezone
       });
     }
 
-    const lines: string[] = ["# User Context", ""];
-    if (userCtx.displayName) lines.push(`- **Name**: ${userCtx.displayName}`);
-    if (userCtx.birthday) lines.push(`- **Birthday**: ${userCtx.birthday}`);
-    if (userCtx.gender) lines.push(`- **Gender**: ${userCtx.gender}`);
-    lines.push(`- **Locale**: ${userCtx.locale}`);
-    lines.push(`- **Timezone**: ${userCtx.timezone}`);
+    // Canonical XML fallback (fires only when no `user` template is supplied).
+    const lines: string[] = ["<user>"];
+    if (userCtx.displayName) lines.push(`- Name: ${userCtx.displayName}`);
+    if (userCtx.birthday) lines.push(`- Birthday: ${userCtx.birthday}`);
+    if (userCtx.gender) lines.push(`- Gender: ${userCtx.gender}`);
+    lines.push(`- Locale: ${userCtx.locale}`);
+    lines.push(`- Timezone: ${userCtx.timezone}`);
+    lines.push("</user>");
     return lines.join("\n");
   }
 
@@ -370,21 +396,23 @@ export class CompilePromptConstructorService {
     if (template) {
       return this.interpolateTemplate(template, {
         assistant_name: pv.snapshotDisplayName ?? "Assistant",
-        assistant_gender_line: assistantGender ? `- **Gender**: ${assistantGender}` : null,
+        assistant_gender_line: assistantGender ? `- Gender: ${assistantGender}` : null,
         assistant_avatar_emoji_line: pv.snapshotAvatarEmoji
-          ? `- **Avatar**: ${pv.snapshotAvatarEmoji}`
+          ? `- Avatar: ${pv.snapshotAvatarEmoji}`
           : null,
         assistant_avatar_url_line: pv.snapshotAvatarUrl
-          ? `- **Avatar URL**: ${pv.snapshotAvatarUrl}`
+          ? `- Avatar URL: ${pv.snapshotAvatarUrl}`
           : null
       });
     }
 
-    const lines: string[] = ["# Identity", ""];
-    lines.push(`- **Name**: ${pv.snapshotDisplayName ?? "Assistant"}`);
-    if (assistantGender) lines.push(`- **Gender**: ${assistantGender}`);
-    if (pv.snapshotAvatarEmoji) lines.push(`- **Avatar**: ${pv.snapshotAvatarEmoji}`);
-    if (pv.snapshotAvatarUrl) lines.push(`- **Avatar URL**: ${pv.snapshotAvatarUrl}`);
+    // Canonical XML fallback (fires only when no `identity` template is supplied).
+    const lines: string[] = ["<identity>"];
+    lines.push(`- Name: ${pv.snapshotDisplayName ?? "Assistant"}`);
+    if (assistantGender) lines.push(`- Gender: ${assistantGender}`);
+    if (pv.snapshotAvatarEmoji) lines.push(`- Avatar: ${pv.snapshotAvatarEmoji}`);
+    if (pv.snapshotAvatarUrl) lines.push(`- Avatar URL: ${pv.snapshotAvatarUrl}`);
+    lines.push("</identity>");
     return lines.join("\n");
   }
 
@@ -560,16 +588,22 @@ export class CompilePromptConstructorService {
       });
     }
 
+    // Canonical XML fallback (fires only when no `preview_bootstrap` template is supplied).
     return [
-      "# Character Preview",
-      "",
+      "<character_preview>",
       `You are testing how **${assistantName}** should sound before launch.`,
       "",
       `You are talking to **${humanName}** in a setup preview, not in a real first conversation.`,
       voiceSummaryLine,
       "",
+      "<task>",
       "Reply with one short natural sample message that clearly shows the assistant's tone, warmth, initiative, and style.",
-      "Do not say that you just came online, were created, or are meeting for the first time."
+      "</task>",
+      "",
+      "<constraints>",
+      "- Do not say that you just came online, were created, or are meeting for the first time.",
+      "</constraints>",
+      "</character_preview>"
     ]
       .filter((line): line is string => line !== null)
       .join("\n")
@@ -596,15 +630,18 @@ export class CompilePromptConstructorService {
       });
     }
 
+    // Canonical XML fallback (fires only when no `welcome_bootstrap` template is supplied).
     return [
-      "# First Conversation",
-      "",
-      "You just came online for the first time.",
+      "<first_conversation_greeting>",
+      "This is the first real live chat message after publish or recreate.",
       "",
       `Your name is **${assistantName}**. Your human's name is **${humanName}**.`,
       voiceSummaryLine,
       "",
-      "Introduce yourself naturally. Don't interrogate - just talk."
+      "<task>",
+      "Introduce yourself naturally. Don't interrogate — just talk.",
+      "</task>",
+      "</first_conversation_greeting>"
     ]
       .filter((line): line is string => line !== null)
       .join("\n")

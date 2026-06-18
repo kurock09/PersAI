@@ -248,12 +248,17 @@ async function runAdr119GoldenPromptSnapshotTest(): Promise<void> {
     return;
   }
 
-  // Subsequent runs: assert byte equality.
-  const expected = readFileSync(FIXTURE_PATH, "utf8");
+  // Subsequent runs: assert byte equality. Normalize CRLF to LF on both sides
+  // so the test does not flake on Windows checkouts (core.autocrlf=true stores
+  // text fixtures with `\r\n` while the in-memory template render produces
+  // `\n`). The compiled prompt itself never legitimately contains `\r`.
+  const expectedRaw = readFileSync(FIXTURE_PATH, "utf8");
+  const expected = expectedRaw.replace(/\r\n/g, "\n");
+  const renderedNormalized = rendered.replace(/\r\n/g, "\n");
   assert.equal(
-    rendered,
+    renderedNormalized,
     expected,
-    "ADR-119 Golden Test 1: full materialized system prefix must be byte-identical to the committed fixture.\n" +
+    "ADR-119 Golden Test 1: full materialized system prefix must be byte-identical to the committed fixture (LF-normalized).\n" +
       "If the prompt intentionally changed, delete the fixture file and rerun once to regenerate it."
   );
 }
