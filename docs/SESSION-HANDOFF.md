@@ -11,11 +11,14 @@ The Slice 4 scenario step schema extended `SkillScenarioStepState` with `expecte
 
 ### Fix scope
 
-- `apps/web/app/admin/skills/page.tsx`: `ScenarioStepDraft` extended with 4 new string fields. `EMPTY_SCENARIO_STEP_DRAFT` defaults to `""`. `scenarioToDraft` maps API fields via `?? ""`. `validateScenarioDraft` enforces length limits (400/200/400/200 chars). Both payload serializers trim and null-coerce. Step editor JSX: 3 textareas per step + text input on step 1 only for `firstStepPreview`. `renderActiveScenarioBlockPreview` rewritten to Slice 4 XML format. New `renderScenarioCatalogFirstStepPreview` helper. Catalog preview pane shows `<first_step_preview>` value.
-- `apps/api/src/modules/workspace-management/application/skill-scenario.types.ts`: `SkillScenarioStepState` gains `firstStepPreview: string | null`; `parseStep` validates ≤200 chars; `normalizeStepsState` reads from stored JSON.
-- `apps/api/src/modules/workspace-management/application/enabled-skills-prompt-materialization.ts`: `<first_step_preview>` uses `firstStep.firstStepPreview` verbatim when non-null/non-empty, falls back to auto-derived from `directive`.
-- `packages/contracts/src/generated/model/adminSkillScenarioStep.ts`: optional `expectedUserResponse?`, `nextStepTrigger?`, `recoveryGuidance?`, `firstStepPreview?` added.
-- `packages/runtime-contract/src/index.ts`: `RuntimeBundleSkillScenarioStep` gains optional `firstStepPreview?`.
+- `apps/web/app/admin/skills/page.tsx`: `ScenarioStepDraft` extended with 4 new string fields. `EMPTY_SCENARIO_STEP_DRAFT` defaults to `""`. `scenarioToDraft` maps `scenario.firstStepPreview` (scenario-level) to `draft.steps[0].firstStepPreview`; other new step fields via `?? ""`. `validateScenarioDraft` enforces length limits (400/200/400/200 chars). Both payload serializers trim and null-coerce; `firstStepPreview` emitted at step 0 level and scenario level. Step editor JSX: 3 textareas per step + text input on step 1 only for `firstStepPreview`. `renderActiveScenarioBlockPreview` rewritten to Slice 4 XML format. New `renderScenarioCatalogFirstStepPreview` helper. Catalog preview pane shows `<first_step_preview>` value.
+- `apps/api/prisma/schema.prisma` + `apps/api/prisma/migrations/20260618160000_adr119_first_step_preview/migration.sql`: new `first_step_preview VARCHAR(200)` nullable column on `skill_scenarios` table.
+- `apps/api/src/modules/workspace-management/application/skill-scenario.types.ts`: `SkillScenarioStepState` gains `firstStepPreview: string | null`; `parseStep` validates ≤200 chars; `normalizeStepsState` reads from stored JSON. `AdminSkillScenarioState` gains scenario-level `firstStepPreview: string | null`.
+- `apps/api/src/modules/workspace-management/application/manage-skill-scenarios.service.ts`: `createScenario` / `updateScenario` persist and load the new `firstStepPreview` column.
+- `apps/api/src/modules/workspace-management/application/enabled-skills-prompt-materialization.ts`: `<first_step_preview>` uses `scenario.firstStepPreview` verbatim when non-null/non-empty, falls back to auto-derived from `directive`.
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`: maps `row.firstStepPreview` into `EnabledSkillScenarioCandidate`.
+- `packages/contracts/openapi.yaml` + generated model files: optional `firstStepPreview?` added to `AdminSkillScenario`, `AdminSkillScenarioStep`, `AdminCreateSkillScenarioRequest`, `AdminUpdateSkillScenarioRequest`.
+- `packages/runtime-contract/src/index.ts`: `RuntimeBundleSkillScenario` and `RuntimeBundleSkillScenarioStep` gain optional `firstStepPreview?`.
 
 ### Tests
 
@@ -27,9 +30,17 @@ The Slice 4 scenario step schema extended `SkillScenarioStepState` with `expecte
 
 - `apps/web/app/admin/skills/page.tsx`
 - `apps/web/app/admin/skills/page.test.tsx`
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260618160000_adr119_first_step_preview/migration.sql`
 - `apps/api/src/modules/workspace-management/application/skill-scenario.types.ts`
+- `apps/api/src/modules/workspace-management/application/manage-skill-scenarios.service.ts`
 - `apps/api/src/modules/workspace-management/application/enabled-skills-prompt-materialization.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/model/adminSkillScenario.ts`
 - `packages/contracts/src/generated/model/adminSkillScenarioStep.ts`
+- `packages/contracts/src/generated/model/adminCreateSkillScenarioRequest.ts`
+- `packages/contracts/src/generated/model/adminUpdateSkillScenarioRequest.ts`
 - `packages/runtime-contract/src/index.ts`
 - `apps/api/test/enabled-skills-prompt-materialization.test.ts`
 - `apps/api/test/manage-skill-scenarios.service.test.ts`
@@ -38,11 +49,11 @@ The Slice 4 scenario step schema extended `SkillScenarioStepState` with `expecte
 
 ### Risk
 
-**Low — UI extension only.** All new fields optional; backward-compatible defaults (`?? ""`). No Prisma migration: `firstStepPreview` stored in existing `steps` JSON column (step-level). The `renderActiveScenarioBlockPreview` format change is visible only in the admin preview pane. Materializer update is additive (falls back to existing auto-derive when `firstStepPreview` is null/empty).
+**Low — UI extension + additive schema.** All new fields optional; backward-compatible defaults (`?? ""`). Prisma migration is additive (new nullable column, existing rows backfill to NULL; auto-derive from `directive` preserved when column is null). The `renderActiveScenarioBlockPreview` format change is visible only in the admin preview pane. Materializer update is additive (falls back to existing auto-derive when `firstStepPreview` is null/empty).
 
 ### Deviation from instructions
 
-`firstStepPreview` added at step-level (inside `SkillScenarioStepState`) rather than scenario-level. Reason: `steps` is already a JSON blob in Prisma — step-level storage requires zero migration. Scenario-level would need a new `VARCHAR` column + migration file. This is a deliberate simplification; the field is only meaningful for `steps[0]`.
+None. `firstStepPreview` was added at scenario level (new Prisma column `first_step_preview VARCHAR(200)` on `skill_scenarios`, migration `20260618160000_adr119_first_step_preview`) as the instructions specified. It is also stored at step level within the `steps` JSON blob (for runtime bundle pass-through), but the authoritative value used by the materializer is the scenario-level Prisma column.
 
 ### Next recommended step
 
