@@ -21,9 +21,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "web_search",
     displayName: "Web Search",
     description: "Provider-backed external web lookup tool.",
-    modelDescription: "Search the public web through the currently configured search provider.",
-    modelUsageGuidance:
-      "Results include source URLs and content snippets; prefer parallel calls for independent queries.",
+    modelDescription: "Search the public web for sources or links related to a query.",
+    modelUsageGuidance: `WHEN TO USE: Need external sources, recent news, or facts not in uploaded knowledge. No exact URL is known.
+WHEN NOT TO USE: Exact URL is known (call web_fetch). Local or uploaded sources are available.
+EXAMPLES:
+- web_search({query:"GPT-5.4 release date"}) — find sources.
+- web_search({query:"…", count:5}) — narrowed.
+GOTCHAS:
+- Returns text snippets with URLs, not full page bodies. If you need a full page, follow up with web_fetch using one of the returned URLs.
+- Prefer parallel calls for independent queries (subject to the parallelism rules in <tool_usage_policy>).`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_web_search",
@@ -34,10 +40,14 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "web_fetch",
     displayName: "Web Fetch",
     description: "Structured webpage content extraction via Firecrawl or fallback fetch.",
-    modelDescription:
-      "Fetch and extract the main content of a public webpage through the current web-fetch provider.",
-    modelUsageGuidance:
-      "Returns the extracted main text of the target page; prefer parallel calls when multiple URLs are already known.",
+    modelDescription: "Fetch and extract the main content of a public webpage by exact URL.",
+    modelUsageGuidance: `WHEN TO USE: Exact URL is known and you need the page content.
+WHEN NOT TO USE: URL is unknown — call web_search first.
+EXAMPLES:
+- web_fetch({url:"https://example.com/article"}) — direct fetch.
+GOTCHAS:
+- Returns extracted main text, not raw HTML.
+- For live, interactive, logged-in, or multi-step pages (forms, clicks), use the browser tool instead — web_fetch cannot drive sessions.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_web_fetch",
@@ -48,9 +58,16 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "image_generate",
     displayName: "Image Generate",
     description: "AI image generation via DALL-E or other supported providers.",
-    modelDescription: "Generate brand-new images from a text prompt.",
-    modelUsageGuidance:
-      'For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent".',
+    modelDescription: "Generate a brand-new image from a text prompt (no source image).",
+    modelUsageGuidance: `WHEN TO USE: User wants a new image and no source image is provided. Text prompt fully describes the desired output.
+WHEN NOT TO USE: A source image is present and the user wants to modify it.
+EXAMPLES:
+- image_generate({prompt:"…"}) — one new image (default, no outputMode needed).
+- image_generate({prompt:"…", outputMode:"series", seriesItems:["slide 1","slide 2"]}) — text-only carousel/series.
+GOTCHAS:
+- outputMode="series" REQUIRES seriesItems[] populated; one string per output frame.
+- For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent".
+- Never claim the image is delivered unless this turn produced a successful image_generate result.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -63,9 +80,18 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description:
       "Edit a single referenced image with prompt-guided changes through supported providers.",
     modelDescription:
-      "Edit images only when the user explicitly asks to modify an image, for example replace, remove, add, recolor, restyle, insert, or draw something.",
-    modelUsageGuidance:
-      'Prefer the current user attachment; otherwise use a recent reusable chat image already in context. With one available image, edit that image. With multiple images, set `sourceImageAlias` to the image being edited; you may also pass one or more guidance images via `referenceImageAliases` — the edited output stays rooted in the source while references only guide it. If roles like "the second photo" are still unclear, ask instead of guessing. For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". Never claim the edit is done unless this turn produced a successful `image_edit` result. If you have not called `image_edit`, do not pretend the image was edited.',
+      "Edit an existing image with prompt-guided changes (replace, remove, add, recolor, restyle, insert, draw on top).",
+    modelUsageGuidance: `WHEN TO USE: User explicitly asks to modify an image AND a source image is available (current attachment or reusable chat image already in context).
+WHEN NOT TO USE: No source image exists. User wants a brand-new image from text only.
+EXAMPLES:
+- image_edit({sourceImageAlias:"…", prompt:"…"}) — one edited variant (default).
+- image_edit({sourceImageAlias:"…", prompt:"…", outputMode:"series", seriesItems:["slide 1","slide 2"]}) — carousel/series from one source.
+GOTCHAS:
+- outputMode="series" REQUIRES seriesItems[] populated; one string per output frame.
+- With multiple available images, set sourceImageAlias to the image being edited; you may pass extras via referenceImageAliases (those only guide).
+- For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent".
+- Never claim the edit is done unless this turn produced a successful image_edit result.
+- If roles like "the second photo" are unclear, ask before calling.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -132,10 +158,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Knowledge Search",
     description:
       "Search assistant memory and indexed knowledge with lexical retrieval, bounded hybrid rerank, and optional helper-model follow-through when configured.",
-    modelDescription:
-      "Search the assistant's durable memory and related knowledge records for relevant prior facts.",
-    modelUsageGuidance:
-      "Use this when the answer likely depends on prior remembered user facts, prior chats, or assistant knowledge rather than the public web.",
+    modelDescription: "Search uploaded documents, prior chats, and stored facts.",
+    modelUsageGuidance: `WHEN TO USE: Answer requires uploaded documents, prior chat content, stored facts, or PersAI product / plan / subscription facts. Use BEFORE web tools when local sources are relevant.
+WHEN NOT TO USE: Answer requires current external sources or a specific public URL.
+EXAMPLES:
+- knowledge_search({query:"refund policy"}) — broad search across all sources.
+- knowledge_search({query:"…", maxResults:3}) — narrowed by count.
+GOTCHAS:
+- Returns snippets with referenceId; call knowledge_fetch with the referenceId if more content from a specific hit is needed.
+- Returns are text snippets, not full source bodies.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     requiredCredentialId: "tool_memory_search",
@@ -146,9 +177,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "memory_get",
     displayName: "Knowledge Fetch",
     description: "Safe snippet read from memory files with optional offset/lines.",
-    modelDescription: "Fetch a specific remembered knowledge or memory item by reference.",
-    modelUsageGuidance:
-      "Use this after memory or knowledge search returned a concrete reference that needs a focused read.",
+    modelDescription: "Fetch the full content of a specific knowledge reference by referenceId.",
+    modelUsageGuidance: `WHEN TO USE: A referenceId is in hand (from a prior knowledge_search result), and the snippet is insufficient.
+WHEN NOT TO USE: No referenceId is available — call knowledge_search first.
+EXAMPLES:
+- knowledge_fetch({referenceId:"…"}) — full-content fetch.
+- knowledge_fetch({referenceId:"…", mode:"section"}) — only the section containing the original snippet.
+GOTCHAS:
+- mode="section" returns a smaller payload; mode="full" returns the whole thing.
+- referenceId is opaque — do not invent or guess values.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -264,9 +301,37 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description:
       "Engage or release an enabled Skill for the current chat. Used by the model to activate domain-specific retrieval priority and, optionally, a structured scenario workflow.",
     modelDescription:
-      "Engage or release an enabled Skill for the current chat session. Use engage to activate a Skill's domain priority (and optionally a structured scenario workflow). Use release when the conversation leaves the domain.",
-    modelUsageGuidance:
-      'Call skill({ action: "engage", skillId }) at the first turn where the user\'s request falls in an enabled Skill\'s domain. Optionally pass scenarioKey to activate a structured scenario workflow. Call skill({ action: "release" }) when the conversation moves out of the domain. Do not re-engage if the Skill is already active with the same skillId. Only one Skill is active at a time.',
+      "Engage a Skill (and optionally a scenario) to activate domain-specific guidance, OR release the active Skill.",
+    modelUsageGuidance: `WHEN TO USE: User's request matches the domain of any Skill listed in <enabled_skills> (Tags, Summary, when_to_use, or scenario intent examples). Call with action="engage", skillId, and optionally scenarioKey if the request matches a specific scenario.
+WHEN NOT TO USE: Conversation is chitchat unrelated to any enabled Skill's domain. Same Skill is already active and the topic is unchanged. To clear an active Skill when the conversation pivots away, call action="release" (no skillId needed).
+EXAMPLES:
+- skill({action:"engage", skillId:"skl_marketing_demo"}) — match on Skill domain without specific scenario.
+- skill({action:"engage", skillId:"skl_marketing_demo", scenarioKey:"instagram_carousel"}) — match on a listed scenario.
+- skill({action:"release"}) — conversation pivoted away.
+GOTCHAS:
+- skillId is the exact <skill id="..."> value from <enabled_skills>; never substitute the display name, category, or any other field.
+- scenarioKey is the exact <scenario key="..."> value from <available_scenarios>; opaque slug, must match verbatim.
+- After action="engage", the engage result returns instruction.body + the active scenario's full structure — read those before any other action.`,
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "platform_managed"
+  },
+  {
+    id: "33333333-3333-3333-3333-333333333333",
+    code: "memory_write",
+    displayName: "Memory Write",
+    description: "Persist a durable user fact, preference, or open loop into assistant memory.",
+    modelDescription:
+      "Persist a stable fact, lasting preference, or real open loop learned this turn.",
+    modelUsageGuidance: `WHEN TO USE: User stated a durable preference, fact about themselves, or an open loop you need to track across turns. Call immediately — same turn you learn it.
+WHEN NOT TO USE: Transient turn context, secrets, guesses, full conversation summaries, OR anything the user asked not to remember.
+EXAMPLES:
+- memory_write({memory:"User prefers short responses with minimal emoji.", kind:"preference", layer:"long"}) — durable preference.
+- memory_write({memory:"User asked to follow up on the Q3 marketing plan launch.", kind:"open_loop", layer:"short"}) — open loop to track.
+GOTCHAS:
+- One concise memory per call; do not batch unrelated facts.
+- If a similar memory already exists, prefer refining it over creating a near-duplicate.
+- If the user corrects or reverses a stored memory, write the correction the same turn.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "platform_managed"

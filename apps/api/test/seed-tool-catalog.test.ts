@@ -106,10 +106,8 @@ async function run(): Promise<void> {
     // P2: per-tool mechanical content kept
     assert.ok(imageGenerate?.modelUsageGuidance?.includes('background="transparent"'));
 
-    // P8: per-tool honesty contract kept in image_edit (this is the pre-call
-    // "do not pretend you already edited" rule, distinct from pending_delivery)
+    // P8: per-tool honesty contract kept in image_edit
     assert.ok(imageEdit?.modelUsageGuidance?.includes("Never claim the edit is done"));
-    assert.ok(imageEdit?.modelUsageGuidance?.includes("If you have not called `image_edit`"));
     // pending_delivery is not duplicated into the catalog; A4 multi-reference fix
     assert.ok(!imageEdit?.modelUsageGuidance?.includes("pending_delivery"));
     assert.ok(!imageEdit?.modelUsageGuidance?.includes('action="deferred"'));
@@ -122,6 +120,107 @@ async function run(): Promise<void> {
     assert.ok(!videoGenerate?.modelUsageGuidance?.includes("call this tool immediately"));
     // P10: per-tool mechanical content kept
     assert.ok(videoGenerate?.modelUsageGuidance?.includes("referenceImageAlias"));
+  }
+
+  // ADR-119 Slice 7: per-tool descriptor shape — all 8 rewritten tools must have
+  // modelDescription and modelUsageGuidance with the 4 structured sections.
+  {
+    const SLICE7_TOOL_CODES = [
+      "web_search",
+      "web_fetch",
+      "image_generate",
+      "image_edit",
+      "skill",
+      "memory_search", // projected as knowledge_search
+      "memory_get", // projected as knowledge_fetch
+      "memory_write"
+    ];
+    const REQUIRED_SECTIONS = ["WHEN TO USE:", "WHEN NOT TO USE:", "EXAMPLES:", "GOTCHAS:"];
+
+    for (const code of SLICE7_TOOL_CODES) {
+      const entry = TOOL_CATALOG.find((e) => e.code === code);
+      assert.ok(entry, `ADR-119 Slice 7: ${code} must be present in TOOL_CATALOG`);
+      assert.ok(
+        entry?.modelDescription && entry.modelDescription.trim().length > 0,
+        `ADR-119 Slice 7: ${code}.modelDescription must be non-empty`
+      );
+      assert.ok(
+        entry?.modelUsageGuidance && entry.modelUsageGuidance.trim().length > 0,
+        `ADR-119 Slice 7: ${code}.modelUsageGuidance must be non-empty`
+      );
+      for (const section of REQUIRED_SECTIONS) {
+        assert.ok(
+          entry?.modelUsageGuidance?.includes(section),
+          `ADR-119 Slice 7: ${code}.modelUsageGuidance must contain "${section}"`
+        );
+      }
+    }
+  }
+
+  // ADR-117 / ADR-119 Slice 7: cross-tool prose drift — per-tool descriptors must NOT
+  // reference other tools' codes except for the allowed chain-link exceptions.
+  {
+    // Tool codes that must not appear in a given catalog entry's modelUsageGuidance
+    // unless that entry's code is in the per-entry allow-list.
+    const ALL_PROJECTED_CODES = [
+      "image_edit",
+      "image_generate",
+      "knowledge_search",
+      "knowledge_fetch",
+      "memory_write",
+      "web_search",
+      "web_fetch",
+      "skill",
+      "browser",
+      "tts",
+      "video_generate",
+      "document",
+      "files",
+      "scheduled_action",
+      "background_task"
+    ];
+    // Map catalog code → allowed mentions of OTHER projected tool codes.
+    // Chain-link exceptions per ADR-119 Slice 7:
+    //   web_search  → may mention web_fetch
+    //   web_fetch   → may mention web_search, browser
+    //   memory_search (knowledge_search) → may mention knowledge_fetch
+    //   memory_get  (knowledge_fetch)    → may mention knowledge_search
+    const ALLOW_LIST: Record<string, string[]> = {
+      web_search: ["web_fetch"],
+      web_fetch: ["web_search", "browser"],
+      memory_search: ["knowledge_fetch", "knowledge_search"], // own projected name + chain
+      memory_get: ["knowledge_search", "knowledge_fetch"], // own projected name + chain
+      // shell guidance pre-dates Slice 7; it mentions "the files tool" for IO routing.
+      shell: ["files"]
+    };
+
+    // Only enforce on the 8 rewritten tools — other existing entries have not been
+    // audited for cross-tool prose yet (they may use tool names as English words).
+    const SLICE7_CATALOG_CODES = new Set([
+      "web_search",
+      "web_fetch",
+      "image_generate",
+      "image_edit",
+      "skill",
+      "memory_search",
+      "memory_get",
+      "memory_write"
+    ]);
+
+    for (const entry of TOOL_CATALOG) {
+      if (!entry.modelUsageGuidance) continue;
+      if (!SLICE7_CATALOG_CODES.has(entry.code)) continue;
+      const allowed = ALLOW_LIST[entry.code] ?? [];
+      for (const forbidden of ALL_PROJECTED_CODES) {
+        if (forbidden === entry.code) continue;
+        if (allowed.includes(forbidden)) continue;
+        assert.doesNotMatch(
+          entry.modelUsageGuidance,
+          new RegExp(`\\b${forbidden}\\b`),
+          `ADR-117 drift: ${entry.code}.modelUsageGuidance must not mention ${forbidden}`
+        );
+      }
+    }
   }
 
   {

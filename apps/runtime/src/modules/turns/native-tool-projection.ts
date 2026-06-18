@@ -746,7 +746,7 @@ function createBrowserToolDefinition(
     name: "browser",
     description: resolveToolDefinitionDescription(
       policy,
-      "Use a real browser for JavaScript-rendered or interactive pages when web_search or web_fetch are insufficient."
+      "Use a real browser for JavaScript-rendered or interactive pages that require live interaction."
     ),
     inputSchema: {
       type: "object",
@@ -835,7 +835,7 @@ function createImageGenerateToolDefinition(
             policy
           )
         ),
-        "count=N means N separate final images in this one job. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items. If the current turn already includes a reusable product/source image and the outputs should stay tied to that same image across slides, do not use image_generate; use image_edit with sourceImageAlias instead."
+        "count=N means N separate final images in this one job. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items."
       ),
       buildPendingDeliveryHint({
         subject: "the images are being prepared",
@@ -1699,10 +1699,37 @@ function resolveAllowedModelVisibleToolPolicy(
   return policy;
 }
 
+/**
+ * ADR-119 Slice 7: max chars for a tool description sent to providers (Anthropic cap).
+ * When the combined description + structured guidance exceeds this, the projection
+ * emits a graceful truncation that preserves at minimum the "WHEN TO USE:" first line.
+ */
+const TOOL_DESCRIPTION_CAP = 1024;
+
+/**
+ * ADR-119 Slice 7: truncate a structured description to TOOL_DESCRIPTION_CAP while
+ * preserving as much of the "WHEN TO USE:" section as possible.
+ */
+function truncateToDescriptionCap(description: string, guidance: string): string {
+  // Try: description + just the first WHEN TO USE line
+  const firstLineMatch = guidance.match(/^WHEN TO USE:[^\n]*/);
+  if (firstLineMatch) {
+    const candidate = `${description}\n${firstLineMatch[0]}`;
+    if (candidate.length <= TOOL_DESCRIPTION_CAP) {
+      return candidate;
+    }
+  }
+  // Hard truncate as final fallback
+  return `${description}\n${guidance}`.slice(0, TOOL_DESCRIPTION_CAP);
+}
+
 function resolveToolDefinitionDescription(policy: RuntimeToolPolicy, fallback: string): string {
   const description = policy.description?.trim() || fallback;
   const guidance = policy.usageGuidance?.trim();
-  return guidance ? `${description} ${guidance}` : description;
+  if (!guidance) return description;
+  const full = `${description}\n${guidance}`;
+  if (full.length <= TOOL_DESCRIPTION_CAP) return full;
+  return truncateToDescriptionCap(description, guidance);
 }
 
 function resolveToolDefinitionDescriptionWithHint(

@@ -3,6 +3,44 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — ADR-119 Slice 7 landed (tool descriptor rewrite)
+
+### Root cause
+
+Per-tool descriptors in `tool-catalog-data.ts` were flat prose strings with no structure. Anthropic ACI best practices require role / when_to_use / when_not_to_use / examples / gotchas sections so the model makes correct tool-selection decisions. Several descriptors also contained cross-tool routing prose (e.g. "use knowledge_search before web_search") that ADR-117 prohibits in per-tool descriptors (cross-tool routing belongs in the `tools` selection-guide template only).
+
+### Fix scope
+
+- `apps/api/prisma/tool-catalog-data.ts`: `modelDescription` and `modelUsageGuidance` rewritten for 8 tools: `skill`, `image_edit`, `image_generate`, `memory_search` (→ `knowledge_search`), `memory_get` (→ `knowledge_fetch`), `web_search`, `web_fetch`. New catalog entry `memory_write` added (id: `33333333-3333-3333-3333-333333333333`, `policyClass: "platform_managed"`). Each new `modelUsageGuidance` follows the 4-section ACI format. Stale double-sentence GOTCHA ("If you have not called image_edit…") removed from `image_edit` guidance; it was subsumed by the single "Never claim the edit is done" bullet.
+- `apps/api/prisma/bootstrap-preset-data.ts`: `HIDDEN_PROMPT_TEMPLATE_DEFAULTS` entries for `knowledge_search`, `knowledge_fetch`, and `memory_write` (all three synthetic tools) updated to the same 4-section ACI format. These defaults populate new workspace DB rows before any admin override.
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`: `resolveToolDefinitionDescription` now uses `\n` separator between description and guidance (preserves multi-line structure). Added `TOOL_DESCRIPTION_CAP = 1024` constant and `truncateToDescriptionCap` helper that falls back to the `WHEN TO USE:` first line when the combined string exceeds the cap. Cross-tool prose (`image_edit` suggestion) removed from `image_generate` hardcoded projection hint.
+
+### Tests
+
+- `apps/runtime/test/native-tool-projection.test.ts`: new export `runAdr119Slice7DescriptorTests` — (1) per-tool rendered description shape test × 8 tools (asserts all 4 section headers present), (2) cross-tool prose drift test reading catalog source file (ALLOW_LIST includes chain-link exceptions and pre-Slice-7 `shell → files` exception), (3) safe-fallback truncation test. Registered in `run-suite-isolated.ts`. Test bundle updated to include `web_fetch` credential ref so the tool is projected in the shape-test. Existing `webSearch.description` assertion updated to use `\n` separator.
+- `apps/api/test/seed-tool-catalog.test.ts`: Slice 7 shape assertions (8 tools, 4 section headers each) + ADR-117 cross-tool drift assertions added. Stale `"If you have not called image_edit"` assertion removed. `shell: ["files"]` added to ALLOW_LIST.
+
+### Files touched
+
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `apps/runtime/test/run-suite-isolated.ts`
+- `apps/api/test/seed-tool-catalog.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risk
+
+**One-time prompt-cache prefix invalidation on rollout** — tool description bytes change for 8 tools; batched with Slice 6 (selection guide XML) for a single combined invalidation event. No schema changes. New `memory_write` catalog entry is additive (no plan activation seeded; `platform_managed`).
+
+### Next recommended step
+
+Slice 8 — response contract restructure (`<response_contract>` must/prefer two-tier rewrite in `bootstrap-preset-data.ts`).
+
+---
+
 ## 2026-06-18 — ADR-119 Slice 6 landed (selection guide XML priority order)
 
 ### Root cause

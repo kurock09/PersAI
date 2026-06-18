@@ -484,7 +484,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.equal(routeControl, undefined);
   assert.equal(
     webSearch?.description,
-    "Search the public web for current external facts. Use this when the answer depends on recent external information or links. May be called in parallel with other independent searches."
+    "Search the public web for current external facts.\nUse this when the answer depends on recent external information or links. May be called in parallel with other independent searches."
   );
   assert.match(files?.description ?? "", /write-and-send/);
   assert.match(files?.description ?? "", /files\.write_and_send when the user asks/);
@@ -560,7 +560,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     imageGenerate?.description ?? "",
     /For distinct carousel\/slideshow\/frame requests, set outputMode='series'/i
   );
-  assert.match(imageGenerate?.description ?? "", /use image_edit with sourceImageAlias/i);
+  // ADR-119 Slice 7 / ADR-117: cross-tool prose removed from per-tool projection hint.
   assert.match(
     imageGenerate?.description ?? "",
     /do NOT claim anything is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
@@ -2049,4 +2049,593 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
     /count=N means N separate final edited images in this one job/,
     "ADR-117 Slice 3: count/series intent must still be present in image_edit description"
   );
+}
+
+// ── ADR-119 Slice 7 tests ──────────────────────────────────────────────────
+
+/**
+ * ADR-119 Slice 7:
+ * (1) Per-tool rendered description shape — each of the 8 rewritten tools must
+ *     emit a projected description containing all 4 structured section headers.
+ * (2) Cross-tool prose drift — catalog source must not inject forbidden tool-code
+ *     references into per-tool modelUsageGuidance (with chain-link exceptions).
+ * (3) Safe-fallback truncation — when modelUsageGuidance exceeds the projection cap,
+ *     the rendered description still contains "WHEN TO USE:" and the first sentence.
+ */
+export async function runAdr119Slice7DescriptorTests(): Promise<void> {
+  const repoRoot = findRepoRoot();
+  const REQUIRED_SECTIONS = ["WHEN TO USE:", "WHEN NOT TO USE:", "EXAMPLES:", "GOTCHAS:"];
+
+  // ── (1) Per-tool rendered description shape ──────────────────────────────
+  // Build a minimal bundle that projects all 8 rewritten tools so we can check
+  // the projected description preserves the structured sections end-to-end.
+  {
+    const structured = (toolName: string): string =>
+      `WHEN TO USE: Use ${toolName} here.\nWHEN NOT TO USE: Skip ${toolName} here.\nEXAMPLES:\n- ${toolName}({}) — example.\nGOTCHAS:\n- Watch out when using ${toolName}.`;
+
+    const knowledgeBundle = compileAssistantRuntimeBundle({
+      metadata: {
+        assistantId: "slice7-1",
+        workspaceId: "ws-slice7",
+        publishedVersionId: "ver-slice7",
+        publishedVersion: 1,
+        algorithmVersion: 72,
+        configGeneration: 1
+      },
+      persona: {
+        displayName: "Test",
+        instructions: "Be helpful.",
+        traits: null,
+        avatarEmoji: null,
+        avatarUrl: null,
+        assistantGender: null,
+        voiceProfile: {
+          schema: "persai.assistantVoiceProfile.v1",
+          defaultLocale: "en-US",
+          deliveryKind: "voice_note",
+          elevenlabs: { voiceId: null },
+          yandex: { voice: "jane", role: null },
+          openai: { voice: "marin" }
+        }
+      },
+      userContext: {
+        displayName: "User",
+        birthday: null,
+        gender: null,
+        locale: "en",
+        timezone: "UTC"
+      },
+      runtime: {
+        runtimeAssignment: { effectiveTier: "paid_shared_restricted" },
+        runtimeProviderProfile: {
+          mode: "admin_managed",
+          primary: { provider: "anthropic", model: "claude-opus-4-8" }
+        },
+        runtimeProviderRouting: {
+          primaryPath: {
+            providerKey: "anthropic",
+            modelKey: "claude-opus-4-8",
+            active: true,
+            inactiveReason: null
+          }
+        },
+        contextHydration: {
+          preset: "balanced",
+          targetContextBudget: 24000,
+          compactionTriggerThreshold: 8000,
+          keepRecentMinimum: 4,
+          knowledgeHydrationBudget: 2400,
+          autoCompactionWeb: false,
+          autoCompactionTelegram: false,
+          crossSessionCarryOverTtlDays: 7,
+          crossSessionCarryOverIdleHours: 4,
+          crossSessionCarryOverCooldownHours: 12
+        },
+        sharedCompaction: {
+          summarizeToolCode: "summarize_context",
+          compactToolCode: "compact_context",
+          webSuggestionLatencyMs: 7000,
+          reserveTokens: 24000,
+          keepRecentTokens: 16000,
+          recentTurnsPreserve: 4,
+          telegramAutoSummarizeEnabled: false
+        },
+        knowledgeAccess: {
+          searchToolCode: "knowledge_search",
+          fetchToolCode: "knowledge_fetch",
+          executionModes: ["inline", "worker"],
+          ragMode: "pattern_only",
+          sources: [
+            {
+              source: "document",
+              searchAliasToolCode: null,
+              fetchAliasToolCode: null,
+              searchCredentialToolCode: null,
+              fetchCredentialToolCode: null
+            }
+          ]
+        },
+        workerTools: { tools: [] },
+        browser: {
+          toolCode: "browser",
+          executionMode: "worker",
+          credentialToolCode: "browser",
+          providerIds: ["browserless"],
+          defaultProviderId: "browserless",
+          actions: ["snapshot", "act"],
+          confirmationRequiredActions: ["act"]
+        }
+      },
+      governance: {
+        capabilityEnvelope: null,
+        secretRefs: null,
+        policyEnvelope: null,
+        effectiveCapabilities: null,
+        toolAvailability: null,
+        memoryControl: null,
+        tasksControl: null,
+        toolCredentialRefs: {
+          web_search: {
+            refKey: "k",
+            secretRef: { source: "persai", provider: "persai-runtime", id: "k" },
+            configured: true,
+            providerId: "tavily"
+          },
+          web_fetch: {
+            refKey: "k",
+            secretRef: { source: "persai", provider: "persai-runtime", id: "k" },
+            configured: true,
+            providerId: "firecrawl"
+          },
+          image_generate: {
+            refKey: "k",
+            secretRef: { source: "persai", provider: "persai-runtime", id: "k" },
+            configured: true,
+            providerId: "openai"
+          },
+          image_edit: {
+            refKey: "k",
+            secretRef: { source: "persai", provider: "persai-runtime", id: "k" },
+            configured: true,
+            providerId: "openai"
+          }
+        },
+        toolPolicies: [
+          {
+            toolCode: "web_search",
+            displayName: "Web Search",
+            description: "Search the public web for sources or links related to a query.",
+            usageGuidance: structured("web_search"),
+            kind: "plan",
+            executionMode: "inline",
+            usageRule: "allowed",
+            enabled: true,
+            visibleToModel: true,
+            visibleInPlanEditor: true,
+            dailyCallLimit: null
+          },
+          {
+            toolCode: "web_fetch",
+            displayName: "Web Fetch",
+            description: "Fetch and extract the main content of a public webpage by exact URL.",
+            usageGuidance: structured("web_fetch"),
+            kind: "plan",
+            executionMode: "inline",
+            usageRule: "allowed",
+            enabled: true,
+            visibleToModel: true,
+            visibleInPlanEditor: true,
+            dailyCallLimit: null
+          },
+          {
+            toolCode: "image_generate",
+            displayName: "Image Generate",
+            description: "Generate a brand-new image from a text prompt (no source image).",
+            usageGuidance: structured("image_generate"),
+            kind: "plan",
+            executionMode: "worker",
+            usageRule: "allowed",
+            enabled: true,
+            visibleToModel: true,
+            visibleInPlanEditor: true,
+            dailyCallLimit: null
+          },
+          {
+            toolCode: "image_edit",
+            displayName: "Image Edit",
+            description:
+              "Edit an existing image with prompt-guided changes (replace, remove, add, recolor, restyle, insert, draw on top).",
+            usageGuidance: structured("image_edit"),
+            kind: "plan",
+            executionMode: "worker",
+            usageRule: "allowed",
+            enabled: true,
+            visibleToModel: true,
+            visibleInPlanEditor: true,
+            dailyCallLimit: null
+          },
+          {
+            toolCode: "knowledge_search",
+            displayName: "Knowledge Search",
+            description: "Search uploaded documents, prior chats, and stored facts.",
+            usageGuidance: structured("knowledge_search"),
+            kind: "plan",
+            executionMode: "inline",
+            usageRule: "allowed",
+            enabled: true,
+            visibleToModel: true,
+            visibleInPlanEditor: true,
+            dailyCallLimit: null
+          },
+          {
+            toolCode: "knowledge_fetch",
+            displayName: "Knowledge Fetch",
+            description: "Fetch the full content of a specific knowledge reference by referenceId.",
+            usageGuidance: structured("knowledge_fetch"),
+            kind: "plan",
+            executionMode: "inline",
+            usageRule: "allowed",
+            enabled: true,
+            visibleToModel: true,
+            visibleInPlanEditor: true,
+            dailyCallLimit: null
+          },
+          {
+            toolCode: "memory_write",
+            displayName: "Memory Write",
+            description:
+              "Persist a stable fact, lasting preference, or real open loop learned this turn.",
+            usageGuidance: structured("memory_write"),
+            kind: "plan",
+            executionMode: "inline",
+            usageRule: "allowed",
+            enabled: true,
+            visibleToModel: true,
+            visibleInPlanEditor: true,
+            dailyCallLimit: null
+          },
+          {
+            toolCode: "skill",
+            displayName: "Skill",
+            description:
+              "Engage a Skill (and optionally a scenario) to activate domain-specific guidance, OR release the active Skill.",
+            usageGuidance: structured("skill"),
+            kind: "plan",
+            executionMode: "inline",
+            usageRule: "allowed",
+            enabled: true,
+            visibleToModel: true,
+            visibleInPlanEditor: true,
+            dailyCallLimit: null
+          }
+        ],
+        quota: {
+          planCode: "starter_trial",
+          workspaceQuotaBytes: 1024,
+          quotaHook: null
+        },
+        auditHook: null
+      },
+      skills: {
+        enabled: [
+          {
+            id: "skl_test_001",
+            name: "Test Skill",
+            description: "A test skill.",
+            category: "test",
+            tags: [],
+            body: "Do the test.",
+            guardrails: [],
+            examples: []
+          }
+        ]
+      },
+      channels: {
+        bindings: null,
+        telegram: {
+          enabled: false,
+          autoCompactionEnabled: false,
+          dmPolicy: "off",
+          groupReplyMode: "mentions_only",
+          parseMode: "HTML",
+          inbound: false,
+          outbound: false,
+          accessMode: "owner_only",
+          ownerClaimStatus: "unclaimed",
+          ownerClaimCode: null,
+          ownerClaimCodeExpiresAt: null,
+          ownerTelegramUserId: null,
+          ownerTelegramUsername: null,
+          ownerTelegramChatId: null
+        }
+      },
+      promptDocuments: {
+        soul: "",
+        user: "",
+        identity: "",
+        tools: "",
+        agents: "",
+        heartbeat: "",
+        preview: "",
+        welcome: ""
+      }
+    });
+
+    const proj = projectRuntimeNativeTools(knowledgeBundle.bundle);
+
+    const toolsToCheck = [
+      "web_search",
+      "web_fetch",
+      "image_generate",
+      "image_edit",
+      "knowledge_search",
+      "knowledge_fetch",
+      "memory_write",
+      "skill"
+    ] as const;
+
+    for (const toolName of toolsToCheck) {
+      const tool = proj.tools.find((t) => t.name === toolName);
+      assert.ok(tool, `ADR-119 Slice 7: ${toolName} must be projected in the shape-test bundle`);
+      for (const section of REQUIRED_SECTIONS) {
+        assert.ok(
+          tool?.description?.includes(section),
+          `ADR-119 Slice 7: ${toolName} rendered description must contain "${section}"`
+        );
+      }
+    }
+  }
+
+  // ── (2) Cross-tool prose drift — catalog source check ───────────────────
+  // Read the catalog source as text and verify per-entry modelUsageGuidance
+  // blocks do not contain forbidden tool-code references (ADR-117 invariant).
+  {
+    const catalogSource = readRepoFile(repoRoot, "apps/api/prisma/tool-catalog-data.ts");
+
+    // Tool code strings that must not appear in a given entry's guidance unless
+    // the entry is in the allow-list for that code.
+    const ALL_PROJECTED_CODES = [
+      "image_edit",
+      "image_generate",
+      "knowledge_search",
+      "knowledge_fetch",
+      "memory_write",
+      "web_search",
+      "web_fetch",
+      "skill",
+      "browser",
+      "tts",
+      "video_generate",
+      "document",
+      "files",
+      "scheduled_action",
+      "background_task"
+    ];
+
+    // Chain-link exceptions (catalog code → allowed projected code mentions).
+    // ADR-117: only the listed combinations are permitted; all others must be absent.
+    const ALLOW_LIST: Record<string, string[]> = {
+      web_search: ["web_fetch"],
+      web_fetch: ["web_search", "browser"],
+      memory_search: ["knowledge_fetch", "knowledge_search"],
+      memory_get: ["knowledge_search", "knowledge_fetch"],
+      // shell guidance pre-dates Slice 7; it mentions "the files tool" for IO routing.
+      shell: ["files"]
+    };
+
+    // Only enforce on the 8 rewritten tools — other existing entries have not been
+    // audited for cross-tool prose yet and may use tool names as ordinary English words.
+    const SLICE7_CATALOG_CODES = new Set([
+      "web_search",
+      "web_fetch",
+      "image_generate",
+      "image_edit",
+      "skill",
+      "memory_search",
+      "memory_get",
+      "memory_write"
+    ]);
+
+    // Extract all catalog entries by matching `code: "..."` + the following
+    // `modelUsageGuidance:` value in the source text.
+    const entryPattern = /code:\s*["']([^"']+)["'][^{}]*?modelUsageGuidance:\s*(`[^`]*`|"[^"]*")/gs;
+    let entryMatch: RegExpExecArray | null;
+    const extractedEntries: Array<{ code: string; guidance: string }> = [];
+    while ((entryMatch = entryPattern.exec(catalogSource)) !== null) {
+      const code = entryMatch[1] ?? "";
+      const rawGuidance = entryMatch[2] ?? "";
+      // Strip surrounding backtick/quotes
+      const guidance = rawGuidance.slice(1, -1);
+      extractedEntries.push({ code, guidance });
+    }
+
+    const slice7Entries = extractedEntries.filter((e) => SLICE7_CATALOG_CODES.has(e.code));
+    assert.ok(
+      slice7Entries.length >= 8,
+      `ADR-119 Slice 7 cross-tool drift: expected at least 8 Slice 7 entries with modelUsageGuidance, found ${String(slice7Entries.length)}`
+    );
+
+    for (const { code, guidance } of slice7Entries) {
+      const allowed = ALLOW_LIST[code] ?? [];
+      for (const forbidden of ALL_PROJECTED_CODES) {
+        if (forbidden === code) continue;
+        if (allowed.includes(forbidden)) continue;
+        assert.doesNotMatch(
+          guidance,
+          new RegExp(`\\b${forbidden}\\b`),
+          `ADR-117 drift: catalog entry "${code}" modelUsageGuidance must not mention tool code "${forbidden}"`
+        );
+      }
+    }
+  }
+
+  // ── (3) Safe-fallback truncation ─────────────────────────────────────────
+  // When modelUsageGuidance is very long, the projected description must still
+  // contain "WHEN TO USE:" and the first sentence of that section.
+  {
+    const longGuidancePrefix = "WHEN TO USE: This is the important condition.\n";
+    const longGuidancePadding = "x".repeat(2000);
+    const longGuidance = `${longGuidancePrefix}${longGuidancePadding}\nWHEN NOT TO USE: Never.\nEXAMPLES:\n- ex.\nGOTCHAS:\n- g.`;
+
+    const truncationBundle = compileAssistantRuntimeBundle({
+      metadata: {
+        assistantId: "slice7-trunc",
+        workspaceId: "ws-trunc",
+        publishedVersionId: "ver-trunc",
+        publishedVersion: 1,
+        algorithmVersion: 72,
+        configGeneration: 1
+      },
+      persona: {
+        displayName: "T",
+        instructions: "x",
+        traits: null,
+        avatarEmoji: null,
+        avatarUrl: null,
+        assistantGender: null,
+        voiceProfile: {
+          schema: "persai.assistantVoiceProfile.v1",
+          defaultLocale: "en-US",
+          deliveryKind: "voice_note",
+          elevenlabs: { voiceId: null },
+          yandex: { voice: "jane", role: null },
+          openai: { voice: "marin" }
+        }
+      },
+      userContext: {
+        displayName: "U",
+        birthday: null,
+        gender: null,
+        locale: "en",
+        timezone: "UTC"
+      },
+      runtime: {
+        runtimeAssignment: { effectiveTier: "paid_shared_restricted" },
+        runtimeProviderProfile: {
+          mode: "admin_managed",
+          primary: { provider: "anthropic", model: "claude-opus-4-8" }
+        },
+        runtimeProviderRouting: {
+          primaryPath: {
+            providerKey: "anthropic",
+            modelKey: "claude-opus-4-8",
+            active: true,
+            inactiveReason: null
+          }
+        },
+        contextHydration: {
+          preset: "balanced",
+          targetContextBudget: 24000,
+          compactionTriggerThreshold: 8000,
+          keepRecentMinimum: 4,
+          knowledgeHydrationBudget: 2400,
+          autoCompactionWeb: false,
+          autoCompactionTelegram: false,
+          crossSessionCarryOverTtlDays: 7,
+          crossSessionCarryOverIdleHours: 4,
+          crossSessionCarryOverCooldownHours: 12
+        },
+        sharedCompaction: {
+          summarizeToolCode: "summarize_context",
+          compactToolCode: "compact_context",
+          webSuggestionLatencyMs: 7000,
+          reserveTokens: 24000,
+          keepRecentTokens: 16000,
+          recentTurnsPreserve: 4,
+          telegramAutoSummarizeEnabled: false
+        },
+        knowledgeAccess: {
+          searchToolCode: "knowledge_search",
+          fetchToolCode: "knowledge_fetch",
+          executionModes: ["inline", "worker"],
+          ragMode: "pattern_only",
+          sources: []
+        },
+        workerTools: { tools: [] },
+        browser: {
+          toolCode: "browser",
+          executionMode: "worker",
+          credentialToolCode: "browser",
+          providerIds: ["browserless"],
+          defaultProviderId: "browserless",
+          actions: ["snapshot", "act"],
+          confirmationRequiredActions: ["act"]
+        }
+      },
+      governance: {
+        capabilityEnvelope: null,
+        secretRefs: null,
+        policyEnvelope: null,
+        effectiveCapabilities: null,
+        toolAvailability: null,
+        memoryControl: null,
+        tasksControl: null,
+        toolCredentialRefs: {},
+        toolPolicies: [
+          {
+            toolCode: "memory_write",
+            displayName: "Memory Write",
+            description: "Persist a stable fact.",
+            usageGuidance: longGuidance,
+            kind: "plan",
+            executionMode: "inline",
+            usageRule: "allowed",
+            enabled: true,
+            visibleToModel: true,
+            visibleInPlanEditor: true,
+            dailyCallLimit: null
+          }
+        ],
+        quota: { planCode: "starter_trial", workspaceQuotaBytes: 1024, quotaHook: null },
+        auditHook: null
+      },
+      channels: {
+        bindings: null,
+        telegram: {
+          enabled: false,
+          autoCompactionEnabled: false,
+          dmPolicy: "off",
+          groupReplyMode: "mentions_only",
+          parseMode: "HTML",
+          inbound: false,
+          outbound: false,
+          accessMode: "owner_only",
+          ownerClaimStatus: "unclaimed",
+          ownerClaimCode: null,
+          ownerClaimCodeExpiresAt: null,
+          ownerTelegramUserId: null,
+          ownerTelegramUsername: null,
+          ownerTelegramChatId: null
+        }
+      },
+      promptDocuments: {
+        soul: "",
+        user: "",
+        identity: "",
+        tools: "",
+        agents: "",
+        heartbeat: "",
+        preview: "",
+        welcome: ""
+      }
+    });
+
+    const truncProj = projectRuntimeNativeTools(truncationBundle.bundle);
+    const memoryWriteTool = truncProj.tools.find((t) => t.name === "memory_write");
+    assert.ok(memoryWriteTool, "ADR-119 Slice 7 safe-fallback: memory_write must be projected");
+
+    const desc = memoryWriteTool?.description ?? "";
+    assert.ok(
+      desc.length <= 1024,
+      `ADR-119 Slice 7 safe-fallback: description must be truncated to ≤1024 chars (got ${String(desc.length)})`
+    );
+    assert.ok(
+      desc.includes("WHEN TO USE:"),
+      "ADR-119 Slice 7 safe-fallback: truncated description must still contain 'WHEN TO USE:'"
+    );
+    assert.ok(
+      desc.includes("This is the important condition."),
+      "ADR-119 Slice 7 safe-fallback: truncated description must still contain the first WHEN TO USE sentence"
+    );
+  }
 }
