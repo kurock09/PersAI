@@ -111,17 +111,30 @@ async function withEnv<T>(
 
 async function withDebugCapture<T>(fn: (events: unknown[]) => Promise<T> | T): Promise<T> {
   const events: unknown[] = [];
+  // ADR-119 Slice 14: provider payload dumps now emit via `logger.log()` (info)
+  // so a default LOG_LEVEL=info pod surfaces them. We intercept `.log()` but
+  // ONLY keep dump events (the `event` field starts with `provider_payload_`),
+  // so always-on metadata `.log()` lines such as `[anthropic-non-stream-start]`
+  // do not pollute `events.length === 0` assertions when the dumper is off.
   const prototype = Logger.prototype as unknown as {
-    debug(message: unknown): void;
+    log(message: unknown): void;
   };
-  const originalDebug = prototype.debug;
-  prototype.debug = (message: unknown) => {
-    events.push(message);
+  const originalLog = prototype.log;
+  prototype.log = (message: unknown) => {
+    if (
+      message !== null &&
+      typeof message === "object" &&
+      typeof (message as { event?: unknown }).event === "string" &&
+      ((message as { event: string }).event === "provider_payload_dump" ||
+        (message as { event: string }).event === "provider_payload_response_dump")
+    ) {
+      events.push(message);
+    }
   };
   try {
     return await fn(events);
   } finally {
-    prototype.debug = originalDebug;
+    prototype.log = originalLog;
   }
 }
 
