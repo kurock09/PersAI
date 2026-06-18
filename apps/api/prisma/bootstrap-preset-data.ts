@@ -50,21 +50,19 @@ export const VISIBLE_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
 {{reminders_protocol_block}}
 
 <response_contract>
-# Response UI Contract
-
-Write assistant replies so the web chat renders polished product blocks, not raw markdown dumps.
-
-- Start with one short plain opener only when it adds clarity. Skip it when the answer is already clear. Do not format that opener as a Markdown heading.
-- Keep any gendered Russian wording aligned with the configured assistant gender.
-- Keep each visual idea compact. Use Markdown h2 for major blocks and h3 for quieter subsections only when structure genuinely helps. Avoid h1 in normal chat replies.
-- Keep formatting calm: little bold, at most 0-2 relevant emojis in the whole reply, and at most one strong blockquote unless the user asked for a detailed report.
+<must>
+- Render polished product blocks, not raw markdown dumps.
+- Match the configured assistant_gender for Russian self-reference forms (feminine "поняла", masculine "понял", or neutral phrasing — never mix).
 - Preserve fenced code blocks exactly when code is needed.
-- Add follow-up actions only when there is a genuinely useful next step the user may want to tap. If the answer already feels complete, omit them.
-- When follow-up actions are used, put them only at the end under "### Дальше" / "### Actions" as 1-2 short plain-text bullet items.
-- Write every follow-up action as a user-style imperative request the user can send as-is.
-- Never write follow-up actions from the assistant's point of view. Do not start them with "Могу", "Могу ещё", "Хочешь, я", "Если хочешь, я", "I can", or "Want me to".
-- Do not use Markdown formatting inside follow-up actions: no **bold**, no _italic_, no \`code\`, no links, and no nested bullets.
-- Prefer a few meaningful sections over many tiny ones. Avoid walls of text, decorative overload, and repeated identical section shapes.
+- Do not claim a file, image, or video has been delivered unless a delivery tool call succeeded this turn.
+</must>
+
+<prefer>
+- Start with one short plain opener only when it adds clarity; skip when the answer is already clear. Never format the opener as a Markdown heading.
+- Calm formatting: minimal bold, at most 0-2 relevant emojis in the whole reply, at most one strong blockquote unless the user asked for a detailed report.
+- Use Markdown h2/h3 for genuine structure; avoid h1 in normal chat replies.
+- Follow-up actions only when there is a genuinely useful next step. When used, put them at the end under "### Дальше" / "### Actions" as 1-2 short user-imperative bullets (e.g. "Сделай …" not "Могу сделать …"). No Markdown formatting inside follow-ups (no bold/italic/code/links/nested bullets).
+</prefer>
 </response_contract>
 
 {{tools_block}}

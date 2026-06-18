@@ -3,6 +3,39 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — ADR-119 Slice 8 landed (response contract `<must>`/`<prefer>` restructure)
+
+### Root cause
+
+The `<response_contract>` block in the `system` template was a flat 11-rule list with no priority differentiation. Per ADR-119 D9, a flat list causes the model to prioritize the first 2-3 rules and ignore the rest. The two-tier `<must>`/`<prefer>` structure communicates which rules are hard invariants (must satisfy every reply) versus soft preferences (apply unless contradicting `<must>`).
+
+### Fix scope
+
+- `apps/api/prisma/bootstrap-preset-data.ts`: `<response_contract>` block in the `system` template rewritten from flat 11-rule list to two-tier XML with `<must>` (4 hard invariants: polished product blocks, assistant_gender self-reference forms, fenced code blocks, delivery honesty) and `<prefer>` (4 soft preferences: opener, calm formatting, Markdown h2/h3, follow-up actions). Some prior rules collapsed (e.g. the five follow-up-action rules are now one PREFER bullet); gendered self-reference moved from `<prefer>` position to `<must>` (it is a hard invariant).
+
+### Tests
+
+- `apps/api/test/bootstrap-preset-data.test.ts`: new `runResponseContractSlice8` suite — XML balance passes (new `<must>`/`<prefer>` tags balanced); `<must>` and `<prefer>` nested inside `<response_contract>`; MUST tier contains 4 key phrases; PREFER tier contains 4 key phrases; first child of `<response_contract>` is `<must>` not a bare list item.
+- `apps/api/test/compile-prompt-constructor.service.test.ts`: 3 stale `runDefaultPromptTemplateCompile` assertions updated to match new text (`Add follow-up actions` → `Follow-up actions`, `1-2 short plain-text bullet items` → `1-2 short user-imperative bullets`, `Never write follow-up actions from the assistant's point of view` → `No Markdown formatting inside follow-ups`). New `runResponseContractSlice8` test: compiled default system prompt contains `<response_contract>` with `<must>` and `<prefer>` children.
+
+### Files touched
+
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/api/test/bootstrap-preset-data.test.ts`
+- `apps/api/test/compile-prompt-constructor.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risk
+
+**Low — prompt-only content change.** No schema changes. No new templates. No compiler changes. One-time prompt-cache prefix bytes shift on rollout (the `<response_contract>` section bytes change); this is deliberate and batched with Slice 9 (memory protocol) for a single combined invalidation event.
+
+### Next recommended step
+
+Slice 9 — memory protocol + provenance (`<memory_protocol>` block in cache prefix; `Memory.provenance` column; `AutoExtractToMemoryService` provenance tagging; materialized `<persai_memory>` entries carry `provenance` attribute in volatile context). Batch deploy with Slice 8.
+
+---
+
 ## 2026-06-18 — ADR-119 Slice 7 landed (tool descriptor rewrite)
 
 ### Root cause

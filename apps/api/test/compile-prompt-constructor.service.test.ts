@@ -320,18 +320,18 @@ async function runDefaultPromptTemplateCompile(): Promise<void> {
 
   assert.match(
     systemPrompt,
-    /Add follow-up actions only when there is a genuinely useful next step/,
+    /Follow-up actions only when there is a genuinely useful next step/,
     "default system prompt should discourage unnecessary quick actions"
   );
   assert.match(
     systemPrompt,
-    /1-2 short plain-text bullet items/,
+    /1-2 short user-imperative bullets/,
     "default system prompt must cap quick actions to a small count"
   );
   assert.match(
     systemPrompt,
-    /Never write follow-up actions from the assistant's point of view/,
-    "default system prompt must forbid assistant-voice quick actions"
+    /No Markdown formatting inside follow-ups/,
+    "default system prompt must forbid Markdown inside follow-up actions"
   );
   assert.match(
     soulPrompt,
@@ -642,6 +642,48 @@ async function runRemindersProtocolSlice5(): Promise<void> {
   }
 }
 
+async function runResponseContractSlice8(): Promise<void> {
+  // ADR-119 Slice 8 — compiled system prompt contains <response_contract> with
+  // <must> and <prefer> children when the default template is used.
+  const service = new CompilePromptConstructorService();
+  const compiled = service.compile({
+    ...baseInput(),
+    promptTemplates: { ...PROMPT_TEMPLATE_DEFAULTS }
+  });
+  const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
+
+  assert.match(
+    systemPrompt,
+    /<response_contract>/,
+    "default template compile: system prompt must contain <response_contract>"
+  );
+  assert.match(
+    systemPrompt,
+    /<\/response_contract>/,
+    "default template compile: system prompt must close </response_contract>"
+  );
+  assert.match(
+    systemPrompt,
+    /<must>/,
+    "default template compile: <response_contract> must contain <must> child"
+  );
+  assert.match(
+    systemPrompt,
+    /<\/must>/,
+    "default template compile: <response_contract> must close </must>"
+  );
+  assert.match(
+    systemPrompt,
+    /<prefer>/,
+    "default template compile: <response_contract> must contain <prefer> child"
+  );
+  assert.match(
+    systemPrompt,
+    /<\/prefer>/,
+    "default template compile: <response_contract> must close </prefer>"
+  );
+}
+
 async function run(): Promise<void> {
   await runTemplatedCompile();
   await runCachedPrefixInvariant();
@@ -650,6 +692,7 @@ async function run(): Promise<void> {
   await runDefaultPromptTemplateCompile();
   await runXmlCanonicalFixtures();
   await runRemindersProtocolSlice5();
+  await runResponseContractSlice8();
 }
 
 void run();

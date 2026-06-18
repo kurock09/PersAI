@@ -188,11 +188,99 @@ async function runRemindersProtocolSlice5(): Promise<void> {
   );
 }
 
+async function runResponseContractSlice8(): Promise<void> {
+  // ADR-119 Slice 8 — response contract two-tier <must>/<prefer> restructure.
+  const system = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system ?? "";
+
+  // New test: system template contains <must> and <prefer> nested inside <response_contract>.
+  assert.equal(
+    countOccurrences(system, "<must>"),
+    1,
+    "system template must open <must> exactly once inside <response_contract>"
+  );
+  assert.equal(
+    countOccurrences(system, "</must>"),
+    1,
+    "system template must close </must> exactly once"
+  );
+  assert.equal(
+    countOccurrences(system, "<prefer>"),
+    1,
+    "system template must open <prefer> exactly once inside <response_contract>"
+  );
+  assert.equal(
+    countOccurrences(system, "</prefer>"),
+    1,
+    "system template must close </prefer> exactly once"
+  );
+
+  // Verify nesting: <must> and <prefer> appear between <response_contract> and </response_contract>.
+  const rcOpen = system.indexOf("<response_contract>");
+  const rcClose = system.indexOf("</response_contract>");
+  const mustOpen = system.indexOf("<must>");
+  const preferOpen = system.indexOf("<prefer>");
+  assert.ok(rcOpen !== -1 && rcClose !== -1 && mustOpen !== -1 && preferOpen !== -1);
+  assert.ok(
+    mustOpen > rcOpen && mustOpen < rcClose,
+    "<must> must be nested inside <response_contract>"
+  );
+  assert.ok(
+    preferOpen > rcOpen && preferOpen < rcClose,
+    "<prefer> must be nested inside <response_contract>"
+  );
+
+  // New test: MUST tier contains the 4 hard invariants.
+  const mustClose = system.indexOf("</must>");
+  const mustContent = system.slice(mustOpen, mustClose);
+  assert.ok(
+    mustContent.includes("polished product blocks"),
+    "<must> must contain 'polished product blocks' invariant"
+  );
+  assert.ok(
+    mustContent.includes("assistant_gender"),
+    "<must> must contain 'assistant_gender' invariant"
+  );
+  assert.ok(
+    mustContent.includes("fenced code blocks"),
+    "<must> must contain 'fenced code blocks' invariant"
+  );
+  assert.ok(
+    mustContent.includes("delivered unless a delivery tool call"),
+    "<must> must contain delivery honesty invariant"
+  );
+
+  // New test: PREFER tier contains the 4 soft preferences.
+  const preferClose = system.indexOf("</prefer>");
+  const preferContent = system.slice(preferOpen, preferClose);
+  assert.ok(preferContent.includes("opener"), "<prefer> must contain opener preference");
+  assert.ok(
+    preferContent.includes("Calm formatting"),
+    "<prefer> must contain 'Calm formatting' preference"
+  );
+  assert.ok(
+    preferContent.includes("Markdown h2/h3"),
+    "<prefer> must contain 'Markdown h2/h3' preference"
+  );
+  assert.ok(
+    preferContent.includes("Follow-up actions"),
+    "<prefer> must contain 'Follow-up actions' preference"
+  );
+
+  // New test: <response_contract> immediate children are <must> and <prefer>, not a bare list.
+  // Check that the text immediately after <response_contract>\n is <must>, not a bare bullet.
+  const afterRcOpen = system.slice(rcOpen + "<response_contract>".length).trimStart();
+  assert.ok(
+    afterRcOpen.startsWith("<must>"),
+    "<response_contract> first non-whitespace child must be <must>, not a bare list item"
+  );
+}
+
 async function run(): Promise<void> {
   await runXmlBalance();
   await runOuterTagPresence();
   await runSoulCharacterNotes();
   await runRemindersProtocolSlice5();
+  await runResponseContractSlice8();
 }
 
 void run();
