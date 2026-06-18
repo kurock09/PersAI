@@ -3,6 +3,44 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-18 — ADR-119 live-test enablement (Slice 14 partial + comprehensive plan)
+
+### Root cause
+
+Initial live test on `persai-dev` surfaced two issues that block any meaningful ADR-119 acceptance gate: (1) Slice 0.5 `PERSAI_DEBUG_PROVIDER_PAYLOAD` toggle silently no-ops at default `LOG_LEVEL=info` (uses `.debug()`) and only accepts the exact string `"true"`, so a human operator setting `=1` sees nothing; (2) ArgoCD reverts any `kubectl set env` within ~2 minutes, so the dev cluster cannot be patched ad-hoc for a multi-zone test session.
+
+### Fix scope
+
+- Slice 14 partial — debug-payload toggle hardened: accept `"1"/"true"/"yes"/"on"` case-insensitively via new `isTruthyEnvFlag()`; emit dumps at INFO via `logger.log()` instead of DEBUG so default-level pods surface them; gating still in `shouldDump()`.
+- `infra/helm/values-dev.yaml` `providerGateway.env` adds `PERSAI_DEBUG_PROVIDER_PAYLOAD: "true"` + `PERSAI_DEBUG_PROVIDER_PAYLOAD_RATE: "1.0"` (dev only, gitops-managed; production values files MUST keep OFF).
+- New `docs/ADR/119-live-test-plan.md` — 8-zone acceptance matrix (A baseline / B memory / C native tools 12 cases / D Skills+scenarios / E PDF-hotfix regression / F cache effectiveness / G parallel-tool discipline / H error+recovery) with pre-conditions, capture rules, output artifact shape, and explicit acceptance criteria. Designed to be executed by a browser-use subagent against `https://persai.dev`.
+
+### Tests
+
+- `apps/provider-gateway/test/provider-debug-payload-logger.test.ts` expanded: 9 truthy spellings (`"1"`, `"true"`, `"TRUE"`, `"True"`, `"yes"`, `"YES"`, `"on"`, `"ON"`, `" true "`) all assert `shouldDump() === true` with `RATE=1.0`; 7 falsy spellings (`""`, `"0"`, `"false"`, `"FALSE"`, `"no"`, `"off"`, `"anything-else"`) all assert `false`. `withDebugCapture` intercepts `Logger.prototype.log` instead of `debug`.
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts` + `openai-provider.client.test.ts` re-run — green (use `withDebugCapture` indirectly via Slice 0.5 dump tests).
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/provider-debug-payload-logger.ts`
+- `apps/provider-gateway/test/provider-debug-payload-logger.test.ts`
+- `infra/helm/values-dev.yaml`
+- `docs/ADR/119-live-test-plan.md` (NEW)
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risks / residuals
+
+- This is NOT ADR-119 Slice 14 in full. Slice 14 in `docs/ADR/119-live-test-plan.md`-adjacent follow-up scope would also touch operational docs and a Loki-retention note. Logger toggle change is the bare minimum to unblock the live-test gate.
+- The full ADR-119 follow-up trio (Slice 12 `current_local_date`, Slice 13 template-refresh migration, Slice 15 multi-BP system blocks) is still pending. The live-test plan REQUESTED here will surface their impact by recording specific failures (date drift, missing XML wrappers, single cache breakpoint).
+- `infra/helm/values-dev.yaml` enabling `PERSAI_DEBUG_PROVIDER_PAYLOAD=true` at full sample rate increases provider-gateway log volume for dev. Acceptable for a dev cluster; production values files MUST keep OFF.
+
+### Next recommended step
+
+Push the toggle + gitops + test plan as ONE commit. After ArgoCD syncs the new image + env, the operator launches a browser-use subagent with `docs/ADR/119-live-test-plan.md` as the prompt. Subagent produces `docs/ADR/119-live-test-findings-<date>.md`; orchestrator audits findings; results feed a follow-up Slice 12+13+15 batch ADR.
+
+---
+
 ## 2026-06-18 — ADR-119 CLOSED (golden tests + docs + ADR closure)
 
 ### Root cause

@@ -37,17 +37,20 @@ function withMathRandom<T>(value: number, fn: () => T): T {
 
 function withDebugCapture<T>(fn: (events: unknown[]) => T): T {
   const events: unknown[] = [];
+  // ADR-119 Slice 14: dumps now emit via `logger.log()` (info) so they surface
+  // without LOG_LEVEL=debug. The capture name stays for backwards compatibility
+  // with existing call sites.
   const prototype = Logger.prototype as unknown as {
-    debug(message: unknown): void;
+    log(message: unknown): void;
   };
-  const originalDebug = prototype.debug;
-  prototype.debug = (message: unknown) => {
+  const originalLog = prototype.log;
+  prototype.log = (message: unknown) => {
     events.push(message);
   };
   try {
     return fn(events);
   } finally {
-    prototype.debug = originalDebug;
+    prototype.log = originalLog;
   }
 }
 
@@ -64,9 +67,29 @@ export async function runProviderDebugPayloadLoggerTest(): Promise<void> {
     }
   );
 
-  for (const value of ["1", "yes", "TRUE"]) {
+  // ADR-119 Slice 14: any common truthy spelling enables the dumper.
+  for (const value of ["1", "true", "TRUE", "True", "yes", "YES", "on", "ON", " true "]) {
+    withEnv(
+      { PERSAI_DEBUG_PROVIDER_PAYLOAD: value, PERSAI_DEBUG_PROVIDER_PAYLOAD_RATE: "1.0" },
+      () => {
+        withMathRandom(0.5, () => {
+          assert.equal(
+            logger.shouldDump(),
+            true,
+            `expected truthy for spelling: ${JSON.stringify(value)}`
+          );
+        });
+      }
+    );
+  }
+
+  for (const value of ["", "0", "false", "FALSE", "no", "off", "anything-else"]) {
     withEnv({ PERSAI_DEBUG_PROVIDER_PAYLOAD: value }, () => {
-      assert.equal(logger.shouldDump(), false);
+      assert.equal(
+        logger.shouldDump(),
+        false,
+        `expected falsy for spelling: ${JSON.stringify(value)}`
+      );
     });
   }
 

@@ -286,6 +286,12 @@ providerGateway:
     PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "5000"
     PROVIDER_GATEWAY_OPENAI_MODELS: "gpt-5.4"
     PROVIDER_GATEWAY_ANTHROPIC_MODELS: "claude-sonnet-4-5"
+    # ADR-119 Slice 14 / live-test enablement: dev-only full-rate request payload
+    # dump on the dedicated `persai.debug.provider` logger. Dumps are bounded
+    # (500-char system edges, 500-char message previews, base64 redacted) and
+    # gated by `shouldDump()`; keep this OFF in production values files.
+    PERSAI_DEBUG_PROVIDER_PAYLOAD: "true"
+    PERSAI_DEBUG_PROVIDER_PAYLOAD_RATE: "1.0"
   secretEnv:
     PERSAI_INTERNAL_API_TOKEN:
       secretName: persai-runtime-secrets

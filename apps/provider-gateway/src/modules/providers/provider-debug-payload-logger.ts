@@ -2,6 +2,15 @@ import { Logger } from "@nestjs/common";
 
 export const PROVIDER_DEBUG_LOGGER_NAME = "persai.debug.provider" as const;
 
+const TRUTHY_ENV_FLAG_VALUES = new Set(["1", "true", "yes", "on"]);
+
+function isTruthyEnvFlag(raw: string | undefined): boolean {
+  if (raw === undefined) {
+    return false;
+  }
+  return TRUTHY_ENV_FLAG_VALUES.has(raw.trim().toLowerCase());
+}
+
 const DEFAULT_DEBUG_PAYLOAD_RATE = 0.05;
 const DEBUG_PAYLOAD_PREVIEW_CHARS = 500;
 const DEBUG_PAYLOAD_SYSTEM_EDGE_CHARS = 500;
@@ -30,8 +39,14 @@ export class ProviderDebugPayloadLogger {
     this.logger = new Logger(loggerName);
   }
 
+  /**
+   * ADR-119 Slice 14: accept any common truthy spelling (`"1"`, `"true"`, `"yes"`,
+   * `"on"`) case-insensitively so live-debug can be enabled the same way a human
+   * operator would set a feature flag. Anything else (including the empty string)
+   * keeps the dumper off.
+   */
   shouldDump(): boolean {
-    if (process.env.PERSAI_DEBUG_PROVIDER_PAYLOAD !== "true") {
+    if (!isTruthyEnvFlag(process.env.PERSAI_DEBUG_PROVIDER_PAYLOAD)) {
       return false;
     }
     return Math.random() < this.resolveSampleRate();
@@ -48,7 +63,10 @@ export class ProviderDebugPayloadLogger {
     if (!this.shouldDump()) {
       return;
     }
-    this.logger.debug({
+    // ADR-119 Slice 14: emit at INFO so a default LOG_LEVEL=info pod can surface
+    // the dump without flipping the entire logger to debug (which is noisy for
+    // every other module). Gating still lives in `shouldDump()`.
+    this.logger.log({
       event: "provider_payload_dump",
       provider: opts.provider,
       requestId: opts.requestId,
@@ -62,7 +80,7 @@ export class ProviderDebugPayloadLogger {
     if (!this.shouldDump()) {
       return;
     }
-    this.logger.debug({
+    this.logger.log({
       event: "provider_payload_response_dump",
       provider: opts.provider,
       requestId: opts.requestId,
