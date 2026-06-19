@@ -108,14 +108,14 @@ function captureProcessStdoutSync<T>(action: () => Promise<T>): Promise<{
 }
 
 describe("StreamWebChatTurnService", () => {
-  test("disables slow_avg watchdog recovery for project chat streams", () => {
+  test("disables both cadence watchdog signals for all chat streams", () => {
     const projectOptions = resolveWebStreamCadenceWatchdogOptions("project");
     const normalOptions = resolveWebStreamCadenceWatchdogOptions("normal");
 
     assert.equal(projectOptions.slowAvgEnabled, false);
     assert.equal(projectOptions.silentEnabled, false);
     assert.equal(projectOptions.silentMs, normalOptions.silentMs);
-    assert.equal(normalOptions.slowAvgEnabled, true);
+    assert.equal(normalOptions.slowAvgEnabled, false);
     assert.equal(normalOptions.silentEnabled, false);
   });
 

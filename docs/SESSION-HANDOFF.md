@@ -114,7 +114,7 @@ Orchestrator runs C end-to-end: assign slice → review diff → AGENTS.md gate 
 
 ### Next recommended step
 
-ADR-121 is fully implemented (all 5 slices green, verification gate green). Commit all remaining unstaged changes (`execution-profile-resolver.test.ts`, `turn-routing.service.test.ts`, `run-suite-isolated.ts`, `turn-routing.service.ts`, docs), then run full verification (`full-verification.yml` equivalently) before push/deploy.
+ADR-121 fully implemented + pushed (`12be30f3..26ec22a1`) + deployed to `persai-dev`. Live validation on `persai.dev` confirmed 2D routing applied in active mode: same chat routed light chit-chat → `claude-sonnet-4-6`, heavy code task → `claude-opus-4-6`, deep cue ("проанализируй …") → `claude-opus-4-8` (the Slice 5 deep-cue fix path). Live-found follow-up: the deep turn truncated mid-sentence (no clean `stream-end`) because the stale `slow_avg` cadence watchdog tripped on the reasoning model's slower visible-text cadence and aborted the runtime fetch. **Fixed:** `slowAvgEnabled: false` for normal/smart in `resolveWebStreamCadenceWatchdogOptions` (watchdog now fully inert; scaffolding/telemetry/retry retained, real hangs still guarded by `PERSAI_RUNTIME_STREAM_TIMEOUT_MS`). Gate green (api lint/format/typecheck + focused test). **Next:** commit the watchdog fix and push (triggers deploy), then re-validate a deep turn on `persai.dev` completes without truncation. Remaining post-119 backlog (separate ADRs, not started): A memory-bleeding JIT redesign, B scenario step progression, D sandbox/shell.
 
 ## 2026-06-19 — ADR-119 program closed (founder acceptance)
 

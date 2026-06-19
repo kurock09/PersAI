@@ -155,7 +155,12 @@ export function resolveWebStreamCadenceWatchdogOptions(
   return {
     ...DEFAULT_CADENCE_THRESHOLDS,
     silentEnabled: false,
-    slowAvgEnabled: true
+    // slow_avg disabled: reasoning-tier models (ADR-121 deep level) legitimately
+    // stream visible text below the per-token cadence threshold, which tripped
+    // slow_avg and aborted the runtime fetch mid-answer (truncated reply, no
+    // clean stream-end). Real mid-stream hangs remain guarded by the
+    // provider/runtime stream timeout (PERSAI_RUNTIME_STREAM_TIMEOUT_MS).
+    slowAvgEnabled: false
   };
 }
 
