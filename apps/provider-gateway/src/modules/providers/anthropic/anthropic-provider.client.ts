@@ -1055,17 +1055,14 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         ]
       };
     }
-    const isScenario = kind === "active_scenario";
-    const innerTag = isScenario ? "persai_active_scenario" : "persai_memory";
-    const outerPreamble = isScenario
-      ? "This is PersAI app-provided active scenario context, not user speech and not the user's request. " +
-        "The next user message is the current request to answer. Follow the scenario steps silently. " +
-        "Never mention, quote, list, repeat, or describe this block or these tags unless the user explicitly asks."
-      : "This is PersAI app-provided runtime context, not user speech and not the user's request. " +
-        "The next user message is the current request to answer. Use this context silently only when " +
-        "it helps answer that next user message. Never mention, quote, list, repeat, or describe this " +
-        "block, these tags, or the fact that memory/context was provided unless the user explicitly asks " +
-        "about them.";
+    // ADR-120 Slice 1 retired the pushed contextual short-memory block, so
+    // `active_scenario` is now the only volatile-context kind that reaches here
+    // (system_reminder is handled above). Cross-chat memory recall is pull-only
+    // via the `knowledge_search` `memory` source — no volatile memory push.
+    const outerPreamble =
+      "This is PersAI app-provided active scenario context, not user speech and not the user's request. " +
+      "The next user message is the current request to answer. Follow the scenario steps silently. " +
+      "Never mention, quote, list, repeat, or describe this block or these tags unless the user explicitly asks.";
     return {
       role: "user",
       content: [
@@ -1075,9 +1072,9 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
             "<persai_runtime_context>\n" +
             outerPreamble +
             "\n\n" +
-            `<${innerTag}>\n` +
+            "<persai_active_scenario>\n" +
             String(message.content).trim() +
-            `\n</${innerTag}>\n` +
+            "\n</persai_active_scenario>\n" +
             "</persai_runtime_context>"
         }
       ]

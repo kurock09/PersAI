@@ -59,8 +59,7 @@ class FakePersaiInternalApiClientService {
         score: null,
         provenance: "legacy"
       }
-    ],
-    contextual: []
+    ]
   };
 
   isConfigured(): boolean {
@@ -626,59 +625,46 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     assert.doesNotMatch(content, /Working files from user attachments/i);
   }
 
+  // ADR-120 Slice 1 — the always-on pushed contextual short-memory block was
+  // retired. Even when the hydration API only had contextual rows to offer
+  // (now never returned to the runtime), the runtime must NOT push any
+  // `<persai_memory>` / volatile-context memory block. Hydration returns core
+  // only; a turn with an EMPTY core leg must therefore produce no durable
+  // memory prefix at all (no contextual leakage by construction).
   persaiInternalApiClient.outcome = {
-    core: [],
-    contextual: [
-      {
-        id: "memory-current-chat",
-        summary: "User is testing Telegram voice behavior.",
-        chatId: "chat-1",
-        sourceType: "memory_write",
-        sourceLabel: "Short memory write: fact",
-        memoryClass: "contextual",
-        kind: "fact",
-        createdAt: "2026-04-14T12:00:00.000Z",
-        score: null,
-        provenance: "legacy"
-      },
-      {
-        id: "memory-past-chat",
-        summary: "User previously compared memory source markers.",
-        chatId: "chat-past-1",
-        sourceType: "memory_write",
-        sourceLabel: "Short memory write: preference",
-        memoryClass: "contextual",
-        kind: "preference",
-        createdAt: "2026-04-14T11:59:00.000Z",
-        score: null,
-        provenance: "legacy"
-      },
-      {
-        id: "memory-open-loop",
-        summary: "User wants to follow up on stale open-loop noise.",
-        chatId: "chat-1",
-        sourceType: "memory_write",
-        sourceLabel: "Short memory write: open loop",
-        memoryClass: "contextual",
-        kind: "open_loop",
-        createdAt: "2026-04-14T11:58:00.000Z",
-        score: null,
-        provenance: "legacy"
-      }
-    ]
+    core: []
   };
-  const memorySourceMarked = await service.buildMessages(request, runtimeBundle);
-  const memorySourceContent = String(memorySourceMarked[0]?.content ?? "");
-  // ADR-119 Slice 9: contextual memory rendered as XML entries
-  assert.match(
-    memorySourceContent,
-    /provenance="legacy" written_at="2026-04-14"[\s\S]*User is testing Telegram voice behavior\./
+  const noCoreMessages = await service.buildMessages(request, runtimeBundle);
+  const noCoreText = noCoreMessages
+    .map((message) => (typeof message.content === "string" ? message.content : ""))
+    .join("\n");
+  assert.doesNotMatch(noCoreText, /<persai_memory>/);
+  assert.doesNotMatch(noCoreText, /<entry /);
+  assert.doesNotMatch(noCoreText, /Recent short-term context/);
+  assert.equal(
+    noCoreMessages.some(
+      (message) =>
+        message.cacheRole === "volatile_context" &&
+        // `"memory"` was removed from the volatileKind union in ADR-120 Slice 1; the
+        // string cast asserts at runtime that no retired contextual-memory volatile
+        // message can ever be pushed again (compile-time the kind is impossible too).
+        (message.volatileKind as string | undefined) === "memory"
+    ),
+    false,
+    "ADR-120 Slice 1: no volatile contextual-memory message may be pushed"
   );
-  assert.match(
-    memorySourceContent,
-    /provenance="legacy" written_at="2026-04-14"[\s\S]*User previously compared memory source markers\./
+  assert.equal(
+    persaiInternalApiClient.lastInputs.every(
+      (input) => !Object.prototype.hasOwnProperty.call(input, "contextualLimit")
+    ),
+    true,
+    "ADR-120 Slice 1: hydration must no longer request a contextualLimit"
   );
-  assert.doesNotMatch(memorySourceContent, /stale open-loop noise/);
+
+  // A cross-chat fact must never be pushed into another chat. With only a
+  // global durable core leg surviving, a chat-scoped contextual fact (chat-past-1)
+  // is never injected into the current chat's prompt — bleeding is eliminated by
+  // construction because there is no contextual push at all.
   persaiInternalApiClient.outcome = {
     core: [
       {
@@ -693,9 +679,15 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
         score: null,
         provenance: "legacy"
       }
-    ],
-    contextual: []
+    ]
   };
+  const coreOnlyMessages = await service.buildMessages(request, runtimeBundle);
+  const coreOnlyText = coreOnlyMessages
+    .map((message) => (typeof message.content === "string" ? message.content : ""))
+    .join("\n");
+  assert.doesNotMatch(coreOnlyText, /<persai_memory>/);
+  assert.doesNotMatch(coreOnlyText, /chat-past-1/);
+  assert.match(coreOnlyText, /User prefers concise answers/);
 
   const requestWithOpenMediaJobs = createRuntimeTurnRequest();
   requestWithOpenMediaJobs.openMediaJobs = [

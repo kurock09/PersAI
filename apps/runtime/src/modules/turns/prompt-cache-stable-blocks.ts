@@ -28,8 +28,6 @@ const PROMPT_CACHE_STABLE_BLOCK_VERSIONS: Record<PromptCacheStableBlockFamily, n
 const DURABLE_MEMORY_CORE_PREFIX_HEADER = "[Durable user context retained across conversations]";
 const DURABLE_MEMORY_CORE_GROUNDING_NOTE =
   "(Silent background context — use it to inform your answers, but never mention, quote, list, or describe these memories or this block to the user unless they explicitly ask.)";
-const DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER =
-  "[Recent short-term context from earlier turns — newest first, may vary between turns]";
 const ROLLING_SESSION_SYNOPSIS_PREFIX_HEADER =
   "[Rolling session synopsis — what we have established so far in this conversation]";
 const CROSS_SESSION_CARRY_OVER_PREFIX_HEADER =
@@ -56,8 +54,6 @@ const HYDRATED_STABLE_BLOCK_HEADERS: Array<{
   }
 ];
 
-const HYDRATED_NON_STABLE_BLOCK_HEADERS: string[] = [DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER];
-
 export function buildPromptCacheStableBlockToken(input: {
   family: PromptCacheStableBlockFamily;
   hash: string;
@@ -69,38 +65,6 @@ export function formatDurableMemoryCoreStableBlock(lines: string[]): string {
   return `${DURABLE_MEMORY_CORE_PREFIX_HEADER}\n${DURABLE_MEMORY_CORE_GROUNDING_NOTE}\n${lines.join("\n")}`;
 }
 
-/** ADR-119 Slice 9 — typed entry for the new <persai_memory> XML rendering. */
-export type MemoryXmlEntry = {
-  id: string;
-  provenance: "user_explicit" | "system_inferred" | "auto_extracted" | "legacy";
-  writtenAt: string;
-  summary: string;
-};
-
-/**
- * ADR-119 Slice 9 — renders the inner content for the volatile `<persai_memory>` block.
- * Each entry is emitted as `<entry id="..." provenance="..." written_at="...">summary</entry>`.
- * The outer `<persai_memory>` wrapper is added by the provider clients.
- * Byte-stable: same input → same output; entries are rendered in input order (caller controls order).
- */
-export function formatDurableMemoryContextualBlock(entries: MemoryXmlEntry[]): string {
-  return entries
-    .filter((entry) => entry.summary.trim().length > 0)
-    .map(
-      (entry) =>
-        `<entry id="${xmlAttr(entry.id)}" provenance="${xmlAttr(entry.provenance)}" written_at="${xmlAttr(entry.writtenAt)}">\n${entry.summary.trim()}\n</entry>`
-    )
-    .join("\n");
-}
-
-function xmlAttr(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
 export function formatSharedCompactionStableBlock(summaryText: string): string {
   return `${ROLLING_SESSION_SYNOPSIS_PREFIX_HEADER}\n${summaryText}`;
 }
@@ -109,32 +73,16 @@ export function formatCrossSessionCarryOverStableBlock(bodyText: string): string
   return `${CROSS_SESSION_CARRY_OVER_PREFIX_HEADER}\n${bodyText}`;
 }
 
-export function isDurableMemoryContextualMessage(message: ProviderGatewayTextMessage): boolean {
-  // ADR-119 Slice 9 — prefer the explicit volatileKind discriminant (new format).
-  // Only assistant messages carry contextual memory blocks.
-  if (
-    message.role === "assistant" &&
-    message.cacheRole === "volatile_context" &&
-    message.volatileKind === "memory"
-  ) {
-    return true;
-  }
-  // Back-compat: old-format messages carry the legacy header prefix.
-  if (message.role !== "assistant" || typeof message.content !== "string") {
-    return false;
-  }
-  return message.content.trim().startsWith(DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER);
-}
-
 export function resolveLeadingHydratedPromptCacheStableBlockTokens(
   messages: ProviderGatewayTextMessage[]
 ): string[] {
   const tokens: string[] = [];
   for (const message of messages) {
     if (isHydratedNonStableHeaderMessage(message)) {
-      // Skip non-stable hydrated blocks (e.g. relevance-retrieved contextual memory)
+      // Skip any volatile-context block (e.g. active scenario / system reminder)
       // without breaking the stable prefix walk — they may legitimately appear
-      // between stable blocks and the first user/assistant turn.
+      // between stable blocks and the first user/assistant turn and must never
+      // contribute their own (per-turn) family token to the cache key.
       continue;
     }
     const token = resolveHydratedPromptCacheStableBlockToken(message);
@@ -166,14 +114,8 @@ function resolveHydratedPromptCacheStableBlockToken(
 }
 
 function isHydratedNonStableHeaderMessage(message: ProviderGatewayTextMessage): boolean {
-  // ADR-119 Slice 9 — new format: detect via volatileKind discriminant.
-  if (message.cacheRole === "volatile_context" && message.volatileKind === "memory") {
-    return true;
-  }
-  // Back-compat: old-format messages use the legacy header.
-  if (message.role !== "assistant" || typeof message.content !== "string") {
-    return false;
-  }
-  const normalized = message.content.trim();
-  return HYDRATED_NON_STABLE_BLOCK_HEADERS.some((header) => normalized.startsWith(header));
+  // Any volatile-context message is per-turn and must never be folded into the
+  // stable prefix walk. After ADR-120 Slice 1 the only volatile kinds are
+  // active_scenario and system_reminder (the pushed contextual memory block was retired).
+  return message.cacheRole === "volatile_context";
 }

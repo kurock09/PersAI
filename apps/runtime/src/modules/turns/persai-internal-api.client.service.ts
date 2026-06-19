@@ -290,7 +290,12 @@ export type InternalHydratedDurableMemoryItem = {
   sourceLabel: string | null;
   memoryClass: "core" | "contextual";
   kind: "fact" | "preference" | "open_loop" | null;
-  /** ADR-119 Slice 9 — provenance for use in <persai_memory> XML rendering. */
+  /**
+   * ADR-119 Slice 9 — durable-memory write provenance, mirrored from the internal
+   * hydration API contract. ADR-120 Slice 1 retired the `<persai_memory>` contextual
+   * push that previously rendered this as an XML attribute; the field is retained as
+   * part of the typed wire contract for the surviving durable-core hydration leg.
+   */
   provenance: "user_explicit" | "system_inferred" | "auto_extracted" | "legacy";
   createdAt: string;
   score: number | null;
@@ -298,12 +303,13 @@ export type InternalHydratedDurableMemoryItem = {
 
 export type InternalHydrateMemoryForTurnInput = {
   assistantId: string;
-  contextualLimit: number | null;
 };
 
+// ADR-120 Slice 1 — hydration now returns ONLY the durable core leg. The
+// always-on pushed contextual short-memory block was retired; cross-chat
+// recall is pull-only via the `knowledge_search` `memory` source.
 export type InternalHydrateMemoryForTurnOutcome = {
   core: InternalHydratedDurableMemoryItem[];
-  contextual: InternalHydratedDurableMemoryItem[];
 };
 
 export type InternalFreshRuntimeSpec = {
@@ -1247,25 +1253,20 @@ export class PersaiInternalApiClientService {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        assistantId: input.assistantId,
-        contextualLimit: input.contextualLimit
+        assistantId: input.assistantId
       })
     });
 
     if (response.ok) {
       const payload = this.asObject(response.body);
       const core = payload?.core;
-      const contextual = payload?.contextual;
       if (
         payload?.ok === true &&
         Array.isArray(core) &&
-        core.every((item) => this.isHydratedDurableMemoryItem(item)) &&
-        Array.isArray(contextual) &&
-        contextual.every((item) => this.isHydratedDurableMemoryItem(item))
+        core.every((item) => this.isHydratedDurableMemoryItem(item))
       ) {
         return {
-          core: core as InternalHydratedDurableMemoryItem[],
-          contextual: contextual as InternalHydratedDurableMemoryItem[]
+          core: core as InternalHydratedDurableMemoryItem[]
         };
       }
       throw new BadGatewayException(

@@ -68,12 +68,12 @@ The runtime emits the following XML-tagged volatile-context blocks into the JIT 
 | XML tag | `volatileKind` value | ADR reference | Notes |
 |---|---|---|---|
 | `<persai_active_scenario>` | `"active_scenario"` | ADR-119 Slice 4 | Emitted by `build-active-scenario-block.service.ts` when a scenario is active. Replaces the old prose-markdown `## Active Scenario` format from ADR-118 D4. |
-| `<persai_memory>` | `"memory"` | ADR-119 Slice 9 | Emitted by `turn-context-hydration.service.ts`. Each `<entry>` carries `id`, `provenance`, and `written_at` attributes. Supersedes legacy `<recent_short_memory>` / `<persai_contextual_memory>` wrappers. |
 | `<system-reminder>` | `"system_reminder"` | ADR-119 Slice 5 | Injected mid-conversation by `build-system-reminder-blocks.service.ts` to reinforce critical rules under recency bias. Protocol declared once in the AOT prefix via `<reminders_protocol>`. |
-| `<persai_retrieved_knowledge>` | `"retrieved_knowledge"` | ADR-120 (reserved) | Not yet implemented in ADR-119. Reserved for ADR-120 unified retrieval engine. |
 | `<persai_environment>` | `"presence"` | ADR-074 Slice T1 | Sense-of-time block (current local time, weekday, gap since last message). Rendered by `presence-renderer.ts`. |
 
 All volatile-context blocks are marked `cacheRole: "volatile_context"` on the message envelope. Provider clients (`anthropic-provider.client.ts`, `openai-provider.client.ts`) reposition them adjacent to the current user message so per-turn rotation never invalidates the stable system-prefix breakpoints.
+
+**ADR-120 Slice 1** retired the `<persai_memory>` / `"memory"` volatile kind (the always-on pushed contextual short-memory block). Cross-chat / old-fact recall is now **pull-only** via the `knowledge_search` `memory` source; durable identity/core memory stays in the AOT cached prefix. `<persai_retrieved_knowledge>` is **not** an always-on push either: ADR-120 makes retrieved knowledge flow through the `knowledge_search` / `knowledge_fetch` tool channel (the ADR-119 push expectation is superseded; the unfilled volatile kind is removed rather than left dormant).
 
 ## Runtime-related boundaries
 

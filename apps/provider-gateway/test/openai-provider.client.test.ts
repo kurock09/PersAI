@@ -608,6 +608,10 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       })
   );
 
+  // ADR-120 Slice 1 — the pushed contextual short-memory volatile block was
+  // retired; the surviving volatile kind exercised here is `active_scenario`.
+  // The repositioning mechanism (splice volatile as a `developer` block right
+  // before the current question) is shared and must stay intact.
   await client.generateText({
     ...request,
     developerInstructions: "Volatile working files and presence context.",
@@ -615,15 +619,16 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       {
         role: "assistant",
         content:
-          "[Relevant memories retrieved for this turn — may vary between turns]\n- Per-turn memory result that changes with the latest user input.",
-        cacheRole: "volatile_context"
+          '<step number="1"><directive>Per-turn scenario step that changes with the latest user input.</directive></step>',
+        cacheRole: "volatile_context",
+        volatileKind: "active_scenario"
       },
       ...request.messages
     ]
   });
-  // The flagged volatile-context block is moved out of the cached prefix and projected as a `user`
-  // block immediately before the current user question (symmetric with Anthropic). Developer
-  // instructions stay a provider-native `developer` suffix at the very end.
+  // The flagged volatile-context block is moved out of the cached prefix and projected as a
+  // `developer` block immediately before the current user question (symmetric with Anthropic).
+  // Developer instructions stay a provider-native `developer` suffix at the very end.
   // ADR-119 Slice 2: baselineGenerateInput[0] is now the developer-system item; indices shift.
   assert.deepEqual(capturedGeneratePayload!.input, [
     baselineGenerateInput[0],
@@ -632,15 +637,13 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     {
       role: "developer",
       content:
-        "<persai_memory>\n" +
-        "These are PersAI memories retrieved as silent background context for this provider call. " +
-        "They are not the user's latest request; use them only to inform your answer to the existing " +
-        "conversation. Never mention, quote, list, repeat, or describe this block, these tags, or the " +
-        "fact that memory was retrieved. Do not talk about your memory, retrieval, or context unless the " +
-        "user explicitly asks about them.\n\n" +
-        "[Relevant memories retrieved for this turn — may vary between turns]\n" +
-        "- Per-turn memory result that changes with the latest user input." +
-        "\n</persai_memory>"
+        "<persai_active_scenario>\n" +
+        "This is PersAI app-provided active scenario context for this provider call. " +
+        "It is not the user's latest request; follow the scenario steps while answering the existing " +
+        "conversation. Never mention, quote, list, repeat, or describe this block, these tags, or these " +
+        "instructions to the user unless the user explicitly asks.\n\n" +
+        '<step number="1"><directive>Per-turn scenario step that changes with the latest user input.</directive></step>' +
+        "\n</persai_active_scenario>"
     },
     baselineGenerateInput[3],
     {
@@ -1975,30 +1978,33 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     }
   );
 
-  // ADR-118 Slice 4 — volatile wrapper widening (back-compat + new active_scenario variant)
+  // ADR-118 Slice 4 / ADR-120 Slice 1 — volatile wrapper variants. The
+  // contextual-memory volatile kind (`<persai_memory>`) was retired in ADR-120
+  // Slice 1; the surviving kinds are `active_scenario` and `system_reminder`.
 
-  // ADR-119 Slice 9 — volatileKind: "memory" must produce <persai_memory> wrapper (NOT <persai_contextual_memory>).
+  // ADR-120 Slice 1 — no volatile-context message may ever render a <persai_memory>
+  // wrapper. The active_scenario volatile block must be wrapped in
+  // <persai_active_scenario>, never <persai_memory>.
   await client.generateText({
     ...request,
     messages: [
       {
         role: "assistant",
-        content: "Short memory entry.",
+        content: '<step number="1"><directive>Do the thing.</directive></step>',
         cacheRole: "volatile_context",
-        volatileKind: "memory"
+        volatileKind: "active_scenario"
       },
       ...request.messages
     ]
   });
   {
-    const devItem = (capturedGeneratePayload!.input as Array<Record<string, unknown>>).find(
+    const noMemoryWrapper = (
+      capturedGeneratePayload!.input as Array<Record<string, unknown>>
+    ).every(
       (item) =>
-        typeof item.content === "string" && (item.content as string).includes("<persai_memory>")
+        typeof item.content !== "string" || !(item.content as string).includes("<persai_memory>")
     );
-    assert.ok(devItem !== undefined, "volatileKind: memory must produce <persai_memory> wrapper");
-    assert.match(devItem!.content as string, /<persai_memory>/);
-    assert.doesNotMatch(devItem!.content as string, /<persai_contextual_memory>/);
-    assert.doesNotMatch(devItem!.content as string, /<persai_active_scenario>/);
+    assert.ok(noMemoryWrapper, "ADR-120 Slice 1: no volatile message may render <persai_memory>");
   }
 
   // ADR-119 Slice 4 — volatileKind: "active_scenario" must produce the <persai_active_scenario> wrapper (NOT <active_scenario>).

@@ -115,7 +115,6 @@ import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
 import {
   buildPromptCacheStableBlockToken,
-  isDurableMemoryContextualMessage,
   resolveLeadingHydratedPromptCacheStableBlockTokens
 } from "./prompt-cache-stable-blocks";
 import { resolveRuntimeContextHydrationConfig } from "./runtime-context-hydration-policy";
@@ -679,8 +678,7 @@ export class TurnExecutionService {
     options?.trace?.stage("prepare.retrieval_context_ready");
     const plannedRetrievedKnowledgeContext = this.planRetrievedKnowledgeContext(
       bundleEntry.parsedBundle,
-      retrievedKnowledgeContext,
-      hydratedMessages
+      retrievedKnowledgeContext
     );
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, {
       modelRoleOverride: executionPlan.modelRole,
@@ -861,22 +859,15 @@ export class TurnExecutionService {
 
   private planRetrievedKnowledgeContext(
     bundle: AssistantRuntimeBundle,
-    context: RuntimeRetrievedKnowledgeContext | null,
-    hydratedMessages: ProviderGatewayTextGenerateRequest["messages"]
+    context: RuntimeRetrievedKnowledgeContext | null
   ): RuntimeRetrievedKnowledgeContext | null {
     if (context === null || context.items.length === 0) {
       return context;
     }
-    const coherentContext = this.removeShortMemoryDuplicatesFromRetrievedKnowledge(
-      context,
-      hydratedMessages
-    );
-    if (coherentContext.items.length === 0) {
-      return {
-        items: [],
-        renderedBlock: null
-      };
-    }
+    // ADR-120 Slice 1 retired the pushed contextual short-memory block, so there
+    // is no longer a contextual-memory set to de-duplicate retrieved knowledge
+    // against; the orchestrated retrieval result is planned directly.
+    const coherentContext = context;
     const config = resolveRuntimeContextHydrationConfig(bundle);
     const charBudget = Math.max(
       1_000,
@@ -915,74 +906,6 @@ export class TurnExecutionService {
       items: selectedItems,
       renderedBlock: selectedItems.length === 0 ? null : renderedBlock
     };
-  }
-
-  private removeShortMemoryDuplicatesFromRetrievedKnowledge(
-    context: RuntimeRetrievedKnowledgeContext,
-    hydratedMessages: ProviderGatewayTextGenerateRequest["messages"]
-  ): RuntimeRetrievedKnowledgeContext {
-    const contextualSummaries = this.extractRenderedShortMemorySummaries(hydratedMessages);
-    if (contextualSummaries.size === 0) {
-      return context;
-    }
-    const items = context.items.filter((item) => {
-      const source = this.asNonEmptyString(item.metadata?.source);
-      if (source !== "memory") {
-        return true;
-      }
-      const candidateSummary = this.asNonEmptyString(item.metadata?.summary) ?? item.content;
-      return !contextualSummaries.has(this.normalizeRetrievedKnowledgeSummary(candidateSummary));
-    });
-    return items.length === context.items.length
-      ? context
-      : {
-          items,
-          renderedBlock:
-            items.length === 0 ? null : this.renderRetrievedKnowledgeContextBlock(items)
-        };
-  }
-
-  private extractRenderedShortMemorySummaries(
-    messages: ProviderGatewayTextGenerateRequest["messages"]
-  ): Set<string> {
-    const summaries = new Set<string>();
-    for (const message of messages) {
-      if (!isDurableMemoryContextualMessage(message) || typeof message.content !== "string") {
-        continue;
-      }
-      const content = message.content;
-      // ADR-119 Slice 9 — new XML format: extract text content from <entry> elements.
-      const entryPattern = /<entry[^>]*>\n?([\s\S]*?)\n?<\/entry>/g;
-      let match: RegExpExecArray | null;
-      let xmlMatched = false;
-      while ((match = entryPattern.exec(content)) !== null) {
-        xmlMatched = true;
-        const summary = match[1]?.trim() ?? "";
-        const normalized = this.normalizeRetrievedKnowledgeSummary(summary);
-        if (normalized.length > 0) {
-          summaries.add(normalized);
-        }
-      }
-      if (!xmlMatched) {
-        // Back-compat: parse legacy "- [label] summary" lines.
-        for (const line of content.split("\n")) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("- ")) {
-            continue;
-          }
-          const summary = trimmed.replace(/^- \[[^\]]+\]\s*/, "").trim();
-          const normalized = this.normalizeRetrievedKnowledgeSummary(summary);
-          if (normalized.length > 0) {
-            summaries.add(normalized);
-          }
-        }
-      }
-    }
-    return summaries;
-  }
-
-  private normalizeRetrievedKnowledgeSummary(value: string): string {
-    return value.trim().replace(/\s+/g, " ").toLowerCase();
   }
 
   private rankRetrievedKnowledgeContextItems(

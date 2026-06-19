@@ -3045,25 +3045,25 @@ export interface ProviderGatewayTextMessage {
   role: "user" | "assistant";
   content: ProviderGatewayMessageContent;
   /**
-   * ADR-110 prompt-cache discipline: marks a per-turn, query-dependent context message
-   * (e.g. relevance-retrieved `durable_memory_contextual`) that providers MUST project
-   * OUTSIDE the cached prompt prefix. Such messages are repositioned by the provider client
-   * next to the latest user message so their per-turn rotation can never invalidate the stable
-   * system / history prompt-cache breakpoints. Omit (undefined) for normal turn messages, which
-   * remain part of the cacheable prefix in their natural conversation order.
+   * ADR-110 prompt-cache discipline: marks a per-turn, query-dependent context message that
+   * providers MUST project OUTSIDE the cached prompt prefix. Such messages are repositioned by
+   * the provider client next to the latest user message so their per-turn rotation can never
+   * invalidate the stable system / history prompt-cache breakpoints. Omit (undefined) for normal
+   * turn messages, which remain part of the cacheable prefix in their natural conversation order.
    */
   cacheRole?: "volatile_context";
   /**
    * ADR-118 Slice 4 — discriminates the volatile-context block kind so provider clients
-   * can wrap content with the appropriate XML tag. Absent or "memory" → the
-   * `<persai_memory>` wrapper (ADR-119 Slice 9: replaces legacy `<recent_short_memory>` /
-   * `<persai_contextual_memory>`). "active_scenario" → the
+   * can wrap content with the appropriate XML tag. "active_scenario" → the
    * `<persai_active_scenario>` wrapper. "system_reminder" (ADR-119 Slice 5) → the
    * `<system-reminder>` wrapper; used by `BuildSystemReminderBlocksService` to inject
    * mid-conversation reminder messages that reinforce system directives under recency bias.
-   * Ignored when `cacheRole` is not "volatile_context".
+   * ADR-120 Slice 1 retired the always-on pushed contextual short-memory block, so the
+   * `"memory"` / `<persai_memory>` volatile kind no longer exists (cross-chat recall is now
+   * pull-only via the `knowledge_search` `memory` source). Ignored when `cacheRole` is not
+   * "volatile_context".
    */
-  volatileKind?: "memory" | "active_scenario" | "system_reminder";
+  volatileKind?: "active_scenario" | "system_reminder";
 }
 
 export interface ProviderGatewayTextContentBlock {

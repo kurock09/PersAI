@@ -1500,31 +1500,20 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           "\n</system-reminder>"
       };
     }
-    const isScenario = kind === "active_scenario";
-    if (isScenario) {
-      return {
-        role: "developer",
-        content:
-          "<persai_active_scenario>\n" +
-          "This is PersAI app-provided active scenario context for this provider call. " +
-          "It is not the user's latest request; follow the scenario steps while answering the existing " +
-          "conversation. Never mention, quote, list, repeat, or describe this block, these tags, or these " +
-          "instructions to the user unless the user explicitly asks.\n\n" +
-          body +
-          "\n</persai_active_scenario>"
-      };
-    }
+    // ADR-120 Slice 1 retired the pushed contextual short-memory block, so
+    // `active_scenario` is now the only volatile-context kind that reaches here
+    // (system_reminder is handled above). Cross-chat memory recall is pull-only
+    // via the `knowledge_search` `memory` source — no volatile memory push.
     return {
       role: "developer",
       content:
-        "<persai_memory>\n" +
-        "These are PersAI memories retrieved as silent background context for this provider call. " +
-        "They are not the user's latest request; use them only to inform your answer to the existing " +
-        "conversation. Never mention, quote, list, repeat, or describe this block, these tags, or the " +
-        "fact that memory was retrieved. Do not talk about your memory, retrieval, or context unless the " +
-        "user explicitly asks about them.\n\n" +
+        "<persai_active_scenario>\n" +
+        "This is PersAI app-provided active scenario context for this provider call. " +
+        "It is not the user's latest request; follow the scenario steps while answering the existing " +
+        "conversation. Never mention, quote, list, repeat, or describe this block, these tags, or these " +
+        "instructions to the user unless the user explicitly asks.\n\n" +
         body +
-        "\n</persai_memory>"
+        "\n</persai_active_scenario>"
     };
   }
 

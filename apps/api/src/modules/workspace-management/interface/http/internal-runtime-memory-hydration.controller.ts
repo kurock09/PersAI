@@ -21,15 +21,13 @@ export class InternalRuntimeMemoryHydrationController {
   ): Promise<{
     ok: true;
     core: HydratedDurableMemoryItem[];
-    contextual: HydratedDurableMemoryItem[];
   }> {
     this.assertAuthorized(req);
     const input = this.hydrateMemoryForTurnService.parseInput(body);
     const result = await this.hydrateMemoryForTurnService.execute(input);
     return {
       ok: true,
-      core: result.core,
-      contextual: result.contextual
+      core: result.core
     };
   }
 

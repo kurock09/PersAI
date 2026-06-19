@@ -28,10 +28,8 @@ import {
 } from "./runtime-context-hydration-policy";
 import {
   formatCrossSessionCarryOverStableBlock,
-  formatDurableMemoryContextualBlock,
   formatDurableMemoryCoreStableBlock,
-  formatSharedCompactionStableBlock,
-  type MemoryXmlEntry
+  formatSharedCompactionStableBlock
 } from "./prompt-cache-stable-blocks";
 import { renderCrossSessionCarryOverBlock } from "./cross-session-carry-over-renderer";
 import { renderPresenceBlock } from "./presence-renderer";
@@ -286,9 +284,12 @@ type ReusableCompactionSummary = {
   preservedRecentMessageCount: number;
 };
 
+// ADR-120 Slice 1 — durable memory hydration now produces ONLY the stable core
+// block (`durable_memory_core`, primacy zone). The always-on pushed contextual
+// short-memory block was retired; cross-chat recall is pull-only via the
+// `knowledge_search` `memory` source.
 type DurableMemoryHydration = {
   coreMessage: ProviderGatewayTextMessage | null;
-  contextualMessage: ProviderGatewayTextMessage | null;
 };
 
 // ADR-074 Slice M3 — output of the cross-session continuity carry-over
@@ -594,20 +595,16 @@ export class TurnContextHydrationService {
     durableMemory: DurableMemoryHydration
   ): ProviderGatewayTextMessage[] {
     // Order is fixed: durable_memory_core (M1, stable) -> cross_session_carry_over
-    // (M3, stable, turn-0-only) -> durable_memory_contextual (per-turn,
-    // non-stable). The rolling-session-synopsis block is inserted by the
-    // canonical-web hydration path between core and contextual when a prior
-    // in-thread compaction exists; that path doesn't apply at turn 0 by
-    // construction, so the M3 block doesn't compete with it.
+    // (M3, stable, turn-0-only). Both are cache-stable; the rolling-session-synopsis
+    // block is inserted by the canonical-web hydration path between core and the
+    // conversation when a prior in-thread compaction exists. ADR-120 Slice 1 retired
+    // the per-turn `durable_memory_contextual` block, so the prefix is now entirely stable.
     const prefix: ProviderGatewayTextMessage[] = [];
     if (durableMemory.coreMessage !== null) {
       prefix.push(durableMemory.coreMessage);
     }
     if (carryOver !== null) {
       prefix.push(carryOver.message);
-    }
-    if (durableMemory.contextualMessage !== null) {
-      prefix.push(durableMemory.contextualMessage);
     }
     return prefix;
   }
@@ -717,12 +714,9 @@ export class TurnContextHydrationService {
     // Stable prefix order: durable_memory_core (stable) ->
     // cross_session_carry_over (stable, turn-0-only — typically NOT present
     // here because the in-thread compaction implies prior turns; left in
-    // place for symmetry / paranoia) -> rolling_session_synopsis (stable)
-    // -> durable_memory_contextual (non-stable, per-turn). The contextual
-    // block is intentionally placed AFTER the synopsis so the contiguous
-    // stable prefix walked by `resolveLeadingHydratedPromptCacheStableBlockTokens`
-    // keeps the cache key stable across turns even when the contextual
-    // relevance set rotates.
+    // place for symmetry / paranoia) -> rolling_session_synopsis (stable).
+    // ADR-120 Slice 1 retired the per-turn `durable_memory_contextual` block,
+    // so the whole hydrated prefix is now cache-stable.
     const prefixMessages: ProviderGatewayTextMessage[] = [];
     if (durableMemory.coreMessage !== null) {
       prefixMessages.push(durableMemory.coreMessage);
@@ -734,9 +728,6 @@ export class TurnContextHydrationService {
       role: "assistant",
       content: this.formatReusableCompactionSummary(reusableSummary.summaryText)
     });
-    if (durableMemory.contextualMessage !== null) {
-      prefixMessages.push(durableMemory.contextualMessage);
-    }
     return this.limitHydratedMessages(
       [...prefixMessages, ...hydratedRecentMessages],
       contextHydration,
@@ -1299,13 +1290,13 @@ export class TurnContextHydrationService {
     currentChatId: string | null
   ): Promise<DurableMemoryHydration> {
     if (contextHydration.knowledgeHydrationBudget <= 0) {
-      return { coreMessage: null, contextualMessage: null };
+      return { coreMessage: null };
     }
     if (!this.persaiInternalApiClient.isConfigured()) {
       this.logger.warn(
         "PersAI internal API is not configured; durable memory hydration is disabled for this turn."
       );
-      return { coreMessage: null, contextualMessage: null };
+      return { coreMessage: null };
     }
 
     const maxHydratedMemoryItems = this.resolveHydratedMemoryItemLimit(
@@ -1314,45 +1305,28 @@ export class TurnContextHydrationService {
     const maxHydratedMemoryTotalChars = this.resolveHydratedMemoryCharBudget(
       contextHydration.knowledgeHydrationBudget
     );
-    // Reserve roughly half of the per-turn memory item budget for recent
-    // short-memory entries; the remainder is implicitly available for the
-    // always-on core block that is hashed into the stable cache prefix.
-    const contextualLimit = Math.max(0, Math.floor(maxHydratedMemoryItems / 2));
 
     let outcome;
     try {
       outcome = await this.persaiInternalApiClient.hydrateMemoryForTurn({
-        assistantId,
-        contextualLimit
+        assistantId
       });
     } catch (error) {
       this.logger.warn(
         `Memory hydration request failed; continuing without durable memory. error=${this.describeError(error)}`
       );
-      return { coreMessage: null, contextualMessage: null };
+      return { coreMessage: null };
     }
 
     const coreItems = this.dedupeHydratedItems(outcome.core);
-    const contextualItems = this.dedupeHydratedItems(outcome.contextual).filter(
-      (item) => !coreItems.some((coreItem) => coreItem.id === item.id)
-    );
 
     const coreMessage = this.buildCoreMemoryMessage(coreItems, {
       itemBudget: maxHydratedMemoryItems,
       charBudget: maxHydratedMemoryTotalChars,
       currentChatId
     });
-    const remainingCharBudget = Math.max(
-      0,
-      maxHydratedMemoryTotalChars - this.estimateBlockCharCost(coreMessage)
-    );
-    const contextualMessage = this.buildContextualMemoryMessage(contextualItems, {
-      itemBudget: Math.max(0, maxHydratedMemoryItems - (coreMessage === null ? 0 : 1)),
-      charBudget: remainingCharBudget,
-      currentChatId
-    });
 
-    return { coreMessage, contextualMessage };
+    return { coreMessage };
   }
 
   private dedupeHydratedItems(
@@ -1388,33 +1362,6 @@ export class TurnContextHydrationService {
     };
   }
 
-  private buildContextualMemoryMessage(
-    items: InternalHydratedDurableMemoryItem[],
-    budget: { itemBudget: number; charBudget: number; currentChatId: string | null }
-  ): ProviderGatewayTextMessage | null {
-    if (budget.itemBudget <= 0 || budget.charBudget <= 0) {
-      return null;
-    }
-    const entries = this.takeMemoryXmlEntries(
-      items.filter((item) => item.kind !== "open_loop"),
-      budget
-    );
-    if (entries.length === 0) {
-      return null;
-    }
-    return {
-      role: "assistant",
-      content: formatDurableMemoryContextualBlock(entries),
-      // ADR-119 Slice 9: explicit volatileKind so provider clients and detection
-      // helpers can identify this block without header-string matching.
-      volatileKind: "memory",
-      // ADR-110: per-turn recent short memory is volatile and must never sit inside the
-      // cached prompt prefix. The typed flag lets each provider client reposition it next to the
-      // latest user message without relying on fragile string matching of the block header.
-      cacheRole: "volatile_context"
-    };
-  }
-
   private takeMemoryLines(
     items: InternalHydratedDurableMemoryItem[],
     budget: { itemBudget: number; charBudget: number; currentChatId: string | null }
@@ -1446,36 +1393,6 @@ export class TurnContextHydrationService {
     return lines;
   }
 
-  /**
-   * ADR-119 Slice 9 — produces XML entry objects for the new `<persai_memory>` volatile block.
-   * Items arrive ordered by the caller (newest first). Budget is enforced the same way as
-   * `takeMemoryLines`; each entry's cost is estimated as the rendered XML entry byte length.
-   */
-  private takeMemoryXmlEntries(
-    items: InternalHydratedDurableMemoryItem[],
-    budget: { itemBudget: number; charBudget: number; currentChatId: string | null }
-  ): MemoryXmlEntry[] {
-    const entries: MemoryXmlEntry[] = [];
-    let totalChars = 0;
-    for (const item of items) {
-      const summary = item.summary.trim();
-      if (summary.length === 0) {
-        continue;
-      }
-      const writtenAt = item.createdAt.slice(0, 10);
-      const entryText = `<entry id="${item.id}" provenance="${item.provenance}" written_at="${writtenAt}">\n${summary}\n</entry>`;
-      if (
-        entries.length >= budget.itemBudget ||
-        totalChars + entryText.length > budget.charBudget
-      ) {
-        break;
-      }
-      entries.push({ id: item.id, provenance: item.provenance, writtenAt, summary });
-      totalChars += entryText.length;
-    }
-    return entries;
-  }
-
   private resolveMemorySourceMarker(
     item: InternalHydratedDurableMemoryItem,
     currentChatId: string | null
@@ -1502,13 +1419,6 @@ export class TurnContextHydrationService {
       return item.kind === null ? "Durable memory" : `Durable memory: ${item.kind}`;
     }
     return "Conversation memory";
-  }
-
-  private estimateBlockCharCost(message: ProviderGatewayTextMessage | null): number {
-    if (message === null || typeof message.content !== "string") {
-      return 0;
-    }
-    return message.content.length;
   }
 
   private describeError(error: unknown): string {

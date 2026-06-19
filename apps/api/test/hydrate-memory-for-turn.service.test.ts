@@ -37,34 +37,25 @@ function buildMemoryRow(overrides: Partial<MemoryRow>): MemoryRow {
   };
 }
 
-function createHarness(options?: { coreItems?: MemoryRow[]; contextualItems?: MemoryRow[] }) {
+function createHarness(options?: { coreItems?: MemoryRow[] }) {
   const bumpedIds: string[][] = [];
   const coreListCalls: Array<{ assistantId: string; limit: number }> = [];
-  const contextualListCalls: Array<{
-    assistantId: string;
-    limit: number;
-    filter: { sourceType?: MemoryRow["sourceType"] } | undefined;
-  }> = [];
   const supersedeCalls: Array<{
     id: string;
     assistantId: string;
     supersededByMemoryId: string | null;
   }> = [];
   const coreItems = options?.coreItems ?? [];
+  // ADR-120 Slice 1 — the contextual hydration leg was retired end to end, so
+  // the service depends ONLY on the core listing + last-used bump (no
+  // `listRecentActiveContextualByAssistantId`).
   const memoryRepository: Pick<
     AssistantMemoryRegistryRepository,
-    | "listActiveCoreByAssistantId"
-    | "listRecentActiveContextualByAssistantId"
-    | "bumpLastUsedAt"
-    | "markSupersededById"
+    "listActiveCoreByAssistantId" | "bumpLastUsedAt" | "markSupersededById"
   > = {
     async listActiveCoreByAssistantId(assistantId, limit) {
       coreListCalls.push({ assistantId, limit });
       return coreItems;
-    },
-    async listRecentActiveContextualByAssistantId(assistantId, limit, filter) {
-      contextualListCalls.push({ assistantId, limit, filter });
-      return options?.contextualItems ?? [];
     },
     async bumpLastUsedAt(_assistantId, ids) {
       bumpedIds.push(ids);
@@ -78,7 +69,6 @@ function createHarness(options?: { coreItems?: MemoryRow[]; contextualItems?: Me
     service: new HydrateMemoryForTurnService(memoryRepository as AssistantMemoryRegistryRepository),
     bumpedIds,
     coreListCalls,
-    contextualListCalls,
     memoryRepository,
     supersedeCalls
   };
@@ -88,30 +78,19 @@ async function run(): Promise<void> {
   // parseInput: rejects missing assistantId
   const validate = createHarness();
   assert.throws(
-    () =>
-      validate.service.parseInput({
-        contextualLimit: 4
-      }),
+    () => validate.service.parseInput({}),
     (error) => error instanceof BadRequestException
   );
-  assert.throws(
-    () =>
-      validate.service.parseInput({
-        assistantId: "assistant-1",
-        contextualLimit: -2
-      }),
-    (error) => error instanceof BadRequestException
-  );
+  // parseInput: trims assistantId and ignores any extra fields (the retired
+  // contextualLimit param is no longer accepted or required).
   const parsed = validate.service.parseInput({
     assistantId: "  assistant-1  ",
-    contextualLimit: null
+    contextualLimit: 4
   });
   assert.equal(parsed.assistantId, "assistant-1");
-  assert.equal(parsed.contextualLimit, null);
+  assert.deepEqual(Object.keys(parsed), ["assistantId"]);
 
-  // execute: returns core items, ignores raw web_chat contextual rows, filters
-  // normalized contextual duplicates of core, and preserves newest-first
-  // recency order from the repository.
+  // execute: returns core items only and bumps last_used_at for the returned core ids.
   const coreRow = buildMemoryRow({
     id: "core-1",
     summary: "User's name is Alex.",
@@ -119,101 +98,42 @@ async function run(): Promise<void> {
     kind: "fact",
     sourceLabel: "Long memory write: fact"
   });
-  const contextualPreferenceRow = buildMemoryRow({
-    id: "ctx-keep-2",
-    summary: "Prefers walking routes over museum-heavy plans.",
-    chatId: "chat-past-1",
-    memoryClass: "contextual",
+  const coreRow2 = buildMemoryRow({
+    id: "core-2",
+    summary: "Alex prefers concise answers.",
+    memoryClass: "core",
     kind: "preference",
-    sourceLabel: "Short memory write: preference",
-    durability: "episodic",
-    stability: "time_bound",
-    createdAt: new Date("2026-04-20T12:00:02.000Z")
-  });
-  const contextualFactRow = buildMemoryRow({
-    id: "ctx-keep-1",
-    summary: "Loves photography in Tbilisi.",
-    chatId: "chat-current-1",
-    memoryClass: "contextual",
-    kind: "fact",
-    sourceLabel: "Short memory write: fact",
-    durability: "episodic",
-    stability: "time_bound",
-    createdAt: new Date("2026-04-20T12:00:03.000Z")
-  });
-  const duplicateCoreSummaryRow = buildMemoryRow({
-    id: "ctx-duplicate-core-text",
-    summary: "  User's   name is Alex.  ",
-    memoryClass: "contextual",
-    kind: "fact",
-    sourceLabel: "Short memory write: fact",
-    durability: "episodic",
-    stability: "time_bound",
+    sourceLabel: "Long memory write: preference",
     createdAt: new Date("2026-04-20T12:00:01.000Z")
   });
-  const trivialNoiseRow = buildMemoryRow({
-    id: "greeting-noise",
-    summary: "hello",
-    memoryClass: "contextual",
-    kind: "fact",
-    sourceLabel: "Short memory write: fact",
-    durability: "episodic",
-    stability: "time_bound",
-    createdAt: new Date("2026-04-20T12:00:04.000Z")
-  });
   const harness = createHarness({
-    coreItems: [coreRow],
-    contextualItems: [
-      trivialNoiseRow,
-      contextualFactRow,
-      contextualPreferenceRow,
-      duplicateCoreSummaryRow
-    ]
+    coreItems: [coreRow, coreRow2]
   });
   const result = await harness.service.execute({
-    assistantId: "assistant-1",
-    contextualLimit: 6
+    assistantId: "assistant-1"
   });
 
-  assert.equal(result.core.length, 1);
-  assert.equal(result.core[0]?.id, "core-1");
+  assert.deepEqual(
+    result.core.map((item) => item.id),
+    ["core-1", "core-2"]
+  );
   assert.equal(result.core[0]?.memoryClass, "core");
   assert.equal(result.core[0]?.kind, "fact");
+  // The result no longer carries a contextual leg.
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(result, "contextual"),
+    false,
+    "ADR-120 Slice 1: hydration result must not expose a contextual leg"
+  );
   assert.deepEqual(harness.coreListCalls, [{ assistantId: "assistant-1", limit: 15 }]);
-  assert.deepEqual(
-    result.contextual.map((item) => item.id),
-    ["ctx-keep-1", "ctx-keep-2"]
-  );
-  assert.deepEqual(
-    result.contextual.map((item) => item.summary),
-    ["Loves photography in Tbilisi.", "Prefers walking routes over museum-heavy plans."]
-  );
-  assert.deepEqual(
-    result.contextual.map((item) => item.chatId),
-    ["chat-current-1", "chat-past-1"]
-  );
-  assert.deepEqual(harness.contextualListCalls, [
-    {
-      assistantId: "assistant-1",
-      limit: 6,
-      filter: { sourceType: "memory_write" }
-    }
-  ]);
   assert.equal(harness.bumpedIds.length, 1);
-  assert.deepEqual(new Set(harness.bumpedIds[0]), new Set(["core-1", "ctx-keep-1", "ctx-keep-2"]));
+  assert.deepEqual(new Set(harness.bumpedIds[0]), new Set(["core-1", "core-2"]));
 
-  // zero contextual budget skips recent short-memory loading entirely
-  const zeroLimitHarness = createHarness({
-    coreItems: [coreRow]
-  });
-  const zeroLimitResult = await zeroLimitHarness.service.execute({
-    assistantId: "assistant-1",
-    contextualLimit: 0
-  });
-  assert.equal(zeroLimitResult.contextual.length, 0);
-  assert.equal(zeroLimitHarness.contextualListCalls.length, 0);
-  assert.equal(zeroLimitHarness.bumpedIds.length, 1);
-  assert.deepEqual(zeroLimitHarness.bumpedIds[0], ["core-1"]);
+  // empty core set → no bump call at all
+  const emptyHarness = createHarness({ coreItems: [] });
+  const emptyResult = await emptyHarness.service.execute({ assistantId: "assistant-1" });
+  assert.equal(emptyResult.core.length, 0);
+  assert.equal(emptyHarness.bumpedIds.length, 0);
 
   // ADR-112 Slice 3a — keep the mocked repository contract honest by
   // exposing the supersession method on the same seam Hydrate uses.

@@ -1289,7 +1289,7 @@ Interpretation rules:
 
 ## Durable memory M1 focused checks
 
-When a change touches durable assistant memory classification, the `core` / `contextual` split, the internal `runtime → api` memory hydration endpoint, the prompt-cache stable-block split between `durable_memory_core` and `durable_memory_contextual`, or the Memory Center class/kind labels, add the focused pack below before calling the slice clean:
+When a change touches durable assistant memory classification, the write-time `core` / `contextual` class, the internal `runtime → api` memory hydration endpoint, the `durable_memory_core` cached prefix block, or the Memory Center class/kind labels, add the focused pack below before calling the slice clean. (ADR-120 Slice 1 retired the always-on pushed `durable_memory_contextual` block; `contextual` is now a write-time class recalled on demand via the `knowledge_search` `memory` source, not a per-turn push.)
 
 ```bash
 corepack pnpm --filter @persai/api exec tsx test/hydrate-memory-for-turn.service.test.ts
@@ -1306,9 +1306,9 @@ Interpretation rules:
 
 1. verify write-time classification matches the documented policy: `fact` / `preference` → `core`, `open_loop` → `contextual`, web-chat memory → `contextual`, Workspace Memory → `core`. Surprising rewrites of this policy must be justified in the slice handoff.
 2. verify `MEMORY_CORE_HARD_CAP = 15` is enforced on the write path with oldest-demoted overflow, and that the cap is NOT exposed as a user-tunable setting (founder principle 1).
-3. verify `HydrateMemoryForTurnService` returns the always-on core block plus a relevance-retrieved contextual tail in one call, deduplicates contextual hits against core ids, and bumps `last_used_at` on every hydrated entry — not only on contextual or only on core.
-4. verify the runtime composes two distinct prompt blocks: `durable_memory_core` (always present when any core entries exist, byte-stable across turns) and `durable_memory_contextual` (per-turn relevance, omitted entirely when empty). Folding both back into one block silently breaks the cache invariant.
-5. verify the prompt-cache invariant explicitly: rotating the contextual block content per turn must NOT change the stable token sequence emitted for `durable_memory_core` + `shared_compaction_summary`. This is the M1-vs-P1 contract.
+3. verify `HydrateMemoryForTurnService` returns the always-on `core` block only (ADR-120 Slice 1; the relevance-retrieved contextual tail was removed) and bumps `last_used_at` on every hydrated core entry.
+4. verify the runtime composes the `durable_memory_core` prompt block (always present when any core entries exist, byte-stable across turns) and that NO `<persai_memory>` / contextual block is ever pushed (ADR-120 Slice 1). A fact written in one chat must never surface in another chat's prompt.
+5. verify the prompt-cache invariant explicitly: the stable token sequence emitted for `durable_memory_core` + `shared_compaction_summary` stays byte-stable across turns regardless of the per-turn volatile content (scenario / system-reminder).
 6. final M1-style closure still requires the live smoke pair on `persai-dev` (`multi-session-continuity` and `chitchat-short`); do not mark the slice fully closed from local unit checks alone.
 
 ## Knowledge/admin focused checks
@@ -1645,10 +1645,10 @@ Six golden tests lock the invariants from the ADR-119 prompt architecture progra
 Compiles the full AOT cached system prefix for a representative fixture: Lyra assistant (warm_quiet archetype + flirty `<character_notes>`), one enabled Marketer Skill with a 5-step Instagram-carousel scenario. On first run the expected file is generated at `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt` and committed. Subsequent runs assert byte equality. Catches any unintended template change, persona compiler regression, or enabled-skills materialization drift.
 
 **GT1b — Runtime volatile-context zone structure** (`apps/runtime/test/adr119-golden-prompt-snapshot.test.ts`)
-Runtime-side companion to GT1. Validates that `formatDurableMemoryContextualBlock` assembles memory entries with correct provenance attributes, that volatile messages are classified correctly by `isDurableMemoryContextualMessage`, and that the three-zone boundary (stable prefix / volatile context / conversation tail) is respected. Catches any regression in the runtime's volatile-context construction.
+Runtime-side companion to GT1. Validates that the three-zone boundary (stable prefix / volatile context / conversation tail) is respected, that the durable_memory_core block stays in the stable prefix, and that the remaining volatile kinds (`<persai_active_scenario>`, `<system-reminder>`) are repositioned correctly. As of ADR-120 Slice 1 it also asserts that NO `<persai_memory>` contextual block is emitted. Catches any regression in the runtime's volatile-context construction.
 
 **GT2 — Cache-prefix byte-stability across 5 state variants** (`apps/runtime/test/prompt-cache-stable-blocks.test.ts`)
-Asserts that the stable-prefix tokens (BP1 + BP2) are byte-identical across five distinct state variants: (a) no Skill engaged, (b) Skill engaged no scenario, (c) Skill engaged with active scenario, (d) Skill released, (e) different memory entries retrieved. Catches any code path that accidentally promotes volatile content into the stable-prefix family, which would cause unnecessary provider cache invalidation.
+Asserts that the stable-prefix tokens (BP1 + BP2) are byte-identical across distinct state variants: (a) no Skill engaged, (b) Skill engaged no scenario, (c) Skill engaged with active scenario, (d) Skill released, (e) rotating per-turn volatile content (scenario / system-reminder). Catches any code path that accidentally promotes volatile content into the stable-prefix family, which would cause unnecessary provider cache invalidation.
 
 **GT3 — `<priority_order>` enumerates Skills #1** (`apps/runtime/test/native-tool-projection.test.ts`, `runAdr119Invariantstest`)
 Reads `apps/api/prisma/bootstrap-preset-data.ts` and asserts that the `tools` template contains a `<priority_order>` block with "Skills are the gate" as the first entry, followed by Knowledge, Media, and other rules in the correct order. Also verifies `<parallelism>` states `skill({engage})` is ALWAYS solo and `<failure_handling>` mentions `pending_delivery`. Catches selection-guide template edits that would demote Skills from position #1, re-enable parallel skill calls, or remove critical delivery honesty rules.
@@ -1659,8 +1659,8 @@ Verifies: when `skillsEnabled === true` and tools are present, Anthropic sets `t
 **GT5 — Persona deduplication** (`apps/api/test/compile-prompt-constructor.service.test.ts`, `runAdr119GoldenTest5PersonaDedup`)
 Asserts `<character_notes>` appears exactly once when `snapshotInstructions` is non-empty, `<voice>` and `<character_notes>` are textually adjacent with no intervening XML open tags, and `snapshotInstructions` content appears exactly once in the materialized prompt. Also asserts the old compiler bug (snapshotInstructions appearing before `<voice>` as a standalone section) does not regress. Catches any soul-template edit or compile-service change that would re-introduce the persona duplication failure mode [F1] from ADR-119.
 
-**GT6 — Memory provenance set + XML rendering** (`apps/runtime/test/prompt-cache-stable-blocks.test.ts`)
-Verifies all four `AssistantMemoryProvenance` values (`user_explicit`, `system_inferred`, `auto_extracted`, `legacy`) render correctly as `provenance="..."` XML attributes on `<entry>` elements inside `formatDurableMemoryContextualBlock`. Also asserts byte-stability (same input → same output) and entry-order preservation. Catches any regression in the memory XML rendering that would drop provenance attributes or break the `<persai_memory>` format.
+**GT6 — Memory provenance set on write paths** (`apps/api/test/write-assistant-memory.service.test.ts`)
+Verifies all four `AssistantMemoryProvenance` values (`user_explicit`, `system_inferred`, `auto_extracted`, `legacy`) are set correctly at write time by their respective services. ADR-120 Slice 1 retired the `<persai_memory>` contextual render (and `formatDurableMemoryContextualBlock`), so provenance is now a persisted column surfaced read-only in the Memory Center rather than an XML attribute in the prompt. Catches any regression that would drop or mis-tag provenance on the write path.
 
 ## User-path smoke
 
