@@ -804,6 +804,12 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     }
   ]);
 
+  // ADR-119 sliding history marker (#2 of 2) — byte-based chunked window.
+  // chunk = minTokens × APPROX_ANTHROPIC_BYTES_PER_TOKEN = 10 × 3 = 30 bytes.
+  // Formula: maxCachedPrefixBytes = floor(totalContentBytes / chunk) × chunk.
+  // The marker lands on the LATEST assistant message whose cumulative prefix is
+  // ≤ maxCachedPrefixBytes, stays put while history grows inside one chunk, and
+  // advances forward once the total crosses the next chunk boundary.
   const bucketedMovingHistoryRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
     promptCache: {
@@ -812,22 +818,24 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     messages: [
       {
         role: "assistant",
-        content: "A".repeat(50)
+        content: "A".repeat(30)
       },
       {
         role: "user",
-        content: "u".repeat(10)
+        content: "u".repeat(5)
       },
       {
         role: "assistant",
-        content: "B".repeat(45)
+        content: "B".repeat(30)
       },
       {
         role: "user",
-        content: "t".repeat(35)
+        content: "t".repeat(10)
       }
     ]
   };
+  // Total = 75 bytes; maxCachedPrefixBytes = floor(75/30)*30 = 60 bytes.
+  // m0 (cum=30 ≤ 60) is the latest eligible assistant; m2 (cum=65 > 60) is not.
   await client.generateText(bucketedMovingHistoryRequest);
   assert.deepEqual(capturedGeneratePayload!.messages, [
     {
@@ -835,7 +843,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       content: [
         {
           type: "text",
-          text: "A".repeat(50),
+          text: "A".repeat(30),
           cache_control: {
             type: "ephemeral"
           }
@@ -844,18 +852,21 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     },
     {
       role: "user",
-      content: "u".repeat(10)
+      content: "u".repeat(5)
     },
     {
       role: "assistant",
-      content: "B".repeat(45)
+      content: "B".repeat(30)
     },
     {
       role: "user",
-      content: "t".repeat(35)
+      content: "t".repeat(10)
     }
   ]);
 
+  // Adding a small (10-byte) user message keeps the total inside the same chunk
+  // bucket (75+10=85; floor(85/30)*30 = 60), so the marker MUST stay on the same
+  // assistant message — the byte-stable cache key invariant we depend on.
   await client.generateText({
     ...bucketedMovingHistoryRequest,
     messages: [
@@ -871,38 +882,108 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     content: [
       {
         type: "text",
-        text: "A".repeat(50),
+        text: "A".repeat(30),
         cache_control: {
           type: "ephemeral"
         }
       }
     ]
   });
-  assert.equal(capturedGeneratePayload!.messages[2]?.content, "B".repeat(45));
+  assert.equal(capturedGeneratePayload!.messages[2]?.content, "B".repeat(30));
 
+  // Adding a larger (60-byte) user message pushes the total across the next
+  // chunk boundary (75+60=135; floor(135/30)*30 = 120), so the marker SHIFTS
+  // forward to the later assistant message (m2, cum=65 ≤ 120) — this proves the
+  // marker advances on real growth. m0 reverts to its raw string content.
   await client.generateText({
     ...bucketedMovingHistoryRequest,
     messages: [
       ...bucketedMovingHistoryRequest.messages,
       {
         role: "user",
-        content: "x".repeat(30)
+        content: "x".repeat(60)
       }
     ]
   });
-  assert.equal(capturedGeneratePayload!.messages[0]?.content, "A".repeat(50));
+  assert.equal(capturedGeneratePayload!.messages[0]?.content, "A".repeat(30));
   assert.deepEqual(capturedGeneratePayload!.messages[2], {
     role: "assistant",
     content: [
       {
         type: "text",
-        text: "B".repeat(45),
+        text: "B".repeat(30),
         cache_control: {
           type: "ephemeral"
         }
       }
     ]
   });
+
+  // First-firing edge: history exactly one chunk (30 bytes). floor(30/30)*30 = 30,
+  // so the marker fires and lands on the LATEST eligible assistant (m2, cum=30).
+  const firstFiringRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    promptCache: {
+      anthropicHistoryBreakpointMinTokens: 10
+    },
+    messages: [
+      {
+        role: "assistant",
+        content: "a".repeat(10)
+      },
+      {
+        role: "user",
+        content: "u".repeat(5)
+      },
+      {
+        role: "assistant",
+        content: "b".repeat(15)
+      }
+    ]
+  };
+  await client.generateText(firstFiringRequest);
+  assert.deepEqual(capturedGeneratePayload!.messages, [
+    {
+      role: "assistant",
+      content: "a".repeat(10)
+    },
+    {
+      role: "user",
+      content: "u".repeat(5)
+    },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "b".repeat(15),
+          cache_control: {
+            type: "ephemeral"
+          }
+        }
+      ]
+    }
+  ]);
+
+  // Just below one chunk (29 bytes): floor(29/30)*30 = 0, so NO marker is placed.
+  await client.generateText({
+    ...firstFiringRequest,
+    messages: [
+      {
+        role: "assistant",
+        content: "a".repeat(10)
+      },
+      {
+        role: "user",
+        content: "u".repeat(5)
+      },
+      {
+        role: "assistant",
+        content: "b".repeat(14)
+      }
+    ]
+  });
+  assert.equal(capturedGeneratePayload!.messages[2]?.content, "b".repeat(14));
 
   const movingHistoryWithDeveloperRequest: ProviderGatewayTextGenerateRequest = {
     ...movingHistoryCacheRequest,
@@ -1661,7 +1742,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   assert.doesNotMatch(reminderText, /<persai_active_scenario>/);
 
   // ADR-119 Golden Test 4 — Provider request payload flags (Anthropic).
-  // ADR-119 Slice 2 — disable_parallel_tool_use + per-block cache markers
+  // ADR-119 Slice 2 — disable_parallel_tool_use discipline
 
   // skillsEnabled: true + tools → tool_choice: {type:"auto", disable_parallel_tool_use: true} (generateText)
   const skillsEnabledRequest: ProviderGatewayTextGenerateRequest = {
@@ -1748,160 +1829,4 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     undefined,
     "skillsEnabled:undefined + tools (no toolChoice) must NOT set tool_choice"
   );
-
-  // systemPromptBlocks — 3 blocks, all get cache_control (generateText)
-  const threeBlocksRequest: ProviderGatewayTextGenerateRequest = {
-    ...request,
-    systemPrompt: "AAABBBCCC",
-    systemPromptBlocks: [
-      { id: "BP1", text: "AAA" },
-      { id: "BP2", text: "BBB" },
-      { id: "BP3", text: "CCC" }
-    ]
-  };
-  await client.generateText(threeBlocksRequest);
-  assert.deepEqual(
-    capturedGeneratePayload!.system,
-    [
-      { type: "text", text: "AAA", cache_control: { type: "ephemeral" } },
-      { type: "text", text: "BBB", cache_control: { type: "ephemeral" } },
-      { type: "text", text: "CCC", cache_control: { type: "ephemeral" } }
-    ],
-    "3 systemPromptBlocks: all must carry cache_control (generateText)"
-  );
-
-  // systemPromptBlocks — 3 blocks, all get cache_control (streamText)
-  const threeBlocksStream = await client.streamText(threeBlocksRequest);
-  await collectStream(threeBlocksStream);
-  assert.deepEqual(
-    capturedStreamPayload!.system,
-    [
-      { type: "text", text: "AAA", cache_control: { type: "ephemeral" } },
-      { type: "text", text: "BBB", cache_control: { type: "ephemeral" } },
-      { type: "text", text: "CCC", cache_control: { type: "ephemeral" } }
-    ],
-    "3 systemPromptBlocks: all must carry cache_control (streamText)"
-  );
-
-  // systemPromptBlocks — 4 blocks: first 3 marked, 4th plain, truncation warn fires
-  {
-    const warnEvents: Array<Record<string, unknown>> = [];
-    (
-      client as unknown as {
-        logger: { warn: (value: Record<string, unknown>) => void };
-      }
-    ).logger.warn = (value) => {
-      warnEvents.push(value);
-    };
-
-    const fourBlocksRequest: ProviderGatewayTextGenerateRequest = {
-      ...request,
-      systemPrompt: "AAAABBBBCCCCDDDD",
-      systemPromptBlocks: [
-        { id: "BP1", text: "AAAA" },
-        { id: "BP2", text: "BBBB" },
-        { id: "BP3", text: "CCCC" },
-        { id: "BP4", text: "DDDD" }
-      ]
-    };
-    await client.generateText(fourBlocksRequest);
-    assert.deepEqual(
-      capturedGeneratePayload!.system,
-      [
-        { type: "text", text: "AAAA", cache_control: { type: "ephemeral" } },
-        { type: "text", text: "BBBB", cache_control: { type: "ephemeral" } },
-        { type: "text", text: "CCCC", cache_control: { type: "ephemeral" } },
-        { type: "text", text: "DDDD" }
-      ],
-      "4 systemPromptBlocks: first 3 must carry cache_control, 4th must be plain text"
-    );
-    const truncWarn = warnEvents.find((e) => e.event === "anthropic_cache_breakpoints_truncated");
-    assert.ok(
-      truncWarn !== undefined,
-      "4 blocks must emit anthropic_cache_breakpoints_truncated warn"
-    );
-
-    // streamText mirror
-    warnEvents.length = 0;
-    const fourBlocksStream = await client.streamText(fourBlocksRequest);
-    await collectStream(fourBlocksStream);
-    assert.deepEqual(
-      capturedStreamPayload!.system,
-      [
-        { type: "text", text: "AAAA", cache_control: { type: "ephemeral" } },
-        { type: "text", text: "BBBB", cache_control: { type: "ephemeral" } },
-        { type: "text", text: "CCCC", cache_control: { type: "ephemeral" } },
-        { type: "text", text: "DDDD" }
-      ],
-      "4 systemPromptBlocks streamText: first 3 must carry cache_control, 4th must be plain"
-    );
-    const truncWarnStream = warnEvents.find(
-      (e) => e.event === "anthropic_cache_breakpoints_truncated"
-    );
-    assert.ok(
-      truncWarnStream !== undefined,
-      "4 blocks streamText must emit anthropic_cache_breakpoints_truncated warn"
-    );
-
-    // Restore warn to no-op
-    (
-      client as unknown as {
-        logger: { warn: (value: Record<string, unknown>) => void };
-      }
-    ).logger.warn = () => {};
-  }
-
-  // systemPromptBlocks — mismatch: fallback to single-block, mismatch warn fires
-  {
-    const warnEvents: Array<Record<string, unknown>> = [];
-    (
-      client as unknown as {
-        logger: { warn: (value: Record<string, unknown>) => void };
-      }
-    ).logger.warn = (value) => {
-      warnEvents.push(value);
-    };
-
-    const mismatchBlocksRequest: ProviderGatewayTextGenerateRequest = {
-      ...request,
-      systemPrompt: "Be concise.",
-      systemPromptBlocks: [{ id: "BP1", text: "Wrong content that does not match systemPrompt" }]
-    };
-    await client.generateText(mismatchBlocksRequest);
-    // Fallback: no promptCache → single-block returns plain string
-    assert.equal(
-      capturedGeneratePayload!.system,
-      "Be concise.",
-      "systemPromptBlocks mismatch must fall back to plain string (no promptCache)"
-    );
-    const mismatchWarn = warnEvents.find((e) => e.event === "anthropic_system_blocks_mismatch");
-    assert.ok(
-      mismatchWarn !== undefined,
-      "systemPromptBlocks mismatch must emit anthropic_system_blocks_mismatch warn"
-    );
-
-    // streamText mirror
-    warnEvents.length = 0;
-    const mismatchStream = await client.streamText(mismatchBlocksRequest);
-    await collectStream(mismatchStream);
-    assert.equal(
-      capturedStreamPayload!.system,
-      "Be concise.",
-      "systemPromptBlocks mismatch streamText must fall back to plain string"
-    );
-    const mismatchWarnStream = warnEvents.find(
-      (e) => e.event === "anthropic_system_blocks_mismatch"
-    );
-    assert.ok(
-      mismatchWarnStream !== undefined,
-      "systemPromptBlocks mismatch streamText must emit warn"
-    );
-
-    // Restore warn to no-op
-    (
-      client as unknown as {
-        logger: { warn: (value: Record<string, unknown>) => void };
-      }
-    ).logger.warn = () => {};
-  }
 }

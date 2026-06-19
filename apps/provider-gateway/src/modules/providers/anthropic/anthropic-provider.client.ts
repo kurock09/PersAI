@@ -88,7 +88,19 @@ type AnthropicBuiltMessage = {
   content: AnthropicBuiltMessageContent;
 };
 
-const APPROX_ANTHROPIC_CHARS_PER_TOKEN = 4;
+/**
+ * ADR-119 live-test 2026-06-18 — empirical UTF-8-bytes-per-token ratio for
+ * Anthropic BPE tokenization across the mixed language content PersAI sends.
+ *
+ * Sonnet's tokenizer averages ~3 UTF-8 bytes per token across English, code,
+ * JSON, and Cyrillic content. Using byte length (instead of char length) means
+ * the moving-history breakpoint fires correctly for non-Latin conversations
+ * (where 1 char = 2 bytes for Cyrillic) and still fires sensibly for English
+ * (1 char = 1 byte). Previous implementation used char count × 4 chars/token,
+ * which under-estimated Russian token counts by ~2x and silently disabled
+ * history caching for the majority of PersAI users.
+ */
+const APPROX_ANTHROPIC_BYTES_PER_TOKEN = 3;
 
 @Injectable()
 export class AnthropicProviderClient implements ProviderWarmableClient {
@@ -745,8 +757,9 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   }
 
   /**
-   * ADR-074 P1 / ADR-119 Slice 2: separate the cached system prefix from per-turn developer
-   * instructions and emit per-block `cache_control` markers when `systemPromptBlocks` is provided.
+   * ADR-074 P1 / ADR-119: separate the cached system prefix from per-turn developer
+   * instructions and place Anthropic's `cache_control` marker (#1 of 2) on the whole
+   * `systemPrompt`.
    *
    * Anthropic accepts `system` as either a string or an array of `TextBlockParam`. When prompt
    * cache intent or per-turn developer guidance is present, we project system content as explicit
@@ -755,14 +768,12 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
    * after messages instead; otherwise they would sit before every message breakpoint in Anthropic's
    * `tools -> system -> messages` cache order and force a fresh history cache write every turn.
    * When only `systemPrompt` is set and no Anthropic cache breakpoint is requested, we keep the
-   * legacy string form to minimize behavioural drift.
+   * plain string form to minimize behavioural drift.
    *
-   * ADR-119 Slice 2 multi-block path: when `systemPromptBlocks` is provided and non-empty,
-   * emit one block per entry with `cache_control: {type:"ephemeral"}`. Anthropic's 4-breakpoint
-   * limit means at most 3 system blocks can carry markers (the 4th breakpoint is reserved for
-   * the moving-history window). Blocks beyond position 3 are emitted as plain text blocks.
-   * Validation: `blocks.map(b=>b.text).join("")` must equal `systemPrompt`; on mismatch, fall
-   * back to single-block legacy mode rather than crashing.
+   * Single-block system path (default). One `cache_control` marker on the entire `systemPrompt`
+   * caches `tools` + the whole `system` zone (Anthropic order: `tools -> system -> messages`).
+   * The ADR-119 Slice 2 multi-block path (extra per-zone markers #3/#4 via `systemPromptBlocks`)
+   * was rejected on review — see the ADR-119 footer for the reasoning.
    */
   private buildAnthropicSystemBlocks(
     input: ProviderGatewayTextGenerateRequest
@@ -779,45 +790,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     const developerInstructionsAsMessageSuffix =
       this.shouldProjectDeveloperInstructionsAsMessageSuffix(input);
 
-    // ADR-119 Slice 2: multi-block path — validate and emit per-block cache markers.
-    const systemPromptBlocks = input.systemPromptBlocks;
-    if (
-      systemPromptBlocks !== undefined &&
-      systemPromptBlocks.length > 0 &&
-      systemPrompt !== null
-    ) {
-      const concatenated = systemPromptBlocks.map((b) => b.text).join("");
-      if (concatenated !== systemPrompt) {
-        this.logger.warn({
-          event: "anthropic_system_blocks_mismatch",
-          expectedLength: systemPrompt.length,
-          actualLength: concatenated.length
-        });
-        // Fall through to legacy single-block path below.
-      } else {
-        const ANTHROPIC_MAX_SYSTEM_CACHE_MARKERS = 3;
-        if (systemPromptBlocks.length > ANTHROPIC_MAX_SYSTEM_CACHE_MARKERS) {
-          this.logger.warn({
-            event: "anthropic_cache_breakpoints_truncated",
-            totalBlocks: systemPromptBlocks.length,
-            markedBlocks: ANTHROPIC_MAX_SYSTEM_CACHE_MARKERS
-          });
-        }
-        const blocks: AnthropicSystemTextBlock[] = systemPromptBlocks.map((block, index) => ({
-          type: "text" as const,
-          text: block.text,
-          ...(index < ANTHROPIC_MAX_SYSTEM_CACHE_MARKERS
-            ? { cache_control: this.buildAnthropicCacheControl(input.promptCache) }
-            : {})
-        }));
-        if (developerInstructions !== null && !developerInstructionsAsMessageSuffix) {
-          blocks.push({ type: "text", text: developerInstructions });
-        }
-        return blocks;
-      }
-    }
-
-    // Legacy single-block path.
+    // Single-block system path (default; multi-block path rejected — see ADR-119 footer).
     const cacheStableSystemPrompt = systemPrompt !== null && input.promptCache !== undefined;
     if (
       systemPrompt === null &&
@@ -897,23 +870,39 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   }
 
   /**
-   * Place a "moving" Anthropic cache_control marker inside the message history so
-   * the growing conversation gets folded into the cached prefix in fixed-size
-   * chunks. Without this, every turn would pay `inputTokens` for the entire
-   * history; with it, only the trailing `~minTokens` chunk stays uncached.
+   * Place the "moving" Anthropic cache_control marker (#2 of 2 — system prefix
+   * carries #1) inside the message history so the growing conversation gets
+   * folded into the cached prefix in fixed-size chunks. Without this, every turn
+   * would pay `inputTokens` for the entire history; with it, only the trailing
+   * dynamic part (volatile context + the current user question, both spliced in
+   * AFTER this marker) stays uncached.
    *
-   * ADR-119 live-test 2026-06-18 — earlier implementation only accepted
-   * assistant messages whose content was a single plain text block. In real
-   * tool-loop conversations the assistant frequently emits multi-block content
-   * (text + `tool_use`, or pure `tool_use`), which made the candidate set
-   * empty and silently disabled history caching. The replacement also
-   * destroyed the original content array, which risked corrupting tool calls.
+   * Window logic (chunk = `minTailBytes` = `minTokens` × bytes/token):
    *
-   * The fix: (1) any assistant message is a candidate; (2) we never replace
-   * the original content — we only attach `cache_control` to the last
-   * cache-control-capable block; (3) byte accounting now includes `tool_use`
-   * arguments and `tool_result` payloads so the chunk math reflects real
-   * history size on tool-heavy turns.
+   *   maxCachedPrefixBytes = floor(totalContentBytes / chunk) × chunk
+   *
+   * The marker lands on the latest assistant message whose cumulative prefix is
+   * ≤ `maxCachedPrefixBytes`. As the history grows within one chunk the marker
+   * stays put (cache stays hot); once the total crosses the next chunk boundary
+   * `maxCachedPrefixBytes` jumps by one chunk and the marker advances forward,
+   * letting Anthropic READ the already-cached older prefix (≈12.5× cheaper than
+   * re-paying it) and only WRITE the freshly-stabilised delta.
+   *
+   * Why `floor(total / chunk) × chunk` and NOT `floor((total − chunk) / chunk) ×
+   * chunk`: the earlier `(total − minTail)` variant reserved an extra trailing
+   * "tail buffer" before the marker would fire at all, so it required ≈2× the
+   * chunk size (~6k tokens) of history before placing any marker — in normal
+   * PersAI dialogs that threshold was rarely reached and history caching was
+   * effectively disabled. The dynamic tail (volatile_context + current question)
+   * is already spliced in AFTER this marker by `buildAnthropicMessages`, so no
+   * additional buffer is needed; the marker should fire as soon as one full
+   * chunk of stable history exists.
+   *
+   * ADR-119 live-test 2026-06-18 — the candidate search accepts ANY assistant
+   * message (tool-loop turns emit pure `tool_use` content), never rewrites the
+   * original content (it only attaches `cache_control` to the last capable
+   * block), and byte accounting includes `tool_use` arguments and `tool_result`
+   * payloads so the chunk math reflects real history size on tool-heavy turns.
    */
   private applyAnthropicMovingHistoryBreakpoint(
     messages: AnthropicBuiltMessage[],
@@ -923,29 +912,28 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     if (!Number.isFinite(minTokens) || typeof minTokens !== "number" || minTokens <= 0) {
       return;
     }
-    const minTailChars = Math.ceil(minTokens * APPROX_ANTHROPIC_CHARS_PER_TOKEN);
-    const totalContentChars = messages.reduce((total, message) => {
-      return total + this.measureAnthropicMessageContentChars(message);
+    const minTailBytes = Math.ceil(minTokens * APPROX_ANTHROPIC_BYTES_PER_TOKEN);
+    const totalContentBytes = messages.reduce((total, message) => {
+      return total + this.measureAnthropicMessageContentBytes(message);
     }, 0);
     // Keep the "chunked" cache-prefix advance so cache keys are stable across
-    // multiple turns within the same `minTailChars`-sized window. Without the
+    // multiple turns within the same `minTailBytes`-sized window. Without the
     // floor() quantization the marker would shift on every user reply, which
     // would invalidate the cache constantly and cost more than not caching.
-    const maxCachedPrefixChars =
-      Math.floor((totalContentChars - minTailChars) / minTailChars) * minTailChars;
-    if (maxCachedPrefixChars < minTailChars) {
+    const maxCachedPrefixBytes = Math.floor(totalContentBytes / minTailBytes) * minTailBytes;
+    if (maxCachedPrefixBytes <= 0) {
       return;
     }
 
-    let cachedPrefixChars = 0;
+    let cachedPrefixBytes = 0;
     let candidateIndex: number | null = null;
     for (let index = 0; index < messages.length; index += 1) {
       const message = messages[index];
       if (message === undefined) {
         continue;
       }
-      cachedPrefixChars += this.measureAnthropicMessageContentChars(message);
-      if (message.role === "assistant" && cachedPrefixChars <= maxCachedPrefixChars) {
+      cachedPrefixBytes += this.measureAnthropicMessageContentBytes(message);
+      if (message.role === "assistant" && cachedPrefixBytes <= maxCachedPrefixBytes) {
         candidateIndex = index;
       }
     }
@@ -1079,35 +1067,41 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
 
   /**
    * Approximate the wire-size of an assistant/user message content. Used to
-   * decide where the moving Anthropic cache_control breakpoint lands. Counts:
+   * decide where the moving Anthropic cache_control breakpoint lands. Counts
+   * UTF-8 BYTE length (not char length) so non-Latin content — where 1 char
+   * costs 2-3 bytes — contributes its real share of the prefix size. Anthropic
+   * BPE tokenization is byte-aligned, so byte count is a better proxy for
+   * token count than char count is.
    *
-   *   - raw string content → its length
-   *   - `text` block → its `text` length
-   *   - `tool_use` block → JSON-serialised arguments length (best-effort)
-   *   - `tool_result` block → its string content length when textual
+   *   - raw string content → its UTF-8 byte length
+   *   - `text` block → its `text` UTF-8 byte length
+   *   - `tool_use` block → JSON-serialised arguments byte length (best-effort)
+   *   - `tool_result` block → its string content byte length when textual
    *
    * `image` and `document` (base64) blocks intentionally return zero — they are
    * not part of the textual prefix that determines a cache hit and counting
    * megabyte-sized base64 payloads here would push the breakpoint past the end
    * of the message body on every tool-image turn.
    */
-  private measureAnthropicMessageContentChars(message: AnthropicBuiltMessage): number {
+  private measureAnthropicMessageContentBytes(message: AnthropicBuiltMessage): number {
     if (typeof message.content === "string") {
-      return message.content.length;
+      return Buffer.byteLength(message.content, "utf8");
     }
     return message.content.reduce((total, block) => {
       if (block.type === "text") {
-        return total + block.text.length;
+        return total + Buffer.byteLength(block.text, "utf8");
       }
       if (block.type === "tool_use") {
         try {
-          return total + JSON.stringify(block.input ?? {}).length;
+          return total + Buffer.byteLength(JSON.stringify(block.input ?? {}), "utf8");
         } catch {
           return total;
         }
       }
       if (block.type === "tool_result") {
-        return total + (typeof block.content === "string" ? block.content.length : 0);
+        return (
+          total + (typeof block.content === "string" ? Buffer.byteLength(block.content, "utf8") : 0)
+        );
       }
       return total;
     }, 0);
