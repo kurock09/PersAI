@@ -260,6 +260,62 @@ const rows: KnowledgeChunkRow[] = [
       originalFilename: "appendix-pricing.txt",
       mimeType: "text/plain"
     }
+  },
+  // ADR-120 Slice 3 — ANN corpus. None of these contain the query terms
+  // ("tundra"/"wildlife"/"adaptation"), so lexical search returns nothing; the
+  // true nearest neighbour ("source-ann-near", which sorts LAST by id) can only
+  // be retrieved via the pgvector ANN candidate path.
+  {
+    assistantId: "assistant-ann",
+    knowledgeSourceId: "source-ann-1",
+    sourceVersion: 1,
+    chunkIndex: 0,
+    locator: "q1",
+    content: "Quarterly revenue projections for the marketing department spreadsheet.",
+    knowledgeSource: {
+      id: "source-ann-1",
+      assistantId: "assistant-ann",
+      namespace: "assistant_user_workspace",
+      status: "ready",
+      displayName: "Finance Sheet",
+      originalFilename: "finance.txt",
+      mimeType: "text/plain"
+    }
+  },
+  {
+    assistantId: "assistant-ann",
+    knowledgeSourceId: "source-ann-2",
+    sourceVersion: 1,
+    chunkIndex: 0,
+    locator: "pantry",
+    content: "Office snack inventory and pantry restocking schedule notes.",
+    knowledgeSource: {
+      id: "source-ann-2",
+      assistantId: "assistant-ann",
+      namespace: "assistant_user_workspace",
+      status: "ready",
+      displayName: "Pantry Notes",
+      originalFilename: "pantry.txt",
+      mimeType: "text/plain"
+    }
+  },
+  {
+    assistantId: "assistant-ann",
+    knowledgeSourceId: "source-ann-near",
+    sourceVersion: 1,
+    chunkIndex: 0,
+    locator: "bio-7",
+    content:
+      "Arctic foxes grow thicker fur and change coat color to survive freezing cold seasons.",
+    knowledgeSource: {
+      id: "source-ann-near",
+      assistantId: "assistant-ann",
+      namespace: "assistant_user_workspace",
+      status: "ready",
+      displayName: "Field Notes",
+      originalFilename: "field-notes.txt",
+      mimeType: "text/plain"
+    }
   }
 ];
 
@@ -898,9 +954,26 @@ async function run(): Promise<void> {
               }
 
               const locatorWhere = (entry as { locator?: { contains?: string } }).locator;
-              return typeof locatorWhere?.contains === "string" && row.locator !== null
-                ? containsInsensitive(row.locator, locatorWhere.contains)
-                : false;
+              if (typeof locatorWhere?.contains === "string") {
+                return row.locator !== null
+                  ? containsInsensitive(row.locator, locatorWhere.contains)
+                  : false;
+              }
+
+              // ADR-120 Slice 3 — ANN hydration loads chunks by reference tuple.
+              const tupleWhere = entry as {
+                knowledgeSourceId?: string;
+                sourceVersion?: number;
+                chunkIndex?: number;
+              };
+              if (tupleWhere.knowledgeSourceId !== undefined) {
+                return (
+                  row.knowledgeSourceId === tupleWhere.knowledgeSourceId &&
+                  row.sourceVersion === tupleWhere.sourceVersion &&
+                  row.chunkIndex === tupleWhere.chunkIndex
+                );
+              }
+              return false;
             });
           }
           return true;
@@ -1006,9 +1079,26 @@ async function run(): Promise<void> {
               }
 
               const locatorWhere = (entry as { locator?: { contains?: string } }).locator;
-              return typeof locatorWhere?.contains === "string" && row.locator !== null
-                ? containsInsensitive(row.locator, locatorWhere.contains)
-                : false;
+              if (typeof locatorWhere?.contains === "string") {
+                return row.locator !== null
+                  ? containsInsensitive(row.locator, locatorWhere.contains)
+                  : false;
+              }
+
+              // ADR-120 Slice 3 — ANN hydration loads chunks by reference tuple.
+              const tupleWhere = entry as {
+                globalKnowledgeSourceId?: string;
+                sourceVersion?: number;
+                chunkIndex?: number;
+              };
+              if (tupleWhere.globalKnowledgeSourceId !== undefined) {
+                return (
+                  row.globalKnowledgeSourceId === tupleWhere.globalKnowledgeSourceId &&
+                  row.sourceVersion === tupleWhere.sourceVersion &&
+                  row.chunkIndex === tupleWhere.chunkIndex
+                );
+              }
+              return false;
             });
           }
           return true;
@@ -1398,6 +1488,11 @@ async function run(): Promise<void> {
         currentPeriodEndsAt: new Date("2026-06-01T00:00:00.000Z"),
         cancelAtPeriodEnd: false
       })
+    } as never,
+    {
+      searchNearest: async () => [],
+      replaceSourceChunks: async () => undefined,
+      deleteSource: async () => undefined
     } as never
   );
 
@@ -1430,6 +1525,104 @@ async function run(): Promise<void> {
         (hit.metadata as { knowledgeSourceId?: string } | null)?.knowledgeSourceId === "source-4"
     ).length,
     1
+  );
+
+  // ADR-120 Slice 3 — document search selects vector candidates via the
+  // pgvector ANN index, not the legacy first-N-by-table-order scan. The corpus
+  // for "assistant-ann" has no lexical match for the query, so the only way the
+  // true nearest neighbour ("source-ann-near") enters the result set is through
+  // the injected vector index.
+  const vectorSearchCalls: Array<Record<string, unknown>> = [];
+  const annService = new ReadAssistantKnowledgeService(
+    prisma as never,
+    {
+      generateEmbeddings: async () => ({ embeddings: [[0.11, 0.22, 0.33]], usage: null })
+    } as never,
+    {
+      resolveAssistantEmbeddingModelKey: async () => "embed-model-ann",
+      resolveAssistantRetrievalModelKey: async () => null,
+      resolveAdminKnowledgeEmbeddingModelKey: async () => "embed-model-ann",
+      resolveAdminKnowledgeRetrievalModelKey: async () => null,
+      resolveAdminKnowledgeRetrievalPolicy: async () => ({
+        schema: "persai.adminKnowledgeRetrievalPolicy.v1",
+        embeddingModelKey: "embed-model-ann",
+        retrievalModelKey: null,
+        authoringModelKey: null,
+        smartSearchEnabled: false,
+        smartSearchLongDocSummaryChars: 800,
+        fetchFullModeAbsoluteMaxChars: 100_000,
+        fetchFullModeAbsoluteMaxChatMessages: 800,
+        notes: []
+      }),
+      resolveAssistantRetrievalPolicy: async () => ({
+        defaultMaxResults: 5,
+        maxMaxResults: 8,
+        lexicalCandidateLimit: 60,
+        vectorCandidateLimit: 240,
+        knowledgeFetchWindowRadius: 1,
+        chatFetchWindowRadius: 2,
+        fetchMaxChars: 6000,
+        helperEnabled: true,
+        helperCandidateLimit: 6,
+        helperMaxOutputTokens: 220,
+        embeddingSearchEnabled: true,
+        smartSearchShortDocChars: 2_000,
+        smartSearchMediumDocChars: 8_000,
+        chatSectionDefaultRadius: 15,
+        fetchFullModeMaxChars: 25_000,
+        fetchFullModeMaxChatMessages: 150
+      })
+    } as never,
+    { rerankCandidates: async () => null } as never,
+    {
+      recordSearch: async () => undefined,
+      recordFetch: async () => undefined
+    } as never,
+    { executeReadOnly: async () => null } as never,
+    {
+      searchNearest: async (searchInput: Record<string, unknown>) => {
+        vectorSearchCalls.push(searchInput);
+        return [
+          {
+            id: "vector-row-near",
+            workspaceId: null,
+            assistantId: "assistant-ann",
+            skillId: null,
+            sourceType: "assistant_knowledge_source",
+            sourceId: "source-ann-near",
+            chunkId: null,
+            sourceVersion: 1,
+            chunkIndex: 0,
+            embeddingModelKey: "embed-model-ann",
+            score: 0.91,
+            metadata: null
+          }
+        ];
+      },
+      replaceSourceChunks: async () => undefined,
+      deleteSource: async () => undefined
+    } as never
+  );
+
+  const annHits = await annService.searchDocuments({
+    assistantId: "assistant-ann",
+    query: "tundra wildlife adaptation",
+    maxResults: 5
+  });
+  assert.equal(vectorSearchCalls.length, 1, "document search must call the vector index once");
+  assert.deepEqual(vectorSearchCalls[0]?.sourceTypes, ["assistant_knowledge_source"]);
+  assert.equal(vectorSearchCalls[0]?.assistantId, "assistant-ann");
+  assert.deepEqual(vectorSearchCalls[0]?.queryVector, [0.11, 0.22, 0.33]);
+  assert.equal(vectorSearchCalls[0]?.embeddingModelKey, "embed-model-ann");
+  assert.equal(
+    annHits.some((hit) => hit.referenceId === "source-ann-near:1:0"),
+    true,
+    "ANN nearest neighbour must be retrieved even with no lexical match"
+  );
+  assert.equal(
+    annHits.every((hit) => hit.referenceId === "source-ann-near:1:0"),
+    true,
+    "no non-ANN, non-lexical candidate should leak into the result set"
   );
 
   const fetched = await service.fetchDocument({

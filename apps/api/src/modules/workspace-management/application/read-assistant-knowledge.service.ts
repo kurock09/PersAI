@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import {
   PERSAI_RUNTIME_KNOWLEDGE_FETCH_MODES,
   type PersaiRuntimeKnowledgeFetchMode,
@@ -13,6 +13,7 @@ import { KnowledgeEmbeddingService } from "./knowledge-embedding.service";
 import { KnowledgeModelPolicyService } from "./knowledge-model-policy.service";
 import { KnowledgeRetrievalObservabilityService } from "./knowledge-retrieval-observability.service";
 import { KnowledgeRetrievalHelperService } from "./knowledge-retrieval-helper.service";
+import { KNOWLEDGE_VECTOR_INDEX, type KnowledgeVectorIndex } from "./knowledge-vector-index";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
@@ -1170,26 +1171,6 @@ function resolveChatTitle(row: Pick<ChatThreadRow, "surface" | "title">): string
   return row.surface === "telegram" ? "Telegram chat" : "Web chat";
 }
 
-function cosineSimilarity(left: number[], right: number[]): number {
-  if (left.length === 0 || right.length === 0 || left.length !== right.length) {
-    return 0;
-  }
-  let dot = 0;
-  let leftMagnitude = 0;
-  let rightMagnitude = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    const leftValue = left[index] ?? 0;
-    const rightValue = right[index] ?? 0;
-    dot += leftValue * rightValue;
-    leftMagnitude += leftValue * leftValue;
-    rightMagnitude += rightValue * rightValue;
-  }
-  if (leftMagnitude <= 0 || rightMagnitude <= 0) {
-    return 0;
-  }
-  return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
-}
-
 function resolveChatLocator(row: Pick<ChatMessageRow, "chatId" | "id">): string {
   return `chat:${row.chatId}#message:${row.id}`;
 }
@@ -1275,7 +1256,9 @@ export class ReadAssistantKnowledgeService {
     private readonly knowledgeModelPolicyService: KnowledgeModelPolicyService,
     private readonly knowledgeRetrievalHelperService: KnowledgeRetrievalHelperService,
     private readonly knowledgeRetrievalObservabilityService: KnowledgeRetrievalObservabilityService,
-    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
+    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
+    @Inject(KNOWLEDGE_VECTOR_INDEX)
+    private readonly knowledgeVectorIndex: KnowledgeVectorIndex
   ) {}
 
   parseSearchInput(body: unknown): {
@@ -1792,77 +1775,107 @@ export class ReadAssistantKnowledgeService {
       }
       retrievalMode = queryEmbedding === null ? "lexical" : "hybrid";
       if (queryEmbedding !== null && embeddingModelKey !== null) {
-        const vectorRows = (await this.prisma.assistantKnowledgeSourceChunk.findMany({
-          where: {
-            assistantId: input.assistantId,
-            embeddingModelKey,
-            knowledgeSource: {
+        // ADR-120 Slice 3 — candidate selection is now a true pgvector ANN
+        // nearest-neighbour query over the unified `KnowledgeVectorChunk` store
+        // (the path skills already use) instead of loading the first
+        // `vectorCandidateLimit` chunk rows by table order and computing cosine
+        // in process. The similarity number, the 0.18 gate, and the combined
+        // score formula below are unchanged in shape — only the source of the
+        // candidate set and of `vectorSimilarity` changed.
+        const vectorHits = await this.knowledgeVectorIndex.searchNearest({
+          workspaceId: null,
+          embeddingModelKey,
+          queryVector: queryEmbedding,
+          limit: retrievalPolicy.vectorCandidateLimit,
+          sourceTypes: ["assistant_knowledge_source"],
+          assistantId: input.assistantId
+        });
+        vectorCandidateCount = vectorHits.length;
+        const vectorSimilarityByReferenceId = new Map<string, number>();
+        for (const hit of vectorHits) {
+          if (hit.score <= 0.18) {
+            continue;
+          }
+          const referenceId = buildDocumentReferenceId({
+            knowledgeSourceId: hit.sourceId,
+            sourceVersion: hit.sourceVersion,
+            chunkIndex: hit.chunkIndex
+          });
+          vectorSimilarityByReferenceId.set(
+            referenceId,
+            Math.max(vectorSimilarityByReferenceId.get(referenceId) ?? 0, hit.score)
+          );
+        }
+        if (vectorSimilarityByReferenceId.size > 0) {
+          const vectorRows = (await this.prisma.assistantKnowledgeSourceChunk.findMany({
+            where: {
               assistantId: input.assistantId,
-              namespace: "assistant_user_workspace",
-              status: "ready"
-            }
-          },
-          include: {
-            knowledgeSource: {
-              select: {
-                id: true,
-                namespace: true,
-                displayName: true,
-                originalFilename: true,
-                mimeType: true
+              knowledgeSource: {
+                assistantId: input.assistantId,
+                namespace: "assistant_user_workspace",
+                status: "ready"
+              },
+              OR: vectorHits
+                .filter((hit) => hit.score > 0.18)
+                .map((hit) => ({
+                  knowledgeSourceId: hit.sourceId,
+                  sourceVersion: hit.sourceVersion,
+                  chunkIndex: hit.chunkIndex
+                }))
+            },
+            include: {
+              knowledgeSource: {
+                select: {
+                  id: true,
+                  namespace: true,
+                  displayName: true,
+                  originalFilename: true,
+                  mimeType: true
+                }
               }
             }
-          },
-          orderBy: [{ knowledgeSourceId: "asc" }, { sourceVersion: "desc" }, { chunkIndex: "asc" }],
-          take: retrievalPolicy.vectorCandidateLimit
-        })) as SearchSourceRow[];
-        vectorCandidateCount = vectorRows.length;
+          })) as SearchSourceRow[];
 
-        for (const row of vectorRows) {
-          const embedding = Array.isArray(row.embeddingVector)
-            ? row.embeddingVector.filter((value): value is number => typeof value === "number")
-            : [];
-          if (embedding.length === 0) {
-            continue;
+          for (const row of vectorRows) {
+            const referenceId = buildDocumentReferenceId({
+              knowledgeSourceId: row.knowledgeSourceId,
+              sourceVersion: row.sourceVersion,
+              chunkIndex: row.chunkIndex
+            });
+            const vectorSimilarity = vectorSimilarityByReferenceId.get(referenceId);
+            if (vectorSimilarity === undefined) {
+              continue;
+            }
+            const { lexicalScore, exactTokenHits } = rankStructuredCandidate({
+              query: queryInfo,
+              title: row.knowledgeSource.displayName,
+              filename: row.knowledgeSource.originalFilename,
+              locator: row.locator,
+              content: row.content,
+              fieldWeights: {
+                title: 2.4,
+                filename: 2.1,
+                locator: 1.6,
+                content: 1.0,
+                metadata: 0
+              },
+              sourceWeight: row.knowledgeSource.displayName === null ? 0.5 : 1.5,
+              enableSemanticRerank: false
+            });
+            upsertRankedCandidate(referenceId, {
+              row,
+              score: vectorSimilarity * 42 + lexicalScore * 0.35,
+              lexicalScore: lexicalScore + vectorSimilarity * 10,
+              exactTokenHits,
+              dedupeKey: [
+                row.knowledgeSourceId,
+                normalizeSearchText(row.locator ?? ""),
+                normalizeSearchText(row.content).slice(0, 180)
+              ].join(":"),
+              groupKey: row.knowledgeSourceId,
+              groupLimit: 2
+            });
           }
-          const vectorSimilarity = cosineSimilarity(queryEmbedding, embedding);
-          if (vectorSimilarity <= 0.18) {
-            continue;
-          }
-          const { lexicalScore, exactTokenHits } = rankStructuredCandidate({
-            query: queryInfo,
-            title: row.knowledgeSource.displayName,
-            filename: row.knowledgeSource.originalFilename,
-            locator: row.locator,
-            content: row.content,
-            fieldWeights: {
-              title: 2.4,
-              filename: 2.1,
-              locator: 1.6,
-              content: 1.0,
-              metadata: 0
-            },
-            sourceWeight: row.knowledgeSource.displayName === null ? 0.5 : 1.5,
-            enableSemanticRerank: false
-          });
-          const referenceId = buildDocumentReferenceId({
-            knowledgeSourceId: row.knowledgeSourceId,
-            sourceVersion: row.sourceVersion,
-            chunkIndex: row.chunkIndex
-          });
-          upsertRankedCandidate(referenceId, {
-            row,
-            score: vectorSimilarity * 42 + lexicalScore * 0.35,
-            lexicalScore: lexicalScore + vectorSimilarity * 10,
-            exactTokenHits,
-            dedupeKey: [
-              row.knowledgeSourceId,
-              normalizeSearchText(row.locator ?? ""),
-              normalizeSearchText(row.content).slice(0, 180)
-            ].join(":"),
-            groupKey: row.knowledgeSourceId,
-            groupLimit: 2
-          });
         }
       }
 
@@ -3105,77 +3118,100 @@ export class ReadAssistantKnowledgeService {
     let vectorCandidateCount = 0;
     const retrievalMode: "lexical" | "hybrid" = queryEmbedding === null ? "lexical" : "hybrid";
     if (queryEmbedding !== null && resolvedEmbeddingModelKey !== null) {
-      const vectorRows = (await this.prisma.globalKnowledgeSourceChunk.findMany({
-        where: {
-          embeddingModelKey: resolvedEmbeddingModelKey,
-          globalKnowledgeSource: {
-            status: "ready"
-          }
-        },
-        include: {
-          globalKnowledgeSource: {
-            select: {
-              id: true,
-              displayName: true,
-              originalFilename: true,
-              mimeType: true
+      // ADR-120 Slice 3 — global/product uploaded-document candidates now come
+      // from the unified `KnowledgeVectorChunk` ANN query rather than the
+      // first-N-by-table-order + in-process cosine pass. The 0.18 gate and the
+      // combined score formula are unchanged; only the candidate selection and
+      // the similarity source changed.
+      const vectorHits = await this.knowledgeVectorIndex.searchNearest({
+        workspaceId: null,
+        embeddingModelKey: resolvedEmbeddingModelKey,
+        queryVector: queryEmbedding,
+        limit: retrievalPolicy.vectorCandidateLimit,
+        sourceTypes: ["global_knowledge_source"]
+      });
+      vectorCandidateCount = vectorHits.length;
+      const vectorSimilarityByReferenceId = new Map<string, number>();
+      for (const hit of vectorHits) {
+        if (hit.score <= 0.18) {
+          continue;
+        }
+        const referenceId = buildGlobalUploadedReferenceId({
+          globalKnowledgeSourceId: hit.sourceId,
+          sourceVersion: hit.sourceVersion,
+          chunkIndex: hit.chunkIndex
+        });
+        vectorSimilarityByReferenceId.set(
+          referenceId,
+          Math.max(vectorSimilarityByReferenceId.get(referenceId) ?? 0, hit.score)
+        );
+      }
+      if (vectorSimilarityByReferenceId.size > 0) {
+        const vectorRows = (await this.prisma.globalKnowledgeSourceChunk.findMany({
+          where: {
+            globalKnowledgeSource: {
+              status: "ready"
+            },
+            OR: vectorHits
+              .filter((hit) => hit.score > 0.18)
+              .map((hit) => ({
+                globalKnowledgeSourceId: hit.sourceId,
+                sourceVersion: hit.sourceVersion,
+                chunkIndex: hit.chunkIndex
+              }))
+          },
+          include: {
+            globalKnowledgeSource: {
+              select: {
+                id: true,
+                displayName: true,
+                originalFilename: true,
+                mimeType: true
+              }
             }
           }
-        },
-        orderBy: [
-          { globalKnowledgeSourceId: "asc" },
-          { sourceVersion: "desc" },
-          { chunkIndex: "asc" }
-        ],
-        take: retrievalPolicy.vectorCandidateLimit
-      })) as GlobalSearchSourceRow[];
-      vectorCandidateCount = vectorRows.length;
+        })) as GlobalSearchSourceRow[];
 
-      for (const row of vectorRows) {
-        const embedding = Array.isArray(row.embeddingVector)
-          ? row.embeddingVector.filter((value): value is number => typeof value === "number")
-          : [];
-        if (embedding.length === 0) {
-          continue;
+        for (const row of vectorRows) {
+          const referenceId = buildGlobalUploadedReferenceId({
+            globalKnowledgeSourceId: row.globalKnowledgeSourceId,
+            sourceVersion: row.sourceVersion,
+            chunkIndex: row.chunkIndex
+          });
+          const vectorSimilarity = vectorSimilarityByReferenceId.get(referenceId);
+          if (vectorSimilarity === undefined) {
+            continue;
+          }
+          const { lexicalScore, exactTokenHits } = rankStructuredCandidate({
+            query: queryInfo,
+            title: row.globalKnowledgeSource.displayName,
+            filename: row.globalKnowledgeSource.originalFilename,
+            locator: row.locator,
+            content: row.content,
+            fieldWeights: {
+              title: 2.3,
+              filename: 2.0,
+              locator: 1.5,
+              content: 1.0,
+              metadata: 0
+            },
+            sourceWeight: 1.8,
+            enableSemanticRerank: false
+          });
+          upsertRankedCandidate(referenceId, {
+            row,
+            score: vectorSimilarity * 42 + lexicalScore * 0.35,
+            lexicalScore: lexicalScore + vectorSimilarity * 10,
+            exactTokenHits,
+            dedupeKey: [
+              row.globalKnowledgeSourceId,
+              normalizeSearchText(row.locator ?? ""),
+              normalizeSearchText(row.content).slice(0, 180)
+            ].join(":"),
+            groupKey: row.globalKnowledgeSourceId,
+            groupLimit: 2
+          });
         }
-        const vectorSimilarity = cosineSimilarity(queryEmbedding, embedding);
-        if (vectorSimilarity <= 0.18) {
-          continue;
-        }
-        const { lexicalScore, exactTokenHits } = rankStructuredCandidate({
-          query: queryInfo,
-          title: row.globalKnowledgeSource.displayName,
-          filename: row.globalKnowledgeSource.originalFilename,
-          locator: row.locator,
-          content: row.content,
-          fieldWeights: {
-            title: 2.3,
-            filename: 2.0,
-            locator: 1.5,
-            content: 1.0,
-            metadata: 0
-          },
-          sourceWeight: 1.8,
-          enableSemanticRerank: false
-        });
-        const referenceId = buildGlobalUploadedReferenceId({
-          globalKnowledgeSourceId: row.globalKnowledgeSourceId,
-          sourceVersion: row.sourceVersion,
-          chunkIndex: row.chunkIndex
-        });
-        upsertRankedCandidate(referenceId, {
-          row,
-          score: vectorSimilarity * 42 + lexicalScore * 0.35,
-          lexicalScore: lexicalScore + vectorSimilarity * 10,
-          exactTokenHits,
-          dedupeKey: [
-            row.globalKnowledgeSourceId,
-            normalizeSearchText(row.locator ?? ""),
-            normalizeSearchText(row.content).slice(0, 180)
-          ].join(":"),
-          groupKey: row.globalKnowledgeSourceId,
-          groupLimit: 2
-        });
       }
     }
 
