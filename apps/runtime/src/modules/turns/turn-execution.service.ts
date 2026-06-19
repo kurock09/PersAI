@@ -1903,7 +1903,8 @@ export class TurnExecutionService {
     projectedTools: RuntimeNativeToolProjection,
     deepModeEnabled: boolean,
     developerInstructionSections: DeveloperInstructionSection[],
-    promptMode: "chat" | "background_worker"
+    promptMode: "chat" | "background_worker",
+    thinkingBudget: number = 0
   ): ProviderGatewayTextGenerateRequest {
     const promptCache = this.buildPromptCacheConfig({
       bundle,
@@ -1938,7 +1939,8 @@ export class TurnExecutionService {
             tools: projectedTools.tools,
             toolChoice: "auto" as const
           }),
-      skillsEnabled
+      skillsEnabled,
+      ...(thinkingBudget > 0 ? { thinkingBudget } : {})
     };
   }
 
@@ -5273,7 +5275,8 @@ export class TurnExecutionService {
       execution.projectedTools,
       execution.deepModeEnabled,
       developerInstructionSections,
-      execution.promptMode
+      execution.promptMode,
+      execution.routeDecision.mode === "active" ? execution.routeDecision.thinkingBudget : 0
     );
   }
 

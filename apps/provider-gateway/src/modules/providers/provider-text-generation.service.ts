@@ -86,6 +86,7 @@ export class ProviderTextGenerationService {
     this.assertValidRequestMetadata(input);
     this.assertValidPromptCache(input);
     this.assertValidTimeoutMsHint(input);
+    this.assertValidThinkingBudget(input);
   }
 
   private async assertProviderReady(input: ProviderGatewayTextGenerateRequest): Promise<void> {
@@ -393,6 +394,15 @@ export class ProviderTextGenerationService {
     }
     if (Number(input.timeoutMsHint) > 600_000) {
       throw new BadRequestException("timeoutMsHint must not exceed 600000ms (10 minutes)");
+    }
+  }
+
+  private assertValidThinkingBudget(input: ProviderGatewayTextGenerateRequest): void {
+    if (input.thinkingBudget === undefined) {
+      return;
+    }
+    if (!Number.isInteger(input.thinkingBudget) || input.thinkingBudget < 0) {
+      throw new BadRequestException("thinkingBudget must be a non-negative integer when provided");
     }
   }
 

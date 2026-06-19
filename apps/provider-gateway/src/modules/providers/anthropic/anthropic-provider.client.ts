@@ -171,6 +171,17 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       if (outputConfig !== undefined) {
         payload.output_config = outputConfig;
       }
+      if (
+        input.thinkingBudget !== undefined &&
+        input.thinkingBudget >= 1024 &&
+        this.supportsExtendedThinking(input.model)
+      ) {
+        (payload as unknown as Record<string, unknown>).thinking = {
+          type: "enabled",
+          budget_tokens: input.thinkingBudget
+        };
+        payload.max_tokens = (input.maxOutputTokens ?? 1_024) + input.thinkingBudget;
+      }
       this.logAnthropicRequestStart("anthropic-non-stream-start", input, payload);
       this.debugPayloadLogger.dumpRequest({
         provider: "anthropic",
@@ -288,6 +299,14 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       }
       if (outputConfig !== undefined) {
         payload.output_config = outputConfig;
+      }
+      if (
+        input.thinkingBudget !== undefined &&
+        input.thinkingBudget >= 1024 &&
+        this.supportsExtendedThinking(input.model)
+      ) {
+        payload.thinking = { type: "enabled", budget_tokens: input.thinkingBudget };
+        payload.max_tokens = (input.maxOutputTokens ?? 1_024) + input.thinkingBudget;
       }
       this.logAnthropicRequestStart("anthropic-stream-start", input, payload);
       this.debugPayloadLogger.dumpRequest({
@@ -1113,6 +1132,10 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       description: tool.description,
       input_schema: tool.inputSchema as AnthropicStructuredTool["input_schema"]
     }));
+  }
+
+  private supportsExtendedThinking(model: string): boolean {
+    return /claude-(opus-4|sonnet-4|haiku-4|3-7-sonnet)/i.test(model);
   }
 
   private toAnthropicToolChoice(

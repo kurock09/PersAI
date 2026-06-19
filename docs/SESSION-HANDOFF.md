@@ -58,9 +58,23 @@ Orchestrator runs C end-to-end: assign slice → review diff → AGENTS.md gate 
 - grounded-skill light → `medium` / `premium` / budget 0, reasonCode suffix preserved ✓
 - Snapshot carries `level` + `thinkingBudget` ✓
 
+### Slice 3 — completed 2026-06-19
+
+**What changed:**
+- `buildProviderRequest` in `turn-execution.service.ts` gains trailing `thinkingBudget: number = 0`; spreads `{ thinkingBudget }` into the returned request only when `> 0`. Default `0` preserves all other callers (background worker, tool-loop continuation via spread).
+- Main-turn caller at ~line 5266 passes `execution.routeDecision.mode === "active" ? execution.routeDecision.thinkingBudget : 0` — shadow mode never sends thinking (model role is not applied in shadow).
+- `provider-text-generation.service.ts`: `assertValidThinkingBudget` added; rejects non-integer or negative; called in `assertValidRequest` after `assertValidTimeoutMsHint`.
+- `anthropic-provider.client.ts`: private `supportsExtendedThinking(model)` — regex `/claude-(opus-4|sonnet-4|haiku-4|3-7-sonnet)/i`; in both `generateText` (typed payload, cast via `unknown`) and `streamText` (untyped `Record<string,unknown>`): when `thinkingBudget >= 1024` and capable model, sets `thinking: { type:"enabled", budget_tokens }` and `max_tokens = (maxOutputTokens ?? 1024) + thinkingBudget`.
+- `openai-provider.client.ts`: private `supportsReasoning(model)` — regexes `/^o[0-9]/i` (o-series) or `/(^|[^a-z])gpt-5/i` (gpt-5 family); `reasoningEffortForBudget(budget)` — `<= 10k → "low"`, `<= 25k → "medium"`, `> 25k → "high"`; in both `generateText` (cast via `unknown`) and `streamText` (untyped): when `thinkingBudget > 0` and capable model, sets `reasoning: { effort }`.
+- Tests: `anthropic-provider.client.test.ts` — capable model + 8192 → thinking emitted in generateText + streamText; non-capable (`claude-3-5-sonnet-latest`) → none; budget 0/undefined/500 → none; maxOutputTokens + budget formula verified. `openai-provider.client.test.ts` — o3 + 8192 → low; o3 + 20000 → medium; o3 + 32768 → high; gpt-4.1 + 8192 → none; budget 0/undefined → none. `provider-text-generation.service.test.ts` — negative/non-integer rejected; 0 and positive integers accepted.
+
+**Behavior effect:** heavy/deep active-mode turns on capable models now send thinking. Shadow mode: thinking suppressed (model role not applied in shadow). Non-capable models: budget silently ignored.
+
+**Gate:** lint PASS · format:check PASS · api/web/runtime/provider-gateway/runtime-contract typecheck all PASS · provider-gateway tests PASS (exit 0) · runtime tests PASS (exit 0).
+
 ### Next recommended step
 
-Implement Slice 3 (provider plumbing: thread `decision.thinkingBudget` → `ProviderGatewayTextGenerateRequest.thinkingBudget` → Anthropic `thinking.budget_tokens` / OpenAI `reasoning_effort`). Note: the default grid is already non-zero (`heavy` 8192, `deep` 32768), so once Slice 3 threads the value, heavy/deep turns will send thinking by default — Slice 4 only adds the per-plan override capability on top of these defaults, it is not required to "turn thinking on".
+Implement Slice 4 (admin plan surface: `thinkingBudgetByLevel` per-plan config, flowing from admin editor through `resolve-runtime-provider-routing.service.ts` into the resolver's optional override map). With Slice 3 landed, thinking is live on the default grid for heavy/deep active turns — Slice 4 gives operators per-plan cost/quality control.
 
 ## 2026-06-19 — ADR-119 program closed (founder acceptance)
 

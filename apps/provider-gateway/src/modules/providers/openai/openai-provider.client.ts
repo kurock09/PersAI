@@ -223,6 +223,15 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         ).metadata = metadata;
       }
       this.applyOpenAIPromptCache(payload as Record<string, unknown>, input);
+      if (
+        input.thinkingBudget !== undefined &&
+        input.thinkingBudget > 0 &&
+        this.supportsReasoning(input.model)
+      ) {
+        (payload as unknown as Record<string, unknown>).reasoning = {
+          effort: this.reasoningEffortForBudget(input.thinkingBudget)
+        };
+      }
       this.debugPayloadLogger.dumpRequest({
         provider: "openai",
         requestId: input.requestMetadata?.runtimeRequestId ?? "unknown",
@@ -1011,6 +1020,13 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         payload.metadata = metadata;
       }
       this.applyOpenAIPromptCache(payload, input);
+      if (
+        input.thinkingBudget !== undefined &&
+        input.thinkingBudget > 0 &&
+        this.supportsReasoning(input.model)
+      ) {
+        payload.reasoning = { effort: this.reasoningEffortForBudget(input.thinkingBudget) };
+      }
       this.logger.log(
         `[openai-stream-start] requestId=${input.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${input.requestMetadata?.classification ?? "unknown"} iteration=${
           input.requestMetadata?.toolLoopIteration === null ||
@@ -1520,6 +1536,16 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       parameters: tool.inputSchema,
       strict: false
     }));
+  }
+
+  private supportsReasoning(model: string): boolean {
+    return /^o[0-9]/i.test(model) || /(^|[^a-z])gpt-5/i.test(model);
+  }
+
+  private reasoningEffortForBudget(budget: number): "low" | "medium" | "high" {
+    if (budget <= 10_000) return "low";
+    if (budget <= 25_000) return "medium";
+    return "high";
   }
 
   private toOpenAIToolChoice(

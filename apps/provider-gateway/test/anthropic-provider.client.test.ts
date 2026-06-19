@@ -1829,4 +1829,111 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     undefined,
     "skillsEnabled:undefined + tools (no toolChoice) must NOT set tool_choice"
   );
+
+  // ADR-121 Slice 3 — Extended Thinking budget plumbing
+
+  // capable model + budget >= 1024 → thinking block emitted (generateText)
+  const thinkingCapableRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "claude-sonnet-4-5",
+    thinkingBudget: 8_192
+  };
+  await client.generateText(thinkingCapableRequest);
+  assert.deepEqual(
+    (capturedGeneratePayload as unknown as Record<string, unknown>).thinking,
+    { type: "enabled", budget_tokens: 8_192 },
+    "capable model + budget 8192 must emit thinking block (generateText)"
+  );
+  assert.equal(
+    capturedGeneratePayload!.max_tokens,
+    1_024 + 8_192,
+    "max_tokens must equal default maxOutputTokens + thinkingBudget (generateText)"
+  );
+
+  // capable model + budget >= 1024 → thinking block emitted (streamText)
+  const thinkingCapableStream = await client.streamText(thinkingCapableRequest);
+  await collectStream(thinkingCapableStream);
+  assert.deepEqual(
+    (capturedStreamPayload as unknown as Record<string, unknown>).thinking,
+    { type: "enabled", budget_tokens: 8_192 },
+    "capable model + budget 8192 must emit thinking block (streamText)"
+  );
+  assert.equal(
+    (capturedStreamPayload as unknown as Record<string, unknown>).max_tokens,
+    1_024 + 8_192,
+    "max_tokens must equal default maxOutputTokens + thinkingBudget (streamText)"
+  );
+
+  // non-capable model + budget 8192 → NO thinking
+  const thinkingNonCapableRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "claude-3-5-sonnet-latest",
+    thinkingBudget: 8_192
+  };
+  await client.generateText(thinkingNonCapableRequest);
+  assert.equal(
+    (capturedGeneratePayload as unknown as Record<string, unknown>).thinking,
+    undefined,
+    "non-capable model must NOT emit thinking block (generateText)"
+  );
+
+  const thinkingNonCapableStream = await client.streamText(thinkingNonCapableRequest);
+  await collectStream(thinkingNonCapableStream);
+  assert.equal(
+    (capturedStreamPayload as unknown as Record<string, unknown>).thinking,
+    undefined,
+    "non-capable model must NOT emit thinking block (streamText)"
+  );
+
+  // budget 0 → NO thinking
+  const thinkingZeroBudgetRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "claude-sonnet-4-5",
+    thinkingBudget: 0
+  };
+  await client.generateText(thinkingZeroBudgetRequest);
+  assert.equal(
+    (capturedGeneratePayload as unknown as Record<string, unknown>).thinking,
+    undefined,
+    "budget 0 must NOT emit thinking block (generateText)"
+  );
+
+  // budget undefined → NO thinking
+  const thinkingUndefinedBudgetRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "claude-sonnet-4-5"
+  };
+  await client.generateText(thinkingUndefinedBudgetRequest);
+  assert.equal(
+    (capturedGeneratePayload as unknown as Record<string, unknown>).thinking,
+    undefined,
+    "budget undefined must NOT emit thinking block (generateText)"
+  );
+
+  // budget 500 (below 1024 minimum) → NO thinking
+  const thinkingBelowMinRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "claude-sonnet-4-5",
+    thinkingBudget: 500
+  };
+  await client.generateText(thinkingBelowMinRequest);
+  assert.equal(
+    (capturedGeneratePayload as unknown as Record<string, unknown>).thinking,
+    undefined,
+    "budget below 1024 minimum must NOT emit thinking block (generateText)"
+  );
+
+  // maxOutputTokens set → max_tokens = maxOutputTokens + thinkingBudget
+  const thinkingWithMaxOutputRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "claude-sonnet-4-5",
+    maxOutputTokens: 4_096,
+    thinkingBudget: 8_192
+  };
+  await client.generateText(thinkingWithMaxOutputRequest);
+  assert.equal(
+    capturedGeneratePayload!.max_tokens,
+    4_096 + 8_192,
+    "max_tokens must equal provided maxOutputTokens + thinkingBudget"
+  );
 }

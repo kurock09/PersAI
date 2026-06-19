@@ -482,4 +482,51 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
     /timeoutMsHint must not exceed 600000ms/,
     "timeoutMsHint exceeding 600s must be rejected"
   );
+
+  // ADR-121 Slice 3 — thinkingBudget validation
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        thinkingBudget: -1
+      }),
+    /thinkingBudget must be a non-negative integer when provided/,
+    "negative thinkingBudget must be rejected"
+  );
+
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        thinkingBudget: 1.5
+      }),
+    /thinkingBudget must be a non-negative integer when provided/,
+    "non-integer thinkingBudget must be rejected"
+  );
+
+  warmupService.snapshot.providers[0] = {
+    provider: "openai",
+    configured: true,
+    state: "ready",
+    catalogModels: ["gpt-5.4"],
+    catalogSource: "control_plane_apply",
+    warmedAt: "2026-04-11T12:00:00.000Z",
+    error: null
+  };
+
+  const validZeroBudgetResult = await service.generateText({
+    ...createRequest("openai"),
+    thinkingBudget: 0
+  });
+  assert.equal(validZeroBudgetResult.text, "openai-result", "thinkingBudget 0 must be accepted");
+
+  const validPositiveBudgetResult = await service.generateText({
+    ...createRequest("anthropic"),
+    thinkingBudget: 8_192
+  });
+  assert.equal(
+    validPositiveBudgetResult.text,
+    "anthropic-result",
+    "positive integer thinkingBudget must be accepted"
+  );
 }

@@ -2194,4 +2194,100 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       "instructions must remain absent in streamText (system prompt is a developer item)"
     );
   }
+
+  // ADR-121 Slice 3 — reasoning_effort plumbing
+
+  // reasoning model (o3) + budget 8192 → effort "low" (generateText)
+  const reasoningLowRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "o3",
+    thinkingBudget: 8_192
+  };
+  await client.generateText(reasoningLowRequest);
+  assert.deepEqual(
+    (capturedGeneratePayload as unknown as Record<string, unknown>).reasoning,
+    { effort: "low" },
+    "o3 + budget 8192 must emit reasoning.effort=low (generateText)"
+  );
+
+  // reasoning model (o3) + budget 8192 → effort "low" (streamText)
+  const reasoningLowStream = await client.streamText(reasoningLowRequest);
+  await collectStream(reasoningLowStream);
+  assert.deepEqual(
+    (capturedStreamPayload as unknown as Record<string, unknown>).reasoning,
+    { effort: "low" },
+    "o3 + budget 8192 must emit reasoning.effort=low (streamText)"
+  );
+
+  // reasoning model + budget 20000 → effort "medium" (generateText)
+  const reasoningMediumRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "o3",
+    thinkingBudget: 20_000
+  };
+  await client.generateText(reasoningMediumRequest);
+  assert.deepEqual(
+    (capturedGeneratePayload as unknown as Record<string, unknown>).reasoning,
+    { effort: "medium" },
+    "o3 + budget 20000 must emit reasoning.effort=medium (generateText)"
+  );
+
+  // reasoning model + budget 32768 → effort "high" (generateText)
+  const reasoningHighRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "o3",
+    thinkingBudget: 32_768
+  };
+  await client.generateText(reasoningHighRequest);
+  assert.deepEqual(
+    (capturedGeneratePayload as unknown as Record<string, unknown>).reasoning,
+    { effort: "high" },
+    "o3 + budget 32768 must emit reasoning.effort=high (generateText)"
+  );
+
+  // non-reasoning model (gpt-4.1) + budget 8192 → NO reasoning (generateText)
+  const nonReasoningRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "gpt-4.1",
+    thinkingBudget: 8_192
+  };
+  await client.generateText(nonReasoningRequest);
+  assert.equal(
+    (capturedGeneratePayload as unknown as Record<string, unknown>).reasoning,
+    undefined,
+    "gpt-4.1 + budget 8192 must NOT emit reasoning (generateText)"
+  );
+
+  const nonReasoningStream = await client.streamText(nonReasoningRequest);
+  await collectStream(nonReasoningStream);
+  assert.equal(
+    (capturedStreamPayload as unknown as Record<string, unknown>).reasoning,
+    undefined,
+    "gpt-4.1 + budget 8192 must NOT emit reasoning (streamText)"
+  );
+
+  // budget 0 → NO reasoning (generateText)
+  const reasoningZeroRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "o3",
+    thinkingBudget: 0
+  };
+  await client.generateText(reasoningZeroRequest);
+  assert.equal(
+    (capturedGeneratePayload as unknown as Record<string, unknown>).reasoning,
+    undefined,
+    "budget 0 must NOT emit reasoning (generateText)"
+  );
+
+  // budget undefined → NO reasoning (generateText)
+  const reasoningUndefinedRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    model: "o3"
+  };
+  await client.generateText(reasoningUndefinedRequest);
+  assert.equal(
+    (capturedGeneratePayload as unknown as Record<string, unknown>).reasoning,
+    undefined,
+    "budget undefined must NOT emit reasoning (generateText)"
+  );
 }
