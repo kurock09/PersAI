@@ -316,6 +316,29 @@ const rows: KnowledgeChunkRow[] = [
       originalFilename: "field-notes.txt",
       mimeType: "text/plain"
     }
+  },
+  // ADR-120 Slice 4 — relevance-floor corpus for documents. The single word
+  // "fragment" lets us contrast a strong whole-token query ("fragment", which
+  // produces an exact-token hit and survives the floor) against a weak
+  // substring query ("frag", which substring-matches the SQL `contains`
+  // candidate gate and scores > 0 via the normalized-substring path, but has
+  // zero exact-token hits — so the document relevance floor must drop it).
+  {
+    assistantId: "assistant-floor",
+    knowledgeSourceId: "source-floor-1",
+    sourceVersion: 1,
+    chunkIndex: 0,
+    locator: "loc-1",
+    content: "Fragment throughput analysis covering quarterly latency baselines.",
+    knowledgeSource: {
+      id: "source-floor-1",
+      assistantId: "assistant-floor",
+      namespace: "assistant_user_workspace",
+      status: "ready",
+      displayName: "Throughput Notes",
+      originalFilename: "throughput.txt",
+      mimeType: "text/plain"
+    }
   }
 ];
 
@@ -2091,6 +2114,43 @@ async function run(): Promise<void> {
   assert.ok(
     multiTokenHits.every((hit) => hit.score > 0),
     "Fix C: every survivor has a positive score (no zero-score leakage)"
+  );
+
+  // ADR-120 Slice 4 — the relevance floor now applies to the document path
+  // (`searchDocuments`), not just memory/chat/text-entry. The default `service`
+  // wires the helper rerank to return `null` (rerank unavailable), so these
+  // cases also prove the rerank-disabled path keeps the floored set and never
+  // widens back to the raw candidate pool.
+
+  // Strong query: a whole-token match yields an exact-token hit and survives
+  // the floor, returning the right document.
+  const floorStrongHits = await service.searchDocuments({
+    assistantId: "assistant-floor",
+    query: "fragment",
+    maxResults: 5
+  });
+  assert.equal(
+    floorStrongHits.length,
+    1,
+    "ADR-120 S4: strong whole-token document query returns the matching hit"
+  );
+  assert.equal(floorStrongHits[0]?.referenceId, "source-floor-1:1:0");
+  assert.equal(floorStrongHits[0]?.title, "Throughput Notes");
+
+  // Weak query: "frag" substring-matches the SQL `contains` candidate gate and
+  // scores > 0 (normalized-substring path), but it is a single-token,
+  // fuzzy-only candidate with zero exact-token hits. The floor must drop it,
+  // and because the rerank helper is unavailable (returns null) the path must
+  // NOT fall back to the un-floored candidate — the result is empty.
+  const floorWeakHits = await service.searchDocuments({
+    assistantId: "assistant-floor",
+    query: "frag",
+    maxResults: 5
+  });
+  assert.equal(
+    floorWeakHits.length,
+    0,
+    "ADR-120 S4: weak fuzzy-only document candidate is dropped by the floor (rerank null, no widening)"
   );
 }
 

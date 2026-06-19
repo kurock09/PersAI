@@ -783,6 +783,140 @@ async function run(): Promise<void> {
   );
 
   await runOrdinaryStagedRetrievalCases();
+  await runMinContextRemovalCases();
+}
+
+// ADR-120 Slice 4 — the legacy `MIN_CONTEXT_ITEMS = 4` cap floor
+// (`maxContextItems = Math.max(maxMaxResults, 4)`) is removed. The context
+// cap is now exactly `retrievalPolicy.maxMaxResults`, and a selection may be
+// empty or fewer than four items with no artificial backfill.
+async function runMinContextRemovalCases(): Promise<void> {
+  const buildPrisma = () => ({
+    assistant: { findUnique: async () => ({ workspaceId: "workspace-1" }) },
+    assistantChat: { findUnique: async () => null },
+    assistantChatMessageAttachment: { findMany: async () => [] },
+    assistantSkillAssignment: { findMany: async () => [] },
+    skillDocumentChunk: { findMany: async () => [] },
+    skillKnowledgeCardChunk: { findMany: async () => [] }
+  });
+  const buildPolicyModule = (maxMaxResults: number) =>
+    ({
+      resolveAssistantRetrievalPolicy: async () => ({
+        defaultMaxResults: Math.min(5, maxMaxResults),
+        maxMaxResults,
+        lexicalCandidateLimit: 60,
+        vectorCandidateLimit: 240,
+        knowledgeFetchWindowRadius: 1,
+        chatFetchWindowRadius: 2,
+        fetchMaxChars: 6000,
+        helperEnabled: false,
+        helperCandidateLimit: 6,
+        helperMaxOutputTokens: 220,
+        embeddingSearchEnabled: true,
+        smartSearchShortDocChars: 2_000,
+        smartSearchMediumDocChars: 8_000,
+        chatSectionDefaultRadius: 15,
+        fetchFullModeMaxChars: 25_000,
+        fetchFullModeMaxChatMessages: 150
+      }),
+      resolveAdminKnowledgeEmbeddingModelKey: async () => "text-embedding-3-small",
+      resolveAdminKnowledgeRetrievalModelKey: async () => null,
+      resolveAdminKnowledgeRetrievalPolicy: async () => ({
+        schema: "persai.adminKnowledgeRetrievalPolicy.v1",
+        embeddingModelKey: null,
+        retrievalModelKey: null,
+        authoringModelKey: null,
+        smartSearchEnabled: true,
+        smartSearchLongDocSummaryChars: 800,
+        fetchFullModeAbsoluteMaxChars: 100_000,
+        fetchFullModeAbsoluteMaxChatMessages: 800,
+        notes: []
+      })
+    }) as never;
+  const buildService = (readKnowledge: FakeReadAssistantKnowledgeService, maxMaxResults: number) =>
+    new OrchestrateRuntimeRetrievalService(
+      buildPrisma() as never,
+      readKnowledge as never,
+      new FakeExtractInternalRuntimeAssistantFileService() as never,
+      new FakeKnowledgeRetrievalObservabilityService() as never,
+      buildPolicyModule(maxMaxResults),
+      { generateEmbeddings: async () => ({ embeddings: [[0.1, 0.2]], usage: null }) } as never,
+      { rerankCandidates: async () => null } as never,
+      {
+        decideBeforeSearch: () => null,
+        decideAfterSearch: () => ({
+          mode: "refresh_search_only",
+          querySimilarityToLastTurn: 0,
+          cachedReferenceCoverage: 0,
+          candidateAmbiguity: 0,
+          candidateCount: 0,
+          topScoreMargin: null
+        }),
+        buildCandidateSetHash: (referenceIds: string[]) => referenceIds.join("|")
+      } as never,
+      {
+        resolveChatContext: async () => null,
+        buildQueryFingerprint: (query: string) => query.trim().toLowerCase(),
+        persistState: async () => undefined
+      } as never,
+      { searchNearest: async () => [] } as never
+    );
+
+  // Cap test: two staged items (user_document + product_kb) but a policy cap of
+  // 1. The selection must be exactly 1. Pre-Slice-4 the effective cap would
+  // have been `Math.max(1, 4) = 4`, so both items would have survived.
+  const cappedReadKnowledge = new FakeReadAssistantKnowledgeService();
+  const cappedService = buildService(cappedReadKnowledge, 1);
+  const cappedContext = await cappedService.execute(
+    cappedService.parseInput({
+      assistantId: "assistant-1",
+      query: "ordinary personal-priority retrieval",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: false,
+        selectedSkillIds: [],
+        useUserKnowledge: true,
+        useProductKnowledge: true,
+        useWeb: false,
+        ordinarySourcePriorityMode: "personal_first",
+        confidence: "medium",
+        reasonCode: "adr120_s4_cap_is_max_results"
+      }
+    })
+  );
+  assert.deepEqual(
+    cappedContext.items.map((item) => item.label),
+    ["user_document"],
+    "ADR-120 S4: context cap equals maxMaxResults (1), not max(maxMaxResults, 4)"
+  );
+
+  // No-backfill test: a single staged user_document item under a generous cap
+  // of 8 stays a single item — it is never padded up to a minimum of four.
+  const singleReadKnowledge = new FakeReadAssistantKnowledgeService();
+  const singleService = buildService(singleReadKnowledge, 8);
+  const singleContext = await singleService.execute(
+    singleService.parseInput({
+      assistantId: "assistant-1",
+      query: "ordinary personal-priority retrieval",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: false,
+        selectedSkillIds: [],
+        useUserKnowledge: true,
+        useProductKnowledge: false,
+        useWeb: false,
+        ordinarySourcePriorityMode: "personal_first",
+        confidence: "medium",
+        reasonCode: "adr120_s4_no_min_backfill"
+      }
+    })
+  );
+  assert.equal(
+    singleContext.items.length,
+    1,
+    "ADR-120 S4: a fewer-than-4 selection is valid and is never backfilled to a minimum"
+  );
+  assert.equal(singleContext.items[0]?.label, "user_document");
 }
 
 async function runOrdinaryStagedRetrievalCases(): Promise<void> {

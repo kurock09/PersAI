@@ -38,12 +38,6 @@ const MAX_RENDERED_BLOCK_CHARS = 6_000;
 const MAX_PER_SOURCE_RESULTS = 3;
 const MIN_SKILL_VECTOR_SCORE = 0.18;
 const MAX_PROJECT_FILE_CANDIDATES = 2;
-/**
- * ADR-094 — minimum number of context items the orchestrated block can hold,
- * even on the most restrictive plan. Anything below this would defeat the
- * point of orchestration. Effective limit is `max(policy.maxMaxResults, MIN_CONTEXT_ITEMS)`.
- */
-const MIN_CONTEXT_ITEMS = 4;
 
 type RuntimeRetrievalInput = {
   assistantId: string;
@@ -180,7 +174,11 @@ export class OrchestrateRuntimeRetrievalService {
     const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
       input.assistantId
     );
-    const maxContextItems = Math.max(retrievalPolicy.maxMaxResults, MIN_CONTEXT_ITEMS);
+    // ADR-120 Slice 4 — the orchestrated block is an upper-bound cap only. The
+    // legacy `MIN_CONTEXT_ITEMS` floor (always >= 4) is removed: honest
+    // relevance means an empty or fewer-than-cap selection is a valid outcome,
+    // never padded to a minimum.
+    const maxContextItems = retrievalPolicy.maxMaxResults;
     const maxItemChars = retrievalPolicy.fetchMaxChars;
     const projectGatherProfileActive = input.gatherProfile === "project";
     const stagedItems: StagedContextItem[] = [];

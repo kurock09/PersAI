@@ -1879,18 +1879,31 @@ export class ReadAssistantKnowledgeService {
         }
       }
 
-      const ranked = Array.from(rankedByReferenceId.values()).sort((left, right) => {
-        if (right.score !== left.score) {
-          return right.score - left.score;
-        }
-        if (right.lexicalScore !== left.lexicalScore) {
-          return right.lexicalScore - left.lexicalScore;
-        }
-        if (left.row.knowledgeSourceId !== right.row.knowledgeSourceId) {
-          return left.row.knowledgeSourceId.localeCompare(right.row.knowledgeSourceId);
-        }
-        return left.row.chunkIndex - right.row.chunkIndex;
-      });
+      // ADR-120 Slice 4 — apply the same relevance floor used by the
+      // memory/chat/text-entry paths to documents. Weak fuzzy-only hits with no
+      // exact-token support and a sub-half-top score are dropped; an empty
+      // result set is a valid outcome and is never backfilled.
+      const documentCandidates = Array.from(rankedByReferenceId.values());
+      const documentTopScore = computeTopScore(documentCandidates);
+      const ranked = documentCandidates
+        .filter((candidate) =>
+          passesRelevanceFloor(candidate, {
+            topScore: documentTopScore,
+            queryTokenCount: queryInfo.tokens.length
+          })
+        )
+        .sort((left, right) => {
+          if (right.score !== left.score) {
+            return right.score - left.score;
+          }
+          if (right.lexicalScore !== left.lexicalScore) {
+            return right.lexicalScore - left.lexicalScore;
+          }
+          if (left.row.knowledgeSourceId !== right.row.knowledgeSourceId) {
+            return left.row.knowledgeSourceId.localeCompare(right.row.knowledgeSourceId);
+          }
+          return left.row.chunkIndex - right.row.chunkIndex;
+        });
 
       let selected = selectRankedCandidates(
         ranked,
@@ -1900,6 +1913,11 @@ export class ReadAssistantKnowledgeService {
           retrievalPolicy.maxMaxResults
         )
       );
+      // ADR-120 Slice 4 — `selected` is already floored and score-ordered above.
+      // Rerank can only narrow/reorder it: when the helper is unavailable
+      // (disabled, <2 candidates, or a runtime failure) `rerankCandidates`
+      // returns null and we keep the floored, score-ordered set as-is. We never
+      // fall back to a wider or unfiltered candidate pool on unavailability.
       const helperRanking = await this.knowledgeRetrievalHelperService.rerankCandidates({
         assistantId: input.assistantId,
         query: normalizedQuery,
@@ -2422,6 +2440,11 @@ export class ReadAssistantKnowledgeService {
         defaultMaxResults: retrievalPolicy.defaultMaxResults,
         maxMaxResults: retrievalPolicy.maxMaxResults
       });
+      // ADR-120 Slice 4 — both contributing sets are already floored
+      // (`searchTextKnowledgeDocuments` and `searchUploadedGlobalDocuments` each
+      // apply `passesRelevanceFloor`), so `hits` here is the floored,
+      // score-ordered set. Rerank can only narrow/reorder it; on helper
+      // unavailability we keep this set as-is and never widen.
       let hits = [...textHits, ...uploaded.hits]
         .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
         .slice(
@@ -3215,18 +3238,31 @@ export class ReadAssistantKnowledgeService {
       }
     }
 
-    const ranked = Array.from(rankedByReferenceId.values()).sort((left, right) => {
-      if (right.score !== left.score) {
-        return right.score - left.score;
-      }
-      if (right.lexicalScore !== left.lexicalScore) {
-        return right.lexicalScore - left.lexicalScore;
-      }
-      if (left.row.globalKnowledgeSourceId !== right.row.globalKnowledgeSourceId) {
-        return left.row.globalKnowledgeSourceId.localeCompare(right.row.globalKnowledgeSourceId);
-      }
-      return left.row.chunkIndex - right.row.chunkIndex;
-    });
+    // ADR-120 Slice 4 — apply the relevance floor to uploaded global/product
+    // documents, mirroring the user-document path and the product text-entry
+    // path below. Weak fuzzy-only hits are dropped; an empty uploaded set is a
+    // valid outcome and is never backfilled.
+    const uploadedCandidates = Array.from(rankedByReferenceId.values());
+    const uploadedTopScore = computeTopScore(uploadedCandidates);
+    const ranked = uploadedCandidates
+      .filter((candidate) =>
+        passesRelevanceFloor(candidate, {
+          topScore: uploadedTopScore,
+          queryTokenCount: queryInfo.tokens.length
+        })
+      )
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score;
+        }
+        if (right.lexicalScore !== left.lexicalScore) {
+          return right.lexicalScore - left.lexicalScore;
+        }
+        if (left.row.globalKnowledgeSourceId !== right.row.globalKnowledgeSourceId) {
+          return left.row.globalKnowledgeSourceId.localeCompare(right.row.globalKnowledgeSourceId);
+        }
+        return left.row.chunkIndex - right.row.chunkIndex;
+      });
     const productTextEntryHits = await this.searchProductKnowledgeTextEntries({
       queryInfo,
       maxResults: resolveMaxResults(
