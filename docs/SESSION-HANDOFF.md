@@ -3,6 +3,31 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-19 — ADR-121 opened (routing 2D) — IN PROGRESS
+
+### Scope
+
+Post-119 audit (4 directions discussed with founder: A memory-bleeding JIT redesign, B scenario step progression, C routing 2D, D sandbox/shell). Founder priority order: **C first**. A/B/D each become their own ADR (A and D explicitly architecture waves; B is the founder-owned scenario-step ADR noted in the ADR-119 closure).
+
+### What opened
+
+**ADR-121** — `docs/ADR/121-two-dimensional-execution-routing-model-and-thinking-budget.md`, status `Accepted — 2026-06-19 (founder go)`. Separates the router's task-weight decision (`level: light|medium|heavy|deep`) from execution (`model + thinkingBudget`) via one pure resolver; retains `executionMode` as a derived model-slot token; plumbs a new `thinkingBudget` into the provider gateway (Anthropic Extended Thinking / OpenAI `reasoning_effort`); removes the `project→reasoning` and `deepMode→premium` hardcodes (both become weighted signals). Five slices.
+
+### Audit findings grounded in code (for the slices)
+
+- Router: `apps/runtime/src/modules/turns/turn-routing.service.ts` — `RoutingExecutionMode` (L27); deepMode ternaries L554/576/598/637/683/707/735/751; `coerceExecutionMode` L1223–1231; classifier schema enum L108–110; precheck term lists L167–258 (admin-overridable via `precheckRuleOverrides`).
+- Project hardcode: `apps/runtime/src/modules/turns/project-execution-profile.ts:72` (`executionMode: "reasoning"`).
+- executionMode → model slot: `resolve-runtime-provider-routing.service.ts` (primary/premium/reasoning model keys); plan config in `admin-plan-management.types.ts:166–171`.
+- No thinking plumbing in provider clients today (only a mock ref in `anthropic-empty-completion.test.ts`).
+
+### Operating contract (founder-set)
+
+Orchestrator runs C end-to-end: assign slice → review diff → AGENTS.md gate + affected-area checks between slices → commit → next. Final slice runs full-repo "like CI" verification + repo-wide lint/format. **Push only at the very end** (push triggers deploy). No legacy tails, no transitional flag-gated old+new coexistence.
+
+### Next recommended step
+
+Implement Slice 1 (contract + `level → ExecutionProfile` resolver + plan thinking-budget config; no live routing change yet).
+
 ## 2026-06-19 — ADR-119 program closed (founder acceptance)
 
 ### Baseline
