@@ -2178,6 +2178,33 @@ async function runSkillPull(): Promise<void> {
       skill: { name: { en: "Dietitian" }, category: "health" }
     }
   ];
+  // ADR-120 Slice 6 (D4 atomic-card exception) — a skill_knowledge_card is an
+  // atomic unit. Two chunks of the same card prove the full-card join, not just
+  // the single matched chunk.
+  const skillCardChunks = [
+    {
+      skillKnowledgeCardId: "card-1",
+      skillId: "skill-diet",
+      sourceVersion: 1,
+      chunkIndex: 0,
+      locator: "card 1",
+      content: "Hydration guidance: adults should drink water across the day.",
+      embeddingModelKey: "embed-skill",
+      knowledgeCard: { title: "Hydration Card" },
+      skill: { name: { en: "Dietitian" }, category: "health" }
+    },
+    {
+      skillKnowledgeCardId: "card-1",
+      skillId: "skill-diet",
+      sourceVersion: 1,
+      chunkIndex: 1,
+      locator: "card 1",
+      content: "Caffeine and alcohol increase fluid loss and do not count toward the target.",
+      embeddingModelKey: "embed-skill",
+      knowledgeCard: { title: "Hydration Card" },
+      skill: { name: { en: "Dietitian" }, category: "health" }
+    }
+  ];
   const assignmentsByAssistant: Record<string, Array<{ skillId: string }>> = {
     "assistant-skill": [{ skillId: "skill-diet" }],
     "assistant-none": []
@@ -2266,7 +2293,66 @@ async function runSkillPull(): Promise<void> {
         ) ?? null
     },
     skillKnowledgeCardChunk: {
-      findMany: async () => [],
+      findMany: async ({ where }: { where: Record<string, unknown> }) =>
+        skillCardChunks.filter((row) => {
+          if (!matchesSkillIds(where, row.skillId)) {
+            return false;
+          }
+          if (
+            typeof where.skillKnowledgeCardId === "string" &&
+            row.skillKnowledgeCardId !== where.skillKnowledgeCardId
+          ) {
+            return false;
+          }
+          if (
+            typeof where.sourceVersion === "number" &&
+            row.sourceVersion !== where.sourceVersion
+          ) {
+            return false;
+          }
+          if (
+            where.chunkIndex &&
+            typeof where.chunkIndex === "object" &&
+            where.chunkIndex !== null &&
+            ("gte" in where.chunkIndex || "lte" in where.chunkIndex)
+          ) {
+            const bounds = where.chunkIndex as { gte?: number; lte?: number };
+            if (bounds.gte !== undefined && row.chunkIndex < bounds.gte) {
+              return false;
+            }
+            if (bounds.lte !== undefined && row.chunkIndex > bounds.lte) {
+              return false;
+            }
+          }
+          if (Array.isArray(where.OR)) {
+            return where.OR.some((entry) => {
+              const contentWhere = (entry as { content?: { contains?: string } }).content;
+              if (typeof contentWhere?.contains === "string") {
+                return containsInsensitive(row.content, contentWhere.contains);
+              }
+              const locatorWhere = (entry as { locator?: { contains?: string } }).locator;
+              if (typeof locatorWhere?.contains === "string") {
+                return (
+                  row.locator !== null && containsInsensitive(row.locator, locatorWhere.contains)
+                );
+              }
+              const tuple = entry as {
+                skillKnowledgeCardId?: string;
+                sourceVersion?: number;
+                chunkIndex?: number;
+              };
+              if (tuple.skillKnowledgeCardId !== undefined) {
+                return (
+                  row.skillKnowledgeCardId === tuple.skillKnowledgeCardId &&
+                  row.sourceVersion === tuple.sourceVersion &&
+                  row.chunkIndex === tuple.chunkIndex
+                );
+              }
+              return false;
+            });
+          }
+          return true;
+        }),
       findFirst: async () => null
     }
   };
@@ -2360,6 +2446,83 @@ async function runSkillPull(): Promise<void> {
     "skill_document",
     "skill_knowledge_card"
   ]);
+
+  // ADR-120 Slice 6 (D4) — with smart search off (policyService:
+  // smartSearchEnabled=false), a normal skill_document hit stays snippet-only:
+  // no inline document/section. Content must be pulled via knowledge_fetch.
+  assert.equal(
+    skillHits[0]?.inlinedDocument,
+    undefined,
+    "ADR-120 S6: smart search off keeps a skill_document hit snippet-only"
+  );
+  assert.equal(skillHits[0]?.inlinedSection, undefined);
+
+  // ADR-120 Slice 6 (D4 atomic-card exception) — even with smart search off, a
+  // skill_knowledge_card hit returns its FULL card text inline (a truncated
+  // snippet of an atomic card loses meaning). The injected ANN hit points at
+  // card-1; `inlineAtomicCardHit` joins ALL of its chunks into inlinedDocument.
+  const cardSkillService = new ReadAssistantKnowledgeService(
+    skillPrisma as never,
+    {
+      generateEmbeddings: async () => ({ embeddings: [[0.4, 0.5, 0.6]], usage: null })
+    } as never,
+    policyService as never,
+    { rerankCandidates: async () => null } as never,
+    {
+      recordSearch: async () => undefined,
+      recordFetch: async () => undefined
+    } as never,
+    { executeReadOnly: async () => null } as never,
+    {
+      searchNearest: async () => [
+        {
+          id: "skill-card-vec-1",
+          workspaceId: null,
+          assistantId: null,
+          skillId: "skill-diet",
+          sourceType: "skill_knowledge_card",
+          sourceId: "card-1",
+          chunkId: null,
+          sourceVersion: 1,
+          chunkIndex: 0,
+          embeddingModelKey: "embed-skill",
+          score: 0.86,
+          metadata: null
+        }
+      ],
+      replaceSourceChunks: async () => undefined,
+      deleteSource: async () => undefined
+    } as never
+  );
+  const cardHits = await cardSkillService.searchSkill({
+    assistantId: "assistant-skill",
+    query: "hydration water",
+    maxResults: 3
+  });
+  const cardHit = cardHits.find(
+    (hit) =>
+      (hit.metadata as { skillSourceType?: string } | null)?.skillSourceType ===
+      "skill_knowledge_card"
+  );
+  assert.ok(cardHit, "ADR-120 S6: a skill_knowledge_card hit is returned");
+  assert.ok(
+    cardHit?.inlinedDocument,
+    "ADR-120 S6: a skill_knowledge_card hit inlines its full card content"
+  );
+  assert.equal(cardHit?.inlinedDocument?.truncated, false);
+  assert.ok(
+    (cardHit?.inlinedDocument?.text ?? "").includes("Hydration guidance"),
+    "ADR-120 S6: full card text includes the first chunk"
+  );
+  assert.ok(
+    (cardHit?.inlinedDocument?.text ?? "").includes("Caffeine and alcohol"),
+    "ADR-120 S6: full card text includes the second chunk (atomic whole card)"
+  );
+  assert.equal(
+    cardHit?.inlinedSection,
+    undefined,
+    "ADR-120 S6: atomic card uses inlinedDocument, not inlinedSection"
+  );
 
   // Relevance floor: a fuzzy-only single-token query with no exact-token hit is
   // dropped (rerank disabled, no widening), mirroring the Slice 4 doc floor. Use

@@ -446,6 +446,126 @@ function fallbackContextPolicyPreset(
   return preset === "lean" || preset === "rich" ? preset : "balanced";
 }
 
+/**
+ * ADR-120 Slice 6 (D7 — collapse the knob zoo) — retrieval-policy presets that
+ * set ALL 16 raw retrieval draft fields atomically, mirroring the contextPolicy
+ * preset UX. This is a UI fill-helper ONLY: there is NO persisted
+ * `retrievalPolicy.preset` field and no contract change — the saved payload is
+ * still the 16 raw values. `balanced` equals DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.
+ */
+type RetrievalPolicyPresetKey = "lean" | "balanced" | "rich";
+type RetrievalPolicyDraftFields = Pick<
+  PlanDraft,
+  | "retrievalDefaultMaxResults"
+  | "retrievalHardMaxResults"
+  | "retrievalLexicalCandidateLimit"
+  | "retrievalVectorCandidateLimit"
+  | "retrievalKnowledgeFetchWindowRadius"
+  | "retrievalChatFetchWindowRadius"
+  | "retrievalFetchMaxChars"
+  | "retrievalHelperEnabled"
+  | "retrievalHelperCandidateLimit"
+  | "retrievalHelperMaxOutputTokens"
+  | "retrievalEmbeddingSearchEnabled"
+  | "retrievalSmartSearchShortDocChars"
+  | "retrievalSmartSearchMediumDocChars"
+  | "retrievalChatSectionDefaultRadius"
+  | "retrievalFetchFullModeMaxChars"
+  | "retrievalFetchFullModeMaxChatMessages"
+>;
+
+const RETRIEVAL_POLICY_PRESET_DEFAULTS: Record<
+  RetrievalPolicyPresetKey,
+  RetrievalPolicyDraftFields
+> = {
+  lean: {
+    retrievalDefaultMaxResults: "4",
+    retrievalHardMaxResults: "6",
+    retrievalLexicalCandidateLimit: "40",
+    retrievalVectorCandidateLimit: "160",
+    retrievalKnowledgeFetchWindowRadius: "2",
+    retrievalChatFetchWindowRadius: "8",
+    retrievalFetchMaxChars: "6000",
+    retrievalHelperEnabled: false,
+    retrievalHelperCandidateLimit: "4",
+    retrievalHelperMaxOutputTokens: "180",
+    retrievalEmbeddingSearchEnabled: true,
+    retrievalSmartSearchShortDocChars: "1500",
+    retrievalSmartSearchMediumDocChars: "6000",
+    retrievalChatSectionDefaultRadius: "10",
+    retrievalFetchFullModeMaxChars: "15000",
+    retrievalFetchFullModeMaxChatMessages: "100"
+  },
+  balanced: {
+    retrievalDefaultMaxResults: "6",
+    retrievalHardMaxResults: "10",
+    retrievalLexicalCandidateLimit: "60",
+    retrievalVectorCandidateLimit: "240",
+    retrievalKnowledgeFetchWindowRadius: "3",
+    retrievalChatFetchWindowRadius: "10",
+    retrievalFetchMaxChars: "8000",
+    retrievalHelperEnabled: true,
+    retrievalHelperCandidateLimit: "6",
+    retrievalHelperMaxOutputTokens: "220",
+    retrievalEmbeddingSearchEnabled: true,
+    retrievalSmartSearchShortDocChars: "2000",
+    retrievalSmartSearchMediumDocChars: "8000",
+    retrievalChatSectionDefaultRadius: "15",
+    retrievalFetchFullModeMaxChars: "25000",
+    retrievalFetchFullModeMaxChatMessages: "150"
+  },
+  rich: {
+    retrievalDefaultMaxResults: "8",
+    retrievalHardMaxResults: "12",
+    retrievalLexicalCandidateLimit: "100",
+    retrievalVectorCandidateLimit: "400",
+    retrievalKnowledgeFetchWindowRadius: "4",
+    retrievalChatFetchWindowRadius: "14",
+    retrievalFetchMaxChars: "12000",
+    retrievalHelperEnabled: true,
+    retrievalHelperCandidateLimit: "8",
+    retrievalHelperMaxOutputTokens: "320",
+    retrievalEmbeddingSearchEnabled: true,
+    retrievalSmartSearchShortDocChars: "4000",
+    retrievalSmartSearchMediumDocChars: "16000",
+    retrievalChatSectionDefaultRadius: "20",
+    retrievalFetchFullModeMaxChars: "40000",
+    retrievalFetchFullModeMaxChatMessages: "250"
+  }
+};
+
+const RETRIEVAL_POLICY_PRESET_OPTIONS: Array<{
+  value: RetrievalPolicyPresetKey | "custom";
+  label: string;
+}> = [
+  { value: "lean", label: "Lean (lower volume)" },
+  { value: "balanced", label: "Balanced (default)" },
+  { value: "rich", label: "Rich (higher volume)" },
+  { value: "custom", label: "Custom" }
+];
+
+function applyRetrievalPolicyPreset(preset: RetrievalPolicyPresetKey): RetrievalPolicyDraftFields {
+  return { ...RETRIEVAL_POLICY_PRESET_DEFAULTS[preset] };
+}
+
+/**
+ * ADR-120 Slice 6 — derive which preset (if any) the current draft matches so
+ * the dropdown reflects state without persisting a preset field. Any manual
+ * override of a raw field that breaks an exact match shows as `custom`.
+ */
+function detectRetrievalPolicyPreset(draft: PlanDraft): RetrievalPolicyPresetKey | "custom" {
+  for (const preset of ["lean", "balanced", "rich"] as const) {
+    const defaults = RETRIEVAL_POLICY_PRESET_DEFAULTS[preset];
+    const matches = (Object.keys(defaults) as Array<keyof RetrievalPolicyDraftFields>).every(
+      (key) => draft[key] === defaults[key]
+    );
+    if (matches) {
+      return preset;
+    }
+  }
+  return "custom";
+}
+
 function parsePositiveIntDraft(value: string, fallback: number): number {
   const parsed = Number.parseInt(value.trim(), 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -3021,167 +3141,202 @@ export function PlanForm({
               </div>
             </SubPanel>
 
-            <SubPanel title="Retrieval policy">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {[
-                  {
-                    key: "retrievalDefaultMaxResults" as const,
-                    label: "Default results",
-                    value: draft.retrievalDefaultMaxResults,
-                    patch: (value: string) => onPatch({ retrievalDefaultMaxResults: value })
-                  },
-                  {
-                    key: "retrievalHardMaxResults" as const,
-                    label: "Hard max results",
-                    value: draft.retrievalHardMaxResults,
-                    patch: (value: string) => onPatch({ retrievalHardMaxResults: value })
-                  },
-                  {
-                    key: "retrievalLexicalCandidateLimit" as const,
-                    label: "Lexical candidate pool",
-                    value: draft.retrievalLexicalCandidateLimit,
-                    patch: (value: string) => onPatch({ retrievalLexicalCandidateLimit: value })
-                  },
-                  {
-                    key: "retrievalVectorCandidateLimit" as const,
-                    label: "Vector candidate pool",
-                    value: draft.retrievalVectorCandidateLimit,
-                    patch: (value: string) => onPatch({ retrievalVectorCandidateLimit: value })
-                  },
-                  {
-                    key: "retrievalKnowledgeFetchWindowRadius" as const,
-                    label: "Doc fetch radius",
-                    value: draft.retrievalKnowledgeFetchWindowRadius,
-                    patch: (value: string) =>
-                      onPatch({ retrievalKnowledgeFetchWindowRadius: value })
-                  },
-                  {
-                    key: "retrievalChatFetchWindowRadius" as const,
-                    label: "Chat fetch radius",
-                    value: draft.retrievalChatFetchWindowRadius,
-                    patch: (value: string) => onPatch({ retrievalChatFetchWindowRadius: value })
-                  },
-                  {
-                    key: "retrievalFetchMaxChars" as const,
-                    label: "Fetch max chars",
-                    value: draft.retrievalFetchMaxChars,
-                    patch: (value: string) => onPatch({ retrievalFetchMaxChars: value })
-                  },
-                  {
-                    key: "retrievalHelperCandidateLimit" as const,
-                    label: "Helper candidates",
-                    value: draft.retrievalHelperCandidateLimit,
-                    patch: (value: string) => onPatch({ retrievalHelperCandidateLimit: value })
-                  },
-                  {
-                    key: "retrievalHelperMaxOutputTokens" as const,
-                    label: "Helper max output tokens",
-                    value: draft.retrievalHelperMaxOutputTokens,
-                    patch: (value: string) => onPatch({ retrievalHelperMaxOutputTokens: value })
+            <SubPanel
+              title="Retrieval preset"
+              hint="Presets fill all 16 retrieval knobs at once (D7). Balanced is the platform default; lean trims volume for precision, rich widens it. Any manual override below switches to custom."
+            >
+              <select
+                value={detectRetrievalPolicyPreset(draft)}
+                onChange={(e) => {
+                  const preset = e.target.value;
+                  if (preset === "lean" || preset === "balanced" || preset === "rich") {
+                    onPatch(applyRetrievalPolicyPreset(preset));
                   }
-                ].map((field) => (
-                  <label
-                    key={field.label}
-                    className="flex items-center justify-between gap-2 text-[11px] font-medium text-text"
-                  >
-                    {field.label}
-                    <Input
-                      type="number"
-                      min={1}
-                      value={field.value}
-                      onValue={field.patch}
-                      invalid={Boolean(validationErrors[field.key])}
-                      className="w-28 appearance-none bg-bg text-right text-xs [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                    />
-                    <FieldError message={validationErrors[field.key]} />
-                  </label>
+                }}
+                className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
+              >
+                {RETRIEVAL_POLICY_PRESET_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
                 ))}
-              </div>
-              <div className="mt-2 grid gap-1.5">
-                <label className="inline-flex items-center gap-2 text-[11px] text-text-subtle">
-                  <input
-                    type="checkbox"
-                    checked={draft.retrievalHelperEnabled}
-                    onChange={(e) => onPatch({ retrievalHelperEnabled: e.target.checked })}
-                    className="rounded border-border"
-                  />
-                  Enable helper rerank
-                </label>
-                <label className="inline-flex items-center gap-2 text-[11px] text-text-subtle">
-                  <input
-                    type="checkbox"
-                    checked={draft.retrievalEmbeddingSearchEnabled}
-                    onChange={(e) => onPatch({ retrievalEmbeddingSearchEnabled: e.target.checked })}
-                    className="rounded border-border"
-                  />
-                  Enable embedding search on query
-                </label>
-              </div>
+              </select>
             </SubPanel>
 
-            <SubPanel title="Smart retrieval (ADR-094)">
-              <HelpText>
-                Per-plan volume for the smart <code>knowledge_search</code> inline branch and the
-                flexible <code>knowledge_fetch</code> mode. Admin-owned hard ceilings live under
-                Admin &gt; Knowledge &gt; Smart Retrieval Limits and cap any plan value above them.
-              </HelpText>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                {[
-                  {
-                    key: "retrievalSmartSearchShortDocChars" as const,
-                    label: "Short-doc inline cap (chars)",
-                    hint: "1-hit search inlines the whole document when its total length is at or below this cap. Free ≈ 1 500 / Start ≈ 2 000 / Plus ≈ 2 500 / Premium ≈ 3 000 / Pro ≈ 4 000.",
-                    value: draft.retrievalSmartSearchShortDocChars,
-                    patch: (value: string) => onPatch({ retrievalSmartSearchShortDocChars: value })
-                  },
-                  {
-                    key: "retrievalSmartSearchMediumDocChars" as const,
-                    label: "Medium-doc inline cap (chars)",
-                    hint: "Above this length, 1-hit search returns an extended section plus a heading summary instead of the whole document. Free ≈ 5 000 / Start ≈ 8 000 / Plus ≈ 10 000 / Premium ≈ 14 000 / Pro ≈ 20 000.",
-                    value: draft.retrievalSmartSearchMediumDocChars,
-                    patch: (value: string) => onPatch({ retrievalSmartSearchMediumDocChars: value })
-                  },
-                  {
-                    key: "retrievalChatSectionDefaultRadius" as const,
-                    label: "Chat section radius (messages)",
-                    hint: "Default number of surrounding messages for chat knowledge_fetch with mode=section, assembled chronologically. Free ≈ 10 / Start ≈ 15 / Plus ≈ 20 / Premium ≈ 30 / Pro ≈ 50.",
-                    value: draft.retrievalChatSectionDefaultRadius,
-                    patch: (value: string) => onPatch({ retrievalChatSectionDefaultRadius: value })
-                  },
-                  {
-                    key: "retrievalFetchFullModeMaxChars" as const,
-                    label: "Fetch full mode max chars",
-                    hint: "knowledge_fetch(mode=full) cap for documents. Effective cap is min(plan, admin). Free ≈ 12 000 / Start ≈ 25 000 / Plus ≈ 40 000 / Premium ≈ 60 000 / Pro ≈ 100 000.",
-                    value: draft.retrievalFetchFullModeMaxChars,
-                    patch: (value: string) => onPatch({ retrievalFetchFullModeMaxChars: value })
-                  },
-                  {
-                    key: "retrievalFetchFullModeMaxChatMessages" as const,
-                    label: "Fetch full mode max chat messages",
-                    hint: "knowledge_fetch(mode=full) cap for a chat thread, in messages. Effective cap is min(plan, admin). Free ≈ 80 / Start ≈ 150 / Plus ≈ 250 / Premium ≈ 400 / Pro ≈ 800.",
-                    value: draft.retrievalFetchFullModeMaxChatMessages,
-                    patch: (value: string) =>
-                      onPatch({ retrievalFetchFullModeMaxChatMessages: value })
-                  }
-                ].map((field) => (
-                  <label
-                    key={field.key}
-                    className="flex items-center justify-between gap-2 text-[11px] font-medium text-text"
-                  >
-                    <span title={field.hint}>{field.label}</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={field.value}
-                      onValue={field.patch}
-                      invalid={Boolean(validationErrors[field.key])}
-                      className="w-28 appearance-none bg-bg text-right text-xs [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                    />
-                    <FieldError message={validationErrors[field.key]} />
-                  </label>
-                ))}
+            <details className="rounded border border-border/70 bg-surface px-2.5 py-2">
+              <summary className="cursor-pointer text-[11px] font-medium text-text-subtle">
+                Advanced retrieval knobs
+              </summary>
+              <div className="mt-2 space-y-2">
+                <SubPanel title="Retrieval policy">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {[
+                      {
+                        key: "retrievalDefaultMaxResults" as const,
+                        label: "Default results",
+                        value: draft.retrievalDefaultMaxResults,
+                        patch: (value: string) => onPatch({ retrievalDefaultMaxResults: value })
+                      },
+                      {
+                        key: "retrievalHardMaxResults" as const,
+                        label: "Hard max results",
+                        value: draft.retrievalHardMaxResults,
+                        patch: (value: string) => onPatch({ retrievalHardMaxResults: value })
+                      },
+                      {
+                        key: "retrievalLexicalCandidateLimit" as const,
+                        label: "Lexical candidate pool",
+                        value: draft.retrievalLexicalCandidateLimit,
+                        patch: (value: string) => onPatch({ retrievalLexicalCandidateLimit: value })
+                      },
+                      {
+                        key: "retrievalVectorCandidateLimit" as const,
+                        label: "Vector candidate pool",
+                        value: draft.retrievalVectorCandidateLimit,
+                        patch: (value: string) => onPatch({ retrievalVectorCandidateLimit: value })
+                      },
+                      {
+                        key: "retrievalKnowledgeFetchWindowRadius" as const,
+                        label: "Doc fetch radius",
+                        value: draft.retrievalKnowledgeFetchWindowRadius,
+                        patch: (value: string) =>
+                          onPatch({ retrievalKnowledgeFetchWindowRadius: value })
+                      },
+                      {
+                        key: "retrievalChatFetchWindowRadius" as const,
+                        label: "Chat fetch radius",
+                        value: draft.retrievalChatFetchWindowRadius,
+                        patch: (value: string) => onPatch({ retrievalChatFetchWindowRadius: value })
+                      },
+                      {
+                        key: "retrievalFetchMaxChars" as const,
+                        label: "Fetch max chars",
+                        value: draft.retrievalFetchMaxChars,
+                        patch: (value: string) => onPatch({ retrievalFetchMaxChars: value })
+                      },
+                      {
+                        key: "retrievalHelperCandidateLimit" as const,
+                        label: "Helper candidates",
+                        value: draft.retrievalHelperCandidateLimit,
+                        patch: (value: string) => onPatch({ retrievalHelperCandidateLimit: value })
+                      },
+                      {
+                        key: "retrievalHelperMaxOutputTokens" as const,
+                        label: "Helper max output tokens",
+                        value: draft.retrievalHelperMaxOutputTokens,
+                        patch: (value: string) => onPatch({ retrievalHelperMaxOutputTokens: value })
+                      }
+                    ].map((field) => (
+                      <label
+                        key={field.label}
+                        className="flex items-center justify-between gap-2 text-[11px] font-medium text-text"
+                      >
+                        {field.label}
+                        <Input
+                          type="number"
+                          min={1}
+                          value={field.value}
+                          onValue={field.patch}
+                          invalid={Boolean(validationErrors[field.key])}
+                          className="w-28 appearance-none bg-bg text-right text-xs [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                        />
+                        <FieldError message={validationErrors[field.key]} />
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-2 grid gap-1.5">
+                    <label className="inline-flex items-center gap-2 text-[11px] text-text-subtle">
+                      <input
+                        type="checkbox"
+                        checked={draft.retrievalHelperEnabled}
+                        onChange={(e) => onPatch({ retrievalHelperEnabled: e.target.checked })}
+                        className="rounded border-border"
+                      />
+                      Enable helper rerank
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-[11px] text-text-subtle">
+                      <input
+                        type="checkbox"
+                        checked={draft.retrievalEmbeddingSearchEnabled}
+                        onChange={(e) =>
+                          onPatch({ retrievalEmbeddingSearchEnabled: e.target.checked })
+                        }
+                        className="rounded border-border"
+                      />
+                      Enable embedding search on query
+                    </label>
+                  </div>
+                </SubPanel>
+
+                <SubPanel title="Smart retrieval (ADR-094)">
+                  <HelpText>
+                    Per-plan volume for the smart <code>knowledge_search</code> inline branch and
+                    the flexible <code>knowledge_fetch</code> mode. Admin-owned hard ceilings live
+                    under Admin &gt; Knowledge &gt; Smart Retrieval Limits and cap any plan value
+                    above them.
+                  </HelpText>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {[
+                      {
+                        key: "retrievalSmartSearchShortDocChars" as const,
+                        label: "Short-doc inline cap (chars)",
+                        hint: "1-hit search inlines the whole document when its total length is at or below this cap. Free ≈ 1 500 / Start ≈ 2 000 / Plus ≈ 2 500 / Premium ≈ 3 000 / Pro ≈ 4 000.",
+                        value: draft.retrievalSmartSearchShortDocChars,
+                        patch: (value: string) =>
+                          onPatch({ retrievalSmartSearchShortDocChars: value })
+                      },
+                      {
+                        key: "retrievalSmartSearchMediumDocChars" as const,
+                        label: "Medium-doc inline cap (chars)",
+                        hint: "Above this length, 1-hit search returns an extended section plus a heading summary instead of the whole document. Free ≈ 5 000 / Start ≈ 8 000 / Plus ≈ 10 000 / Premium ≈ 14 000 / Pro ≈ 20 000.",
+                        value: draft.retrievalSmartSearchMediumDocChars,
+                        patch: (value: string) =>
+                          onPatch({ retrievalSmartSearchMediumDocChars: value })
+                      },
+                      {
+                        key: "retrievalChatSectionDefaultRadius" as const,
+                        label: "Chat section radius (messages)",
+                        hint: "Default number of surrounding messages for chat knowledge_fetch with mode=section, assembled chronologically. Free ≈ 10 / Start ≈ 15 / Plus ≈ 20 / Premium ≈ 30 / Pro ≈ 50.",
+                        value: draft.retrievalChatSectionDefaultRadius,
+                        patch: (value: string) =>
+                          onPatch({ retrievalChatSectionDefaultRadius: value })
+                      },
+                      {
+                        key: "retrievalFetchFullModeMaxChars" as const,
+                        label: "Fetch full mode max chars",
+                        hint: "knowledge_fetch(mode=full) cap for documents. Effective cap is min(plan, admin). Free ≈ 12 000 / Start ≈ 25 000 / Plus ≈ 40 000 / Premium ≈ 60 000 / Pro ≈ 100 000.",
+                        value: draft.retrievalFetchFullModeMaxChars,
+                        patch: (value: string) => onPatch({ retrievalFetchFullModeMaxChars: value })
+                      },
+                      {
+                        key: "retrievalFetchFullModeMaxChatMessages" as const,
+                        label: "Fetch full mode max chat messages",
+                        hint: "knowledge_fetch(mode=full) cap for a chat thread, in messages. Effective cap is min(plan, admin). Free ≈ 80 / Start ≈ 150 / Plus ≈ 250 / Premium ≈ 400 / Pro ≈ 800.",
+                        value: draft.retrievalFetchFullModeMaxChatMessages,
+                        patch: (value: string) =>
+                          onPatch({ retrievalFetchFullModeMaxChatMessages: value })
+                      }
+                    ].map((field) => (
+                      <label
+                        key={field.key}
+                        className="flex items-center justify-between gap-2 text-[11px] font-medium text-text"
+                      >
+                        <span title={field.hint}>{field.label}</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={field.value}
+                          onValue={field.patch}
+                          invalid={Boolean(validationErrors[field.key])}
+                          className="w-28 appearance-none bg-bg text-right text-xs [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                        />
+                        <FieldError message={validationErrors[field.key]} />
+                      </label>
+                    ))}
+                  </div>
+                </SubPanel>
               </div>
-            </SubPanel>
+            </details>
           </div>
         </Panel>
       </div>

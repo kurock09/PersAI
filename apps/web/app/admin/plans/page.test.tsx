@@ -674,6 +674,95 @@ describe("admin plans page helpers", () => {
       isPlanDraftDirty(snapshot, { ...draft, talkingAvatarModelKey: "heygen-photo-avatar-v4" })
     ).toBe(true);
   });
+
+  it("ADR-120 Slice 6 — retrieval preset dropdown fills all 16 raw retrieval fields atomically", () => {
+    const onPatch = vi.fn();
+    const draft = planToDraft(createPlanState());
+    const { container } = render(
+      <PlanForm
+        draft={draft}
+        onPatch={onPatch}
+        validationErrors={{}}
+        showCode={false}
+        code="pro"
+        onCodeChange={() => {}}
+        vcoinExchangeRate={20}
+        avgVideoUsdPerSecond={0.05}
+      />
+    );
+
+    // Scope to this render's container: @testing-library cleanup is not wired in
+    // this suite, so prior `render` calls leave duplicate forms in document.body.
+    const richSelect = container
+      .querySelector('select option[value="rich"]')
+      ?.closest("select") as HTMLSelectElement | null;
+    expect(richSelect).not.toBeNull();
+    fireEvent.change(richSelect!, { target: { value: "rich" } });
+    expect(onPatch).toHaveBeenCalledWith({
+      retrievalDefaultMaxResults: "8",
+      retrievalHardMaxResults: "12",
+      retrievalLexicalCandidateLimit: "100",
+      retrievalVectorCandidateLimit: "400",
+      retrievalKnowledgeFetchWindowRadius: "4",
+      retrievalChatFetchWindowRadius: "14",
+      retrievalFetchMaxChars: "12000",
+      retrievalHelperEnabled: true,
+      retrievalHelperCandidateLimit: "8",
+      retrievalHelperMaxOutputTokens: "320",
+      retrievalEmbeddingSearchEnabled: true,
+      retrievalSmartSearchShortDocChars: "4000",
+      retrievalSmartSearchMediumDocChars: "16000",
+      retrievalChatSectionDefaultRadius: "20",
+      retrievalFetchFullModeMaxChars: "40000",
+      retrievalFetchFullModeMaxChatMessages: "250"
+    });
+
+    onPatch.mockClear();
+    fireEvent.change(richSelect!, { target: { value: "lean" } });
+    expect(onPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retrievalDefaultMaxResults: "4",
+        retrievalHardMaxResults: "6",
+        retrievalHelperEnabled: false,
+        retrievalFetchFullModeMaxChatMessages: "100"
+      })
+    );
+  });
+
+  it("ADR-120 Slice 6 — selecting balanced restores DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY values; dropdown reflects custom by default", () => {
+    const onPatch = vi.fn();
+    const draft = planToDraft(createPlanState());
+    const { container } = render(
+      <PlanForm
+        draft={draft}
+        onPatch={onPatch}
+        validationErrors={{}}
+        showCode={false}
+        code="pro"
+        onCodeChange={() => {}}
+        vcoinExchangeRate={20}
+        avgVideoUsdPerSecond={0.05}
+      />
+    );
+
+    // createPlanState() uses defaultMaxResults 5 / maxMaxResults 8, which is not
+    // an exact preset match, so the dropdown defaults to "custom".
+    const balancedSelect = container
+      .querySelector('select option[value="balanced"]')
+      ?.closest("select") as HTMLSelectElement;
+    expect(balancedSelect.value).toBe("custom");
+    fireEvent.change(balancedSelect, { target: { value: "balanced" } });
+    expect(onPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retrievalDefaultMaxResults: "6",
+        retrievalHardMaxResults: "10",
+        retrievalVectorCandidateLimit: "240",
+        retrievalFetchMaxChars: "8000",
+        retrievalSmartSearchShortDocChars: "2000",
+        retrievalSmartSearchMediumDocChars: "8000"
+      })
+    );
+  });
 });
 
 describe("plan draft dirty detection", () => {

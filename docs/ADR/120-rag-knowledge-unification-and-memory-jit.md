@@ -208,6 +208,8 @@ Memory slices land first (smaller, kill the live bleeding + recency pollution), 
 - Tests: selecting a preset sets all values; advanced override round-trips.
 - Acceptance: founder selects one preset; gate green.
 
+_Slice 6 landed (2026-06-20):_ Snippet-first is the new default — `DEFAULT_ADMIN_KNOWLEDGE_SMART_RETRIEVAL_LIMITS.smartSearchEnabled` flipped `true → false` (default-only change, no migration). Atomic-card exception added to the skill search render path: even when smart search is snippet-only, a `skill_knowledge_card` hit returns its FULL card text inline (`inlinedDocument`), capped by `min(max(plan.fetchMaxChars, plan.smartSearchShortDocChars), admin.fetchFullModeAbsoluteMaxChars)`. The admin Plans UI gains a `lean` / `balanced` / `rich` retrieval preset dropdown (UI fill-helper only — fills all 16 raw draft fields, no persisted `retrievalPolicy.preset`, no contract change) with the 16 raw knobs moved under an "Advanced retrieval knobs" disclosure. Focused tests added in `apps/api/test/read-assistant-knowledge.service.test.ts` (snippet-only document hit + full-card inline) and `apps/web/app/admin/plans/page.test.tsx` (preset fills all 16 fields; dropdown reflects custom).
+
 ### Slice 7 — Docs + golden tests + closure; full-repo verify + PUSH
 
 - Update `docs/API-BOUNDARY.md` (retrieved knowledge via tool channel; `<persai_retrieved_knowledge>` push superseded), `docs/ARCHITECTURE.md` (pull-first retrieval; single vector store), `docs/DATA-MODEL.md` (HNSW index, memory `chatId` index, dropped legacy JSONB columns), `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`.

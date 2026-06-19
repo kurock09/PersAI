@@ -3970,11 +3970,11 @@ export class ReadAssistantKnowledgeService {
         return [];
       }
 
-      const [retrievalPolicy, adminEmbeddingModelKey] = await Promise.all([
+      const [retrievalPolicy, adminPolicy] = await Promise.all([
         this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(input.assistantId),
-        this.knowledgeModelPolicyService.resolveAdminKnowledgeEmbeddingModelKey()
+        this.knowledgeModelPolicyService.resolveAdminKnowledgeRetrievalPolicy()
       ]);
-      embeddingModelKey = adminEmbeddingModelKey;
+      embeddingModelKey = adminPolicy.embeddingModelKey;
 
       const queryInfo = buildSearchQueryInfo(normalizedQuery);
       const rankedByReferenceId = new Map<string, RankedSearchCandidate<SkillSearchChunkRow>>();
@@ -4186,24 +4186,39 @@ export class ReadAssistantKnowledgeService {
           });
       }
 
-      const hits: RuntimeKnowledgeSearchHit[] = selected.map(({ row, score }) => ({
-        referenceId: refOf(row),
-        source: "skill",
-        title: `${localizeSkillName(row.skillName)} / ${row.sourceTitle}`,
-        locator: row.locator,
-        snippet: buildSnippet(row.content, queryInfo.searchTerms),
-        score,
-        metadata: {
-          skillId: row.skillId,
-          skillCategory: row.skillCategory,
-          skillSourceType: row.sourceKind,
-          skillSourceId: row.sourceId,
-          sourceVersion: row.sourceVersion,
-          chunkIndex: row.chunkIndex,
-          mimeType: row.mimeType,
-          retrievalMode
-        }
-      }));
+      const hits: RuntimeKnowledgeSearchHit[] = await Promise.all(
+        selected.map(async ({ row, score }) => {
+          const baseHit: RuntimeKnowledgeSearchHit = {
+            referenceId: refOf(row),
+            source: "skill",
+            title: `${localizeSkillName(row.skillName)} / ${row.sourceTitle}`,
+            locator: row.locator,
+            snippet: buildSnippet(row.content, queryInfo.searchTerms),
+            score,
+            metadata: {
+              skillId: row.skillId,
+              skillCategory: row.skillCategory,
+              skillSourceType: row.sourceKind,
+              skillSourceId: row.sourceId,
+              sourceVersion: row.sourceVersion,
+              chunkIndex: row.chunkIndex,
+              mimeType: row.mimeType,
+              retrievalMode
+            }
+          };
+          // ADR-120 Slice 6 (D4 atomic-card exception) — a skill_knowledge_card
+          // is a self-contained atomic unit; a truncated snippet of a card loses
+          // meaning and a fetch would add nothing. Even when smart search is
+          // snippet-only (or a normal snippet would truncate), a card hit returns
+          // its FULL card text inline, bounded by a safety cap. Documents keep
+          // snippet-only behaviour.
+          if (row.sourceKind !== "skill_knowledge_card") {
+            return baseHit;
+          }
+          return this.inlineAtomicCardHit({ hit: baseHit, row, retrievalPolicy, adminPolicy });
+        })
+      );
+      const smartTelemetry = resolveSmartSearchTelemetry(hits);
       await this.recordSearchObservability({
         assistantId: input.assistantId,
         source: "skill",
@@ -4219,8 +4234,8 @@ export class ReadAssistantKnowledgeService {
         helperInputTokens: helperRanking?.usage?.inputTokens ?? null,
         helperOutputTokens: helperRanking?.usage?.outputTokens ?? null,
         helperTotalTokens: helperRanking?.usage?.totalTokens ?? null,
-        modeUsed: "snippet_only",
-        bytesReturned: 0
+        modeUsed: smartTelemetry.modeUsed,
+        bytesReturned: smartTelemetry.bytesReturned
       });
       return hits;
     } catch (error) {
@@ -4239,6 +4254,53 @@ export class ReadAssistantKnowledgeService {
       });
       throw error;
     }
+  }
+
+  /**
+   * ADR-120 Slice 6 (D4 atomic-card exception) — load the WHOLE card content
+   * for a `skill_knowledge_card` hit and inline it. Bounded by a safety cap
+   * derived from the plan fetch/inline knobs and hard-capped by the admin
+   * `fetchFullModeAbsoluteMaxChars` ceiling. Returns the hit unchanged if the
+   * card has no content.
+   */
+  private async inlineAtomicCardHit(args: {
+    hit: RuntimeKnowledgeSearchHit;
+    row: SkillSearchChunkRow;
+    retrievalPolicy: Awaited<
+      ReturnType<KnowledgeModelPolicyService["resolveAssistantRetrievalPolicy"]>
+    >;
+    adminPolicy: AdminKnowledgeRetrievalPolicyState;
+  }): Promise<RuntimeKnowledgeSearchHit> {
+    const { hit, row, retrievalPolicy, adminPolicy } = args;
+    const cardRows = await this.loadSkillWindowRows(
+      {
+        skillId: row.skillId,
+        sourceKind: "skill_knowledge_card",
+        sourceId: row.sourceId,
+        sourceVersion: row.sourceVersion,
+        chunkIndex: row.chunkIndex
+      },
+      null
+    );
+    const fullText = [...cardRows]
+      .sort((a, b) => a.chunkIndex - b.chunkIndex)
+      .map((entry) => entry.content.trim())
+      .filter((entry) => entry.length > 0)
+      .join("\n\n---\n\n");
+    if (fullText.length === 0) {
+      return hit;
+    }
+    const cap = Math.min(
+      Math.max(retrievalPolicy.fetchMaxChars, retrievalPolicy.smartSearchShortDocChars),
+      adminPolicy.fetchFullModeAbsoluteMaxChars
+    );
+    const { content: inlinedText, truncated } = applyTruncationMarker(fullText, cap);
+    const inlinedDocument: RuntimeKnowledgeInlinedDocument = {
+      text: inlinedText,
+      chars: inlinedText.length,
+      truncated
+    };
+    return { ...hit, inlinedDocument };
   }
 
   /**

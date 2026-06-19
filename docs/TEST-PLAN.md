@@ -1637,6 +1637,16 @@ Part B (Slice 2 addition — real worker instantiation with in-memory Prisma + m
 
 ---
 
+## ADR-120 Slice 6 — snippet-first default + atomic-card exception + retrieval presets
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx --config vitest.config.ts
+```
+
+- `read-assistant-knowledge.service.test.ts` (`runSkillPull`) asserts that with `smartSearchEnabled=false` a normal `skill_document` hit stays snippet-only (no `inlinedDocument` / `inlinedSection`), and that a `skill_knowledge_card` hit returns its FULL card text inline (`inlinedDocument`, all card chunks joined, `truncated=false`).
+- `plans/page.test.tsx` asserts the retrieval preset dropdown fills all 16 raw retrieval draft fields atomically for `rich` / `lean` / `balanced`, and that the dropdown reflects `custom` when the draft matches no preset (UI fill-helper only; no persisted `retrievalPolicy.preset`).
+
 ## ADR-119 golden tests
 
 Six golden tests lock the invariants from the ADR-119 prompt architecture program. All six must pass on every PR. Failure of any golden test indicates a structural regression in the prompt assembly pipeline.

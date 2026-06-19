@@ -9,7 +9,11 @@ const MAX_MODEL_KEY_LENGTH = 255;
  * the upper bounds that no plan can override.
  */
 export const DEFAULT_ADMIN_KNOWLEDGE_SMART_RETRIEVAL_LIMITS = {
-  smartSearchEnabled: true,
+  // ADR-120 Slice 6 (D4 snippet-first) — fresh/unset installs are snippet-first:
+  // `knowledge_search` returns snippets + ref id + score, and content is pulled
+  // through an explicit `knowledge_fetch`. The single principled exception is an
+  // atomic `skill_knowledge_card`, which still returns whole inline.
+  smartSearchEnabled: false,
   smartSearchLongDocSummaryChars: 800,
   fetchFullModeAbsoluteMaxChars: 500_000,
   fetchFullModeAbsoluteMaxChatMessages: 800
