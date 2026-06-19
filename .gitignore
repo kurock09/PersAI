@@ -16,3 +16,4 @@ scripts/smoke/artifacts/
 !.tmp-api-tail.txt.example
 tmp-*
 !tmp-*.example
+tmp/

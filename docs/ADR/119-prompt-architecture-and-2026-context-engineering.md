@@ -2,7 +2,9 @@
 
 ## Status
 
-Closed — 2026-06-18 (Slice 11 closure)
+Closed — 2026-06-19 (founder acceptance; program complete)
+
+> Architecture frozen 2026-06-18 (Slice 11 + golden tests). Founder live acceptance recorded 2026-06-19. **Do not reopen.** Residual scenario step-progression work (see Founder acceptance closure below) belongs in a **new ADR** authored by the founder — not in ADR-119 follow-up slices.
 
 > Supersedes **ADR-118** (Skill Scenarios and Model-Owned Skill Activation). ADR-118 introduced the three-level engagement model (Enabled / Active / Running scenario), the `skill` tool, the `SkillScenario` entity, and the UX indicator. All of those concepts are **preserved** in ADR-119. The block format (ADR-118 D4 — prose-style `## Active Scenario` markdown), the prompt-section ordering (Selection Guide last), the persona compiler (free-form Instructions duplicated and conflicting with structured archetype), and the implicit single-monolithic-prompt cache strategy are **rewritten**.
 >
@@ -1051,7 +1053,7 @@ Rejected on Anthropic-attention grounds. XML tags route attention more reliably 
 | 10.1  | docs(ADR-119): correct Slice 10 session handoff and changelog accuracy | `b534d852` |
 | 11    | feat(ADR-119): Slice 11 - golden tests + docs + ADR closure | `125e2b70` |
 
-**Acceptance gate**: founder live-test on persai-dev still pending at closure time. Per ADR rollout policy, live-acceptance is subjective ("any improvement perceptible counts as pass"). This closure freezes the architecture; if live-test reveals regressions, a follow-up ADR will address them — this ADR is not reopened.
+**Acceptance gate**: founder live-test on persai-dev was **pending at Slice 11 closure** (2026-06-18). **Founder acceptance recorded 2026-06-19** — see § Founder acceptance closure. Per ADR rollout policy, live-acceptance is subjective. This closure freezes the architecture; regressions or gaps discovered in live-test are addressed only via a **new ADR** — this ADR is not reopened.
 
 **Migration status**: both Prisma migrations (`20260618153000_adr119_memory_provenance`, `20260618160000_adr119_first_step_preview`) applied on persai-dev after explicit `persai-dev-migrations` environment approval. Additive columns; reversible.
 
@@ -1082,3 +1084,41 @@ The Slice 2 multi-block system path (split `systemPrompt` into per-zone blocks v
 ### Resulting clean prod path
 
 **2 of 4 Anthropic `cache_control` markers used:** (#1) single-block system marker on the whole `systemPrompt` (caches tools + system), and (#2) the sliding history marker on stable conversation history. Markers #3/#4 (multi-block system) are intentionally unused. Implemented commits: `c98600ba` (cross-cutting dead-field removal + "legacy" rename), `c5542ce2` (Anthropic byte measurement + multi-block removal + sliding-marker formula fix + tests).
+
+---
+
+## Founder acceptance closure (2026-06-19)
+
+**Sign-off:** founder (`alex@agse.ru`) closes ADR-119 as a program. Follow-up scenario-runtime work will be scoped in a **separate ADR** (founder-authored).
+
+**Live validation artifacts:** `tmp/adr-119-slice-1-validation/` (uncommitted local evidence; not repo truth).
+
+### Cache / payload assembly — **PASS**
+
+- Dev deploy validated (`provider-gateway` image incl. sliding-marker fix).
+- Multi-turn cache live test **GREEN**: `cacheBreakpoints=2`, `cache_read_input_tokens` rises on turns 2–4; volatile splice order confirmed (replay via `full-turn-readable.md`, `full-anthropic-payload-turn4.json`).
+- `provider_payload_dump` previews match expected three-zone shape: stable prefix → volatile (`<persai_memory>`, `<persai_active_scenario>`, `<system-reminder>`) → current question → `<persai_developer_instructions>`.
+
+### Skills + scenario gate (c) — **PARTIAL PASS (architecture OK, behavior gap deferred)**
+
+Instagram-carousel live test with sneaker reference photo (`web-1781863738264` / `59573765-19c9-440e-862b-d852d6d4e265`):
+
+| Criterion | Result |
+|---|---|
+| `skill({engage})` solo on turn 1, no parallel `image_edit` | PASS |
+| Progressive disclosure (`<first_step_preview>`, engage tool result) | PASS |
+| `<persai_active_scenario>` + `<system-reminder>` in active-scenario payloads | PASS |
+| Explicit `skill({action:"release"})` on task close | PASS |
+| Step-by-step adherence through scenario step 5 | **FAIL (model behavior)** — model collapsed copy + media; all steps rendered without `status="current"`; no `activeStepNumber` in persisted skill state |
+
+**Verdict:** prompt rails and engage/release mechanics shipped by ADR-119 are ** sufficient to close the program**. Step progression, hard tool guards on early steps, and full gates (a)(b)(d)(e) matrix → **out of scope**; founder will address in the next ADR.
+
+### Gates not exercised in final session
+
+Rollout gates **(a)** persona-only chat, **(b)** memory protocol live, **(d)** scenario switch mid-chat, **(e)** explicit release UX indicator — not re-run 2026-06-19. Not blockers for ADR-119 closure; optional coverage for the follow-up ADR if needed.
+
+### Explicit non-reopen policy
+
+- ADR-119 slices 0–11 + post-closure cache footer are **complete**.
+- Do not add slices to ADR-119 for `activeStepNumber`, scenario step guards, or live-test matrix completion.
+- ADR-117 residual (`cache-prefix rollout SHA`) remains its own closure item — unchanged.

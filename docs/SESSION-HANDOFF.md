@@ -3,6 +3,34 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-19 — ADR-119 program closed (founder acceptance)
+
+### Baseline
+
+- Docs-only closure slice. Baseline SHA: `62ca8f5a` (working tree: `.gitignore` modified; `tmp/` uncommitted validation artifacts).
+
+### What closed
+
+**ADR-119** — formally closed with founder sign-off. Status header updated to `Closed — 2026-06-19 (founder acceptance; program complete)`. § Founder acceptance closure added to the ADR footer.
+
+**Live evidence (local, `tmp/adr-119-slice-1-validation/`):**
+
+- Cache/payload assembly: **GREEN** (multi-turn cache hits, three-zone prompt shape confirmed).
+- Scenario gate (c) Instagram carousel + sneaker photo: **PARTIAL** — engage solo, active-scenario volatile blocks, release OK; step-by-step adherence **not** green (model collapse; no `activeStepNumber` in runtime state).
+
+**Explicit deferral:** scenario step progression, hard early-step tool guards, full live matrix (a)(b)(d)(e) → **founder's next ADR**, not ADR-119 slices.
+
+**AGENTS.md** updated: ADR-118 + ADR-119 moved to closed archive; no open orchestration program ADR except user-started work.
+
+### Residual (not ADR-119)
+
+- ADR-117 `cache-prefix rollout SHA` — still closure-mode pending item.
+- Scenario runtime follow-up — new ADR (founder-owned).
+
+### Next recommended step
+
+Author the follow-up ADR (scenario step state + acceptance criteria), then implement as bounded slices. Do not reopen ADR-119.
+
 ## 2026-06-19 — ADR-119 polish: Anthropic sliding history cache marker fix + "legacy" cleanup
 
 ### Baseline
@@ -30,7 +58,7 @@
 
 ### Next recommended step
 
-Push the 3 commits, wait for CI green + GitOps reconcile in dev, then run the live validation: open a dev chat, do 2-3 short Russian turns, grep provider-gateway logs for `cacheBreakpoints` (expect `2` after history crosses ~3k tokens; `1` on `tool_loop_followup` turns) and confirm `cache_read_input_tokens` rises while raw `inputTokens` oscillates instead of growing linearly. Store artifacts under `./tmp/adr-119-slice-1-validation/`.
+~~Push the 3 commits, wait for CI green + GitOps reconcile in dev, then run the live validation…~~ Superseded by ADR-119 founder acceptance closure (top section).
 
 ## 2026-06-18 — ADR-119 follow-up: Anthropic moving-history-breakpoint fix for tool-loop conversations
 
