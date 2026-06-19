@@ -2277,3 +2277,173 @@ async function run(): Promise<void> {
 }
 
 void run();
+
+// ADR-121 Slice 4 — thinkingBudgetByLevel round-trip tests.
+async function runThinkingBudgetTests(): Promise<void> {
+  const service = createService();
+  const contextPolicy = {
+    preset: "balanced" as const,
+    targetContextBudget: 24000,
+    compactionTriggerThreshold: 8000,
+    keepRecentMinimum: 4,
+    knowledgeHydrationBudget: 2400,
+    autoCompactionWeb: false,
+    autoCompactionTelegram: true,
+    crossSessionCarryOverTtlDays: 7,
+    crossSessionCarryOverIdleHours: 4,
+    crossSessionCarryOverCooldownHours: 12
+  };
+
+  // parse + persist: non-null leaves survive parseUpdateInput.
+  const parsedWithThinking = service.parseUpdateInput({
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    defaultOnRegistration: true,
+    trialEnabled: true,
+    trialDurationDays: 7,
+    lifecyclePolicy: { trialFallbackPlanCode: "starter_fallback" },
+    metadata: { commercialTag: "trial", notes: null },
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: false,
+        utilityTools: true,
+        costDrivingQuotaGoverned: true,
+        utilityQuotaGoverned: true
+      },
+      channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
+    },
+    quotaLimits: { tokenBudgetLimit: 1000 },
+    contextPolicy,
+    primaryModelKey: null,
+    runtimeTierDefault: "free_shared_restricted",
+    thinkingBudgetByLevel: { light: null, medium: null, heavy: 4096, deep: 16384 }
+  });
+  assert.deepEqual(parsedWithThinking.thinkingBudgetByLevel, {
+    light: null,
+    medium: null,
+    heavy: 4096,
+    deep: 16384
+  });
+
+  const writeInputWithThinking = (
+    service as unknown as {
+      toWriteInput(input: typeof parsedWithThinking): {
+        billingProviderHints: Record<string, unknown>;
+      };
+    }
+  ).toWriteInput(parsedWithThinking);
+  assert.deepEqual(writeInputWithThinking.billingProviderHints.thinkingBudgetByLevel, {
+    schema: "persai.thinkingBudgetByLevel.v1",
+    byLevel: { light: null, medium: null, heavy: 4096, deep: 16384 }
+  });
+
+  // When all leaves are null we deliberately omit thinkingBudgetByLevel from billingProviderHints.
+  const parsedNoThinking = service.parseUpdateInput({
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    defaultOnRegistration: true,
+    trialEnabled: true,
+    trialDurationDays: 7,
+    lifecyclePolicy: { trialFallbackPlanCode: "starter_fallback" },
+    metadata: { commercialTag: "trial", notes: null },
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: false,
+        utilityTools: true,
+        costDrivingQuotaGoverned: true,
+        utilityQuotaGoverned: true
+      },
+      channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
+    },
+    quotaLimits: { tokenBudgetLimit: 1000 },
+    contextPolicy,
+    primaryModelKey: null,
+    runtimeTierDefault: "free_shared_restricted"
+  });
+  const writeInputNoThinking = (
+    service as unknown as {
+      toWriteInput(input: typeof parsedNoThinking): {
+        billingProviderHints: Record<string, unknown>;
+      };
+    }
+  ).toWriteInput(parsedNoThinking);
+  assert.equal(
+    "thinkingBudgetByLevel" in writeInputNoThinking.billingProviderHints,
+    false,
+    "billingProviderHints.thinkingBudgetByLevel is omitted when there is no override"
+  );
+
+  // Strict parser rejects negative values.
+  assert.throws(
+    () =>
+      service.parseUpdateInput({
+        displayName: "Starter",
+        description: "Trial plan",
+        status: "active",
+        defaultOnRegistration: true,
+        trialEnabled: true,
+        trialDurationDays: 7,
+        lifecyclePolicy: { trialFallbackPlanCode: "starter_fallback" },
+        metadata: { commercialTag: "trial", notes: null },
+        entitlements: {
+          toolClasses: {
+            costDrivingTools: false,
+            utilityTools: true,
+            costDrivingQuotaGoverned: true,
+            utilityQuotaGoverned: true
+          },
+          channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
+        },
+        quotaLimits: { tokenBudgetLimit: 1000 },
+        contextPolicy,
+        primaryModelKey: null,
+        runtimeTierDefault: "free_shared_restricted",
+        thinkingBudgetByLevel: { light: null, medium: null, heavy: -1, deep: null }
+      }),
+    (error) =>
+      error instanceof BadRequestException && /thinkingBudgetByLevel\.heavy/.test(error.message)
+  );
+
+  // State round-trip: stored doc → AdminPlanState includes resolved thinkingBudgetByLevel.
+  const stateWithThinking = (
+    service as unknown as {
+      toAdminPlanState(plan: AssistantPlanCatalog): {
+        thinkingBudgetByLevel: {
+          light: number | null;
+          medium: number | null;
+          heavy: number | null;
+          deep: number | null;
+        };
+      };
+    }
+  ).toAdminPlanState({
+    id: "plan-thinking",
+    code: "pro",
+    displayName: "Pro",
+    description: "Pro plan",
+    status: "active",
+    billingProviderHints: {
+      thinkingBudgetByLevel: {
+        schema: "persai.thinkingBudgetByLevel.v1",
+        byLevel: { light: null, medium: null, heavy: 4096, deep: 16384 }
+      }
+    },
+    entitlementModel: null,
+    toolActivations: [],
+    isDefaultFirstRegistrationPlan: false,
+    isTrialPlan: false,
+    trialDurationDays: null,
+    createdAt: new Date("2026-06-19T00:00:00.000Z"),
+    updatedAt: new Date("2026-06-19T00:00:00.000Z")
+  });
+  assert.deepEqual(stateWithThinking.thinkingBudgetByLevel, {
+    light: null,
+    medium: null,
+    heavy: 4096,
+    deep: 16384
+  });
+}
+
+void runThinkingBudgetTests();

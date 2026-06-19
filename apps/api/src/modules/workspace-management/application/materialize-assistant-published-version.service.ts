@@ -816,6 +816,12 @@ export class MaterializeAssistantPublishedVersionService {
       planToolBudgets.loopLimitByMode.normal !== null ||
       planToolBudgets.loopLimitByMode.premium !== null ||
       planToolBudgets.loopLimitByMode.reasoning !== null;
+    const planThinkingBudgets = await this.resolvePlanThinkingBudgetByLevel(effectivePlanCode);
+    const hasAnyThinkingOverride =
+      planThinkingBudgets.light !== null ||
+      planThinkingBudgets.medium !== null ||
+      planThinkingBudgets.heavy !== null ||
+      planThinkingBudgets.deep !== null;
 
     const assistantConfig = {
       schema: ASSISTANT_CONFIG_SCHEMA,
@@ -952,6 +958,18 @@ export class MaterializeAssistantPublishedVersionService {
           ? {
               toolBudgets: {
                 loopLimitByMode: planToolBudgets.loopLimitByMode
+              }
+            }
+          : {}),
+        ...(hasAnyThinkingOverride
+          ? {
+              thinkingBudgetByLevel: {
+                byLevel: {
+                  light: planThinkingBudgets.light,
+                  medium: planThinkingBudgets.medium,
+                  heavy: planThinkingBudgets.heavy,
+                  deep: planThinkingBudgets.deep
+                }
               }
             }
           : {})
@@ -1721,6 +1739,50 @@ export class MaterializeAssistantPublishedVersionService {
         premium: sanitize(loop.premium),
         reasoning: sanitize(loop.reasoning)
       }
+    };
+  }
+
+  /**
+   * ADR-121 Slice 4 — read per-plan thinking-token budget overrides.
+   * Returns NULL leaves when the plan has no override; the runtime then
+   * falls back to DEFAULT_THINKING_BUDGET_BY_LEVEL resolver defaults. The
+   * whole `runtime.thinkingBudgetByLevel` object is omitted from the bundle
+   * when every leaf is NULL (see `buildRuntimeArtifacts`), keeping the
+   * bundle JSON compact for the common case.
+   */
+  private async resolvePlanThinkingBudgetByLevel(planCode: string | null): Promise<{
+    light: number | null;
+    medium: number | null;
+    heavy: number | null;
+    deep: number | null;
+  }> {
+    const empty = { light: null, medium: null, heavy: null, deep: null } as const;
+    if (planCode === null) return empty;
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) return empty;
+    const hints = plan.billingProviderHints;
+    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) return empty;
+    const record = hints as Record<string, unknown>;
+    const raw = record.thinkingBudgetByLevel;
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return empty;
+    const rawByLevel = (raw as Record<string, unknown>).byLevel;
+    if (rawByLevel === null || typeof rawByLevel !== "object" || Array.isArray(rawByLevel))
+      return empty;
+    const byLevel = rawByLevel as Record<string, unknown>;
+    const sanitize = (v: unknown): number | null => {
+      if (typeof v !== "number" || !Number.isFinite(v) || !Number.isInteger(v) || v < 0) {
+        return null;
+      }
+      return v;
+    };
+    return {
+      light: sanitize(byLevel.light),
+      medium: sanitize(byLevel.medium),
+      heavy: sanitize(byLevel.heavy),
+      deep: sanitize(byLevel.deep)
     };
   }
 

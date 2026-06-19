@@ -173,6 +173,12 @@ function createPlanState(): AdminPlanState {
         reasoning: null
       }
     },
+    thinkingBudgetByLevel: {
+      light: null,
+      medium: null,
+      heavy: null,
+      deep: null
+    },
     createdAt: "2026-04-14T12:00:00.000Z",
     updatedAt: "2026-04-14T12:00:00.000Z"
   };
@@ -691,5 +697,42 @@ describe("plan draft dirty detection", () => {
     const baseline = { draft: normalizePlanDraftForCompare(draft), code: "" };
     expect(isCreateFormDirty(baseline, draft, "")).toBe(false);
     expect(isCreateFormDirty(baseline, draft, "pro_plus")).toBe(true);
+  });
+
+  it("round-trips ADR-121 thinkingBudgetByLevel through planToDraft/draftToPayload", () => {
+    const plan = createPlanState();
+    const draft = planToDraft(plan);
+    // All-null plan → all blank draft fields.
+    expect(draft.thinkingBudgetLight).toBe("");
+    expect(draft.thinkingBudgetMedium).toBe("");
+    expect(draft.thinkingBudgetHeavy).toBe("");
+    expect(draft.thinkingBudgetDeep).toBe("");
+
+    // Blank draft → null leaves in payload.
+    const payload = draftToPayload(draft);
+    expect(payload.thinkingBudgetByLevel?.light).toBeNull();
+    expect(payload.thinkingBudgetByLevel?.heavy).toBeNull();
+
+    // Non-null overrides survive the round-trip.
+    const planWithOverrides = {
+      ...plan,
+      thinkingBudgetByLevel: { light: 0, medium: 0, heavy: 4096, deep: 16384 }
+    };
+    const draftWithOverrides = planToDraft(planWithOverrides);
+    expect(draftWithOverrides.thinkingBudgetLight).toBe("0");
+    expect(draftWithOverrides.thinkingBudgetMedium).toBe("0");
+    expect(draftWithOverrides.thinkingBudgetHeavy).toBe("4096");
+    expect(draftWithOverrides.thinkingBudgetDeep).toBe("16384");
+
+    const payloadWithOverrides = draftToPayload(draftWithOverrides);
+    expect(payloadWithOverrides.thinkingBudgetByLevel?.light).toBe(0);
+    expect(payloadWithOverrides.thinkingBudgetByLevel?.medium).toBe(0);
+    expect(payloadWithOverrides.thinkingBudgetByLevel?.heavy).toBe(4096);
+    expect(payloadWithOverrides.thinkingBudgetByLevel?.deep).toBe(16384);
+
+    // Negative value throws.
+    expect(() => draftToPayload({ ...draft, thinkingBudgetHeavy: "-1" })).toThrow(
+      /Thinking budget \(heavy\)/
+    );
   });
 });

@@ -72,9 +72,32 @@ Orchestrator runs C end-to-end: assign slice → review diff → AGENTS.md gate 
 
 **Gate:** lint PASS · format:check PASS · api/web/runtime/provider-gateway/runtime-contract typecheck all PASS · provider-gateway tests PASS (exit 0) · runtime tests PASS (exit 0).
 
+- **Slice 4** (per-plan `thinkingBudgetByLevel` config, end-to-end): see section below.
+
+### Slice 4 — completed 2026-06-19
+
+**What changed:**
+
+- `packages/contracts/openapi.yaml`: Added `AdminPlanThinkingBudgetByLevel` schema (flat object `{ light, medium, heavy, deep }`, each `integer | null`, all four required), referenced optionally from `AdminPlanState` and `AdminPlanInputBase`.
+- `packages/contracts/src/generated/`: Regenerated — added `adminPlanThinkingBudgetByLevel.ts`; `adminPlanState.ts` + `adminPlanInputBase.ts` gain optional `thinkingBudgetByLevel` property.
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`: Added `AdminPlanThinkingBudgetByLevel` type; `AdminPlanInput` + `AdminPlanState` both gain `thinkingBudgetByLevel: AdminPlanThinkingBudgetByLevel`.
+- `apps/api/src/modules/workspace-management/application/thinking-budgets-policy.ts` (new): Schema const `"persai.thinkingBudgetByLevel.v1"`; `createDefaultPlanThinkingBudgetByLevel` (all null); `resolveStoredPlanThinkingBudgetByLevel` (lenient DB reader); `parsePlanThinkingBudgetByLevel` (strict PATCH validator, rejects negatives/non-integers, accepts 0 and null); `toPlanThinkingBudgetByLevelDocument` (stores `{ schema, byLevel: { light,medium,heavy,deep } }`); `hasAnyThinkingBudgetOverride`.
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`: Parse on input, conditional write into `billingProviderHints` (omit when all null), read back via `resolveStoredPlanThinkingBudgetByLevel` into `AdminPlanState`.
+- `packages/runtime-contract/src/index.ts`: Added `RuntimeThinkingBudgetByLevelConfig` — `{ byLevel: { light, medium, heavy, deep } | null }`, each leaf `number | null`.
+- `packages/runtime-bundle/src/index.ts`: `AssistantRuntimeBundleRuntimeConfig` gains `thinkingBudgetByLevel?: RuntimeThinkingBudgetByLevelConfig | null`.
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`: Added `resolvePlanThinkingBudgetByLevel()` (mirrors `resolvePlanToolBudgets`); conditionally spreads `thinkingBudgetByLevel` onto the runtime bundle when any leaf is non-null.
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`: Added `assertThinkingBudgetByLevelConfig()` (validates each leaf is null or non-negative integer); called from `warmBundle` alongside `assertToolBudgetsConfig`.
+- `apps/runtime/src/modules/turns/turn-routing.service.ts`: `readThinkingBudgetOverrides(bundle)` extracts non-null leaves into `ThinkingBudgetOverrides`; threaded as a parameter (no singleton state) through `createDecision`, `applyGroundedSkillLevelFloor`, and `runPrecheck` (and each internal `createDecision` call site); passed to every `resolveExecutionProfile` call.
+- `apps/web/app/admin/plans/page.tsx`: Four new draft string fields (`thinkingBudgetLight/Medium/Heavy/Deep`); plan→draft mapping; draft→payload parsing via `parseStrictIntegerDraft({ min: 0, allowBlank: true })`; new "Thinking budget by level (tokens)" form section with four inputs; `emptyDraft()` updated.
+- Tests: new `apps/api/test/thinking-budgets-policy.test.ts`; extended `manage-admin-plans.service.test.ts`, `runtime-bundle-registry.service.test.ts`, `turn-routing.service.test.ts`, `apps/web/app/admin/plans/page.test.tsx`.
+
+**Persisted document shape:** `billingProviderHints.thinkingBudgetByLevel = { schema: "persai.thinkingBudgetByLevel.v1", byLevel: { light: number|null, medium: number|null, heavy: number|null, deep: number|null } }` — omitted when all leaves are null.
+
+**Gate:** contracts:generate PASS · lint PASS · format:check PASS · api/web/runtime/provider-gateway/runtime-contract typecheck all PASS · api tests PASS (exit 0) · runtime tests PASS (exit 0) · web tests PASS (69 files, 797 tests).
+
 ### Next recommended step
 
-Implement Slice 4 (admin plan surface: `thinkingBudgetByLevel` per-plan config, flowing from admin editor through `resolve-runtime-provider-routing.service.ts` into the resolver's optional override map). With Slice 3 landed, thinking is live on the default grid for heavy/deep active turns — Slice 4 gives operators per-plan cost/quality control.
+Implement Slice 5 (end-to-end integration + golden-path regression tests: verify the full pipeline from plan config → materialization → routing → provider request, and extend the live-validation harness).
 
 ## 2026-06-19 — ADR-119 program closed (founder acceptance)
 

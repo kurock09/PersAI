@@ -693,6 +693,20 @@ export interface RuntimeToolBudgetsConfig {
   } | null;
 }
 
+/**
+ * ADR-121 Slice 4 — per-plan override of the thinking-token budget per
+ * routing level. NULL on a leaf means "use the resolver built-in default
+ * for that level" (DEFAULT_THINKING_BUDGET_BY_LEVEL). 0 = thinking off.
+ */
+export interface RuntimeThinkingBudgetByLevelConfig {
+  byLevel: {
+    light: number | null;
+    medium: number | null;
+    heavy: number | null;
+    deep: number | null;
+  } | null;
+}
+
 export const PERSAI_RUNTIME_SHARED_COMPACTION_TOOL_CODES = [
   "summarize_context",
   "compact_context"

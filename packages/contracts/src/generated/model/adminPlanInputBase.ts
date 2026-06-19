@@ -18,6 +18,7 @@ import type { AdminPlanSandboxPolicy } from "./adminPlanSandboxPolicy";
 import type { AdminPlanInputBaseRuntimeTierDefault } from "./adminPlanInputBaseRuntimeTierDefault";
 import type { AdminPlanToolActivationInput } from "./adminPlanToolActivationInput";
 import type { AdminPlanToolBudgets } from "./adminPlanToolBudgets";
+import type { AdminPlanThinkingBudgetByLevel } from "./adminPlanThinkingBudgetByLevel";
 
 export interface AdminPlanInputBase {
   displayName: string;
@@ -83,4 +84,5 @@ export interface AdminPlanInputBase {
   runtimeTierDefault?: AdminPlanInputBaseRuntimeTierDefault;
   toolActivations?: AdminPlanToolActivationInput[];
   toolBudgets?: AdminPlanToolBudgets;
+  thinkingBudgetByLevel?: AdminPlanThinkingBudgetByLevel;
 }

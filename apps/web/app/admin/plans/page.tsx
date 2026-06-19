@@ -193,6 +193,15 @@ export type PlanDraft = {
   toolLoopLimitNormal: string;
   toolLoopLimitPremium: string;
   toolLoopLimitReasoning: string;
+  /**
+   * ADR-121 Slice 4 — per-plan thinking-token budget per routing level.
+   * Empty string = "use resolver default". 0 = thinking off. Non-negative
+   * integer overrides the DEFAULT_THINKING_BUDGET_BY_LEVEL grid value.
+   */
+  thinkingBudgetLight: string;
+  thinkingBudgetMedium: string;
+  thinkingBudgetHeavy: string;
+  thinkingBudgetDeep: string;
 };
 
 type NumericDraftField =
@@ -806,7 +815,11 @@ function emptyDraft(): PlanDraft {
     toolActivations: [],
     toolLoopLimitNormal: "",
     toolLoopLimitPremium: "",
-    toolLoopLimitReasoning: ""
+    toolLoopLimitReasoning: "",
+    thinkingBudgetLight: "",
+    thinkingBudgetMedium: "",
+    thinkingBudgetHeavy: "",
+    thinkingBudgetDeep: ""
   };
 }
 
@@ -957,7 +970,11 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
       })),
     toolLoopLimitNormal: plan.toolBudgets?.loopLimitByMode?.normal?.toString() ?? "",
     toolLoopLimitPremium: plan.toolBudgets?.loopLimitByMode?.premium?.toString() ?? "",
-    toolLoopLimitReasoning: plan.toolBudgets?.loopLimitByMode?.reasoning?.toString() ?? ""
+    toolLoopLimitReasoning: plan.toolBudgets?.loopLimitByMode?.reasoning?.toString() ?? "",
+    thinkingBudgetLight: plan.thinkingBudgetByLevel?.light?.toString() ?? "",
+    thinkingBudgetMedium: plan.thinkingBudgetByLevel?.medium?.toString() ?? "",
+    thinkingBudgetHeavy: plan.thinkingBudgetByLevel?.heavy?.toString() ?? "",
+    thinkingBudgetDeep: plan.thinkingBudgetByLevel?.deep?.toString() ?? ""
   };
 }
 
@@ -1381,6 +1398,28 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
           allowBlank: true
         })
       }
+    },
+    thinkingBudgetByLevel: {
+      light: parseStrictIntegerDraft(draft.thinkingBudgetLight, {
+        label: "Thinking budget (light)",
+        min: 0,
+        allowBlank: true
+      }),
+      medium: parseStrictIntegerDraft(draft.thinkingBudgetMedium, {
+        label: "Thinking budget (medium)",
+        min: 0,
+        allowBlank: true
+      }),
+      heavy: parseStrictIntegerDraft(draft.thinkingBudgetHeavy, {
+        label: "Thinking budget (heavy)",
+        min: 0,
+        allowBlank: true
+      }),
+      deep: parseStrictIntegerDraft(draft.thinkingBudgetDeep, {
+        label: "Thinking budget (deep)",
+        min: 0,
+        allowBlank: true
+      })
     }
   };
 }
@@ -3681,6 +3720,61 @@ export function PlanForm({
           the matching execution mode. After the cap, additional tool calls return
           `tool_budget_exhausted` so the model can wrap up. Tune to balance cost/latency vs.
           tool-using power.
+        </HelpText>
+      </Sec>
+
+      {/* row 8: thinking budget by level (ADR-121 Slice 4) */}
+      <Sec label="Thinking budget by level (tokens) — blank = runtime default, 0 = off">
+        <div className="grid gap-3 sm:grid-cols-4">
+          <label className="space-y-1 text-[11px] font-medium text-text">
+            <span className="block">Budget · light</span>
+            <Input
+              type="number"
+              min={0}
+              value={draft.thinkingBudgetLight}
+              onValue={(value) => onPatch({ thinkingBudgetLight: value })}
+              placeholder="0"
+            />
+            <HelpText>Blank = default (0).</HelpText>
+          </label>
+          <label className="space-y-1 text-[11px] font-medium text-text">
+            <span className="block">Budget · medium</span>
+            <Input
+              type="number"
+              min={0}
+              value={draft.thinkingBudgetMedium}
+              onValue={(value) => onPatch({ thinkingBudgetMedium: value })}
+              placeholder="0"
+            />
+            <HelpText>Blank = default (0).</HelpText>
+          </label>
+          <label className="space-y-1 text-[11px] font-medium text-text">
+            <span className="block">Budget · heavy</span>
+            <Input
+              type="number"
+              min={0}
+              value={draft.thinkingBudgetHeavy}
+              onValue={(value) => onPatch({ thinkingBudgetHeavy: value })}
+              placeholder="8192"
+            />
+            <HelpText>Blank = default (8192).</HelpText>
+          </label>
+          <label className="space-y-1 text-[11px] font-medium text-text">
+            <span className="block">Budget · deep</span>
+            <Input
+              type="number"
+              min={0}
+              value={draft.thinkingBudgetDeep}
+              onValue={(value) => onPatch({ thinkingBudgetDeep: value })}
+              placeholder="32768"
+            />
+            <HelpText>Blank = default (32768).</HelpText>
+          </label>
+        </div>
+        <HelpText className="mt-2">
+          Per-level thinking-token budget. Blank means the resolver built-in default applies (0 for
+          light/medium, 8192 for heavy, 32768 for deep). 0 explicitly disables thinking for that
+          level. Applies only to capable models (Anthropic Extended Thinking / OpenAI o-series).
         </HelpText>
       </Sec>
     </div>

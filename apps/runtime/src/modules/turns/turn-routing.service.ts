@@ -9,7 +9,10 @@ import type {
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import type { RuntimeNativeToolProjection } from "./native-tool-projection";
-import { resolveExecutionProfile } from "./execution-profile-resolver";
+import {
+  resolveExecutionProfile,
+  type ThinkingBudgetOverrides
+} from "./execution-profile-resolver";
 import { buildProjectModePrecheckDecision, isProjectChatMode } from "./project-execution-profile";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import {
@@ -370,23 +373,25 @@ export class TurnRoutingService {
     projectedTools: RuntimeNativeToolProjection;
   }): Promise<TurnRouteDecision> {
     const policy = this.readRouterPolicy(input.bundle);
+    const overrides = this.readThinkingBudgetOverrides(input.bundle);
     const fallbackLevel = this.applyDeepModeNudge(
       this.executionModeToLevel(policy.classifierFailureFallbackMode),
       input.request.deepMode === true
     );
-    const fallbackMode = resolveExecutionProfile(fallbackLevel).executionMode;
+    const fallbackMode = resolveExecutionProfile(fallbackLevel, overrides).executionMode;
     const precheck = this.runPrecheck({
       bundle: input.bundle,
       request: input.request,
       projectedTools: input.projectedTools,
       policy,
-      fallbackMode
+      fallbackMode,
+      overrides
     });
     if (precheck.confidence === "high") {
-      return this.applyGroundedSkillLevelFloor(precheck, input.request);
+      return this.applyGroundedSkillLevelFloor(precheck, input.request, overrides);
     }
     if (!policy.enabled) {
-      return this.applyGroundedSkillLevelFloor(precheck, input.request);
+      return this.applyGroundedSkillLevelFloor(precheck, input.request, overrides);
     }
 
     const classifierSelection = this.resolveClassifierProviderSelection(input.bundle);
@@ -400,7 +405,7 @@ export class TurnRoutingService {
       classifierPrompt === null ||
       !this.providerGatewayClientService.isConfigured()
     ) {
-      return this.applyGroundedSkillLevelFloor(precheck, input.request);
+      return this.applyGroundedSkillLevelFloor(precheck, input.request, overrides);
     }
 
     try {
@@ -435,20 +440,23 @@ export class TurnRoutingService {
             `[ordinary-router] Final invalid classifier output assistant=${input.bundle.metadata.assistantId} raw=${JSON.stringify(result.text)}`
           );
         }
-        return this.createDecision({
-          level: fallbackLevel,
-          retrievalHint: false,
-          toolHints: "none",
-          confidence: "low",
-          clarifyNeeded: false,
-          fallbackMode,
-          reasonCode: "classifier_invalid_output",
-          retrievalPlan: this.createEmptyRetrievalPlan("classifier_invalid_output"),
-          source: "fallback",
-          mode: policy.mode,
-          usage: result?.usage ?? null,
-          skillState: input.request.skillStateContext?.decision ?? null
-        });
+        return this.createDecision(
+          {
+            level: fallbackLevel,
+            retrievalHint: false,
+            toolHints: "none",
+            confidence: "low",
+            clarifyNeeded: false,
+            fallbackMode,
+            reasonCode: "classifier_invalid_output",
+            retrievalPlan: this.createEmptyRetrievalPlan("classifier_invalid_output"),
+            source: "fallback",
+            mode: policy.mode,
+            usage: result?.usage ?? null,
+            skillState: input.request.skillStateContext?.decision ?? null
+          },
+          overrides
+        );
       }
       const sanitizedRetrievalPlan = this.sanitizeClassifierRetrievalPlan(
         parsed.retrievalPlan,
@@ -457,17 +465,21 @@ export class TurnRoutingService {
         policy
       );
       const guardedDecision = this.applyGroundedSkillLevelFloor(
-        this.createDecision({
-          ...parsed,
-          level: this.applyDeepModeNudge(parsed.level, input.request.deepMode === true),
-          retrievalPlan: sanitizedRetrievalPlan,
-          fallbackMode,
-          source: "llm",
-          mode: policy.mode,
-          usage: result.usage,
-          skillState: input.request.skillStateContext?.decision ?? null
-        }),
-        input.request
+        this.createDecision(
+          {
+            ...parsed,
+            level: this.applyDeepModeNudge(parsed.level, input.request.deepMode === true),
+            retrievalPlan: sanitizedRetrievalPlan,
+            fallbackMode,
+            source: "llm",
+            mode: policy.mode,
+            usage: result.usage,
+            skillState: input.request.skillStateContext?.decision ?? null
+          },
+          overrides
+        ),
+        input.request,
+        overrides
       );
       return guardedDecision;
     } catch (error) {
@@ -477,21 +489,25 @@ export class TurnRoutingService {
         }`
       );
       return this.applyGroundedSkillLevelFloor(
-        this.createDecision({
-          level: fallbackLevel,
-          retrievalHint: precheck.retrievalHint,
-          toolHints: precheck.toolHints,
-          confidence: "low",
-          clarifyNeeded: precheck.clarifyNeeded,
-          fallbackMode,
-          reasonCode: "classifier_failure",
-          retrievalPlan: precheck.retrievalPlan,
-          source: "fallback",
-          mode: policy.mode,
-          usage: null,
-          skillState: precheck.skillState ?? input.request.skillStateContext?.decision ?? null
-        }),
-        input.request
+        this.createDecision(
+          {
+            level: fallbackLevel,
+            retrievalHint: precheck.retrievalHint,
+            toolHints: precheck.toolHints,
+            confidence: "low",
+            clarifyNeeded: precheck.clarifyNeeded,
+            fallbackMode,
+            reasonCode: "classifier_failure",
+            retrievalPlan: precheck.retrievalPlan,
+            source: "fallback",
+            mode: policy.mode,
+            usage: null,
+            skillState: precheck.skillState ?? input.request.skillStateContext?.decision ?? null
+          },
+          overrides
+        ),
+        input.request,
+        overrides
       );
     }
   }
@@ -502,6 +518,7 @@ export class TurnRoutingService {
     projectedTools: RuntimeNativeToolProjection;
     policy: RouterPolicy;
     fallbackMode: RoutingExecutionMode;
+    overrides?: ThinkingBudgetOverrides;
   }): TurnRouteDecision {
     const normalizedText = this.normalizeMessageText(input.request.message.text);
     const lowerText = normalizedText.toLowerCase();
@@ -563,20 +580,23 @@ export class TurnRoutingService {
     const productKnowledgeIntent = this.isProductKnowledgeIntent(lowerText, productPriorityTerms);
 
     if (this.isContinueTurn(lowerText, continueTerms)) {
-      return this.createDecision({
-        level: this.applyDeepModeNudge("light", input.request.deepMode === true),
-        retrievalHint: false,
-        toolHints: "none",
-        confidence: "high",
-        clarifyNeeded: false,
-        fallbackMode: input.fallbackMode,
-        reasonCode: "continue_term",
-        retrievalPlan: this.createEmptyRetrievalPlan("continue_term"),
-        source: "precheck",
-        mode: input.policy.mode,
-        usage: null,
-        skillState: activeAutoSkill?.state ?? currentSkillDecision
-      });
+      return this.createDecision(
+        {
+          level: this.applyDeepModeNudge("light", input.request.deepMode === true),
+          retrievalHint: false,
+          toolHints: "none",
+          confidence: "high",
+          clarifyNeeded: false,
+          fallbackMode: input.fallbackMode,
+          reasonCode: "continue_term",
+          retrievalPlan: this.createEmptyRetrievalPlan("continue_term"),
+          source: "precheck",
+          mode: input.policy.mode,
+          usage: null,
+          skillState: activeAutoSkill?.state ?? currentSkillDecision
+        },
+        input.overrides
+      );
     }
 
     const hintedTool = this.resolveToolHint(lowerText, {
@@ -585,48 +605,54 @@ export class TurnRoutingService {
     });
     if (activeAutoSkill) {
       const state = activeAutoSkill.state;
-      return this.createDecision({
-        level: this.applyDeepModeNudge("light", input.request.deepMode === true),
-        retrievalHint: true,
-        toolHints: availableHints.has("knowledge") ? "knowledge" : "none",
-        confidence: "high",
-        clarifyNeeded: false,
-        fallbackMode: input.fallbackMode,
-        reasonCode: "sticky_skill_reuse",
-        retrievalPlan: this.createRetrievalPlan({
-          useSkills: true,
-          selectedSkillIds: [activeAutoSkill.skill.id],
+      return this.createDecision(
+        {
+          level: this.applyDeepModeNudge("light", input.request.deepMode === true),
+          retrievalHint: true,
+          toolHints: availableHints.has("knowledge") ? "knowledge" : "none",
           confidence: "high",
-          reasonCode: "sticky_skill_reuse"
-        }),
-        source: "precheck",
-        mode: input.policy.mode,
-        usage: null,
-        skillState: state
-      });
+          clarifyNeeded: false,
+          fallbackMode: input.fallbackMode,
+          reasonCode: "sticky_skill_reuse",
+          retrievalPlan: this.createRetrievalPlan({
+            useSkills: true,
+            selectedSkillIds: [activeAutoSkill.skill.id],
+            confidence: "high",
+            reasonCode: "sticky_skill_reuse"
+          }),
+          source: "precheck",
+          mode: input.policy.mode,
+          usage: null,
+          skillState: state
+        },
+        input.overrides
+      );
     }
 
     if (retrievalIntent) {
-      return this.createDecision({
-        level: this.applyDeepModeNudge("light", input.request.deepMode === true),
-        retrievalHint: true,
-        toolHints: availableHints.has("knowledge") ? "knowledge" : "none",
-        confidence: "high",
-        clarifyNeeded: false,
-        fallbackMode: input.fallbackMode,
-        reasonCode: "knowledge_retrieval",
-        retrievalPlan: this.createRetrievalPlan({
-          useUserKnowledge: availableHints.has("knowledge"),
-          useProductKnowledge: availableHints.has("knowledge") && productKnowledgeIntent,
-          ordinarySourcePriorityMode: ordinaryPriorityMode,
+      return this.createDecision(
+        {
+          level: this.applyDeepModeNudge("light", input.request.deepMode === true),
+          retrievalHint: true,
+          toolHints: availableHints.has("knowledge") ? "knowledge" : "none",
           confidence: "high",
-          reasonCode: recallRetrievalIntent ? "knowledge_retrieval_recall" : "knowledge_retrieval"
-        }),
-        source: "precheck",
-        mode: input.policy.mode,
-        usage: null,
-        skillState: currentSkillDecision
-      });
+          clarifyNeeded: false,
+          fallbackMode: input.fallbackMode,
+          reasonCode: "knowledge_retrieval",
+          retrievalPlan: this.createRetrievalPlan({
+            useUserKnowledge: availableHints.has("knowledge"),
+            useProductKnowledge: availableHints.has("knowledge") && productKnowledgeIntent,
+            ordinarySourcePriorityMode: ordinaryPriorityMode,
+            confidence: "high",
+            reasonCode: recallRetrievalIntent ? "knowledge_retrieval_recall" : "knowledge_retrieval"
+          }),
+          source: "precheck",
+          mode: input.policy.mode,
+          usage: null,
+          skillState: currentSkillDecision
+        },
+        input.overrides
+      );
     }
 
     if (isProjectChatMode(input.request)) {
@@ -641,30 +667,34 @@ export class TurnRoutingService {
           productKnowledgeIntent,
           skillState: currentSkillDecision,
           selectedSkillIds: []
-        })
+        }),
+        input.overrides
       );
     }
 
     if (productKnowledgeIntent && availableHints.has("knowledge")) {
-      return this.createDecision({
-        level: this.applyDeepModeNudge("light", input.request.deepMode === true),
-        retrievalHint: true,
-        toolHints: "knowledge",
-        confidence: "high",
-        clarifyNeeded: false,
-        fallbackMode: input.fallbackMode,
-        reasonCode: "product_knowledge_intent",
-        retrievalPlan: this.createRetrievalPlan({
-          useProductKnowledge: true,
-          ordinarySourcePriorityMode: ordinaryPriorityMode,
+      return this.createDecision(
+        {
+          level: this.applyDeepModeNudge("light", input.request.deepMode === true),
+          retrievalHint: true,
+          toolHints: "knowledge",
           confidence: "high",
-          reasonCode: "product_knowledge_intent"
-        }),
-        source: "precheck",
-        mode: input.policy.mode,
-        usage: null,
-        skillState: currentSkillDecision
-      });
+          clarifyNeeded: false,
+          fallbackMode: input.fallbackMode,
+          reasonCode: "product_knowledge_intent",
+          retrievalPlan: this.createRetrievalPlan({
+            useProductKnowledge: true,
+            ordinarySourcePriorityMode: ordinaryPriorityMode,
+            confidence: "high",
+            reasonCode: "product_knowledge_intent"
+          }),
+          source: "precheck",
+          mode: input.policy.mode,
+          usage: null,
+          skillState: currentSkillDecision
+        },
+        input.overrides
+      );
     }
 
     if (
@@ -677,37 +707,43 @@ export class TurnRoutingService {
     ) {
       const isDeepCue = this.matchesAny(lowerText, DEFAULT_DEEP_CUE_TERMS);
       const baseLevel: RoutingLevel = isDeepCue ? "deep" : "heavy";
-      return this.createDecision({
-        level: this.applyDeepModeNudge(baseLevel, input.request.deepMode === true),
-        retrievalHint: false,
-        toolHints: "none",
-        confidence: "high",
-        clarifyNeeded: false,
-        fallbackMode: input.fallbackMode,
-        reasonCode: "reasoning_request",
-        retrievalPlan: this.createEmptyRetrievalPlan("reasoning_request"),
-        source: "precheck",
-        mode: input.policy.mode,
-        usage: null,
-        skillState: currentSkillDecision
-      });
+      return this.createDecision(
+        {
+          level: this.applyDeepModeNudge(baseLevel, input.request.deepMode === true),
+          retrievalHint: false,
+          toolHints: "none",
+          confidence: "high",
+          clarifyNeeded: false,
+          fallbackMode: input.fallbackMode,
+          reasonCode: "reasoning_request",
+          retrievalPlan: this.createEmptyRetrievalPlan("reasoning_request"),
+          source: "precheck",
+          mode: input.policy.mode,
+          usage: null,
+          skillState: currentSkillDecision
+        },
+        input.overrides
+      );
     }
 
     if (this.matchesAny(lowerText, premiumTerms)) {
-      return this.createDecision({
-        level: this.applyDeepModeNudge("medium", input.request.deepMode === true),
-        retrievalHint: false,
-        toolHints: "none",
-        confidence: "high",
-        clarifyNeeded: false,
-        fallbackMode: input.fallbackMode,
-        reasonCode: "premium_writing",
-        retrievalPlan: this.createEmptyRetrievalPlan("premium_writing"),
-        source: "precheck",
-        mode: input.policy.mode,
-        usage: null,
-        skillState: currentSkillDecision
-      });
+      return this.createDecision(
+        {
+          level: this.applyDeepModeNudge("medium", input.request.deepMode === true),
+          retrievalHint: false,
+          toolHints: "none",
+          confidence: "high",
+          clarifyNeeded: false,
+          fallbackMode: input.fallbackMode,
+          reasonCode: "premium_writing",
+          retrievalPlan: this.createEmptyRetrievalPlan("premium_writing"),
+          source: "precheck",
+          mode: input.policy.mode,
+          usage: null,
+          skillState: currentSkillDecision
+        },
+        input.overrides
+      );
     }
 
     const shouldDeferKnowledgeToolToClassifier = false;
@@ -718,27 +754,30 @@ export class TurnRoutingService {
           : hintedTool === "knowledge"
             ? ordinaryPriorityMode
             : "not_applicable";
-      return this.createDecision({
-        level: this.applyDeepModeNudge("light", input.request.deepMode === true),
-        retrievalHint: hintedTool === "knowledge",
-        toolHints: hintedTool,
-        confidence: "high",
-        clarifyNeeded: false,
-        fallbackMode: input.fallbackMode,
-        reasonCode: `tool_hint_${hintedTool}`,
-        retrievalPlan: this.createRetrievalPlan({
-          useUserKnowledge: hintedTool === "knowledge",
-          useProductKnowledge: hintedTool === "knowledge" && productKnowledgeIntent,
-          useWeb: hintedTool === "web",
-          ordinarySourcePriorityMode: toolHintPriorityMode,
+      return this.createDecision(
+        {
+          level: this.applyDeepModeNudge("light", input.request.deepMode === true),
+          retrievalHint: hintedTool === "knowledge",
+          toolHints: hintedTool,
           confidence: "high",
-          reasonCode: `tool_hint_${hintedTool}`
-        }),
-        source: "precheck",
-        mode: input.policy.mode,
-        usage: null,
-        skillState: currentSkillDecision
-      });
+          clarifyNeeded: false,
+          fallbackMode: input.fallbackMode,
+          reasonCode: `tool_hint_${hintedTool}`,
+          retrievalPlan: this.createRetrievalPlan({
+            useUserKnowledge: hintedTool === "knowledge",
+            useProductKnowledge: hintedTool === "knowledge" && productKnowledgeIntent,
+            useWeb: hintedTool === "web",
+            ordinarySourcePriorityMode: toolHintPriorityMode,
+            confidence: "high",
+            reasonCode: `tool_hint_${hintedTool}`
+          }),
+          source: "precheck",
+          mode: input.policy.mode,
+          usage: null,
+          skillState: currentSkillDecision
+        },
+        input.overrides
+      );
     }
 
     if (
@@ -746,36 +785,42 @@ export class TurnRoutingService {
       !normalizedText.includes("\n") &&
       !shouldDeferKnowledgeToolToClassifier
     ) {
-      return this.createDecision({
+      return this.createDecision(
+        {
+          level: this.applyDeepModeNudge("light", input.request.deepMode === true),
+          retrievalHint: false,
+          toolHints: "none",
+          confidence: "high",
+          clarifyNeeded: false,
+          fallbackMode: input.fallbackMode,
+          reasonCode: "simple_turn",
+          retrievalPlan: this.createEmptyRetrievalPlan("simple_turn"),
+          source: "precheck",
+          mode: input.policy.mode,
+          usage: null,
+          skillState: currentSkillDecision
+        },
+        input.overrides
+      );
+    }
+
+    return this.createDecision(
+      {
         level: this.applyDeepModeNudge("light", input.request.deepMode === true),
         retrievalHint: false,
         toolHints: "none",
-        confidence: "high",
-        clarifyNeeded: false,
+        confidence: "low",
+        clarifyNeeded: input.policy.clarifyOnMissingContext && normalizedText.length <= 24,
         fallbackMode: input.fallbackMode,
-        reasonCode: "simple_turn",
-        retrievalPlan: this.createEmptyRetrievalPlan("simple_turn"),
+        reasonCode: "ambiguous_turn",
+        retrievalPlan: this.createEmptyRetrievalPlan("ambiguous_turn"),
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
         skillState: currentSkillDecision
-      });
-    }
-
-    return this.createDecision({
-      level: this.applyDeepModeNudge("light", input.request.deepMode === true),
-      retrievalHint: false,
-      toolHints: "none",
-      confidence: "low",
-      clarifyNeeded: input.policy.clarifyOnMissingContext && normalizedText.length <= 24,
-      fallbackMode: input.fallbackMode,
-      reasonCode: "ambiguous_turn",
-      retrievalPlan: this.createEmptyRetrievalPlan("ambiguous_turn"),
-      source: "precheck",
-      mode: input.policy.mode,
-      usage: null,
-      skillState: currentSkillDecision
-    });
+      },
+      input.overrides
+    );
   }
 
   private buildClassifierRequest(input: {
@@ -1030,6 +1075,35 @@ export class TurnRoutingService {
     };
   }
 
+  private readThinkingBudgetOverrides(bundle: AssistantRuntimeBundle): ThinkingBudgetOverrides {
+    const runtime = bundle.runtime;
+    if (!runtime || typeof runtime !== "object" || Array.isArray(runtime)) {
+      return {};
+    }
+    const raw = (runtime as unknown as Record<string, unknown>).thinkingBudgetByLevel;
+    if (raw === null || raw === undefined || typeof raw !== "object" || Array.isArray(raw)) {
+      return {};
+    }
+    const byLevel = (raw as Record<string, unknown>).byLevel;
+    if (
+      byLevel === null ||
+      byLevel === undefined ||
+      typeof byLevel !== "object" ||
+      Array.isArray(byLevel)
+    ) {
+      return {};
+    }
+    const levels = byLevel as Record<string, unknown>;
+    const overrides: ThinkingBudgetOverrides = {};
+    for (const level of ["light", "medium", "heavy", "deep"] as const) {
+      const v = levels[level];
+      if (typeof v === "number" && Number.isFinite(v) && Number.isInteger(v) && v >= 0) {
+        overrides[level] = v;
+      }
+    }
+    return overrides;
+  }
+
   private readPrecheckRuleOverrides(value: unknown): RouterPolicy["precheckRuleOverrides"] {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
       return null;
@@ -1047,8 +1121,11 @@ export class TurnRoutingService {
     };
   }
 
-  private createDecision(input: CreateDecisionInput): TurnRouteDecision {
-    const profile = resolveExecutionProfile(input.level);
+  private createDecision(
+    input: CreateDecisionInput,
+    overrides?: ThinkingBudgetOverrides
+  ): TurnRouteDecision {
+    const profile = resolveExecutionProfile(input.level, overrides);
     return {
       ...input,
       executionMode: profile.executionMode,
@@ -1058,7 +1135,8 @@ export class TurnRoutingService {
 
   private applyGroundedSkillLevelFloor(
     decision: TurnRouteDecision,
-    request: RuntimeTurnRequest
+    request: RuntimeTurnRequest,
+    overrides?: ThinkingBudgetOverrides
   ): TurnRouteDecision {
     if (decision.level !== "light") {
       return decision;
@@ -1066,7 +1144,7 @@ export class TurnRoutingService {
     if (!this.isGroundedSkillTurn(decision.retrievalPlan, request)) {
       return decision;
     }
-    const profile = resolveExecutionProfile("medium");
+    const profile = resolveExecutionProfile("medium", overrides);
     return {
       ...decision,
       level: "medium",

@@ -67,6 +67,18 @@ export type AdminPlanToolBudgets = {
   };
 };
 
+/**
+ * ADR-121 Slice 4 — per-plan override of the thinking-token budget per
+ * routing level. NULL on a leaf means "use the resolver built-in default
+ * for that level" (DEFAULT_THINKING_BUDGET_BY_LEVEL). 0 = thinking off.
+ */
+export type AdminPlanThinkingBudgetByLevel = {
+  light: number | null;
+  medium: number | null;
+  heavy: number | null;
+  deep: number | null;
+};
+
 export type AdminPlanContextPolicy = RuntimeContextHydrationConfig;
 
 /**
@@ -217,6 +229,12 @@ export type AdminPlanInput = {
    * (NULL leaves) so the plan stays editable from the admin UI.
    */
   toolBudgets: AdminPlanToolBudgets;
+  /**
+   * ADR-121 Slice 4 — per-plan thinking-token budget per routing level.
+   * Optional on input; createDefaultPlanThinkingBudgetByLevel fills in
+   * defaults (NULL leaves) so the plan stays editable from the admin UI.
+   */
+  thinkingBudgetByLevel: AdminPlanThinkingBudgetByLevel;
 };
 
 export type AdminCreatePlanInput = AdminPlanInput & {
@@ -284,6 +302,8 @@ export type AdminPlanState = {
   toolActivations: AdminPlanToolActivation[];
   /** ADR-074 Slice L1 — see `AdminPlanInput.toolBudgets`. */
   toolBudgets: AdminPlanToolBudgets;
+  /** ADR-121 Slice 4 — see `AdminPlanInput.thinkingBudgetByLevel`. */
+  thinkingBudgetByLevel: AdminPlanThinkingBudgetByLevel;
   createdAt: string;
   updatedAt: string;
 };

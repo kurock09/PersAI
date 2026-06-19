@@ -13515,6 +13515,8 @@ components:
             $ref: "#/components/schemas/AdminPlanToolActivation"
         toolBudgets:
           $ref: "#/components/schemas/AdminPlanToolBudgets"
+        thinkingBudgetByLevel:
+          $ref: "#/components/schemas/AdminPlanThinkingBudgetByLevel"
     PublicPricingPlanState:
       type: object
       required:
@@ -13710,6 +13712,45 @@ components:
             reasoning:
               type: integer
               nullable: true
+    AdminPlanThinkingBudgetByLevel:
+      type: object
+      required:
+        - light
+        - medium
+        - heavy
+        - deep
+      description: >-
+        ADR-121 Slice 4 — per-plan override of the thinking-token budget per
+        routing level. NULL on a leaf means "use the resolver built-in default
+        for that level" (see DEFAULT_THINKING_BUDGET_BY_LEVEL in
+        execution-profile-resolver.ts). 0 is a valid explicit value meaning
+        "thinking off for this level". The whole object is optional; when
+        absent or when every leaf is null the resolver defaults apply.
+      properties:
+        light:
+          type: integer
+          nullable: true
+          description: >-
+            Thinking-token budget for level=light turns. null = resolver
+            default (0); 0 = thinking explicitly off.
+        medium:
+          type: integer
+          nullable: true
+          description: >-
+            Thinking-token budget for level=medium turns. null = resolver
+            default (0); 0 = thinking explicitly off.
+        heavy:
+          type: integer
+          nullable: true
+          description: >-
+            Thinking-token budget for level=heavy turns. null = resolver
+            default (~8192); 0 = thinking explicitly off.
+        deep:
+          type: integer
+          nullable: true
+          description: >-
+            Thinking-token budget for level=deep turns. null = resolver
+            default (~32768); 0 = thinking explicitly off.
     AdminPlanInputBase:
       type: object
       required:
@@ -13845,6 +13886,8 @@ components:
             $ref: "#/components/schemas/AdminPlanToolActivationInput"
         toolBudgets:
           $ref: "#/components/schemas/AdminPlanToolBudgets"
+        thinkingBudgetByLevel:
+          $ref: "#/components/schemas/AdminPlanThinkingBudgetByLevel"
     AdminPlanCreateRequest:
       allOf:
         - $ref: "#/components/schemas/AdminPlanInputBase"

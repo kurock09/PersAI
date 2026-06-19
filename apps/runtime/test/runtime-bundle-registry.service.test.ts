@@ -539,6 +539,24 @@ function createWarmInputInvalidToolBudgets() {
   };
 }
 
+function createWarmInputInvalidThinkingBudgetByLevel() {
+  const input = createWarmInput(
+    "bundle-invalid-thinking-budget",
+    "assistant-invalid-thinking-budget",
+    "version-invalid-thinking-budget"
+  );
+  const bundleDocument = JSON.parse(input.bundleDocument) as {
+    runtime: Record<string, unknown>;
+  };
+  bundleDocument.runtime.thinkingBudgetByLevel = {
+    byLevel: { light: null, medium: null, heavy: -1, deep: null }
+  };
+  return {
+    ...input,
+    bundleDocument: JSON.stringify(bundleDocument)
+  };
+}
+
 function createWarmInputInvalidSharedCompaction() {
   const input = createWarmInput(
     "bundle-invalid-shared-compaction",
@@ -750,6 +768,11 @@ export async function runRuntimeBundleRegistryServiceTest(): Promise<void> {
   assert.throws(
     () => registryService.validateWarmBundleInput(createWarmInputInvalidToolBudgets()),
     /toolBudgets\.loopLimitByMode\.normal must be null or a strictly-positive integer/
+  );
+  // ADR-121 Slice 4 — warm-path rejects a negative thinking-budget leaf.
+  assert.throws(
+    () => registryService.validateWarmBundleInput(createWarmInputInvalidThinkingBudgetByLevel()),
+    /thinkingBudgetByLevel\.byLevel\.heavy must be null or a non-negative integer/
   );
 
   const overriddenWarm = registryService.warmBundle(

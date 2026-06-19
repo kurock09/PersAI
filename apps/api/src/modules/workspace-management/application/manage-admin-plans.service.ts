@@ -47,6 +47,13 @@ import {
   resolveStoredPlanToolBudgets,
   toPlanToolBudgetsDocument
 } from "./tool-budgets-policy";
+import {
+  createDefaultPlanThinkingBudgetByLevel,
+  hasAnyThinkingBudgetOverride,
+  parsePlanThinkingBudgetByLevel,
+  resolveStoredPlanThinkingBudgetByLevel,
+  toPlanThinkingBudgetByLevelDocument
+} from "./thinking-budgets-policy";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { parseVideoVcoinMonthlyGrant } from "./vcoin/parse-video-vcoin-monthly-grant";
 import { TYPICAL_VIDEO_SECONDS } from "./vcoin/typical-video-seconds";
@@ -879,6 +886,10 @@ export class ManageAdminPlansService {
       parsed.toolBudgets === undefined || parsed.toolBudgets === null
         ? createDefaultPlanToolBudgets()
         : parsePlanToolBudgets(parsed.toolBudgets, "toolBudgets");
+    const thinkingBudgetByLevel =
+      parsed.thinkingBudgetByLevel === undefined || parsed.thinkingBudgetByLevel === null
+        ? createDefaultPlanThinkingBudgetByLevel()
+        : parsePlanThinkingBudgetByLevel(parsed.thinkingBudgetByLevel, "thinkingBudgetByLevel");
 
     const toolActivations = this.parseToolActivations(parsed.toolActivations);
 
@@ -983,7 +994,8 @@ export class ManageAdminPlansService {
       ),
       videoVcoinMonthlyGrant: parseVideoVcoinMonthlyGrant(parsed.videoVcoinMonthlyGrant),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault),
-      toolBudgets
+      toolBudgets,
+      thinkingBudgetByLevel
     };
     if (toolActivations) {
       result.toolActivations = toolActivations;
@@ -1197,6 +1209,13 @@ export class ManageAdminPlansService {
           : {}),
         ...(hasAnyToolBudgetOverride(input.toolBudgets)
           ? { toolBudgets: toPlanToolBudgetsDocument(input.toolBudgets) }
+          : {}),
+        ...(hasAnyThinkingBudgetOverride(input.thinkingBudgetByLevel)
+          ? {
+              thinkingBudgetByLevel: toPlanThinkingBudgetByLevelDocument(
+                input.thinkingBudgetByLevel
+              )
+            }
           : {})
       },
       entitlementModel: {
@@ -1500,6 +1519,9 @@ export class ManageAdminPlansService {
     const retrievalPolicy = parseAdminPlanRetrievalPolicy(billingHints.retrievalPolicy);
     const sandboxPolicy = resolveStoredPlanSandboxPolicy(billingHints.sandboxPolicy);
     const toolBudgets = resolveStoredPlanToolBudgets(billingHints.toolBudgets);
+    const thinkingBudgetByLevel = resolveStoredPlanThinkingBudgetByLevel(
+      billingHints.thinkingBudgetByLevel
+    );
 
     return {
       code: plan.code,
@@ -1629,6 +1651,7 @@ export class ManageAdminPlansService {
         visibleInPlanEditor: ta.policyClass === "plan_managed"
       })),
       toolBudgets,
+      thinkingBudgetByLevel,
       createdAt: plan.createdAt.toISOString(),
       updatedAt: plan.updatedAt.toISOString()
     };

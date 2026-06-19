@@ -723,6 +723,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
   await runOrdinarySourcePriorityModeTests();
   await runAutoSkillRoutingHardeningTests();
   await runTurnRoutingFallbackTests();
+  await runThinkingBudgetOverrideTests();
 }
 
 async function runTurnRoutingFallbackTests(): Promise<void> {
@@ -1044,6 +1045,43 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
   assert.equal(premiumWritingDeepDecision.level, "heavy");
   assert.equal(premiumWritingDeepDecision.executionMode, "premium");
   assert.equal(premiumWritingDeepDecision.thinkingBudget, 8192);
+}
+
+async function runThinkingBudgetOverrideTests(): Promise<void> {
+  const providerGatewayClient = new FakeProviderGatewayClientService();
+  const service = new TurnRoutingService(
+    providerGatewayClient as unknown as ProviderGatewayClientService
+  );
+
+  // Build a bundle whose classifier is disabled (precheck only) and inject
+  // a thinkingBudgetByLevel override so we can verify the resolver picks it up.
+  const baseBundle = createBundle({ enabled: false }, false);
+  (baseBundle.runtime as unknown as Record<string, unknown>).thinkingBudgetByLevel = {
+    byLevel: { light: null, medium: null, heavy: 4096, deep: null }
+  };
+
+  // reasoning_request (no deep cue) → level=heavy; plan override heavy=4096 beats default 8192.
+  const heavyOverrideDecision = await service.decide({
+    bundle: baseBundle,
+    request: createRequest("Debug this function: ```function foo() { return null; }```"),
+    projectedTools
+  });
+  assert.equal(heavyOverrideDecision.level, "heavy");
+  assert.equal(heavyOverrideDecision.executionMode, "premium");
+  assert.equal(
+    heavyOverrideDecision.thinkingBudget,
+    4096,
+    "plan override heavy=4096 must beat the resolver default 8192"
+  );
+
+  // A light turn: null leaf falls back to resolver default (0).
+  const lightDecision = await service.decide({
+    bundle: baseBundle,
+    request: createRequest("ok"),
+    projectedTools
+  });
+  assert.equal(lightDecision.level, "light");
+  assert.equal(lightDecision.thinkingBudget, 0, "null light leaf falls back to resolver default 0");
 }
 
 async function runAutoSkillRoutingHardeningTests(): Promise<void> {

@@ -10,6 +10,7 @@ import {
   type RuntimeKnowledgeAccessConfig,
   type RuntimeSandboxPolicy,
   type RuntimeSharedCompactionConfig,
+  type RuntimeThinkingBudgetByLevelConfig,
   type RuntimeToolBudgetsConfig,
   type RuntimeToolPolicy,
   type RuntimeWorkerToolsConfig,
@@ -116,6 +117,12 @@ export interface AssistantRuntimeBundleRuntimeConfig {
    * `RuntimeToolPolicy.perTurnCap` so the cap travels with the tool itself.
    */
   toolBudgets?: RuntimeToolBudgetsConfig | null;
+  /**
+   * ADR-121 Slice 4 — per-plan thinking-token budget overrides per routing
+   * level. Optional; the resolver falls back to DEFAULT_THINKING_BUDGET_BY_LEVEL
+   * when absent or when a leaf is `null`. 0 = thinking explicitly off.
+   */
+  thinkingBudgetByLevel?: RuntimeThinkingBudgetByLevelConfig | null;
 }
 
 export interface AssistantRuntimeBundleGovernance {

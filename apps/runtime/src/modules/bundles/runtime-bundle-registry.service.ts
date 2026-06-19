@@ -1044,6 +1044,7 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
     this.assertWorkerToolsConfig(bundle, toolPolicyByCode);
     this.assertBrowserConfig(bundle, toolPolicyByCode);
     this.assertToolBudgetsConfig(bundle);
+    this.assertThinkingBudgetByLevelConfig(bundle);
     return bundle;
   }
 
@@ -1086,6 +1087,49 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
       if (!Number.isInteger(value) || (value as number) <= 0) {
         throw new BadRequestException(
           `bundleDocument.runtime.toolBudgets.loopLimitByMode.${mode} must be null or a strictly-positive integer`
+        );
+      }
+    }
+  }
+
+  /**
+   * ADR-121 Slice 4 — `runtime.thinkingBudgetByLevel` is an optional
+   * per-plan override of the thinking-token budget per routing level. The
+   * runtime resolver is defensive (silently ignores out-of-range leaves),
+   * but we hard-fail at parse time on type errors so a misconfigured bundle
+   * compile pipeline cannot publish meaningless data.
+   */
+  private assertThinkingBudgetByLevelConfig(bundle: AssistantRuntimeBundle): void {
+    const runtime = bundle.runtime;
+    if (!this.isRecord(runtime)) {
+      return;
+    }
+    const thinkingBudgetByLevel = (runtime as Record<string, unknown>).thinkingBudgetByLevel;
+    if (thinkingBudgetByLevel === undefined || thinkingBudgetByLevel === null) {
+      return;
+    }
+    if (!this.isRecord(thinkingBudgetByLevel)) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.thinkingBudgetByLevel must be null, omitted, or an object"
+      );
+    }
+    const byLevel = (thinkingBudgetByLevel as Record<string, unknown>).byLevel;
+    if (byLevel === null || byLevel === undefined) {
+      return;
+    }
+    if (!this.isRecord(byLevel)) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.thinkingBudgetByLevel.byLevel must be null or an object"
+      );
+    }
+    for (const level of ["light", "medium", "heavy", "deep"] as const) {
+      const value = (byLevel as Record<string, unknown>)[level];
+      if (value === null || value === undefined) {
+        continue;
+      }
+      if (!Number.isInteger(value) || (value as number) < 0) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.thinkingBudgetByLevel.byLevel.${level} must be null or a non-negative integer`
         );
       }
     }
