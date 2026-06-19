@@ -130,6 +130,7 @@ import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
+import { resolveExecutionProfile } from "./execution-profile-resolver";
 import { TurnRoutingService, type TurnRouteDecision } from "./turn-routing.service";
 import {
   RuntimeExecutionAdmissionService,
@@ -1793,6 +1794,8 @@ export class TurnExecutionService {
     return {
       mode: routeDecision.mode,
       executionMode: routeDecision.executionMode,
+      level: routeDecision.level,
+      thinkingBudget: routeDecision.thinkingBudget,
       source,
       retrievalPlan: routeDecision.retrievalPlan,
       skillState: routeDecision.skillState
@@ -2420,13 +2423,17 @@ export class TurnExecutionService {
   }> {
     void hydratedMessages;
 
+    const defaultLevel = input.deepMode === true ? "medium" : ("light" as const);
+    const defaultProfile = resolveExecutionProfile(defaultLevel);
     const defaultRouteDecision: TurnRouteDecision = {
-      executionMode: input.deepMode === true ? "premium" : "normal",
+      level: defaultLevel,
+      executionMode: defaultProfile.executionMode,
+      thinkingBudget: defaultProfile.thinkingBudget,
       retrievalHint: false,
       toolHints: "none",
       confidence: "high",
       clarifyNeeded: false,
-      fallbackMode: input.deepMode === true ? "premium" : "normal",
+      fallbackMode: defaultProfile.executionMode,
       reasonCode: input.deepMode === true ? "deep_mode_default" : "default_normal",
       retrievalPlan: {
         useSkills: false,

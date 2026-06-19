@@ -3,11 +3,13 @@ import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
+  RoutingLevel,
   RuntimeSkillDecisionState,
   RuntimeTurnRequest,
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import type { RuntimeNativeToolProjection } from "./native-tool-projection";
+import { resolveExecutionProfile } from "./execution-profile-resolver";
 import { buildProjectModePrecheckDecision, isProjectChatMode } from "./project-execution-profile";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import {
@@ -74,7 +76,9 @@ type RouterPolicy = {
 };
 
 export type TurnRouteDecision = {
+  level: RoutingLevel;
   executionMode: RoutingExecutionMode;
+  thinkingBudget: number;
   retrievalHint: boolean;
   toolHints: RoutingToolHint;
   confidence: "high" | "low";
@@ -88,6 +92,8 @@ export type TurnRouteDecision = {
   skillState: RuntimeSkillDecisionState | null;
 };
 
+export type CreateDecisionInput = Omit<TurnRouteDecision, "executionMode" | "thinkingBudget">;
+
 const ROUTER_OUTPUT_SCHEMA = {
   name: "turn_route_decision",
   strict: true,
@@ -95,7 +101,7 @@ const ROUTER_OUTPUT_SCHEMA = {
     type: "object",
     additionalProperties: false,
     required: [
-      "executionMode",
+      "level",
       "retrievalHint",
       "toolHints",
       "confidence",
@@ -105,9 +111,9 @@ const ROUTER_OUTPUT_SCHEMA = {
       "retrievalPlan"
     ],
     properties: {
-      executionMode: {
+      level: {
         type: "string",
-        enum: ["normal", "premium", "reasoning"]
+        enum: ["light", "medium", "heavy", "deep"]
       },
       retrievalHint: {
         type: "boolean"
@@ -340,6 +346,18 @@ const DEFAULT_PERSONAL_PRIORITY_TERMS = [
   "помнишь"
 ];
 
+const DEFAULT_DEEP_CUE_TERMS = [
+  "think hard",
+  "think carefully",
+  "think step by step",
+  "reason carefully",
+  "проанализируй",
+  "разбери подробно",
+  "разбери детально",
+  "глубоко разбери",
+  "продумай"
+];
+
 @Injectable()
 export class TurnRoutingService {
   private readonly logger = new Logger(TurnRoutingService.name);
@@ -352,10 +370,11 @@ export class TurnRoutingService {
     projectedTools: RuntimeNativeToolProjection;
   }): Promise<TurnRouteDecision> {
     const policy = this.readRouterPolicy(input.bundle);
-    const fallbackMode = this.coerceExecutionMode(
-      policy.classifierFailureFallbackMode,
+    const fallbackLevel = this.applyDeepModeNudge(
+      this.executionModeToLevel(policy.classifierFailureFallbackMode),
       input.request.deepMode === true
     );
+    const fallbackMode = resolveExecutionProfile(fallbackLevel).executionMode;
     const precheck = this.runPrecheck({
       bundle: input.bundle,
       request: input.request,
@@ -364,10 +383,10 @@ export class TurnRoutingService {
       fallbackMode
     });
     if (precheck.confidence === "high") {
-      return this.applyGroundedSkillPremiumFloor(precheck, input.request);
+      return this.applyGroundedSkillLevelFloor(precheck, input.request);
     }
     if (!policy.enabled) {
-      return this.applyGroundedSkillPremiumFloor(precheck, input.request);
+      return this.applyGroundedSkillLevelFloor(precheck, input.request);
     }
 
     const classifierSelection = this.resolveClassifierProviderSelection(input.bundle);
@@ -381,7 +400,7 @@ export class TurnRoutingService {
       classifierPrompt === null ||
       !this.providerGatewayClientService.isConfigured()
     ) {
-      return this.applyGroundedSkillPremiumFloor(precheck, input.request);
+      return this.applyGroundedSkillLevelFloor(precheck, input.request);
     }
 
     try {
@@ -417,7 +436,7 @@ export class TurnRoutingService {
           );
         }
         return this.createDecision({
-          executionMode: fallbackMode,
+          level: fallbackLevel,
           retrievalHint: false,
           toolHints: "none",
           confidence: "low",
@@ -437,18 +456,12 @@ export class TurnRoutingService {
         input.request,
         policy
       );
-      const guardedDecision = this.applyGroundedSkillPremiumFloor(
+      const guardedDecision = this.applyGroundedSkillLevelFloor(
         this.createDecision({
           ...parsed,
+          level: this.applyDeepModeNudge(parsed.level, input.request.deepMode === true),
           retrievalPlan: sanitizedRetrievalPlan,
-          executionMode: this.coerceExecutionMode(
-            parsed.executionMode,
-            input.request.deepMode === true
-          ),
-          fallbackMode: this.coerceExecutionMode(
-            parsed.fallbackMode,
-            input.request.deepMode === true
-          ),
+          fallbackMode,
           source: "llm",
           mode: policy.mode,
           usage: result.usage,
@@ -463,9 +476,9 @@ export class TurnRoutingService {
           error instanceof Error ? error.message : String(error)
         }`
       );
-      return this.applyGroundedSkillPremiumFloor(
+      return this.applyGroundedSkillLevelFloor(
         this.createDecision({
-          executionMode: fallbackMode,
+          level: fallbackLevel,
           retrievalHint: precheck.retrievalHint,
           toolHints: precheck.toolHints,
           confidence: "low",
@@ -551,7 +564,7 @@ export class TurnRoutingService {
 
     if (this.isContinueTurn(lowerText, continueTerms)) {
       return this.createDecision({
-        executionMode: input.request.deepMode === true ? "premium" : "normal",
+        level: this.applyDeepModeNudge("light", input.request.deepMode === true),
         retrievalHint: false,
         toolHints: "none",
         confidence: "high",
@@ -573,7 +586,7 @@ export class TurnRoutingService {
     if (activeAutoSkill) {
       const state = activeAutoSkill.state;
       return this.createDecision({
-        executionMode: input.request.deepMode === true ? "premium" : "normal",
+        level: this.applyDeepModeNudge("light", input.request.deepMode === true),
         retrievalHint: true,
         toolHints: availableHints.has("knowledge") ? "knowledge" : "none",
         confidence: "high",
@@ -595,7 +608,7 @@ export class TurnRoutingService {
 
     if (retrievalIntent) {
       return this.createDecision({
-        executionMode: input.request.deepMode === true ? "premium" : "normal",
+        level: this.applyDeepModeNudge("light", input.request.deepMode === true),
         retrievalHint: true,
         toolHints: availableHints.has("knowledge") ? "knowledge" : "none",
         confidence: "high",
@@ -634,7 +647,7 @@ export class TurnRoutingService {
 
     if (productKnowledgeIntent && availableHints.has("knowledge")) {
       return this.createDecision({
-        executionMode: input.request.deepMode === true ? "premium" : "normal",
+        level: this.applyDeepModeNudge("light", input.request.deepMode === true),
         retrievalHint: true,
         toolHints: "knowledge",
         confidence: "high",
@@ -662,8 +675,10 @@ export class TurnRoutingService {
           attachment.kind === "file" && attachment.mimeType.toLowerCase() === "application/pdf"
       )
     ) {
+      const isDeepCue = this.matchesAny(lowerText, DEFAULT_DEEP_CUE_TERMS);
+      const baseLevel: RoutingLevel = isDeepCue ? "deep" : "heavy";
       return this.createDecision({
-        executionMode: "reasoning",
+        level: this.applyDeepModeNudge(baseLevel, input.request.deepMode === true),
         retrievalHint: false,
         toolHints: "none",
         confidence: "high",
@@ -680,7 +695,7 @@ export class TurnRoutingService {
 
     if (this.matchesAny(lowerText, premiumTerms)) {
       return this.createDecision({
-        executionMode: input.request.deepMode === true ? "premium" : "premium",
+        level: this.applyDeepModeNudge("medium", input.request.deepMode === true),
         retrievalHint: false,
         toolHints: "none",
         confidence: "high",
@@ -704,7 +719,7 @@ export class TurnRoutingService {
             ? ordinaryPriorityMode
             : "not_applicable";
       return this.createDecision({
-        executionMode: input.request.deepMode === true ? "premium" : "normal",
+        level: this.applyDeepModeNudge("light", input.request.deepMode === true),
         retrievalHint: hintedTool === "knowledge",
         toolHints: hintedTool,
         confidence: "high",
@@ -732,7 +747,7 @@ export class TurnRoutingService {
       !shouldDeferKnowledgeToolToClassifier
     ) {
       return this.createDecision({
-        executionMode: input.request.deepMode === true ? "premium" : "normal",
+        level: this.applyDeepModeNudge("light", input.request.deepMode === true),
         retrievalHint: false,
         toolHints: "none",
         confidence: "high",
@@ -748,7 +763,7 @@ export class TurnRoutingService {
     }
 
     return this.createDecision({
-      executionMode: input.request.deepMode === true ? "premium" : "normal",
+      level: this.applyDeepModeNudge("light", input.request.deepMode === true),
       retrievalHint: false,
       toolHints: "none",
       confidence: "low",
@@ -800,7 +815,7 @@ export class TurnRoutingService {
   }
 
   private parseClassifierDecision(text: string | null): {
-    executionMode: RoutingExecutionMode;
+    level: RoutingLevel;
     retrievalHint: boolean;
     toolHints: RoutingToolHint;
     confidence: "high" | "low";
@@ -818,7 +833,7 @@ export class TurnRoutingService {
         return null;
       }
       const row = parsed as Record<string, unknown>;
-      const executionMode = this.asExecutionMode(row.executionMode);
+      const level = this.asLevel(row.level);
       const toolHints = this.asToolHint(row.toolHints);
       const confidence =
         row.confidence === "high" || row.confidence === "low" ? row.confidence : null;
@@ -828,7 +843,7 @@ export class TurnRoutingService {
       const reasonCode = this.asNonEmptyString(row.reasonCode);
       const retrievalPlan = this.asRetrievalPlan(row.retrievalPlan);
       if (
-        executionMode === null ||
+        level === null ||
         toolHints === null ||
         confidence === null ||
         clarifyNeeded === null ||
@@ -840,7 +855,7 @@ export class TurnRoutingService {
         return null;
       }
       return {
-        executionMode,
+        level,
         retrievalHint,
         toolHints,
         confidence,
@@ -1032,23 +1047,31 @@ export class TurnRoutingService {
     };
   }
 
-  private createDecision(input: TurnRouteDecision): TurnRouteDecision {
-    return input;
+  private createDecision(input: CreateDecisionInput): TurnRouteDecision {
+    const profile = resolveExecutionProfile(input.level);
+    return {
+      ...input,
+      executionMode: profile.executionMode,
+      thinkingBudget: profile.thinkingBudget
+    };
   }
 
-  private applyGroundedSkillPremiumFloor(
+  private applyGroundedSkillLevelFloor(
     decision: TurnRouteDecision,
     request: RuntimeTurnRequest
   ): TurnRouteDecision {
-    if (decision.executionMode !== "normal") {
+    if (decision.level !== "light") {
       return decision;
     }
     if (!this.isGroundedSkillTurn(decision.retrievalPlan, request)) {
       return decision;
     }
+    const profile = resolveExecutionProfile("medium");
     return {
       ...decision,
-      executionMode: "premium",
+      level: "medium",
+      executionMode: profile.executionMode,
+      thinkingBudget: profile.thinkingBudget,
       reasonCode:
         decision.reasonCode === "grounded_skill_retrieval_premium_floor"
           ? decision.reasonCode
@@ -1220,14 +1243,24 @@ export class TurnRoutingService {
     }
   }
 
-  private coerceExecutionMode(
-    executionMode: RoutingExecutionMode,
-    deepModeEnabled: boolean
-  ): RoutingExecutionMode {
-    if (deepModeEnabled && executionMode === "normal") {
-      return "premium";
-    }
-    return executionMode;
+  private executionModeToLevel(mode: RoutingExecutionMode): RoutingLevel {
+    if (mode === "reasoning") return "deep";
+    if (mode === "premium") return "medium";
+    return "light";
+  }
+
+  private applyDeepModeNudge(level: RoutingLevel, deepMode: boolean): RoutingLevel {
+    if (!deepMode) return level;
+    if (level === "light") return "medium";
+    if (level === "medium") return "heavy";
+    if (level === "heavy") return "deep";
+    return "deep";
+  }
+
+  private asLevel(value: unknown): RoutingLevel | null {
+    return value === "light" || value === "medium" || value === "heavy" || value === "deep"
+      ? value
+      : null;
   }
 
   private normalizeMessageText(value: string): string {

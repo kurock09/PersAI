@@ -1,9 +1,11 @@
 import type {
+  RoutingLevel,
   RuntimeSkillDecisionState,
   RuntimeTurnStreamEvent,
   RuntimeTurnRequest
 } from "@persai/runtime-contract";
 import type {
+  CreateDecisionInput,
   OrdinarySourcePriorityMode,
   TurnRetrievalPlan,
   TurnRouteDecision
@@ -47,7 +49,7 @@ export const PROJECT_EXECUTION_DEVELOPER_CONTRACT = [
   "One local file or one retrieved excerpt is not proof of sufficiency. If the current context is procedural, partial, outdated, or off-target for the actual engineering/business question, continue with narrower follow-up lookup or external verification instead of synthesizing early."
 ].join("\n");
 
-export function buildProjectModePrecheckDecision(input: ProjectPrecheckInput): TurnRouteDecision {
+export function buildProjectModePrecheckDecision(input: ProjectPrecheckInput): CreateDecisionInput {
   const hasDocumentContext = hasProjectDocumentContext(input.request);
   const useSkills =
     input.selectedSkillIds.length > 0 &&
@@ -68,8 +70,11 @@ export function buildProjectModePrecheckDecision(input: ProjectPrecheckInput): T
     reasonCode: hasDocumentContext ? "project_mode_document_context" : "project_mode"
   };
 
+  const deepMode = input.request.deepMode === true;
+  const level: RoutingLevel = deepMode ? "deep" : "heavy";
+
   return {
-    executionMode: "reasoning",
+    level,
     retrievalHint: useUserKnowledge || useProductKnowledge || useSkills,
     toolHints:
       useUserKnowledge || useProductKnowledge || useSkills ? "knowledge" : useWeb ? "web" : "none",

@@ -63,7 +63,7 @@ describe("project-execution-profile", () => {
     assert.equal(hasProjectDocumentContext(request), true);
   });
 
-  test("builds retrieval-aware reasoning precheck with reasoning tool-loop mode", () => {
+  test("builds retrieval-aware project precheck: deepMode=true → level deep → reasoning", () => {
     const request = createRequest({
       message: {
         ...createRequest().message,
@@ -90,13 +90,30 @@ describe("project-execution-profile", () => {
       skillState: null,
       selectedSkillIds: []
     });
-    assert.equal(decision.executionMode, "reasoning");
+    // deepMode=true (default in createRequest): heavy + nudge → deep
+    assert.equal(decision.level, "deep");
     assert.equal(decision.retrievalHint, true);
     assert.equal(decision.reasonCode, "project_mode_document_context");
     assert.equal(decision.retrievalPlan.useUserKnowledge, true);
     assert.equal(decision.retrievalPlan.useProductKnowledge, false);
     assert.equal(decision.retrievalPlan.useWeb, true);
     assert.notEqual(decision.retrievalPlan.reasonCode, "reasoning_request");
+  });
+
+  test("project precheck: deepMode=false → level heavy (no reasoning slot)", () => {
+    const decision = buildProjectModePrecheckDecision({
+      request: createRequest({ deepMode: false }),
+      fallbackMode: "normal",
+      policyMode: "active",
+      availableKnowledge: false,
+      availableWeb: false,
+      ordinarySourcePriorityMode: "not_applicable",
+      productKnowledgeIntent: false,
+      skillState: null,
+      selectedSkillIds: []
+    });
+    assert.equal(decision.level, "heavy");
+    assert.equal(decision.reasonCode, "project_mode");
   });
 
   test("admits Product KB in project mode only for explicit product intent", () => {
@@ -111,6 +128,8 @@ describe("project-execution-profile", () => {
       skillState: null,
       selectedSkillIds: []
     });
+    // deepMode=true (default): heavy + nudge → deep
+    assert.equal(decision.level, "deep");
     assert.equal(decision.retrievalPlan.useUserKnowledge, true);
     assert.equal(decision.retrievalPlan.useProductKnowledge, true);
   });

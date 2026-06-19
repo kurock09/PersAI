@@ -19,7 +19,7 @@ class FakeProviderGatewayClientService {
     provider: "openai",
     model: "gpt-4.1",
     text: JSON.stringify({
-      executionMode: "premium",
+      level: "medium",
       retrievalHint: true,
       toolHints: "knowledge",
       confidence: "high",
@@ -360,6 +360,8 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     projectedTools
   });
   assert.equal(continueDecision.executionMode, "normal");
+  assert.equal(continueDecision.level, "light");
+  assert.equal(continueDecision.thinkingBudget, 0);
   assert.equal(continueDecision.source, "precheck");
   assert.deepEqual(continueDecision.retrievalPlan, {
     useSkills: false,
@@ -476,7 +478,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
   providerGatewayClient.result = {
     ...skillClassifierResult,
     text: JSON.stringify({
-      executionMode: "normal",
+      level: "light",
       retrievalHint: true,
       toolHints: "knowledge",
       confidence: "high",
@@ -516,7 +518,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
   providerGatewayClient.result = {
     ...skillClassifierResult,
     text: JSON.stringify({
-      executionMode: "normal",
+      level: "light",
       retrievalHint: false,
       toolHints: "none",
       confidence: "high",
@@ -540,11 +542,12 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     projectedTools
   });
   assert.equal(ordinaryNoSkillDecision.executionMode, "normal");
+  assert.equal(ordinaryNoSkillDecision.level, "light");
   assert.equal(ordinaryNoSkillDecision.retrievalPlan.useSkills, false);
   providerGatewayClient.result = {
     ...skillClassifierResult,
     text: JSON.stringify({
-      executionMode: "normal",
+      level: "light",
       retrievalHint: true,
       toolHints: "knowledge",
       confidence: "high",
@@ -657,7 +660,10 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
   });
   assert.equal(stickySkillWithFileDecision.source, "precheck");
   assert.equal(stickySkillWithFileDecision.executionMode, "premium");
+  assert.equal(stickySkillWithFileDecision.level, "medium");
+  assert.equal(stickySkillWithFileDecision.thinkingBudget, 0);
   assert.match(stickySkillWithFileDecision.reasonCode, /sticky_skill_reuse/);
+  assert.match(stickySkillWithFileDecision.reasonCode, /grounded_skill_retrieval_premium_floor/);
   assert.deepEqual(stickySkillWithFileDecision.retrievalPlan.selectedSkillIds, [
     "skill-accounting"
   ]);
@@ -681,6 +687,8 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     projectedTools
   });
   assert.equal(ambiguousDecision.executionMode, "premium");
+  assert.equal(ambiguousDecision.level, "medium");
+  assert.equal(ambiguousDecision.thinkingBudget, 0);
   assert.equal(ambiguousDecision.source, "llm");
   assert.deepEqual(ambiguousDecision.retrievalPlan, {
     useSkills: false,
@@ -730,7 +738,7 @@ async function runTurnRoutingFallbackTests(): Promise<void> {
         provider: "anthropic",
         model: "claude-sonnet-4-5",
         text: JSON.stringify({
-          executionMode: "normal",
+          level: "light",
           retrievalHint: false,
           toolHints: "none",
           confidence: "high",
@@ -811,6 +819,9 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
   });
   assert.equal(genericProjectPlanDecision.source, "precheck");
   assert.equal(genericProjectPlanDecision.reasonCode, "reasoning_request");
+  assert.equal(genericProjectPlanDecision.level, "heavy");
+  assert.equal(genericProjectPlanDecision.executionMode, "premium");
+  assert.equal(genericProjectPlanDecision.thinkingBudget, 8192);
   assert.equal(genericProjectPlanDecision.retrievalPlan.useProductKnowledge, false);
 
   const personalPriorityDecision = await service.decide({
@@ -922,7 +933,10 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
   });
   assert.equal(projectPdfDecision.source, "precheck");
   assert.equal(projectPdfDecision.reasonCode, "project_mode_document_context");
+  // deepMode=true: heavy + nudge → deep → reasoning
+  assert.equal(projectPdfDecision.level, "deep");
   assert.equal(projectPdfDecision.executionMode, "reasoning");
+  assert.equal(projectPdfDecision.thinkingBudget, 32768);
   assert.equal(projectPdfDecision.retrievalHint, true);
   assert.equal(projectPdfDecision.retrievalPlan.useUserKnowledge, true);
   assert.equal(projectPdfDecision.retrievalPlan.useProductKnowledge, false);
@@ -940,8 +954,25 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
   });
   assert.equal(projectPricingDecision.source, "precheck");
   assert.equal(projectPricingDecision.reasonCode, "project_mode");
+  assert.equal(projectPricingDecision.level, "deep");
+  assert.equal(projectPricingDecision.executionMode, "reasoning");
+  assert.equal(projectPricingDecision.thinkingBudget, 32768);
   assert.equal(projectPricingDecision.retrievalPlan.useUserKnowledge, true);
   assert.equal(projectPricingDecision.retrievalPlan.useProductKnowledge, true);
+
+  // project mode deepMode=false → level heavy → premium
+  const projectNoDeepRequest = createRequest("Summarize the project documents.");
+  projectNoDeepRequest.chatMode = "project";
+  projectNoDeepRequest.deepMode = false;
+  const projectNoDeepDecision = await service.decide({
+    bundle,
+    request: projectNoDeepRequest,
+    projectedTools
+  });
+  assert.equal(projectNoDeepDecision.source, "precheck");
+  assert.equal(projectNoDeepDecision.level, "heavy");
+  assert.equal(projectNoDeepDecision.executionMode, "premium");
+  assert.equal(projectNoDeepDecision.thinkingBudget, 8192);
 
   const smartPdfRequest = {
     ...projectPdfRequest,
@@ -953,8 +984,66 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
     projectedTools
   });
   assert.equal(smartPdfDecision.reasonCode, "reasoning_request");
+  // deepMode=true: reasoning_request (PDF, no deep cue), base=heavy, nudge→deep
+  assert.equal(smartPdfDecision.level, "deep");
+  assert.equal(smartPdfDecision.executionMode, "reasoning");
+  assert.equal(smartPdfDecision.thinkingBudget, 32768);
   assert.equal(smartPdfDecision.retrievalHint, false);
   assert.equal(smartPdfDecision.retrievalPlan.useUserKnowledge, false);
+
+  // reasoning_request: no deep cue, deepMode=false → level heavy → premium + thinkingBudget 8192
+  const codeHeavyDecision = await service.decide({
+    bundle,
+    request: createRequest("Debug this function: ```function foo() { return null; }```"),
+    projectedTools
+  });
+  assert.equal(codeHeavyDecision.reasonCode, "reasoning_request");
+  assert.equal(codeHeavyDecision.level, "heavy");
+  assert.equal(codeHeavyDecision.executionMode, "premium");
+  assert.equal(codeHeavyDecision.thinkingBudget, 8192);
+
+  // reasoning_request: explicit deep cue → level deep → reasoning + thinkingBudget 32768
+  const deepCueDecision = await service.decide({
+    bundle,
+    request: createRequest("think hard about this bug and how to refactor the architecture"),
+    projectedTools
+  });
+  assert.equal(deepCueDecision.reasonCode, "reasoning_request");
+  assert.equal(deepCueDecision.level, "deep");
+  assert.equal(deepCueDecision.executionMode, "reasoning");
+  assert.equal(deepCueDecision.thinkingBudget, 32768);
+
+  // light base + deepMode=true → level medium → executionMode premium
+  const deepModeLightDecision = await service.decide({
+    bundle,
+    request: { ...createRequest("ok"), deepMode: true },
+    projectedTools
+  });
+  assert.equal(deepModeLightDecision.level, "medium");
+  assert.equal(deepModeLightDecision.executionMode, "premium");
+  assert.equal(deepModeLightDecision.thinkingBudget, 0);
+
+  // premium_writing + deepMode=true → level heavy → premium + thinkingBudget 8192
+  const premiumWritingDeepDecision = await service.decide({
+    bundle: createBundle(
+      {
+        precheckRuleOverrides: {
+          continueTerms: [],
+          retrievalTerms: [],
+          reasoningTerms: [],
+          premiumTerms: ["cover letter"],
+          toolTerms: []
+        }
+      },
+      false
+    ),
+    request: { ...createRequest("Draft a polished cover letter for this role."), deepMode: true },
+    projectedTools
+  });
+  assert.equal(premiumWritingDeepDecision.reasonCode, "premium_writing");
+  assert.equal(premiumWritingDeepDecision.level, "heavy");
+  assert.equal(premiumWritingDeepDecision.executionMode, "premium");
+  assert.equal(premiumWritingDeepDecision.thinkingBudget, 8192);
 }
 
 async function runAutoSkillRoutingHardeningTests(): Promise<void> {

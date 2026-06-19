@@ -2594,7 +2594,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       provider: "openai",
       model: "gpt-4.1",
       text: JSON.stringify({
-        executionMode: "reasoning",
+        level: "deep",
         retrievalHint: false,
         toolHints: "none",
         confidence: "high",
@@ -3044,7 +3044,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       provider: "openai",
       model: "gpt-4.1",
       text: JSON.stringify({
-        executionMode: "reasoning",
+        level: "deep",
         retrievalHint: false,
         toolHints: "none",
         confidence: "high",

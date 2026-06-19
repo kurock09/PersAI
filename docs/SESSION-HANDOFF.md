@@ -24,9 +24,43 @@ Post-119 audit (4 directions discussed with founder: A memory-bleeding JIT redes
 
 Orchestrator runs C end-to-end: assign slice → review diff → AGENTS.md gate + affected-area checks between slices → commit → next. Final slice runs full-repo "like CI" verification + repo-wide lint/format. **Push only at the very end** (push triggers deploy). No legacy tails, no transitional flag-gated old+new coexistence.
 
+### Completed slices
+
+- **Slice 1** (contract + `level → ExecutionProfile` resolver): `RoutingLevel` exported from `@persai/runtime-contract`; `RuntimeTurnRoutingSnapshot` gains optional `level` + `thinkingBudget`; `ProviderGatewayTextGenerateRequest` gains optional `thinkingBudget`; `resolveExecutionProfile` pure function + `DEFAULT_THINKING_BUDGET_BY_LEVEL` in `apps/runtime/src/modules/turns/execution-profile-resolver.ts`; full unit tests in `execution-profile-resolver.test.ts`. No routing change.
+- **Slice 2** (router rewrite): see below.
+
+### Slice 2 — completed 2026-06-19
+
+**What changed:**
+- `TurnRouteDecision` gains `level: RoutingLevel` and `thinkingBudget: number`; `CreateDecisionInput` exported as the `createDecision` input type (omits derived fields).
+- `createDecision` is now the single resolver seat — accepts `CreateDecisionInput`, calls `resolveExecutionProfile(input.level)`, derives `executionMode` + `thinkingBudget`.
+- Seven `deepMode ? "premium" : "normal"` ternaries + `coerceExecutionMode` deleted; replaced by `applyDeepModeNudge(level, deepMode): RoutingLevel` helper. `executionModeToLevel` and `asLevel` helpers added.
+- `reasoning_request` precheck: new `DEFAULT_DEEP_CUE_TERMS`; base level is `heavy` (code/reasoning terms, PDF), `deep` only on explicit depth cues ("think hard", "проанализируй", etc.). Old hardcode of `executionMode: "reasoning"` removed.
+- `premium_writing` base level `medium`; deepMode nudges to `heavy` (thinking budget but same premium model slot).
+- `buildProjectModePrecheckDecision` returns `CreateDecisionInput`; `level: deepMode ? "deep" : "heavy"` (old `executionMode: "reasoning"` hardcode deleted).
+- `applyGroundedSkillLevelFloor` (renamed from `applyGroundedSkillPremiumFloor`): floors on `level !== "light"`, raises to `medium` via resolver. Telemetry label `grounded_skill_retrieval_premium_floor` unchanged.
+- `ROUTER_OUTPUT_SCHEMA`: `executionMode` enum replaced with `level` enum `["light","medium","heavy","deep"]`.
+- `parseClassifierDecision`: parses `level` (required) instead of `executionMode`; `fallbackMode` still parsed via `asExecutionMode`.
+- Classifier fallback/failure path: uses `fallbackLevel = applyDeepModeNudge(executionModeToLevel(policy.classifierFailureFallbackMode), deepMode)` → `fallbackMode = resolveExecutionProfile(fallbackLevel).executionMode`.
+- `toRuntimeTurnRoutingSnapshot` in `turn-execution.service.ts`: adds `level` and `thinkingBudget` to persisted snapshot.
+- `defaultRouteDecision` in `turn-execution.service.ts`: derives `executionMode`/`thinkingBudget`/`fallbackMode` from `resolveExecutionProfile`.
+- Tests updated: `turn-routing.service.test.ts`, `project-execution-profile.test.ts`, `turn-execution.service.test.ts` — all classifier JSON fixtures use `level` instead of `executionMode`; new invariant cases: deep cue → deep, reasoning_request → heavy (CHANGED from reasoning), project+deepMode off → heavy/premium, deepMode light → medium, premium_writing+deepMode → heavy.
+
+**Behavior invariants verified:**
+- `light` + deepMode off → `normal` ✓
+- `light` + deepMode on → `medium` / `premium` ✓
+- `premium_writing` + deepMode off → `medium` / `premium` / budget 0 ✓
+- `premium_writing` + deepMode on → `heavy` / `premium` / budget 8192 ✓
+- `reasoning_request` (no deep cue, deepMode off) → `heavy` / `premium` / budget 8192 ✓ (CHANGED)
+- `reasoning_request` deep cue → `deep` / `reasoning` / budget 32768 ✓
+- `project` deepMode off → `heavy` / `premium` / budget 8192 ✓ (CHANGED)
+- `project` deepMode on → `deep` / `reasoning` / budget 32768 ✓
+- grounded-skill light → `medium` / `premium` / budget 0, reasonCode suffix preserved ✓
+- Snapshot carries `level` + `thinkingBudget` ✓
+
 ### Next recommended step
 
-Implement Slice 1 (contract + `level → ExecutionProfile` resolver + plan thinking-budget config; no live routing change yet).
+Implement Slice 3 (provider plumbing: thread `decision.thinkingBudget` → `ProviderGatewayTextGenerateRequest.thinkingBudget` → Anthropic `thinking.budget_tokens` / OpenAI `reasoning_effort`). Note: the default grid is already non-zero (`heavy` 8192, `deep` 32768), so once Slice 3 threads the value, heavy/deep turns will send thinking by default — Slice 4 only adds the per-plan override capability on top of these defaults, it is not required to "turn thinking on".
 
 ## 2026-06-19 — ADR-119 program closed (founder acceptance)
 
