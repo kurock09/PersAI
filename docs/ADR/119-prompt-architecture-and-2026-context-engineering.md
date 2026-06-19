@@ -1058,3 +1058,27 @@ Rejected on Anthropic-attention grounds. XML tags route attention more reliably 
 **ADR-118 status**: simultaneously updated to `Superseded by ADR-119`. See `docs/ADR/118-skill-scenarios-and-model-owned-activation.md` header.
 
 **Golden tests locked**: 6 invariant tests committed in Slice 11 covering full-prompt snapshot (GT1/GT1b), cache-prefix stability across 5 state variants (GT2), `<priority_order>` Skills #1 (GT3), provider parallel-tool-call flags (GT4), persona deduplication (GT5), memory provenance XML (GT6). See `docs/TEST-PLAN.md` § ADR-119 golden tests.
+
+## Footer — post-closure follow-through (2026-06-19): Anthropic cache markers
+
+This footer records two post-closure decisions about the Anthropic `cache_control` strategy. The ADR is not reopened; these are clarifications + a bug fix on the shipped Slice 2 mechanism.
+
+### Slice 2 — sliding history marker (#2 of 2): IMPLEMENTED, formula corrected
+
+The moving history `cache_control` marker is the second of the two Anthropic markers PersAI uses. Slice 2 wired it; a follow-up (2026-06-18) made it fire on tool-loop turns; this follow-up (2026-06-19) fixed the chunk **formula** so it fires at all in ordinary dialogs.
+
+- Placement: `applyAnthropicMovingHistoryBreakpoint` in `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`.
+- Window math: `maxCachedPrefixBytes = floor(totalContentBytes / chunk) * chunk`, where `chunk = minTokens × APPROX_ANTHROPIC_BYTES_PER_TOKEN` (3 UTF-8 bytes/token). The marker lands on the latest assistant message whose cumulative prefix is ≤ `maxCachedPrefixBytes`, stays put while history grows inside one chunk (cache stays hot), and advances forward across each chunk boundary (READ cached old prefix ≫ cheaper than re-WRITE).
+- The previous `floor((total − minTail) / minTail) * minTail` form reserved an extra tail buffer and required ≈2× the chunk (~6k tokens) of stable history before placing any marker — in normal PersAI dialogs that threshold was rarely reached and history caching was effectively disabled. The dynamic tail (`volatile_context` + current question) is already spliced in **after** the marker by `buildAnthropicMessages`, so no extra buffer is needed.
+- `tool_loop_followup` turns intentionally **skip** the marker (`shouldApplyAnthropicMovingHistoryBreakpoint` is `main_turn`-only): transient `tool_result` data is not cached because it never persists into long-term history.
+
+### Slice 2 — multi-block system markers (#3/#4): REJECTED ON REVIEW (not deferred)
+
+The Slice 2 multi-block system path (split `systemPrompt` into per-zone blocks via `systemPromptBlocks`, each carrying its own `cache_control` marker, up to 3 system markers + 1 history) is **rejected on review**, not deferred indefinitely.
+
+- Reasoning: Marker #1 already sits on the end of the single-block `systemPrompt`, which caches `tools` + the entire `system` zone (Anthropic cache order `tools → system → messages`). Multi-block only pays off when zones invalidate **independently**; in PersAI the cached prefix zones change **together** on publish/materialization, so the benefit is microscopic while the complexity (block-offset extraction, byte-exact concatenation validation, truncation handling) is real.
+- Action taken: the dormant seam was removed per the AGENTS.md "no dead stubs" rule — `ProviderGatewayTextGenerateRequest.systemPromptBlocks`, the `buildAnthropicSystemBlocks` multi-block branch, `ANTHROPIC_MAX_SYSTEM_CACHE_MARKERS`, the OpenAI per-block developer-item branch, and the related provider-client tests are deleted. `compile-prompt-constructor.service.ts` was intentionally **not** touched (no block-offset emission was ever added there).
+
+### Resulting clean prod path
+
+**2 of 4 Anthropic `cache_control` markers used:** (#1) single-block system marker on the whole `systemPrompt` (caches tools + system), and (#2) the sliding history marker on stable conversation history. Markers #3/#4 (multi-block system) are intentionally unused. Implemented commits: `c98600ba` (cross-cutting dead-field removal + "legacy" rename), `c5542ce2` (Anthropic byte measurement + multi-block removal + sliding-marker formula fix + tests).

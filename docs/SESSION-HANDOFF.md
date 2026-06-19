@@ -3,6 +3,35 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-19 — ADR-119 polish: Anthropic sliding history cache marker fix + "legacy" cleanup
+
+### Baseline
+
+- Baseline SHA at session start: `1340ebb9` (clean except prior-session uncommitted byte-conversion in the Anthropic client+test — confirmed as legitimate prerequisite, folded into commit 2).
+- This slice's commits: `c98600ba` (Step 0 cross-cutting), `c5542ce2` (Step 1 Anthropic). Docs commit follows.
+
+### What closed
+
+1. **Sliding history marker (#2 of 2) now actually fires.** `applyAnthropicMovingHistoryBreakpoint` formula corrected from `floor((total − minTail) / minTail) * minTail` (required ~6k tokens before firing → history caching effectively disabled in prod) to `floor(total / minTail) * minTail` (fires at one full 3k-token chunk, stays stable inside a chunk, advances across each boundary). Tail buffer removed — the dynamic tail (`volatile_context` + current question) is already spliced in after the marker. Byte-based measurement (3 UTF-8 bytes/token) folded in for Cyrillic/mixed content.
+2. **"legacy" wording removed** from the active single-block system-prompt path (Anthropic client JSDoc/comments, `turn-execution.service.ts` `buildProviderRequest`, runtime-contract JSDoc).
+3. **Dead multi-block seam removed (Variant B / no-dead-stubs):** `systemPromptBlocks` field, `buildAnthropicSystemBlocks` multi-block branch, `ANTHROPIC_MAX_SYSTEM_CACHE_MARKERS`, OpenAI per-block branch, related tests. `rg "systemPromptBlocks" --type ts` returns only one explanatory JSDoc reference.
+
+### Untouched by design
+
+`compile-prompt-constructor.service.ts` (Slice 2 multi-block — rejected), `attachCacheControlToLastBlock` + `measureAnthropicMessageContentBytes` (prior-session fixes, verified in place), the `shouldApplyAnthropicMovingHistoryBreakpoint` `main_turn`-only gate (protects against caching raw `tool_result`), the volatile-context splice in `buildAnthropicMessages`.
+
+### Target Anthropic config
+
+**2/4 `cache_control` markers used:** #1 single-block system marker (caches tools + whole system) + #2 sliding history marker. **Slice 2 multi-block system (#3/#4) explicitly REJECTED ON REVIEW** (not deferred) — minimal practical gain because the single-block system marker already caches tools + the entire system zone, and PersAI's prefix zones invalidate together on publish, not independently. Recorded in the ADR-119 footer.
+
+### Gate
+
+`lint` PASS · `format:check` PASS · `@persai/api` typecheck PASS · `@persai/web` typecheck PASS · `@persai/provider-gateway` test PASS (exit 0, full suite incl. Anthropic) · `@persai/runtime` + `@persai/provider-gateway` typecheck PASS.
+
+### Next recommended step
+
+Push the 3 commits, wait for CI green + GitOps reconcile in dev, then run the live validation: open a dev chat, do 2-3 short Russian turns, grep provider-gateway logs for `cacheBreakpoints` (expect `2` after history crosses ~3k tokens; `1` on `tool_loop_followup` turns) and confirm `cache_read_input_tokens` rises while raw `inputTokens` oscillates instead of growing linearly. Store artifacts under `./tmp/adr-119-slice-1-validation/`.
+
 ## 2026-06-18 — ADR-119 follow-up: Anthropic moving-history-breakpoint fix for tool-loop conversations
 
 ### Root cause
