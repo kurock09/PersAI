@@ -1918,10 +1918,9 @@ export class TurnExecutionService {
     const developerInstructions = this.renderDeveloperInstructionSections(
       developerInstructionSections
     );
-    // ADR-119 Slice 2: pass skillsEnabled so providers can apply parallel-tool-calls discipline.
-    // systemPromptBlocks is deferred to a follow-up micro-slice that wires materialization-side
-    // block extraction (requires compileMode:"xml_canonical_v1" split to be exposed by the
-    // compiler output). For now providers fall back to single-block legacy behaviour.
+    // ADR-119: pass skillsEnabled so providers can apply parallel-tool-calls discipline.
+    // Per-zone multi-block system cache markers are intentionally not used — see ADR-119 footer
+    // for reasoning. Providers place a single cache marker on the whole system prompt.
     const skillsEnabled = (bundle.skills?.enabled.length ?? 0) > 0;
     return {
       provider: providerSelection.provider,

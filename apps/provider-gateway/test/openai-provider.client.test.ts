@@ -2156,58 +2156,42 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     "skillsEnabled:undefined + tools must keep parallel_tool_calls: true (back-compat)"
   );
 
-  // systemPromptBlocks populated → one developer item per block (generateText)
-  const blocksRequest: ProviderGatewayTextGenerateRequest = {
+  // System prompt → single developer item; legacy `instructions` field stays absent (generateText)
+  const singleSystemRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
-    systemPrompt: "BP1_content.BP2_content.",
-    systemPromptBlocks: [
-      { id: "BP1", text: "BP1_content." },
-      { id: "BP2", text: "BP2_content." }
-    ]
+    systemPrompt: "BP1_content.BP2_content."
   };
-  await client.generateText(blocksRequest);
+  await client.generateText(singleSystemRequest);
   {
     const inputItems = capturedGeneratePayload!.input as Array<Record<string, unknown>>;
     const devItems = inputItems.filter((item) => item.role === "developer");
-    // Two developer items from systemPromptBlocks (before any per-turn developer tail).
-    assert.ok(devItems.length >= 2, "systemPromptBlocks: must emit one developer item per block");
+    assert.ok(devItems.length >= 1, "systemPrompt: must emit a developer item");
     assert.deepEqual(devItems[0], {
       role: "developer",
-      content: [{ type: "input_text", text: "BP1_content." }]
-    });
-    assert.deepEqual(devItems[1], {
-      role: "developer",
-      content: [{ type: "input_text", text: "BP2_content." }]
+      content: [{ type: "input_text", text: "BP1_content.BP2_content." }]
     });
     assert.equal(
       capturedGeneratePayload!.instructions,
       undefined,
-      "instructions must remain absent when systemPromptBlocks is used"
+      "instructions must remain absent (system prompt is a developer item)"
     );
   }
 
-  // systemPromptBlocks populated → one developer item per block (streamText)
-  const blocksStream = await client.streamText(blocksRequest);
-  await collectStream(blocksStream);
+  // System prompt → single developer item; legacy `instructions` field stays absent (streamText)
+  const singleSystemStream = await client.streamText(singleSystemRequest);
+  await collectStream(singleSystemStream);
   {
     const inputItems = capturedStreamPayload!.input as Array<Record<string, unknown>>;
     const devItems = inputItems.filter((item) => item.role === "developer");
-    assert.ok(
-      devItems.length >= 2,
-      "streamText + systemPromptBlocks: must emit one developer item per block"
-    );
+    assert.ok(devItems.length >= 1, "streamText: systemPrompt must emit a developer item");
     assert.deepEqual(devItems[0], {
       role: "developer",
-      content: [{ type: "input_text", text: "BP1_content." }]
-    });
-    assert.deepEqual(devItems[1], {
-      role: "developer",
-      content: [{ type: "input_text", text: "BP2_content." }]
+      content: [{ type: "input_text", text: "BP1_content.BP2_content." }]
     });
     assert.equal(
       capturedStreamPayload!.instructions,
       undefined,
-      "instructions must remain absent in streamText when systemPromptBlocks is used"
+      "instructions must remain absent in streamText (system prompt is a developer item)"
     );
   }
 }

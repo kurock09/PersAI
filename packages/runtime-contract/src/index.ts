@@ -3216,28 +3216,6 @@ export interface ProviderGatewayTextGenerateRequest {
    * Default behaviour (undefined / false): unchanged — parallel tool calls allowed.
    */
   skillsEnabled?: boolean;
-  /**
-   * ADR-119 Slice 2: ordered, non-overlapping system-prefix blocks for explicit cache marker
-   * placement. Each block is a contiguous slice of the system prompt; provider clients emit a
-   * `cache_control: {type:"ephemeral"}` marker at the END of each block. Anthropic's 4-breakpoint
-   * limit applies (3 system + 1 history). When undefined or empty, providers fall back to the
-   * legacy single-block behaviour: one cache marker on the whole `systemPrompt` if `promptCache`
-   * config exists.
-   *
-   * The concatenation of all `text` values MUST equal `systemPrompt` byte-for-byte. Validators in
-   * the provider clients assert this. If the assertion fails, log a `warn` (NOT a throw) and fall
-   * back to single-block mode so production doesn't crash on a bad metadata input.
-   *
-   * Note: `cacheBreakpoints: number[]` (byte-offsets) from the original ADR spec was replaced by
-   * this named-block array because byte-offsets are fragile under string handling (BOM, line-ending
-   * differences).
-   */
-  systemPromptBlocks?: Array<{
-    /** Stable id for diagnostics, e.g. "BP1_identity_voice_user", "BP2_tool_response_memory", "BP3_skills_reminders". */
-    id: string;
-    /** Contiguous slice of `systemPrompt`. */
-    text: string;
-  }>;
 }
 
 export interface ProviderGatewayTextGenerateResult {

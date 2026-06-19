@@ -1368,24 +1368,15 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   }
 
   /**
-   * ADR-119 Slice 2: build the ordered list of developer-role items that represent the system
-   * prompt prefix inside `input[]`. When `systemPromptBlocks` is provided, emit one item per
-   * block (preserving order) so each block maps to its own developer entry and the OpenAI Responses
-   * API prefix-match cache sees a stable, block-granular prefix. Otherwise emit a single developer
-   * item containing the full `systemPrompt`.
+   * ADR-119: build the developer-role item that represents the system prompt prefix inside
+   * `input[]`. Emits a single developer item containing the full `systemPrompt` so the OpenAI
+   * Responses API prefix-match cache sees the large stable system content at index 0.
    *
-   * These items must be FIRST in `input[]` so the stable system content forms the cache prefix.
+   * This item must be FIRST in `input[]` so the stable system content forms the cache prefix.
    */
   private buildOpenAISystemDeveloperItems(
     input: ProviderGatewayTextGenerateRequest
   ): OpenAIBuiltInputItem[] {
-    const blocks = input.systemPromptBlocks;
-    if (blocks !== undefined && blocks.length > 0) {
-      return blocks.map((block) => ({
-        role: "developer" as const,
-        content: [{ type: "input_text" as const, text: block.text }]
-      }));
-    }
     const systemPrompt =
       typeof input.systemPrompt === "string" && input.systemPrompt.length > 0
         ? input.systemPrompt
