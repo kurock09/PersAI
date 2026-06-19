@@ -123,16 +123,16 @@ Semantic intent:
 
 A single pure function (no side effects, fully unit-testable) maps `level` to an `ExecutionProfile`:
 
-| level  | modelRole (slot) | thinkingBudget |
-|--------|------------------|----------------|
-| `light`  | `normal_reply`   | `0` (off)       |
-| `medium` | `premiumReply`   | `0` (off)       |
-| `heavy`  | `premiumReply`   | `~8 192 tokens` |
-| `deep`   | `reasoning`      | `~32 768 tokens` |
+| level  | modelRole (`PersaiRuntimeModelRole`) | derived `executionMode` | thinkingBudget |
+|--------|------------------|------------------|----------------|
+| `light`  | `normal_reply`   | `normal`   | `0` (off)       |
+| `medium` | `premium_reply`  | `premium`  | `0` (off)       |
+| `heavy`  | `premium_reply`  | `premium`  | `~8 192 tokens` |
+| `deep`   | `reasoning`      | `reasoning`| `~32 768 tokens` |
 
-The resolver grid lives in one place. Thinking budgets are configurable per-plan (D8). The exact default token values are initial targets; plans override them.
+The resolver grid lives in one place. Thinking budgets are configurable per-plan (D8). The exact default token values are initial targets; plans override them. (`modelRole` values are the existing `PERSAI_RUNTIME_MODEL_ROLES`; `executionMode` is derived via the existing `mapExecutionModeToModelRole` correspondence in `turn-execution.service.ts`.)
 
-**Critical rationale**: `medium` and `heavy` map to the **same model slot** (`premiumReply`) but differ only in thinking budget. This is precisely why a second independent axis is required and why a 1-D model ladder cannot express the difference. The model ladder stays 3-tier (primary / premium / reasoning, already in plans); the 4 levels fold onto it via thinking budget. The `reasoning` slot is reserved for `deep` only; it is not used for every complex turn.
+**Critical rationale**: `medium` and `heavy` map to the **same model slot** (`premium_reply`) but differ only in thinking budget. This is precisely why a second independent axis is required and why a 1-D model ladder cannot express the difference. The model ladder stays 3-tier (primary / premium / reasoning, already in plans); the 4 levels fold onto it via thinking budget. The `reasoning` slot is reserved for `deep` only; it is not used for every complex turn.
 
 ### D3 — `executionMode` is retained but demoted to a derived token
 
@@ -289,12 +289,11 @@ Key invariant: `executionMode` derivation is a mechanical projection. The policy
 
 **Goal**: establish the new types and the pure resolver function; no routing behavior changes yet.
 
-- Add `RoutingLevel = "light" | "medium" | "heavy" | "deep"` to `turn-routing.service.ts`.
+- Add `RoutingLevel = "light" | "medium" | "heavy" | "deep"` (exported from the runtime contract so both runtime and resolver share it).
 - Add `level` and `thinkingBudget` optional fields to `RuntimeTurnRoutingSnapshot` in `packages/runtime-contract/src/index.ts`.
 - Add `thinkingBudget?: number` to `ProviderGatewayTextGenerateRequest` in `packages/runtime-contract/src/index.ts`.
-- Implement the `resolveExecutionProfile(level, planThinkingBudgets) → ExecutionProfile` pure function with unit tests covering all four level values and plan override paths.
-- Add `thinkingBudgetByLevel: { light, medium, heavy, deep } | null` to the plan config type in `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts` alongside the existing model keys.
-- Acceptance: resolver unit tests cover all grid cells and plan overrides; verification gate green; no behavioral change to live routing.
+- Implement the `resolveExecutionProfile(level, overrides?) → ExecutionProfile { level, executionMode, modelRole, thinkingBudget }` pure function. It carries the built-in default grid (D2 table) and accepts an optional per-level budget override map; `executionMode` is derived (`light→"normal"`, `medium→"premium"`, `heavy→"premium"`, `deep→"reasoning"`). Unit tests cover all four levels, the default grid, and the override path.
+- Acceptance: resolver unit tests cover all grid cells and the override path; verification gate green; no behavioral change to live routing (resolver not yet wired into the live path — that is Slice 2). The plan-level budget map is added and persisted in Slice 4 (admin), so no dormant plan field lands here.
 
 **Verification gate** (all slices end with this):
 
@@ -332,9 +331,10 @@ Key invariant: `executionMode` derivation is a mechanical projection. The policy
 
 **Goal**: the existing admin plan editor surfaces thinking-budget fields alongside model keys.
 
+- Add `thinkingBudgetByLevel: { light, medium, heavy, deep } | null` to the plan config type (`apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`) alongside the existing model keys, and materialize it into the runtime bundle the same way the model keys flow (`resolve-runtime-provider-routing.service.ts` → bundle), feeding the resolver's override param.
 - Extend the admin plan form and backing API to accept and persist `thinkingBudgetByLevel` alongside the existing `primaryModelKey` / `premiumModelKey` / `reasoningModelKey` fields.
 - Plan-level defaults displayed in the editor; zero or blank means "use resolver default".
-- Acceptance: admin can save per-level thinking budgets; plan config round-trips correctly through the admin API; verification gate green.
+- Acceptance: admin can save per-level thinking budgets; plan config round-trips through the admin API and reaches the resolver; verification gate green. Adding, persisting, materializing, and surfacing the field happen in this one slice so no dormant field exists between slices.
 
 ### Slice 5 — Tests: router signal-combination + resolver golden tests
 

@@ -379,6 +379,9 @@ export const PERSAI_RUNTIME_MODEL_ROLES = [
 
 export type PersaiRuntimeModelRole = (typeof PERSAI_RUNTIME_MODEL_ROLES)[number];
 
+export const PERSAI_ROUTING_LEVELS = ["light", "medium", "heavy", "deep"] as const;
+export type RoutingLevel = (typeof PERSAI_ROUTING_LEVELS)[number];
+
 export interface RuntimeUsageSnapshot {
   providerKey: string | null;
   modelKey: string | null;
@@ -2923,6 +2926,8 @@ export interface RuntimeDocumentJobDeliveryUpdate {
 export interface RuntimeTurnRoutingSnapshot {
   mode: "shadow" | "active";
   executionMode: "normal" | "premium" | "reasoning";
+  level?: RoutingLevel; // ADR-121 — semantic task-weight axis
+  thinkingBudget?: number; // ADR-121 — inference-time thinking budget in tokens; 0/absent = off
   source: "precheck" | "llm" | "fallback";
   retrievalPlan?: RuntimeRetrievalPlan;
   skillState?: RuntimeSkillDecisionState | null;
@@ -3216,6 +3221,13 @@ export interface ProviderGatewayTextGenerateRequest {
    * Default behaviour (undefined / false): unchanged — parallel tool calls allowed.
    */
   skillsEnabled?: boolean;
+  /**
+   * ADR-121 — inference-time thinking budget in tokens. Provider clients map this to
+   * Anthropic `thinking.budget_tokens` (Extended Thinking) or OpenAI `reasoning_effort`.
+   * 0 or absent means no thinking parameters are sent (current behavior preserved).
+   * Plumbed in Slice 1; consumed by provider clients in Slice 3.
+   */
+  thinkingBudget?: number;
 }
 
 export interface ProviderGatewayTextGenerateResult {
