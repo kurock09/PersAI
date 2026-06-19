@@ -245,6 +245,9 @@ export class RuntimeMemoryWriteToolService {
           await this.persaiInternalApiClientService.closeMostSimilarOpenLoop({
             assistantId: params.bundle.metadata.assistantId,
             referenceText: request.memory,
+            // ADR-120 Slice 2 — pass the current user message so the API can
+            // scope the close-by-similarity match to the current chat.
+            relatedUserMessageId,
             requestId: params.requestId
           });
         } catch (closeError) {

@@ -367,18 +367,23 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     return rows.map((row) => this.mapToDomain(row));
   }
 
-  async findLatestActiveOpenLoopsByAssistantUser(
+  async findLatestActiveOpenLoopsByAssistantUserChat(
     assistantId: string,
     userId: string,
+    chatId: string | null,
     limit: number
   ): Promise<AssistantMemoryRegistryItem[]> {
-    if (limit <= 0) {
+    // ADR-120 Slice 2 — strict current-chat scope. A null current chat id
+    // means "no chat to scope to", so there are no in-chat open loops to
+    // surface; rows with a different or null chatId are not "this chat".
+    if (limit <= 0 || chatId === null) {
       return [];
     }
     const rows = await this.prisma.assistantMemoryRegistryItem.findMany({
       where: {
         assistantId,
         userId,
+        chatId,
         kind: "open_loop",
         forgottenAt: null,
         supersededAt: null,
@@ -390,11 +395,19 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     return rows.map((row) => this.mapToDomain(row));
   }
 
-  async countActiveOpenLoopsByAssistantUser(assistantId: string, userId: string): Promise<number> {
+  async countActiveOpenLoopsByAssistantUserChat(
+    assistantId: string,
+    userId: string,
+    chatId: string | null
+  ): Promise<number> {
+    if (chatId === null) {
+      return 0;
+    }
     return this.prisma.assistantMemoryRegistryItem.count({
       where: {
         assistantId,
         userId,
+        chatId,
         kind: "open_loop",
         forgottenAt: null,
         supersededAt: null,
@@ -421,8 +434,15 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
   async findMostSimilarActiveOpenLoop(
     assistantId: string,
     userId: string,
+    chatId: string | null,
     referenceText: string
   ): Promise<AssistantMemoryRegistryItem | null> {
+    // ADR-120 Slice 2 — the close-by-similarity path is scoped to the current
+    // chat so the model can only close a loop that belongs to the chat it can
+    // see. A null current chat id means there is nothing in-chat to close.
+    if (chatId === null) {
+      return null;
+    }
     const referenceTokens = tokenizeForLexicalMatch(referenceText);
     if (referenceTokens.size === 0) {
       return null;
@@ -436,6 +456,7 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       where: {
         assistantId,
         userId,
+        chatId,
         kind: "open_loop",
         forgottenAt: null,
         supersededAt: null,

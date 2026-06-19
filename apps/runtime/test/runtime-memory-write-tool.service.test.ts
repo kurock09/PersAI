@@ -493,7 +493,9 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
         closeOpenLoop: true
       }),
       conversation: directWebConversation,
-      currentUserMessageId: null,
+      // ADR-120 Slice 2 — a valid current user message id is forwarded so the
+      // API can scope the close-by-similarity match to the current chat.
+      currentUserMessageId: "11111111-1111-4111-8111-111111111111",
       requestId: "request-true"
     });
     assert.equal(result.payload.action, "remembered");
@@ -502,6 +504,7 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     assert.deepEqual(apiTrue.closeOpenLoopCalls[0], {
       assistantId: "assistant-1",
       referenceText: "Booked the Barcelona retreat venue.",
+      relatedUserMessageId: "11111111-1111-4111-8111-111111111111",
       requestId: "request-true"
     });
   }

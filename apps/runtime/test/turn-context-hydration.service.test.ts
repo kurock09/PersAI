@@ -1158,12 +1158,30 @@ async function runOpenLoopRefsDeveloperBlockAcceptance(): Promise<void> {
   );
   assert.match(block ?? "", /\.\.\. 37 more unresolved loops omitted\./);
 
+  // ADR-120 Slice 2 — the open-loop-refs request must carry the current
+  // canonical chat id so the API can scope the list to this chat only.
+  assert.equal(persaiInternalApiClient.openLoopRefsInputs.length, 1);
+  assert.equal(persaiInternalApiClient.openLoopRefsInputs[0]?.chatId, "chat-1");
+
   const pruned = service.pruneClosedOpenLoopRefsDeveloperBlock(block, [
     "88888888-8888-4888-8888-888888888888"
   ]);
   assert.ok(
     !(pruned ?? "").includes("88888888-8888-4888-8888-888888888888"),
     "closed refs must be removed from the same-turn developer block"
+  );
+
+  // ADR-120 Slice 2 — with no current canonical chat row, there is no chat to
+  // scope to: the block is omitted entirely and the API is never called (a
+  // loop from another chat must never leak into this prompt).
+  prisma.chat = null;
+  persaiInternalApiClient.openLoopRefsInputs.length = 0;
+  const noChatBlock = await service.computeOpenLoopRefsDeveloperBlock(request);
+  assert.equal(noChatBlock, null, "no current chat ⇒ open-loop refs block omitted");
+  assert.equal(
+    persaiInternalApiClient.openLoopRefsInputs.length,
+    0,
+    "no current chat ⇒ open-loop-refs API must not be called"
   );
 }
 

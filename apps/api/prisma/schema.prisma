@@ -2519,6 +2519,9 @@ model AssistantMemoryRegistryItem {
   @@index([assistantId, createdAt(sort: Desc)])
   @@index([assistantId, memoryClass, createdAt(sort: Desc)], map: "assistant_memory_registry_items_assistant_class_created_idx")
   @@index([assistantId, lastUsedAt(sort: Desc)], map: "assistant_memory_registry_items_assistant_lastused_idx")
+  // ADR-120 Slice 2 — current-chat-scoped open-loop refs query
+  // (assistant + user + chat, kind=open_loop, open-only).
+  @@index([assistantId, userId, chatId], map: "assistant_memory_registry_items_assistant_user_chat_idx")
   @@map("assistant_memory_registry_items")
 }
 

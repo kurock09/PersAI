@@ -951,9 +951,17 @@ export class TurnContextHydrationService {
     if (!this.persaiInternalApiClient.isConfigured()) {
       return null;
     }
+    // ADR-120 Slice 2 — open-loop refs are scoped to the current chat. Resolve
+    // the canonical chat id; surfaces without one (or before the chat row is
+    // materialised) have no in-chat loops to surface, so the block is omitted.
+    const currentChatId = (await this.loadAssistantChatRowMeta(input.conversation))?.id ?? null;
+    if (currentChatId === null) {
+      return null;
+    }
     try {
       const outcome = await this.persaiInternalApiClient.listActiveOpenLoopRefs({
         assistantId: input.conversation.assistantId,
+        chatId: currentChatId,
         requestId: input.requestId
       });
       return renderOpenLoopRefsDeveloperBlock(

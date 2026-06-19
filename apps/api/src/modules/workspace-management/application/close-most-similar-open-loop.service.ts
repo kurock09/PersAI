@@ -1,5 +1,9 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
+  ASSISTANT_CHAT_REPOSITORY,
+  type AssistantChatRepository
+} from "../domain/assistant-chat.repository";
+import {
   ASSISTANT_MEMORY_REGISTRY_REPOSITORY,
   type AssistantMemoryRegistryRepository
 } from "../domain/assistant-memory-registry.repository";
@@ -25,6 +29,14 @@ import { AppendAssistantAuditEventService } from "./append-assistant-audit-event
 export interface CloseMostSimilarOpenLoopInput {
   assistantId: string;
   referenceText: string;
+  /**
+   * ADR-120 Slice 2 — the current user message whose chat scopes the close.
+   * The service resolves the message's `chatId` (the same mechanism the
+   * memory-write path uses) so the close-by-similarity match can only touch
+   * an open loop that belongs to the chat the model can see. When this is
+   * null, or it does not resolve to a user message, nothing is closed.
+   */
+  relatedUserMessageId: string | null;
   requestId: string | null;
 }
 
@@ -43,6 +55,8 @@ export class CloseMostSimilarOpenLoopService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_MEMORY_REGISTRY_REPOSITORY)
     private readonly assistantMemoryRegistryRepository: AssistantMemoryRegistryRepository,
+    @Inject(ASSISTANT_CHAT_REPOSITORY)
+    private readonly assistantChatRepository: AssistantChatRepository,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
@@ -54,10 +68,15 @@ export class CloseMostSimilarOpenLoopService {
 
     const assistantId = this.asNonEmptyString(row.assistantId);
     const referenceText = this.normalizeReferenceText(row.referenceText);
+    const relatedUserMessageId = this.asNullableString(row.relatedUserMessageId);
     const requestId = this.asNullableString(row.requestId);
 
     const unknownKeys = Object.keys(row).filter(
-      (key) => key !== "assistantId" && key !== "referenceText" && key !== "requestId"
+      (key) =>
+        key !== "assistantId" &&
+        key !== "referenceText" &&
+        key !== "relatedUserMessageId" &&
+        key !== "requestId"
     );
 
     if (unknownKeys.length > 0 || assistantId === null || referenceText === null) {
@@ -67,6 +86,7 @@ export class CloseMostSimilarOpenLoopService {
     return {
       assistantId,
       referenceText,
+      relatedUserMessageId,
       requestId
     };
   }
@@ -77,9 +97,17 @@ export class CloseMostSimilarOpenLoopService {
       throw new NotFoundException("Assistant not found.");
     }
 
+    // ADR-120 Slice 2 — resolve the current chat from the supplied user
+    // message id (the same chat-resolution mechanism the memory-write path
+    // uses) so the close-by-similarity match is scoped to the current chat.
+    // This is a fail-soft follow-up path: an absent or non-user-authored
+    // message yields a null chat scope, which closes nothing.
+    const chatId = await this.resolveCurrentChatId(assistant.id, input.relatedUserMessageId);
+
     const candidate = await this.assistantMemoryRegistryRepository.findMostSimilarActiveOpenLoop(
       assistant.id,
       assistant.userId,
+      chatId,
       input.referenceText
     );
     if (candidate === null) {
@@ -157,6 +185,23 @@ export class CloseMostSimilarOpenLoopService {
       closedItemId: candidate.id,
       reason: "matched"
     };
+  }
+
+  private async resolveCurrentChatId(
+    assistantId: string,
+    relatedUserMessageId: string | null
+  ): Promise<string | null> {
+    if (relatedUserMessageId === null) {
+      return null;
+    }
+    const relatedMessage = await this.assistantChatRepository.findMessageByIdForAssistant(
+      relatedUserMessageId,
+      assistantId
+    );
+    if (relatedMessage === null || relatedMessage.author !== "user") {
+      return null;
+    }
+    return relatedMessage.chatId;
   }
 
   private normalizeReferenceText(value: unknown): string | null {

@@ -134,13 +134,22 @@ export interface AssistantMemoryRegistryRepository {
    * TTL filter. Used by the runtime developer block so the model can close a
    * recently-mentioned loop on the next turn even when the visible carry-over
    * block is no longer present.
+   *
+   * ADR-120 Slice 2 — scoped to the current chat (`chatId = current`). A null
+   * `chatId` yields an empty list: open loops from another chat (or with no
+   * chat) are not "this chat" and must never appear in the current prompt.
    */
-  findLatestActiveOpenLoopsByAssistantUser(
+  findLatestActiveOpenLoopsByAssistantUserChat(
     assistantId: string,
     userId: string,
+    chatId: string | null,
     limit: number
   ): Promise<AssistantMemoryRegistryItem[]>;
-  countActiveOpenLoopsByAssistantUser(assistantId: string, userId: string): Promise<number>;
+  countActiveOpenLoopsByAssistantUserChat(
+    assistantId: string,
+    userId: string,
+    chatId: string | null
+  ): Promise<number>;
   /**
    * ADR-074 Slice M3 — stamp `resolved_at = now()` on an `open_loop` row.
    * Returns true if a row was updated, false if the row was already
@@ -157,10 +166,15 @@ export interface AssistantMemoryRegistryRepository {
    * share enough significant tokens with `referenceText` to be considered
    * a match. The matching policy is intentionally simple (no embedding
    * round-trip): M3.1 will replace this with a structured close action.
+   *
+   * ADR-120 Slice 2 — scoped to the current chat (`chatId = current`) so the
+   * model can only close a loop that belongs to the chat it can see. A null
+   * `chatId` matches nothing.
    */
   findMostSimilarActiveOpenLoop(
     assistantId: string,
     userId: string,
+    chatId: string | null,
     referenceText: string
   ): Promise<AssistantMemoryRegistryItem | null>;
 }

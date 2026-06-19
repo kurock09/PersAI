@@ -411,6 +411,11 @@ export type InternalRuntimeFileExtractionOutcome =
 export type InternalCloseMostSimilarOpenLoopInput = {
   assistantId: string;
   referenceText: string;
+  /**
+   * ADR-120 Slice 2 — current user message id; the API resolves its chat so the
+   * close-by-similarity match is scoped to the chat the model can see.
+   */
+  relatedUserMessageId: string | null;
   requestId: string | null;
 };
 
@@ -459,6 +464,8 @@ export type InternalCrossSessionCarryOverOpenLoop = {
 
 export type InternalListActiveOpenLoopRefsInput = {
   assistantId: string;
+  /** ADR-120 Slice 2 — current canonical chat id; open-loop refs are scoped to it. */
+  chatId: string | null;
   requestId: string | null;
 };
 

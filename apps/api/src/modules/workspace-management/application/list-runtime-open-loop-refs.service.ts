@@ -9,6 +9,8 @@ const MAX_RUNTIME_OPEN_LOOP_REFS = 100;
 
 export interface ListRuntimeOpenLoopRefsInput {
   assistantId: string;
+  /** ADR-120 Slice 2 — current canonical chat id; refs are scoped to it. */
+  chatId: string | null;
   requestId: string | null;
 }
 
@@ -38,14 +40,15 @@ export class ListRuntimeOpenLoopRefsService {
     }
     const row = payload as Record<string, unknown>;
     const assistantId = this.asNonEmptyString(row.assistantId);
+    const chatId = this.asNullableString(row.chatId);
     const requestId = this.asNullableString(row.requestId);
     const unknownKeys = Object.keys(row).filter(
-      (key) => key !== "assistantId" && key !== "requestId"
+      (key) => key !== "assistantId" && key !== "chatId" && key !== "requestId"
     );
     if (assistantId === null || unknownKeys.length > 0) {
       throw new BadRequestException("open-loop-refs payload is invalid.");
     }
-    return { assistantId, requestId };
+    return { assistantId, chatId, requestId };
   }
 
   async execute(input: ListRuntimeOpenLoopRefsInput): Promise<ListRuntimeOpenLoopRefsResult> {
@@ -53,15 +56,26 @@ export class ListRuntimeOpenLoopRefsService {
     if (assistant === null) {
       throw new NotFoundException("Assistant not found.");
     }
+    // ADR-120 Slice 2 — without a current chat to scope to, there are no
+    // in-chat open loops to surface. Return empty instead of an assistant-wide
+    // list so a loop from another chat can never enter the current prompt.
+    if (input.chatId === null) {
+      return {
+        unresolvedOpenLoops: [],
+        totalUnresolvedOpenLoops: 0
+      };
+    }
     const [rows, totalUnresolvedOpenLoops] = await Promise.all([
-      this.assistantMemoryRegistryRepository.findLatestActiveOpenLoopsByAssistantUser(
+      this.assistantMemoryRegistryRepository.findLatestActiveOpenLoopsByAssistantUserChat(
         assistant.id,
         assistant.userId,
+        input.chatId,
         MAX_RUNTIME_OPEN_LOOP_REFS
       ),
-      this.assistantMemoryRegistryRepository.countActiveOpenLoopsByAssistantUser(
+      this.assistantMemoryRegistryRepository.countActiveOpenLoopsByAssistantUserChat(
         assistant.id,
-        assistant.userId
+        assistant.userId,
+        input.chatId
       )
     ]);
     return {
