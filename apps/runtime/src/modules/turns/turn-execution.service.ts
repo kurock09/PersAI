@@ -59,9 +59,6 @@ import {
   type RuntimeTurnRoutingSnapshot,
   type RuntimeTurnToolInvocation,
   type RuntimeTurnStreamEvent,
-  type RuntimeRetrievedKnowledgeContext,
-  type RuntimeRetrievedKnowledgeContextItem,
-  type RuntimeRetrievalActivitySource,
   type RuntimeBillingFacts,
   type RuntimeWebSearchToolResult,
   type RuntimeWebFetchToolResult,
@@ -81,7 +78,6 @@ import {
 } from "./native-tool-projection";
 import {
   createProjectModeBootstrapStreamEvents,
-  createProjectModePostRetrievalStreamEvents,
   createProjectModeReplanStreamEvents,
   createProjectModeSynthesisStreamEvents,
   isProjectChatMode,
@@ -142,7 +138,6 @@ const PROMPT_CACHE_KEY_BUCKETS = 8;
 const PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
 const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 const ANTHROPIC_HISTORY_BREAKPOINT_MIN_TOKENS = 3_000;
-const APPROX_CHARS_PER_TOKEN = 4;
 const MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS = 4;
 const MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS = 4;
 const MAX_JOB_DELIVERY_UPDATE_ITEMS = 6;
@@ -171,7 +166,6 @@ type PreparedTurnExecution = {
   deepModeEnabled: boolean;
   selectedModelRole: PersaiRuntimeModelRole;
   routeDecision: TurnRouteDecision;
-  retrievedKnowledgeContext: RuntimeRetrievedKnowledgeContext | null;
   preludeUsageEntries: RuntimeUsageAccountingEntry[];
   // ADR-074 Slice T1: rendered presence developer-tail block, computed once
   // per `prepareTurnExecution`. `null` when the bundle has no presence
@@ -180,18 +174,9 @@ type PreparedTurnExecution = {
   presenceBlock: string | null;
 };
 
-type TurnKnowledgeSourcePolicyState =
-  | "default"
-  | "skill_only"
-  | "escalated_to_user"
-  | "escalated_to_web"
-  | "escalated_to_product";
-
 type TurnKnowledgeSourcePolicy = {
   searchSources: PersaiRuntimeKnowledgeSource[];
   fetchSources: PersaiRuntimeKnowledgeSource[];
-  state: TurnKnowledgeSourcePolicyState;
-  activeSkillTurn: boolean;
 };
 
 type RuntimeStreamTraceCollector = {
@@ -362,7 +347,6 @@ type DeveloperInstructionSectionKey =
   | "source_progression"
   | "open_loop_refs"
   | "working_files"
-  | "retrieved_knowledge"
   | "open_media_jobs"
   | "open_document_jobs"
   | "job_delivery_updates"
@@ -668,18 +652,6 @@ export class TurnExecutionService {
       options?.excludedToolNames
     );
     options?.trace?.stage("prepare.turn_policy_applied");
-    const retrievedKnowledgeContext = await this.resolveRetrievedKnowledgeContext({
-      bundle: bundleEntry.parsedBundle,
-      input,
-      routeDecision: executionPlan.routeDecision,
-      projectedTools,
-      knowledgeSourcePolicy
-    });
-    options?.trace?.stage("prepare.retrieval_context_ready");
-    const plannedRetrievedKnowledgeContext = this.planRetrievedKnowledgeContext(
-      bundleEntry.parsedBundle,
-      retrievedKnowledgeContext
-    );
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, {
       modelRoleOverride: executionPlan.modelRole,
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
@@ -697,7 +669,6 @@ export class TurnExecutionService {
       availableWorkingFileRefs,
       deepModeEnabled: input.deepMode === true,
       routeDecision: executionPlan.routeDecision,
-      retrievedKnowledgeContext: plannedRetrievedKnowledgeContext,
       openLoopRefsBlock,
       presenceBlock,
       openMediaJobs: input.openMediaJobs,
@@ -726,7 +697,6 @@ export class TurnExecutionService {
       deepModeEnabled: input.deepMode === true,
       selectedModelRole: executionPlan.modelRole,
       routeDecision: executionPlan.routeDecision,
-      retrievedKnowledgeContext: plannedRetrievedKnowledgeContext,
       preludeUsageEntries: executionPlan.usageEntries,
       providerRequest,
       presenceBlock
@@ -768,15 +738,18 @@ export class TurnExecutionService {
       (source) => source.source
     );
     const defaultFetchSources = projectedTools.knowledgeFetchSources.map((source) => source.source);
+    // ADR-120 Slice 5 — the Skill KB pull source is only ALLOWED when a Skill
+    // is active/engaged for the turn. On every other turn it is dropped from
+    // the projected source enum so the model cannot read Skill content outside
+    // an active-skill context.
     if (!this.isActiveSkillRetrievalTurn(routeDecision)) {
       return {
-        searchSources: defaultSearchSources,
-        fetchSources: defaultFetchSources,
-        state: "default",
-        activeSkillTurn: false
+        searchSources: defaultSearchSources.filter((source) => source !== "skill"),
+        fetchSources: defaultFetchSources.filter((source) => source !== "skill")
       };
     }
     const allowedSkillTurnKnowledgeSources: PersaiRuntimeKnowledgeSource[] = [
+      "skill",
       "document",
       "memory",
       "chat",
@@ -787,9 +760,7 @@ export class TurnExecutionService {
     const allowed = new Set(allowedSkillTurnKnowledgeSources);
     return {
       searchSources: defaultSearchSources.filter((source) => allowed.has(source)),
-      fetchSources: defaultFetchSources.filter((source) => allowed.has(source)),
-      state: "skill_only",
-      activeSkillTurn: true
+      fetchSources: defaultFetchSources.filter((source) => allowed.has(source))
     };
   }
 
@@ -805,170 +776,6 @@ export class TurnExecutionService {
       routeDecision.retrievalPlan.useSkills &&
       routeDecision.retrievalPlan.selectedSkillIds.some((skillId) => skillId.trim().length > 0)
     );
-  }
-
-  private async resolveRetrievedKnowledgeContext(input: {
-    bundle: AssistantRuntimeBundle;
-    input: RuntimeTurnRequest;
-    routeDecision: TurnRouteDecision;
-    projectedTools: RuntimeNativeToolProjection;
-    knowledgeSourcePolicy: TurnKnowledgeSourcePolicy;
-  }): Promise<RuntimeRetrievedKnowledgeContext | null> {
-    if (input.routeDecision.mode !== "active") {
-      return null;
-    }
-    const plan = input.routeDecision.retrievalPlan;
-    if (!plan.useSkills && !plan.useUserKnowledge && !plan.useProductKnowledge && !plan.useWeb) {
-      return null;
-    }
-    const availableToolNames = new Set(input.projectedTools.tools.map((tool) => tool.name));
-    if (
-      (plan.useUserKnowledge || plan.useProductKnowledge || plan.useSkills) &&
-      !availableToolNames.has("knowledge_search")
-    ) {
-      return null;
-    }
-    try {
-      const context = await this.persaiInternalApiClientService.orchestrateRetrieval({
-        assistantId: input.bundle.metadata.assistantId,
-        query: input.input.message.text,
-        locale: input.input.message.locale ?? input.bundle.userContext.locale,
-        retrievalPlan: plan,
-        gatherProfile: isProjectChatMode(input.input) ? "project" : null,
-        sourcePolicy: {
-          mode: input.knowledgeSourcePolicy.activeSkillTurn ? "active_skill" : "default",
-          state: input.knowledgeSourcePolicy.state,
-          allowedKnowledgeSearchSources: input.knowledgeSourcePolicy.searchSources,
-          allowedKnowledgeFetchSources: input.knowledgeSourcePolicy.fetchSources
-        },
-        conversation: {
-          channel: input.input.conversation.channel,
-          surfaceThreadKey: input.input.conversation.externalThreadKey
-        }
-      });
-      return context.renderedBlock === null || context.items.length === 0 ? null : context;
-    } catch (error) {
-      this.logger.warn(
-        `Orchestrated retrieval failed for assistant ${input.bundle.metadata.assistantId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-      return null;
-    }
-  }
-
-  private planRetrievedKnowledgeContext(
-    bundle: AssistantRuntimeBundle,
-    context: RuntimeRetrievedKnowledgeContext | null
-  ): RuntimeRetrievedKnowledgeContext | null {
-    if (context === null || context.items.length === 0) {
-      return context;
-    }
-    // ADR-120 Slice 1 retired the pushed contextual short-memory block, so there
-    // is no longer a contextual-memory set to de-duplicate retrieved knowledge
-    // against; the orchestrated retrieval result is planned directly.
-    const coherentContext = context;
-    const config = resolveRuntimeContextHydrationConfig(bundle);
-    const charBudget = Math.max(
-      1_000,
-      Math.floor(config.knowledgeHydrationBudget * APPROX_CHARS_PER_TOKEN)
-    );
-    const selectedItems: RuntimeRetrievedKnowledgeContextItem[] = [];
-    let renderedBlock = this.renderRetrievedKnowledgeContextBlock(selectedItems);
-    for (const item of this.rankRetrievedKnowledgeContextItems(coherentContext.items)) {
-      const candidateItem = this.fitRetrievedKnowledgeContextItem(item, charBudget);
-      const candidateItems = [...selectedItems, candidateItem];
-      const candidateBlock = this.renderRetrievedKnowledgeContextBlock(candidateItems);
-      if (candidateBlock.length <= charBudget) {
-        selectedItems.push(candidateItem);
-        renderedBlock = candidateBlock;
-        continue;
-      }
-      const remainingChars = charBudget - renderedBlock.length;
-      if (remainingChars <= 240) {
-        break;
-      }
-      const shortened = {
-        ...candidateItem,
-        content: this.truncate(candidateItem.content, remainingChars)
-      };
-      const shortenedBlock = this.renderRetrievedKnowledgeContextBlock([
-        ...selectedItems,
-        shortened
-      ]);
-      if (shortenedBlock.length <= charBudget) {
-        selectedItems.push(shortened);
-        renderedBlock = shortenedBlock;
-      }
-      break;
-    }
-    return {
-      items: selectedItems,
-      renderedBlock: selectedItems.length === 0 ? null : renderedBlock
-    };
-  }
-
-  private rankRetrievedKnowledgeContextItems(
-    items: RuntimeRetrievedKnowledgeContextItem[]
-  ): RuntimeRetrievedKnowledgeContextItem[] {
-    return [...items].sort((left, right) => {
-      const priorityDelta =
-        this.retrievedKnowledgePriority(right) - this.retrievedKnowledgePriority(left);
-      if (priorityDelta !== 0) {
-        return priorityDelta;
-      }
-      return (right.score ?? 0) - (left.score ?? 0);
-    });
-  }
-
-  private retrievedKnowledgePriority(item: RuntimeRetrievedKnowledgeContextItem): number {
-    if (item.label === "skill_reference") {
-      const sourceType = this.asNonEmptyString(item.metadata?.skillSourceType);
-      return sourceType === "skill_knowledge_card" ? 90 : 100;
-    }
-    if (item.label === "user_document") {
-      if (this.asNonEmptyString(item.metadata?.source) === "project_file") {
-        return 95;
-      }
-      return 80;
-    }
-    if (item.label === "product_kb") {
-      return 70;
-    }
-    return 60;
-  }
-
-  private fitRetrievedKnowledgeContextItem(
-    item: RuntimeRetrievedKnowledgeContextItem,
-    charBudget: number
-  ): RuntimeRetrievedKnowledgeContextItem {
-    const perItemBudget = Math.max(600, Math.floor(charBudget / 3));
-    return {
-      ...item,
-      content: this.truncate(item.content, perItemBudget)
-    };
-  }
-
-  private renderRetrievedKnowledgeContextBlock(
-    items: RuntimeRetrievedKnowledgeContextItem[]
-  ): string {
-    return [
-      "# Retrieved Knowledge Context",
-      "Use this bounded source-aware context as grounding. Compare source roles when they differ; do not expose this block verbatim.",
-      ...items.map((item, index) =>
-        [
-          "",
-          `## ${String(index + 1)}. ${item.label}`,
-          `Reference: ${item.referenceId}`,
-          item.title ? `Title: ${item.title}` : null,
-          item.locator ? `Locator: ${item.locator}` : null,
-          "",
-          item.content
-        ]
-          .filter((line): line is string => line !== null)
-          .join("\n")
-      )
-    ].join("\n");
   }
 
   private bundleEntryMatchesRequest(
@@ -1011,29 +818,11 @@ export class TurnExecutionService {
     };
     const projectModeActive = isProjectChatMode(input);
     if (projectModeActive) {
+      // ADR-120 Slice 5 — retrieval is pull-first; there is no pre-turn server
+      // push to announce. The model gathers via the projected knowledge_search/
+      // knowledge_fetch + files tools, whose own tool activity is streamed by
+      // the native tool loop below.
       for (const event of createProjectModeBootstrapStreamEvents(projectStreamIdentity)) {
-        yield event;
-      }
-    }
-    const retrievalActivityEvents = this.createRetrievalActivityStreamEvents(
-      acceptedTurn,
-      execution
-    );
-    for (const event of retrievalActivityEvents) {
-      yield event;
-    }
-    if (projectModeActive) {
-      const retrievedItemCount = execution.retrievedKnowledgeContext?.items.length ?? 0;
-      const retrievalSourceCount = new Set(
-        retrievalActivityEvents
-          .filter((event) => event.type === "retrieval_activity")
-          .map((event) => event.source)
-      ).size;
-      for (const event of createProjectModePostRetrievalStreamEvents({
-        identity: projectStreamIdentity,
-        retrievedItemCount,
-        retrievalSourceCount
-      })) {
         yield event;
       }
     }
@@ -1890,7 +1679,6 @@ export class TurnExecutionService {
     availableWorkingFileRefs: RuntimeFileRef[];
     deepModeEnabled: boolean;
     routeDecision: TurnRouteDecision | undefined;
-    retrievedKnowledgeContext: RuntimeRetrievedKnowledgeContext | null;
     openLoopRefsBlock: string | null;
     presenceBlock: string | null;
     openMediaJobs: RuntimeTurnRequest["openMediaJobs"];
@@ -1904,9 +1692,6 @@ export class TurnExecutionService {
     );
     const workingFilesSection = this.buildWorkingFilesDeveloperSection(
       input.availableWorkingFileRefs
-    );
-    const retrievedKnowledgeSection = this.buildRetrievedKnowledgeContextDeveloperSection(
-      input.retrievedKnowledgeContext
     );
     const openLoopRefsSection = this.normalizeOptionalText(input.openLoopRefsBlock);
     const openMediaJobsSection = this.buildOpenMediaJobsDeveloperSection(input.openMediaJobs);
@@ -1933,7 +1718,6 @@ export class TurnExecutionService {
       { key: "routing_hints", content: routingGuidance },
       { key: "open_loop_refs", content: openLoopRefsSection },
       { key: "working_files", content: workingFilesSection },
-      { key: "retrieved_knowledge", content: retrievedKnowledgeSection },
       { key: "open_media_jobs", content: openMediaJobsSection },
       { key: "open_document_jobs", content: openDocumentJobsSection },
       { key: "job_delivery_updates", content: jobDeliveryUpdatesSection },
@@ -1985,12 +1769,6 @@ export class TurnExecutionService {
       (attachment) =>
         attachment.kind === "audio" || attachment.mimeType.toLowerCase().startsWith("audio/")
     );
-  }
-
-  private buildRetrievedKnowledgeContextDeveloperSection(
-    context: RuntimeRetrievedKnowledgeContext | null
-  ): string | null {
-    return this.normalizeOptionalText(context?.renderedBlock ?? null);
   }
 
   private buildWorkingFilesDeveloperSection(
@@ -2194,12 +1972,8 @@ export class TurnExecutionService {
       routeDecision.retrievalHint && availableToolNames.includes("knowledge_search")
         ? "Assistant knowledge retrieval is likely needed before answering. Prefer knowledge_search first, then knowledge_fetch only for the exact excerpt you need."
         : null,
-      routeDecision.retrievalPlan.useSkills
-        ? `Retrieval plan selected enabled Skills: ${routeDecision.retrievalPlan.selectedSkillIds.join(", ")}. Prefer the Retrieved Knowledge Context developer section when present.`
-        : null,
-      this.isActiveSkillRetrievalTurn(routeDecision) &&
-      availableToolNames.includes("knowledge_search")
-        ? "Active-skill retrieval is runtime-owned for this turn. Use low-level knowledge_search/knowledge_fetch only for assistant-owned follow-up lookup that is still genuinely needed after the Retrieved Knowledge Context developer section."
+      routeDecision.retrievalPlan.useSkills && availableToolNames.includes("knowledge_search")
+        ? `Retrieval plan selected enabled Skills: ${routeDecision.retrievalPlan.selectedSkillIds.join(", ")}. The Skill knowledge base is available via knowledge_search source "skill"; search to locate, then knowledge_fetch the exact excerpt you need.`
         : null,
       routeDecision.retrievalPlan.useUserKnowledge &&
       availableToolNames.includes("knowledge_search")
@@ -4418,137 +4192,6 @@ export class TurnExecutionService {
     };
   }
 
-  private createRetrievalActivityStreamEvents(
-    acceptedTurn: AcceptedRuntimeTurn,
-    execution: PreparedTurnExecution
-  ): RuntimeTurnStreamEvent[] {
-    const context = execution.retrievedKnowledgeContext;
-    const activeSkillName = this.resolveActiveSkillActivityName(execution, context);
-    const activeSkillIconEmoji = this.resolveActiveSkillActivityIconEmoji(execution);
-    if (context === null || context.items.length === 0) {
-      if (!execution.routeDecision.retrievalPlan.useSkills || activeSkillName === undefined) {
-        return [];
-      }
-      return [
-        {
-          type: "retrieval_activity",
-          requestId: acceptedTurn.receipt.requestId,
-          sessionId: acceptedTurn.session.sessionId,
-          source: "skill",
-          phase: "start",
-          resultCount: 0,
-          skillName: activeSkillName,
-          ...(activeSkillIconEmoji === undefined ? {} : { skillIconEmoji: activeSkillIconEmoji })
-        }
-      ];
-    }
-    const counts = new Map<RuntimeRetrievalActivitySource, number>();
-    for (const item of context.items) {
-      const source = this.toRetrievalActivitySource(item.label);
-      counts.set(source, (counts.get(source) ?? 0) + 1);
-    }
-    if (execution.routeDecision.retrievalPlan.useSkills && activeSkillName !== undefined) {
-      counts.set("skill", counts.get("skill") ?? 0);
-    }
-    if (counts.size === 0) {
-      return [];
-    }
-    return [...counts.entries()].map(([source, resultCount]) => {
-      const skillName = source === "skill" ? activeSkillName : undefined;
-      return {
-        type: "retrieval_activity",
-        requestId: acceptedTurn.receipt.requestId,
-        sessionId: acceptedTurn.session.sessionId,
-        source,
-        phase: "start",
-        resultCount,
-        ...(skillName === undefined ? {} : { skillName }),
-        ...(source !== "skill" || activeSkillIconEmoji === undefined
-          ? {}
-          : { skillIconEmoji: activeSkillIconEmoji })
-      };
-    });
-  }
-
-  private resolveActiveSkillActivityName(
-    execution: PreparedTurnExecution,
-    context: RuntimeRetrievedKnowledgeContext | null
-  ): string | undefined {
-    const state = execution.routeDecision.skillState;
-    if (state?.status === "active" && state.activeSkillName !== null) {
-      const activeName = state.activeSkillName.trim();
-      if (activeName.length > 0) {
-        return activeName;
-      }
-    }
-    const retrievedSkillName =
-      context === null ? undefined : this.resolveFirstRetrievedSkillName(context);
-    if (retrievedSkillName !== undefined) {
-      return retrievedSkillName;
-    }
-    return this.resolveSelectedSkillActivitySummary(execution)?.name;
-  }
-
-  private resolveActiveSkillActivityIconEmoji(
-    execution: PreparedTurnExecution
-  ): string | undefined {
-    const skill = this.resolveSelectedSkillActivitySummary(execution);
-    const iconEmoji = skill?.iconEmoji?.trim();
-    return iconEmoji && iconEmoji.length > 0 ? iconEmoji : undefined;
-  }
-
-  private resolveSelectedSkillActivitySummary(
-    execution: PreparedTurnExecution
-  ): { name: string; iconEmoji?: string | null } | undefined {
-    const activeSkillId = execution.routeDecision.skillState?.activeSkillId;
-    const selectedSkillIds =
-      typeof activeSkillId === "string" && activeSkillId.trim().length > 0
-        ? [activeSkillId]
-        : execution.routeDecision.retrievalPlan.selectedSkillIds;
-    for (const skillId of selectedSkillIds) {
-      const normalizedSkillId = typeof skillId === "string" ? skillId.trim() : "";
-      if (normalizedSkillId.length === 0) {
-        continue;
-      }
-      const skill =
-        execution.bundle.skills?.enabled.find((row) => row.id === normalizedSkillId) ?? null;
-      if (skill === null) {
-        continue;
-      }
-      const name = skill.name.trim();
-      if (name.length > 0) {
-        return skill.iconEmoji === undefined ? { name } : { name, iconEmoji: skill.iconEmoji };
-      }
-    }
-    return undefined;
-  }
-
-  private resolveFirstRetrievedSkillName(
-    context: RuntimeRetrievedKnowledgeContext
-  ): string | undefined {
-    const item = context.items.find((row) => row.label === "skill_reference") ?? null;
-    const title = item?.title?.trim();
-    if (!title) {
-      return undefined;
-    }
-    return title.split(" / ")[0]?.trim() || undefined;
-  }
-
-  private toRetrievalActivitySource(
-    label: RuntimeRetrievedKnowledgeContext["items"][number]["label"]
-  ): RuntimeRetrievalActivitySource {
-    switch (label) {
-      case "skill_reference":
-        return "skill";
-      case "product_kb":
-        return "product";
-      case "web_reference":
-        return "web";
-      case "user_document":
-        return "user";
-    }
-  }
-
   /**
    * ADR-074 Slice L1: build a per-turn `ToolBudgetPolicy` from the routing
    * decision's resolved execution mode plus per-assistant overrides sourced
@@ -5180,7 +4823,6 @@ export class TurnExecutionService {
       availableWorkingFileRefs: execution.availableWorkingFileRefs,
       deepModeEnabled: execution.deepModeEnabled,
       routeDecision: execution.routeDecision,
-      retrievedKnowledgeContext: execution.retrievedKnowledgeContext,
       openLoopRefsBlock,
       presenceBlock,
       openMediaJobs: input.openMediaJobs,
@@ -5671,14 +5313,6 @@ export class TurnExecutionService {
 
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-  }
-
-  private truncate(value: string, maxChars: number): string {
-    const normalized = value.trim();
-    if (normalized.length <= maxChars) {
-      return normalized;
-    }
-    return `${normalized.slice(0, Math.max(0, maxChars - 14)).trimEnd()}\n[truncated]`;
   }
 
   private isContextWindowExceededError(error: unknown): boolean {

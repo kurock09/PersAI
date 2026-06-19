@@ -2001,7 +2001,7 @@ async function run(): Promise<void> {
         source: "database",
         query: "quota"
       }),
-    /Only document, memory, chat, subscription, and Product KB knowledge search/
+    /Only document, memory, chat, subscription, Product KB, and skill knowledge search/
   );
   assert.throws(
     () =>
@@ -2010,7 +2010,7 @@ async function run(): Promise<void> {
         source: "database",
         referenceId: "source-1:1:1"
       }),
-    /Only document, memory, chat, subscription, and Product KB knowledge fetch/
+    /Only document, memory, chat, subscription, Product KB, and skill knowledge fetch/
   );
 
   // ADR-100 follow-up — Fix C. Relevance floor (`passesRelevanceFloor`)
@@ -2154,4 +2154,294 @@ async function run(): Promise<void> {
   );
 }
 
+// ADR-120 Slice 5 — Skill KB is a `knowledge_search`/`knowledge_fetch` pull
+// source. These cover server-side enabled-skill resolution, ANN scoping to the
+// enabled skill ids, the shared relevance floor, fetch-by-ref, and the
+// cross-skill / no-skill gating that keeps Skill content out of turns where no
+// Skill is engaged.
+async function runSkillPull(): Promise<void> {
+  const skillDocumentChunks = [
+    {
+      skillDocumentId: "doc-1",
+      skillId: "skill-diet",
+      sourceVersion: 1,
+      chunkIndex: 0,
+      locator: "section 1",
+      content:
+        "Balanced nutrition principles for everyday meals, with macronutrient balance guidance.",
+      embeddingModelKey: "embed-skill",
+      skillDocument: {
+        displayName: "Dietitian Guide",
+        originalFilename: "guide.md",
+        mimeType: "text/markdown"
+      },
+      skill: { name: { en: "Dietitian" }, category: "health" }
+    }
+  ];
+  const assignmentsByAssistant: Record<string, Array<{ skillId: string }>> = {
+    "assistant-skill": [{ skillId: "skill-diet" }],
+    "assistant-none": []
+  };
+
+  const matchesSkillIds = (where: Record<string, unknown>, skillId: string): boolean => {
+    const skillIdWhere = where.skillId as { in?: string[] } | string | undefined;
+    if (typeof skillIdWhere === "string") {
+      return skillIdWhere === skillId;
+    }
+    if (skillIdWhere && Array.isArray(skillIdWhere.in)) {
+      return skillIdWhere.in.includes(skillId);
+    }
+    return true;
+  };
+
+  const vectorSearchCalls: Array<Record<string, unknown>> = [];
+  const skillPrisma = {
+    assistant: {
+      findUnique: async ({ where }: { where: { id: string } }) => ({
+        id: where.id,
+        userId: "user-skill",
+        workspaceId: "workspace-skill",
+        applyAppliedVersionId: null,
+        governance: { assistantPlanOverrideCode: null, quotaPlanCode: null }
+      })
+    },
+    assistantSkillAssignment: {
+      findMany: async ({ where }: { where: Record<string, unknown> }) =>
+        assignmentsByAssistant[where.assistantId as string] ?? []
+    },
+    skillDocumentChunk: {
+      findMany: async ({ where }: { where: Record<string, unknown> }) =>
+        skillDocumentChunks.filter((row) => {
+          if (!matchesSkillIds(where, row.skillId)) {
+            return false;
+          }
+          if (
+            typeof where.skillDocumentId === "string" &&
+            row.skillDocumentId !== where.skillDocumentId
+          ) {
+            return false;
+          }
+          if (
+            typeof where.sourceVersion === "number" &&
+            row.sourceVersion !== where.sourceVersion
+          ) {
+            return false;
+          }
+          if (Array.isArray(where.OR)) {
+            return where.OR.some((entry) => {
+              const contentWhere = (entry as { content?: { contains?: string } }).content;
+              if (typeof contentWhere?.contains === "string") {
+                return containsInsensitive(row.content, contentWhere.contains);
+              }
+              const locatorWhere = (entry as { locator?: { contains?: string } }).locator;
+              if (typeof locatorWhere?.contains === "string") {
+                return (
+                  row.locator !== null && containsInsensitive(row.locator, locatorWhere.contains)
+                );
+              }
+              const tuple = entry as {
+                skillDocumentId?: string;
+                sourceVersion?: number;
+                chunkIndex?: number;
+              };
+              if (tuple.skillDocumentId !== undefined) {
+                return (
+                  row.skillDocumentId === tuple.skillDocumentId &&
+                  row.sourceVersion === tuple.sourceVersion &&
+                  row.chunkIndex === tuple.chunkIndex
+                );
+              }
+              return false;
+            });
+          }
+          return true;
+        }),
+      findFirst: async ({ where }: { where: Record<string, unknown> }) =>
+        skillDocumentChunks.find(
+          (row) =>
+            row.skillId === where.skillId &&
+            row.skillDocumentId === where.skillDocumentId &&
+            row.sourceVersion === where.sourceVersion &&
+            row.chunkIndex === where.chunkIndex
+        ) ?? null
+    },
+    skillKnowledgeCardChunk: {
+      findMany: async () => [],
+      findFirst: async () => null
+    }
+  };
+
+  const policyService = {
+    resolveAssistantEmbeddingModelKey: async () => "embed-skill",
+    resolveAssistantRetrievalModelKey: async () => null,
+    resolveAdminKnowledgeEmbeddingModelKey: async () => "embed-skill",
+    resolveAdminKnowledgeRetrievalModelKey: async () => null,
+    resolveAdminKnowledgeRetrievalPolicy: async () => ({
+      schema: "persai.adminKnowledgeRetrievalPolicy.v1",
+      embeddingModelKey: "embed-skill",
+      retrievalModelKey: null,
+      authoringModelKey: null,
+      smartSearchEnabled: false,
+      smartSearchLongDocSummaryChars: 800,
+      fetchFullModeAbsoluteMaxChars: 100_000,
+      fetchFullModeAbsoluteMaxChatMessages: 800,
+      notes: []
+    }),
+    resolveAssistantRetrievalPolicy: async () => ({
+      defaultMaxResults: 5,
+      maxMaxResults: 8,
+      lexicalCandidateLimit: 60,
+      vectorCandidateLimit: 240,
+      knowledgeFetchWindowRadius: 1,
+      chatFetchWindowRadius: 2,
+      fetchMaxChars: 6000,
+      helperEnabled: false,
+      helperCandidateLimit: 6,
+      helperMaxOutputTokens: 220,
+      embeddingSearchEnabled: true,
+      smartSearchShortDocChars: 2_000,
+      smartSearchMediumDocChars: 8_000,
+      chatSectionDefaultRadius: 15,
+      fetchFullModeMaxChars: 25_000,
+      fetchFullModeMaxChatMessages: 150
+    })
+  };
+
+  const skillService = new ReadAssistantKnowledgeService(
+    skillPrisma as never,
+    {
+      generateEmbeddings: async () => ({ embeddings: [[0.1, 0.2, 0.3]], usage: null })
+    } as never,
+    policyService as never,
+    { rerankCandidates: async () => null } as never,
+    {
+      recordSearch: async () => undefined,
+      recordFetch: async () => undefined
+    } as never,
+    { executeReadOnly: async () => null } as never,
+    {
+      searchNearest: async (searchInput: Record<string, unknown>) => {
+        vectorSearchCalls.push(searchInput);
+        return [
+          {
+            id: "skill-vec-1",
+            workspaceId: null,
+            assistantId: null,
+            skillId: "skill-diet",
+            sourceType: "skill_document",
+            sourceId: "doc-1",
+            chunkId: null,
+            sourceVersion: 1,
+            chunkIndex: 0,
+            embeddingModelKey: "embed-skill",
+            score: 0.84,
+            metadata: null
+          }
+        ];
+      },
+      replaceSourceChunks: async () => undefined,
+      deleteSource: async () => undefined
+    } as never
+  );
+
+  const skillHits = await skillService.searchSkill({
+    assistantId: "assistant-skill",
+    query: "nutrition principles",
+    maxResults: 3
+  });
+  assert.equal(skillHits.length, 1, "ADR-120 S5: enabled-skill search returns the skill KB hit");
+  assert.equal(skillHits[0]?.source, "skill");
+  assert.equal(skillHits[0]?.referenceId, "skill:skill-diet:skill_document:doc-1:1:0");
+  assert.equal(skillHits[0]?.title, "Dietitian / Dietitian Guide");
+  assert.equal((skillHits[0]?.metadata as { skillId?: string } | null)?.skillId, "skill-diet");
+  // ANN must be scoped server-side to the assistant's enabled skill ids.
+  assert.deepEqual(vectorSearchCalls.at(-1)?.skillIds, ["skill-diet"]);
+  assert.deepEqual(vectorSearchCalls.at(-1)?.sourceTypes, [
+    "skill_document",
+    "skill_knowledge_card"
+  ]);
+
+  // Relevance floor: a fuzzy-only single-token query with no exact-token hit is
+  // dropped (rerank disabled, no widening), mirroring the Slice 4 doc floor. Use
+  // a lexical-only service (no query embedding) so the floor is exercised on the
+  // lexical candidate rather than masked by a strong ANN hit.
+  const skillServiceLexicalOnly = new ReadAssistantKnowledgeService(
+    skillPrisma as never,
+    {
+      generateEmbeddings: async () => ({ embeddings: [null], usage: null })
+    } as never,
+    policyService as never,
+    { rerankCandidates: async () => null } as never,
+    {
+      recordSearch: async () => undefined,
+      recordFetch: async () => undefined
+    } as never,
+    { executeReadOnly: async () => null } as never,
+    {
+      searchNearest: async () => [],
+      replaceSourceChunks: async () => undefined,
+      deleteSource: async () => undefined
+    } as never
+  );
+  const skillFloorHits = await skillServiceLexicalOnly.searchSkill({
+    assistantId: "assistant-skill",
+    query: "macronutr",
+    maxResults: 3
+  });
+  assert.equal(
+    skillFloorHits.length,
+    0,
+    "ADR-120 S5: weak fuzzy-only skill candidate is dropped by the relevance floor"
+  );
+
+  // No engaged skill for the assistant: the skill source resolves to empty
+  // server-side, so nothing leaks even if the tool is somehow invoked.
+  const noSkillHits = await skillService.searchSkill({
+    assistantId: "assistant-none",
+    query: "nutrition principles",
+    maxResults: 3
+  });
+  assert.equal(noSkillHits.length, 0, "ADR-120 S5: no enabled skill yields no skill hits");
+
+  const fetched = await skillService.fetchSkill({
+    assistantId: "assistant-skill",
+    referenceId: "skill:skill-diet:skill_document:doc-1:1:0",
+    mode: "section",
+    radius: null
+  });
+  assert.ok(fetched, "ADR-120 S5: fetch-by-ref resolves an enabled skill reference");
+  assert.equal(fetched?.source, "skill");
+  assert.ok((fetched?.content ?? "").includes("Balanced nutrition principles"));
+  assert.equal((fetched?.metadata as { skillId?: string } | null)?.skillId, "skill-diet");
+
+  // Cross-skill / stale ref: the skill is not enabled for this assistant, so the
+  // fetch returns null instead of reading content the turn may not see.
+  const crossSkillFetch = await skillService.fetchSkill({
+    assistantId: "assistant-skill",
+    referenceId: "skill:skill-other:skill_document:doc-9:1:0",
+    mode: "section",
+    radius: null
+  });
+  assert.equal(crossSkillFetch, null, "ADR-120 S5: a non-enabled skill reference cannot be read");
+
+  // The thin pull tool accepts source "skill" through the shared parsers.
+  assert.equal(
+    skillService.parseSearchInput({
+      assistantId: "assistant-skill",
+      source: "skill",
+      query: "nutrition"
+    }).source,
+    "skill"
+  );
+  assert.equal(
+    skillService.parseFetchInput({
+      assistantId: "assistant-skill",
+      source: "skill",
+      referenceId: "skill:skill-diet:skill_document:doc-1:1:0"
+    }).source,
+    "skill"
+  );
+}
+
 void run();
+void runSkillPull();

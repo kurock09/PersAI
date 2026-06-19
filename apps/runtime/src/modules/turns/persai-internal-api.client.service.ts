@@ -15,8 +15,6 @@ import type {
   PersaiRuntimeKnowledgeSource,
   PersaiRuntimeTier,
   RuntimeKnowledgeDocument,
-  RuntimeRetrievedKnowledgeContext,
-  RuntimeRetrievalPlan,
   RuntimeKnowledgeSearchHit,
   RuntimeMemoryWriteItem,
   RuntimeMonthlyToolQuotaStatus,
@@ -236,29 +234,6 @@ export type InternalKnowledgeFetchInput = {
   /** ADR-094 — required at this layer; runtime tool default is "section". */
   mode: PersaiRuntimeKnowledgeFetchMode;
   radius: number | null;
-};
-
-export type InternalOrchestrateRetrievalInput = {
-  assistantId: string;
-  query: string;
-  locale: string | null;
-  retrievalPlan: RuntimeRetrievalPlan;
-  gatherProfile?: "project" | null;
-  sourcePolicy?: {
-    mode: "default" | "active_skill";
-    state:
-      | "default"
-      | "skill_only"
-      | "escalated_to_user"
-      | "escalated_to_web"
-      | "escalated_to_product";
-    allowedKnowledgeSearchSources: PersaiRuntimeKnowledgeSource[];
-    allowedKnowledgeFetchSources: PersaiRuntimeKnowledgeSource[];
-  } | null;
-  conversation?: {
-    channel: string;
-    surfaceThreadKey: string;
-  } | null;
 };
 
 export type InternalMemoryWriteInput = {
@@ -1159,45 +1134,6 @@ export class PersaiInternalApiClientService {
     );
   }
 
-  async orchestrateRetrieval(
-    input: InternalOrchestrateRetrievalInput
-  ): Promise<RuntimeRetrievedKnowledgeContext> {
-    if (!this.isConfigured()) {
-      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
-    }
-
-    const response = await this.fetchJson("/api/v1/internal/runtime/knowledge/orchestrate", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(input)
-    });
-
-    if (response.ok) {
-      const payload = this.asObject(response.body);
-      const context = payload?.context;
-      if (payload?.ok === true && this.isRetrievedKnowledgeContext(context)) {
-        return context;
-      }
-      throw new BadGatewayException(
-        "PersAI internal API returned an invalid orchestrated retrieval response."
-      );
-    }
-
-    const error = this.extractError(response.body);
-    if (response.status >= 500) {
-      throw new ServiceUnavailableException(
-        error.message ?? "PersAI internal API orchestrated retrieval request failed."
-      );
-    }
-
-    throw new BadRequestException(
-      error.message ?? "PersAI internal API rejected the orchestrated retrieval request."
-    );
-  }
-
   async writeMemory(input: InternalMemoryWriteInput): Promise<InternalMemoryWriteOutcome> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
@@ -1946,33 +1882,6 @@ export class PersaiInternalApiClientService {
       (row.locator === null || typeof row.locator === "string") &&
       typeof row.content === "string" &&
       (row.snippet === null || typeof row.snippet === "string") &&
-      (row.metadata === null || this.asObject(row.metadata) !== null)
-    );
-  }
-
-  private isRetrievedKnowledgeContext(value: unknown): value is RuntimeRetrievedKnowledgeContext {
-    const row = this.asObject(value);
-    return (
-      row !== null &&
-      Array.isArray(row.items) &&
-      row.items.every((item) => this.isRetrievedKnowledgeContextItem(item)) &&
-      (row.renderedBlock === null || typeof row.renderedBlock === "string")
-    );
-  }
-
-  private isRetrievedKnowledgeContextItem(value: unknown): boolean {
-    const row = this.asObject(value);
-    return (
-      row !== null &&
-      (row.label === "skill_reference" ||
-        row.label === "user_document" ||
-        row.label === "product_kb" ||
-        row.label === "web_reference") &&
-      typeof row.referenceId === "string" &&
-      (row.title === null || typeof row.title === "string") &&
-      (row.locator === null || typeof row.locator === "string") &&
-      typeof row.content === "string" &&
-      (row.score === null || typeof row.score === "number") &&
       (row.metadata === null || this.asObject(row.metadata) !== null)
     );
   }

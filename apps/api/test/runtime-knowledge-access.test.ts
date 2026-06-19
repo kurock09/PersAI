@@ -52,6 +52,13 @@ async function run(): Promise<void> {
         fetchAliasToolCode: null,
         searchCredentialToolCode: null,
         fetchCredentialToolCode: null
+      },
+      {
+        source: "skill",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
+        fetchCredentialToolCode: null
       }
     ]
   });

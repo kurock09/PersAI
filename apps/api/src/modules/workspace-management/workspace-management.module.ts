@@ -41,7 +41,6 @@ import { InternalRuntimeProviderSecretsController } from "./interface/http/inter
 import { InternalRuntimeAuditEventsController } from "./interface/http/internal-runtime-audit-events.controller";
 import { InternalRuntimeConfigGenerationController } from "./interface/http/internal-runtime-config-generation.controller";
 import { InternalRuntimeKnowledgeController } from "./interface/http/internal-runtime-knowledge.controller";
-import { InternalRuntimeOrchestratedRetrievalController } from "./interface/http/internal-runtime-orchestrated-retrieval.controller";
 import { InternalRuntimeMemoryController } from "./interface/http/internal-runtime-memory.controller";
 import { InternalRuntimeCompactionEnqueueController } from "./interface/http/internal-runtime-compaction-enqueue.controller";
 import { InternalRuntimeDocumentJobsEnqueueController } from "./interface/http/internal-runtime-document-jobs-enqueue.controller";
@@ -202,7 +201,6 @@ import { ManageAssistantAvatarService } from "./application/manage-assistant-ava
 import { ManageAssistantWorkspaceMemoryService } from "./application/manage-assistant-workspace-memory.service";
 import { ReadAssistantKnowledgeService } from "./application/read-assistant-knowledge.service";
 import { BackfillKnowledgeVectorStoreService } from "./application/backfill-knowledge-vector-store.service";
-import { OrchestrateRuntimeRetrievalService } from "./application/orchestrate-runtime-retrieval.service";
 import { SkillRetrievalPolicyService } from "./application/skill-retrieval-policy.service";
 import { SkillRetrievalStateService } from "./application/skill-retrieval-state.service";
 import { AutoSkillRoutingStateService } from "./application/auto-skill-routing-state.service";
@@ -442,7 +440,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeAuditEventsController,
     InternalRuntimeConfigGenerationController,
     InternalRuntimeKnowledgeController,
-    InternalRuntimeOrchestratedRetrievalController,
     InternalRuntimeMemoryController,
     InternalRuntimeMemoryHydrationController,
     InternalRuntimeMemoryCloseMostSimilarController,
@@ -626,7 +623,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageAssistantWorkspaceMemoryService,
     ReadAssistantKnowledgeService,
     BackfillKnowledgeVectorStoreService,
-    OrchestrateRuntimeRetrievalService,
     SkillRetrievalPolicyService,
     SkillRetrievalStateService,
     AutoSkillRoutingStateService,

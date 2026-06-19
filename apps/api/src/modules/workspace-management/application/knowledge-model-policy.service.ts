@@ -210,9 +210,9 @@ export class KnowledgeModelPolicyService {
   }
 
   /**
-   * ADR-094 — exposed so `ReadAssistantKnowledgeService` and
-   * `OrchestrateRuntimeRetrievalService` can read the admin-controlled smart
-   * retrieval ceilings (smart-search summary char cap, full-mode hard caps).
+   * ADR-094 — exposed so `ReadAssistantKnowledgeService` can read the
+   * admin-controlled smart retrieval ceilings (smart-search summary char cap,
+   * full-mode hard caps).
    */
   async resolveAdminKnowledgeRetrievalPolicy() {
     const row = await this.prisma.platformRuntimeProviderSettings.findUnique({

@@ -51,6 +51,18 @@ export function buildRuntimeKnowledgeAccessConfig(): RuntimeKnowledgeAccessConfi
         fetchAliasToolCode: null,
         searchCredentialToolCode: null,
         fetchCredentialToolCode: null
+      },
+      {
+        // ADR-120 Slice 5 — Skill knowledge bases are a pull source. The
+        // source is only allowed for a turn when a Skill is active/engaged
+        // (gated in `deriveTurnKnowledgeSourcePolicy`), so the model only sees
+        // it in the `knowledge_search`/`knowledge_fetch` source enum on
+        // active-skill turns.
+        source: "skill",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
+        fetchCredentialToolCode: null
       }
     ]
   };

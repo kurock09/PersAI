@@ -3,7 +3,6 @@ import { describe, test } from "node:test";
 import type { RuntimeTurnRequest } from "@persai/runtime-contract";
 import {
   createProjectModeBootstrapStreamEvents,
-  createProjectModePostRetrievalStreamEvents,
   createProjectModeReplanStreamEvents,
   createProjectModeSynthesisStreamEvents,
   isProjectChatMode
@@ -50,20 +49,6 @@ describe("project stream events", () => {
       bootstrap.some((event) => event.type === "project_activity" && event.stage === "plan")
     );
     assert.equal(bootstrap.length, 1);
-
-    const postRetrieval = createProjectModePostRetrievalStreamEvents({
-      identity,
-      retrievedItemCount: 2,
-      retrievalSourceCount: 2
-    });
-    assert.ok(
-      postRetrieval.some(
-        (event) =>
-          event.type === "project_reasoning_summary" &&
-          event.summary === "Checking whether the gathered context actually answers the task."
-      )
-    );
-    assert.equal(postRetrieval.length, 1);
 
     const replan = createProjectModeReplanStreamEvents({ identity, pass: 2 });
     assert.ok(

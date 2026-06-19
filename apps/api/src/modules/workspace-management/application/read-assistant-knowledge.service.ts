@@ -27,7 +27,8 @@ const SUPPORTED_KNOWLEDGE_SOURCES = [
   "memory",
   "chat",
   "subscription",
-  "global"
+  "global",
+  "skill"
 ] as const;
 const NON_PRODUCT_TOOL_CODES = new Set(["memory_search", "memory_get", "cron"]);
 
@@ -80,6 +81,57 @@ type ProductKnowledgeTextEntrySearchRow = {
     locale: string | null;
     lifecycleStatus: string;
     status: string;
+  };
+};
+
+type SkillSearchChunkRow = {
+  sourceKind: "skill_document" | "skill_knowledge_card";
+  sourceId: string;
+  skillId: string;
+  sourceVersion: number;
+  chunkIndex: number;
+  locator: string | null;
+  content: string;
+  embeddingModelKey: string | null;
+  sourceTitle: string;
+  mimeType: string;
+  skillName: unknown;
+  skillCategory: string;
+};
+
+type SkillDocumentChunkWithRelations = {
+  skillDocumentId: string;
+  skillId: string;
+  sourceVersion: number;
+  chunkIndex: number;
+  locator: string | null;
+  content: string;
+  embeddingModelKey: string | null;
+  skillDocument: {
+    displayName: string | null;
+    originalFilename: string;
+    mimeType: string;
+  };
+  skill: {
+    name: unknown;
+    category: string;
+  };
+};
+
+type SkillCardChunkWithRelations = {
+  skillKnowledgeCardId: string;
+  skillId: string;
+  sourceVersion: number;
+  chunkIndex: number;
+  locator: string | null;
+  content: string;
+  embeddingModelKey: string | null;
+  knowledgeCard: {
+    title: string;
+  };
+  skill: {
+    name: unknown;
+    category: string;
   };
 };
 
@@ -205,7 +257,7 @@ type RankedSearchCandidate<Row> = {
    * candidate (across title/filename/locator/content/metadata fields).
    * Fuzzy/trigram-only matches do NOT count here. Used by the relevance
    * floor (`passesRelevanceFloor`) to keep weak single-token fuzzy hits
-   * out of Retrieved Knowledge Context without changing scoring or
+   * out of `knowledge_search` results without changing scoring or
    * ranking order.
    */
   exactTokenHits: number;
@@ -872,7 +924,7 @@ function renderMetadataSearchText(metadata: Record<string, unknown> | null): str
 /**
  * Tighter relevance floor for `knowledge_search`. Independent of scoring or
  * ranking order. Drops weak single-token fuzzy/trigram-only matches from
- * Retrieved Knowledge Context while preserving honest recall:
+ * `knowledge_search` results while preserving honest recall:
  *
  * - `score <= 0` always rejected.
  * - any candidate with at least one whole-token exact hit always passes.
@@ -1048,6 +1100,70 @@ function parseDocumentReferenceId(
   }
 
   return { knowledgeSourceId, sourceVersion, chunkIndex };
+}
+
+// ADR-120 Slice 5 — Skill KB reference ids. Shape is
+// `skill:<skillId>:<skill_document|skill_knowledge_card>:<sourceId>:<sourceVersion>:<chunkIndex>`.
+// This is the same on-wire shape the retired orchestrator used, so any
+// reference id previously emitted stays parseable.
+function buildSkillReferenceId(params: {
+  skillId: string;
+  sourceKind: "skill_document" | "skill_knowledge_card";
+  sourceId: string;
+  sourceVersion: number;
+  chunkIndex: number;
+}): string {
+  return `skill:${params.skillId}:${params.sourceKind}:${params.sourceId}:${String(params.sourceVersion)}:${String(params.chunkIndex)}`;
+}
+
+function parseSkillReferenceId(referenceId: string): {
+  skillId: string;
+  sourceKind: "skill_document" | "skill_knowledge_card";
+  sourceId: string;
+  sourceVersion: number;
+  chunkIndex: number;
+} | null {
+  const parts = referenceId.split(":");
+  if (parts.length !== 6 || parts[0] !== "skill") {
+    return null;
+  }
+  const sourceKind =
+    parts[2] === "skill_document" || parts[2] === "skill_knowledge_card" ? parts[2] : null;
+  const sourceVersion = Number.parseInt(parts[4] ?? "", 10);
+  const chunkIndex = Number.parseInt(parts[5] ?? "", 10);
+  if (
+    sourceKind === null ||
+    !parts[1] ||
+    !parts[3] ||
+    !Number.isInteger(sourceVersion) ||
+    sourceVersion < 1 ||
+    !Number.isInteger(chunkIndex) ||
+    chunkIndex < 0
+  ) {
+    return null;
+  }
+  return {
+    skillId: parts[1],
+    sourceKind,
+    sourceId: parts[3],
+    sourceVersion,
+    chunkIndex
+  };
+}
+
+function localizeSkillName(value: unknown): string {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return "Skill";
+  }
+  const row = value as Record<string, unknown>;
+  const english = typeof row.en === "string" ? row.en.trim() : "";
+  if (english.length > 0) {
+    return english;
+  }
+  const first = Object.values(row).find(
+    (entry): entry is string => typeof entry === "string" && entry.trim().length > 0
+  );
+  return first?.trim() ?? "Skill";
 }
 
 function buildGlobalUploadedReferenceId(params: {
@@ -1273,7 +1389,7 @@ export class ReadAssistantKnowledgeService {
     const query = this.readRequiredString(row.query, "query");
     if (!isSupportedKnowledgeSource(source)) {
       throw new BadRequestException(
-        "Only document, memory, chat, subscription, and Product KB knowledge search are currently available."
+        "Only document, memory, chat, subscription, Product KB, and skill knowledge search are currently available."
       );
     }
 
@@ -1308,7 +1424,7 @@ export class ReadAssistantKnowledgeService {
     const referenceId = this.readRequiredString(row.referenceId, "referenceId");
     if (!isSupportedKnowledgeSource(source)) {
       throw new BadRequestException(
-        "Only document, memory, chat, subscription, and Product KB knowledge fetch are currently available."
+        "Only document, memory, chat, subscription, Product KB, and skill knowledge fetch are currently available."
       );
     }
     const mode = parseKnowledgeFetchMode(row.mode);
@@ -1341,6 +1457,9 @@ export class ReadAssistantKnowledgeService {
     if (input.source === "subscription") {
       return this.searchSubscription(input);
     }
+    if (input.source === "skill") {
+      return this.searchSkill(input);
+    }
     return this.searchGlobal(input);
   }
 
@@ -1362,6 +1481,9 @@ export class ReadAssistantKnowledgeService {
     }
     if (input.source === "subscription") {
       return this.fetchSubscription(input);
+    }
+    if (input.source === "skill") {
+      return this.fetchSkill(input);
     }
     return this.fetchGlobal(input);
   }
@@ -3802,9 +3924,701 @@ export class ReadAssistantKnowledgeService {
     return [...base, planDocument.content].join("\n\n");
   }
 
+  /**
+   * ADR-120 Slice 5 — Skill knowledge bases are a `knowledge_search` pull
+   * source. This is the retrieval logic moved out of the retired
+   * orchestrator: the assistant's enabled/active Skill ids are resolved
+   * server-side (the tool stays thin: just `source` + `query`), an ANN query
+   * runs over `skill_document` / `skill_knowledge_card` scoped to those Skill
+   * ids, hydrated lexical candidates are merged, and the SAME relevance floor
+   * + no-widen mandatory rerank discipline used by the document source
+   * (Slice 4) is applied. The source is only ALLOWED for a turn when a Skill
+   * is active/engaged (gated at the runtime via `allowedKnowledgeSearchSources`).
+   */
+  async searchSkill(input: {
+    assistantId: string;
+    query: string;
+    maxResults: number | null;
+  }): Promise<RuntimeKnowledgeSearchHit[]> {
+    const startedAt = Date.now();
+    const normalizedQuery = input.query.trim();
+    if (normalizedQuery.length === 0) {
+      throw new BadRequestException("query is required.");
+    }
+
+    let lexicalCandidateCount = 0;
+    let vectorCandidateCount = 0;
+    let helperApplied = false;
+    let retrievalMode: "lexical" | "hybrid" = "lexical";
+    let embeddingModelKey: string | null = null;
+
+    try {
+      const enabledSkillIds = await this.resolveEnabledSkillIds(input.assistantId);
+      if (enabledSkillIds.length === 0) {
+        await this.recordSearchObservability({
+          assistantId: input.assistantId,
+          source: "skill",
+          retrievalMode,
+          durationMs: Date.now() - startedAt,
+          resultCount: 0,
+          lexicalCandidateCount: 0,
+          vectorCandidateCount: 0,
+          helperApplied: false,
+          embeddingModelKey: null,
+          outcome: "empty"
+        });
+        return [];
+      }
+
+      const [retrievalPolicy, adminEmbeddingModelKey] = await Promise.all([
+        this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(input.assistantId),
+        this.knowledgeModelPolicyService.resolveAdminKnowledgeEmbeddingModelKey()
+      ]);
+      embeddingModelKey = adminEmbeddingModelKey;
+
+      const queryInfo = buildSearchQueryInfo(normalizedQuery);
+      const rankedByReferenceId = new Map<string, RankedSearchCandidate<SkillSearchChunkRow>>();
+      const refOf = (row: SkillSearchChunkRow): string =>
+        buildSkillReferenceId({
+          skillId: row.skillId,
+          sourceKind: row.sourceKind,
+          sourceId: row.sourceId,
+          sourceVersion: row.sourceVersion,
+          chunkIndex: row.chunkIndex
+        });
+      const upsertRankedCandidate = (
+        referenceId: string,
+        candidate: RankedSearchCandidate<SkillSearchChunkRow>
+      ) => {
+        const existing = rankedByReferenceId.get(referenceId);
+        if (
+          existing === undefined ||
+          candidate.score > existing.score ||
+          (candidate.score === existing.score && candidate.lexicalScore > existing.lexicalScore)
+        ) {
+          rankedByReferenceId.set(referenceId, candidate);
+        }
+      };
+
+      const lexicalRows = await this.loadSkillLexicalRows(
+        enabledSkillIds,
+        queryInfo.searchTerms,
+        retrievalPolicy.lexicalCandidateLimit
+      );
+      lexicalCandidateCount = lexicalRows.length;
+      for (const row of lexicalRows) {
+        const { lexicalScore, score, exactTokenHits } = rankStructuredCandidate({
+          query: queryInfo,
+          title: localizeSkillName(row.skillName),
+          filename: row.sourceTitle,
+          locator: row.locator,
+          content: row.content,
+          fieldWeights: { title: 3.2, filename: 3.0, locator: 2.0, content: 1.35, metadata: 0 },
+          sourceWeight: 3,
+          enableSemanticRerank: true
+        });
+        if (score <= 0) {
+          continue;
+        }
+        upsertRankedCandidate(refOf(row), {
+          row,
+          score,
+          lexicalScore,
+          exactTokenHits,
+          dedupeKey: [
+            row.sourceId,
+            normalizeSearchText(row.locator ?? ""),
+            normalizeSearchText(row.content).slice(0, 180)
+          ].join(":"),
+          groupKey: row.sourceId,
+          groupLimit: 2
+        });
+      }
+
+      let queryEmbedding: number[] | null = null;
+      if (retrievalPolicy.embeddingSearchEnabled && embeddingModelKey !== null) {
+        try {
+          queryEmbedding = ((
+            await this.knowledgeEmbeddingService.generateEmbeddings({
+              modelKey: embeddingModelKey,
+              texts: [normalizedQuery]
+            })
+          ).embeddings[0] ?? null) as number[] | null;
+        } catch {
+          queryEmbedding = null;
+        }
+      }
+      retrievalMode = queryEmbedding === null ? "lexical" : "hybrid";
+      if (queryEmbedding !== null && embeddingModelKey !== null) {
+        // ADR-120 — true pgvector ANN over the unified store scoped to the
+        // active Skill ids (the same path documents use; skill chunks are
+        // stored with workspaceId null because Skills are platform-owned).
+        const vectorHits = await this.knowledgeVectorIndex.searchNearest({
+          workspaceId: null,
+          embeddingModelKey,
+          queryVector: queryEmbedding,
+          limit: retrievalPolicy.vectorCandidateLimit,
+          sourceTypes: ["skill_document", "skill_knowledge_card"],
+          skillIds: enabledSkillIds
+        });
+        vectorCandidateCount = vectorHits.length;
+        const vectorSimilarityByReferenceId = new Map<string, number>();
+        for (const hit of vectorHits) {
+          if (hit.score <= 0.18) {
+            continue;
+          }
+          const sourceKind =
+            hit.sourceType === "skill_knowledge_card" ? "skill_knowledge_card" : "skill_document";
+          const referenceId = buildSkillReferenceId({
+            skillId: hit.skillId ?? "",
+            sourceKind,
+            sourceId: hit.sourceId,
+            sourceVersion: hit.sourceVersion,
+            chunkIndex: hit.chunkIndex
+          });
+          vectorSimilarityByReferenceId.set(
+            referenceId,
+            Math.max(vectorSimilarityByReferenceId.get(referenceId) ?? 0, hit.score)
+          );
+        }
+        if (vectorSimilarityByReferenceId.size > 0) {
+          const vectorRows = await this.loadSkillRowsForVectorHits(
+            enabledSkillIds,
+            vectorHits.filter((hit) => hit.score > 0.18)
+          );
+          for (const row of vectorRows) {
+            const referenceId = refOf(row);
+            const vectorSimilarity = vectorSimilarityByReferenceId.get(referenceId);
+            if (vectorSimilarity === undefined) {
+              continue;
+            }
+            const { lexicalScore, exactTokenHits } = rankStructuredCandidate({
+              query: queryInfo,
+              title: localizeSkillName(row.skillName),
+              filename: row.sourceTitle,
+              locator: row.locator,
+              content: row.content,
+              fieldWeights: { title: 2.2, filename: 2.0, locator: 1.5, content: 1.0, metadata: 0 },
+              sourceWeight: 1.5,
+              enableSemanticRerank: false
+            });
+            upsertRankedCandidate(referenceId, {
+              row,
+              score: vectorSimilarity * 42 + lexicalScore * 0.35,
+              lexicalScore: lexicalScore + vectorSimilarity * 10,
+              exactTokenHits,
+              dedupeKey: [
+                row.sourceId,
+                normalizeSearchText(row.locator ?? ""),
+                normalizeSearchText(row.content).slice(0, 180)
+              ].join(":"),
+              groupKey: row.sourceId,
+              groupLimit: 2
+            });
+          }
+        }
+      }
+
+      // ADR-120 Slice 4 discipline — apply the relevance floor, then a
+      // narrow-only mandatory rerank. An empty result set is a valid outcome
+      // and is never backfilled.
+      const candidates = Array.from(rankedByReferenceId.values());
+      const topScore = computeTopScore(candidates);
+      const ranked = candidates
+        .filter((candidate) =>
+          passesRelevanceFloor(candidate, {
+            topScore,
+            queryTokenCount: queryInfo.tokens.length
+          })
+        )
+        .sort((left, right) => {
+          if (right.score !== left.score) {
+            return right.score - left.score;
+          }
+          if (right.lexicalScore !== left.lexicalScore) {
+            return right.lexicalScore - left.lexicalScore;
+          }
+          if (left.row.sourceId !== right.row.sourceId) {
+            return left.row.sourceId.localeCompare(right.row.sourceId);
+          }
+          return left.row.chunkIndex - right.row.chunkIndex;
+        });
+
+      let selected = selectRankedCandidates(
+        ranked,
+        resolveMaxResults(
+          input.maxResults,
+          retrievalPolicy.defaultMaxResults,
+          retrievalPolicy.maxMaxResults
+        )
+      );
+      const helperRanking = await this.knowledgeRetrievalHelperService.rerankCandidates({
+        assistantId: input.assistantId,
+        query: normalizedQuery,
+        candidates: selected.map(({ row }) => ({
+          referenceId: refOf(row),
+          title: `${localizeSkillName(row.skillName)} / ${row.sourceTitle}`,
+          locator: row.locator,
+          snippet: buildSnippet(row.content, queryInfo.searchTerms)
+        }))
+      });
+      helperApplied = helperRanking !== null;
+      if (helperRanking !== null) {
+        const allowedReferenceIds = new Set(helperRanking.rankedReferenceIds);
+        const helperRankIndex = new Map(
+          helperRanking.rankedReferenceIds.map((referenceId, index) => [referenceId, index])
+        );
+        selected = selected
+          .filter(({ row }) => allowedReferenceIds.has(refOf(row)))
+          .sort((left, right) => {
+            const leftRank = helperRankIndex.get(refOf(left.row));
+            const rightRank = helperRankIndex.get(refOf(right.row));
+            if (leftRank === undefined && rightRank === undefined) {
+              return right.score - left.score;
+            }
+            if (leftRank === undefined) {
+              return 1;
+            }
+            if (rightRank === undefined) {
+              return -1;
+            }
+            return leftRank - rightRank;
+          });
+      }
+
+      const hits: RuntimeKnowledgeSearchHit[] = selected.map(({ row, score }) => ({
+        referenceId: refOf(row),
+        source: "skill",
+        title: `${localizeSkillName(row.skillName)} / ${row.sourceTitle}`,
+        locator: row.locator,
+        snippet: buildSnippet(row.content, queryInfo.searchTerms),
+        score,
+        metadata: {
+          skillId: row.skillId,
+          skillCategory: row.skillCategory,
+          skillSourceType: row.sourceKind,
+          skillSourceId: row.sourceId,
+          sourceVersion: row.sourceVersion,
+          chunkIndex: row.chunkIndex,
+          mimeType: row.mimeType,
+          retrievalMode
+        }
+      }));
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "skill",
+        retrievalMode,
+        durationMs: Date.now() - startedAt,
+        resultCount: hits.length,
+        lexicalCandidateCount,
+        vectorCandidateCount,
+        helperApplied,
+        embeddingModelKey,
+        helperModelKey: helperRanking?.modelKey ?? null,
+        helperProviderKey: helperRanking?.providerKey ?? null,
+        helperInputTokens: helperRanking?.usage?.inputTokens ?? null,
+        helperOutputTokens: helperRanking?.usage?.outputTokens ?? null,
+        helperTotalTokens: helperRanking?.usage?.totalTokens ?? null,
+        modeUsed: "snippet_only",
+        bytesReturned: 0
+      });
+      return hits;
+    } catch (error) {
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "skill",
+        retrievalMode,
+        durationMs: Date.now() - startedAt,
+        resultCount: 0,
+        lexicalCandidateCount,
+        vectorCandidateCount,
+        helperApplied,
+        embeddingModelKey,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * ADR-120 Slice 5 — fetch one bounded window of Skill KB content for a
+   * `skill:` reference id returned by `searchSkill`. The reference's Skill is
+   * re-validated to be enabled/active for the assistant so a stale or
+   * cross-skill reference cannot read content the turn is not allowed to see.
+   */
+  async fetchSkill(input: {
+    assistantId: string;
+    referenceId: string;
+    mode: PersaiRuntimeKnowledgeFetchMode;
+    radius: number | null;
+  }): Promise<RuntimeKnowledgeDocument | null> {
+    const startedAt = Date.now();
+    const { retrievalPolicy, adminLimits } = await this.resolveFetchEnvelope(input.assistantId);
+    const plan = resolveDocumentFetchPlan(input.mode, input.radius, retrievalPolicy, adminLimits);
+    try {
+      const reference = parseSkillReferenceId(input.referenceId.trim());
+      if (reference === null) {
+        throw new BadRequestException("referenceId is invalid.");
+      }
+      const enabledSkillIds = await this.resolveEnabledSkillIds(input.assistantId);
+      if (!enabledSkillIds.includes(reference.skillId)) {
+        await this.recordFetchObservability({
+          assistantId: input.assistantId,
+          source: "skill",
+          retrievalMode: "lexical",
+          durationMs: Date.now() - startedAt,
+          fetchDepth: 0,
+          fetchedChars: 0,
+          embeddingModelKey: null,
+          outcome: "empty"
+        });
+        return null;
+      }
+
+      const centerRow = await this.loadSkillChunkRow(reference);
+      if (centerRow === null) {
+        await this.recordFetchObservability({
+          assistantId: input.assistantId,
+          source: "skill",
+          retrievalMode: "lexical",
+          durationMs: Date.now() - startedAt,
+          fetchDepth: 0,
+          fetchedChars: 0,
+          embeddingModelKey: null,
+          outcome: "empty"
+        });
+        return null;
+      }
+
+      const windowRows = await this.loadSkillWindowRows(
+        reference,
+        plan.isFull ? null : plan.radius
+      );
+      const joined = windowRows
+        .map((row) => row.content.trim())
+        .filter((row) => row.length > 0)
+        .join("\n\n---\n\n");
+      const { content, truncated } = applyTruncationMarker(joined, plan.charLimit);
+      const document = {
+        referenceId: buildSkillReferenceId(reference),
+        source: "skill",
+        title: `${localizeSkillName(centerRow.skillName)} / ${centerRow.sourceTitle}`,
+        locator: centerRow.locator,
+        content,
+        snippet: buildSnippet(centerRow.content, [centerRow.content.slice(0, 80)]),
+        modeUsed: plan.modeUsed,
+        truncated,
+        metadata: {
+          skillId: centerRow.skillId,
+          skillCategory: centerRow.skillCategory,
+          skillSourceType: centerRow.sourceKind,
+          skillSourceId: centerRow.sourceId,
+          sourceVersion: centerRow.sourceVersion,
+          chunkIndex: centerRow.chunkIndex,
+          mimeType: centerRow.mimeType,
+          windowStartChunkIndex: windowRows[0]?.chunkIndex ?? centerRow.chunkIndex,
+          windowEndChunkIndex:
+            windowRows[windowRows.length - 1]?.chunkIndex ?? centerRow.chunkIndex,
+          modeUsed: plan.modeUsed,
+          truncated
+        }
+      } satisfies RuntimeKnowledgeDocument;
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "skill",
+        retrievalMode: centerRow.embeddingModelKey === null ? "lexical" : "hybrid",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: windowRows.length,
+        fetchedChars: content.length,
+        embeddingModelKey: centerRow.embeddingModelKey,
+        modeUsed: plan.modeUsed,
+        bytesReturned: content.length
+      });
+      return document;
+    } catch (error) {
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "skill",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: 0,
+        fetchedChars: 0,
+        embeddingModelKey: null,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * ADR-120 Slice 5 — resolve the assistant's enabled/active Skill ids
+   * server-side. The pull tool never passes Skill ids; the server is the only
+   * authority on which Skills this assistant may read.
+   */
+  private async resolveEnabledSkillIds(assistantId: string): Promise<string[]> {
+    const assignments = await this.prisma.assistantSkillAssignment.findMany({
+      where: {
+        assistantId,
+        status: "active",
+        skill: {
+          status: "active",
+          archivedAt: null
+        }
+      },
+      select: { skillId: true }
+    });
+    return [...new Set(assignments.map((assignment) => assignment.skillId))];
+  }
+
+  private async loadSkillLexicalRows(
+    enabledSkillIds: string[],
+    searchTerms: string[],
+    lexicalCandidateLimit: number
+  ): Promise<SkillSearchChunkRow[]> {
+    const orFilters = searchTerms.flatMap((term) => [
+      { content: { contains: term, mode: "insensitive" as const } },
+      { locator: { contains: term, mode: "insensitive" as const } }
+    ]);
+    const [documentRows, cardRows] = await Promise.all([
+      this.prisma.skillDocumentChunk.findMany({
+        where: {
+          skillId: { in: enabledSkillIds },
+          skillDocument: { status: "ready" },
+          skill: { status: "active", archivedAt: null },
+          OR: orFilters
+        },
+        include: {
+          skillDocument: {
+            select: { displayName: true, originalFilename: true, mimeType: true }
+          },
+          skill: { select: { name: true, category: true } }
+        },
+        orderBy: [
+          { skillId: "asc" },
+          { skillDocumentId: "asc" },
+          { sourceVersion: "desc" },
+          { chunkIndex: "asc" }
+        ],
+        take: lexicalCandidateLimit
+      }),
+      this.prisma.skillKnowledgeCardChunk.findMany({
+        where: {
+          skillId: { in: enabledSkillIds },
+          knowledgeCard: { status: "ready", lifecycleStatus: "active" },
+          skill: { status: "active", archivedAt: null },
+          OR: orFilters
+        },
+        include: {
+          knowledgeCard: { select: { title: true } },
+          skill: { select: { name: true, category: true } }
+        },
+        orderBy: [
+          { skillId: "asc" },
+          { skillKnowledgeCardId: "asc" },
+          { sourceVersion: "desc" },
+          { chunkIndex: "asc" }
+        ],
+        take: lexicalCandidateLimit
+      })
+    ]);
+    return [
+      ...documentRows.map((row) =>
+        this.toSkillDocumentSearchRow(row as SkillDocumentChunkWithRelations)
+      ),
+      ...cardRows.map((row) => this.toSkillCardSearchRow(row as SkillCardChunkWithRelations))
+    ];
+  }
+
+  private async loadSkillRowsForVectorHits(
+    enabledSkillIds: string[],
+    vectorHits: Array<{
+      sourceType: string;
+      sourceId: string;
+      sourceVersion: number;
+      chunkIndex: number;
+    }>
+  ): Promise<SkillSearchChunkRow[]> {
+    const documentHits = vectorHits.filter((hit) => hit.sourceType === "skill_document");
+    const cardHits = vectorHits.filter((hit) => hit.sourceType === "skill_knowledge_card");
+    const [documentRows, cardRows] = await Promise.all([
+      documentHits.length === 0
+        ? Promise.resolve([])
+        : this.prisma.skillDocumentChunk.findMany({
+            where: {
+              skillId: { in: enabledSkillIds },
+              skillDocument: { status: "ready" },
+              skill: { status: "active", archivedAt: null },
+              OR: documentHits.map((hit) => ({
+                skillDocumentId: hit.sourceId,
+                sourceVersion: hit.sourceVersion,
+                chunkIndex: hit.chunkIndex
+              }))
+            },
+            include: {
+              skillDocument: {
+                select: { displayName: true, originalFilename: true, mimeType: true }
+              },
+              skill: { select: { name: true, category: true } }
+            }
+          }),
+      cardHits.length === 0
+        ? Promise.resolve([])
+        : this.prisma.skillKnowledgeCardChunk.findMany({
+            where: {
+              skillId: { in: enabledSkillIds },
+              knowledgeCard: { status: "ready", lifecycleStatus: "active" },
+              skill: { status: "active", archivedAt: null },
+              OR: cardHits.map((hit) => ({
+                skillKnowledgeCardId: hit.sourceId,
+                sourceVersion: hit.sourceVersion,
+                chunkIndex: hit.chunkIndex
+              }))
+            },
+            include: {
+              knowledgeCard: { select: { title: true } },
+              skill: { select: { name: true, category: true } }
+            }
+          })
+    ]);
+    return [
+      ...documentRows.map((row) =>
+        this.toSkillDocumentSearchRow(row as SkillDocumentChunkWithRelations)
+      ),
+      ...cardRows.map((row) => this.toSkillCardSearchRow(row as SkillCardChunkWithRelations))
+    ];
+  }
+
+  private async loadSkillChunkRow(reference: {
+    skillId: string;
+    sourceKind: "skill_document" | "skill_knowledge_card";
+    sourceId: string;
+    sourceVersion: number;
+    chunkIndex: number;
+  }): Promise<SkillSearchChunkRow | null> {
+    if (reference.sourceKind === "skill_document") {
+      const row = await this.prisma.skillDocumentChunk.findFirst({
+        where: {
+          skillId: reference.skillId,
+          skillDocumentId: reference.sourceId,
+          sourceVersion: reference.sourceVersion,
+          chunkIndex: reference.chunkIndex,
+          skillDocument: { status: "ready" },
+          skill: { status: "active", archivedAt: null }
+        },
+        include: {
+          skillDocument: {
+            select: { displayName: true, originalFilename: true, mimeType: true }
+          },
+          skill: { select: { name: true, category: true } }
+        }
+      });
+      return row === null
+        ? null
+        : this.toSkillDocumentSearchRow(row as SkillDocumentChunkWithRelations);
+    }
+    const row = await this.prisma.skillKnowledgeCardChunk.findFirst({
+      where: {
+        skillId: reference.skillId,
+        skillKnowledgeCardId: reference.sourceId,
+        sourceVersion: reference.sourceVersion,
+        chunkIndex: reference.chunkIndex,
+        knowledgeCard: { status: "ready", lifecycleStatus: "active" },
+        skill: { status: "active", archivedAt: null }
+      },
+      include: {
+        knowledgeCard: { select: { title: true } },
+        skill: { select: { name: true, category: true } }
+      }
+    });
+    return row === null ? null : this.toSkillCardSearchRow(row as SkillCardChunkWithRelations);
+  }
+
+  private async loadSkillWindowRows(
+    reference: {
+      skillId: string;
+      sourceKind: "skill_document" | "skill_knowledge_card";
+      sourceId: string;
+      sourceVersion: number;
+      chunkIndex: number;
+    },
+    radius: number | null
+  ): Promise<Array<{ chunkIndex: number; content: string }>> {
+    const chunkIndexFilter =
+      radius === null
+        ? {}
+        : {
+            chunkIndex: {
+              gte: Math.max(0, reference.chunkIndex - radius),
+              lte: reference.chunkIndex + radius
+            }
+          };
+    if (reference.sourceKind === "skill_document") {
+      return this.prisma.skillDocumentChunk.findMany({
+        where: {
+          skillId: reference.skillId,
+          skillDocumentId: reference.sourceId,
+          sourceVersion: reference.sourceVersion,
+          skillDocument: { status: "ready" },
+          skill: { status: "active", archivedAt: null },
+          ...chunkIndexFilter
+        },
+        select: { chunkIndex: true, content: true },
+        orderBy: [{ chunkIndex: "asc" }]
+      });
+    }
+    return this.prisma.skillKnowledgeCardChunk.findMany({
+      where: {
+        skillId: reference.skillId,
+        skillKnowledgeCardId: reference.sourceId,
+        sourceVersion: reference.sourceVersion,
+        knowledgeCard: { status: "ready", lifecycleStatus: "active" },
+        skill: { status: "active", archivedAt: null },
+        ...chunkIndexFilter
+      },
+      select: { chunkIndex: true, content: true },
+      orderBy: [{ chunkIndex: "asc" }]
+    });
+  }
+
+  private toSkillDocumentSearchRow(row: SkillDocumentChunkWithRelations): SkillSearchChunkRow {
+    return {
+      sourceKind: "skill_document",
+      sourceId: row.skillDocumentId,
+      skillId: row.skillId,
+      sourceVersion: row.sourceVersion,
+      chunkIndex: row.chunkIndex,
+      locator: row.locator,
+      content: row.content,
+      embeddingModelKey: row.embeddingModelKey ?? null,
+      sourceTitle: row.skillDocument.displayName ?? row.skillDocument.originalFilename,
+      mimeType: row.skillDocument.mimeType,
+      skillName: row.skill.name,
+      skillCategory: row.skill.category
+    };
+  }
+
+  private toSkillCardSearchRow(row: SkillCardChunkWithRelations): SkillSearchChunkRow {
+    return {
+      sourceKind: "skill_knowledge_card",
+      sourceId: row.skillKnowledgeCardId,
+      skillId: row.skillId,
+      sourceVersion: row.sourceVersion,
+      chunkIndex: row.chunkIndex,
+      locator: row.locator,
+      content: row.content,
+      embeddingModelKey: row.embeddingModelKey ?? null,
+      sourceTitle: row.knowledgeCard.title,
+      mimeType: "text/markdown",
+      skillName: row.skill.name,
+      skillCategory: row.skill.category
+    };
+  }
+
   private async recordSearchObservability(params: {
     assistantId: string;
-    source: "document" | "global" | "memory" | "chat" | "subscription";
+    source: "document" | "global" | "memory" | "chat" | "subscription" | "skill";
     retrievalMode: "lexical" | "hybrid";
     durationMs: number;
     resultCount: number;
@@ -3853,7 +4667,7 @@ export class ReadAssistantKnowledgeService {
 
   private async recordFetchObservability(params: {
     assistantId: string;
-    source: "document" | "global" | "memory" | "chat" | "subscription";
+    source: "document" | "global" | "memory" | "chat" | "subscription" | "skill";
     retrievalMode: "lexical" | "hybrid";
     durationMs: number;
     fetchDepth: number;

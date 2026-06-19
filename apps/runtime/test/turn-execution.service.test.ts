@@ -17,7 +17,6 @@ import type {
   ProviderGatewayVideoGenerateRequest,
   ProviderGatewayVideoGenerateResult,
   RuntimeKnowledgeAccessConfig,
-  RuntimeRetrievedKnowledgeContext,
   RuntimeBrowserConfig,
   RuntimeCompactionResult,
   ProviderGatewayTextGenerateRequest,
@@ -112,6 +111,13 @@ const KNOWLEDGE_ACCESS_CONFIG = {
     },
     {
       source: "global",
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    },
+    {
+      source: "skill",
       searchAliasToolCode: null,
       fetchAliasToolCode: null,
       searchCredentialToolCode: null,
@@ -1203,22 +1209,6 @@ class FakePersaiInternalApiClientService {
   reminderTaskListError: Error | null = null;
   reminderTaskControlError: Error | null = null;
   memoryWriteError: Error | null = null;
-  orchestrateRetrievalCalls: Array<Record<string, unknown>> = [];
-  orchestrateRetrievalOutcome: RuntimeRetrievedKnowledgeContext = {
-    items: [
-      {
-        label: "user_document" as const,
-        referenceId: "memory:memory-1",
-        title: "Memory write: preference",
-        locator: null,
-        content: "User prefers concise answers.",
-        score: 10,
-        metadata: { source: "memory" }
-      }
-    ],
-    renderedBlock:
-      "# Retrieved Knowledge Context\nUse this bounded source-aware context as grounding.\n\n## 1. user_document\nReference: memory:memory-1\nTitle: Memory write: preference\n\nUser prefers concise answers."
-  };
   reminderTaskItems: Array<{
     id: string;
     title: string;
@@ -1508,11 +1498,6 @@ class FakePersaiInternalApiClientService {
     } finally {
       this.memoryWriteInFlight -= 1;
     }
-  }
-
-  async orchestrateRetrieval(input: Record<string, unknown>) {
-    this.orchestrateRetrievalCalls.push(input);
-    return this.orchestrateRetrievalOutcome;
   }
 
   enqueueBackgroundCompactionCalls: Array<Record<string, unknown>> = [];
@@ -3244,14 +3229,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[retrievalHintPlannerOffset]?.tools?.map((tool) => tool.name) ?? [];
   assert.equal(retrievalHintToolNames.includes("knowledge_search"), true);
   assert.equal(retrievalHintToolNames.includes("knowledge_fetch"), true);
-  assert.equal(persaiInternalApiClientService.orchestrateRetrievalCalls.length, 1);
-  assert.equal(
-    (persaiInternalApiClientService.orchestrateRetrievalCalls.at(-1)?.gatherProfile ?? null) as
-      | string
-      | null,
-    null
-  );
-  assert.match(
+  // ADR-120 Slice 5 — retrieval is pull-only: no server push / orchestrate call,
+  // and the legacy "# Retrieved Knowledge Context" developer block is gone.
+  assert.doesNotMatch(
     providerGatewayClient.calls[retrievalHintPlannerOffset]?.developerInstructions ?? "",
     /# Retrieved Knowledge Context/
   );
@@ -3317,29 +3297,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       knowledgeHydrationBudget: 300
     };
   }
-  persaiInternalApiClientService.orchestrateRetrievalOutcome = {
-    items: [
-      {
-        label: "user_document" as const,
-        referenceId: "document:user-kb",
-        title: "Large user KB",
-        locator: null,
-        content: "user knowledge ".repeat(500),
-        score: 0.9,
-        metadata: { source: "document" }
-      },
-      {
-        label: "skill_reference" as const,
-        referenceId: "skill:skill-diet:doc:1",
-        title: "Dietitian guide",
-        locator: "chunk 1",
-        content: "skill grounded exact nutrition facts ".repeat(500),
-        score: 0.95,
-        metadata: { skillId: "skill-diet", skillSourceType: "skill_document" }
-      }
-    ],
-    renderedBlock: "# Retrieved Knowledge Context\n" + "oversized ".repeat(2_000)
-  };
   const groundedSkillRequest = createRuntimeTurnRequest();
   groundedSkillRequest.bundle.bundleHash = request.bundle.bundleHash;
   groundedSkillRequest.deepMode = true;
@@ -3391,75 +3348,20 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const groundedSkillKnowledgeSearchTool = groundedSkillFinalCall?.tools?.find(
     (tool) => tool.name === "knowledge_search"
   );
-  assert.deepEqual(
+  const groundedSkillSourceEnum =
     (
       groundedSkillKnowledgeSearchTool?.inputSchema as {
         properties?: { source?: { enum?: string[] } };
       }
-    )?.properties?.source?.enum,
-    ["memory", "chat"]
-  );
-  assert.deepEqual(persaiInternalApiClientService.orchestrateRetrievalCalls.at(-1)?.sourcePolicy, {
-    mode: "active_skill",
-    state: "skill_only",
-    allowedKnowledgeSearchSources: ["memory", "chat"],
-    allowedKnowledgeFetchSources: ["memory", "chat"]
-  });
+    )?.properties?.source?.enum ?? [];
+  // ADR-120 Slice 5 — on an active-skill turn the Skill KB is exposed as a pull
+  // source alongside the existing user pull sources.
+  assert.equal(groundedSkillSourceEnum.includes("skill"), true);
+  assert.equal(groundedSkillSourceEnum.includes("memory"), true);
+  assert.equal(groundedSkillSourceEnum.includes("chat"), true);
   const groundedSkillDeveloperInstructions = groundedSkillFinalCall?.developerInstructions ?? "";
-  const plannedRetrievalBlockStart = groundedSkillDeveloperInstructions.indexOf(
-    "# Retrieved Knowledge Context"
-  );
-  assert.notEqual(plannedRetrievalBlockStart, -1);
-  const nextDeveloperSectionStartCandidates = [
-    "\n## Open Media Jobs",
-    "\n## Open Document Jobs",
-    "\n## Job Delivery Updates",
-    "\n## Working Files",
-    "\n## Sense of Time",
-    "\nDo not write markdown links"
-  ]
-    .map((marker) =>
-      groundedSkillDeveloperInstructions.indexOf(
-        marker,
-        plannedRetrievalBlockStart + "# Retrieved Knowledge Context".length
-      )
-    )
-    .filter((index) => index !== -1);
-  const nextDeveloperSectionStart =
-    nextDeveloperSectionStartCandidates.length === 0
-      ? -1
-      : Math.min(...nextDeveloperSectionStartCandidates);
-  const plannedRetrievalBlock = groundedSkillDeveloperInstructions.slice(
-    plannedRetrievalBlockStart,
-    nextDeveloperSectionStart === -1 ? undefined : nextDeveloperSectionStart
-  );
-  assert.match(plannedRetrievalBlock, /skill grounded exact nutrition facts/);
-  assert.ok(plannedRetrievalBlock.length <= 1_250);
+  assert.doesNotMatch(groundedSkillDeveloperInstructions, /# Retrieved Knowledge Context/);
 
-  persaiInternalApiClientService.orchestrateRetrievalOutcome = {
-    items: [
-      {
-        label: "skill_reference" as const,
-        referenceId: "skill:skill-diet:doc:1",
-        title: "Dietitian guide",
-        locator: "chunk 1",
-        content: "project nutrition evidence",
-        score: 0.95,
-        metadata: { skillId: "skill-diet", skillSourceType: "skill_document" }
-      },
-      {
-        label: "user_document" as const,
-        referenceId: "project_file:file-project-1",
-        title: "Uploaded meal plan",
-        locator: "uploads/project-thread/meal-plan.pdf",
-        content: "project file context without prior files.read",
-        score: 0.9,
-        metadata: { source: "project_file", fileRef: "file-project-1" }
-      }
-    ],
-    renderedBlock:
-      "# Retrieved Knowledge Context\n\n## 1. skill_reference\nproject nutrition evidence\n\n## 2. user_document\nproject file context without prior files.read"
-  };
   const projectGroundedRequest = createRuntimeTurnRequest();
   projectGroundedRequest.bundle.bundleHash = request.bundle.bundleHash;
   projectGroundedRequest.chatMode = "project";
@@ -3502,16 +3404,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   };
   const projectGroundedCompleted = await service.createTurn(projectGroundedRequest);
   assert.equal(projectGroundedCompleted.assistantText, "project grounded reply");
-  assert.equal(
-    (persaiInternalApiClientService.orchestrateRetrievalCalls.at(-1)?.gatherProfile ?? null) as
-      | string
-      | null,
-    "project"
-  );
   const projectGroundedFinalCall = providerGatewayClient.calls.at(-1);
-  assert.match(
+  const projectGroundedToolNames = projectGroundedFinalCall?.tools?.map((tool) => tool.name) ?? [];
+  // ADR-120 Slice 5 — project mode is pull-dispatch: the knowledge pull tools
+  // are projected and there is no server push block. (The files tool is bundle-
+  // policy gated and is exercised separately once enabled below.)
+  assert.equal(projectGroundedToolNames.includes("knowledge_search"), true);
+  assert.equal(projectGroundedToolNames.includes("knowledge_fetch"), true);
+  assert.doesNotMatch(
     projectGroundedFinalCall?.developerInstructions ?? "",
-    /project file context without prior files\.read/
+    /# Retrieved Knowledge Context/
   );
   assert.match(
     projectGroundedFinalCall?.developerInstructions ?? "",
@@ -3568,57 +3470,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     sourceProgressionDeveloperInstructions ?? "",
     /continue to external verification before finalizing/
   );
-  const plannedProjectFilePriority = (
-    service as unknown as {
-      planRetrievedKnowledgeContext: (
-        bundle: AssistantRuntimeBundle,
-        context: RuntimeRetrievedKnowledgeContext,
-        hydratedMessages: ProviderGatewayTextGenerateRequest["messages"]
-      ) => RuntimeRetrievedKnowledgeContext | null;
-    }
-  ).planRetrievedKnowledgeContext(
-    bundleRegistry.entry!.parsedBundle,
-    {
-      items: [
-        {
-          label: "product_kb" as const,
-          referenceId: "product-text-entry:pricing:1:0",
-          title: "PersAI pricing",
-          locator: null,
-          content: "PersAI pricing and quota facts.",
-          score: 99,
-          metadata: { source: "global" }
-        },
-        {
-          label: "user_document" as const,
-          referenceId: "source-user:1:0",
-          title: "User document",
-          locator: null,
-          content: "General user document context.",
-          score: 90,
-          metadata: { source: "document" }
-        },
-        {
-          label: "user_document" as const,
-          referenceId: "project_file:file-project-1",
-          title: "Project file",
-          locator: "uploads/project.pdf",
-          content: "Project file context.",
-          score: 1,
-          metadata: { source: "project_file", fileRef: "file-project-1" }
-        }
-      ],
-      renderedBlock: "# Retrieved Knowledge Context"
-    },
-    []
-  );
-  if (plannedProjectFilePriority === null) {
-    throw new Error("planned project file priority context should not be null");
-  }
-  assert.deepEqual(
-    plannedProjectFilePriority.items.map((item) => item.referenceId),
-    ["project_file:file-project-1", "source-user:1:0", "product-text-entry:pricing:1:0"]
-  );
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.skills = { enabled: [] };
     bundleRegistry.entry.parsedBundle.runtime.contextHydration = {
@@ -3626,20 +3477,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       knowledgeHydrationBudget: 2400
     };
   }
-  persaiInternalApiClientService.orchestrateRetrievalOutcome = {
-    items: [
-      {
-        label: "user_document" as const,
-        referenceId: "memory:memory-1",
-        title: "Memory write: preference",
-        locator: null,
-        content: "User prefers concise answers.",
-        score: 10,
-        metadata: { source: "memory" }
-      }
-    ],
-    renderedBlock: "# Retrieved Knowledge Context\n\n- User prefers concise answers."
-  };
 
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
@@ -3666,16 +3503,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   ]);
   const retrievalActivityStream = await service.streamTurn(retrievalHintRequest);
   const retrievalActivityEvents = await collectStreamEvents(retrievalActivityStream);
+  // ADR-120 Slice 5 — retrieval is pull-first: there is no pre-turn server push,
+  // so no `retrieval_activity` event is emitted on a non-project turn.
   assert.deepEqual(
     retrievalActivityEvents.map((event) => event.type),
-    ["started", "retrieval_activity", "completed"]
+    ["started", "completed"]
   );
-  const retrievalActivityEvent = retrievalActivityEvents.find(
-    (event): event is Extract<RuntimeTurnStreamEvent, { type: "retrieval_activity" }> =>
-      event.type === "retrieval_activity"
-  );
-  assert.equal(retrievalActivityEvent?.source, "user");
-  assert.equal(retrievalActivityEvent?.resultCount, 1);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
@@ -3700,20 +3533,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       content: retrievalDedupRequest.message.text
     }
   ];
-  persaiInternalApiClientService.orchestrateRetrievalOutcome = {
-    items: [
-      {
-        label: "user_document" as const,
-        referenceId: "memory:memory-1",
-        title: "Short memory write: preference",
-        locator: null,
-        content: "User prefers concise answers.",
-        score: 10,
-        metadata: { source: "memory", summary: "User prefers concise answers." }
-      }
-    ],
-    renderedBlock: "# Retrieved Knowledge Context\n\n- User prefers concise answers."
-  };
   providerGatewayClient.streamEventsQueue.push([
     {
       type: "completed",
@@ -3739,13 +3558,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     /# Retrieved Knowledge Context/
   );
 
-  const previousOrchestrateRetrievalOutcome =
-    persaiInternalApiClientService.orchestrateRetrievalOutcome;
   const previousBundleSkills = bundleRegistry.entry?.parsedBundle.skills;
-  persaiInternalApiClientService.orchestrateRetrievalOutcome = {
-    items: [],
-    renderedBlock: ""
-  };
   const emptySkillRetrievalRequest = createRuntimeTurnRequest();
   emptySkillRetrievalRequest.bundle.bundleHash = request.bundle.bundleHash;
   emptySkillRetrievalRequest.message.text =
@@ -3808,14 +3621,17 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   ]);
   const emptySkillRetrievalStream = await service.streamTurn(emptySkillRetrievalRequest);
   const emptySkillRetrievalEvents = await collectStreamEvents(emptySkillRetrievalStream);
-  const emptySkillRetrievalActivity = emptySkillRetrievalEvents.find(
-    (event): event is Extract<RuntimeTurnStreamEvent, { type: "retrieval_activity" }> =>
-      event.type === "retrieval_activity" && event.source === "skill"
+  // ADR-120 Slice 5 — an active-skill turn no longer pushes Skill KB context, so
+  // it emits no `retrieval_activity` event; the Skill KB is reachable only via
+  // the projected knowledge_search/knowledge_fetch pull tools.
+  assert.equal(
+    emptySkillRetrievalEvents.some((event) => event.type === "retrieval_activity"),
+    false
   );
-  assert.equal(emptySkillRetrievalActivity?.resultCount, 0);
-  assert.equal(emptySkillRetrievalActivity?.skillName, "Диетолог");
-  assert.equal(emptySkillRetrievalActivity?.skillIconEmoji, "🥦");
-  persaiInternalApiClientService.orchestrateRetrievalOutcome = previousOrchestrateRetrievalOutcome;
+  assert.equal(
+    emptySkillRetrievalEvents.some((event) => event.type === "completed"),
+    true
+  );
   if (bundleRegistry.entry !== null) {
     if (previousBundleSkills === undefined) {
       delete bundleRegistry.entry.parsedBundle.skills;
@@ -7783,7 +7599,6 @@ type DeveloperSectionsAccessor = {
     availableWorkingFileRefs: RuntimeFileRef[];
     deepModeEnabled: boolean;
     routeDecision: undefined;
-    retrievedKnowledgeContext: null;
     openLoopRefsBlock: null;
     presenceBlock: null;
     openMediaJobs: undefined;
@@ -7889,7 +7704,6 @@ export async function runRecentPdfsHintTests(): Promise<void> {
       ],
       deepModeEnabled: false,
       routeDecision: undefined,
-      retrievedKnowledgeContext: null,
       openLoopRefsBlock: null,
       presenceBlock: null,
       openMediaJobs: undefined,

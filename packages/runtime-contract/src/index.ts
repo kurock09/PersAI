@@ -546,27 +546,6 @@ export interface RuntimeSkillStateContext {
   decision: RuntimeSkillDecisionState | null;
 }
 
-export type RuntimeRetrievedKnowledgeSourceLabel =
-  | "skill_reference"
-  | "user_document"
-  | "product_kb"
-  | "web_reference";
-
-export interface RuntimeRetrievedKnowledgeContextItem {
-  label: RuntimeRetrievedKnowledgeSourceLabel;
-  referenceId: string;
-  title: string | null;
-  locator: string | null;
-  content: string;
-  score: number | null;
-  metadata: Record<string, unknown> | null;
-}
-
-export interface RuntimeRetrievedKnowledgeContext {
-  items: RuntimeRetrievedKnowledgeContextItem[];
-  renderedBlock: string | null;
-}
-
 export type RuntimeRetrievalActivitySource = "skill" | "user" | "product" | "web";
 
 export interface RuntimeRetrievalActivityEvent {
@@ -896,6 +875,7 @@ export const PERSAI_RUNTIME_KNOWLEDGE_SOURCES = [
   "subscription",
   "global",
   "document",
+  "skill",
   "database",
   "vector",
   "internal"

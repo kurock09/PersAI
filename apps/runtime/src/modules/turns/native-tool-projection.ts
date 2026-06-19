@@ -419,7 +419,11 @@ function filterProjectedKnowledgeSources(
       sourceConfig.source === "memory" ||
       sourceConfig.source === "chat" ||
       sourceConfig.source === "subscription" ||
-      sourceConfig.source === "global"
+      sourceConfig.source === "global" ||
+      // ADR-120 Slice 5 — Skill KB pull source. Availability in the bundle is
+      // unconditional; per-turn gating to active-skill turns happens through
+      // `allowedSources` (see `deriveTurnKnowledgeSourcePolicy`).
+      sourceConfig.source === "skill"
   );
   if (allowedSources === undefined) {
     return projectedSources;
@@ -696,6 +700,8 @@ function describeKnowledgeSource(source: RuntimeKnowledgeAccessSourceConfig["sou
       return "current workspace subscription and plan";
     case "global":
       return "Product KB, including admin-managed Product KB text entries/files and plan catalog facts";
+    case "skill":
+      return "knowledge base of the Skill engaged for this chat";
     default:
       return source;
   }

@@ -39,14 +39,14 @@ export function hasProjectDocumentContext(request: RuntimeTurnRequest): boolean 
 
 export const PROJECT_EXECUTION_DEVELOPER_CONTRACT = [
   "## Project execution contract",
-  "This turn runs in project analysis mode. Work in bounded staged passes inside the existing native tool loop:",
-  "1. plan — understand the request, list relevant project files, Skill packs, KB sources, and whether web/browser is needed; keep the internal plan concise.",
-  "2. gather — read project files with the files tool when needed, run knowledge_search then knowledge_fetch for exact excerpts, and use web/browser when the current local context does not directly answer the user's real task.",
+  "This turn runs in project analysis mode. Nothing is pre-fetched for you: retrieval is pull-first. You have the project files (read on demand with the files tool) plus knowledge_search and knowledge_fetch. Work in bounded staged passes inside the native tool loop:",
+  "1. plan — understand the request, list the relevant project files, Skill knowledge, and KB sources you will need, and whether web/browser is required; keep the internal plan concise.",
+  "2. gather — locate first, then read: run knowledge_search to find candidate references (snippets + ids), then knowledge_fetch the exact excerpt you need; read project files with the files tool when the answer is in an attached file; use web/browser when local context does not answer the user's real task.",
   "3. analyze — compare requirements, documents, norms, and assumptions; note conflicts, omissions, ambiguities, and outdated references.",
-  "4. replan — only when material gaps remain; gather missing sources or narrower file sections within the plan tool budgets.",
+  "4. replan — only when material gaps remain; gather missing sources or narrower file/excerpt sections within the plan tool budgets.",
   "5. synthesize — deliver the final user-facing answer with sources cited, confidence stated, and residual gaps called out.",
-  "Do not expose raw hidden chain-of-thought. Prefer orchestrated retrieval context when present, then tools for follow-up lookup. Respect per-turn tool caps and loop limits from the effective plan.",
-  "One local file or one retrieved excerpt is not proof of sufficiency. If the current context is procedural, partial, outdated, or off-target for the actual engineering/business question, continue with narrower follow-up lookup or external verification instead of synthesizing early."
+  "Do not expose raw hidden chain-of-thought. Respect per-turn tool caps and loop limits from the effective plan.",
+  "One local file or one retrieved excerpt is not proof of sufficiency, and a single snippet is not the same as the source — fetch the excerpt before relying on it. Do not synthesize from a single source: if the current context is procedural, partial, outdated, or off-target for the actual engineering/business question, continue with narrower follow-up lookup or external verification instead of answering early."
 ].join("\n");
 
 export function buildProjectModePrecheckDecision(input: ProjectPrecheckInput): CreateDecisionInput {
@@ -107,33 +107,6 @@ export function createProjectModeBootstrapStreamEvents(
       status: "started",
       summary: "Reviewing local context and planning the next step",
       sourceClass: "knowledge"
-    }
-  ];
-}
-
-export function createProjectModePostRetrievalStreamEvents(input: {
-  identity: ProjectStreamIdentity;
-  retrievedItemCount: number;
-  retrievalSourceCount: number;
-}): RuntimeTurnStreamEvent[] {
-  const detail =
-    input.retrievedItemCount > 0
-      ? `Loaded ${String(input.retrievedItemCount)} grounded excerpt(s) across ${String(input.retrievalSourceCount)} source class(es).`
-      : "No direct grounded excerpt yet; keep gathering narrower local or external sources.";
-  return [
-    {
-      type: "project_reasoning_summary",
-      requestId: input.identity.requestId,
-      sessionId: input.identity.sessionId,
-      kind: "check",
-      summary:
-        input.retrievedItemCount > 0
-          ? "Checking whether the gathered context actually answers the task."
-          : "Local context is still thin, so the search may need to expand.",
-      detail,
-      ...(input.retrievedItemCount > 0
-        ? {}
-        : { sourceClass: "knowledge" as const, resultCount: input.retrievedItemCount })
     }
   ];
 }
