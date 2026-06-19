@@ -699,6 +699,7 @@ export class TurnRoutingService {
 
     if (
       this.matchesAny(lowerText, reasoningTerms) ||
+      this.matchesAny(lowerText, DEFAULT_DEEP_CUE_TERMS) ||
       this.looksCodeHeavy(normalizedText) ||
       input.request.message.attachments.some(
         (attachment) =>

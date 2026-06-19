@@ -347,6 +347,20 @@ const projectedTools: RuntimeNativeToolProjection = {
   knowledgeFetchSources: []
 };
 
+// KB-unavailable variant: web tool present, knowledge tool absent.
+// Used in Slice 5 KB-availability axis tests.
+const projectedToolsNoKB: RuntimeNativeToolProjection = {
+  tools: [
+    {
+      name: "web_search",
+      description: "Search the web",
+      inputSchema: { type: "object" }
+    }
+  ],
+  knowledgeSearchSources: [],
+  knowledgeFetchSources: []
+};
+
 export async function runTurnRoutingServiceTest(): Promise<void> {
   const providerGatewayClient = new FakeProviderGatewayClientService();
   const skillClassifierResult = providerGatewayClient.result;
@@ -724,6 +738,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
   await runAutoSkillRoutingHardeningTests();
   await runTurnRoutingFallbackTests();
   await runThinkingBudgetOverrideTests();
+  await runSlice5SignalCombinationTests();
 }
 
 async function runTurnRoutingFallbackTests(): Promise<void> {
@@ -1082,6 +1097,374 @@ async function runThinkingBudgetOverrideTests(): Promise<void> {
   });
   assert.equal(lightDecision.level, "light");
   assert.equal(lightDecision.thinkingBudget, 0, "null light leaf falls back to resolver default 0");
+}
+
+// ─── ADR-121 Slice 5: signal-combination matrix + snapshot-shape ─────────────
+// Covers: KB-availability axis, deepMode saturation, chatMode non-interference,
+// retrieval-intent × deepMode nudge, partial and full plan-override via router,
+// and the RuntimeTurnRoutingSnapshot field invariant for a heavy project turn.
+async function runSlice5SignalCombinationTests(): Promise<void> {
+  const providerGatewayClient = new FakeProviderGatewayClientService();
+  const service = new TurnRoutingService(
+    providerGatewayClient as unknown as ProviderGatewayClientService
+  );
+
+  // Precheck-only bundle (router disabled) for deterministic non-LLM paths.
+  const precheckBundle = createBundle({ enabled: false }, false);
+
+  // Bundle with premiumTerms configured, router disabled.
+  const premiumBundle = createBundle(
+    {
+      enabled: false,
+      precheckRuleOverrides: {
+        continueTerms: [],
+        retrievalTerms: [],
+        reasoningTerms: [],
+        premiumTerms: ["cover letter"],
+        toolTerms: []
+      }
+    },
+    false
+  );
+
+  // ── KB availability axis ─────────────────────────────────────────────────
+  // product_knowledge_intent branch fires ONLY when KB tools are projected.
+  // Message: "quota limit" matches DEFAULT_PRODUCT_PRIORITY_TERMS.
+
+  const kbAvailableDecision = await service.decide({
+    bundle: precheckBundle,
+    request: createRequest("What is the quota limit for my workspace?"),
+    projectedTools // knowledge_search present
+  });
+  assert.equal(
+    kbAvailableDecision.reasonCode,
+    "product_knowledge_intent",
+    "KB|available: product_knowledge_intent fires for quota/limit intent"
+  );
+  assert.equal(
+    kbAvailableDecision.level,
+    "light",
+    "KB|available: product_knowledge_intent → light"
+  );
+  assert.equal(
+    kbAvailableDecision.source,
+    "precheck",
+    "KB|available: resolved at precheck (high-confidence)"
+  );
+
+  const kbUnavailableDecision = await service.decide({
+    bundle: precheckBundle,
+    request: createRequest("What is the quota limit for my workspace?"),
+    projectedTools: projectedToolsNoKB // no knowledge_search
+  });
+  assert.notEqual(
+    kbUnavailableDecision.reasonCode,
+    "product_knowledge_intent",
+    "KB|unavailable: product_knowledge_intent branch must NOT fire"
+  );
+  assert.equal(
+    kbUnavailableDecision.reasonCode,
+    "simple_turn",
+    "KB|unavailable: short message without KB falls to simple_turn"
+  );
+  assert.equal(kbUnavailableDecision.level, "light", "KB|unavailable: simple_turn → light");
+
+  // ── deepMode × retrieval_intent: base=light → nudged to medium ──────────
+  // "найди в документах" is in DEFAULT_RETRIEVAL_TERMS → retrieval_intent fires
+  // with base level=light; deepMode=true nudges it to medium.
+  const retrievalDeepDecision = await service.decide({
+    bundle: precheckBundle,
+    request: { ...createRequest("найди в документах правила по налогам"), deepMode: true },
+    projectedTools
+  });
+  assert.equal(
+    retrievalDeepDecision.reasonCode,
+    "knowledge_retrieval",
+    "deepMode×retrieval: reasonCode=knowledge_retrieval"
+  );
+  assert.equal(
+    retrievalDeepDecision.level,
+    "medium",
+    "deepMode×retrieval: base=light + deepMode=true → medium"
+  );
+  assert.equal(retrievalDeepDecision.executionMode, "premium", "deepMode×retrieval → premium");
+  assert.equal(
+    retrievalDeepDecision.thinkingBudget,
+    0,
+    "deepMode×retrieval → medium → thinkingBudget=0"
+  );
+
+  // ── deepMode saturation: deep + deepMode=true → deep (capped) ───────────
+  // "контракт" is in DEFAULT_REASONING_TERMS → enters reasoning_request branch.
+  // "разбери подробно" is in DEFAULT_DEEP_CUE_TERMS → isDeepCue=true → baseLevel=deep.
+  // applyDeepModeNudge("deep", true) = "deep" (saturated at ceiling — no level beyond deep).
+  const deepSaturatedDecision = await service.decide({
+    bundle: precheckBundle,
+    request: {
+      ...createRequest("разбери подробно этот контракт"),
+      deepMode: true
+    },
+    projectedTools
+  });
+  assert.equal(
+    deepSaturatedDecision.reasonCode,
+    "reasoning_request",
+    "deepMode×saturation: reasonCode=reasoning_request"
+  );
+  assert.equal(
+    deepSaturatedDecision.level,
+    "deep",
+    "deepMode×saturation: base=deep + deepMode=true → saturated at deep"
+  );
+  assert.equal(deepSaturatedDecision.executionMode, "reasoning", "deepMode×saturation → reasoning");
+  assert.equal(
+    deepSaturatedDecision.thinkingBudget,
+    32768,
+    "deepMode×saturation → thinkingBudget=32768"
+  );
+
+  // ── Russian deep cue (проанализируй) without deepMode ───────────────────
+  // "контракт" is in DEFAULT_REASONING_TERMS → enters reasoning_request branch.
+  // "проанализируй" is in DEFAULT_DEEP_CUE_TERMS → isDeepCue=true → baseLevel=deep.
+  // deepMode=false → no nudge → level stays deep (explicit cue is enough).
+  const russianDeepCueDecision = await service.decide({
+    bundle: precheckBundle,
+    request: createRequest("проанализируй этот контракт, найди все проблемы"),
+    projectedTools
+  });
+  assert.equal(
+    russianDeepCueDecision.reasonCode,
+    "reasoning_request",
+    "Russian deep cue: reasonCode=reasoning_request"
+  );
+  assert.equal(
+    russianDeepCueDecision.level,
+    "deep",
+    "Russian deep cue 'проанализируй' → level=deep (no deepMode nudge needed)"
+  );
+  assert.equal(russianDeepCueDecision.executionMode, "reasoning", "Russian deep cue → reasoning");
+  assert.equal(
+    russianDeepCueDecision.thinkingBudget,
+    32768,
+    "Russian deep cue → thinkingBudget=32768"
+  );
+
+  // ── chatMode axis: "normal" and "smart" do not bypass message routing ────
+  // chatMode "normal"/"smart" = isProjectChatMode returns false; routing follows
+  // message characteristics alone.
+  const chatModeNormalHeavyDecision = await service.decide({
+    bundle: precheckBundle,
+    request: {
+      ...createRequest("Debug this function: ```function foo() { return null; }```"),
+      chatMode: "normal" as const
+    },
+    projectedTools
+  });
+  assert.equal(
+    chatModeNormalHeavyDecision.reasonCode,
+    "reasoning_request",
+    "chatMode=normal + code-heavy: routing follows message, not chatMode"
+  );
+  assert.equal(
+    chatModeNormalHeavyDecision.level,
+    "heavy",
+    "chatMode=normal + code-heavy → heavy (project branch not taken)"
+  );
+  assert.equal(
+    chatModeNormalHeavyDecision.executionMode,
+    "premium",
+    "chatMode=normal + code-heavy → premium"
+  );
+  assert.equal(
+    chatModeNormalHeavyDecision.thinkingBudget,
+    8192,
+    "chatMode=normal + heavy → thinkingBudget=8192"
+  );
+
+  const chatModeSmartMediumDecision = await service.decide({
+    bundle: premiumBundle,
+    request: {
+      ...createRequest("Draft a polished cover letter for this role."),
+      chatMode: "smart" as const
+    },
+    projectedTools
+  });
+  assert.equal(
+    chatModeSmartMediumDecision.reasonCode,
+    "premium_writing",
+    "chatMode=smart + premium writing: routing follows message, not chatMode"
+  );
+  assert.equal(
+    chatModeSmartMediumDecision.level,
+    "medium",
+    "chatMode=smart + premium writing → medium (project branch not taken)"
+  );
+  assert.equal(
+    chatModeSmartMediumDecision.executionMode,
+    "premium",
+    "chatMode=smart + premium writing → premium"
+  );
+  assert.equal(
+    chatModeSmartMediumDecision.thinkingBudget,
+    0,
+    "chatMode=smart + medium → thinkingBudget=0"
+  );
+
+  // ── Snapshot-shape: heavy-level project-mode turn ────────────────────────
+  // ADR-121 D7: RuntimeTurnRoutingSnapshot mirrors TurnRouteDecision fields
+  // level, executionMode, and thinkingBudget via toRuntimeTurnRoutingSnapshot.
+  // Assert all three directly on the routing decision (source of truth for the
+  // snapshot); the snapshot copies them verbatim.
+  const snapshotProjectRequest = createRequest("Summarize the project context and files.");
+  snapshotProjectRequest.chatMode = "project";
+  snapshotProjectRequest.deepMode = false; // heavy base, no deepMode nudge → heavy
+  const snapshotProjectHeavyDecision = await service.decide({
+    bundle: precheckBundle,
+    request: snapshotProjectRequest,
+    projectedTools
+  });
+  // ADR-121 D7 invariant: RuntimeTurnRoutingSnapshot must carry all three fields.
+  assert.equal(
+    snapshotProjectHeavyDecision.level,
+    "heavy",
+    "snapshot|project-heavy: level=heavy (D7 — snapshot gains additive level field)"
+  );
+  assert.equal(
+    snapshotProjectHeavyDecision.executionMode,
+    "premium",
+    "snapshot|project-heavy: executionMode=premium (D3 — kept for back-compat)"
+  );
+  assert.equal(
+    snapshotProjectHeavyDecision.thinkingBudget,
+    8192,
+    "snapshot|project-heavy: thinkingBudget=8192 (D7 — snapshot gains additive thinkingBudget)"
+  );
+  assert.equal(
+    snapshotProjectHeavyDecision.source,
+    "precheck",
+    "snapshot|project-heavy: source=precheck (stored verbatim in snapshot)"
+  );
+
+  // ── Plan thinking-budget override: partial medium-only via router ────────
+  // Bundle with medium=500; heavy keeps default 8192.
+  const partialMediumOverrideBundle = createBundle(
+    {
+      enabled: false,
+      precheckRuleOverrides: {
+        continueTerms: [],
+        retrievalTerms: [],
+        reasoningTerms: [],
+        premiumTerms: ["cover letter"],
+        toolTerms: []
+      }
+    },
+    false
+  );
+  (
+    partialMediumOverrideBundle.runtime as unknown as Record<string, unknown>
+  ).thinkingBudgetByLevel = { byLevel: { light: null, medium: 500, heavy: null, deep: null } };
+
+  const partialMediumOverrideDecision = await service.decide({
+    bundle: partialMediumOverrideBundle,
+    request: createRequest("Draft a polished cover letter for this role."), // → medium
+    projectedTools
+  });
+  assert.equal(
+    partialMediumOverrideDecision.level,
+    "medium",
+    "partial-medium-override: premium_writing → medium"
+  );
+  assert.equal(
+    partialMediumOverrideDecision.thinkingBudget,
+    500,
+    "partial-medium-override: thinkingBudget=500 for medium (override beats default 0)"
+  );
+
+  const partialHeavyDefaultDecision = await service.decide({
+    bundle: partialMediumOverrideBundle,
+    request: createRequest("Debug this function: ```function foo() { return null; }```"), // → heavy
+    projectedTools
+  });
+  assert.equal(
+    partialHeavyDefaultDecision.level,
+    "heavy",
+    "partial-medium-override: code-heavy → heavy"
+  );
+  assert.equal(
+    partialHeavyDefaultDecision.thinkingBudget,
+    8192,
+    "partial-medium-override: heavy uses resolver default 8192 (null leaf not overriding)"
+  );
+
+  // ── Plan thinking-budget override: full override (all four levels) ───────
+  const fullOverrideBundle = createBundle(
+    {
+      enabled: false,
+      precheckRuleOverrides: {
+        continueTerms: [],
+        retrievalTerms: [],
+        reasoningTerms: [],
+        premiumTerms: ["cover letter"],
+        toolTerms: []
+      }
+    },
+    false
+  );
+  (fullOverrideBundle.runtime as unknown as Record<string, unknown>).thinkingBudgetByLevel = {
+    byLevel: { light: 50, medium: 100, heavy: 200, deep: 300 }
+  };
+
+  const fullOverrideLightDecision = await service.decide({
+    bundle: fullOverrideBundle,
+    request: createRequest("ok"), // continue_term → light
+    projectedTools
+  });
+  assert.equal(fullOverrideLightDecision.level, "light", "full-override: continue_term → light");
+  assert.equal(
+    fullOverrideLightDecision.thinkingBudget,
+    50,
+    "full-override: light override=50 beats resolver default 0"
+  );
+
+  const fullOverrideMediumDecision = await service.decide({
+    bundle: fullOverrideBundle,
+    request: createRequest("Draft a polished cover letter for this role."), // premium_writing → medium
+    projectedTools
+  });
+  assert.equal(
+    fullOverrideMediumDecision.level,
+    "medium",
+    "full-override: premium_writing → medium"
+  );
+  assert.equal(
+    fullOverrideMediumDecision.thinkingBudget,
+    100,
+    "full-override: medium override=100 beats resolver default 0"
+  );
+
+  const fullOverrideHeavyDecision = await service.decide({
+    bundle: fullOverrideBundle,
+    request: createRequest("Debug this function: ```function foo() { return null; }```"), // → heavy
+    projectedTools
+  });
+  assert.equal(fullOverrideHeavyDecision.level, "heavy", "full-override: code-heavy → heavy");
+  assert.equal(
+    fullOverrideHeavyDecision.thinkingBudget,
+    200,
+    "full-override: heavy override=200 beats resolver default 8192"
+  );
+
+  const fullOverrideDeepDecision = await service.decide({
+    bundle: fullOverrideBundle,
+    request: createRequest("разбери подробно этот контракт"), // reasoning + deep cue → deep
+    projectedTools
+  });
+  assert.equal(fullOverrideDeepDecision.level, "deep", "full-override: Russian deep cue → deep");
+  assert.equal(
+    fullOverrideDeepDecision.thinkingBudget,
+    300,
+    "full-override: deep override=300 beats resolver default 32768"
+  );
 }
 
 async function runAutoSkillRoutingHardeningTests(): Promise<void> {

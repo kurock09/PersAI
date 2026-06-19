@@ -129,6 +129,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   },
   { modulePath: "./turn-routing.service.test.ts", exportName: "runTurnRoutingServiceTest" },
   {
+    modulePath: "./execution-profile-resolver.test.ts",
+    exportName: "runExecutionProfileResolverTest"
+  },
+  {
     modulePath: "./native-tool-projection.test.ts",
     exportName: "runNativeToolProjectionTest"
   },

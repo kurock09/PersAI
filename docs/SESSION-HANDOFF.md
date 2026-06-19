@@ -95,9 +95,26 @@ Orchestrator runs C end-to-end: assign slice → review diff → AGENTS.md gate 
 
 **Gate:** contracts:generate PASS · lint PASS · format:check PASS · api/web/runtime/provider-gateway/runtime-contract typecheck all PASS · api tests PASS (exit 0) · runtime tests PASS (exit 0) · web tests PASS (69 files, 797 tests).
 
+### Slice 5 — completed 2026-06-19
+
+**What changed:**
+
+- `apps/runtime/test/execution-profile-resolver.test.ts`: Added `describe("ADR-121 Slice 5 — golden grid")` — table-driven, 13 test cases covering 4 levels × 3 plan-override configs (no override / partial `heavy=4096` / full `light=100, medium=200, heavy=300, deep=400`) asserting `{ level, executionMode, modelRole, thinkingBudget }` for every cell; plus an "overrides are invariant on modelRole/executionMode" assertion. Exported `runExecutionProfileResolverTest` (no-op; node:test keeps process alive).
+- `apps/runtime/test/turn-routing.service.test.ts`: Added `projectedToolsNoKB` constant; added `runSlice5SignalCombinationTests()` covering: KB-availability axis (product_knowledge_intent fires with KB / falls to simple_turn without KB), deepMode × retrieval_intent (light→medium), deepMode saturation (deep+deepMode→deep capped), Russian deep cue ("проанализируй" standalone → level=deep without deepMode), chatMode="normal" non-interference (code-heavy → heavy), chatMode="smart" non-interference (premium writing → medium), snapshot-shape assertion for heavy-level project-mode turn (`level=heavy`, `executionMode=premium`, `thinkingBudget=8192`), partial medium-only override via router (medium=500; heavy stays 8192), full four-level override via router (all four levels use custom budget values).
+- `apps/runtime/test/run-suite-isolated.ts`: Added `{ modulePath: "./execution-profile-resolver.test.ts", exportName: "runExecutionProfileResolverTest" }` so the resolver suite is part of the test runner.
+- `apps/runtime/src/modules/turns/turn-routing.service.ts` (**production bug fix discovered via Slice 5 tests**): Added `|| this.matchesAny(lowerText, DEFAULT_DEEP_CUE_TERMS)` to the `reasoning_request` branch entry guard (was only checked inside the branch). A message matching only a deep-cue term (e.g. "проанализируй этот баг") without any `DEFAULT_REASONING_TERMS` match previously fell through to `simple_turn`, violating ADR-121 §D6.
+
+**Snapshot-shape test:** A project-mode turn with `chatMode="project"` and `deepMode=false` is routed by `TurnRoutingService.decide()` and the result asserts `level="heavy"`, `executionMode="premium"`, `thinkingBudget=8192`, `source="precheck"`. `toRuntimeTurnRoutingSnapshot` in `turn-execution.service.ts` copies these fields verbatim into `RuntimeTurnRoutingSnapshot`; the routing decision is the authoritative source.
+
+**Test matrix dimensions:**
+- Resolver golden grid: 4 levels × 3 override configs × 4 fields = 48 assertions + 4-level invariant loop
+- Router signal-combination: KB axis (2), deepMode×retrieval (1), deepMode saturation (1), Russian deep cue (1), chatMode=normal (1), chatMode=smart (1), snapshot-shape (4), partial override (2), full override (4) = 17 test scenarios
+
+**Gate:** lint PASS · format:check PASS · `@persai/runtime` typecheck PASS · `@persai/runtime run test` PASS (all suites, exit 0).
+
 ### Next recommended step
 
-Implement Slice 5 (end-to-end integration + golden-path regression tests: verify the full pipeline from plan config → materialization → routing → provider request, and extend the live-validation harness).
+ADR-121 is fully implemented (all 5 slices green, verification gate green). Commit all remaining unstaged changes (`execution-profile-resolver.test.ts`, `turn-routing.service.test.ts`, `run-suite-isolated.ts`, `turn-routing.service.ts`, docs), then run full verification (`full-verification.yml` equivalently) before push/deploy.
 
 ## 2026-06-19 — ADR-119 program closed (founder acceptance)
 
