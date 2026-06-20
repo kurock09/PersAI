@@ -54,9 +54,18 @@ spec:
         app.kubernetes.io/name: sandbox-egress-proxy
         app.kubernetes.io/component: sandbox-egress-proxy
     spec:
+      # Run squid directly as the image's unprivileged 'proxy' user (uid/gid 13 in
+      # ubuntu/squid) instead of starting as root and dropping. This makes /dev/stdout
+      # (owned by PID 1) writable by squid for access logging, avoids the root->proxy
+      # privilege-drop entirely (so no SETUID/SETGID capabilities are needed), and keeps
+      # the container non-root. fsGroup 13 makes the emptyDir volumes group-writable.
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 13
+        runAsGroup: 13
+        fsGroup: 13
       containers:
         - name: squid
           image: {{ .Values.sandbox.egressProxy.image | quote }}
@@ -69,12 +78,6 @@ spec:
             capabilities:
               drop:
                 - ALL
-              # Squid starts as root and immediately drops to the unprivileged 'proxy'
-              # user; SETUID/SETGID are the only capabilities that privilege-drop needs.
-              # Without them squid fails: "initgroups: unable to set groups for User proxy".
-              add:
-                - SETUID
-                - SETGID
           volumeMounts:
             - name: squid-conf
               mountPath: /etc/squid/squid.conf
