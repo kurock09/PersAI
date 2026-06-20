@@ -30,6 +30,7 @@ export function mapAssistantChatMessageToWebState(input: {
   attachments: AssistantWebChatMessageAttachmentState[];
 }): AssistantWebChatMessageState {
   const platformNotice = extractAssistantWebChatPlatformNotice(input.message.metadata);
+  const workingPreamble = extractWorkingPreambleFromMetadata(input.message.metadata);
   return {
     id: input.message.id,
     chatId: input.message.chatId,
@@ -38,6 +39,20 @@ export function mapAssistantChatMessageToWebState(input: {
     content: input.message.content,
     attachments: input.attachments,
     createdAt: input.message.createdAt.toISOString(),
-    ...(platformNotice !== null ? { platformNotice } : {})
+    ...(platformNotice !== null ? { platformNotice } : {}),
+    ...(workingPreamble !== null ? { workingPreamble } : {})
   };
+}
+
+export function extractWorkingPreambleFromMetadata(
+  metadata: Record<string, unknown> | null | undefined
+): string | null {
+  if (metadata === null || metadata === undefined) {
+    return null;
+  }
+  const value = metadata.workingPreamble;
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value;
+  }
+  return null;
 }

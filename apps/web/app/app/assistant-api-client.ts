@@ -2431,6 +2431,7 @@ export type ChatHistoryMessage = {
     kind: "safety_inbound_warn" | "safety_inbound_restricted";
     reasonCode: string;
   } | null;
+  workingPreamble?: string | null;
 };
 
 export type ChatCompactionState = AssistantWebChatCompactionState & {

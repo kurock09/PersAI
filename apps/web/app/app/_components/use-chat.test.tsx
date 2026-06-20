@@ -241,11 +241,7 @@ describe("useChat", () => {
           kind: "message",
           message: expect.objectContaining({
             role: "assistant",
-            content: `:::working
-Preface
-:::
-
-`
+            content: "Preface "
           })
         }),
         expect.objectContaining({
@@ -318,7 +314,7 @@ Preface
     expect(assistantEntry?.message.id).toBe("assistant-msg-1");
   });
 
-  it("preserves prior working markdown blocks when completed transport returns only final answer text", async () => {
+  it("preserves prior working preamble when completed transport carries workingPreamble field", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
         _token: string,
@@ -350,7 +346,8 @@ Preface
             },
             assistantMessage: {
               id: "assistant-msg-1",
-              content: "Проверяю сайт.\n\nИтоговый ответ",
+              content: "Итоговый ответ",
+              workingPreamble: "Проверяю сайт.",
               attachments: []
             },
             runtime: null
@@ -370,11 +367,8 @@ Preface
         entry.kind === "message" && entry.message.role === "assistant"
     );
 
-    expect(assistantEntry?.message.content).toBe(`:::working
-Проверяю сайт.
-:::
-
-Итоговый ответ`);
+    expect(assistantEntry?.message.content).toBe("Итоговый ответ");
+    expect(assistantEntry?.message.workingPreamble).toBe("Проверяю сайт.");
   });
 
   it("keeps primary stream ownership when focus status returns running before completed", async () => {

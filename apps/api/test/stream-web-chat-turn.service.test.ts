@@ -339,7 +339,7 @@ describe("StreamWebChatTurnService", () => {
     );
   });
 
-  test("persists pre-tool assistant text as working markdown", async () => {
+  test("persists final answer from done chunk and preamble in metadata", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
 
     const service = new StreamWebChatTurnService(
@@ -409,6 +409,8 @@ describe("StreamWebChatTurnService", () => {
           yield {
             type: "done",
             respondedAt: "2026-04-05T12:00:01.000Z",
+            finalAnswer: "Готово.",
+            workingPreamble: "Сначала проверю файл.",
             turnRouting: {
               mode: "shadow",
               executionMode: "premium",
@@ -498,10 +500,19 @@ describe("StreamWebChatTurnService", () => {
 
     assert.equal(outcome.status, "completed");
     assert.equal(createdMessages.length, 1);
-    assert.equal(createdMessages[0]?.content, ":::working\nСначала проверю файл.\n:::\n\nГотово.");
+    // Golden test 1: content === runtime answerText (byte-equal)
+    assert.equal(createdMessages[0]?.content, "Готово.");
+    // Golden test 2: no working markers in content
+    assert.doesNotMatch(String(createdMessages[0]?.content), /:::working/);
+    assert.doesNotMatch(String(createdMessages[0]?.content), /:::/);
+    // Golden test 3: preamble preserved in metadata
+    assert.equal(
+      (createdMessages[0]?.metadata as Record<string, unknown>)?.workingPreamble,
+      "Сначала проверю файл."
+    );
   });
 
-  test("persists later tool-loop working blocks without duplicate pre-tool text", async () => {
+  test("persists final answer from done chunk without working markers (multi-tool turn)", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
 
     const service = new StreamWebChatTurnService(
@@ -588,6 +599,8 @@ describe("StreamWebChatTurnService", () => {
           yield {
             type: "done",
             respondedAt: "2026-04-05T12:00:01.000Z",
+            finalAnswer: "Done.",
+            workingPreamble: "First plan.",
             turnRouting: {
               mode: "shadow",
               executionMode: "premium",
@@ -677,9 +690,13 @@ describe("StreamWebChatTurnService", () => {
 
     assert.equal(outcome.status, "completed");
     assert.equal(createdMessages.length, 1);
+    // content is the clean final answer — no :::working markers
+    assert.equal(createdMessages[0]?.content, "Done.");
+    assert.doesNotMatch(String(createdMessages[0]?.content), /:::working/);
+    // preamble preserved in metadata
     assert.equal(
-      createdMessages[0]?.content,
-      ":::working\nFirst plan.\n:::\n\n:::working\nSecond plan.\n:::\n\nDone."
+      (createdMessages[0]?.metadata as Record<string, unknown>)?.workingPreamble,
+      "First plan."
     );
   });
 
@@ -1930,6 +1947,158 @@ describe("StreamWebChatTurnService", () => {
     assert.doesNotMatch(line, /toolStarts=/);
     assert.doesNotMatch(line, /interDeltaCount=/);
     assert.doesNotMatch(line, /sse_writes=/);
+  });
+
+  test("partial on abort: persists metadata.status=partial with accumulated content", async () => {
+    const createdMessages: Array<Record<string, unknown>> = [];
+    let aborted = false;
+
+    const service = new StreamWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => {
+          createdMessages.push(input);
+          return {
+            id: "assistant-msg-1",
+            chatId: input.chatId,
+            assistantId: input.assistantId,
+            author: input.author,
+            content: input.content,
+            metadata: input.metadata,
+            createdAt: new Date("2026-04-05T12:00:00.000Z")
+          };
+        },
+        findChatById: async (chatId: string) => ({
+          id: chatId,
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          chatMode: null,
+          deepModeEnabled: false,
+          skillDecisionState: null,
+          lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+          createdAt: new Date("2026-04-05T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        createSystemMessage: async (input: Record<string, unknown>) => ({
+          id: "system-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: "system",
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        releaseWebTurnProcessing: async () => undefined,
+        completeWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async function* () {
+          yield {
+            type: "delta",
+            delta: "Пишу ответ...",
+            accumulated: "Пишу ответ..."
+          };
+          aborted = true;
+          // generator ends without emitting done — stream was aborted
+        }
+      } as never,
+      createWebRuntimeTurnClientServiceMock() as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called in this test");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => {
+          throw new Error("resolve should not be called in this test");
+        }
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never
+    );
+
+    const outcome = await service.streamToCompletion(
+      {
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: "2026-04-05T12:00:00.000Z",
+          updatedAt: "2026-04-05T12:00:00.000Z"
+        },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "hello",
+          attachments: [],
+          createdAt: "2026-04-05T12:00:00.000Z"
+        },
+        assistant: {
+          id: "assistant-1",
+          workspaceId: "workspace-1"
+        },
+        assistantId: "assistant-1",
+        publishedVersionId: "pub-1",
+        runtimeTier: "paid_shared",
+        quotaDegradeModelOverride: null,
+        quotaDegradeReason: null,
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        workspaceTimezone: "UTC"
+      } as never,
+      {
+        isClientAborted: () => aborted,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onTool: () => undefined,
+        onDone: () => undefined
+      }
+    );
+
+    assert.equal(outcome.status, "interrupted");
+    const assistantMsg = createdMessages.find((m) => m.author === "assistant");
+    assert.ok(assistantMsg, "expected an assistant message to be persisted");
+    assert.ok(
+      typeof assistantMsg.content === "string" && assistantMsg.content.trim().length > 0,
+      "expected non-empty partial content"
+    );
+    assert.equal(
+      (assistantMsg.metadata as Record<string, unknown>)?.status,
+      "partial",
+      "expected metadata.status === 'partial'"
+    );
   });
 });
 

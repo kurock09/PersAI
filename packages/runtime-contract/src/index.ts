@@ -2963,7 +2963,23 @@ export interface RuntimeDeferredDocumentJobSummary {
 export interface RuntimeTurnResult {
   requestId: string;
   sessionId: string;
+  /**
+   * Backward-compat full text: equals `preambleText + "\n\n" + answerText` when
+   * a preamble exists, otherwise equals `answerText`. Telegram and non-web
+   * consumers should continue using this field.
+   */
   assistantText: string;
+  /**
+   * Text the model produced in iteration 0 BEFORE the first tool call.
+   * `null` when no tools ran in the turn. The preamble is NOT passed through
+   * `applyAssistantTextCorrections` — it is "as said in the moment".
+   */
+  preambleText?: string | null;
+  /**
+   * The sanitised final answer after the last tool finished (or the entire
+   * text when no tools ran). This is the authoritative content to persist.
+   */
+  answerText?: string;
   artifacts: RuntimeOutputArtifact[];
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;

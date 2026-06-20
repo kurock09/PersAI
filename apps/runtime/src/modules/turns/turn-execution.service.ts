@@ -368,6 +368,55 @@ const BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS = new Set([
   "compact_context"
 ]);
 
+/**
+ * Split the final corrected turn text into the answer-only text and the
+ * backward-compatible full assistant text.
+ *
+ * `fullText` is the provider's final, already-corrected text for the turn
+ * (preamble + answer merged together — corrections never run on the preamble in
+ * isolation). `preambleText` is the iteration-0 pre-tool text captured BEFORE
+ * corrections (or `null` when no tools ran).
+ *
+ * Contract:
+ * - `assistantText` is `fullText` verbatim — it is already the canonical full
+ *   text, so we never reconstruct it from `preamble + answer` (doing so would
+ *   double the preamble, since `fullText` already contains it).
+ * - `answerText` is `fullText` with the leading preamble stripped. When no
+ *   preamble exists, `answerText === fullText`.
+ *
+ * The preamble was captured pre-correction/pre-merge, so we strip it
+ * defensively: verbatim prefix first, then a left-trimmed retry. If the
+ * preamble cannot be located at the start (e.g. a correction rewrote the
+ * preamble region) we fall back to returning the full text as the answer rather
+ * than silently dropping content.
+ */
+export function splitPreambleAndAnswer(
+  fullText: string,
+  preambleText: string | null
+): { answerText: string; assistantText: string } {
+  const assistantText = fullText;
+  const trimmedPreamble = preambleText === null ? "" : preambleText.trim();
+  if (trimmedPreamble.length === 0) {
+    return { answerText: fullText, assistantText };
+  }
+  if (fullText.startsWith(trimmedPreamble)) {
+    return {
+      answerText: fullText.slice(trimmedPreamble.length).replace(/^\s+/, ""),
+      assistantText
+    };
+  }
+  const leftTrimmed = fullText.replace(/^\s+/, "");
+  if (leftTrimmed.startsWith(trimmedPreamble)) {
+    return {
+      answerText: leftTrimmed.slice(trimmedPreamble.length).replace(/^\s+/, ""),
+      assistantText
+    };
+  }
+  // Preamble not found at the start — keep the full text as the answer rather
+  // than guessing a slice and losing content.
+  return { answerText: fullText, assistantText };
+}
+
 @Injectable()
 export class TurnExecutionService {
   private readonly logger = new Logger(TurnExecutionService.name);
@@ -805,6 +854,10 @@ export class TurnExecutionService {
     let forceFinalTextOnly = false;
     let contextOverflowRetryAttempted = false;
     let projectSynthesisEventsEmitted = false;
+    // Preamble: text the model produced in iteration 0 before its first tool call.
+    // Captured once, on the first tool_calls event in iteration 0.
+    let preambleText: string | null = null;
+    let preambleCaptured = false;
 
     yield {
       type: "started",
@@ -931,6 +984,12 @@ export class TurnExecutionService {
 
             if (event.type === "tool_calls") {
               trace?.stage(`iter${String(iteration)}.tool_calls_received`);
+              // Capture preamble: the text assembled before the first tool call in
+              // iteration 0. Not retroactively corrected by applyAssistantTextCorrections.
+              if (iteration === 0 && !preambleCaptured) {
+                preambleCaptured = true;
+                preambleText = assembledText.trim().length > 0 ? assembledText.trim() : null;
+              }
               this.recordUsageEntry(turnState, {
                 stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
                 modelRole: execution.selectedModelRole,
@@ -1152,7 +1211,8 @@ export class TurnExecutionService {
                 correctedProviderResult,
                 turnState,
                 execution.routeDecision,
-                trace?.build("ok")
+                trace?.build("ok"),
+                preambleText
               );
               completionFinalizationAttempted = true;
               const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
@@ -1437,7 +1497,8 @@ export class TurnExecutionService {
     providerResult: ProviderGatewayTextGenerateResult,
     turnState: TurnExecutionState,
     routeDecision?: TurnRouteDecision,
-    trace?: RuntimeTrace
+    trace?: RuntimeTrace,
+    preambleText: string | null = null
   ): RuntimeTurnResult {
     if (providerResult.stopReason !== "completed") {
       throw new InternalServerErrorException(
@@ -1456,12 +1517,26 @@ export class TurnExecutionService {
       );
     }
 
+    // `providerResult.text` is the final corrected FULL text (preamble +
+    // answer). Use it directly as the backward-compat `assistantText` and
+    // derive the answer-only text by stripping the captured preamble — never
+    // reconstruct the full text from `preamble + answer` (that doubled the
+    // preamble; see ADR-120-era tool-loop persistence fix).
+    const normalizedPreamble =
+      preambleText !== null && preambleText.trim().length > 0 ? preambleText.trim() : null;
+    const { answerText, assistantText } = splitPreambleAndAnswer(
+      providerResult.text ?? "",
+      normalizedPreamble
+    );
+
     const turnRouting =
       routeDecision === undefined ? null : this.toRuntimeTurnRoutingSnapshot(routeDecision);
     const result: RuntimeTurnResult = {
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
-      assistantText: providerResult.text ?? "",
+      assistantText,
+      preambleText: normalizedPreamble,
+      answerText,
       artifacts: [...turnState.artifacts],
       respondedAt: providerResult.respondedAt,
       usage: providerResult.usage,

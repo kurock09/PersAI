@@ -34,7 +34,6 @@ import {
 } from "../assistant-api-client";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
-import { appendWorkingMarkdownBlock, splitWorkingMarkdownContent } from "./chat-message-streaming";
 import { dispatchProjectFilesChanged } from "./project-files-events";
 import { scopeThreadKey, useStreamingThreadsRegistry } from "./streaming-threads";
 /** * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server * does not return 2xx headers within this window, the request is aborted * and the user bubble flips to "send_failed". 10s is well above normal * server response time but short enough to feel responsive on flaky * mobile networks. (ADR-075 T� "Single-slot pending send".) */ const HEADERS_TIMEOUT_MS = 10_000;
@@ -91,6 +90,8 @@ export interface ChatMessage {
   thoughtStartedAt?: string | null;
   thoughtFinishedAt?: string | null;
   engagementSummary?: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
+  /** Preamble text the model wrote before the first tool call. null/absent when no tools ran. */
+  workingPreamble?: string | null;
 }
 export interface RecentAutoCompactionNotice {
   detectedAt: string;
@@ -553,95 +554,19 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
     content: message.content,
     status: "committed",
     ...(message.platformNotice ? { platformNotice: message.platformNotice } : {}),
+    ...(message.workingPreamble != null ? { workingPreamble: message.workingPreamble } : {}),
     attachments:
       message.attachments.length > 0 ? (message.attachments as ChatAttachment[]) : undefined
   };
 }
 
-function demoteStreamingAssistantPrefix(
-  messages: ChatMessage[],
-  assistantMessageId: string
-): ChatMessage[] {
-  return messages.map((message) => {
-    if (message.id !== assistantMessageId || message.role !== "assistant") {
-      return message;
-    }
-    const nextContent = appendWorkingMarkdownBlock(message.content);
-    if (nextContent === message.content) {
-      return message;
-    }
-    return {
-      ...message,
-      content: nextContent
-    };
-  });
-}
-
-function normalizeWorkingText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function removeDuplicatedWorkingAnswerPrefix(answerText: string, workingBlocks: string[]): string {
-  let nextAnswer = answerText.replace(/^\s+/, "");
-  for (const block of workingBlocks) {
-    const normalizedBlock = normalizeWorkingText(block);
-    if (normalizedBlock.length === 0) {
-      continue;
-    }
-    const normalizedAnswer = normalizeWorkingText(nextAnswer);
-    if (normalizedAnswer === normalizedBlock) {
-      return "";
-    }
-    if (!normalizedAnswer.startsWith(`${normalizedBlock} `)) {
-      continue;
-    }
-    const blockLines = block.trim().split(/\r?\n/);
-    if (blockLines.length > 1 && nextAnswer.startsWith(block.trim())) {
-      nextAnswer = nextAnswer.slice(block.trim().length).replace(/^\s+/, "");
-      continue;
-    }
-    const firstLine = blockLines[0]?.trim();
-    if (firstLine && nextAnswer.startsWith(firstLine)) {
-      nextAnswer = nextAnswer.slice(firstLine.length).replace(/^\s+/, "");
-    }
-  }
-  return nextAnswer;
-}
-
 function reconcileAuthoritativeAssistantContent(
-  currentContent: string,
+  _currentContent: string,
   authoritativeContent: string | null
 ): string | null {
-  if (authoritativeContent === null) {
-    return null;
-  }
-  const trimmedAuthoritative = authoritativeContent.trim();
-  if (!currentContent.includes(":::working")) {
-    return authoritativeContent;
-  }
-  if (trimmedAuthoritative.length === 0) {
-    return currentContent;
-  }
-  const currentSegments = splitWorkingMarkdownContent(currentContent);
-  if (currentSegments.workingBlocks.length === 0) {
-    return authoritativeContent;
-  }
-  const authoritativeSegments = splitWorkingMarkdownContent(authoritativeContent);
-  if (authoritativeSegments.workingBlocks.length > 0) {
-    return authoritativeContent;
-  }
-  const dedupedAuthoritative = removeDuplicatedWorkingAnswerPrefix(
-    authoritativeContent,
-    currentSegments.workingBlocks
-  );
-  if (currentSegments.answerText.trim() === trimmedAuthoritative) {
-    return currentContent;
-  }
-  const workingPrefix = currentContent.slice(
-    0,
-    currentContent.length - currentSegments.answerText.length
-  );
-  return `${workingPrefix}${dedupedAuthoritative}`;
+  // Content is now always a clean final answer; no :::working markers.
+  // The authoritative server content is always the correct one to use.
+  return authoritativeContent;
 }
 
 function reconcileServerAssistantMessageWithLocal(
@@ -2129,11 +2054,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 if (assistantMessageId === null) {
                   return;
                 }
-                if (phase === "start") {
-                  applyThreadMessages(targetThreadKey, (prev) =>
-                    demoteStreamingAssistantPrefix(prev, assistantMessageId)
-                  );
-                }
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
                   [assistantMessageId]: mergeLiveActivity(
@@ -2153,9 +2073,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 if (assistantMessageId === null) {
                   return;
                 }
-                applyThreadMessages(targetThreadKey, (prev) =>
-                  demoteStreamingAssistantPrefix(prev, assistantMessageId)
-                );
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
                   [assistantMessageId]: mergeLiveActivity(
@@ -2174,9 +2091,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 if (assistantMessageId === null) {
                   return;
                 }
-                applyThreadMessages(targetThreadKey, (prev) =>
-                  demoteStreamingAssistantPrefix(prev, assistantMessageId)
-                );
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
                   [assistantMessageId]: mergeLiveActivity(
@@ -2195,9 +2109,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 if (assistantMessageId === null) {
                   return;
                 }
-                applyThreadMessages(targetThreadKey, (prev) =>
-                  demoteStreamingAssistantPrefix(prev, assistantMessageId)
-                );
                 applyThreadLiveActivities(targetThreadKey, (prev) => {
                   const nextActivity = buildRetrievalLiveActivity(
                     {
@@ -3004,11 +2915,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           isError: boolean;
         }) => {
           flushBufferedAssistantState(true);
-          if (phase === "start") {
-            applyThreadMessages(sendThreadKey, (prev) =>
-              demoteStreamingAssistantPrefix(prev, assistantMsgId)
-            );
-          }
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
             [assistantMsgId]: mergeLiveActivity(
@@ -3032,9 +2938,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           detail?: string | null;
         }) => {
           flushBufferedAssistantState(true);
-          applyThreadMessages(sendThreadKey, (prev) =>
-            demoteStreamingAssistantPrefix(prev, assistantMsgId)
-          );
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
             [assistantMsgId]: mergeLiveActivity(
@@ -3056,9 +2959,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           detail?: string | null;
         }) => {
           flushBufferedAssistantState(true);
-          applyThreadMessages(sendThreadKey, (prev) =>
-            demoteStreamingAssistantPrefix(prev, assistantMsgId)
-          );
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
             [assistantMsgId]: mergeLiveActivity(
@@ -3158,6 +3058,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             assistantMessage?: {
               id?: string;
               content?: string;
+              workingPreamble?: string | null;
               attachments?: ChatAttachment[];
             };
             followUpAssistantMessage?: {
@@ -3221,11 +3122,19 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   typeof t?.assistantMessage?.content === "string"
                     ? reconcileAuthoritativeAssistantContent(m.content, t.assistantMessage.content)
                     : null;
+                const authoritativeWorkingPreamble =
+                  typeof t?.assistantMessage?.workingPreamble === "string" &&
+                  t.assistantMessage.workingPreamble.trim().length > 0
+                    ? t.assistantMessage.workingPreamble
+                    : null;
                 return {
                   ...m,
                   ...(newAssistantId ? { id: newAssistantId } : {}),
                   ...(authoritativeAssistantContent !== null
                     ? { content: authoritativeAssistantContent }
+                    : {}),
+                  ...(authoritativeWorkingPreamble !== null
+                    ? { workingPreamble: authoritativeWorkingPreamble }
                     : {}),
                   status: "committed" as const,
                   attachments: assistantAttachments,

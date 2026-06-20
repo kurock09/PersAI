@@ -181,6 +181,10 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   /** ADR-100 Piece 1 — carried on the `done` chunk only. */
   discoveredFileRefIds?: string[];
+  /** The authoritative final answer from the runtime `completed` event. Carried on `done` only. */
+  finalAnswer?: string;
+  /** Preamble text the model wrote before the first tool call. null when no tools ran. Carried on `done` only. */
+  workingPreamble?: string | null;
   code?: string;
   message?: string;
   media?: RuntimeMediaArtifact[];

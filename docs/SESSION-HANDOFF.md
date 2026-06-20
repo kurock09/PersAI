@@ -3,7 +3,75 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
-## 2026-06-20 — ADR-120 Closure II (vector store hardening + legacy embedding column retirement) — CHECKPOINT
+## 2026-06-20 — Tool-loop final answer loss fix — CHECKPOINT
+
+### What changed
+
+Production bug fix: tool-loop turns were persisting only the pre-tool preamble text while discarding the final answer after tools finished. Five consecutive tool-loop turns were confirmed persisting only 67–232 bytes while the model generated 488–680 tokens.
+
+**Root cause (two coupled defects):**
+1. API `case "completed"` gated acceptance of `event.result.assistantText` on `assistantText.startsWith(accumulated)` — runtime sanitization broke the prefix check, silently dropping the final text.
+2. `:::working` markers were synthetic API-invented wrappers, not a real contract — `buildPersistedWorkingAssistantContent` / `demoteAccumulatedAnswerToWorking` wrote preamble markers into `content` instead of the real final answer.
+
+**Fix:**
+- `RuntimeTurnResult` now carries `preambleText: string | null` + `answerText: string` (split by runtime at first `tool_calls` in iter 0); `assistantText` kept as backward-compat field.
+- `startsWith(accumulated)` gate removed from `case "completed"` in `web-runtime-stream-client.service.ts`; `finalAnswer` + `workingPreamble` forwarded on the `done` chunk.
+- Entire `:::working` pipeline deleted from `stream-web-chat-turn.service.ts`; persisted `content = answerText`; `metadata.workingPreamble = preamble`; aborted/stalled turns persist `metadata.status = "partial"`.
+- One-shot idempotent backfill `apps/api/prisma/backfill-working-preamble.ts` migrates legacy rows.
+- Frontend `WorkingTextBlocks` now reads `message.workingPreamble`; all legacy `:::working` parsing removed from `chat-message-streaming.ts` and `use-chat.ts`.
+- `AssistantWebChatMessageState` in `openapi.yaml` gains `workingPreamble?: string | null`; contracts regenerated.
+
+### Files touched
+
+| File | Purpose |
+|---|---|
+| `packages/runtime-contract/src/index.ts` | Added `preambleText`/`answerText` to `RuntimeTurnResult` |
+| `apps/runtime/src/modules/turns/turn-execution.service.ts` | Capture preamble at first tool_calls; **exported pure `splitPreambleAndAnswer` + `buildTurnResult` delegates to it (regression fix)** |
+| `apps/runtime/test/split-preamble-and-answer.test.ts` | New: runtime unit suite for the preamble/answer split (spec item 6) |
+| `apps/runtime/test/run-suite.ts` / `run-suite-isolated.ts` | Registered the new split suite |
+| `apps/runtime/test/turn-execution.service.test.ts` | Added `preambleText`/`answerText` integration assertions (tool-loop + no-tools) |
+| `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts` | Added `finalAnswer`/`workingPreamble` to stream chunk type |
+| `apps/api/src/modules/workspace-management/application/web-runtime-stream-client.service.ts` | Removed startsWith gate; forward new fields on done chunk |
+| `apps/api/src/modules/workspace-management/application/web-chat.types.ts` | Added `workingPreamble` to `AssistantWebChatMessageState` |
+| `apps/api/src/modules/workspace-management/application/web-chat-message-state.mapper.ts` | Extract workingPreamble from metadata |
+| `apps/api/src/modules/workspace-management/application/persist-assistant-message.ts` | Added `workingPreamble` + `partialStatus` to input; write to metadata |
+| `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` | Removed entire :::working pipeline; persist finalAnswer; partial status |
+| `apps/api/prisma/backfill-working-preamble.ts` | New: one-shot backfill for legacy rows |
+| `packages/contracts/openapi.yaml` | Added `workingPreamble` to `AssistantWebChatMessageState` |
+| `packages/contracts/src/generated/model/assistantWebChatMessageState.ts` | Regenerated |
+| `apps/web/app/app/assistant-api-client.ts` | Added `workingPreamble` to `ChatHistoryMessage` |
+| `apps/web/app/app/_components/use-chat.ts` | Added `workingPreamble` to `ChatMessage`; remove demotion/working fns |
+| `apps/web/app/app/_components/chat-message-streaming.ts` | Removed legacy working block functions |
+| `apps/web/app/app/_components/chat-message.tsx` | Read `workingPreamble` from message; removed splitWorkingMarkdownContent |
+| `apps/api/test/stream-web-chat-turn.service.test.ts` | Updated 2 old tests; added golden test 1+2+3+4 |
+| `apps/api/test/backfill-working-preamble.test.ts` | New: golden test 5 (idempotency) |
+| `apps/web/app/app/_components/chat-message-streaming.test.ts` | Removed obsolete tests; new contract assertion |
+| `apps/web/app/app/_components/chat-message.test.tsx` | Updated 6 tests to use `workingPreamble` field |
+| `apps/web/app/app/_components/use-chat.test.tsx` | Updated 2 tests to new contract |
+| `docs/CHANGELOG.md` | Entry added |
+
+### Runtime split regression (follow-up, same slice)
+
+The first cut of `buildTurnResult` mis-composed the split: `answerText = providerResult.text` (full `P+A`) and `assistantText = P + "\n\n" + answerText` → web duplicated the preamble into the answer (`"P A"`), Telegram got a doubled preamble (`"P\n\nP A"`). API golden tests missed it because they mock the runtime stream and inject `finalAnswer`/`workingPreamble` into `done` directly. Fixed via a pure `splitPreambleAndAnswer(fullText, preambleText)`: `assistantText` = full corrected text verbatim; `answerText` = full text with the captured preamble stripped (verbatim-prefix → left-trim retry → safe full-text fallback). New runtime unit suite + integration assertions added; the integration assertions fail on the buggy logic (verified by temporary revert) and pass after the fix.
+
+### Tests run
+
+- `apps/api/test/stream-web-chat-turn.service.test.ts`: 21/21 PASS
+- `apps/api/test/backfill-working-preamble.test.ts`: PASS
+- `apps/runtime/test/split-preamble-and-answer.test.ts`: PASS (new)
+- `apps/runtime` full `runTurnExecutionServiceTest`: PASS (exit 0)
+- Lint: PASS
+- format:check: PASS
+- `@persai/api` typecheck: PASS
+- `@persai/web` typecheck: PASS
+- `@persai/runtime` typecheck: PASS
+
+### Next recommended step
+
+1. **Run the backfill in PROD** after deploy: `corepack pnpm --filter @persai/api exec ts-node prisma/backfill-working-preamble.ts`. The script is idempotent. It will convert all legacy `:::working` rows to the new format.
+2. **Verify** a live tool-loop turn in production to confirm the final answer is persisted correctly.
+
+
 
 ### Latest completed checkpoint
 

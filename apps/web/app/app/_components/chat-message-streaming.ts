@@ -3,14 +3,6 @@ export interface StreamingMarkdownSegments {
   liveTail: string;
 }
 
-export interface WorkingMarkdownSegments {
-  workingBlocks: string[];
-  answerText: string;
-}
-
-const WORKING_BLOCK_OPEN = ":::working\n";
-const WORKING_BLOCK_CLOSE = "\n:::";
-
 interface StreamingMarkdownScanState {
   lastStableOffset: number;
   activeFence: { marker: "`" | "~"; length: number } | null;
@@ -133,46 +125,4 @@ export function buildStreamingMarkdownTailPreview(content: string): string {
   }
 
   return preview;
-}
-
-function formatWorkingMarkdownBlock(content: string): string {
-  return `${WORKING_BLOCK_OPEN}${content.trim()}\n:::`;
-}
-
-export function splitWorkingMarkdownContent(content: string): WorkingMarkdownSegments {
-  const normalized = content.replace(/\r\n/g, "\n");
-  const workingBlocks: string[] = [];
-  let cursor = 0;
-
-  while (normalized.startsWith(WORKING_BLOCK_OPEN, cursor)) {
-    const blockStart = cursor + WORKING_BLOCK_OPEN.length;
-    const blockEnd = normalized.indexOf(WORKING_BLOCK_CLOSE, blockStart);
-    if (blockEnd === -1) {
-      break;
-    }
-    const blockContent = normalized.slice(blockStart, blockEnd).trim();
-    if (blockContent.length > 0) {
-      workingBlocks.push(blockContent);
-    }
-    cursor = blockEnd + WORKING_BLOCK_CLOSE.length;
-    while (normalized[cursor] === "\n") {
-      cursor += 1;
-    }
-  }
-
-  return {
-    workingBlocks,
-    answerText: normalized.slice(cursor)
-  };
-}
-
-export function appendWorkingMarkdownBlock(content: string): string {
-  const normalized = content.replace(/\r\n/g, "\n");
-  const { workingBlocks, answerText } = splitWorkingMarkdownContent(normalized);
-  const nextBlock = answerText.trim();
-  if (nextBlock.length === 0) {
-    return normalized;
-  }
-  const blocks = [...workingBlocks, nextBlock].map((block) => formatWorkingMarkdownBlock(block));
-  return `${blocks.join("\n\n")}\n\n`;
 }

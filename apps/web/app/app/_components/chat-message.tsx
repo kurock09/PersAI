@@ -44,8 +44,7 @@ import { AssistantAvatar } from "./assistant-avatar";
 import { getActivityDisplayParts, type ActivityEvent } from "./activity-badge";
 import {
   buildStreamingMarkdownTailPreview,
-  splitStreamingMarkdownContent,
-  splitWorkingMarkdownContent
+  splitStreamingMarkdownContent
 } from "./chat-message-streaming";
 import { VoiceMessagePlayer } from "./voice-message-player";
 import { ImageLightbox } from "./image-lightbox";
@@ -1666,8 +1665,24 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     if (message.role !== "assistant") {
       return { workingBlocks: [], answerText: message.content };
     }
-    return splitWorkingMarkdownContent(message.content);
-  }, [message.content, message.role]);
+    // workingPreamble is the structured field from the server;
+    // content is always the clean final answer.
+    const preamble =
+      typeof message.workingPreamble === "string" && message.workingPreamble.trim().length > 0
+        ? message.workingPreamble
+        : null;
+    const preambleBlocks =
+      preamble !== null
+        ? preamble
+            .split(/\n\n+/)
+            .map((b) => b.trim())
+            .filter((b) => b.length > 0)
+        : [];
+    return {
+      workingBlocks: preambleBlocks,
+      answerText: message.content
+    };
+  }, [message.content, message.role, message.workingPreamble]);
   const hasWorkingBlocks = assistantSegments.workingBlocks.length > 0;
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const showPreResponseStatus =

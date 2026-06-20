@@ -341,24 +341,11 @@ export class WebRuntimeStreamClientService {
             for await (const chunk of yieldArtifacts(event.result.artifacts)) {
               yield chunk;
             }
-            const assistantText = event.result.assistantText;
-            if (
-              assistantText.length > accumulated.length &&
-              assistantText.startsWith(accumulated)
-            ) {
-              const tail = assistantText.slice(accumulated.length);
-              if (tail.length > 0) {
-                accumulated = assistantText;
-                yield {
-                  type: "delta",
-                  delta: tail,
-                  accumulated: assistantText
-                };
-              }
-            }
             yield {
               type: "done",
               respondedAt: event.result.respondedAt,
+              finalAnswer: event.result.answerText ?? event.result.assistantText,
+              workingPreamble: event.result.preambleText ?? null,
               ...(event.result.usageAccounting === undefined
                 ? {}
                 : { usageAccounting: event.result.usageAccounting }),

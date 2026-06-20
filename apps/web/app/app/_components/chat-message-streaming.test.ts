@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildStreamingMarkdownTailPreview,
-  splitStreamingMarkdownContent,
-  splitWorkingMarkdownContent,
-  appendWorkingMarkdownBlock
+  splitStreamingMarkdownContent
 } from "./chat-message-streaming";
 
 describe("splitStreamingMarkdownContent", () => {
@@ -54,47 +52,13 @@ describe("splitStreamingMarkdownContent", () => {
   });
 });
 
-describe("working markdown helpers", () => {
-  it("splits persisted working blocks from the final answer", () => {
-    expect(
-      splitWorkingMarkdownContent(`:::working
-Смотрю файлы.
-:::
-
-:::working
-Сверяю контракт.
-:::
-
-Готово.`)
-    ).toEqual({
-      workingBlocks: ["Смотрю файлы.", "Сверяю контракт."],
-      answerText: "Готово."
-    });
-  });
-
-  it("wraps the current answer tail into a working block", () => {
-    expect(appendWorkingMarkdownBlock("Проверяю локальные файлы.")).toBe(`:::working
-Проверяю локальные файлы.
-:::
-
-`);
-  });
-
-  it("appends a later working block after existing ones", () => {
-    expect(
-      appendWorkingMarkdownBlock(`:::working
-Проверяю локальные файлы.
-:::
-
-Сверяю контракт.`)
-    ).toBe(`:::working
-Проверяю локальные файлы.
-:::
-
-:::working
-Сверяю контракт.
-:::
-
-`);
+describe("working preamble format (new contract)", () => {
+  it("no longer exports splitWorkingMarkdownContent or appendWorkingMarkdownBlock", () => {
+    // These were removed as part of the :::working block pipeline removal.
+    // The module only exports the streaming-markdown helpers now.
+    const mod = { splitStreamingMarkdownContent, buildStreamingMarkdownTailPreview };
+    const keys = Object.keys(mod);
+    expect(keys).toContain("splitStreamingMarkdownContent");
+    expect(keys).toContain("buildStreamingMarkdownTailPreview");
   });
 });

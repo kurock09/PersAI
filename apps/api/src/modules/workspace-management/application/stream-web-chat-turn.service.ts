@@ -113,34 +113,12 @@ const WEB_TURN_SURFACE_TYPE = "web_chat";
 const WEB_TURN_CLAIM_STALE_MS = 120_000;
 const WEB_TURN_REPLAY_WAIT_MS = 12_000;
 const WEB_TURN_REPLAY_POLL_MS = 250;
-const WORKING_BLOCK_OPEN = ":::working\n";
-const WORKING_BLOCK_CLOSE = "\n:::";
 
 /**
  * Maximum number of times we will (re)open the runtime stream for a single web
  * chat turn. The first attempt always counts; on stall we may attempt once more.
  */
 const WEB_TURN_MAX_STREAM_ATTEMPTS = 2;
-
-function formatWorkingMarkdownBlock(content: string): string {
-  return `${WORKING_BLOCK_OPEN}${content.trim()}${WORKING_BLOCK_CLOSE}`;
-}
-
-function buildPersistedWorkingAssistantContent(input: {
-  accumulated: string;
-  workingBlocks: string[];
-  answerStartOffset: number;
-}): string {
-  if (input.workingBlocks.length === 0) {
-    return input.accumulated.trim();
-  }
-  const answerText = input.accumulated.slice(input.answerStartOffset).trimStart();
-  if (answerText.trim().length === 0) {
-    return input.accumulated.trim();
-  }
-  const workingPrefix = input.workingBlocks.map(formatWorkingMarkdownBlock).join("\n\n");
-  return `${workingPrefix}\n\n${answerText}`;
-}
 
 export function resolveWebStreamCadenceWatchdogOptions(
   chatMode?: AssistantChatMode
@@ -375,7 +353,10 @@ export class StreamWebChatTurnService {
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
     let toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"] = undefined;
     let discoveredFileRefIds: string[] | undefined = undefined;
-    let persistedAssistantContent = "";
+    /** The authoritative final answer from the runtime `completed` event. null until the `done` chunk arrives. */
+    let runtimeFinalAnswer: string | null = null;
+    /** Preamble from the runtime. null when no tools ran or before `done` arrives. */
+    let runtimeWorkingPreamble: string | null = null;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let mediaDeliveryCompleted = false;
     const trace =
@@ -520,7 +501,12 @@ export class StreamWebChatTurnService {
         deferredMediaJobs = result.deferredMediaJobs;
         toolInvocations = result.toolInvocations;
         discoveredFileRefIds = result.discoveredFileRefIds;
-        persistedAssistantContent = result.persistedAssistantContent;
+        if (result.finalAnswer !== null) {
+          runtimeFinalAnswer = result.finalAnswer;
+        }
+        if (result.workingPreamble !== null) {
+          runtimeWorkingPreamble = result.workingPreamble;
+        }
         for (const m of result.collectedMedia) collectedMedia.push(m);
         if (result.primaryFirstDeltaMs !== null) {
           primaryFirstDeltaMs = result.primaryFirstDeltaMs;
@@ -588,7 +574,8 @@ export class StreamWebChatTurnService {
           attempt
         });
         accumulated = "";
-        persistedAssistantContent = "";
+        runtimeFinalAnswer = null;
+        runtimeWorkingPreamble = null;
         respondedAt = null;
         turnRouting = null;
         primaryFirstDeltaMs = null;
@@ -616,7 +603,7 @@ export class StreamWebChatTurnService {
         }
         const interrupted = await this.persistInterruptedOutcome(
           prepared,
-          persistedAssistantContent.trim() || accumulated,
+          accumulated.trim(),
           respondedAt
         );
         if (prepared.clientTurnId !== undefined && this.webChatTurnAttemptService) {
@@ -656,9 +643,14 @@ export class StreamWebChatTurnService {
       }
 
       const cleanedAccumulated = accumulated.trim();
-      const cleanedPersistedAssistantContent =
-        persistedAssistantContent.trim() || cleanedAccumulated;
-      if (cleanedAccumulated.length === 0 && collectedMedia.length === 0) {
+      // Use the authoritative final answer from the runtime `completed` event.
+      // Fall back to accumulated (partial/stall scenario) when the runtime
+      // never reached a `completed` event.
+      const isCompletedNormally = runtimeFinalAnswer !== null;
+      const contentToPersist = isCompletedNormally
+        ? (runtimeFinalAnswer as string).trim()
+        : cleanedAccumulated;
+      if (contentToPersist.length === 0 && collectedMedia.length === 0) {
         if (prepared.clientTurnId !== undefined) {
           if (this.webChatTurnAttemptService) {
             await this.webChatTurnAttemptService.markFailed({
@@ -697,10 +689,12 @@ export class StreamWebChatTurnService {
         assistantMediaJobService: this.assistantMediaJobService,
         chatId: prepared.chat.id,
         assistantId: prepared.assistantId,
-        content: cleanedPersistedAssistantContent,
+        content: contentToPersist,
         discoveredFileRefIds,
         deferredMediaJobCount: deferredMediaJobs?.length,
-        sourceUserMessageId: prepared.userMessage.id
+        sourceUserMessageId: prepared.userMessage.id,
+        workingPreamble: runtimeWorkingPreamble ?? undefined,
+        partialStatus: isCompletedNormally ? undefined : "partial"
       });
       mainAssistantReplyPersisted = true;
       trace.stage("assistant_message_saved");
@@ -735,7 +729,7 @@ export class StreamWebChatTurnService {
         userContent: baseMessage,
         assistant: prepared.assistant,
         assistantMessage,
-        assistantText: cleanedPersistedAssistantContent,
+        assistantText: contentToPersist,
         mediaArtifacts: collectedMedia,
         respondedAt: respondedAt ?? assistantMessage.createdAt.toISOString(),
         ...(usageAccounting === undefined ? {} : { usageAccounting }),
@@ -1077,7 +1071,8 @@ export class StreamWebChatTurnService {
   }): Promise<{
     status: "completed" | "client-aborted" | "stalled" | "retry_after_compaction";
     accumulated: string;
-    persistedAssistantContent: string;
+    finalAnswer: string | null;
+    workingPreamble: string | null;
     respondedAt: string | null;
     usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
     turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
@@ -1090,8 +1085,8 @@ export class StreamWebChatTurnService {
     stallReport: CadenceWatchdogStallReport | null;
   }> {
     let accumulated = input.attempt === 1 ? input.accumulatedSoFar : "";
-    const workingBlocks: string[] = [];
-    let answerStartOffset = 0;
+    let finalAnswer: string | null = null;
+    let workingPreamble: string | null = null;
     let respondedAt: string | null = null;
     let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
@@ -1102,21 +1097,6 @@ export class StreamWebChatTurnService {
     let primaryFirstDeltaMs = input.primaryFirstDeltaMs;
     let toolEventCount = 0;
     let capturedStallReport: CadenceWatchdogStallReport | null = null;
-
-    const demoteAccumulatedAnswerToWorking = () => {
-      const nextBlock = accumulated.slice(answerStartOffset).trim();
-      if (nextBlock.length === 0) {
-        return;
-      }
-      workingBlocks.push(nextBlock);
-      answerStartOffset = accumulated.length;
-    };
-    const currentPersistedAssistantContent = () =>
-      buildPersistedWorkingAssistantContent({
-        accumulated,
-        workingBlocks,
-        answerStartOffset
-      });
 
     const internalAbort = new AbortController();
     const watchdog = createCadenceWatchdog(
@@ -1155,7 +1135,8 @@ export class StreamWebChatTurnService {
           return {
             status: "client-aborted",
             accumulated,
-            persistedAssistantContent: currentPersistedAssistantContent(),
+            finalAnswer: null,
+            workingPreamble: null,
             respondedAt,
             usageAccounting,
             turnRouting,
@@ -1199,9 +1180,6 @@ export class StreamWebChatTurnService {
           typeof chunk.toolName === "string" &&
           typeof chunk.toolCallId === "string"
         ) {
-          if (chunk.toolPhase === "start") {
-            demoteAccumulatedAnswerToWorking();
-          }
           toolEventCount += 1;
           if (input.cadenceState !== null) {
             recordToolPhase(input.cadenceState, chunk.toolPhase);
@@ -1251,7 +1229,6 @@ export class StreamWebChatTurnService {
             chunk.activitySource === "web") &&
           chunk.activityPhase === "start"
         ) {
-          demoteAccumulatedAnswerToWorking();
           input.callbacks.onActivity?.({
             source: chunk.activitySource,
             phase: chunk.activityPhase,
@@ -1271,9 +1248,6 @@ export class StreamWebChatTurnService {
           chunk.projectStatus !== undefined &&
           typeof chunk.projectSummary === "string"
         ) {
-          if (chunk.projectStatus === "started") {
-            demoteAccumulatedAnswerToWorking();
-          }
           input.callbacks.onProjectActivity?.({
             stage: chunk.projectStage,
             status: chunk.projectStatus,
@@ -1310,6 +1284,13 @@ export class StreamWebChatTurnService {
           deferredMediaJobs = chunk.deferredMediaJobs;
           toolInvocations = chunk.toolInvocations;
           discoveredFileRefIds = chunk.discoveredFileRefIds;
+          // Capture the authoritative final answer and preamble from the runtime.
+          if (typeof chunk.finalAnswer === "string") {
+            finalAnswer = chunk.finalAnswer;
+          }
+          if (chunk.workingPreamble !== undefined) {
+            workingPreamble = chunk.workingPreamble;
+          }
           if (chunk.runtimeTrace) {
             input.trace.attachExternalTrace(chunk.runtimeTrace);
           }
@@ -1331,7 +1312,8 @@ export class StreamWebChatTurnService {
         return {
           status: "stalled",
           accumulated,
-          persistedAssistantContent: currentPersistedAssistantContent(),
+          finalAnswer: null,
+          workingPreamble: null,
           respondedAt,
           usageAccounting,
           turnRouting,
@@ -1360,7 +1342,8 @@ export class StreamWebChatTurnService {
         return {
           status: "retry_after_compaction",
           accumulated,
-          persistedAssistantContent: currentPersistedAssistantContent(),
+          finalAnswer: null,
+          workingPreamble: null,
           respondedAt,
           usageAccounting,
           turnRouting,
@@ -1382,7 +1365,8 @@ export class StreamWebChatTurnService {
       return {
         status: "client-aborted",
         accumulated,
-        persistedAssistantContent: currentPersistedAssistantContent(),
+        finalAnswer: null,
+        workingPreamble: null,
         respondedAt,
         usageAccounting,
         turnRouting,
@@ -1402,7 +1386,8 @@ export class StreamWebChatTurnService {
       return {
         status: "completed",
         accumulated,
-        persistedAssistantContent: currentPersistedAssistantContent(),
+        finalAnswer,
+        workingPreamble,
         respondedAt,
         usageAccounting,
         turnRouting,
@@ -1419,7 +1404,8 @@ export class StreamWebChatTurnService {
     return {
       status: "completed",
       accumulated,
-      persistedAssistantContent: currentPersistedAssistantContent(),
+      finalAnswer,
+      workingPreamble,
       respondedAt,
       usageAccounting,
       turnRouting,
@@ -1750,7 +1736,8 @@ export class StreamWebChatTurnService {
       chatId: prepared.chat.id,
       assistantId: prepared.assistantId,
       author: "assistant",
-      content: cleanedPartial
+      content: cleanedPartial,
+      metadata: { status: "partial" }
     });
     const systemMessage = await this.assistantChatRepository.createMessage({
       chatId: prepared.chat.id,

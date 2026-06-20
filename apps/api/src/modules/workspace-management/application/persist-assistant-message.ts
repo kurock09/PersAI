@@ -11,19 +11,34 @@ type PersistAssistantMessageInput = {
   discoveredFileRefIds?: string[] | undefined;
   deferredMediaJobCount?: number | undefined;
   sourceUserMessageId?: string | null | undefined;
+  workingPreamble?: string | null | undefined;
+  /** "partial" when the turn was aborted / stalled before a completed event arrived. */
+  partialStatus?: "partial" | undefined;
 };
 
 export async function persistAssistantMessage(
   input: PersistAssistantMessageInput
 ): Promise<AssistantChatMessage> {
+  const hasFileRefs =
+    input.discoveredFileRefIds !== undefined && input.discoveredFileRefIds.length > 0;
+  const hasPreamble =
+    typeof input.workingPreamble === "string" && input.workingPreamble.trim().length > 0;
+  const hasStatus = input.partialStatus !== undefined;
+  const metadata: Record<string, unknown> | undefined =
+    hasFileRefs || hasPreamble || hasStatus
+      ? {
+          ...(hasFileRefs ? { discoveredFileRefIds: input.discoveredFileRefIds } : {}),
+          ...(hasPreamble ? { workingPreamble: input.workingPreamble } : {}),
+          ...(hasStatus ? { status: input.partialStatus } : {})
+        }
+      : undefined;
+
   const assistantMessage = await input.chatRepository.createMessage({
     chatId: input.chatId,
     assistantId: input.assistantId,
     author: "assistant",
     content: input.content,
-    ...(input.discoveredFileRefIds !== undefined && input.discoveredFileRefIds.length > 0
-      ? { metadata: { discoveredFileRefIds: input.discoveredFileRefIds } }
-      : {})
+    ...(metadata !== undefined ? { metadata } : {})
   });
 
   if (
