@@ -78,6 +78,7 @@ type MockK8sContext = {
   execResponses: Array<{ exitCode: number; stdout: string; stderr: string }>;
   deletedPods: string[];
   execCallCount: number;
+  execCommands: string[][];
 };
 
 function buildMockBridge(ctx: MockK8sContext): ExecPodBridgeService {
@@ -118,6 +119,7 @@ function buildMockBridge(ctx: MockK8sContext): ExecPodBridgeService {
       const response = ctx.execResponses[execCallIndex];
       execCallIndex += 1;
       ctx.execCallCount += 1;
+      ctx.execCommands.push([...command]);
 
       if (response === undefined) {
         return Promise.resolve({
@@ -198,7 +200,8 @@ test("ExecPodBridgeService: createExecPod creates pod with correct spec", async 
       { exitCode: 0, stdout: "", stderr: "" }
     ],
     deletedPods: [],
-    execCallCount: 0
+    execCallCount: 0,
+    execCommands: []
   };
 
   const bridge = buildMockBridge(ctx);
@@ -243,7 +246,8 @@ test("ExecPodBridgeService: waitForPodRunning succeeds when pod reaches Running"
     podPhaseSequence: ["Pending", "Pending", "Running"],
     execResponses: [],
     deletedPods: [],
-    execCallCount: 0
+    execCallCount: 0,
+    execCommands: []
   };
 
   const bridge = buildMockBridge(ctx);
@@ -260,7 +264,8 @@ test("ExecPodBridgeService: waitForPodRunning throws on terminal phase", async (
     podPhaseSequence: ["Pending", "Failed"],
     execResponses: [],
     deletedPods: [],
-    execCallCount: 0
+    execCallCount: 0,
+    execCommands: []
   };
 
   const bridge = buildMockBridge(ctx);
@@ -309,7 +314,8 @@ test("ExecPodBridgeService: createExecPod injects proxy env vars when proxy URL 
       { exitCode: 0, stdout: "", stderr: "" }
     ],
     deletedPods: [],
-    execCallCount: 0
+    execCallCount: 0,
+    execCommands: []
   };
 
   const bridge = new ExecPodBridgeService(configWithProxy);
@@ -419,7 +425,8 @@ test("ExecPodBridgeService: sessionless runInPod creates and deletes ephemeral p
       { exitCode: 0, stdout: "", stderr: "" }
     ],
     deletedPods: [],
-    execCallCount: 0
+    execCallCount: 0,
+    execCommands: []
   };
 
   const bridge = buildMockBridge(ctx);
@@ -446,6 +453,57 @@ test("ExecPodBridgeService: sessionless runInPod creates and deletes ephemeral p
   );
   assert.equal(ctx.deletedPods.length, 1, "ephemeral pod must be deleted after job");
   assert.equal(ctx.deletedPods[0], ctx.createdPods[0]?.body.metadata?.name);
+});
+
+test("ExecPodBridgeService: workspace push extracts by entry name with --no-same-owner (never '.')", async () => {
+  // Regression: extracting a "." member made the remote tar restore mode/utime on
+  // /workspace itself, which the non-root exec user cannot do, failing every push with
+  // "Cannot change mode/utime: Operation not permitted". The push must archive top-level
+  // entries by name (so no "." member is ever extracted) and pass --no-same-owner.
+  const ctx: MockK8sContext = {
+    createdPods: [],
+    podPhaseSequence: ["Running"],
+    execResponses: [
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" }
+    ],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  };
+
+  const bridge = buildMockBridge(ctx);
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-bridge-push-"));
+  try {
+    await fs.writeFile(join(workspaceRoot, "report.txt"), "hello", "utf8");
+    await fs.mkdir(join(workspaceRoot, "sub"));
+    await fs.writeFile(join(workspaceRoot, "sub", "nested.txt"), "data", "utf8");
+    await bridge.runInPod({
+      jobId: "job-push-001",
+      runtimeSessionId: null,
+      workspaceRoot,
+      absoluteCwd: workspaceRoot,
+      command: "/bin/sh",
+      args: ["-c", "echo hi"],
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+    });
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
+
+  const pushCommand = ctx.execCommands.find(
+    (command) => command.includes("-xf") && command.includes("/workspace")
+  );
+  assert.ok(pushCommand !== undefined, "a workspace push (tar -xf) command must run");
+  assert.ok(
+    pushCommand.includes("--no-same-owner"),
+    "push must pass --no-same-owner so it does not fail trying to chown into /workspace"
+  );
+  assert.ok(
+    !pushCommand.includes("."),
+    "push must extract by entry name and never include a '.' member"
+  );
 });
 
 test("ExecPodBridgeService: session runInPod reuses pod on second call (no recreate, no delete)", async () => {
@@ -619,7 +677,8 @@ test("ExecPodBridgeService: createExecPod injects no env vars when proxy URL is 
       { exitCode: 0, stdout: "", stderr: "" }
     ],
     deletedPods: [],
-    execCallCount: 0
+    execCallCount: 0,
+    execCommands: []
   };
 
   const bridge = buildMockBridge(ctx);

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { Writable } from "node:stream";
+import { readdir } from "node:fs/promises";
+import { Readable, Writable } from "node:stream";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { KubeConfig, CoreV1Api, Exec, V1Status } from "@kubernetes/client-node";
 import type { SandboxConfig } from "@persai/config";
@@ -527,21 +528,32 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     namespace: string,
     workspaceRoot: string
   ): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      const tarChild = spawn("tar", ["-cf", "-", "-C", workspaceRoot, "."], {
-        stdio: ["ignore", "pipe", "ignore"]
-      });
+    // Archive top-level entries by name (never "."). Extracting a "." member makes the
+    // remote tar try to restore mode/utime on /workspace itself, which the non-root
+    // exec user cannot do ("Cannot change mode/utime: Operation not permitted") and
+    // fails the whole push. An empty workspace needs no push at all.
+    const entries = await readdir(workspaceRoot);
+    if (entries.length === 0) {
+      return;
+    }
 
+    // Fully buffer the archive before streaming it as exec stdin. Passing a live
+    // child-process stdout pipe to the WebSocket races the stdin-EOF signal and
+    // intermittently truncates the archive (remote "tar: Unexpected EOF") or hangs;
+    // a fully materialized Readable streams deterministically.
+    const tarball = await this.createLocalTarball(workspaceRoot, entries);
+
+    await new Promise<void>((resolve, reject) => {
       const statusReceived = { value: false };
       this.execApi
         .exec(
           namespace,
           podName,
           "exec",
-          ["tar", "-xf", "-", "-C", "/workspace"],
+          ["tar", "--no-same-owner", "-xf", "-", "-C", "/workspace"],
           null,
           null,
-          tarChild.stdout,
+          Readable.from([tarball]),
           false,
           (status: V1Status) => {
             statusReceived.value = true;
@@ -585,11 +597,41 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             )
           )
         );
+    });
+  }
 
+  /**
+   * Spawn local `tar` over explicit entry names and buffer the full archive in memory.
+   * Rejects on a non-zero tar exit so a partial archive is never streamed to the pod.
+   */
+  private async createLocalTarball(workspaceRoot: string, entries: string[]): Promise<Buffer> {
+    return await new Promise<Buffer>((resolve, reject) => {
+      const tarChild = spawn("tar", ["-cf", "-", "-C", workspaceRoot, ...entries], {
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      const chunks: Buffer[] = [];
+      const errChunks: Buffer[] = [];
+      tarChild.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+      tarChild.stderr?.on("data", (chunk: Buffer) => errChunks.push(chunk));
       tarChild.on("error", (err: Error) => {
         reject(
-          createBridgeError("process_spawn_failed", `Local tar failed during push: ${err.message}`)
+          createBridgeError(
+            "process_spawn_failed",
+            `Local tar failed during push: ${describeUnknownError(err)}`
+          )
         );
+      });
+      tarChild.on("close", (code: number | null) => {
+        if (code === 0) {
+          resolve(Buffer.concat(chunks));
+        } else {
+          reject(
+            createBridgeError(
+              "process_spawn_failed",
+              `Local tar exited ${String(code)} during push: ${Buffer.concat(errChunks).toString("utf8").trim()}`
+            )
+          );
+        }
       });
     });
   }
