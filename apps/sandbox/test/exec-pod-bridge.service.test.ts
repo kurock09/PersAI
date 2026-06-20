@@ -28,6 +28,17 @@ import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import type { CoreV1Api, V1Pod } from "@kubernetes/client-node";
 import { ExecPodBridgeService } from "../src/exec-pod-bridge.service";
 
+// A valid, empty tar archive: two+ all-zero 512-byte blocks signal end-of-archive.
+// The control plane's workspace pull (`tar -cf - -C /workspace .`) always produces a
+// real archive in production; the exec mock returns this empty-but-valid archive so the
+// pull path's real `tar -xf` exits 0 on every tar implementation (GNU tar on CI rejects
+// non-tar / zero-length input that BSD tar silently tolerates).
+const VALID_EMPTY_TAR = "\0".repeat(10240);
+
+function isWorkspacePull(command: string[]): boolean {
+  return command.includes("-cf") && command.includes("/workspace");
+}
+
 type KubeConfigLike = {
   loadFromCluster(): void;
   makeApiClient<T>(apiClass: new (...args: unknown[]) => T): T;
@@ -97,7 +108,7 @@ function buildMockBridge(ctx: MockK8sContext): ExecPodBridgeService {
       _namespace: string,
       _podName: string,
       _containerName: string,
-      _command: string[],
+      command: string[],
       stdout: { write(chunk: string): boolean } | null,
       stderr: { write(chunk: string): boolean } | null,
       _stdin: unknown,
@@ -119,8 +130,12 @@ function buildMockBridge(ctx: MockK8sContext): ExecPodBridgeService {
       };
 
       Promise.resolve().then(() => {
-        if (stdout !== null && response.stdout.length > 0) {
-          stdout.write(response.stdout);
+        if (stdout !== null) {
+          if (isWorkspacePull(command)) {
+            stdout.write(VALID_EMPTY_TAR);
+          } else if (response.stdout.length > 0) {
+            stdout.write(response.stdout);
+          }
         }
         if (stderr !== null && response.stderr.length > 0) {
           stderr.write(response.stderr);
@@ -467,7 +482,7 @@ test("ExecPodBridgeService: session runInPod reuses pod on second call (no recre
       _namespace: string,
       _podName: string,
       _containerName: string,
-      _command: string[],
+      command: string[],
       stdout: { write(chunk: string): boolean } | null,
       _stderr: unknown,
       _stdin: unknown,
@@ -476,6 +491,9 @@ test("ExecPodBridgeService: session runInPod reuses pod on second call (no recre
     ) {
       const ws = { on: () => undefined };
       Promise.resolve().then(() => {
+        if (stdout !== null && isWorkspacePull(command)) {
+          stdout.write(VALID_EMPTY_TAR);
+        }
         if (statusCallback !== undefined) {
           statusCallback({ status: "Success" });
         }
