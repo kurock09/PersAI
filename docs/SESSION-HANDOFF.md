@@ -75,7 +75,7 @@ The first cut of `buildTurnResult` mis-composed the split: `answerText = provide
 
 ### Latest completed checkpoint
 
-Both ADR-120 tracked residual follow-ups are resolved now that the parity backfill is complete and PROD `knowledge_vector_chunks` is uniform `vector(3072)` (982 rows, all text-embedding-3-large; 2 stale sources reindexed to 3072). This is the new checkpoint.
+Both ADR-120 tracked residual follow-ups are resolved now that the parity backfill is complete and PROD `knowledge_vector_chunks` is uniform `vector(3072)` (982 rows, all text-embedding-3-large; 2 stale sources reindexed to 3072). Closure II is deployed (`1686ce2e`) and **live-verified in PROD**: migration applied (`rolled_back_at=null`), `knowledge_vector_chunks_embedding_hnsw_idx` exists and is used by the production query (`EXPLAIN` shows `Index Scan using …_hnsw_idx` on the `halfvec(3072)` ORDER BY), the two JSONB columns are gone from all three tables, and post-deploy reindex (incl. the founder's 4 product entries) produces 3072 vectors that land in the index. **ADR-120 and ADR-121 are now formally Closed** (docs reconciled: ADR headers, `AGENTS.md` closed-archive, `CHANGELOG`). This is the new checkpoint.
 
 - **HNSW ANN index added.** Migration `20260620120000_adr120_drop_legacy_chunk_jsonb_and_hnsw` creates `knowledge_vector_chunks_embedding_hnsw_idx` on a `halfvec(3072)` expression (`halfvec_cosine_ops`) — pgvector 0.8.1 caps the bare `vector` type at 2000 dims for HNSW; the store is uniform 3072 so the cast is always valid. `KnowledgeVectorIndex.searchNearest` orders by `embedding_vector::halfvec(3072) <=> query::halfvec(3072)` and re-scores top-K at full `vector` precision. Column type unchanged (`vector(3072)`; no `ALTER ... TYPE`).
 - **Legacy JSONB embedding columns dropped.** Same migration drops `embedding_vector` + `embedding_generated_at` from `assistant_knowledge_source_chunks`, `global_knowledge_source_chunks`, `product_knowledge_text_entry_chunks` (non-reversible). Those three tables remain the canonical TEXT store (`content`/`locator`/`embedding_model_key` kept). The indexing worker stops dual-writing the JSONB embeddings (vectors still flow to `KnowledgeVectorChunk`). The completed backfill runner/service + script + npm script were removed.
@@ -83,8 +83,8 @@ Both ADR-120 tracked residual follow-ups are resolved now that the parity backfi
 
 ### Known item / next recommended step
 
-- **4 empty product-knowledge entries with 0 chunks** await an owner decision (purge vs. re-author).
-- **Full retirement of the legacy `*_chunks` tables** themselves (currently still the canonical text store) is a separate future program — not in this slice.
+- **4 empty product-knowledge entries — RESOLVED.** Founder re-indexed them post-deploy; all four active entries now have matching `chunkCount` and 3072-dim vectors in the store (the remaining 0-vector product entries are `archived`, which is correct — archived entries are not served).
+- **Full retirement of the legacy `*_chunks` tables** themselves (currently the canonical text store: `content`/`locator` for lexical search, snippets, and `knowledge_fetch`) is a **deliberate keep** — assessed as medium-large work, low technical payoff, and would require a transient dual-write window. Not tech debt; the vector duplication was already removed in Closure II. Reopen only as its own ADR if architectural single-store purity is explicitly wanted.
 
 ## 2026-06-20 — ADR-120 landed (RAG/Knowledge unification + memory JIT) — CLOSURE
 

@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted — 2026-06-19 (founder go; implementation by bounded slices) · **closure-mode 2026-06-20** (all seven slices landed; see § Closure)
+Closed — 2026-06-20 (founder go 2026-06-19; all seven slices + Closure I & II landed, verified, deployed, live-validated on `persai.dev`; both tracked residuals resolved — see § Closure II)
 
-> Closure-mode program ADR. Implemented in seven bounded slices (see Work plan). Each slice ended green per the `AGENTS.md` verification gate; the final slice runs full-repository verification before the push/deploy. This ADR is the umbrella reserved by ADR-119 ("ADR-120 implements the unified retrieval engine that fills `<persai_retrieved_knowledge>`") and additionally owns the memory JIT redesign that ADR-121 listed as out of scope. **Do not reopen for new scope** — only the two tracked residual follow-ups in § Closure remain (HNSW ANN index pending live embedding dimension; legacy JSONB chunk column drop pending PROD confirmation + backfill).
+> Closed program ADR. Implemented in seven bounded slices (see Work plan), each green per the `AGENTS.md` verification gate, plus a follow-up Closure II slice; the final slices ran full-repository verification before push/deploy. This ADR is the umbrella reserved by ADR-119 ("ADR-120 implements the unified retrieval engine that fills `<persai_retrieved_knowledge>`") and additionally owns the memory JIT redesign that ADR-121 listed as out of scope. **Both tracked residual follow-ups are now resolved** (HNSW ANN index shipped via `halfvec(3072)`; legacy JSONB embedding columns dropped + dual-write stopped + backfill runner removed — see § Closure II). **Do not reopen for new scope.**
 
 ## Date
 

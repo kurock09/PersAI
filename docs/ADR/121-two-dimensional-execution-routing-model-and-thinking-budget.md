@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted — 2026-06-19 (founder go; implementation by bounded slices)
+Closed — 2026-06-20 (founder go 2026-06-19; all five slices landed, verified, deployed, live-validated on `persai.dev` — see § Closure)
 
-> Open program ADR. Implemented in five bounded slices (see Work plan). Each slice ends green per the `AGENTS.md` verification gate; the final slice runs full-repository verification before any push/deploy.
+> Closed program ADR. Implemented in five bounded slices (see Work plan), each green per the `AGENTS.md` verification gate; deployed and live-validated. **Do not reopen for new scope** — see § Closure.
 
 ## Date
 
@@ -422,3 +422,19 @@ The following remain code-level spot-checks during implementation (do not block 
 
 1. **Anthropic model version gating for Extended Thinking**: the provider client (Slice 3) must verify that the resolved model is Extended-Thinking-capable before emitting `thinking` params (model string prefix or capability lookup), confirmed against the live provider catalog.
 2. **OpenAI `reasoning_effort` bucketing thresholds**: the budget-to-bucket mapping proposed in D4 (~1–10k → `"low"`, 10k–25k → `"medium"`, >25k → `"high"`) is a starting point; validate the exact boundaries against the active o-series model documentation before Slice 3 ships.
+
+---
+
+## Closure (2026-06-20)
+
+All five bounded slices landed, passed the `AGENTS.md` verification gate, deployed to `persai-dev`, and were live-validated on `persai.dev`. The program is **closed**; do not reopen for new scope.
+
+- **Slice 1** — contract additions (`RoutingLevel`, `thinkingBudget`, `RuntimeThinkingBudgetByLevelConfig`), no behavior change.
+- **Slice 2** — router rewrite: `createDecision` is the single resolver seat emitting semantic `level` (`light|medium|heavy|deep`) → `ExecutionProfile { modelRole, thinkingBudget }`; both production hardcodes removed (project-mode forced `reasoning`; `deepMode` hard-cap at `premium` — seven ternaries + `coerceExecutionMode` deleted). `executionMode` retained only as a derived downstream token.
+- **Slice 3** — provider plumbing: `thinkingBudget` threaded to Anthropic Extended Thinking (`thinking: { type:"enabled", budget_tokens }` on capable models) and OpenAI `reasoning_effort` buckets; shadow-mode suppressed (budget 0).
+- **Slice 4** — per-plan `thinkingBudgetByLevel` admin config → materialization → routing override (default `null` ⇒ budget 0, current behavior preserved).
+- **Slice 5** — regression coverage (golden grid: 4 levels × 3 override configs + signal-combination tests) and one production bug fix.
+
+**Live-validation finding (resolved):** with routing now reliably selecting the reasoning-tier model (`claude-opus-4-8`) for deep-level turns, that model streamed visible text below the per-token `slow_avg` cadence threshold, tripping the stale slow-mo watchdog and truncating replies. Fixed by disabling `slow_avg` for web chat streams (`resolveWebStreamCadenceWatchdogOptions` → `slowAvgEnabled: false`); real mid-stream hangs remain guarded by the provider/runtime stream timeout. The watchdog scaffolding, telemetry, and stall-retry path are retained.
+
+No residual follow-ups.
