@@ -3,6 +3,23 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-20 — ADR-123 foundation (Slices 1–4) DEPLOYED & live-healthy on persai-dev — CHECKPOINT
+
+### State
+
+ArgoCD `persai-dev`: **`Synced` / `Healthy`** on `8bac8a63`. All `persai-dev` pods Running/Completed. Control-plane `sandbox` on image `2717fcf2` with the hardened ADR-123 manifest (both replicas `2/2`, `/ready` green); `sandbox-egress-proxy` (Squid) `1/1` stable. The native gVisor exec-pod runtime, secret-free split, deny-all egress + Squid allowlist, session-lived pods + GCS snapshot, and the exec image (`sandbox-exec`) are all live.
+
+### Two gaps found only at live rollout — fixed
+
+1. **Cluster-ops — `roles/cloudsql.client` for `sandbox-cp` (REQUIRED).** Sandbox now runs under `sandbox-sa` → `sandbox-cp` (not `api-sa`); its cloud-sql-proxy sidecar was denied (`403 cloudsql.instances.get`) → DB unreachable → `/ready` 503. Granted at project level (imperative `gcloud`); added to `infra/dev/gke/RUNBOOK.md` §2b so a cluster rebuild includes it.
+2. **Egress-proxy non-root (commit `8bac8a63`).** Squid crash-looped on `FATAL: Cannot open '/dev/stdout' for writing` (root→proxy drop left stdout unwritable). Now runs directly as `proxy` uid/gid 13 + `fsGroup: 13`, `runAsNonRoot`, caps `drop: [ALL]` (no SETUID/SETGID). Benign `ICMP pinger Operation not permitted` log (no `NET_RAW`) does not affect L7 proxying.
+
+ArgoCD had wedged in a phantom `operationState.phase=Running` (PreSync `api-migrate` hook Job stuck between `ttlSecondsAfterFinished` deletion and `hook-finalizer`); recovered by clearing the Job finalizer + stale `status.operationState`, then a clean fresh sync.
+
+### Next recommended step
+
+Foundation is live. Proceed to **Slice 5** (PDF cutover to in-sandbox Chromium; remove PDFMonkey; port template/print CSS; truncation-detector fix) per the program plan, or run an end-to-end sandbox smoke (a real `shell`/grep + pip-install-through-Squid job) before continuing.
+
 ## 2026-06-20 — ADR-123 Slice 4: Exec image (Python + Node + doc/data stack + Chromium + ripgrep/fd) — CHECKPOINT
 
 ### What changed

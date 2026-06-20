@@ -269,6 +269,20 @@ gcloud storage buckets add-iam-policy-binding gs://persai-dev-workspaces \
   --role roles/storage.objectAdmin
 ```
 
+### 2b. Grant Cloud SQL client (REQUIRED — the sandbox control-plane pod runs a cloud-sql-proxy sidecar)
+
+The sandbox Deployment now runs under `sandbox-sa` → `sandbox-cp`, not `api-sa`. Its
+cloud-sql-proxy sidecar needs `roles/cloudsql.client` or it fails with
+`403 ... missing permission cloudsql.instances.get`, the DB is unreachable, and the
+sandbox `/ready` probe returns 503 (rollout never goes healthy).
+
+```bash
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member "serviceAccount:${GSA_EMAIL}" \
+  --role roles/cloudsql.client \
+  --condition=None
+```
+
 ### 3. Allow the Kubernetes service account to impersonate the GCP SA (Workload Identity)
 
 ```bash
