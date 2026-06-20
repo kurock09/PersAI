@@ -3,6 +3,36 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-20 — ADR-120 landed (RAG/Knowledge unification + memory JIT) — CLOSURE
+
+### Latest completed checkpoint
+
+**ADR-120 landed** (`docs/ADR/120-rag-knowledge-unification-and-memory-jit.md`, status `Accepted` — closure-mode). Pull-first retrieval, single vector store, honest relevance, memory JIT. Implemented in seven bounded slices and pushed to `main` for the PROD deploy.
+
+### Program commits (baseline SHAs)
+
+- `d007025b` — ADR opened
+- `0e36d959` — S1 (memory: retire pushed contextual short-memory block; `<persai_memory>` recency push gone; recall is pull-only)
+- `7fd6eeb1` — S2 (memory: open loops scoped to current chat + open-only; index `20260619230000_adr120_memory_chat_scope_index`)
+- `1ae3c201` — S3 (RAG engine: pgvector ANN candidate selection for document reads; idempotent parity backfill; legacy JSONB write retained)
+- `fce1e698` — S4 (RAG precision: relevance floor on ALL sources; no-widen when rerank unavailable; empty result allowed; `MIN_CONTEXT_ITEMS` removed)
+- `89046014` — S5 (pull-first unified: entire always-on server push subsystem removed — orchestrate service+controller+test, internal endpoint, runtime client method, `# Retrieved Knowledge Context` developer block, `RuntimeRetrievedKnowledgeContext*` types; project mode → pull-dispatch contract; `<persai_retrieved_knowledge>` push superseded by pull)
+- `951580bd` — S6 (config: snippet-first default `smartSearchEnabled=false`; atomic `skill_knowledge_card` full-inline exception; `lean`/`balanced`/`rich` preset dropdown + Advanced disclosure in admin Plans UI)
+- **closure commit (S7)** — docs + golden invariant lock; this commit is **HEAD-of-main after the Slice 7 push** (the orchestrator runs full-repo verification, commits, pushes for PROD deploy, then runs the post-deploy backfill).
+
+### Closure slice (S7) — what landed
+
+- Golden invariant locked in both prompt-snapshot tests (`apps/runtime/test/adr119-golden-prompt-snapshot.test.ts` + `apps/api/test/adr119-golden-prompt-snapshot.test.ts`): explicit negative assertions for no `<persai_memory>` push, no `# Retrieved Knowledge Context` block, no pushed `<persai_retrieved_knowledge>` block; positive check that `knowledge_search` / `knowledge_fetch` are the pull retrieval path. Golden tests green (api + runtime).
+- Docs finalized: `CHANGELOG` (ADR-120 program entry), this handoff, ADR-120 status → Accepted/closure-mode + Closure section, and pull-first corrections in `API-BOUNDARY.md` / `DATA-MODEL.md` (removed-orchestrate-push staleness).
+
+### Next recommended priority
+
+1. **Run the post-deploy parity backfill in PROD:** `corepack pnpm --filter @persai/api run backfill:knowledge-vector-store` (idempotent) so `KnowledgeVectorChunk` is reconciled from existing source chunks before relying on ANN reads.
+2. **Confirm vector-store reads are healthy** in PROD (relevance + result-count distributions via `KnowledgeRetrievalEvent`).
+3. Then the two tracked residual follow-ups (NOT new scope, do NOT reopen ADR-120):
+   - **HNSW ANN index** on `knowledge_vector_chunks.embedding_vector` — pin `vector(N)` after confirming the live embedding model/dimension, then build the `hnsw` (`vector_cosine_ops`) index (correct ANN already ships via sequential scan).
+   - **Drop legacy JSONB chunk columns** — once PROD confirms vector reads healthy and the backfill ran (kept this release as rollback safety).
+
 ## 2026-06-19 — ADR-121 opened (routing 2D) — IN PROGRESS
 
 ### Scope

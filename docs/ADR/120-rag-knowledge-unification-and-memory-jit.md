@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted — 2026-06-19 (founder go; implementation by bounded slices)
+Accepted — 2026-06-19 (founder go; implementation by bounded slices) · **closure-mode 2026-06-20** (all seven slices landed; see § Closure)
 
-> Open program ADR. Implemented in seven bounded slices (see Work plan). Each slice ends green per the `AGENTS.md` verification gate; the final slice runs full-repository verification before any push/deploy. This ADR is the umbrella reserved by ADR-119 ("ADR-120 implements the unified retrieval engine that fills `<persai_retrieved_knowledge>`") and additionally owns the memory JIT redesign that ADR-121 listed as out of scope.
+> Closure-mode program ADR. Implemented in seven bounded slices (see Work plan). Each slice ended green per the `AGENTS.md` verification gate; the final slice runs full-repository verification before the push/deploy. This ADR is the umbrella reserved by ADR-119 ("ADR-120 implements the unified retrieval engine that fills `<persai_retrieved_knowledge>`") and additionally owns the memory JIT redesign that ADR-121 listed as out of scope. **Do not reopen for new scope** — only the two tracked residual follow-ups in § Closure remain (HNSW ANN index pending live embedding dimension; legacy JSONB chunk column drop pending PROD confirmation + backfill).
 
 ## Date
 
@@ -288,3 +288,44 @@ Code-level spot-checks during implementation (do not block acceptance):
 2. **Embedding dimension** on the `embedding_vector` column must match the active embedding model before building the ANN index.
 3. **Reranker latency budget**: mandatory rerank adds an LLM call on the retrieval path; confirm the 20s helper timeout and quota interplay keep turn latency acceptable; if not, bound candidate count rather than making rerank optional.
 4. **Memory recall scope** for `knowledge_search source=memory`: confirm whether cross-chat recall should be assistant-wide or also offer current-chat-only narrowing.
+
+---
+
+## Closure (2026-06-20)
+
+Status: **Accepted — closure-mode.** The program landed in all seven bounded slices. The final slice (S7) finalized docs and locked the golden invariant; full-repository verification, commit, push (deploy trigger), and the post-deploy backfill are owned by the orchestrator.
+
+### Slice status
+
+| Slice                                                                  | Commit     | Status   |
+| ---------------------------------------------------------------------- | ---------- | -------- |
+| ADR opened                                                             | `d007025b` | done     |
+| S1 — memory: retire pushed contextual short-memory block               | `0e36d959` | done     |
+| S2 — memory: open loops scoped to current chat + open-only             | `7fd6eeb1` | done     |
+| S3 — RAG engine: pgvector ANN for documents + idempotent backfill      | `1ae3c201` | done     |
+| S4 — RAG precision: rerank + relevance floor everywhere; empty allowed | `fce1e698` | done     |
+| S5 — pull-first + snippet-first; push subsystem removed                | `89046014` | done     |
+| S6 — config: lean/balanced/rich presets + snippet-first default        | `951580bd` | done     |
+| S7 — docs + golden tests + closure                                     | HEAD-of-main after the S7 push | done |
+
+### Shipped reality vs. the original plan
+
+The decision body (D1, D3, Slice 3) called for retiring the legacy JSONB chunk read path **and** its dual-persist write **and** dropping the dead columns, plus building an HNSW ANN index in the same program. Two founder closure decisions deliberately defer parts of that to dedicated follow-ups so the high-risk read-path swap and push removal could ship first behind rollback safety:
+
+- **True ANN ships now via sequential scan.** Document reads use the unified `KnowledgeVectorChunk` pgvector query (`ORDER BY embedding_vector <=> query::vector`); candidate selection is genuine nearest-neighbour. The **HNSW index is the only deferred performance optimization**, not a correctness gap.
+- **The legacy JSONB chunk write is retained this release** (the dual-persist still runs) so the previous read path remains a viable rollback if PROD vector reads regress. No legacy read path is used in the active product path.
+
+### Tracked residual follow-ups (NOT new scope — do not reopen this program)
+
+1. **HNSW ANN index** on `knowledge_vector_chunks.embedding_vector`. The column is currently dimensionless (`vector` without a pinned `N`); pin `vector(N)` once the live embedding model/dimension is confirmed, then add the `hnsw` index with `vector_cosine_ops` (fall back to `ivfflat` only if `hnsw` is unavailable on the deployed pgvector image). This is a latency optimization over the already-correct sequential-scan ANN.
+2. **Drop the legacy JSONB chunk columns** (`embeddingVector Json?` on the `*_chunks` tables) and stop the dual-persist write, in a follow-up migration ordered **after** PROD confirms vector reads are healthy and the post-deploy backfill has run (stop-writing-then-drop).
+
+Each follow-up is a small, self-contained migration ADR/slice when scheduled. Neither is a reason to reopen ADR-120.
+
+### Post-deploy step
+
+After the S7 push deploys, run the idempotent parity backfill in PROD — `corepack pnpm --filter @persai/api run backfill:knowledge-vector-store` — to reconcile `KnowledgeVectorChunk` from existing source chunks, then confirm vector-store reads are healthy (relevance + result-count distributions via `KnowledgeRetrievalEvent`) before scheduling the two follow-ups above.
+
+### Golden invariant locked
+
+The ADR-120 prompt reality is locked by explicit assertions in both prompt-snapshot tests (`apps/runtime/test/adr119-golden-prompt-snapshot.test.ts`, `apps/api/test/adr119-golden-prompt-snapshot.test.ts`): no `<persai_memory>` contextual push in the recency zone (S1); no flat `# Retrieved Knowledge Context` developer block and no pushed `<persai_retrieved_knowledge>` block anywhere (S5 / D6); and a positive check that `knowledge_search` / `knowledge_fetch` are the pull retrieval path.

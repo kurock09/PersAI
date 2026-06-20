@@ -233,6 +233,38 @@ async function runAdr119GoldenPromptSnapshotTest(): Promise<void> {
   );
   assert.ok(rendered.includes("<priority_order>"), "rendered prompt must contain <priority_order>");
 
+  // -------------------------------------------------------------------------
+  // ADR-120 closure (Slice 7) invariant lock — pull-first retrieval.
+  //
+  // (b) The always-on server push subsystem was removed in Slice 5. The
+  //     materialized system prefix must never carry the flat
+  //     `# Retrieved Knowledge Context` developer block, nor a pushed
+  //     `<persai_retrieved_knowledge>` block (the ADR-119 push contract is
+  //     superseded by pull — see ADR-120 D6). These are regression locks; the
+  //     prefix never legitimately contained either.
+  assert.doesNotMatch(
+    rendered,
+    /# Retrieved Knowledge Context/,
+    "ADR-120: no flat '# Retrieved Knowledge Context' push block may appear in the system prefix"
+  );
+  assert.doesNotMatch(
+    rendered,
+    /<persai_retrieved_knowledge>/,
+    "ADR-120: no pushed <persai_retrieved_knowledge> block may appear in the system prefix"
+  );
+
+  // (c) Retrieval is the model's job: the pull tools `knowledge_search` /
+  //     `knowledge_fetch` are the retrieval path (projected as tools and named
+  //     in the tool-usage policy), not a server-pushed block.
+  assert.ok(
+    rendered.includes("knowledge_search"),
+    "ADR-120: system prefix must reference the pull tool knowledge_search"
+  );
+  assert.ok(
+    rendered.includes("knowledge_fetch"),
+    "ADR-120: system prefix must reference the pull tool knowledge_fetch"
+  );
+
   if (!existsSync(FIXTURE_PATH)) {
     // First run: generate the expected fixture and indicate rerun needed.
     if (!existsSync(FIXTURE_DIR)) {

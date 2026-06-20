@@ -16,6 +16,14 @@
  *     eliminated by construction (there is no contextual push at all);
  *   - the volatile rotation never invalidates the stable prefix token.
  *
+ * ADR-120 closure (Slice 7) — golden invariant lock. The assembled volatile
+ * zone must never carry a server-pushed retrieval block. The push subsystem was
+ * removed in Slice 5 (retrieval is pull-first via `knowledge_search` /
+ * `knowledge_fetch` tool results), so this test additionally asserts as a
+ * regression lock that NEITHER the flat `# Retrieved Knowledge Context`
+ * developer block NOR a pushed `<persai_retrieved_knowledge>` block ever
+ * appears anywhere in the runtime-assembled context.
+ *
  * NOTE: The byte-exact system-prefix snapshot (Golden Test 1a) lives in
  * apps/api/test/adr119-golden-prompt-snapshot.test.ts.
  */
@@ -124,6 +132,28 @@ export async function runAdr119GoldenPromptSnapshotTest(): Promise<void> {
     !collectText(chatBRecency).includes(chatAFact),
     "ADR-120 GT1b: a contextual fact from chat A is not pushed into chat B (no contextual push at all)"
   );
+
+  // -------------------------------------------------------------------------
+  // ADR-120 closure (Slice 7) invariant lock — retrieval is pull-first: the
+  // always-on server push subsystem (Slice 5) is gone. No flat
+  // `# Retrieved Knowledge Context` developer block and no pushed
+  // `<persai_retrieved_knowledge>` block may appear in the assembled context;
+  // retrieved knowledge flows back exclusively as `knowledge_search` /
+  // `knowledge_fetch` tool results, never as a volatile/developer push.
+  // -------------------------------------------------------------------------
+  for (const zone of [recencyZone, chatBRecency]) {
+    const zoneText = collectText(zone);
+    assert.doesNotMatch(
+      zoneText,
+      /# Retrieved Knowledge Context/,
+      "ADR-120 GT1b: no flat '# Retrieved Knowledge Context' push block may appear in the assembled context"
+    );
+    assert.doesNotMatch(
+      zoneText,
+      /<persai_retrieved_knowledge>/,
+      "ADR-120 GT1b: no pushed <persai_retrieved_knowledge> block may appear in the assembled context"
+    );
+  }
 
   // -------------------------------------------------------------------------
   // The only volatile kinds are scenario/reminder; rotating volatile content
