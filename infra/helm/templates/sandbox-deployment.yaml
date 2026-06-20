@@ -30,10 +30,18 @@ spec:
       topologySpreadConstraints:
 {{ include "persai.workloadTopologySpreadConstraints" (dict "constraints" .Values.sandbox.topologySpreadConstraints "labels" (dict "app.kubernetes.io/name" "sandbox")) | indent 8 }}
 {{- end }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: sandbox
           image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.sandbox.image.name }}:{{ $sandboxTag }}"
           imagePullPolicy: {{ .Values.sandbox.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - NET_RAW
 {{- if or .Values.sandbox.env .Values.sandbox.secretEnv }}
           env:
 {{- range $name, $value := .Values.sandbox.env }}

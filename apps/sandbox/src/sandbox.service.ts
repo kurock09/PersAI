@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join, dirname, extname, basename, isAbsolute, resolve } from "node:path";
-import { spawn } from "node:child_process";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { SandboxConfig } from "@persai/config";
 import type {
@@ -14,6 +13,7 @@ import type {
 } from "@persai/runtime-contract";
 import { Prisma } from "@prisma/client";
 import { SANDBOX_CONFIG } from "./sandbox-config";
+import { ExecPodBridgeService } from "./exec-pod-bridge.service";
 import { SandboxObservabilityService } from "./sandbox-observability.service";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
 import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
@@ -87,30 +87,6 @@ type WorkspaceLeaseGuard = {
 
 type SandboxFilesAction = "read" | "write" | "edit" | "delete";
 
-type ProcessResult = {
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
-  durationMs: number;
-  peakProcessCount: number;
-  peakCpuMs: number;
-  peakMemoryBytes: number;
-};
-
-type ProcessSnapshot = {
-  pid: number;
-  ppid: number | null;
-  cpuMs: number;
-  memoryBytes: number;
-};
-
-type ProcessTreeUsage = {
-  pids: number[];
-  processCount: number;
-  totalCpuMs: number;
-  totalMemoryBytes: number;
-};
-
 type SandboxPolicyError = Error & {
   code: string;
   blocked: boolean;
@@ -133,7 +109,8 @@ export class SandboxService {
     private readonly prisma: SandboxPrismaService,
     private readonly objectStorage: SandboxObjectStorageService,
     private readonly sandboxObservabilityService: SandboxObservabilityService,
-    @Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig
+    @Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig,
+    private readonly execPodBridgeService: ExecPodBridgeService
   ) {}
 
   /**
@@ -535,6 +512,7 @@ export class SandboxService {
         data: {
           status: "completed",
           completedAt: new Date(),
+          ...(result.execPodName !== undefined ? { execPodName: result.execPodName } : {}),
           resultPayload: {
             reason: this.stripNulCharactersNullable(result.reason),
             warning: this.stripNulCharactersNullable(result.warning),
@@ -549,9 +527,6 @@ export class SandboxService {
             directoryCount: stats.directoryCount,
             stdoutBytes: Buffer.byteLength(result.stdout ?? "", "utf8"),
             stderrBytes: Buffer.byteLength(result.stderr ?? "", "utf8"),
-            peakProcessCount: result.peakProcessCount ?? null,
-            peakCpuMs: result.peakCpuMs ?? null,
-            peakMemoryBytes: result.peakMemoryBytes ?? null,
             processDurationMs: result.durationMs ?? null
           }
         }
@@ -606,9 +581,7 @@ export class SandboxService {
     stderr: string | null;
     content: string | null;
     durationMs?: number;
-    peakProcessCount?: number;
-    peakCpuMs?: number;
-    peakMemoryBytes?: number;
+    execPodName?: string;
   }> {
     this.assertWorkspaceLeaseActive(input.leaseGuard);
     switch (input.request.toolCode) {
@@ -644,7 +617,9 @@ export class SandboxService {
           input.request.args,
           input.request.policy,
           false,
-          input.leaseGuard
+          input.leaseGuard,
+          input.jobId,
+          input.request.runtimeSessionId ?? null
         );
       case "shell":
         return this.executeExecLike(
@@ -652,7 +627,9 @@ export class SandboxService {
           input.request.args,
           input.request.policy,
           true,
-          input.leaseGuard
+          input.leaseGuard,
+          input.jobId,
+          input.request.runtimeSessionId ?? null
         );
       default:
         this.throwPolicy(
@@ -789,22 +766,26 @@ export class SandboxService {
     args: Record<string, unknown>,
     policy: RuntimeSandboxPolicy,
     shellMode: boolean,
-    leaseGuard: WorkspaceLeaseGuard
+    leaseGuard: WorkspaceLeaseGuard,
+    jobId: string,
+    runtimeSessionId: string | null
   ) {
     const cwd = args.cwd === undefined ? "." : this.requireRelativePath(args.cwd, "cwd");
     const absoluteCwd = this.resolveWorkspacePath(workspaceRoot, cwd);
     await fs.mkdir(absoluteCwd, { recursive: true });
 
+    this.assertWorkspaceLeaseActive(leaseGuard);
+
     if (shellMode) {
       const command = this.requireString(args.command, "command");
-      this.assertNetworkPolicy(command, policy);
-      const result = await this.runProcess({
+      const result = await this.execPodBridgeService.runInPod({
+        jobId,
+        runtimeSessionId,
         workspaceRoot,
-        policy,
-        cwd: absoluteCwd,
-        command: process.platform === "win32" ? "powershell.exe" : "/bin/sh",
-        args: process.platform === "win32" ? ["-NoProfile", "-Command", command] : ["-lc", command],
-        leaseGuard
+        absoluteCwd,
+        command: "/bin/sh",
+        args: ["-lc", command],
+        policy
       });
       return {
         reason: result.exitCode === 0 ? null : "process_failed",
@@ -812,22 +793,24 @@ export class SandboxService {
         exitCode: result.exitCode,
         stdout: result.stdout,
         stderr: result.stderr,
-        content: null
+        content: null,
+        durationMs: result.durationMs,
+        execPodName: result.execPodName
       };
     }
 
     const command = this.requireString(args.command, "command");
-    this.assertNetworkPolicy(command, policy);
     const childArgs = Array.isArray(args.args)
       ? args.args.filter((item): item is string => typeof item === "string")
       : [];
-    const result = await this.runProcess({
+    const result = await this.execPodBridgeService.runInPod({
+      jobId,
+      runtimeSessionId,
       workspaceRoot,
-      policy,
-      cwd: absoluteCwd,
+      absoluteCwd,
       command,
       args: childArgs,
-      leaseGuard
+      policy
     });
     return {
       reason: result.exitCode === 0 ? null : "process_failed",
@@ -835,492 +818,10 @@ export class SandboxService {
       exitCode: result.exitCode,
       stdout: result.stdout,
       stderr: result.stderr,
-      content: null
+      content: null,
+      durationMs: result.durationMs,
+      execPodName: result.execPodName
     };
-  }
-
-  private async runProcess(input: {
-    workspaceRoot: string;
-    policy: RuntimeSandboxPolicy;
-    cwd: string;
-    command: string;
-    args: string[];
-    leaseGuard: WorkspaceLeaseGuard;
-  }): Promise<ProcessResult> {
-    const startedAt = Date.now();
-    this.assertWorkspaceLeaseActive(input.leaseGuard);
-    return await new Promise<ProcessResult>((resolvePromise, rejectPromise) => {
-      let stdout = "";
-      let stderr = "";
-      let settled = false;
-      let monitoring = false;
-      let peakProcessCount = 1;
-      let peakCpuMs = 0;
-      let peakMemoryBytes = 0;
-      let rootPid: number | null = null;
-      let timer: NodeJS.Timeout | null = null;
-      let interval: NodeJS.Timeout | null = null;
-      let spawnGuardTimer: NodeJS.Timeout | null = null;
-      const buildProcessUsageSnapshot = (): Record<string, unknown> => ({
-        peakProcessCount,
-        peakCpuMs,
-        peakMemoryBytes
-      });
-      const cleanup = (): void => {
-        if (timer !== null) {
-          clearTimeout(timer);
-        }
-        if (interval !== null) {
-          clearInterval(interval);
-        }
-        if (spawnGuardTimer !== null) {
-          clearTimeout(spawnGuardTimer);
-        }
-      };
-      const rejectWithPolicy = (error: unknown): void => {
-        cleanup();
-        if (settled) {
-          return;
-        }
-        settled = true;
-        if (rootPid !== null) {
-          void this.terminateProcessTree(rootPid);
-        }
-        rejectPromise(error);
-      };
-      const resolveWithResult = (exitCode: number | null): void => {
-        cleanup();
-        if (settled) {
-          return;
-        }
-        settled = true;
-        resolvePromise({
-          exitCode,
-          stdout,
-          stderr,
-          durationMs: Date.now() - startedAt,
-          peakProcessCount,
-          peakCpuMs,
-          peakMemoryBytes
-        });
-      };
-      const child = spawn(input.command, input.args, {
-        cwd: input.cwd,
-        stdio: ["ignore", "pipe", "pipe"]
-      });
-      child.on("error", (error) => {
-        rejectWithPolicy(
-          this.createPolicyError(
-            "process_spawn_failed",
-            `Sandbox process failed: ${error.message}`,
-            {
-              resourceUsage: buildProcessUsageSnapshot()
-            }
-          )
-        );
-      });
-      child.on("close", (exitCode) => {
-        resolveWithResult(exitCode);
-      });
-      child.stdout?.on("data", (chunk: Buffer | string) => {
-        stdout += chunk.toString();
-        if (Buffer.byteLength(stdout, "utf8") > input.policy.maxStdoutBytes && !settled) {
-          rejectWithPolicy(
-            this.createPolicyError(
-              "stdout_limit_exceeded",
-              `Sandbox stdout exceeded ${String(input.policy.maxStdoutBytes)} bytes.`,
-              {
-                resourceUsage: buildProcessUsageSnapshot()
-              }
-            )
-          );
-        }
-      });
-      child.stderr?.on("data", (chunk: Buffer | string) => {
-        stderr += chunk.toString();
-        if (Buffer.byteLength(stderr, "utf8") > input.policy.maxStderrBytes && !settled) {
-          rejectWithPolicy(
-            this.createPolicyError(
-              "stderr_limit_exceeded",
-              `Sandbox stderr exceeded ${String(input.policy.maxStderrBytes)} bytes.`,
-              {
-                resourceUsage: buildProcessUsageSnapshot()
-              }
-            )
-          );
-        }
-      });
-      const spawnedPid = child.pid;
-      if (typeof spawnedPid !== "number" || !Number.isInteger(spawnedPid) || spawnedPid <= 0) {
-        // Some spawn failures (for example ENOENT) surface via the child "error" event on the next tick.
-        // Keep that listener attached so one bad command rejects the job instead of crashing the sandbox pod.
-        spawnGuardTimer = setTimeout(() => {
-          rejectWithPolicy(
-            this.createPolicyError(
-              "process_spawn_failed",
-              "Sandbox process failed to expose a valid pid."
-            )
-          );
-        }, 50);
-        return;
-      }
-      rootPid = spawnedPid;
-      timer = setTimeout(() => {
-        rejectWithPolicy(
-          this.createPolicyError(
-            "process_timeout",
-            `Sandbox process exceeded ${String(input.policy.maxProcessRuntimeMs)}ms.`,
-            {
-              resourceUsage: buildProcessUsageSnapshot()
-            }
-          )
-        );
-      }, input.policy.maxProcessRuntimeMs);
-      interval = setInterval(() => {
-        if (settled || monitoring) {
-          return;
-        }
-        monitoring = true;
-        void (async () => {
-          try {
-            this.assertWorkspaceLeaseActive(input.leaseGuard);
-            const usage = await this.readProcessTreeUsage(rootPid);
-            if (usage !== null) {
-              peakProcessCount = Math.max(peakProcessCount, usage.processCount);
-              peakCpuMs = Math.max(peakCpuMs, usage.totalCpuMs);
-              peakMemoryBytes = Math.max(peakMemoryBytes, usage.totalMemoryBytes);
-              this.assertProcessUsage(usage, input.policy);
-            }
-          } catch (error) {
-            rejectWithPolicy(error);
-          } finally {
-            monitoring = false;
-          }
-        })();
-      }, 250);
-    });
-  }
-
-  private assertProcessUsage(usage: ProcessTreeUsage, policy: RuntimeSandboxPolicy): void {
-    if (usage.processCount > policy.maxConcurrentProcesses) {
-      this.throwPolicy(
-        "process_count_limit_exceeded",
-        `Sandbox process tree reached ${String(usage.processCount)} concurrent processes, above the limit of ${String(
-          policy.maxConcurrentProcesses
-        )}.`,
-        {
-          resourceUsage: {
-            peakProcessCount: usage.processCount,
-            peakCpuMs: usage.totalCpuMs,
-            peakMemoryBytes: usage.totalMemoryBytes
-          }
-        }
-      );
-    }
-    if (usage.totalCpuMs > policy.maxCpuMsPerJob) {
-      this.throwPolicy(
-        "process_cpu_limit_exceeded",
-        `Sandbox process tree used ${String(usage.totalCpuMs)}ms of CPU time, above the limit of ${String(
-          policy.maxCpuMsPerJob
-        )}ms.`,
-        {
-          resourceUsage: {
-            peakProcessCount: usage.processCount,
-            peakCpuMs: usage.totalCpuMs,
-            peakMemoryBytes: usage.totalMemoryBytes
-          }
-        }
-      );
-    }
-    if (usage.totalMemoryBytes > policy.maxMemoryBytesPerJob) {
-      this.throwPolicy(
-        "process_memory_limit_exceeded",
-        `Sandbox process tree used ${String(
-          usage.totalMemoryBytes
-        )} bytes of memory, above the limit of ${String(policy.maxMemoryBytesPerJob)} bytes.`,
-        {
-          resourceUsage: {
-            peakProcessCount: usage.processCount,
-            peakCpuMs: usage.totalCpuMs,
-            peakMemoryBytes: usage.totalMemoryBytes
-          }
-        }
-      );
-    }
-  }
-
-  private async readProcessTreeUsage(rootPid: number): Promise<ProcessTreeUsage | null> {
-    const snapshots = await this.listProcessSnapshots();
-    if (!snapshots.some((snapshot) => snapshot.pid === rootPid)) {
-      return null;
-    }
-    const childrenByParent = new Map<number, ProcessSnapshot[]>();
-    for (const snapshot of snapshots) {
-      if (snapshot.ppid === null) {
-        continue;
-      }
-      const siblings = childrenByParent.get(snapshot.ppid) ?? [];
-      siblings.push(snapshot);
-      childrenByParent.set(snapshot.ppid, siblings);
-    }
-    const snapshotByPid = new Map(snapshots.map((snapshot) => [snapshot.pid, snapshot] as const));
-    const seen = new Set<number>();
-    const pids: number[] = [];
-    let totalCpuMs = 0;
-    let totalMemoryBytes = 0;
-    const stack = [rootPid];
-    while (stack.length > 0) {
-      const currentPid = stack.pop();
-      if (currentPid === undefined || seen.has(currentPid)) {
-        continue;
-      }
-      seen.add(currentPid);
-      const snapshot = snapshotByPid.get(currentPid);
-      if (snapshot === undefined) {
-        continue;
-      }
-      pids.push(currentPid);
-      totalCpuMs += snapshot.cpuMs;
-      totalMemoryBytes += snapshot.memoryBytes;
-      for (const child of childrenByParent.get(currentPid) ?? []) {
-        stack.push(child.pid);
-      }
-    }
-    return {
-      pids,
-      processCount: pids.length,
-      totalCpuMs,
-      totalMemoryBytes
-    };
-  }
-
-  private async listProcessSnapshots(): Promise<ProcessSnapshot[]> {
-    if (process.platform === "win32") {
-      return this.listWindowsProcessSnapshots();
-    }
-    return this.listPosixProcessSnapshots();
-  }
-
-  private async listWindowsProcessSnapshots(): Promise<ProcessSnapshot[]> {
-    const output = await this.captureCommandOutput("powershell.exe", [
-      "-NoProfile",
-      "-Command",
-      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize,KernelModeTime,UserModeTime | ConvertTo-Json -Compress"
-    ]);
-    const normalized = output.trim();
-    if (normalized.length === 0) {
-      return [];
-    }
-    const parsed = JSON.parse(normalized) as unknown;
-    const rows = parsed === null ? [] : Array.isArray(parsed) ? parsed : [parsed];
-    return rows
-      .map((row) => {
-        if (row === null || typeof row !== "object" || Array.isArray(row)) {
-          return null;
-        }
-        const typed = row as Record<string, unknown>;
-        const pid = this.readNullableNumber(typed.ProcessId);
-        if (pid === null) {
-          return null;
-        }
-        const kernelTime = this.readNullableNumber(typed.KernelModeTime) ?? 0;
-        const userTime = this.readNullableNumber(typed.UserModeTime) ?? 0;
-        return {
-          pid,
-          ppid: this.readNullableNumber(typed.ParentProcessId),
-          cpuMs: Math.round((kernelTime + userTime) / 10_000),
-          memoryBytes: this.readNullableNumber(typed.WorkingSetSize) ?? 0
-        } satisfies ProcessSnapshot;
-      })
-      .filter((row): row is ProcessSnapshot => row !== null);
-  }
-
-  private async listPosixProcessSnapshots(): Promise<ProcessSnapshot[]> {
-    if (process.platform === "linux") {
-      try {
-        return await this.listLinuxProcProcessSnapshots();
-      } catch {
-        return [];
-      }
-    }
-    const output = await this.captureCommandOutput("ps", ["-axo", "pid=,ppid=,rss=,time="]);
-    return output
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .map<ProcessSnapshot | null>((line) => {
-        const columns = line.split(/\s+/, 4);
-        if (columns.length !== 4) {
-          return null;
-        }
-        const [pidRaw, ppidRaw, rssKbRaw, cpuRaw] = columns as [string, string, string, string];
-        const pid = Number.parseInt(pidRaw, 10);
-        const ppid = Number.parseInt(ppidRaw, 10);
-        const rssKb = Number.parseInt(rssKbRaw, 10);
-        if (!Number.isInteger(pid) || !Number.isInteger(ppid) || !Number.isInteger(rssKb)) {
-          return null;
-        }
-        return {
-          pid,
-          ppid: ppid as number | null,
-          cpuMs: this.parsePosixCpuTimeToMs(cpuRaw),
-          memoryBytes: rssKb * 1024
-        } satisfies ProcessSnapshot;
-      })
-      .filter((row): row is ProcessSnapshot => row !== null);
-  }
-
-  private async listLinuxProcProcessSnapshots(): Promise<ProcessSnapshot[]> {
-    const entries = await fs.readdir("/proc", { withFileTypes: true });
-    const snapshots = await Promise.all(
-      entries
-        .filter((entry) => entry.isDirectory() && /^[0-9]+$/.test(entry.name))
-        .map(async (entry) => {
-          const pid = Number.parseInt(entry.name, 10);
-          if (!Number.isInteger(pid)) {
-            return null;
-          }
-          try {
-            const [statRaw, statmRaw] = await Promise.all([
-              fs.readFile(`/proc/${entry.name}/stat`, "utf8"),
-              fs.readFile(`/proc/${entry.name}/statm`, "utf8")
-            ]);
-            const parsed = this.parseLinuxProcStat(statRaw);
-            if (parsed === null) {
-              return null;
-            }
-            const rssPages = Number.parseInt(statmRaw.trim().split(/\s+/, 2)[1] ?? "0", 10);
-            return {
-              pid,
-              ppid: parsed.ppid,
-              cpuMs: Math.max(parsed.cpuTicks, 0) * 10,
-              memoryBytes: Number.isInteger(rssPages) && rssPages > 0 ? rssPages * 4096 : 0
-            } satisfies ProcessSnapshot;
-          } catch (error) {
-            if (
-              error instanceof Error &&
-              "code" in error &&
-              ((error as NodeJS.ErrnoException).code === "ENOENT" ||
-                (error as NodeJS.ErrnoException).code === "ESRCH")
-            ) {
-              return null;
-            }
-            throw error;
-          }
-        })
-    );
-    return snapshots.filter((row): row is ProcessSnapshot => row !== null);
-  }
-
-  private parseLinuxProcStat(raw: string): { ppid: number | null; cpuTicks: number } | null {
-    const trimmed = raw.trim();
-    const closingParen = trimmed.lastIndexOf(")");
-    if (closingParen === -1 || closingParen + 2 >= trimmed.length) {
-      return null;
-    }
-    const rest = trimmed
-      .slice(closingParen + 2)
-      .trim()
-      .split(/\s+/);
-    if (rest.length < 22) {
-      return null;
-    }
-    const ppid = Number.parseInt(rest[1] ?? "", 10);
-    const utime = Number.parseInt(rest[11] ?? "", 10);
-    const stime = Number.parseInt(rest[12] ?? "", 10);
-    return {
-      ppid: Number.isInteger(ppid) ? ppid : null,
-      cpuTicks: (Number.isInteger(utime) ? utime : 0) + (Number.isInteger(stime) ? stime : 0)
-    };
-  }
-
-  private parsePosixCpuTimeToMs(raw: string): number {
-    const normalized = raw.trim();
-    if (normalized.length === 0) {
-      return 0;
-    }
-    const split = normalized.includes("-") ? normalized.split("-", 2) : ["0", normalized];
-    const daysRaw = split[0] ?? "0";
-    const timeRaw = split[1] ?? normalized;
-    const days = Number.parseFloat(daysRaw);
-    const segments = timeRaw.split(":").map((segment) => Number.parseFloat(segment));
-    if (Number.isNaN(days) || segments.some((segment) => Number.isNaN(segment))) {
-      return 0;
-    }
-    let hours = 0;
-    let minutes = 0;
-    let seconds = 0;
-    if (segments.length === 3) {
-      hours = segments[0] ?? 0;
-      minutes = segments[1] ?? 0;
-      seconds = segments[2] ?? 0;
-    } else if (segments.length === 2) {
-      minutes = segments[0] ?? 0;
-      seconds = segments[1] ?? 0;
-    } else if (segments.length === 1) {
-      seconds = segments[0] ?? 0;
-    } else {
-      return 0;
-    }
-    const totalSeconds = (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
-    return Math.round(totalSeconds);
-  }
-
-  private async terminateProcessTree(rootPid: number): Promise<void> {
-    if (process.platform === "win32") {
-      try {
-        await this.captureCommandOutput("taskkill", ["/PID", String(rootPid), "/T", "/F"]);
-      } catch {
-        // Ignore tree-kill failures when the process has already exited.
-      }
-      return;
-    }
-    let pids = [rootPid];
-    try {
-      const usage = await this.readProcessTreeUsage(rootPid);
-      pids = [...new Set(usage?.pids ?? [rootPid])];
-    } catch {
-      // Fall back to killing the known root pid when process inspection is unavailable.
-    }
-    for (const pid of pids.sort((left, right) => right - left)) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-        // Ignore missing processes during teardown.
-      }
-    }
-  }
-
-  private async captureCommandOutput(command: string, args: string[]): Promise<string> {
-    return await new Promise<string>((resolvePromise, rejectPromise) => {
-      const child = spawn(command, args, {
-        stdio: ["ignore", "pipe", "pipe"]
-      });
-      let stdout = "";
-      let stderr = "";
-      child.stdout?.on("data", (chunk: Buffer | string) => {
-        stdout += chunk.toString();
-      });
-      child.stderr?.on("data", (chunk: Buffer | string) => {
-        stderr += chunk.toString();
-      });
-      child.on("error", (error) => {
-        rejectPromise(error);
-      });
-      child.on("close", (exitCode) => {
-        if (exitCode === 0) {
-          resolvePromise(stdout);
-          return;
-        }
-        rejectPromise(
-          new Error(
-            stderr.trim().length > 0
-              ? stderr.trim()
-              : `Command "${command}" exited with code ${String(exitCode)}.`
-          )
-        );
-      });
-    });
   }
 
   private buildWorkspaceSessionKey(assistantId: string, workspaceId: string): string {
@@ -2232,25 +1733,6 @@ export class SandboxService {
       throw this.createPolicyError("invalid_arguments", `${fieldName} must be a non-empty string.`);
     }
     return value;
-  }
-
-  private assertNetworkPolicy(command: string, policy: RuntimeSandboxPolicy): void {
-    if (policy.networkAccessEnabled) {
-      return;
-    }
-    const lowered = command.toLowerCase();
-    if (
-      lowered.includes("curl ") ||
-      lowered.includes("wget ") ||
-      lowered.includes("invoke-webrequest") ||
-      lowered.includes("http://") ||
-      lowered.includes("https://") ||
-      lowered.includes("npm install") ||
-      lowered.includes("pnpm add") ||
-      lowered.includes("pip install")
-    ) {
-      this.throwPolicy("network_blocked", "Sandbox network access is disabled by policy.");
-    }
   }
 
   private inferMimeType(relativePath: string): string {

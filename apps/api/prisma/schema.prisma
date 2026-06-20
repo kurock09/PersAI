@@ -2007,6 +2007,7 @@ model SandboxJob {
   toolCode          String                    @map("tool_code") @db.VarChar(64)
   status            SandboxJobStatus          @default(queued)
   relativeWorkspace String?                   @map("relative_workspace") @db.VarChar(255)
+  execPodName       String?                   @map("exec_pod_name") @db.VarChar(128)
   policySnapshot    Json?                     @map("policy_snapshot") @db.JsonB
   requestPayload    Json?                     @map("request_payload") @db.JsonB
   resultPayload     Json?                     @map("result_payload") @db.JsonB

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { SandboxConfigModule } from "./sandbox-config.module";
 import { SandboxController } from "./sandbox.controller";
+import { ExecPodBridgeService } from "./exec-pod-bridge.service";
 import { SandboxMetricsService } from "./sandbox-metrics.service";
 import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
 import { SandboxObservabilityService } from "./sandbox-observability.service";
@@ -15,6 +16,7 @@ import { SandboxService } from "./sandbox.service";
     SandboxObjectStorageService,
     SandboxObservabilityService,
     SandboxMetricsService,
+    ExecPodBridgeService,
     SandboxService
   ]
 })

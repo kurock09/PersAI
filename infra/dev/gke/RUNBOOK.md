@@ -237,3 +237,90 @@ Expected:
 - API `/health` and `/ready` are healthy
 - runtime preflight returns `live=true` and `ready=true`
 - `bot.persai.dev` ingress route points to `api`, not to a separate runtime service
+
+## ADR-123 Slice 1: Sandbox control-plane cluster-ops (must run before first deploy)
+
+These steps provision the dedicated GCP service account and Workload Identity binding for the
+sandbox control plane. Run them once, in order, before deploying the Helm changes from ADR-123.
+
+```bash
+export PROJECT_ID="project-44786b14-b7d7-4554-a8a"
+export REGION="europe-west1"
+export CLUSTER_NAME="personal-ai-gke"
+export NAMESPACE="persai-dev"
+export KSA_NAME="sandbox-sa"
+export GSA_NAME="sandbox-cp"
+export GSA_EMAIL="${GSA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+```
+
+### 1. Create a dedicated GCP service account for the sandbox control plane
+
+```bash
+gcloud iam service-accounts create "${GSA_NAME}" \
+  --display-name "PersAI sandbox control plane" \
+  --project "${PROJECT_ID}"
+```
+
+### 2. Grant GCS object permissions (workspace bucket read/write)
+
+```bash
+gcloud storage buckets add-iam-policy-binding gs://persai-dev-workspaces \
+  --member "serviceAccount:${GSA_EMAIL}" \
+  --role roles/storage.objectAdmin
+```
+
+### 3. Allow the Kubernetes service account to impersonate the GCP SA (Workload Identity)
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding "${GSA_EMAIL}" \
+  --role roles/iam.workloadIdentityUser \
+  --member "serviceAccount:${PROJECT_ID}.svc.id.goog[${NAMESPACE}/${KSA_NAME}]" \
+  --project "${PROJECT_ID}"
+```
+
+### 4. Verify the Helm-created Kubernetes SA exists after first deploy
+
+```bash
+kubectl get serviceaccount "${KSA_NAME}" -n "${NAMESPACE}"
+```
+
+The SA is created by `infra/helm/templates/sandbox-serviceaccount.yaml` on the first Helm upgrade.
+Run this step after deploying, not before.
+
+### 5. Verify Workload Identity annotation on the SA
+
+```bash
+kubectl get serviceaccount "${KSA_NAME}" -n "${NAMESPACE}" \
+  -o jsonpath='{.metadata.annotations.iam\.gke\.io/gcp-service-account}'
+```
+
+Expected output: `sandbox-cp@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com`
+
+### 6. (Optional) Revoke GCS access from the old api-sa if sandbox was the only consumer
+
+If `api-sa` only had GCS object access because the legacy sandbox required it, you can
+scope it down after verifying the new `sandbox-sa` is working end-to-end on a live deploy.
+
+### 7. Apply the Prisma migration
+
+The migration `20260620200000_adr123_exec_pod_name` adds `exec_pod_name VARCHAR(128)` to
+`sandbox_jobs`. Apply it as part of the normal pre-deploy migration step:
+
+```bash
+# From the apps/api directory, against the dev database:
+pnpm exec prisma migrate deploy
+```
+
+### Validation smoke-test after deploy
+
+```bash
+# Check that the sandbox-sa Role and RoleBinding exist:
+kubectl get role sandbox-exec-pod-manager -n "${NAMESPACE}"
+kubectl get rolebinding sandbox-exec-pod-manager -n "${NAMESPACE}"
+
+# Submit a sandbox job (requires a valid session token) and verify an exec pod is created:
+kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/component=sandbox-exec --watch
+```
+
+Expected: a short-lived `exec-<jobid>` pod appears with `runtimeClassName: gvisor`, reaches
+Running under the `sandbox-pool` node pool, completes, and is deleted automatically.

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,14 +18,6 @@ type WorkspaceFileSnapshot = {
 
 type ReadFileResult = {
   content: string | null;
-};
-
-type ProcessUsage = {
-  processCount: number;
-};
-
-type ProcessError = {
-  code?: string;
 };
 
 type SandboxServiceTestAccess = {
@@ -60,19 +51,6 @@ type SandboxServiceTestAccess = {
     files: WorkspaceFileSnapshot[],
     mountedFiles: MountedWorkspaceState
   ): WorkspaceFileSnapshot[];
-  runProcess(input: {
-    workspaceRoot: string;
-    policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY;
-    cwd: string;
-    command: string;
-    args: string[];
-    leaseGuard: {
-      active: boolean;
-      renewalError: Error | null;
-    };
-  }): Promise<unknown>;
-  readProcessTreeUsage(pid: number): Promise<ProcessUsage | null>;
-  terminateProcessTree(pid: number): Promise<void>;
 };
 
 const RETRYABLE_WINDOWS_RM_CODES = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
@@ -430,7 +408,8 @@ function createDurableHarness() {
         prismaStub as never,
         objectStorageStub as never,
         createSandboxObservabilityService(),
-        createSandboxConfig()
+        createSandboxConfig(),
+        {} as never
       );
     }
   };
@@ -464,7 +443,8 @@ async function run(): Promise<void> {
       }
     } as never,
     createSandboxObservabilityService(),
-    createSandboxConfig()
+    createSandboxConfig(),
+    {} as never
   );
   const serviceTestAccess = service as unknown as SandboxServiceTestAccess;
 
@@ -605,7 +585,8 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     createSandboxObservabilityService(),
-    createSandboxConfig()
+    createSandboxConfig(),
+    {} as never
   );
   const completedJob = await completedService.pollJob("job-completed-1");
   assert.equal(completedJob.status, "completed");
@@ -1187,7 +1168,8 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     createSandboxObservabilityService(),
-    createSandboxConfig()
+    createSandboxConfig(),
+    {} as never
   );
 
   const blockedJob = await blockedService.submitJob({
@@ -1249,7 +1231,8 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     createSandboxObservabilityService(),
-    createSandboxConfig({ SANDBOX_MAX_PENDING_JOBS: 1 })
+    createSandboxConfig({ SANDBOX_MAX_PENDING_JOBS: 1 }),
+    {} as never
   );
   const backlogJob = await backlogService.submitJob({
     assistantId: "assistant-1",
@@ -1303,209 +1286,14 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     staleObservability,
-    createSandboxConfig({ SANDBOX_QUEUED_JOB_STALE_AFTER_MS: 1_000 })
+    createSandboxConfig({ SANDBOX_QUEUED_JOB_STALE_AFTER_MS: 1_000 }),
+    {} as never
   );
   const staleResult = await staleService.pollJob("job-stale-queued-1", 25);
   assert.equal(staleResult.status, "failed");
   assert.equal(staleResult.reason, "sandbox_queue_timeout");
   assert.match(staleResult.warning ?? "", /stayed queued/i);
   assert.equal(staleObservability.getCounters().staleFailures.queued, 1);
-
-  const processGuardService = new SandboxService(
-    {} as never,
-    {} as never,
-    createSandboxObservabilityService(),
-    createSandboxConfig()
-  );
-  const processGuardTestAccess = processGuardService as unknown as SandboxServiceTestAccess;
-  let workspaceStatsChecks = 0;
-  (
-    processGuardService as unknown as {
-      computeWorkspaceStats(workspaceRoot: string): Promise<{
-        fileCount: number;
-        directoryCount: number;
-        totalBytes: number;
-      }>;
-    }
-  ).computeWorkspaceStats = async () => {
-    workspaceStatsChecks += 1;
-    return {
-      fileCount: 0,
-      directoryCount: 0,
-      totalBytes: 0
-    };
-  };
-  const processWorkspace = await fs.mkdtemp(join(tmpdir(), "persai-sandbox-process-"));
-  const processGuardPolicy = {
-    ...DEFAULT_RUNTIME_SANDBOX_POLICY,
-    enabled: true,
-    maxProcessRuntimeMs: 6_000,
-    maxStdoutBytes: 1024 * 1024,
-    maxStderrBytes: 1024 * 1024
-  };
-  try {
-    const processFanoutScript = [
-      "const { spawn } = require('node:child_process');",
-      "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 15000)'], { stdio: 'ignore' });",
-      "setTimeout(() => {}, 15000);"
-    ].join(" ");
-    await assert.rejects(
-      () =>
-        processGuardTestAccess.runProcess({
-          workspaceRoot: processWorkspace,
-          policy: {
-            ...processGuardPolicy,
-            maxConcurrentProcesses: 1
-          },
-          cwd: processWorkspace,
-          command: process.execPath,
-          args: ["-e", processFanoutScript],
-          leaseGuard: {
-            active: true,
-            renewalError: null
-          }
-        }),
-      (error: unknown) => {
-        const code = (error as ProcessError).code;
-        // Windows can report the same fanout breach as a timeout if the child
-        // tree is still unwinding when the runtime guard fires first.
-        assert.ok(
-          code === "process_count_limit_exceeded" || code === "process_timeout",
-          `unexpected process-count guard code: ${String(code)}`
-        );
-        return true;
-      }
-    );
-
-    const memoryGrowthScript = [
-      "const buffers = [];",
-      "const consume = () => { const buffer = Buffer.allocUnsafe(16 * 1024 * 1024); buffer.fill(1); buffers.push(buffer); };",
-      "consume();",
-      "setInterval(consume, 25);",
-      "setTimeout(() => {}, 15000);"
-    ].join(" ");
-    await assert.rejects(
-      () =>
-        processGuardTestAccess.runProcess({
-          workspaceRoot: processWorkspace,
-          policy: {
-            ...processGuardPolicy,
-            maxConcurrentProcesses: 4,
-            maxProcessRuntimeMs: 15_000,
-            maxMemoryBytesPerJob: 48 * 1024 * 1024
-          },
-          cwd: processWorkspace,
-          command: process.execPath,
-          args: ["-e", memoryGrowthScript],
-          leaseGuard: {
-            active: true,
-            renewalError: null
-          }
-        }),
-      (error: unknown) => {
-        assert.equal((error as ProcessError).code, "process_memory_limit_exceeded");
-        return true;
-      }
-    );
-
-    const cpuBurnScript =
-      "const startedAt = Date.now(); while (Date.now() - startedAt < 5000) { Math.sqrt(Math.random()); }";
-    const cpuLimitOutcome = await processGuardTestAccess
-      .runProcess({
-        workspaceRoot: processWorkspace,
-        policy: {
-          ...processGuardPolicy,
-          maxConcurrentProcesses: 4,
-          maxCpuMsPerJob: 250
-        },
-        cwd: processWorkspace,
-        command: process.execPath,
-        args: ["-e", cpuBurnScript],
-        leaseGuard: {
-          active: true,
-          renewalError: null
-        }
-      })
-      .then(
-        (result) => ({ kind: "resolved" as const, result }),
-        (error: unknown) => ({ kind: "rejected" as const, error })
-      );
-    if (cpuLimitOutcome.kind === "rejected") {
-      const code = (cpuLimitOutcome.error as ProcessError).code;
-      // Windows sometimes surfaces the same busy-loop guard as runtime timeout
-      // before the CPU sampler crosses the limit threshold.
-      assert.ok(
-        code === "process_cpu_limit_exceeded" || code === "process_timeout",
-        `unexpected cpu guard code: ${String(code)}`
-      );
-    } else {
-      // On some Windows / Node 24 runs the busy loop can finish between sampler
-      // ticks; accept that fast-exit path as long as the process actually completed.
-      const result = cpuLimitOutcome.result as { exitCode: number | null };
-      assert.equal(result.exitCode, 0);
-    }
-
-    await assert.rejects(
-      () =>
-        processGuardTestAccess.runProcess({
-          workspaceRoot: processWorkspace,
-          policy: {
-            ...processGuardPolicy,
-            maxConcurrentProcesses: 4
-          },
-          cwd: processWorkspace,
-          command: "__persai_missing_executable__",
-          args: [],
-          leaseGuard: {
-            active: true,
-            renewalError: null
-          }
-        }),
-      (error: unknown) => {
-        assert.equal((error as ProcessError).code, "process_spawn_failed");
-        return true;
-      }
-    );
-
-    const sampledTreeRoot = spawn(
-      process.execPath,
-      [
-        "-e",
-        [
-          "const { spawn } = require('node:child_process');",
-          "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 15000)'], { stdio: 'ignore' });",
-          "setTimeout(() => {}, 15000);"
-        ].join(" ")
-      ],
-      {
-        stdio: "ignore"
-      }
-    );
-    try {
-      const sampledRootPid = sampledTreeRoot.pid;
-      if (sampledRootPid === undefined) {
-        throw new Error("Expected spawned root process to expose a pid");
-      }
-      let usage: Awaited<ReturnType<typeof processGuardTestAccess.readProcessTreeUsage>> = null;
-      const usageDeadline = Date.now() + (process.platform === "win32" ? 8_000 : 3_000);
-      while (Date.now() < usageDeadline) {
-        usage = await processGuardTestAccess.readProcessTreeUsage(sampledRootPid);
-        if (usage !== null && usage.processCount >= 2) {
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      assert.ok(usage !== null);
-      assert.ok(usage.processCount >= 2);
-    } finally {
-      if (typeof sampledTreeRoot.pid === "number") {
-        await processGuardTestAccess.terminateProcessTree(sampledTreeRoot.pid);
-      }
-    }
-    assert.equal(workspaceStatsChecks, 0);
-  } finally {
-    await removePathWithRetries(processWorkspace);
-  }
 }
 
 void run();
