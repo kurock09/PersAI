@@ -425,7 +425,7 @@ sandbox:
     gcpServiceAccountEmail: sandbox-cp@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: sandbox
-    tag: 5604ee939371cec17f43e361e9bb4ca958e90d13
+    tag: 9eaf30f8a8356fb371d700629a184e8c80366551
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -543,6 +543,7 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
 
 
 
