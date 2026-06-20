@@ -48,3 +48,46 @@ describe("detect-affected: contracts change", () => {
     assert.equal(result.requiresFullCi, false, "contracts change must NOT escalate to full-CI");
   });
 });
+
+describe("detect-affected: sandbox-exec image change", () => {
+  it("classifies exec-image Dockerfile change as sandbox-exec deploy only (not sandbox control-plane)", () => {
+    const result = detectAffected(["apps/sandbox/exec-image/Dockerfile"]);
+    const deployNames = result.deployServices.map((s) => s.service);
+    assert.ok(
+      deployNames.includes("sandbox-exec"),
+      `expected sandbox-exec in deploy services, got: ${deployNames.join(", ")}`
+    );
+    assert.ok(
+      !deployNames.includes("sandbox"),
+      `sandbox control-plane must NOT be deployed for exec-image changes, got: ${deployNames.join(", ")}`
+    );
+    assert.equal(result.docsOnly, false, "exec-image Dockerfile is not docs-only");
+    assert.equal(result.requiresFullCi, false, "exec-image change does not require full CI");
+  });
+
+  it("classifies exec-image requirements.txt change as sandbox-exec deploy only", () => {
+    const result = detectAffected(["apps/sandbox/exec-image/requirements.txt"]);
+    const deployNames = result.deployServices.map((s) => s.service);
+    assert.ok(
+      deployNames.includes("sandbox-exec"),
+      `expected sandbox-exec in deploy services for requirements.txt, got: ${deployNames.join(", ")}`
+    );
+    assert.ok(
+      !deployNames.includes("sandbox"),
+      `sandbox control-plane must NOT be deployed for exec-image requirements, got: ${deployNames.join(", ")}`
+    );
+  });
+
+  it("classifies sandbox control-plane src change as sandbox deploy (not sandbox-exec)", () => {
+    const result = detectAffected(["apps/sandbox/src/exec-pod-bridge.service.ts"]);
+    const deployNames = result.deployServices.map((s) => s.service);
+    assert.ok(
+      deployNames.includes("sandbox"),
+      `expected sandbox in deploy services for src change, got: ${deployNames.join(", ")}`
+    );
+    assert.ok(
+      !deployNames.includes("sandbox-exec"),
+      `sandbox-exec must NOT be deployed for control-plane src changes, got: ${deployNames.join(", ")}`
+    );
+  });
+});

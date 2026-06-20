@@ -7,7 +7,8 @@ Accepted — 2026-06-20 (open program; bounded slices — see Work plan)
 - **Slice 1 LANDED** — 2026-06-20 (commit `29a20860`)
 - **Slice 2 LANDED** — 2026-06-20 (commit `a0336bed`)
 - **Slice 3 LANDED** — 2026-06-20 (per-session pod reuse, idle-TTL reaper, GCS-keyed workspace snapshot; warm pool DEFERRED — see Work plan note)
-- Slices 4–7 pending
+- **Slice 4 LANDED** — 2026-06-20 (exec image: Python + Node + doc/data stack + Chromium + ripgrep/fd; CI deploy service `sandbox-exec`; SHA pinning via `sandboxExec.image.tag`)
+- Slices 5–7 pending
 
 > Open orchestration ADR. New long-term system rule: untrusted model-authored code runs inside a kernel-isolated, secret-free, per-session sandbox with deny-all egress behind an allowlist proxy; PDF/Excel/DOCX/data documents are produced **in** that sandbox (headless Chromium + a Python doc/data stack) rather than via an external render SaaS; and `grep`/`glob`/`shell` become first-class workspace tools. This program is executed by an orchestrator dispatching `sonnet` sub-agents. **Prod-first: no transitional flags, no permanent fallbacks, no compatibility shims — user base is still small, so we cut over cleanly.**
 

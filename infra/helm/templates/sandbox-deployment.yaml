@@ -58,6 +58,16 @@ spec:
                   optional: {{ $ref.optional }}
 {{- end }}
 {{- end }}
+{{- $execTag := .Values.global.images.tag }}
+{{- if and .Values.sandboxExec .Values.sandboxExec.image .Values.sandboxExec.image.tag }}
+{{-   $execTag = .Values.sandboxExec.image.tag }}
+{{- end }}
+{{- $execName := "sandbox-exec" }}
+{{- if and .Values.sandboxExec .Values.sandboxExec.image .Values.sandboxExec.image.name }}
+{{-   $execName = .Values.sandboxExec.image.name }}
+{{- end }}
+            - name: SANDBOX_EXEC_IMAGE
+              value: {{ printf "%s/%s/%s/%s:%s" .Values.global.images.registryHost .Values.global.images.projectId .Values.global.images.repository $execName $execTag | quote }}
 {{- end }}
           ports:
             - containerPort: {{ .Values.sandbox.service.port }}

@@ -3,6 +3,56 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-20 — ADR-123 Slice 4: Exec image (Python + Node + doc/data stack + Chromium + ripgrep/fd) — CHECKPOINT
+
+### What changed
+
+Replaced placeholder `busybox:1.36` exec image with the real in-sandbox toolchain. `SANDBOX_EXEC_IMAGE` is now a GAR image built and pinned by CI as a standalone deploy service (`sandbox-exec`), separate from the control-plane `sandbox` service.
+
+- **Exec image** (`apps/sandbox/exec-image/Dockerfile` + `requirements.txt`): `debian:bookworm-slim`; Python 3.11 venv at `/opt/venv` with pandas 3.0.3 / numpy 2.4.6 / matplotlib 3.11.0 / openpyxl 3.1.5 / python-docx 1.2.0 / weasyprint 69.0 / pdfplumber 0.11.10 / Pillow 12.2.0; Node.js 22 LTS (NodeSource); ripgrep (`rg`) + fd-find (symlinked to `fd`); headless Chromium; fonts-dejavu / fonts-liberation / fonts-noto / fonts-noto-cjk (Cyrillic + CJK); uid=1000/gid=1000 user `sandbox`; `ENV HOME=/workspace` (persists files + `pip --user`); regenerable caches redirected to ephemeral `/tmp` via `XDG_CACHE_HOME`/`MPLCONFIGDIR` so they don't pollute the persisted snapshot; `/workspace` dir created as mount point; build-time self-checks for all tools.
+- **readOnlyRootFilesystem compliance**: all tools in immutable layers; runtime writes only to `/workspace` (emptyDir) and `/tmp` (emptyDir).
+- **Chromium for Slice 5**: must run with `--no-sandbox --headless=new --user-data-dir=/tmp/chromium-profile`.
+- **CI** (`scripts/ci/detect-affected.mjs`): `sandbox-exec` added to `APP_METADATA`; `classifyFile` routes `apps/sandbox/exec-image/**` → `sandbox-exec` deploy (not `sandbox`); `NON_WORKSPACE_DEPLOY_SERVICES` enables `sandbox-exec` on `workflow_dispatch`. 3 new tests in `detect-affected.test.mjs`.
+- **SHA pinning** (`scripts/ci/pin-dev-image-tags.mjs`): `"sandbox-exec": "sandboxExec"` maps service name to YAML section.
+- **Helm** (`infra/helm/values-dev.yaml` + `sandbox-deployment.yaml`): `sandboxExec.image` block added (`name: sandbox-exec`, `tag: dev-main`); `SANDBOX_EXEC_IMAGE` removed from `sandbox.env` and computed in the template as `{registry}/{project}/{repo}/{name}:{tag}` using `sandboxExec.image` with fallback to `global.images.tag`. Rendered: `europe-west1-docker.pkg.dev/.../persai/sandbox-exec:dev-main`.
+- **sandbox-config.ts**: `busybox:1.36` default retained (local dev has no cluster; value satisfies Zod but is not used without a live k8s API). No runtime contract changes.
+
+### Files touched
+
+| File | Purpose |
+|---|---|
+| `apps/sandbox/exec-image/Dockerfile` (new) | Exec image: full toolchain |
+| `apps/sandbox/exec-image/requirements.txt` (new) | Pinned Python package versions |
+| `scripts/ci/detect-affected.mjs` | `sandbox-exec` service + classifyFile routing + workflow_dispatch |
+| `scripts/ci/detect-affected.test.mjs` | 3 new tests for sandbox-exec routing |
+| `scripts/ci/pin-dev-image-tags.mjs` | `sandbox-exec` → `sandboxExec` section mapping |
+| `infra/helm/values-dev.yaml` | `sandboxExec.image` block; remove `SANDBOX_EXEC_IMAGE` from `sandbox.env` |
+| `infra/helm/templates/sandbox-deployment.yaml` | Compute `SANDBOX_EXEC_IMAGE` from `sandboxExec.image` |
+| `docs/CHANGELOG.md` | Slice 4 entry |
+| `infra/dev/gke/RUNBOOK.md` | ADR-123 Slice 4 verification steps |
+| `docs/ADR/123-...md` | Slice 4 LANDED |
+
+### Tests run
+
+- `@persai/sandbox` test: **18/18 PASS** (no change — no TS code modified)
+- `detect-affected.test.mjs`: **7/7 PASS** (4 pre-existing + 3 new Slice 4 tests)
+- pin script dry-run: **PASS** (`Validated sandboxExec to abc123testsha.`)
+- repo lint PASS · format:check PASS · `@persai/api`/`@persai/web`/`@persai/runtime`/`@persai/sandbox` typecheck PASS
+- `helm lint` PASS · `helm template` PASS (SANDBOX_EXEC_IMAGE renders to GAR sandbox-exec image)
+- Docker Desktop not running — local image build not attempted; build is CI/GAR-validated only
+
+### Baseline SHA
+
+`58187c43` (Slice 3)
+
+### Residuals / next step
+
+- Cluster-side validation (live): verify new exec pod image renders tools on PATH; run RUNBOOK §ADR-123 Slice 4 steps 1–8.
+- Actual image build happens on first push of Slice 4 to `main` (CI builds `sandbox-exec` image and pins SHA in `sandboxExec.image.tag`).
+- Next: ADR-123 **Slice 5** — PDF cutover (render HTML → PDF via in-sandbox headless Chromium; remove PDFMonkey; port print CSS in-house; correct truncation detector).
+
+---
+
 ## 2026-06-20 — ADR-123 Slice 3: Per-session pod reuse, idle-TTL reaper, GCS workspace snapshot — CHECKPOINT
 
 ### What changed

@@ -400,7 +400,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
               {
                 name: "tmp",
                 emptyDir: {
-                  sizeLimit: "64Mi"
+                  sizeLimit: "256Mi"
                 }
               }
             ],

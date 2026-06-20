@@ -473,3 +473,72 @@ kubectl -n "${NAMESPACE}" get pod ses-<hash> -o jsonpath='{.spec.runtimeClassNam
 kubectl -n "${NAMESPACE}" get pod ses-<hash> -o jsonpath='{.spec.automountServiceAccountToken}'
 # Expected: false
 ```
+
+---
+
+## ADR-123 Slice 4: Exec image (Python + Node + doc/data stack + Chromium + ripgrep/fd)
+
+### 1. Confirm exec pod uses the new GAR image
+
+After a Slice 4 deploy, the `SANDBOX_EXEC_IMAGE` env in the sandbox control-plane pod
+should point at the GAR `sandbox-exec` image (not `busybox:1.36`):
+
+```bash
+kubectl -n "${NAMESPACE}" get deploy sandbox -o jsonpath='{.spec.template.spec.containers[0].env}' \
+  | python3 -c "import sys, json; envs = json.load(sys.stdin); print([e for e in envs if e['name']=='SANDBOX_EXEC_IMAGE'])"
+# Expected: [{"name": "SANDBOX_EXEC_IMAGE", "value": "europe-west1-docker.pkg.dev/.../persai/sandbox-exec:<sha>"}]
+```
+
+### 2. Verify ripgrep and fd are on PATH inside a live exec pod
+
+Submit a sandbox shell job or exec directly into a running session pod:
+
+```bash
+kubectl -n "${NAMESPACE}" exec ses-<hash> -- rg --version
+# Expected: ripgrep <version> (with enabled SIMD features)
+
+kubectl -n "${NAMESPACE}" exec ses-<hash> -- fd --version
+# Expected: fd <version>
+```
+
+### 3. Verify the Python doc/data stack imports correctly
+
+```bash
+kubectl -n "${NAMESPACE}" exec ses-<hash> -- \
+  python3 -c "import pandas, numpy, matplotlib, openpyxl, docx, weasyprint, pdfplumber, PIL; print('ok')"
+# Expected: ok
+```
+
+### 4. Verify Node.js 22 is on PATH
+
+```bash
+kubectl -n "${NAMESPACE}" exec ses-<hash> -- node --version
+# Expected: v22.x.x
+```
+
+### 5. Verify Chromium version (Slice 5 will exercise actual render)
+
+```bash
+kubectl -n "${NAMESPACE}" exec ses-<hash> -- chromium --version
+# Expected: Chromium <version>
+# Slice 5 note: invoke with --no-sandbox --headless=new --user-data-dir=/tmp/chromium-profile
+```
+
+### 6. Verify exec pod runs as uid=1000 (non-root)
+
+```bash
+kubectl -n "${NAMESPACE}" exec ses-<hash> -- id
+# Expected: uid=1000(sandbox) gid=1000(sandbox)
+```
+
+### 7. Verify root filesystem is read-only (write to /etc should fail; /workspace and /tmp should succeed)
+
+```bash
+kubectl -n "${NAMESPACE}" exec ses-<hash> -- sh -c "echo test > /etc/should-fail" 2>&1 || echo "PASS: root FS is read-only"
+kubectl -n "${NAMESPACE}" exec ses-<hash> -- sh -c "echo test > /workspace/check.txt && cat /workspace/check.txt && rm /workspace/check.txt" && echo "PASS: /workspace is writable"
+kubectl -n "${NAMESPACE}" exec ses-<hash> -- sh -c "echo test > /tmp/check.txt && cat /tmp/check.txt && rm /tmp/check.txt" && echo "PASS: /tmp is writable"
+```
+
+### 8. Verify Slice 1–3 invariants still hold (no regressions)
+
+Run Slice 3 verification steps 1–7 as before.

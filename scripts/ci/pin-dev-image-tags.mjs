@@ -33,7 +33,8 @@ const serviceToSection = {
   runtime: "runtime",
   web: "web",
   "provider-gateway": "providerGateway",
-  sandbox: "sandbox"
+  sandbox: "sandbox",
+  "sandbox-exec": "sandboxExec"
 };
 
 const targetSections = new Set(

@@ -51,6 +51,14 @@ const APP_METADATA = {
     dockerfile: "apps/sandbox/Dockerfile",
     valuesKey: "sandbox",
     buildArgs: ""
+  },
+  "sandbox-exec": {
+    service: "sandbox-exec",
+    workspace: "",
+    relPath: "apps/sandbox/exec-image",
+    dockerfile: "apps/sandbox/exec-image/Dockerfile",
+    valuesKey: "sandboxExec",
+    buildArgs: ""
   }
 };
 
@@ -72,6 +80,10 @@ const allAppIds = workspaceProjects
 const deployableAppIds = allAppIds.filter((projectId) =>
   Object.prototype.hasOwnProperty.call(APP_METADATA, projectId)
 );
+
+// Deploy services that are pure Dockerfiles (no pnpm workspace).
+// Excluded from lint/typecheck/test targets; included in deploy matrix.
+const NON_WORKSPACE_DEPLOY_SERVICES = ["sandbox-exec"];
 
 // Guard: only execute as a CLI when run directly (not when imported by tests).
 const isMain =
@@ -200,6 +212,12 @@ function detectAffected(changedFiles) {
       const reasons = deployReasons.get(appId) ?? new Set();
       reasons.add("manual-dispatch");
       deployReasons.set(appId, reasons);
+    }
+    for (const serviceId of NON_WORKSPACE_DEPLOY_SERVICES) {
+      deployTargetIds.add(serviceId);
+      const reasons = deployReasons.get(serviceId) ?? new Set();
+      reasons.add("manual-dispatch");
+      deployReasons.set(serviceId, reasons);
     }
   }
 
@@ -380,7 +398,10 @@ function classifyFile(file) {
         rest.includes("/migrations/"));
 
     if (!isDocumentation && !isTestOnly) {
-      if (APP_METADATA[appId]) {
+      if (appId === "sandbox" && rest.startsWith("exec-image/")) {
+        // exec-image changes rebuild the standalone sandbox-exec image, not the control-plane.
+        deployTargets.add("sandbox-exec");
+      } else if (APP_METADATA[appId]) {
         deployTargets.add(appId);
       }
     }

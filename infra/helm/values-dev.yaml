@@ -447,7 +447,6 @@ sandbox:
     SANDBOX_QUEUED_JOB_STALE_AFTER_MS: "45000"
     SANDBOX_RUNNING_JOB_GRACE_MS: "15000"
     SANDBOX_EXEC_NAMESPACE: "persai-dev"
-    SANDBOX_EXEC_IMAGE: "busybox:1.36"
     SANDBOX_EXEC_RUNTIME_CLASS_NAME: "gvisor"
     SANDBOX_EXEC_NODE_SELECTOR_VALUE: "sandbox"
     SANDBOX_EXEC_EGRESS_PROXY_URL: "http://sandbox-egress-proxy.persai-dev.svc.cluster.local:3128"
@@ -521,6 +520,13 @@ sandbox:
       limits:
         cpu: "500m"
         memory: "256Mi"
+
+sandboxExec:
+  image:
+    # Exec image name in GAR (matches the service name in detect-affected + pin script).
+    name: sandbox-exec
+    # Initial tag; CI pins this to the SHA of the most recent successful build.
+    tag: dev-main
 
 ingress:
   enabled: true
