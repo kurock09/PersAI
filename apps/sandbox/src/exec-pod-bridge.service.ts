@@ -24,6 +24,35 @@ function createBridgeError(code: string, message: string, blocked = true): Bridg
   return error;
 }
 
+/**
+ * Extract a human-readable message from an arbitrary thrown value. The
+ * @kubernetes/client-node WebSocket layer rejects with non-Error objects (e.g. a
+ * DOM-style `ErrorEvent` whose useful text lives on `.message`), which would otherwise
+ * collapse to "[object Object]" when stringified downstream. This keeps the real cause
+ * (API server status messages, connection failures) visible in job results and logs.
+ */
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (error !== null && typeof error === "object") {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.length > 0) {
+      return message;
+    }
+    try {
+      const json = JSON.stringify(error);
+      if (json !== undefined && json !== "{}") {
+        return json;
+      }
+    } catch {
+      // Fall through to the generic descriptor below.
+    }
+    return Object.prototype.toString.call(error);
+  }
+  return String(error);
+}
+
 function posixSingleQuote(value: string): string {
   return "'" + value.replace(/'/g, "'\\''") + "'";
 }
@@ -543,12 +572,19 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             reject(
               createBridgeError(
                 "process_spawn_failed",
-                `Workspace push WebSocket error: ${err.message}`
+                `Workspace push WebSocket error: ${describeUnknownError(err)}`
               )
             );
           });
         })
-        .catch(reject);
+        .catch((error: unknown) =>
+          reject(
+            createBridgeError(
+              "process_spawn_failed",
+              `Workspace push exec failed: ${describeUnknownError(error)}`
+            )
+          )
+        );
 
       tarChild.on("error", (err: Error) => {
         reject(
@@ -632,11 +668,23 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             });
             ws.on("error", (err: Error) => {
               reject(
-                createBridgeError("sandbox_failed", `Exec WebSocket error: ${err.message}`, false)
+                createBridgeError(
+                  "sandbox_failed",
+                  `Exec WebSocket error: ${describeUnknownError(err)}`,
+                  false
+                )
               );
             });
           })
-          .catch(reject);
+          .catch((error: unknown) =>
+            reject(
+              createBridgeError(
+                "sandbox_failed",
+                `Exec connection failed: ${describeUnknownError(error)}`,
+                false
+              )
+            )
+          );
       }
     );
 
@@ -717,13 +765,21 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             reject(
               createBridgeError(
                 "sandbox_failed",
-                `Workspace pull WebSocket error: ${err.message}`,
+                `Workspace pull WebSocket error: ${describeUnknownError(err)}`,
                 false
               )
             );
           });
         })
-        .catch(reject);
+        .catch((error: unknown) =>
+          reject(
+            createBridgeError(
+              "sandbox_failed",
+              `Workspace pull exec failed: ${describeUnknownError(error)}`,
+              false
+            )
+          )
+        );
     });
   }
 
