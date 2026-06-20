@@ -1,5 +1,28 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { promises as fs } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+const RETRYABLE_WINDOWS_RM_CODES = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
+
+async function removePathWithRetries(path: string): Promise<void> {
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    try {
+      await fs.rm(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code =
+        error instanceof Error && "code" in error
+          ? String((error as NodeJS.ErrnoException).code)
+          : null;
+      if (!code || !RETRYABLE_WINDOWS_RM_CODES.has(code) || attempt === 20) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(2_000, attempt * 150)));
+    }
+  }
+}
 import type { SandboxConfig } from "@persai/config";
 import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import type { CoreV1Api, V1Pod } from "@kubernetes/client-node";
@@ -27,7 +50,9 @@ function createConfig(): SandboxConfig {
     SANDBOX_EXEC_RUNTIME_CLASS_NAME: "gvisor",
     SANDBOX_EXEC_NODE_SELECTOR_VALUE: "sandbox",
     SANDBOX_EXEC_EGRESS_PROXY_URL: "",
-    SANDBOX_EXEC_NO_PROXY: ""
+    SANDBOX_EXEC_NO_PROXY: "",
+    SANDBOX_EXEC_SESSION_IDLE_TTL_MS: 1_800_000,
+    SANDBOX_EXEC_REAPER_INTERVAL_MS: 120_000
   };
 }
 
@@ -334,6 +359,236 @@ test("ExecPodBridgeService: createExecPod injects proxy env vars when proxy URL 
   assert.equal(envMap["NO_PROXY"], noProxy, "NO_PROXY must be set");
   assert.equal(envMap["no_proxy"], noProxy, "no_proxy must be set");
   assert.equal(env.length, 6, "exactly 6 proxy env vars when proxy URL and NO_PROXY are both set");
+});
+
+test("ExecPodBridgeService: buildSessionPodName derives stable k8s-safe name from runtimeSessionId", () => {
+  const bridge = new ExecPodBridgeService(createConfig());
+  const access = bridge as unknown as {
+    buildSessionPodName(runtimeSessionId: string): string;
+  };
+
+  const sessionId = "session-abc-123";
+  const name1 = access.buildSessionPodName(sessionId);
+  const name2 = access.buildSessionPodName(sessionId);
+  assert.equal(name1, name2, "same runtimeSessionId must produce same pod name");
+  assert.ok(name1.startsWith("ses-"), "session pod name must start with ses-");
+  assert.ok(name1.length <= 63, "pod name must fit k8s 63-char limit");
+  assert.ok(/^[a-z0-9-]+$/.test(name1), "pod name must be lowercase alphanumeric/hyphens");
+
+  const otherId = "session-xyz-999";
+  const otherName = access.buildSessionPodName(otherId);
+  assert.notEqual(name1, otherName, "different sessionIds must produce different pod names");
+});
+
+test("ExecPodBridgeService: buildSessionPodName is distinct from buildPodName (no collisions)", () => {
+  const bridge = new ExecPodBridgeService(createConfig());
+  const access = bridge as unknown as {
+    buildSessionPodName(runtimeSessionId: string): string;
+    buildPodName(jobId: string): string;
+  };
+
+  const sessionName = access.buildSessionPodName("abc123");
+  const ephemeralName = access.buildPodName("abc123-e29b-41d4-a716-446655440000");
+  assert.notEqual(sessionName, ephemeralName, "session and ephemeral pod names must not collide");
+  assert.ok(sessionName.startsWith("ses-"));
+  assert.ok(ephemeralName.startsWith("exec-"));
+});
+
+test("ExecPodBridgeService: sessionless runInPod creates and deletes ephemeral pod", async () => {
+  const ctx: MockK8sContext = {
+    createdPods: [],
+    podPhaseSequence: ["Running"],
+    execResponses: [
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" }
+    ],
+    deletedPods: [],
+    execCallCount: 0
+  };
+
+  const bridge = buildMockBridge(ctx);
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-bridge-test-"));
+  try {
+    await fs.writeFile(join(workspaceRoot, "test.txt"), "hello", "utf8");
+    await bridge.runInPod({
+      jobId: "job-001",
+      runtimeSessionId: null,
+      workspaceRoot,
+      absoluteCwd: workspaceRoot,
+      command: "/bin/sh",
+      args: ["-c", "echo hi"],
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+    });
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
+
+  assert.equal(ctx.createdPods.length, 1, "must create exactly one pod");
+  assert.ok(
+    ctx.createdPods[0]?.body.metadata?.name?.startsWith("exec-"),
+    "pod name must start exec-"
+  );
+  assert.equal(ctx.deletedPods.length, 1, "ephemeral pod must be deleted after job");
+  assert.equal(ctx.deletedPods[0], ctx.createdPods[0]?.body.metadata?.name);
+});
+
+test("ExecPodBridgeService: session runInPod reuses pod on second call (no recreate, no delete)", async () => {
+  // First call: pod does not exist (readNamespacedPod returns 404) → create it.
+  // Second call: pod is Running → reuse; must NOT create a second pod or delete.
+  let readCallCount = 0;
+
+  const createdPods: string[] = [];
+  const deletedPods: string[] = [];
+
+  const mockCoreV1Api = {
+    async createNamespacedPod(params: { namespace: string; body: V1Pod }) {
+      createdPods.push(params.body.metadata?.name ?? "");
+      return params.body as never;
+    },
+    async readNamespacedPod() {
+      readCallCount += 1;
+      if (readCallCount === 1) {
+        // First call: simulate pod not found → should trigger create path.
+        const err = Object.assign(new Error("pod not found"), { statusCode: 404 });
+        throw err;
+      }
+      // Subsequent calls: pod is Running.
+      return { status: { phase: "Running" } } as never;
+    },
+    async deleteNamespacedPod(params: { name: string }) {
+      deletedPods.push(params.name);
+      return {} as never;
+    }
+  };
+
+  const mockExec = {
+    exec(
+      _namespace: string,
+      _podName: string,
+      _containerName: string,
+      _command: string[],
+      stdout: { write(chunk: string): boolean } | null,
+      _stderr: unknown,
+      _stdin: unknown,
+      _tty: boolean,
+      statusCallback?: (status: { status: string }) => void
+    ) {
+      const ws = { on: () => undefined };
+      Promise.resolve().then(() => {
+        if (statusCallback !== undefined) {
+          statusCallback({ status: "Success" });
+        }
+      });
+      return Promise.resolve(ws as never);
+    }
+  };
+
+  const bridge = new ExecPodBridgeService(createConfig());
+  (bridge as unknown as { k8sApi: unknown }).k8sApi = mockCoreV1Api;
+  (bridge as unknown as { execApi: unknown }).execApi = mockExec;
+
+  const sessionId = "session-reuse-test";
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-bridge-session-"));
+  try {
+    await fs.writeFile(join(workspaceRoot, "test.txt"), "data", "utf8");
+
+    // First job: pod doesn't exist, must create.
+    await bridge.runInPod({
+      jobId: "job-s1",
+      runtimeSessionId: sessionId,
+      workspaceRoot,
+      absoluteCwd: workspaceRoot,
+      command: "/bin/sh",
+      args: ["-c", "echo first"],
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+    });
+
+    assert.equal(createdPods.length, 1, "first session job must create exactly one pod");
+    assert.equal(deletedPods.length, 0, "session pod must NOT be deleted after first job");
+
+    // Second job: pod is Running → must reuse, no create, no delete.
+    await bridge.runInPod({
+      jobId: "job-s2",
+      runtimeSessionId: sessionId,
+      workspaceRoot,
+      absoluteCwd: workspaceRoot,
+      command: "/bin/sh",
+      args: ["-c", "echo second"],
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+    });
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
+
+  assert.equal(createdPods.length, 1, "second session job must NOT create a new pod");
+  assert.equal(deletedPods.length, 0, "session pod must NOT be deleted after second job");
+  assert.ok(createdPods[0]?.startsWith("ses-"), "session pod name must start with ses-");
+});
+
+test("ExecPodBridgeService: reaper deletes idle session pods and removes from map", async () => {
+  const deletedPods: string[] = [];
+  const mockCoreV1Api = {
+    async deleteNamespacedPod(params: { name: string }) {
+      deletedPods.push(params.name);
+      return {} as never;
+    }
+  };
+
+  const bridge = new ExecPodBridgeService(createConfig());
+  (bridge as unknown as { k8sApi: unknown }).k8sApi = mockCoreV1Api;
+
+  // Seed the sessionPods map with two stale entries and one active entry.
+  const idleTtlMs = createConfig().SANDBOX_EXEC_SESSION_IDLE_TTL_MS;
+  const sessionPods = (
+    bridge as unknown as { sessionPods: Map<string, { podName: string; lastActivityAt: number }> }
+  ).sessionPods;
+  sessionPods.set("session-stale-1", {
+    podName: "ses-stale111",
+    lastActivityAt: Date.now() - idleTtlMs - 60_000
+  });
+  sessionPods.set("session-stale-2", {
+    podName: "ses-stale222",
+    lastActivityAt: Date.now() - idleTtlMs - 1
+  });
+  sessionPods.set("session-active", {
+    podName: "ses-active333",
+    lastActivityAt: Date.now() - 5_000
+  });
+
+  await bridge.runReaperTick();
+
+  assert.equal(deletedPods.length, 2, "reaper must delete exactly 2 idle pods");
+  assert.ok(deletedPods.includes("ses-stale111"), "stale-1 pod must be deleted");
+  assert.ok(deletedPods.includes("ses-stale222"), "stale-2 pod must be deleted");
+  assert.equal(sessionPods.has("session-stale-1"), false, "stale-1 must be removed from map");
+  assert.equal(sessionPods.has("session-stale-2"), false, "stale-2 must be removed from map");
+  assert.equal(sessionPods.has("session-active"), true, "active session must remain in map");
+  assert.equal(sessionPods.get("session-active")?.podName, "ses-active333");
+});
+
+test("ExecPodBridgeService: reaper does nothing when all sessions are active", async () => {
+  const deletedPods: string[] = [];
+  const mockCoreV1Api = {
+    async deleteNamespacedPod(params: { name: string }) {
+      deletedPods.push(params.name);
+      return {} as never;
+    }
+  };
+
+  const bridge = new ExecPodBridgeService(createConfig());
+  (bridge as unknown as { k8sApi: unknown }).k8sApi = mockCoreV1Api;
+
+  const sessionPods = (
+    bridge as unknown as { sessionPods: Map<string, { podName: string; lastActivityAt: number }> }
+  ).sessionPods;
+  sessionPods.set("s1", { podName: "ses-aaa", lastActivityAt: Date.now() - 1_000 });
+  sessionPods.set("s2", { podName: "ses-bbb", lastActivityAt: Date.now() - 60_000 });
+
+  await bridge.runReaperTick();
+
+  assert.equal(deletedPods.length, 0, "no pods should be deleted when none are idle");
+  assert.equal(sessionPods.size, 2, "map must be unchanged");
 });
 
 test("ExecPodBridgeService: createExecPod injects no env vars when proxy URL is empty", async () => {

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join, dirname, extname, basename, isAbsolute, resolve } from "node:path";
@@ -452,7 +453,8 @@ export class SandboxService {
         workspaceRoot,
         request.assistantId,
         request.workspaceId,
-        existingWorkspaceFiles
+        existingWorkspaceFiles,
+        request.runtimeSessionId ?? null
       );
       this.assertWorkspaceLeaseActive(leaseGuard);
       const mountedFiles = await this.materializeMountedFiles(
@@ -507,6 +509,13 @@ export class SandboxService {
         workspaceRoot,
         await this.loadCurrentAssistantWorkspaceFiles(request.assistantId, request.workspaceId)
       );
+      if (request.runtimeSessionId !== null && request.runtimeSessionId !== undefined) {
+        await this.saveSessionWorkspaceSnapshot(
+          request.assistantId,
+          request.runtimeSessionId,
+          workspaceRoot
+        );
+      }
       await this.prisma.sandboxJob.update({
         where: { id: jobId },
         data: {
@@ -560,7 +569,8 @@ export class SandboxService {
       await this.resetWorkspaceSessionToCurrentState(
         request.assistantId,
         request.workspaceId,
-        workspaceRoot
+        workspaceRoot,
+        request.runtimeSessionId ?? null
       );
     } finally {
       await this.stopWorkspaceLeaseHeartbeat(leaseGuard);
@@ -1043,7 +1053,8 @@ export class SandboxService {
     workspaceRoot: string,
     assistantId: string,
     workspaceId: string,
-    existingWorkspaceFiles?: Map<string, AssistantWorkspaceFileRecord>
+    existingWorkspaceFiles?: Map<string, AssistantWorkspaceFileRecord>,
+    runtimeSessionId: string | null = null
   ): Promise<Map<string, AssistantWorkspaceFileRecord>> {
     let filesByPath =
       existingWorkspaceFiles ??
@@ -1085,6 +1096,11 @@ export class SandboxService {
       }
       if (staleFileIds.length === 0) {
         await this.writeWorkspaceSessionStateMarker(workspaceRoot, filesByPath);
+        // For session jobs: overlay ephemeral files from the GCS session snapshot AFTER
+        // the declared files are written. Declared files already on disk are not overwritten.
+        if (runtimeSessionId !== null) {
+          await this.restoreSessionSnapshotOverlay(assistantId, runtimeSessionId, workspaceRoot);
+        }
         return filesByPath;
       }
       await this.deleteStaleAssistantWorkspaceFiles({
@@ -1098,10 +1114,158 @@ export class SandboxService {
     throw new Error("Assistant workspace hydrate exceeded stale-file cleanup retries.");
   }
 
+  /**
+   * Persist the entire workspace directory as a tar to GCS under the session key.
+   * This snapshot is restored on pod recreate to bring back ephemeral files.
+   * GCS creds stay control-plane-only; exec pods never see this key.
+   */
+  private async saveSessionWorkspaceSnapshot(
+    assistantId: string,
+    runtimeSessionId: string,
+    workspaceRoot: string
+  ): Promise<void> {
+    const objectKey = this.objectStorage.buildSessionSnapshotKey({ assistantId, runtimeSessionId });
+    let tarBytes: Buffer;
+    try {
+      tarBytes = await this.createTarFromDirectory(workspaceRoot);
+    } catch (error) {
+      this.logger.warn(
+        `[session-snapshot] tar creation failed assistantId=${assistantId} session=${runtimeSessionId} — snapshot skipped: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return;
+    }
+    try {
+      await this.objectStorage.saveObject({
+        objectKey,
+        buffer: tarBytes,
+        mimeType: "application/x-tar"
+      });
+      this.logger.log(
+        `[session-snapshot] saved assistantId=${assistantId} session=${runtimeSessionId} bytes=${String(tarBytes.length)}`
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[session-snapshot] GCS save failed assistantId=${assistantId} session=${runtimeSessionId}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Overlay the GCS session snapshot onto an already-hydrated workspace directory.
+   * Only files NOT already present on disk are written (copy-if-absent semantics),
+   * so declared AssistantFile content always takes precedence.
+   * Missing snapshot (first session) is handled gracefully.
+   */
+  private async restoreSessionSnapshotOverlay(
+    assistantId: string,
+    runtimeSessionId: string,
+    workspaceRoot: string
+  ): Promise<void> {
+    const objectKey = this.objectStorage.buildSessionSnapshotKey({ assistantId, runtimeSessionId });
+    let tarBytes: Buffer;
+    try {
+      tarBytes = await this.objectStorage.downloadObject(objectKey);
+    } catch (error) {
+      if (this.isMissingObjectStorageError(error)) {
+        // First session or snapshot expired — nothing to restore.
+        return;
+      }
+      this.logger.warn(
+        `[session-snapshot] GCS download failed assistantId=${assistantId} session=${runtimeSessionId}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return;
+    }
+    try {
+      await this.extractTarOverlay(tarBytes, workspaceRoot);
+      this.logger.log(
+        `[session-snapshot] restored overlay assistantId=${assistantId} session=${runtimeSessionId}`
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[session-snapshot] tar extraction failed assistantId=${assistantId} session=${runtimeSessionId} — continuing without overlay: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Create a tar archive of a directory, returning it as a Buffer.
+   * Uses the local `tar` binary (available on Linux prod and macOS/Windows dev).
+   */
+  private createTarFromDirectory(directory: string): Promise<Buffer> {
+    return new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      const tarChild = spawn("tar", ["-cf", "-", "-C", directory, "."], {
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      tarChild.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+      const stderrChunks: Buffer[] = [];
+      tarChild.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+      tarChild.on("error", (err: Error) => {
+        reject(new Error(`tar create failed: ${err.message}`));
+      });
+      tarChild.on("close", (exitCode: number | null) => {
+        if (exitCode === 0 || exitCode === null) {
+          resolve(Buffer.concat(chunks));
+        } else {
+          const stderrMsg = Buffer.concat(stderrChunks).toString("utf8").trim();
+          reject(new Error(`tar create exited ${String(exitCode)}: ${stderrMsg}`));
+        }
+      });
+    });
+  }
+
+  /**
+   * Overlay a tar archive onto a directory, restoring only files that do not already exist
+   * so declared AssistantFile content always takes precedence.
+   *
+   * Implemented as plain extract-to-staging + copy-if-absent rather than tar's own
+   * keep/skip flags, because those diverge across implementations: GNU tar's
+   * `--keep-old-files` treats pre-existing files as errors (non-zero exit), and
+   * `--skip-old-files` is unavailable on BSD/libarchive tar. A plain `tar -xf` into an
+   * empty staging dir exits 0 on every tar, and `fs.cp({ force: false })` skips files
+   * that already exist in the workspace.
+   */
+  private async extractTarOverlay(tarBytes: Buffer, directory: string): Promise<void> {
+    const staging = await fs.mkdtemp(join(tmpdir(), "persai-session-overlay-"));
+    try {
+      await this.extractTarToDirectory(tarBytes, staging);
+      await fs.cp(staging, directory, { recursive: true, force: false, errorOnExist: false });
+    } finally {
+      await fs.rm(staging, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * Extract a tar archive into a (typically empty) directory with no skip/keep flags,
+   * so the exit code is 0 on both GNU and BSD tar.
+   */
+  private extractTarToDirectory(tarBytes: Buffer, directory: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const extractChild = spawn("tar", ["-xf", "-", "-C", directory], {
+        stdio: ["pipe", "ignore", "pipe"]
+      });
+      const stderrChunks: Buffer[] = [];
+      extractChild.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+      extractChild.on("error", (err: Error) => {
+        reject(new Error(`tar overlay extract failed: ${err.message}`));
+      });
+      extractChild.on("close", (exitCode: number | null) => {
+        if (exitCode === 0 || exitCode === null) {
+          resolve();
+        } else {
+          const stderrMsg = Buffer.concat(stderrChunks).toString("utf8").trim();
+          reject(new Error(`tar overlay extract exited ${String(exitCode)}: ${stderrMsg}`));
+        }
+      });
+      extractChild.stdin?.end(tarBytes);
+    });
+  }
+
   private async resetWorkspaceSessionToCurrentState(
     assistantId: string,
     workspaceId: string,
-    workspaceRoot: string
+    workspaceRoot: string,
+    runtimeSessionId: string | null = null
   ): Promise<void> {
     const currentWorkspaceFiles = await this.loadCurrentAssistantWorkspaceFiles(
       assistantId,
@@ -1112,7 +1276,8 @@ export class SandboxService {
       workspaceRoot,
       assistantId,
       workspaceId,
-      currentWorkspaceFiles
+      currentWorkspaceFiles,
+      runtimeSessionId
     );
   }
 

@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted — 2026-06-20 (open program; bounded slices — see Work plan; slices pending implementation)
+Accepted — 2026-06-20 (open program; bounded slices — see Work plan)
+
+- **Slice 1 LANDED** — 2026-06-20 (commit `29a20860`)
+- **Slice 2 LANDED** — 2026-06-20 (commit `a0336bed`)
+- **Slice 3 LANDED** — 2026-06-20 (per-session pod reuse, idle-TTL reaper, GCS-keyed workspace snapshot; warm pool DEFERRED — see Work plan note)
+- Slices 4–7 pending
 
 > Open orchestration ADR. New long-term system rule: untrusted model-authored code runs inside a kernel-isolated, secret-free, per-session sandbox with deny-all egress behind an allowlist proxy; PDF/Excel/DOCX/data documents are produced **in** that sandbox (headless Chromium + a Python doc/data stack) rather than via an external render SaaS; and `grep`/`glob`/`shell` become first-class workspace tools. This program is executed by an orchestrator dispatching `sonnet` sub-agents. **Prod-first: no transitional flags, no permanent fallbacks, no compatibility shims — user base is still small, so we cut over cleanly.**
 
@@ -100,7 +105,7 @@ Bounded slices for the orchestrator to dispatch to `sonnet` sub-agents. Each sli
 
 - **Slice 1 — Isolation & secret-free execution baseline.** D1 + D2: gVisor node pool + `runtimeClassName`, hardened `securityContext`, dedicated least-privilege SA, remove `DATABASE_URL`/internal-token from the execution env, split control-plane vs execution roles. Verify a model command cannot read pod secrets.
 - **Slice 2 — Egress proxy + allowlist.** D3: NetworkPolicy Egress + proxy with domain allowlist; remove `assertNetworkPolicy` string scan; scoped-credential injection at the proxy. Verify deny-all egress and allowlisted package install. **[LANDED — 2026-06-20]**
-- **Slice 3 — Per-session lifecycle + warm pool + persisted workspace.** D4: per-session container, idle-TTL, warm pool, GCS-keyed `/workspace` rehydration. Verify files persist within a session and across pod restart.
+- **Slice 3 — Per-session lifecycle + persisted workspace. [LANDED]** D4 (partial): per-session container with pod reuse across jobs, idle-TTL reaper (default 30 min, configurable), GCS-keyed `/workspace` tar snapshot (keyed by `assistantId+runtimeSessionId`) restored on pod recreate. Config: `SANDBOX_EXEC_SESSION_IDLE_TTL_MS`, `SANDBOX_EXEC_REAPER_INTERVAL_MS`. Sessionless (null `runtimeSessionId`) jobs remain ephemeral (Slice 1 behavior preserved). Serialization guarantee: existing `assistantId+workspaceId` Postgres lease mutex already serializes all session jobs — no additional locking needed. **Warm pool DEFERRED**: cold-start latency (~2–4s gVisor) is acceptable at current scale; warm pool raises infra complexity without blocking feature value. Track as a future optimization, do not open a new ADR until load evidence justifies it.
 - **Slice 4 — Image stack.** D5: Python + doc/data libs + Chromium + ripgrep/fd; Node retained. Verify `python3`, `weasyprint`, `chromium`, `rg`, `fd` all run inside the sandbox.
 
 **Consumers (after foundation; Slices 5–7 may parallelize where they touch disjoint code):**

@@ -453,6 +453,10 @@ sandbox:
     SANDBOX_EXEC_EGRESS_PROXY_URL: "http://sandbox-egress-proxy.persai-dev.svc.cluster.local:3128"
     # Bypass the proxy for loopback, link-local, and in-cluster addresses.
     SANDBOX_EXEC_NO_PROXY: "localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc.cluster.local,.cluster.local"
+    # Session pod idle TTL: reap pods idle longer than this (ms). 30 min default.
+    SANDBOX_EXEC_SESSION_IDLE_TTL_MS: "1800000"
+    # Reaper sweep interval (ms). 2 min default.
+    SANDBOX_EXEC_REAPER_INTERVAL_MS: "120000"
   secretEnv:
     PERSAI_INTERNAL_API_TOKEN:
       secretName: persai-runtime-secrets

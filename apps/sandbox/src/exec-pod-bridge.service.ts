@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { Writable } from "node:stream";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { KubeConfig, CoreV1Api, Exec, V1Status } from "@kubernetes/client-node";
 import type { SandboxConfig } from "@persai/config";
 import type { RuntimeSandboxPolicy } from "@persai/runtime-contract";
@@ -70,18 +71,52 @@ class LimitedCollector extends Writable {
   }
 }
 
+type SessionPodState = {
+  podName: string;
+  lastActivityAt: number;
+};
+
 @Injectable()
-export class ExecPodBridgeService {
+export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ExecPodBridgeService.name);
   private readonly kc: KubeConfig;
   private readonly k8sApi: CoreV1Api;
   private readonly execApi: Exec;
+
+  /**
+   * In-memory map of active session pods keyed by runtimeSessionId.
+   * Each control-plane replica maintains its own map; the workspace lease
+   * (Postgres-level mutex per assistantId+workspaceId) ensures only one
+   * replica executes a job for a given session at a time, so cross-replica
+   * stale-map entries are handled gracefully: ensureSessionPodRunning checks
+   * k8s state directly rather than trusting the local map.
+   */
+  private readonly sessionPods = new Map<string, SessionPodState>();
+
+  private reaperTimer: NodeJS.Timeout | null = null;
 
   constructor(@Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig) {
     this.kc = new KubeConfig();
     this.kc.loadFromCluster();
     this.k8sApi = this.kc.makeApiClient(CoreV1Api);
     this.execApi = new Exec(this.kc);
+  }
+
+  onModuleInit(): void {
+    this.reaperTimer = setInterval(() => {
+      void this.runReaperTick().catch((error: unknown) => {
+        this.logger.warn(
+          `exec_pod_reaper_error error=${error instanceof Error ? error.message : String(error)}`
+        );
+      });
+    }, this.config.SANDBOX_EXEC_REAPER_INTERVAL_MS);
+  }
+
+  onModuleDestroy(): void {
+    if (this.reaperTimer !== null) {
+      clearInterval(this.reaperTimer);
+      this.reaperTimer = null;
+    }
   }
 
   async runInPod(options: {
@@ -93,13 +128,89 @@ export class ExecPodBridgeService {
     args: string[];
     policy: RuntimeSandboxPolicy;
   }): Promise<PodExecResult> {
-    const podName = this.buildPodName(options.jobId);
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const startedAt = Date.now();
 
+    if (options.runtimeSessionId !== null) {
+      return this.runInSessionPod({
+        ...options,
+        runtimeSessionId: options.runtimeSessionId,
+        namespace,
+        startedAt
+      });
+    }
+
+    return this.runInEphemeralPod({ ...options, namespace, startedAt });
+  }
+
+  /**
+   * Session pod path: pod is named after runtimeSessionId and is reused across jobs.
+   * The pod is NOT deleted after the job; the idle-TTL reaper cleans it up.
+   *
+   * Serialization guarantee: the workspace lease (assistantId+workspaceId, Postgres mutex)
+   * ensures at most one job per session runs concurrently, so no two calls to this method
+   * race on the same session pod.
+   */
+  private async runInSessionPod(options: {
+    jobId: string;
+    runtimeSessionId: string;
+    workspaceRoot: string;
+    absoluteCwd: string;
+    command: string;
+    args: string[];
+    policy: RuntimeSandboxPolicy;
+    namespace: string;
+    startedAt: number;
+  }): Promise<PodExecResult> {
+    const { runtimeSessionId, namespace } = options;
+    const podName = this.buildSessionPodName(runtimeSessionId);
+
+    // Mark activity immediately so the reaper won't evict during this job.
+    this.sessionPods.set(runtimeSessionId, { podName, lastActivityAt: Date.now() });
+
     this.logger.log(
-      `exec_pod_create job=${options.jobId} pod=${podName} session=${options.runtimeSessionId ?? "none"}`
+      `exec_pod_session job=${options.jobId} pod=${podName} session=${runtimeSessionId}`
     );
+
+    await this.ensureSessionPodRunning(podName, namespace, options.policy);
+    await this.pushWorkspace(podName, namespace, options.workspaceRoot);
+    const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
+    const result = await this.execCommand(podName, namespace, {
+      command: options.command,
+      args: options.args,
+      podCwd,
+      policy: options.policy
+    });
+    await this.pullWorkspace(podName, namespace, options.workspaceRoot);
+
+    // Refresh activity timestamp after job completion.
+    this.sessionPods.set(runtimeSessionId, { podName, lastActivityAt: Date.now() });
+
+    return {
+      ...result,
+      durationMs: Date.now() - options.startedAt,
+      execPodName: podName
+    };
+  }
+
+  /**
+   * Ephemeral pod path (runtimeSessionId == null): create, run, delete.
+   * This is the fallback for sessionless jobs and preserves Slice 1 behavior exactly.
+   */
+  private async runInEphemeralPod(options: {
+    jobId: string;
+    workspaceRoot: string;
+    absoluteCwd: string;
+    command: string;
+    args: string[];
+    policy: RuntimeSandboxPolicy;
+    namespace: string;
+    startedAt: number;
+  }): Promise<PodExecResult> {
+    const podName = this.buildPodName(options.jobId);
+    const { namespace } = options;
+
+    this.logger.log(`exec_pod_create job=${options.jobId} pod=${podName} session=none`);
 
     await this.createExecPod(podName, namespace, options.policy);
     try {
@@ -115,12 +226,105 @@ export class ExecPodBridgeService {
       await this.pullWorkspace(podName, namespace, options.workspaceRoot);
       return {
         ...result,
-        durationMs: Date.now() - startedAt,
+        durationMs: Date.now() - options.startedAt,
         execPodName: podName
       };
     } finally {
       await this.deletePod(podName, namespace);
     }
+  }
+
+  /**
+   * Ensure the session pod exists and is Running. Creates it if absent or in a terminal state.
+   */
+  private async ensureSessionPodRunning(
+    podName: string,
+    namespace: string,
+    policy: RuntimeSandboxPolicy
+  ): Promise<void> {
+    let needsCreate = false;
+    try {
+      const pod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
+      const phase = pod.status?.phase;
+      if (phase === "Running") {
+        return;
+      }
+      if (phase === "Failed" || phase === "Succeeded" || phase === "Unknown") {
+        // Terminal: delete and recreate.
+        this.logger.warn(
+          `exec_pod_session_terminal pod=${podName} phase=${phase ?? "unknown"} — recreating`
+        );
+        await this.deletePod(podName, namespace);
+        needsCreate = true;
+      }
+      // Pending or unknown phase: fall through to waitForPodRunning.
+    } catch (error) {
+      const isNotFound =
+        error !== null &&
+        typeof error === "object" &&
+        ((error as { code?: unknown }).code === 404 ||
+          (error as { statusCode?: unknown }).statusCode === 404 ||
+          (error as { response?: { statusCode?: unknown } }).response?.statusCode === 404);
+      if (!isNotFound) {
+        throw createBridgeError(
+          "process_spawn_failed",
+          `Failed to read session exec pod: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      needsCreate = true;
+    }
+
+    if (needsCreate) {
+      this.logger.log(`exec_pod_session_create pod=${podName}`);
+      await this.createExecPod(podName, namespace, policy);
+    }
+
+    await this.waitForPodRunning(podName, namespace, policy.maxProcessRuntimeMs);
+  }
+
+  /**
+   * Reaper tick: delete session pods that have been idle longer than the configured TTL.
+   * Runs on a fixed interval set up in onModuleInit.
+   */
+  async runReaperTick(): Promise<void> {
+    const idleTtlMs = this.config.SANDBOX_EXEC_SESSION_IDLE_TTL_MS;
+    const now = Date.now();
+    const staleSessions: string[] = [];
+
+    for (const [sessionId, state] of this.sessionPods.entries()) {
+      if (now - state.lastActivityAt > idleTtlMs) {
+        staleSessions.push(sessionId);
+      }
+    }
+
+    if (staleSessions.length === 0) {
+      return;
+    }
+
+    this.logger.log(`exec_pod_reaper evicting=${String(staleSessions.length)} idle session pod(s)`);
+
+    for (const sessionId of staleSessions) {
+      const state = this.sessionPods.get(sessionId);
+      if (state === undefined) {
+        continue;
+      }
+      // Remove from map BEFORE the async delete so a concurrent job can safely recreate.
+      this.sessionPods.delete(sessionId);
+      const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+      this.logger.log(
+        `exec_pod_reaper_evict pod=${state.podName} session=${sessionId} idle_ms=${String(now - state.lastActivityAt)}`
+      );
+      await this.deletePod(state.podName, namespace);
+    }
+  }
+
+  /**
+   * Derive a stable, k8s-safe pod name from a session ID.
+   * Format: ses-<sha256(runtimeSessionId)[0..31]>  (4 + 32 = 36 chars ≤ 63 limit).
+   */
+  buildSessionPodName(runtimeSessionId: string): string {
+    const hash = createHash("sha256").update(runtimeSessionId).digest("hex").slice(0, 32);
+    return `ses-${hash}`;
   }
 
   private buildPodName(jobId: string): string {
@@ -553,7 +757,7 @@ export class ExecPodBridgeService {
     });
   }
 
-  private async deletePod(podName: string, namespace: string): Promise<void> {
+  async deletePod(podName: string, namespace: string): Promise<void> {
     try {
       await this.k8sApi.deleteNamespacedPod({ name: podName, namespace });
       this.logger.log(`exec_pod_deleted pod=${podName}`);

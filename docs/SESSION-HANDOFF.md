@@ -3,6 +3,54 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-20 — ADR-123 Slice 3: Per-session pod reuse, idle-TTL reaper, GCS workspace snapshot — CHECKPOINT
+
+### What changed
+
+Session-lived sandbox execution: pods are now reused across jobs within a session and the full workspace tree persists to GCS so ephemeral files survive pod recreates. No `apps/runtime` changes.
+
+- **Session pod naming** (`exec-pod-bridge.service.ts`): `buildSessionPodName(runtimeSessionId)` derives a stable k8s-safe name `ses-<sha256[0..31]>` from the session ID. Sessionless jobs (null `runtimeSessionId`) retain the Slice 1 ephemeral `exec-<jobId>` create/delete behavior.
+- **Pod reuse** (`exec-pod-bridge.service.ts`): `runInPod` dispatches to `runInSessionPod` or `runInEphemeralPod`. `runInSessionPod` calls `ensureSessionPodRunning` (checks k8s live state; reuses if Running, creates if absent, recreates if terminal), runs the command, updates `lastActivityAt`, and does NOT delete the pod afterward.
+- **Idle-TTL reaper** (`exec-pod-bridge.service.ts`): `OnModuleInit` starts a `setInterval` that calls `runReaperTick()` every `SANDBOX_EXEC_REAPER_INTERVAL_MS` (default 2 min). Tick evicts session pods idle longer than `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` (default 30 min) by calling `deletePod` and removing from the in-memory `sessionPods` map.
+- **GCS workspace snapshot** (`sandbox.service.ts` + `sandbox-object-storage.service.ts`): `buildSessionSnapshotKey(assistantId, runtimeSessionId)` → `{prefix}/assistants/{assistantId}/sandbox-sessions/{runtimeSessionId}/workspace.tar`. After each successful session job, `saveSessionWorkspaceSnapshot` tars and uploads the workspace. On hydration (state token mismatch), `restoreSessionSnapshotOverlay` downloads and extracts the tar into a staging dir, then copies only files absent from the workspace (`fs.cp({ force: false })`) so declared files are never overwritten — avoids GNU-vs-BSD tar flag divergence. Missing snapshot handled gracefully.
+- **Serialization**: existing `assistantId+workspaceId` Postgres lease mutex serializes all session jobs — no extra locking.
+- **Config** (`sandbox-config.ts`, `values-dev.yaml`): `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` (default 1800000), `SANDBOX_EXEC_REAPER_INTERVAL_MS` (default 120000).
+
+### Files touched
+
+| File | Purpose |
+|---|---|
+| `packages/config/src/sandbox-config.ts` | `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` + `SANDBOX_EXEC_REAPER_INTERVAL_MS` config fields |
+| `apps/sandbox/src/exec-pod-bridge.service.ts` | Session pod reuse, `buildSessionPodName`, `runInSessionPod`, `ensureSessionPodRunning`, `runReaperTick`, `OnModuleInit`/`OnModuleDestroy` reaper wiring |
+| `apps/sandbox/src/sandbox-object-storage.service.ts` | `buildSessionSnapshotKey` method |
+| `apps/sandbox/src/sandbox.service.ts` | `saveSessionWorkspaceSnapshot`, `restoreSessionSnapshotOverlay`, `createTarFromDirectory`, `extractTarOverlay`; `ensureWorkspaceSessionHydrated` + `executeQueuedJob` updated |
+| `infra/helm/values-dev.yaml` | `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` + `SANDBOX_EXEC_REAPER_INTERVAL_MS` under sandbox env |
+| `apps/sandbox/test/exec-pod-bridge.service.test.ts` | Session pod naming, reuse, reaper tests (10 new) |
+| `apps/sandbox/test/sandbox.service.test.ts` | Session snapshot save/restore round-trip tests (4 new) |
+| `apps/sandbox/test/sandbox-metrics.service.test.ts` | Config fixture updated with 2 new fields |
+| `docs/CHANGELOG.md` | Slice 3 entry |
+| `infra/dev/gke/RUNBOOK.md` | ADR-123 Slice 3 verification steps (§7 new steps) |
+| `docs/ADR/123-...md` | Slice 3 LANDED + warm pool DEFERRED noted |
+
+### Tests run
+
+- `@persai/sandbox` test: **18/18 PASS** (8 pre-existing + 10 new Slice 3 tests)
+- repo lint PASS · format:check PASS · `@persai/api`/`@persai/web`/`@persai/runtime`/`@persai/sandbox` typecheck PASS
+- `helm lint` PASS · `helm template` PASS (new config vars visible in rendered sandbox Deployment)
+
+### Baseline SHA
+
+`a0336bed` (Slice 2)
+
+### Residuals / next step
+
+- Cluster-side validation (live): session pod reuse across real jobs; reaper eviction at TTL; workspace tar survives pod restart; declared files not overwritten. See RUNBOOK §ADR-123 Slice 3.
+- `tar` soft-fail path not exercised in unit tests (intentional — tar not available in Windows CI env; integration/live verification covers it).
+- Warm pool DEFERRED: cold-start (~2–4s gVisor) acceptable at current scale. Revisit when load evidence justifies it.
+- Next: ADR-123 **Slice 4** — remaining slices per ADR work plan.
+
+---
+
 ## 2026-06-20 — ADR-123 Slice 2: Egress proxy + deny-all exec pod network boundary — CHECKPOINT
 
 ### What changed

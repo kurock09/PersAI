@@ -389,3 +389,87 @@ kubectl -n "${NAMESPACE}" get pod <exec-pod-name> -o jsonpath='{.spec.containers
 
 Expected: `CLEAN: no secrets in exec pod env`. Only `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`,
 `https_proxy`, `NO_PROXY`, `no_proxy` should be present (all non-secret proxy URLs/host lists).
+
+---
+
+## ADR-123 Slice 3: Per-session pod reuse, idle-TTL reaper, GCS workspace snapshot
+
+### 1. Verify session pods are created with stable names and reused
+
+Submit two consecutive sandbox exec/shell jobs for the same session (same `runtimeSessionId`):
+
+```bash
+# Watch for exec_pod_session and exec_pod_session_create log lines in the sandbox pod.
+kubectl -n "${NAMESPACE}" logs -l app.kubernetes.io/name=sandbox -f | grep exec_pod_session
+```
+
+Expected on first job: `exec_pod_session_create pod=ses-<hash>`.
+Expected on second job: `exec_pod_session` (reuse) — NO `exec_pod_session_create`.
+Session pod names must start with `ses-` and be stable (same hash for same sessionId).
+
+### 2. Verify session pod survives between jobs (not deleted)
+
+```bash
+kubectl -n "${NAMESPACE}" get pods -l app.kubernetes.io/component=sandbox-exec
+```
+
+Expected: session pod (`ses-<hash>`) remains Running after a job completes and is NOT deleted.
+Ephemeral pods (`exec-<jobid>`) must be absent after their job completes (sessionless jobs only).
+
+### 3. Verify idle-TTL reaper fires and deletes stale session pods
+
+After letting a session pod sit idle for longer than `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` (default 30 min), watch the reaper log:
+
+```bash
+kubectl -n "${NAMESPACE}" logs -l app.kubernetes.io/name=sandbox -f | grep exec_pod_reaper
+```
+
+Expected: `exec_pod_reaper evicting=N idle session pod(s)` followed by `exec_pod_reaper_evict pod=ses-<hash>` and `exec_pod_deleted pod=ses-<hash>`.
+
+### 4. Verify workspace files survive across jobs within a session
+
+Submit a session job that writes a file, then submit a second job that reads it:
+
+```bash
+# First job: write ephemeral.py
+# Second job: cat ephemeral.py (file should exist from first job)
+```
+
+Expected: second job reads the file written by the first job, confirming pod-level workspace persistence.
+
+### 5. Verify GCS session snapshot is created after each job
+
+```bash
+# Check for session snapshot keys in the GCS bucket.
+gsutil ls "gs://persai-dev-workspaces/assistant-media/assistants/*/sandbox-sessions/*/workspace.tar"
+```
+
+Expected: `workspace.tar` objects present under `sandbox-sessions/<runtimeSessionId>/`.
+
+### 6. Verify workspace files survive pod recreation (snapshot restore)
+
+Kill the session pod manually, then submit another job for the same session:
+
+```bash
+kubectl -n "${NAMESPACE}" delete pod ses-<hash>
+# Submit a new sandbox exec job with the same runtimeSessionId.
+```
+
+Expected: the new pod is created (`exec_pod_session_create` logged), and the workspace is restored from the GCS snapshot (ephemeral files from previous jobs should be present).
+
+### 7. Verify Slice 1+2 invariants still hold
+
+```bash
+# exec pod must carry zero secrets
+kubectl -n "${NAMESPACE}" get pod ses-<hash> -o jsonpath='{.spec.containers[0].env}'
+# Expected: only HTTP_PROXY / HTTPS_PROXY / http_proxy / https_proxy / NO_PROXY / no_proxy
+# NO DATABASE_URL, NO TOKEN, NO KEY
+
+# exec pod must still use gVisor
+kubectl -n "${NAMESPACE}" get pod ses-<hash> -o jsonpath='{.spec.runtimeClassName}'
+# Expected: gvisor
+
+# exec pod must have automountServiceAccountToken: false
+kubectl -n "${NAMESPACE}" get pod ses-<hash> -o jsonpath='{.spec.automountServiceAccountToken}'
+# Expected: false
+```

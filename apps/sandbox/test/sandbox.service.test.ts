@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
@@ -51,6 +52,16 @@ type SandboxServiceTestAccess = {
     files: WorkspaceFileSnapshot[],
     mountedFiles: MountedWorkspaceState
   ): WorkspaceFileSnapshot[];
+  saveSessionWorkspaceSnapshot(
+    assistantId: string,
+    runtimeSessionId: string,
+    workspaceRoot: string
+  ): Promise<void>;
+  restoreSessionSnapshotOverlay(
+    assistantId: string,
+    runtimeSessionId: string,
+    workspaceRoot: string
+  ): Promise<void>;
 };
 
 const RETRYABLE_WINDOWS_RM_CODES = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
@@ -142,6 +153,8 @@ function createSandboxConfig(overrides: Partial<SandboxConfig> = {}): SandboxCon
     SANDBOX_MAX_POLL_WAIT_MS: 1_500,
     SANDBOX_QUEUED_JOB_STALE_AFTER_MS: 45_000,
     SANDBOX_RUNNING_JOB_GRACE_MS: 15_000,
+    SANDBOX_EXEC_SESSION_IDLE_TTL_MS: 1_800_000,
+    SANDBOX_EXEC_REAPER_INTERVAL_MS: 120_000,
     ...overrides
   } as SandboxConfig;
 }
@@ -385,6 +398,9 @@ function createDurableHarness() {
   const objectStorageStub = {
     buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
       return `assistant-media/assistants/${input.assistantId}/sandbox/jobs/${input.jobId}/${input.relativePath.replace(/\//g, "__")}`;
+    },
+    buildSessionSnapshotKey(input: { assistantId: string; runtimeSessionId: string }) {
+      return `assistant-media/assistants/${input.assistantId}/sandbox-sessions/${input.runtimeSessionId}/workspace.tar`;
     },
     async saveObject(input: { objectKey: string; buffer: Buffer }) {
       storedObjects.set(input.objectKey, Buffer.from(input.buffer));
@@ -1297,3 +1313,217 @@ async function run(): Promise<void> {
 }
 
 void run();
+
+// ---------------------------------------------------------------------------
+// Session workspace snapshot tests
+// ---------------------------------------------------------------------------
+
+test("SandboxService: session snapshot key uses assistant+session identity", () => {
+  const storedObjects = new Map<string, Buffer>();
+  const objectStorageStub = {
+    buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
+      return `assistant-media/assistants/${input.assistantId}/sandbox/jobs/${input.jobId}/${input.relativePath}`;
+    },
+    buildSessionSnapshotKey(input: { assistantId: string; runtimeSessionId: string }) {
+      return `assistant-media/assistants/${input.assistantId}/sandbox-sessions/${input.runtimeSessionId}/workspace.tar`;
+    },
+    async saveObject(input: { objectKey: string; buffer: Buffer }) {
+      storedObjects.set(input.objectKey, Buffer.from(input.buffer));
+      return input.buffer.length;
+    },
+    async downloadObject(objectKey: string) {
+      const stored = storedObjects.get(objectKey);
+      if (!stored) {
+        throw new Error(`Missing stored object "${objectKey}" in test store`);
+      }
+      return Buffer.from(stored);
+    }
+  };
+
+  // buildSessionSnapshotKey encodes both assistantId and runtimeSessionId.
+  const key = objectStorageStub.buildSessionSnapshotKey({
+    assistantId: "asst-123",
+    runtimeSessionId: "sess-abc"
+  });
+  assert.ok(key.includes("asst-123"), "key must contain assistantId");
+  assert.ok(key.includes("sess-abc"), "key must contain runtimeSessionId");
+  assert.ok(key.endsWith(".tar"), "key must end with .tar");
+
+  // Different session → different key.
+  const key2 = objectStorageStub.buildSessionSnapshotKey({
+    assistantId: "asst-123",
+    runtimeSessionId: "sess-xyz"
+  });
+  assert.notEqual(key, key2, "different sessions must produce different keys");
+
+  // Different assistant → different key.
+  const key3 = objectStorageStub.buildSessionSnapshotKey({
+    assistantId: "asst-999",
+    runtimeSessionId: "sess-abc"
+  });
+  assert.notEqual(key, key3, "different assistants must produce different keys");
+});
+
+test("SandboxService: saveSessionWorkspaceSnapshot writes to GCS with session key", async () => {
+  const storedObjects = new Map<string, Buffer>();
+  const saveCallKeys: string[] = [];
+
+  const objectStorageStub = {
+    buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
+      return `assistant-media/assistants/${input.assistantId}/sandbox/jobs/${input.jobId}/${input.relativePath}`;
+    },
+    buildSessionSnapshotKey(input: { assistantId: string; runtimeSessionId: string }) {
+      return `assistant-media/assistants/${input.assistantId}/sandbox-sessions/${input.runtimeSessionId}/workspace.tar`;
+    },
+    async saveObject(input: { objectKey: string; buffer: Buffer }) {
+      saveCallKeys.push(input.objectKey);
+      storedObjects.set(input.objectKey, Buffer.from(input.buffer));
+      return input.buffer.length;
+    },
+    async downloadObject(objectKey: string) {
+      const stored = storedObjects.get(objectKey);
+      if (!stored) {
+        throw new Error(`Missing stored object "${objectKey}" in test store`);
+      }
+      return Buffer.from(stored);
+    }
+  };
+
+  const service = new SandboxService(
+    {} as never,
+    objectStorageStub as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never
+  );
+  const access = service as unknown as SandboxServiceTestAccess;
+
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-snap-save-"));
+  try {
+    await fs.writeFile(join(workspaceRoot, "hello.txt"), "world", "utf8");
+
+    await access.saveSessionWorkspaceSnapshot("asst-save", "sess-save-1", workspaceRoot);
+
+    const expectedKey =
+      "assistant-media/assistants/asst-save/sandbox-sessions/sess-save-1/workspace.tar";
+    assert.ok(
+      saveCallKeys.some((k) => k === expectedKey),
+      `saveObject must be called with session snapshot key, got: ${String(saveCallKeys)}`
+    );
+    assert.ok(storedObjects.has(expectedKey), "snapshot must be stored in GCS");
+
+    const storedBuffer = storedObjects.get(expectedKey);
+    assert.ok(
+      storedBuffer !== undefined && storedBuffer.length > 0,
+      "stored snapshot must be non-empty"
+    );
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
+});
+
+test("SandboxService: restoreSessionSnapshotOverlay is a no-op when no snapshot exists (first session)", async () => {
+  const objectStorageStub = {
+    buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
+      return `assistant-media/assistants/${input.assistantId}/sandbox/jobs/${input.jobId}/${input.relativePath}`;
+    },
+    buildSessionSnapshotKey(input: { assistantId: string; runtimeSessionId: string }) {
+      return `assistant-media/assistants/${input.assistantId}/sandbox-sessions/${input.runtimeSessionId}/workspace.tar`;
+    },
+    async saveObject(input: { objectKey: string; buffer: Buffer }) {
+      return input.buffer.length;
+    },
+    async downloadObject(objectKey: string) {
+      // Simulate GCS 404 for missing snapshot.
+      throw new Error(`Missing stored object "${objectKey}" in test store`);
+    }
+  };
+
+  const service = new SandboxService(
+    {} as never,
+    objectStorageStub as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never
+  );
+  const access = service as unknown as SandboxServiceTestAccess;
+
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-snap-restore-"));
+  try {
+    await fs.writeFile(join(workspaceRoot, "existing.txt"), "declared content", "utf8");
+
+    // Must not throw even though no snapshot exists.
+    await assert.doesNotReject(
+      access.restoreSessionSnapshotOverlay("asst-restore", "sess-first", workspaceRoot)
+    );
+
+    // Existing declared file must be untouched.
+    const content = await fs.readFile(join(workspaceRoot, "existing.txt"), "utf8");
+    assert.equal(content, "declared content", "declared file must be preserved");
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
+});
+
+test("SandboxService: session snapshot round-trip — save then restore adds ephemeral files", async () => {
+  const storedObjects = new Map<string, Buffer>();
+  const objectStorageStub = {
+    buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
+      return `assistant-media/assistants/${input.assistantId}/sandbox/jobs/${input.jobId}/${input.relativePath}`;
+    },
+    buildSessionSnapshotKey(input: { assistantId: string; runtimeSessionId: string }) {
+      return `assistant-media/assistants/${input.assistantId}/sandbox-sessions/${input.runtimeSessionId}/workspace.tar`;
+    },
+    async saveObject(input: { objectKey: string; buffer: Buffer }) {
+      storedObjects.set(input.objectKey, Buffer.from(input.buffer));
+      return input.buffer.length;
+    },
+    async downloadObject(objectKey: string) {
+      const stored = storedObjects.get(objectKey);
+      if (!stored) {
+        throw new Error(`Missing stored object "${objectKey}" in test store`);
+      }
+      return Buffer.from(stored);
+    }
+  };
+
+  const service = new SandboxService(
+    {} as never,
+    objectStorageStub as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never
+  );
+  const access = service as unknown as SandboxServiceTestAccess;
+
+  // Source workspace: declared file + ephemeral file.
+  const sourceRoot = await fs.mkdtemp(join(tmpdir(), "persai-snap-src-"));
+  // Restore workspace: declared file already present (from hydration).
+  const restoreRoot = await fs.mkdtemp(join(tmpdir(), "persai-snap-dst-"));
+  try {
+    await fs.writeFile(join(sourceRoot, "declared.txt"), "declared content", "utf8");
+    await fs.writeFile(join(sourceRoot, "ephemeral.py"), "print('hello')", "utf8");
+
+    // Save the snapshot (tars both files).
+    await access.saveSessionWorkspaceSnapshot("asst-rt", "sess-rt", sourceRoot);
+
+    // Restore destination already has declared.txt (from hydration).
+    await fs.writeFile(join(restoreRoot, "declared.txt"), "declared content", "utf8");
+
+    // Restore overlay should add ephemeral.py but not overwrite declared.txt.
+    await access.restoreSessionSnapshotOverlay("asst-rt", "sess-rt", restoreRoot);
+
+    const declaredContent = await fs.readFile(join(restoreRoot, "declared.txt"), "utf8");
+    assert.equal(declaredContent, "declared content", "declared file must not be overwritten");
+
+    const ephemeralContent = await fs.readFile(join(restoreRoot, "ephemeral.py"), "utf8");
+    assert.equal(
+      ephemeralContent,
+      "print('hello')",
+      "ephemeral file must be restored from snapshot"
+    );
+  } finally {
+    await removePathWithRetries(sourceRoot);
+    await removePathWithRetries(restoreRoot);
+  }
+});

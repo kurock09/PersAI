@@ -27,6 +27,19 @@ export class SandboxObjectStorageService {
     return `${prefix}/assistants/${input.assistantId}/sandbox/jobs/${input.jobId}/${randomUUID()}.${extension}`;
   }
 
+  /**
+   * GCS key for the whole-workspace tar snapshot for a session.
+   * Keyed by assistant + session so that a recreated session pod can restore all files
+   * (including ephemeral ones not tracked as AssistantFile records).
+   * GCS creds stay control-plane-only; exec pods never see this key.
+   */
+  buildSessionSnapshotKey(input: { assistantId: string; runtimeSessionId: string }): string {
+    const prefix = (this.config.PERSAI_MEDIA_OBJECT_PREFIX ?? "assistant-media")
+      .trim()
+      .replace(/\/+$/g, "");
+    return `${prefix}/assistants/${input.assistantId}/sandbox-sessions/${input.runtimeSessionId}/workspace.tar`;
+  }
+
   async saveObject(input: {
     objectKey: string;
     buffer: Buffer;
