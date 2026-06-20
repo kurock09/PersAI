@@ -39,7 +39,6 @@ type SearchSourceRow = {
   locator: string | null;
   content: string;
   embeddingModelKey?: string | null;
-  embeddingVector?: unknown;
   knowledgeSource: {
     id: string;
     namespace: string;
@@ -57,7 +56,6 @@ type GlobalSearchSourceRow = {
   locator: string | null;
   content: string;
   embeddingModelKey?: string | null;
-  embeddingVector?: unknown;
   globalKnowledgeSource: {
     id: string;
     displayName: string | null;
@@ -73,7 +71,6 @@ type ProductKnowledgeTextEntrySearchRow = {
   locator: string | null;
   content: string;
   embeddingModelKey?: string | null;
-  embeddingVector?: unknown;
   textEntry: {
     id: string;
     title: string;

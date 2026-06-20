@@ -329,3 +329,12 @@ After the S7 push deploys, run the idempotent parity backfill in PROD — `corep
 ### Golden invariant locked
 
 The ADR-120 prompt reality is locked by explicit assertions in both prompt-snapshot tests (`apps/runtime/test/adr119-golden-prompt-snapshot.test.ts`, `apps/api/test/adr119-golden-prompt-snapshot.test.ts`): no `<persai_memory>` contextual push in the recency zone (S1); no flat `# Retrieved Knowledge Context` developer block and no pushed `<persai_retrieved_knowledge>` block anywhere (S5 / D6); and a positive check that `knowledge_search` / `knowledge_fetch` are the pull retrieval path.
+
+### Closure II (2026-06-20)
+
+Both tracked residual follow-ups above are now resolved (this does not reopen the program — status remains **Accepted — closure-mode**). The one-time parity backfill completed and PROD `knowledge_vector_chunks` is uniform `vector(3072)` (982 rows, all text-embedding-3-large; **2 stale sources reindexed to 3072** so the store is dimension-uniform).
+
+1. **HNSW ANN index shipped.** Migration `20260620120000_adr120_drop_legacy_chunk_jsonb_and_hnsw` creates `knowledge_vector_chunks_embedding_hnsw_idx`. pgvector 0.8.1 does not support HNSW on the bare `vector` type beyond 2000 dims, so the index is built on a `halfvec(3072)` expression with `halfvec_cosine_ops`; the store is uniform 3072, so the cast is always valid. `KnowledgeVectorIndex.searchNearest` now orders by `embedding_vector::halfvec(3072) <=> query::halfvec(3072)` (planner can use the index) and re-scores the returned top-K at full `vector` precision. The stored column type is unchanged (`vector(3072)`).
+2. **Legacy JSONB embedding columns retired.** The same migration drops `embedding_vector` + `embedding_generated_at` from the three legacy `*_chunks` tables (NON-reversible data loss; the unified store is authoritative). Those tables remain the canonical TEXT store (`content`/`locator`/`embedding_model_key` retained). The indexing worker stops dual-writing the JSONB embeddings; the completed backfill runner/service and its npm script were removed.
+
+Remaining known item: 4 empty product-knowledge entries with 0 chunks await an owner decision, and full retirement of the legacy `*_chunks` tables themselves is a separate future program.

@@ -631,12 +631,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
             chunkIndex: chunk.chunkIndex,
             locator: chunk.locator,
             content: chunk.content,
-            embeddingModelKey: chunk.embeddingModelKey,
-            embeddingVector:
-              chunk.embeddingVector === null
-                ? Prisma.JsonNull
-                : (chunk.embeddingVector as Prisma.InputJsonValue),
-            embeddingGeneratedAt: chunk.embeddingGeneratedAt
+            embeddingModelKey: chunk.embeddingModelKey
           }))
         });
         await tx.assistantKnowledgeSource.update({
@@ -674,12 +669,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
             chunkIndex: chunk.chunkIndex,
             locator: chunk.locator,
             content: chunk.content,
-            embeddingModelKey: chunk.embeddingModelKey,
-            embeddingVector:
-              chunk.embeddingVector === null
-                ? Prisma.JsonNull
-                : (chunk.embeddingVector as Prisma.InputJsonValue),
-            embeddingGeneratedAt: chunk.embeddingGeneratedAt
+            embeddingModelKey: chunk.embeddingModelKey
           }))
         });
         await tx.globalKnowledgeSource.update({
@@ -716,12 +706,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
             chunkIndex: chunk.chunkIndex,
             locator: chunk.locator,
             content: chunk.content,
-            embeddingModelKey: chunk.embeddingModelKey,
-            embeddingVector:
-              chunk.embeddingVector === null
-                ? Prisma.JsonNull
-                : (chunk.embeddingVector as Prisma.InputJsonValue),
-            embeddingGeneratedAt: chunk.embeddingGeneratedAt
+            embeddingModelKey: chunk.embeddingModelKey
           }))
         });
         await tx.productKnowledgeTextEntry.update({

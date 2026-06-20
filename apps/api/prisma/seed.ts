@@ -111,9 +111,7 @@ async function seedProductKbTextEntries(): Promise<void> {
           chunkIndex: 0,
           locator: entry.locator,
           content: entry.body,
-          embeddingModelKey: null,
-          embeddingVector: null,
-          embeddingGeneratedAt: null
+          embeddingModelKey: null
         }
       });
     });

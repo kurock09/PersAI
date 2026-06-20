@@ -14,7 +14,6 @@
     "prisma:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
     "prisma:migrate:status": "prisma migrate status --schema prisma/schema.prisma",
     "prisma:migrate:check": "prisma migrate deploy --schema prisma/schema.prisma && prisma migrate status --schema prisma/schema.prisma",
-    "backfill:knowledge-vector-store": "tsx src/scripts/backfill-knowledge-vector-store.ts",
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:seed:catalog": "tsx prisma/seed-catalog.ts",
     "test": "tsx test/run-suite.ts",

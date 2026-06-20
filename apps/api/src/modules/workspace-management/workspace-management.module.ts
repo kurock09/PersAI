@@ -200,7 +200,6 @@ import { ManageAssistantSkillsService } from "./application/manage-assistant-ski
 import { ManageAssistantAvatarService } from "./application/manage-assistant-avatar.service";
 import { ManageAssistantWorkspaceMemoryService } from "./application/manage-assistant-workspace-memory.service";
 import { ReadAssistantKnowledgeService } from "./application/read-assistant-knowledge.service";
-import { BackfillKnowledgeVectorStoreService } from "./application/backfill-knowledge-vector-store.service";
 import { SkillRetrievalPolicyService } from "./application/skill-retrieval-policy.service";
 import { SkillRetrievalStateService } from "./application/skill-retrieval-state.service";
 import { AutoSkillRoutingStateService } from "./application/auto-skill-routing-state.service";
@@ -622,7 +621,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageAssistantSkillsService,
     ManageAssistantWorkspaceMemoryService,
     ReadAssistantKnowledgeService,
-    BackfillKnowledgeVectorStoreService,
     SkillRetrievalPolicyService,
     SkillRetrievalStateService,
     AutoSkillRoutingStateService,

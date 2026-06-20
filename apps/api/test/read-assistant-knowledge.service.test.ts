@@ -31,7 +31,6 @@ type GlobalKnowledgeChunkRow = {
   locator: string | null;
   content: string;
   embeddingModelKey: string | null;
-  embeddingVector: unknown;
   globalKnowledgeSource: {
     id: string;
     workspaceId: string;
@@ -50,7 +49,6 @@ type ProductKnowledgeTextEntryChunkRow = {
   locator: string | null;
   content: string;
   embeddingModelKey: string | null;
-  embeddingVector: unknown;
   textEntry: {
     id: string;
     workspaceId: string;
@@ -352,7 +350,6 @@ const globalKnowledgeRows: GlobalKnowledgeChunkRow[] = [
     locator: "sync-guide#1",
     content: "Connector sync cadence keeps uploaded Product knowledge fresh across reindex runs.",
     embeddingModelKey: null,
-    embeddingVector: null,
     globalKnowledgeSource: {
       id: "global-source-1",
       workspaceId: "platform-kb-workspace",
@@ -372,7 +369,6 @@ const globalKnowledgeRows: GlobalKnowledgeChunkRow[] = [
     content:
       "Admins can upload Product knowledge and trigger reindex when connector configuration changes.",
     embeddingModelKey: null,
-    embeddingVector: null,
     globalKnowledgeSource: {
       id: "global-source-1",
       workspaceId: "platform-kb-workspace",
@@ -689,7 +685,6 @@ const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
     content:
       "PersAI is a persistent assistant platform where product overview knowledge lives in admin-managed Product KB text entries.",
     embeddingModelKey: null,
-    embeddingVector: null,
     textEntry: {
       id: "product-text-1",
       workspaceId: "platform-kb-workspace",
@@ -709,7 +704,6 @@ const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
     content:
       "PersAI Product Principles: draft and publish lifecycle, admin control, memory controls, quotas, safety, and transparent degradation.",
     embeddingModelKey: null,
-    embeddingVector: null,
     textEntry: {
       id: "product-text-2",
       workspaceId: "platform-kb-workspace",
@@ -728,7 +722,6 @@ const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
     locator: "product-kb:draft",
     content: "This draft Product KB entry must not be searchable.",
     embeddingModelKey: null,
-    embeddingVector: null,
     textEntry: {
       id: "product-text-draft",
       workspaceId: "platform-kb-workspace",
@@ -747,7 +740,6 @@ const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
     locator: "product-kb:archived",
     content: "This archived Product KB entry must not be searchable.",
     embeddingModelKey: null,
-    embeddingVector: null,
     textEntry: {
       id: "product-text-archived",
       workspaceId: "platform-kb-workspace",

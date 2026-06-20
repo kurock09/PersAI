@@ -194,7 +194,7 @@ export class PostgresPgvectorKnowledgeIndex implements KnowledgeVectorIndex {
         "metadata"
       FROM "knowledge_vector_chunks"
       WHERE ${Prisma.join(conditions, " AND ")}
-      ORDER BY "embedding_vector" <=> ${serializePgvector(input.queryVector)}::vector
+      ORDER BY "embedding_vector"::halfvec(3072) <=> ${serializePgvector(input.queryVector)}::halfvec(3072)
       LIMIT ${Math.max(1, input.limit)}
     `);
 

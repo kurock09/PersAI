@@ -3,6 +3,21 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-20 — ADR-120 Closure II (vector store hardening + legacy embedding column retirement) — CHECKPOINT
+
+### Latest completed checkpoint
+
+Both ADR-120 tracked residual follow-ups are resolved now that the parity backfill is complete and PROD `knowledge_vector_chunks` is uniform `vector(3072)` (982 rows, all text-embedding-3-large; 2 stale sources reindexed to 3072). This is the new checkpoint.
+
+- **HNSW ANN index added.** Migration `20260620120000_adr120_drop_legacy_chunk_jsonb_and_hnsw` creates `knowledge_vector_chunks_embedding_hnsw_idx` on a `halfvec(3072)` expression (`halfvec_cosine_ops`) — pgvector 0.8.1 caps the bare `vector` type at 2000 dims for HNSW; the store is uniform 3072 so the cast is always valid. `KnowledgeVectorIndex.searchNearest` orders by `embedding_vector::halfvec(3072) <=> query::halfvec(3072)` and re-scores top-K at full `vector` precision. Column type unchanged (`vector(3072)`; no `ALTER ... TYPE`).
+- **Legacy JSONB embedding columns dropped.** Same migration drops `embedding_vector` + `embedding_generated_at` from `assistant_knowledge_source_chunks`, `global_knowledge_source_chunks`, `product_knowledge_text_entry_chunks` (non-reversible). Those three tables remain the canonical TEXT store (`content`/`locator`/`embedding_model_key` kept). The indexing worker stops dual-writing the JSONB embeddings (vectors still flow to `KnowledgeVectorChunk`). The completed backfill runner/service + script + npm script were removed.
+- Docs updated: `CHANGELOG` (Closure II entry), `DATA-MODEL` (legacy-chunk reconciliation + HNSW), ADR-120 (Closure II note), this handoff.
+
+### Known item / next recommended step
+
+- **4 empty product-knowledge entries with 0 chunks** await an owner decision (purge vs. re-author).
+- **Full retirement of the legacy `*_chunks` tables** themselves (currently still the canonical text store) is a separate future program — not in this slice.
+
 ## 2026-06-20 — ADR-120 landed (RAG/Knowledge unification + memory JIT) — CLOSURE
 
 ### Latest completed checkpoint
