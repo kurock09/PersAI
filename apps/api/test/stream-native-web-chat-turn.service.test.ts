@@ -235,10 +235,11 @@ describe("WebRuntimeStreamClientService", () => {
             }
           ]
         },
-        { type: "delta", delta: " native", accumulated: "hello native" },
         {
           type: "done",
           respondedAt: "2026-04-11T13:00:00.000Z",
+          finalAnswer: "hello native",
+          workingPreamble: null,
           runtimeTrace: {
             scope: "turn",
             status: "completed",
@@ -479,7 +480,9 @@ describe("WebRuntimeStreamClientService", () => {
         },
         {
           type: "done",
-          respondedAt: "2026-04-11T13:00:00.000Z"
+          respondedAt: "2026-04-11T13:00:00.000Z",
+          finalAnswer: "",
+          workingPreamble: null
         }
       ]);
     } finally {
