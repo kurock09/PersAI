@@ -504,14 +504,15 @@ sandbox:
     port: 3128
     # Domain allowlist — only these domains are reachable from exec pods via the proxy.
     # Each entry is justified; add new entries only with explicit justification.
+    # Squid dstdomain semantics: a leading-dot entry matches the apex domain AND all
+    # subdomains, so the dotted form already covers the apex and all subdomains. Listing
+    # both the apex and dotted forms together is a FATAL Squid config error
+    # ("'.pypi.org' is a subdomain of 'pypi.org'"). Use the dotted form only.
     allowedDomains:
       # Python Package Index: pip install requires pypi.org (index) and files.pythonhosted.org (wheels/sdists).
-      - pypi.org
       - .pypi.org
-      - files.pythonhosted.org
       - .files.pythonhosted.org
       # npm registry: npm/npx install requires registry.npmjs.org.
-      - registry.npmjs.org
       - .registry.npmjs.org
     resources:
       requests:

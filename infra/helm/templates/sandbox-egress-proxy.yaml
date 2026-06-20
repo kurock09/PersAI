@@ -69,6 +69,12 @@ spec:
             capabilities:
               drop:
                 - ALL
+              # Squid starts as root and immediately drops to the unprivileged 'proxy'
+              # user; SETUID/SETGID are the only capabilities that privilege-drop needs.
+              # Without them squid fails: "initgroups: unable to set groups for User proxy".
+              add:
+                - SETUID
+                - SETGID
           volumeMounts:
             - name: squid-conf
               mountPath: /etc/squid/squid.conf
