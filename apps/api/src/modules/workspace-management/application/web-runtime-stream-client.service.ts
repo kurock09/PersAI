@@ -362,7 +362,8 @@ export class WebRuntimeStreamClientService {
               ...(event.result.discoveredFileRefIds === undefined ||
               event.result.discoveredFileRefIds.length === 0
                 ? {}
-                : { discoveredFileRefIds: event.result.discoveredFileRefIds })
+                : { discoveredFileRefIds: event.result.discoveredFileRefIds }),
+              ...(event.result.truncated === true ? { truncated: true } : {})
             };
             return;
           }

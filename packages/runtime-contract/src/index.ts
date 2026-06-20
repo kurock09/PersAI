@@ -2999,6 +2999,13 @@ export interface RuntimeTurnResult {
    * in that chat.
    */
   discoveredFileRefIds?: string[];
+  /**
+   * ADR-122 Slice 3: true when the final provider call ended due to the
+   * output-token ceiling. Propagated from ProviderGatewayTextGenerateResult.
+   * API persists this as metadata.status="truncated" so the hydration guard
+   * can mark the message and prevent the model from continuing it.
+   */
+  truncated?: boolean;
 }
 
 export interface RuntimeTurnAutoCompactionState {
@@ -3247,6 +3254,13 @@ export interface ProviderGatewayTextGenerateResult {
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
   stopReason: "completed" | "tool_calls";
+  /**
+   * ADR-122 Slice 3: true when the provider stopped due to reaching the
+   * output-token ceiling (Anthropic stop_reason=max_tokens, OpenAI
+   * incomplete_details.reason=max_output_tokens). Orthogonal to stopReason
+   * — a truncated turn is still a terminal "completed" turn, just cut short.
+   */
+  truncated?: boolean;
   toolCalls: ProviderGatewayToolCall[];
 }
 

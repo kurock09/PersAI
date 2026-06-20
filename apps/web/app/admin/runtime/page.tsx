@@ -749,6 +749,8 @@ function createModelProfile(
     inputTokenWeight: 1,
     cachedInputTokenWeight: 1,
     outputTokenWeight: 1,
+    maxOutputTokens: null,
+    contextWindow: null,
     displayLabel: null,
     notes: null
   };
@@ -815,6 +817,8 @@ function rebuildProfileForBillingMode(
     inputTokenWeight: profile.inputTokenWeight,
     cachedInputTokenWeight: profile.cachedInputTokenWeight,
     outputTokenWeight: profile.outputTokenWeight,
+    maxOutputTokens: (profile as RuntimeProviderModelProfileState).maxOutputTokens ?? null,
+    contextWindow: (profile as RuntimeProviderModelProfileState).contextWindow ?? null,
     displayLabel: profile.displayLabel,
     notes: profile.notes,
     videoModelParameters:
@@ -2122,6 +2126,23 @@ function ModelProfileEditor({
         )}
       </div>
 
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <NullableIntegerField
+          label="Max output tokens"
+          value={(profile as RuntimeProviderModelProfileState).maxOutputTokens}
+          onChange={(value) =>
+            onChange({ ...profile, maxOutputTokens: value } as RuntimeProviderModelProfileState)
+          }
+        />
+        <NullableIntegerField
+          label="Context window"
+          value={(profile as RuntimeProviderModelProfileState).contextWindow}
+          onChange={(value) =>
+            onChange({ ...profile, contextWindow: value } as RuntimeProviderModelProfileState)
+          }
+        />
+      </div>
+
       <PriceMetadataEditor
         profile={profile}
         onChange={onProviderPriceMetadataChange}
@@ -2957,6 +2978,86 @@ function Field({
         autoCorrect="off"
         autoCapitalize="off"
         spellCheck={false}
+        className="persai-field-control w-full"
+      />
+    </div>
+  );
+}
+
+/**
+ * ADR-122 D1 — nullable integer input. Blank → null; positive integer → number.
+ * Draft string state while focused; parses and calls onChange on blur/commit.
+ */
+function NullableIntegerField({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: number | null | undefined;
+  onChange: (value: number | null) => void;
+}) {
+  const inputId = useId();
+  const isFocusedRef = useRef(false);
+  const [draft, setDraft] = useState(() => (value != null ? String(value) : ""));
+
+  useEffect(() => {
+    if (!isFocusedRef.current) {
+      setDraft(value != null ? String(value) : "");
+    }
+  }, [value]);
+
+  const commit = (raw: string) => {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      onChange(null);
+      setDraft("");
+      return;
+    }
+    const parsed = Number.parseInt(trimmed, 10);
+    if (Number.isInteger(parsed) && parsed > 0 && String(parsed) === trimmed) {
+      onChange(parsed);
+      setDraft(String(parsed));
+    } else {
+      setDraft(value != null ? String(value) : "");
+    }
+  };
+
+  return (
+    <div>
+      <label htmlFor={inputId} className="mb-1 block text-[10px] font-medium text-text-muted">
+        {label}
+      </label>
+      <input
+        id={inputId}
+        type="text"
+        inputMode="numeric"
+        value={draft}
+        placeholder="null"
+        onFocus={() => {
+          isFocusedRef.current = true;
+        }}
+        onChange={(event) => {
+          const next = event.target.value;
+          if (next.length > 0 && !/^\d*$/.test(next)) {
+            return;
+          }
+          setDraft(next);
+          if (next === "") {
+            onChange(null);
+          }
+        }}
+        onBlur={(event) => {
+          isFocusedRef.current = false;
+          commit(event.target.value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            commit(draft);
+          }
+        }}
+        aria-label={label}
+        autoComplete="off"
         className="persai-field-control w-full"
       />
     </div>

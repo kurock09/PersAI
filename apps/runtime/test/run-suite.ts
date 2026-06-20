@@ -36,6 +36,7 @@ import { runSplitPreambleAndAnswerTest } from "./split-preamble-and-answer.test"
 import { runBuildSystemReminderBlocksServiceTest } from "./build-system-reminder-blocks.service.test";
 import { runAdr119GoldenPromptSnapshotTest } from "./adr119-golden-prompt-snapshot.test";
 import { runAdr119Invariantstest } from "./native-tool-projection.test";
+import { runModelOutputBudgetTest } from "./model-output-budget.test";
 
 async function run(): Promise<void> {
   await runRuntimeConfigTest();
@@ -77,6 +78,7 @@ async function run(): Promise<void> {
   await runTurnRoutingServiceTest();
   await runAdr119GoldenPromptSnapshotTest();
   await runAdr119Invariantstest();
+  await runModelOutputBudgetTest();
 }
 
 run().catch((error) => {

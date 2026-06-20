@@ -16162,6 +16162,16 @@ components:
         outputTokenWeight:
           type: number
           minimum: 0
+        maxOutputTokens:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: "ADR-122 D1 — admin-set max answer tokens; null means Slice-2 sanity clamp applies."
+        contextWindow:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: "ADR-122 D1 — admin-set total context window; null means context-window guard is skipped."
         displayLabel:
           type: string
           nullable: true

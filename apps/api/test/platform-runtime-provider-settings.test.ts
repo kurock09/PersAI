@@ -1151,6 +1151,285 @@ async function run(): Promise<void> {
   assert.equal(profile.primary.credentialRef.secretRef.provider, "persai-runtime");
   assert.equal(profile.primary.credentialRef.secretRef.id, "openai/api-key");
   assert.equal(profile.fallback?.credentialRef.secretRef.id, "anthropic/api-key");
+
+  // ADR-122 D1 — maxOutputTokens / contextWindow normalization
+  runAdr122NormalizationTests();
+  runAdr122SeedingTests();
+}
+
+function minimalCatalogInput(modelOverrides: Record<string, unknown> = {}) {
+  return {
+    primary: { provider: "openai", model: "gpt-5.4" },
+    fallback: null,
+    availableModelsByProvider: { openai: ["gpt-5.4"], anthropic: [] },
+    availableModelCatalogByProvider: {
+      openai: {
+        models: [
+          {
+            model: "gpt-5.4",
+            capabilities: ["chat"],
+            ...tokenMeteredDefaults(),
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            ...modelOverrides
+          }
+        ]
+      }
+    }
+  };
+}
+
+function runAdr122NormalizationTests() {
+  // null is allowed for both fields (round-trips as null)
+  const withNulls = parseUpdatePlatformRuntimeProviderSettingsInput(
+    minimalCatalogInput({ maxOutputTokens: null, contextWindow: null })
+  );
+  const withNullsModel = withNulls.availableModelCatalogByProvider.openai.models[0];
+  assert.equal(withNullsModel?.maxOutputTokens, null, "maxOutputTokens=null round-trips as null");
+  assert.equal(withNullsModel?.contextWindow, null, "contextWindow=null round-trips as null");
+
+  // undefined (absent) is treated as null
+  const withAbsent = parseUpdatePlatformRuntimeProviderSettingsInput(minimalCatalogInput());
+  const withAbsentModel = withAbsent.availableModelCatalogByProvider.openai.models[0];
+  assert.equal(withAbsentModel?.maxOutputTokens, null, "absent maxOutputTokens defaults to null");
+  assert.equal(withAbsentModel?.contextWindow, null, "absent contextWindow defaults to null");
+
+  // Valid positive integers are accepted
+  const withValid = parseUpdatePlatformRuntimeProviderSettingsInput(
+    minimalCatalogInput({ maxOutputTokens: 64000, contextWindow: 200000 })
+  );
+  const withValidModel = withValid.availableModelCatalogByProvider.openai.models[0];
+  assert.equal(withValidModel?.maxOutputTokens, 64000, "positive integer maxOutputTokens accepted");
+  assert.equal(withValidModel?.contextWindow, 200000, "positive integer contextWindow accepted");
+
+  // 0 is rejected
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput(minimalCatalogInput({ maxOutputTokens: 0 })),
+    /maxOutputTokens must be a positive integer/,
+    "0 rejected for maxOutputTokens"
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput(minimalCatalogInput({ contextWindow: 0 })),
+    /contextWindow must be a positive integer/,
+    "0 rejected for contextWindow"
+  );
+
+  // Negative is rejected
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput(minimalCatalogInput({ maxOutputTokens: -1 })),
+    /maxOutputTokens must be a positive integer/,
+    "negative rejected for maxOutputTokens"
+  );
+
+  // Non-integer is rejected
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput(
+        minimalCatalogInput({ maxOutputTokens: 1.5 })
+      ),
+    /maxOutputTokens must be a positive integer/,
+    "non-integer rejected for maxOutputTokens"
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput(minimalCatalogInput({ contextWindow: 1.5 })),
+    /contextWindow must be a positive integer/,
+    "non-integer rejected for contextWindow"
+  );
+
+  // Over max is rejected
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput(
+        minimalCatalogInput({ maxOutputTokens: 1_000_001 })
+      ),
+    /maxOutputTokens must be at most/,
+    "over-max rejected for maxOutputTokens"
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput(
+        minimalCatalogInput({ contextWindow: 2_000_001 })
+      ),
+    /contextWindow must be at most/,
+    "over-max rejected for contextWindow"
+  );
+}
+
+function runAdr122SeedingTests() {
+  // Synthesis from legacy availableModelsByProvider (createDefaultModelProfiles path)
+  // seeds known Anthropic models with MODEL_CAPABILITY_DEFAULTS
+  const fromLegacy = parseUpdatePlatformRuntimeProviderSettingsInput({
+    primary: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    fallback: null,
+    availableModelsByProvider: { openai: [], anthropic: ["claude-sonnet-4-6"] },
+    availableModelCatalogByProvider: null
+  });
+  const seededModel = fromLegacy.availableModelCatalogByProvider.anthropic.models.find(
+    (m) => m.model === "claude-sonnet-4-6"
+  );
+  assert.equal(seededModel?.maxOutputTokens, 64_000, "claude-sonnet-4-6 seeded maxOutputTokens");
+  assert.equal(seededModel?.contextWindow, 200_000, "claude-sonnet-4-6 seeded contextWindow");
+
+  // claude-opus-4-6 has higher maxOutputTokens
+  const fromLegacyOpus = parseUpdatePlatformRuntimeProviderSettingsInput({
+    primary: { provider: "anthropic", model: "claude-opus-4-6" },
+    fallback: null,
+    availableModelsByProvider: { openai: [], anthropic: ["claude-opus-4-6"] },
+    availableModelCatalogByProvider: null
+  });
+  const opusModel = fromLegacyOpus.availableModelCatalogByProvider.anthropic.models.find(
+    (m) => m.model === "claude-opus-4-6"
+  );
+  assert.equal(opusModel?.maxOutputTokens, 128_000, "claude-opus-4-6 seeded maxOutputTokens=128k");
+  assert.equal(opusModel?.contextWindow, 200_000, "claude-opus-4-6 seeded contextWindow=200k");
+
+  // Unknown model seeds null (no defaults applied)
+  const fromLegacyUnknown = parseUpdatePlatformRuntimeProviderSettingsInput({
+    primary: { provider: "openai", model: "gpt-unknown" },
+    fallback: null,
+    availableModelsByProvider: { openai: ["gpt-unknown"], anthropic: [] },
+    availableModelCatalogByProvider: null
+  });
+  const unknownModel = fromLegacyUnknown.availableModelCatalogByProvider.openai.models.find(
+    (m) => m.model === "gpt-unknown"
+  );
+  assert.equal(unknownModel?.maxOutputTokens, null, "unknown model seeds null maxOutputTokens");
+  assert.equal(unknownModel?.contextWindow, null, "unknown model seeds null contextWindow");
+
+  // Null on an UNKNOWN model row round-trips as null (gpt-5.4 is not in defaults).
+  const withExplicitNullCatalog = parseUpdatePlatformRuntimeProviderSettingsInput(
+    minimalCatalogInput({ maxOutputTokens: null, contextWindow: null })
+  );
+  const explicitNullModel =
+    withExplicitNullCatalog.availableModelCatalogByProvider.openai.models[0];
+  assert.equal(explicitNullModel?.maxOutputTokens, null, "unknown-model null round-trips as null");
+  assert.equal(
+    explicitNullModel?.contextWindow,
+    null,
+    "unknown-model null contextWindow round-trips as null"
+  );
+
+  runAdr122WriteFoldInTests();
+}
+
+// ADR-122 corrective — WRITE-path family-default fold-in (normalizeModelProfiles).
+function knownModelCatalogInput(
+  provider: "openai" | "anthropic",
+  model: string,
+  modelOverrides: Record<string, unknown> = {}
+) {
+  return {
+    primary: { provider, model },
+    fallback: null,
+    availableModelsByProvider:
+      provider === "openai"
+        ? { openai: [model], anthropic: [] }
+        : { openai: [], anthropic: [model] },
+    availableModelCatalogByProvider: {
+      [provider]: {
+        models: [
+          {
+            model,
+            capabilities: ["chat"],
+            ...tokenMeteredDefaults(),
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            ...modelOverrides
+          }
+        ]
+      }
+    }
+  };
+}
+
+function runAdr122WriteFoldInTests() {
+  // KNOWN model with null stored → folded to the family default (OpenAI gpt-5).
+  const gpt5Null = parseUpdatePlatformRuntimeProviderSettingsInput(
+    knownModelCatalogInput("openai", "gpt-5", { maxOutputTokens: null, contextWindow: null })
+  );
+  const gpt5NullModel = gpt5Null.availableModelCatalogByProvider.openai.models.find(
+    (m) => m.model === "gpt-5"
+  );
+  assert.equal(
+    gpt5NullModel?.maxOutputTokens,
+    128_000,
+    "WRITE fold-in: known OpenAI model (gpt-5) null maxOutputTokens → family default 128k"
+  );
+  assert.equal(
+    gpt5NullModel?.contextWindow,
+    400_000,
+    "WRITE fold-in: known OpenAI model (gpt-5) null contextWindow → family default 400k"
+  );
+
+  // KNOWN model with explicit value → admin value overrides the family default.
+  const gpt5Explicit = parseUpdatePlatformRuntimeProviderSettingsInput(
+    knownModelCatalogInput("openai", "gpt-5", { maxOutputTokens: 32_000, contextWindow: 250_000 })
+  );
+  const gpt5ExplicitModel = gpt5Explicit.availableModelCatalogByProvider.openai.models.find(
+    (m) => m.model === "gpt-5"
+  );
+  assert.equal(
+    gpt5ExplicitModel?.maxOutputTokens,
+    32_000,
+    "WRITE fold-in: explicit admin maxOutputTokens overrides the family default"
+  );
+  assert.equal(
+    gpt5ExplicitModel?.contextWindow,
+    250_000,
+    "WRITE fold-in: explicit admin contextWindow overrides the family default"
+  );
+
+  // KNOWN Anthropic model with null → folded to Anthropic default.
+  const sonnetNull = parseUpdatePlatformRuntimeProviderSettingsInput(
+    knownModelCatalogInput("anthropic", "claude-sonnet-4-5", {
+      maxOutputTokens: null,
+      contextWindow: null
+    })
+  );
+  const sonnetNullModel = sonnetNull.availableModelCatalogByProvider.anthropic.models.find(
+    (m) => m.model === "claude-sonnet-4-5"
+  );
+  assert.equal(
+    sonnetNullModel?.maxOutputTokens,
+    64_000,
+    "WRITE fold-in: known Anthropic model null maxOutputTokens → family default 64k"
+  );
+  assert.equal(
+    sonnetNullModel?.contextWindow,
+    200_000,
+    "WRITE fold-in: known Anthropic model null contextWindow → family default 200k"
+  );
+
+  // UNKNOWN model with null → stays null (resolver fallback governs at runtime).
+  const unknownNull = parseUpdatePlatformRuntimeProviderSettingsInput(
+    knownModelCatalogInput("openai", "gpt-unknown-write", {
+      maxOutputTokens: null,
+      contextWindow: null
+    })
+  );
+  const unknownNullModel = unknownNull.availableModelCatalogByProvider.openai.models.find(
+    (m) => m.model === "gpt-unknown-write"
+  );
+  assert.equal(
+    unknownNullModel?.maxOutputTokens,
+    null,
+    "WRITE fold-in: unknown model null maxOutputTokens stays null"
+  );
+  assert.equal(
+    unknownNullModel?.contextWindow,
+    null,
+    "WRITE fold-in: unknown model null contextWindow stays null"
+  );
 }
 
 run().catch((error) => {

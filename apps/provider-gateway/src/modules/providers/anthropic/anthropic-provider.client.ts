@@ -102,6 +102,15 @@ type AnthropicBuiltMessage = {
  */
 const APPROX_ANTHROPIC_BYTES_PER_TOKEN = 3;
 
+/**
+ * ADR-122 Slice 2: last-resort provider fallback for max_tokens when the
+ * caller omits maxOutputTokens on the request. After Slice 2, the main chat
+ * turn and document adapter always set maxOutputTokens via resolveModelOutputBudget,
+ * so this fallback is only hit by callers that intentionally or incidentally
+ * omit the field. 4096 is a reasonable non-truncating default; it is NOT 1024.
+ */
+const PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS = 4_096;
+
 @Injectable()
 export class AnthropicProviderClient implements ProviderWarmableClient {
   readonly provider = "anthropic" as const;
@@ -153,7 +162,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       const outputConfig = this.toAnthropicOutputConfig(input.outputSchema);
       const payload: AnthropicNonStreamingCreateMessageParams = {
         model: input.model,
-        max_tokens: input.maxOutputTokens ?? 1_024,
+        max_tokens: input.maxOutputTokens ?? PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS,
         messages: this.buildAnthropicMessages(input) as AnthropicMessageParams
       };
       const systemBlocks = this.buildAnthropicSystemBlocks(input);
@@ -180,7 +189,8 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           type: "enabled",
           budget_tokens: input.thinkingBudget
         };
-        payload.max_tokens = (input.maxOutputTokens ?? 1_024) + input.thinkingBudget;
+        payload.max_tokens =
+          (input.maxOutputTokens ?? PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS) + input.thinkingBudget;
       }
       this.logAnthropicRequestStart("anthropic-non-stream-start", input, payload);
       this.debugPayloadLogger.dumpRequest({
@@ -242,6 +252,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         respondedAt: new Date().toISOString(),
         usage: finalUsage,
         stopReason: "completed",
+        truncated: response.stop_reason === "max_tokens",
         toolCalls: []
       };
     } finally {
@@ -283,7 +294,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       const outputConfig = this.toAnthropicOutputConfig(input.outputSchema);
       const payload: Record<string, unknown> = {
         model: input.model,
-        max_tokens: input.maxOutputTokens ?? 1_024,
+        max_tokens: input.maxOutputTokens ?? PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS,
         messages: this.buildAnthropicMessages(input) as AnthropicMessageParams,
         stream: true
       };
@@ -306,7 +317,8 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         this.supportsExtendedThinking(input.model)
       ) {
         payload.thinking = { type: "enabled", budget_tokens: input.thinkingBudget };
-        payload.max_tokens = (input.maxOutputTokens ?? 1_024) + input.thinkingBudget;
+        payload.max_tokens =
+          (input.maxOutputTokens ?? PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS) + input.thinkingBudget;
       }
       this.logAnthropicRequestStart("anthropic-stream-start", input, payload);
       this.debugPayloadLogger.dumpRequest({
@@ -507,6 +519,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
               respondedAt: new Date().toISOString(),
               usage: latestUsage,
               stopReason: "completed",
+              truncated: latestStopReason === "max_tokens",
               toolCalls: []
             }
           };

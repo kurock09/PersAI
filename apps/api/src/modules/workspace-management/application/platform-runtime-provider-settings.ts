@@ -6,6 +6,7 @@ import {
   RUNTIME_PROVIDER_MODEL_CAPABILITIES,
   RUNTIME_PROVIDER_PROFILE_SCHEMA,
   RUNTIME_PROVIDER_TIME_PRICE_UNITS,
+  MODEL_CAPABILITY_DEFAULTS,
   type ChatRoutingRuntimeProvider,
   type ManagedRuntimeCatalogProvider,
   createDefaultRuntimeProviderPriceMetadata,
@@ -70,6 +71,12 @@ const MAX_ROUTER_OVERRIDE_ENTRY_LENGTH = 128;
 const MAX_MODEL_DISPLAY_LABEL_LENGTH = 128;
 const MAX_MODEL_NOTES_LENGTH = 512;
 const MAX_TOKEN_WEIGHT = 1_000_000;
+/**
+ * ADR-122 D1 — upper bounds for model capability integers. Large enough to
+ * accommodate any near-future model while rejecting obviously-malformed saves.
+ */
+const MAX_CONTEXT_WINDOW_VALUE = 2_000_000;
+const MAX_OUTPUT_TOKENS_VALUE = 1_000_000;
 const MAX_PRICE_LABEL_LENGTH = 128;
 const MAX_TIER_COUNT = 16;
 /**
@@ -848,6 +855,32 @@ function normalizeTokenWeight(value: unknown, path: string): number {
   return value;
 }
 
+/**
+ * ADR-122 D1 — validate an optional positive integer capability field.
+ * Returns null for null/undefined. Rejects non-integer, ≤0, or values that
+ * exceed the supplied upper bound. Used in normalizeModelProfiles() to validate
+ * maxOutputTokens and contextWindow on admin saves.
+ */
+function normalizeOptionalPositiveInteger(
+  value: unknown,
+  path: string,
+  options: { max: number }
+): number | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new Error(`${path} must be a positive integer when provided.`);
+  }
+  if (value <= 0) {
+    throw new Error(`${path} must be a positive integer when provided.`);
+  }
+  if (value > options.max) {
+    throw new Error(`${path} must be at most ${String(options.max)}.`);
+  }
+  return value;
+}
+
 function normalizeOptionalBoundedString(
   value: unknown,
   path: string,
@@ -1209,6 +1242,21 @@ function normalizeModelProfiles(
         row.outputTokenWeight,
         `${entryPath}.outputTokenWeight`
       ),
+      // ADR-122 corrective: fold family default in at WRITE (admin-save + buildState
+      // read) so a blank field on a KNOWN model is stored as the published ceiling.
+      // Explicit admin value always wins; blank → family default; unknown model → null.
+      maxOutputTokens:
+        normalizeOptionalPositiveInteger(row.maxOutputTokens, `${entryPath}.maxOutputTokens`, {
+          max: MAX_OUTPUT_TOKENS_VALUE
+        }) ??
+        MODEL_CAPABILITY_DEFAULTS[model]?.maxOutputTokens ??
+        null,
+      contextWindow:
+        normalizeOptionalPositiveInteger(row.contextWindow, `${entryPath}.contextWindow`, {
+          max: MAX_CONTEXT_WINDOW_VALUE
+        }) ??
+        MODEL_CAPABILITY_DEFAULTS[model]?.contextWindow ??
+        null,
       displayLabel: normalizeOptionalBoundedString(
         row.displayLabel,
         `${entryPath}.displayLabel`,
@@ -1341,6 +1389,7 @@ function createDefaultModelProfiles(
 ): RuntimeProviderModelProfile[] {
   const billingMode = defaultBillingModeForCapabilities(capabilities);
   return models.map((model) => {
+    const capabilityDefaults = MODEL_CAPABILITY_DEFAULTS[model] ?? null;
     const base = {
       model,
       capabilities,
@@ -1351,6 +1400,8 @@ function createDefaultModelProfiles(
       inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+      maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
+      contextWindow: capabilityDefaults?.contextWindow ?? null,
       displayLabel: null,
       notes: null
     };
@@ -1410,6 +1461,7 @@ function normalizeLegacyCapabilityCatalog(
   return Array.from(byModel.entries()).map(([model, capabilities]) => {
     const capabilityList = Array.from(capabilities);
     const billingMode = defaultBillingModeForCapabilities(capabilityList);
+    const capabilityDefaults = MODEL_CAPABILITY_DEFAULTS[model] ?? null;
     const base = {
       model,
       capabilities: capabilityList,
@@ -1420,6 +1472,8 @@ function normalizeLegacyCapabilityCatalog(
       inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+      maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
+      contextWindow: capabilityDefaults?.contextWindow ?? null,
       displayLabel: null,
       notes: null
     };

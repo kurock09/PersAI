@@ -24,6 +24,18 @@ export interface RuntimeProviderModelProfileCommonState {
   cachedInputTokenWeight: number;
   /** @minimum 0 */
   outputTokenWeight: number;
+  /**
+   * ADR-122 D1 — admin-set max answer tokens; null means Slice-2 sanity clamp applies.
+   * @minimum 1
+   * @nullable
+   */
+  maxOutputTokens?: number | null;
+  /**
+   * ADR-122 D1 — admin-set total context window; null means context-window guard is skipped.
+   * @minimum 1
+   * @nullable
+   */
+  contextWindow?: number | null;
   /** @nullable */
   displayLabel: string | null;
   /** @nullable */

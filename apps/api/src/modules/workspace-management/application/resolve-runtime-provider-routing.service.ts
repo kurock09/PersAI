@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { EffectiveCapabilityState } from "./effective-capability.types";
 import {
   resolveRuntimeProviderProfileState,
+  type RuntimeProviderModelCatalogByProvider,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
 import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
@@ -12,6 +13,33 @@ function asObject(value: unknown): Record<string, unknown> | null {
     return null;
   }
   return value as Record<string, unknown>;
+}
+
+/**
+ * ADR-122 D2 — look up maxOutputTokens / contextWindow for a resolved
+ * (providerKey, modelKey) pair from the admin catalog. Returns null for both
+ * when the model is not found or the provider is not a managed catalog provider.
+ */
+function lookupModelCapabilities(
+  catalog: RuntimeProviderModelCatalogByProvider,
+  providerKey: string,
+  modelKey: string | null
+): { maxOutputTokens: number | null; contextWindow: number | null } {
+  if (modelKey === null) {
+    return { maxOutputTokens: null, contextWindow: null };
+  }
+  const providerCatalog = catalog[providerKey as keyof RuntimeProviderModelCatalogByProvider];
+  if (!providerCatalog) {
+    return { maxOutputTokens: null, contextWindow: null };
+  }
+  const profile = providerCatalog.models.find((m) => m.active && m.model === modelKey);
+  if (!profile) {
+    return { maxOutputTokens: null, contextWindow: null };
+  }
+  return {
+    maxOutputTokens: profile.maxOutputTokens,
+    contextWindow: profile.contextWindow
+  };
 }
 
 type RoutingPolicyOverride = {
@@ -135,23 +163,48 @@ export class ResolveRuntimeProviderRoutingService {
       modelSlots: {
         normalReply: {
           providerKey: primaryProviderKey,
-          modelKey: primaryModelKey
+          modelKey: primaryModelKey,
+          ...lookupModelCapabilities(
+            runtimeProviderProfile.availableModelCatalogByProvider,
+            primaryProviderKey,
+            primaryModelKey
+          )
         },
         premiumReply: {
           providerKey: primaryProviderKey,
-          modelKey: premiumModelKey
+          modelKey: premiumModelKey,
+          ...lookupModelCapabilities(
+            runtimeProviderProfile.availableModelCatalogByProvider,
+            primaryProviderKey,
+            premiumModelKey
+          )
         },
         reasoning: {
           providerKey: primaryProviderKey,
-          modelKey: reasoningModelKey
+          modelKey: reasoningModelKey,
+          ...lookupModelCapabilities(
+            runtimeProviderProfile.availableModelCatalogByProvider,
+            primaryProviderKey,
+            reasoningModelKey
+          )
         },
         systemTool: {
           providerKey: primaryProviderKey,
-          modelKey: systemToolModelKey
+          modelKey: systemToolModelKey,
+          ...lookupModelCapabilities(
+            runtimeProviderProfile.availableModelCatalogByProvider,
+            primaryProviderKey,
+            systemToolModelKey
+          )
         },
         retrieval: {
           providerKey: primaryProviderKey,
-          modelKey: retrievalModelKey
+          modelKey: retrievalModelKey,
+          ...lookupModelCapabilities(
+            runtimeProviderProfile.availableModelCatalogByProvider,
+            primaryProviderKey,
+            retrievalModelKey
+          )
         }
       },
       primaryPath: {

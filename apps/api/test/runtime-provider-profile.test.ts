@@ -183,6 +183,36 @@ async function run(): Promise<void> {
       ?.inputCapabilities,
     ["text", "single_reference_image"]
   );
+  // ADR-122 corrective — READ-path family-default fold-in: the catalog row for the
+  // KNOWN model claude-sonnet-4-5 omits maxOutputTokens/contextWindow (stored null,
+  // as PROD rows are with these brand-new fields), so the read path must coerce them
+  // to the published ceiling. gpt-5.4 is NOT in defaults → stays null.
+  const sonnetRead = catalogOnlyManaged.availableModelCatalogByProvider.anthropic.models.find(
+    (profile) => profile.model === "claude-sonnet-4-5"
+  );
+  assert.equal(
+    sonnetRead?.maxOutputTokens,
+    64_000,
+    "READ fold-in: known model claude-sonnet-4-5 null maxOutputTokens → family default 64k"
+  );
+  assert.equal(
+    sonnetRead?.contextWindow,
+    200_000,
+    "READ fold-in: known model claude-sonnet-4-5 null contextWindow → family default 200k"
+  );
+  const gpt54Read = catalogOnlyManaged.availableModelCatalogByProvider.openai.models.find(
+    (profile) => profile.model === "gpt-5.4"
+  );
+  assert.equal(
+    gpt54Read?.maxOutputTokens,
+    null,
+    "READ fold-in: unknown model gpt-5.4 maxOutputTokens stays null"
+  );
+  assert.equal(
+    gpt54Read?.contextWindow,
+    null,
+    "READ fold-in: unknown model gpt-5.4 contextWindow stays null"
+  );
   const legacyVideoDefaults = resolveRuntimeProviderProfileState({
     policyEnvelope: {
       runtimeProviderProfile: {

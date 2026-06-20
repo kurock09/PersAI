@@ -176,6 +176,153 @@ async function run(): Promise<void> {
       .modelKey,
     "claude-sonnet-4-5"
   );
+
+  // ADR-122 D2 — slot capability enrichment
+  runAdr122SlotEnrichmentTests(service);
+}
+
+import type { RuntimeProviderProfileState } from "../src/modules/workspace-management/application/runtime-provider-profile";
+
+function makeAdminProfile(
+  modelKey: string,
+  maxOutputTokens: number | null,
+  contextWindow: number | null
+): RuntimeProviderProfileState {
+  return {
+    schema: "persai.runtimeProviderProfile.v1" as const,
+    mode: "admin_managed" as const,
+    derivedFrom: {
+      policyEnvelopeSchema: "persai.runtimeProviderProfile.v1" as const,
+      secretRefsSchema: "persai.runtimeProviderCredentialRefs.v1" as const
+    },
+    allowedProviders: ["anthropic"],
+    availableModelsByProvider: { openai: [], anthropic: [modelKey] },
+    availableModelCatalogByProvider: {
+      openai: { models: [] },
+      anthropic: {
+        models: [
+          {
+            model: modelKey,
+            capabilities: ["chat"],
+            kind: "cinematic",
+            active: true,
+            billingMode: "token_metered",
+            effectiveFrom: null,
+            effectiveTo: null,
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            maxOutputTokens,
+            contextWindow,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: {
+              currency: "USD",
+              tokenPricing: {
+                inputPer1M: 0,
+                cacheCreationInputPer1M: 0,
+                cachedInputPer1M: 0,
+                outputPer1M: 0
+              }
+            }
+          }
+        ]
+      },
+      runway: { models: [] },
+      kling: { models: [] },
+      heygen: { models: [] }
+    },
+    primary: {
+      provider: "anthropic",
+      model: modelKey,
+      credentialRef: {
+        secretRef: { source: "persai", provider: "persai-runtime", id: "anthropic/api-key" }
+      }
+    },
+    fallback: null,
+    notes: []
+  };
+}
+
+function baseEffectiveCapabilities() {
+  return {
+    schema: "persai.effectiveCapabilities.v1" as const,
+    derivedFrom: { planCode: "starter_trial", planStatus: "active", governanceSchema: null },
+    subscription: {
+      source: "workspace_subscription" as const,
+      status: "active" as const,
+      planCode: "starter_trial",
+      trialEndsAt: null,
+      currentPeriodEndsAt: null,
+      cancelAtPeriodEnd: false
+    },
+    toolClasses: {
+      costDriving: { allowed: true, quotaGoverned: false },
+      utility: { allowed: true, quotaGoverned: false }
+    },
+    channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false }
+  };
+}
+
+function runAdr122SlotEnrichmentTests(service: ResolveRuntimeProviderRoutingService) {
+  // Slot resolves to model with known capabilities → slot carries them
+  const profileWithCapabilities = makeAdminProfile("claude-opus-4-6", 128_000, 200_000);
+  const resolvedWithCapabilities = service.execute({
+    effectiveCapabilities: baseEffectiveCapabilities(),
+    policyEnvelope: null,
+    runtimeProviderProfile: profileWithCapabilities
+  });
+  assert.equal(
+    resolvedWithCapabilities.modelSlots.normalReply.maxOutputTokens,
+    128_000,
+    "normalReply slot carries maxOutputTokens from catalog"
+  );
+  assert.equal(
+    resolvedWithCapabilities.modelSlots.normalReply.contextWindow,
+    200_000,
+    "normalReply slot carries contextWindow from catalog"
+  );
+  assert.equal(
+    resolvedWithCapabilities.modelSlots.premiumReply.maxOutputTokens,
+    128_000,
+    "premiumReply slot carries maxOutputTokens from catalog"
+  );
+
+  // Slot resolves to model with null capabilities → slot carries null
+  const profileWithNulls = makeAdminProfile("claude-opus-4-6", null, null);
+  const resolvedWithNulls = service.execute({
+    effectiveCapabilities: baseEffectiveCapabilities(),
+    policyEnvelope: null,
+    runtimeProviderProfile: profileWithNulls
+  });
+  assert.equal(
+    resolvedWithNulls.modelSlots.normalReply.maxOutputTokens,
+    null,
+    "null maxOutputTokens round-trips through slot"
+  );
+  assert.equal(
+    resolvedWithNulls.modelSlots.normalReply.contextWindow,
+    null,
+    "null contextWindow round-trips through slot"
+  );
+
+  // Slot with unknown modelKey → null
+  const resolvedUnknownModel = service.execute({
+    effectiveCapabilities: baseEffectiveCapabilities(),
+    policyEnvelope: null,
+    planPrimaryModelKey: "non-existent-model",
+    runtimeProviderProfile: profileWithCapabilities
+  });
+  assert.equal(
+    resolvedUnknownModel.modelSlots.normalReply.maxOutputTokens,
+    null,
+    "unknown model → null maxOutputTokens on slot"
+  );
+  assert.equal(
+    resolvedUnknownModel.modelSlots.normalReply.contextWindow,
+    null,
+    "unknown model → null contextWindow on slot"
+  );
 }
 
 void run();

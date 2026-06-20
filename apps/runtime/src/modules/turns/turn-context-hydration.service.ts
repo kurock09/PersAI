@@ -631,15 +631,18 @@ export class TurnContextHydrationService {
     const messages: ProviderGatewayTextMessage[] = [];
 
     for (const message of summarizedSourceMessages) {
-      const content = await this.buildHydratedMessageContent({
-        assistantId: input.conversation.assistantId,
-        workspaceId: input.conversation.workspaceId,
-        author: message.author,
-        baseContent: message.content,
-        attachments: message.attachments,
-        fallbackAttachments: [],
-        allowDirectAttachmentInput: false
-      });
+      const content = this.withTruncationMarker(
+        await this.buildHydratedMessageContent({
+          assistantId: input.conversation.assistantId,
+          workspaceId: input.conversation.workspaceId,
+          author: message.author,
+          baseContent: message.content,
+          attachments: message.attachments,
+          fallbackAttachments: [],
+          allowDirectAttachmentInput: false
+        }),
+        message
+      );
       messages.push({
         role: this.toProviderRole(message.author),
         content
@@ -1078,7 +1081,7 @@ export class TurnContextHydrationService {
       if (isCurrentInboundMessage) {
         currentMessageFound = true;
       }
-      const content = await this.buildHydratedMessageContent({
+      const rawContent = await this.buildHydratedMessageContent({
         assistantId: input.conversation.assistantId,
         workspaceId: input.conversation.workspaceId,
         author: message.author,
@@ -1088,6 +1091,11 @@ export class TurnContextHydrationService {
         allowDirectAttachmentInput: isCurrentInboundMessage && message.author === "user",
         directInputPreviewLimits
       });
+      // ADR-122 Slice 3: apply truncation marker to prior (non-current) assistant
+      // messages flagged as partial or truncated so the model does not continue them.
+      const content = !isCurrentInboundMessage
+        ? this.withTruncationMarker(rawContent, message)
+        : rawContent;
 
       hydrated.push({
         role: this.toProviderRole(message.author),
@@ -1445,6 +1453,39 @@ export class TurnContextHydrationService {
 
   private toProviderRole(author: CanonicalChatMessageRow["author"]): "user" | "assistant" {
     return author === "assistant" ? "assistant" : "user";
+  }
+
+  /**
+   * ADR-122 Slice 3 — truncation guard: appends a short language-neutral marker
+   * to the hydrated content of a prior assistant message whose metadata.status
+   * is "partial" (client abort / stall) or "truncated" (max_tokens ceiling),
+   * so the model treats it as unfinished and does NOT continue it.
+   *
+   * Only acts on `author === "assistant"` messages. Only acts on string content
+   * (assistant messages produced by the runtime are always plain text with no
+   * direct-input blocks). Idempotent: the marker is never stored in the DB
+   * (it is appended only during hydration); since content is rebuilt from the
+   * stored message each turn, the marker cannot be doubled.
+   */
+  private withTruncationMarker(
+    content: ProviderGatewayMessageContent,
+    message: CanonicalChatMessageRow
+  ): ProviderGatewayMessageContent {
+    if (message.author !== "assistant") {
+      return content;
+    }
+    const status = message.metadata?.status;
+    if (status !== "partial" && status !== "truncated") {
+      return content;
+    }
+    if (typeof content !== "string") {
+      return content;
+    }
+    const MARKER = "\n\n[Note: the previous answer was interrupted before completion.]";
+    if (content.includes(MARKER)) {
+      return content;
+    }
+    return content + MARKER;
   }
 
   private formatReusableCompactionSummary(summaryText: string): string {

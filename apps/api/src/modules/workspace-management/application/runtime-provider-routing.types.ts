@@ -10,22 +10,34 @@ export type RuntimeProviderRoutingState = {
     normalReply: {
       providerKey: string;
       modelKey: string | null;
+      /** ADR-122 D2 — resolved from model catalog at routing time; null when unset. */
+      maxOutputTokens?: number | null;
+      /** ADR-122 D2 — resolved from model catalog at routing time; null when unset. */
+      contextWindow?: number | null;
     };
     premiumReply: {
       providerKey: string;
       modelKey: string | null;
+      maxOutputTokens?: number | null;
+      contextWindow?: number | null;
     };
     reasoning: {
       providerKey: string;
       modelKey: string | null;
+      maxOutputTokens?: number | null;
+      contextWindow?: number | null;
     };
     systemTool: {
       providerKey: string;
       modelKey: string | null;
+      maxOutputTokens?: number | null;
+      contextWindow?: number | null;
     };
     retrieval: {
       providerKey: string;
       modelKey: string | null;
+      maxOutputTokens?: number | null;
+      contextWindow?: number | null;
     };
   };
   primaryPath: {

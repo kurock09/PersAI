@@ -14,6 +14,8 @@ type PersistAssistantMessageInput = {
   workingPreamble?: string | null | undefined;
   /** "partial" when the turn was aborted / stalled before a completed event arrived. */
   partialStatus?: "partial" | undefined;
+  /** ADR-122 Slice 3: "truncated" when the provider stopped due to the output-token ceiling. */
+  truncatedStatus?: "truncated" | undefined;
 };
 
 export async function persistAssistantMessage(
@@ -23,13 +25,14 @@ export async function persistAssistantMessage(
     input.discoveredFileRefIds !== undefined && input.discoveredFileRefIds.length > 0;
   const hasPreamble =
     typeof input.workingPreamble === "string" && input.workingPreamble.trim().length > 0;
-  const hasStatus = input.partialStatus !== undefined;
+  const resolvedStatus = input.truncatedStatus ?? input.partialStatus;
+  const hasStatus = resolvedStatus !== undefined;
   const metadata: Record<string, unknown> | undefined =
     hasFileRefs || hasPreamble || hasStatus
       ? {
           ...(hasFileRefs ? { discoveredFileRefIds: input.discoveredFileRefIds } : {}),
           ...(hasPreamble ? { workingPreamble: input.workingPreamble } : {}),
-          ...(hasStatus ? { status: input.partialStatus } : {})
+          ...(hasStatus ? { status: resolvedStatus } : {})
         }
       : undefined;
 

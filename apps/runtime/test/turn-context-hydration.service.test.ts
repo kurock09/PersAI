@@ -1753,6 +1753,195 @@ async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(harness.persaiInternalApiClient.markFiredInputs.length, 1);
   }
+
+  // ADR-122 Slice 3 — truncation marker hydration guard.
+  // Tests are scoped to a minimal harness that avoids cross-session memory I/O.
+  {
+    const TRUNCATION_MARKER = "[Note: the previous answer was interrupted before completion.]";
+
+    const buildMinimalHarness = () => {
+      const prisma = new FakeRuntimeStatePrismaService();
+      prisma.memoryRows = [];
+      const runtimeStatePostgres = new FakeRuntimeStatePostgresService();
+      const runtimeStateKeyspace = new FakeRuntimeStateKeyspaceService();
+      const mediaObjectStorage = {
+        async downloadObject() {
+          return null;
+        }
+      };
+      const persaiInternalApiClient = new FakePersaiInternalApiClientService();
+      persaiInternalApiClient.configured = false;
+      const svc = new TurnContextHydrationService(
+        prisma as unknown as RuntimeStatePrismaService,
+        runtimeStatePostgres as never,
+        runtimeStateKeyspace as never,
+        mediaObjectStorage as never,
+        new RuntimeAssistantFileRegistryService(
+          prisma as unknown as RuntimeStatePrismaService,
+          mediaObjectStorage as never
+        ),
+        persaiInternalApiClient as unknown as PersaiInternalApiClientService
+      );
+      prisma.chat = { id: "chat-truncation-test" };
+      return { svc, prisma };
+    };
+
+    const buildMinimalRequest = (idempotencyKey: string): RuntimeTurnRequest => {
+      return {
+        requestId: "req-trunc",
+        idempotencyKey,
+        runtimeTier: "paid_shared_restricted",
+        bundle: {
+          bundleId: "b-1",
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          publishedVersionId: "v-1",
+          bundleHash: "hash-1",
+          compiledAt: "2026-04-14T11:00:00.000Z"
+        },
+        conversation: {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          channel: "web",
+          externalThreadKey: "thread-t",
+          externalUserKey: "user-t",
+          mode: "direct"
+        },
+        message: {
+          text: "continue",
+          attachments: [],
+          locale: "en",
+          timezone: "UTC",
+          receivedAt: "2026-04-14T12:00:00.000Z"
+        }
+      };
+    };
+
+    // Test 1: prior assistant message with status="truncated" gets the marker.
+    {
+      const { svc, prisma } = buildMinimalHarness();
+      prisma.messages = [
+        { id: "u-1", author: "user", content: "write a long essay", attachments: [] },
+        {
+          id: "a-1",
+          author: "assistant",
+          content: "This essay begins here...",
+          attachments: [],
+          metadata: { status: "truncated" }
+        },
+        { id: "u-2", author: "user", content: "continue", attachments: [] }
+      ];
+      const msgs = await svc.buildMessages(buildMinimalRequest("u-2"), createRuntimeBundle());
+      const assistantMsg = msgs.find(
+        (m) =>
+          m.role === "assistant" &&
+          typeof m.content === "string" &&
+          (m.content as string).includes("This essay begins here")
+      );
+      assert.ok(assistantMsg !== undefined, "truncation test 1: assistant message must be present");
+      assert.ok(
+        typeof assistantMsg.content === "string" &&
+          assistantMsg.content.includes(TRUNCATION_MARKER),
+        "truncation test 1: metadata.status=truncated must append the marker"
+      );
+    }
+
+    // Test 2: prior assistant message with status="partial" (abort) gets the marker.
+    {
+      const { svc, prisma } = buildMinimalHarness();
+      prisma.messages = [
+        { id: "u-1", author: "user", content: "tell me a story", attachments: [] },
+        {
+          id: "a-1",
+          author: "assistant",
+          content: "Once upon a time",
+          attachments: [],
+          metadata: { status: "partial" }
+        },
+        { id: "u-2", author: "user", content: "go on", attachments: [] }
+      ];
+      const msgs = await svc.buildMessages(buildMinimalRequest("u-2"), createRuntimeBundle());
+      const assistantMsg = msgs.find(
+        (m) =>
+          m.role === "assistant" &&
+          typeof m.content === "string" &&
+          (m.content as string).includes("Once upon a time")
+      );
+      assert.ok(assistantMsg !== undefined, "truncation test 2: assistant message must be present");
+      assert.ok(
+        typeof assistantMsg.content === "string" &&
+          assistantMsg.content.includes(TRUNCATION_MARKER),
+        "truncation test 2: metadata.status=partial must append the marker"
+      );
+    }
+
+    // Test 3: clean assistant message (no status) does NOT get the marker.
+    {
+      const { svc, prisma } = buildMinimalHarness();
+      prisma.messages = [
+        { id: "u-1", author: "user", content: "hello", attachments: [] },
+        {
+          id: "a-1",
+          author: "assistant",
+          content: "Hi there!",
+          attachments: [],
+          metadata: null
+        },
+        { id: "u-2", author: "user", content: "how are you", attachments: [] }
+      ];
+      const msgs = await svc.buildMessages(buildMinimalRequest("u-2"), createRuntimeBundle());
+      const assistantMsg = msgs.find(
+        (m) =>
+          m.role === "assistant" &&
+          typeof m.content === "string" &&
+          (m.content as string).includes("Hi there!")
+      );
+      assert.ok(assistantMsg !== undefined, "truncation test 3: assistant message must be present");
+      assert.ok(
+        typeof assistantMsg.content === "string" &&
+          !assistantMsg.content.includes(TRUNCATION_MARKER),
+        "truncation test 3: clean assistant message must NOT have the marker"
+      );
+    }
+
+    // Test 4: idempotency — marker text already in content (from a hypothetical double-call)
+    // does not get doubled, because the stored content never contains the marker and
+    // the helper checks for it before appending.
+    {
+      const { svc, prisma } = buildMinimalHarness();
+      const contentWithMarker =
+        "Partial reply\n\n[Note: the previous answer was interrupted before completion.]";
+      prisma.messages = [
+        { id: "u-1", author: "user", content: "question", attachments: [] },
+        {
+          id: "a-1",
+          author: "assistant",
+          content: contentWithMarker,
+          attachments: [],
+          metadata: { status: "truncated" }
+        },
+        { id: "u-2", author: "user", content: "next", attachments: [] }
+      ];
+      const msgs = await svc.buildMessages(buildMinimalRequest("u-2"), createRuntimeBundle());
+      const assistantMsg = msgs.find(
+        (m) =>
+          m.role === "assistant" &&
+          typeof m.content === "string" &&
+          (m.content as string).includes("Partial reply")
+      );
+      assert.ok(
+        assistantMsg !== undefined,
+        "truncation test 4 (idempotency): assistant message must be present"
+      );
+      const content = assistantMsg.content as string;
+      const markerCount = content.split(TRUNCATION_MARKER).length - 1;
+      assert.equal(
+        markerCount,
+        1,
+        "truncation test 4 (idempotency): marker must appear exactly once, not doubled"
+      );
+    }
+  }
 }
 
 // ADR-100 Piece 2 — recent discovered file refs hydration acceptance tests.

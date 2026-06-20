@@ -307,6 +307,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                 totalTokens: response.usage.total_tokens ?? null
               },
         stopReason: "completed",
+        truncated: this.isMaxOutputTokensTruncation(response),
         toolCalls: []
       };
     } finally {
@@ -1155,6 +1156,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                 response?.usage as OpenAI.Responses.ResponseUsage | undefined
               ),
               stopReason: "completed",
+              truncated: this.isMaxOutputTokensTruncation(response),
               toolCalls: []
             }
           };
@@ -1178,7 +1180,55 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           return;
         }
 
-        if (event?.type === "response.failed" || event?.type === "response.incomplete") {
+        if (event?.type === "response.incomplete") {
+          const incompleteResponse = this.asObject(event.response);
+          if (this.isMaxOutputTokensTruncation(incompleteResponse)) {
+            // ADR-122 Slice 3: max_output_tokens stop is a completed turn that
+            // was cut short. Yield the accumulated text with truncated:true so
+            // the hydration guard can mark it and stop the model from continuing.
+            const truncatedText =
+              this.normalizeOptionalText(
+                (incompleteResponse as Record<string, unknown> | null)?.output_text
+              ) ?? this.normalizeOptionalText(accumulatedText);
+            const truncatedCompletedEvent: ProviderGatewayTextCompletedEvent = {
+              type: "completed",
+              result: {
+                provider: "openai",
+                model: input.model,
+                text: truncatedText,
+                respondedAt: new Date().toISOString(),
+                usage: this.toUsageSnapshot(
+                  input.model,
+                  (incompleteResponse as Record<string, unknown> | null)?.usage as
+                    | OpenAI.Responses.ResponseUsage
+                    | undefined
+                ),
+                stopReason: "completed",
+                truncated: true,
+                toolCalls: []
+              }
+            };
+            yield truncatedCompletedEvent;
+            return;
+          }
+          const response = incompleteResponse;
+          const error = this.asObject(response?.error);
+          const message =
+            typeof error?.message === "string"
+              ? error.message
+              : "OpenAI provider stream did not complete successfully.";
+          const failedEvent: ProviderGatewayTextFailedEvent = {
+            type: "failed",
+            code: this.isContextWindowExceededMessage(message)
+              ? OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE
+              : "provider_stream_failed",
+            message
+          };
+          yield failedEvent;
+          return;
+        }
+
+        if (event?.type === "response.failed") {
           const response = this.asObject(event.response);
           const error = this.asObject(response?.error);
           const message =
@@ -1723,6 +1773,19 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     }
     const status = (response as { status?: unknown }).status;
     return typeof status === "string" ? status : null;
+  }
+
+  /**
+   * ADR-122 Slice 3: returns true when the OpenAI response was stopped by
+   * max_output_tokens — response.status === "incomplete" with
+   * incomplete_details.reason === "max_output_tokens".
+   */
+  private isMaxOutputTokensTruncation(response: unknown): boolean {
+    if (response === null || typeof response !== "object") {
+      return false;
+    }
+    const r = response as { status?: unknown; incomplete_details?: { reason?: unknown } };
+    return r.status === "incomplete" && r.incomplete_details?.reason === "max_output_tokens";
   }
 
   private readMetadataRequestId(input: ProviderGatewayTextGenerateRequest): string | null {

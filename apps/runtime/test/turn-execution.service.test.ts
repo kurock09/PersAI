@@ -70,6 +70,7 @@ import { BuildActiveScenarioBlockService } from "../src/modules/turns/build-acti
 import { BuildSystemReminderBlocksService } from "../src/modules/turns/build-system-reminder-blocks.service";
 import { ToolBudgetPolicy } from "../src/modules/turns/tool-budget-policy";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
+import { OUTPUT_BUDGET_FALLBACK } from "../src/modules/turns/model-output-budget";
 import type {
   FinalizedRuntimeTurn,
   TurnFinalizationService
@@ -2282,6 +2283,15 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ]
   );
   assert.equal(providerGatewayClient.calls[0]?.toolChoice, "auto");
+  // ADR-122 Slice 2 regression guard: buildProviderRequest must now always set
+  // maxOutputTokens. The test bundle has no slot capability configured, so the
+  // resolver falls back to OUTPUT_BUDGET_FALLBACK (8_192). The main-turn
+  // request (generateText call) must carry this value explicitly — never undefined.
+  assert.equal(
+    providerGatewayClient.calls[0]?.maxOutputTokens,
+    OUTPUT_BUDGET_FALLBACK,
+    "ADR-122 Slice 2: main turn must carry maxOutputTokens (safe fallback when no slot capability is configured)"
+  );
   assert.match(
     providerGatewayClient.calls[0]?.systemPrompt ?? "",
     /Only trust compiled prompt constructor output/
@@ -7591,6 +7601,64 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         }
       }
     }
+  }
+
+  // ADR-122 Slice 3 — buildTurnResult propagates truncated from ProviderGatewayTextGenerateResult.
+
+  // truncated:true propagates to RuntimeTurnResult.truncated
+  {
+    const truncatedRequest = createRuntimeTurnRequest();
+    truncatedRequest.bundle.bundleHash =
+      bundleRegistry.entry?.bundle.bundleHash ?? truncatedRequest.bundle.bundleHash;
+    turnAcceptanceService.result = createAcceptedTurn();
+    (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+      truncatedRequest.bundle.bundleHash;
+    providerGatewayClient.resultQueue = [
+      {
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        text: "long answer cut",
+        respondedAt: "2026-06-20T12:00:00.000Z",
+        usage: null,
+        stopReason: "completed",
+        truncated: true,
+        toolCalls: []
+      }
+    ];
+    const truncatedResult = await service.createTurn(truncatedRequest);
+    assert.equal(
+      truncatedResult.truncated,
+      true,
+      "ADR-122 Slice 3: buildTurnResult must propagate truncated:true from provider result"
+    );
+    providerGatewayClient.resultQueue = [];
+  }
+
+  // truncated absent/false → RuntimeTurnResult.truncated absent/falsy
+  {
+    const cleanRequest = createRuntimeTurnRequest();
+    cleanRequest.bundle.bundleHash =
+      bundleRegistry.entry?.bundle.bundleHash ?? cleanRequest.bundle.bundleHash;
+    turnAcceptanceService.result = createAcceptedTurn();
+    (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+      cleanRequest.bundle.bundleHash;
+    providerGatewayClient.resultQueue = [
+      {
+        provider: "openai",
+        model: "gpt-5.4",
+        text: "full clean answer",
+        respondedAt: "2026-06-20T12:00:01.000Z",
+        usage: null,
+        stopReason: "completed",
+        toolCalls: []
+      }
+    ];
+    const cleanResult = await service.createTurn(cleanRequest);
+    assert.ok(
+      cleanResult.truncated !== true,
+      "ADR-122 Slice 3: buildTurnResult must NOT set truncated when provider result has no truncated flag"
+    );
+    providerGatewayClient.resultQueue = [];
   }
 }
 

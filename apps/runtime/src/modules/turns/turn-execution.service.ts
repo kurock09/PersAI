@@ -131,8 +131,31 @@ import {
   RuntimeExecutionAdmissionService,
   classifyInteractiveExecutionClass
 } from "./runtime-execution-admission.service";
+import { resolveModelOutputBudget, APPROX_BYTES_PER_TOKEN } from "./model-output-budget";
 
 type NativeManagedProvider = "openai" | "anthropic";
+
+/**
+ * ADR-122 Slice 2 — Estimate the number of input tokens already present in an
+ * assembled provider request. Uses the ≈3-bytes/token heuristic shared with
+ * the model-output-budget module. The estimate is intentionally cheap (no
+ * tokenizer call) and slightly generous (char count / 3 rounds up), which is
+ * the correct direction: over-estimating input leaves a smaller ctxRoom,
+ * keeping the safety reserve effective.
+ */
+function estimateProviderRequestInputTokens(req: {
+  systemPrompt?: string | null;
+  developerInstructions?: string | null;
+  messages: unknown[];
+  tools?: unknown[];
+}): number {
+  const systemLen = typeof req.systemPrompt === "string" ? req.systemPrompt.length : 0;
+  const devLen =
+    typeof req.developerInstructions === "string" ? req.developerInstructions.length : 0;
+  const messagesLen = JSON.stringify(req.messages).length;
+  const toolsLen = req.tools && req.tools.length > 0 ? JSON.stringify(req.tools).length : 0;
+  return Math.ceil((systemLen + devLen + messagesLen + toolsLen) / APPROX_BYTES_PER_TOKEN);
+}
 
 const PROMPT_CACHE_KEY_BUCKETS = 8;
 const PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
@@ -725,15 +748,47 @@ export class TurnExecutionService {
       jobDeliveryUpdates: input.jobDeliveryUpdates
     });
     const promptMode = options?.promptMode ?? "chat";
-    const providerRequest = this.buildProviderRequest(
+    // ADR-122 Slice 2: resolve slot capability for the selected model role so
+    // resolveModelOutputBudget can use admin-managed maxOutputTokens and
+    // contextWindow fields populated by Slice 1.
+    const slotCapability = this.resolveSlotCapability(
+      bundleEntry.parsedBundle,
+      executionPlan.modelRole
+    );
+    // ADR-122 corrective: apply the route's thinking budget on the INITIAL main turn
+    // (iteration 0), not just the tool-loop refresh path. This fixes an ADR-121 wiring
+    // gap where turn 0 never received the thinking budget. Safe because the gateway
+    // stream timeout is idle-based (resets on every provider stream event, including
+    // thinking deltas — see anthropic-provider.client.ts createTimedSignal/reset) and
+    // the cadence watchdogs are disabled. The resolver and the gateway receive the
+    // SAME thinkingBudget so the answer+thinking math stays consistent on every path.
+    const turnThinkingBudget =
+      executionPlan.routeDecision.mode === "active"
+        ? executionPlan.routeDecision.thinkingBudget
+        : 0;
+    const providerRequestBase = this.buildProviderRequest(
       bundleEntry.parsedBundle,
       providerSelection,
       hydratedMessages,
       projectedTools,
       input.deepMode === true,
       developerInstructionSections,
-      promptMode
+      promptMode,
+      turnThinkingBudget
     );
+    // ADR-122 Slice 2 (D3+D4): set maxOutputTokens via the unified resolver so
+    // the main chat turn (and every tool-loop continuation that spreads this
+    // base request) carries an explicit, model-aware token ceiling rather than
+    // falling through to the provider-client fallback literal. thinkingBudget here
+    // matches what the gateway actually emits on this turn (answer+thinking math).
+    const inputTokensEstimate = estimateProviderRequestInputTokens(providerRequestBase);
+    const providerRequest = {
+      ...providerRequestBase,
+      maxOutputTokens: resolveModelOutputBudget(slotCapability, {
+        inputTokensEstimate,
+        thinkingBudget: turnThinkingBudget
+      })
+    };
     options?.trace?.stage("prepare.provider_request_built");
     return {
       bundle: bundleEntry.parsedBundle,
@@ -1556,7 +1611,8 @@ export class TurnExecutionService {
         : { deferredDocumentJobs: [...turnState.deferredDocumentJobs] }),
       ...(turnState.discoveredFileRefIdSet.length === 0
         ? {}
-        : { discoveredFileRefIds: [...turnState.discoveredFileRefIdSet] })
+        : { discoveredFileRefIds: [...turnState.discoveredFileRefIdSet] }),
+      ...(providerResult.truncated === true ? { truncated: true } : {})
     };
     if (trace !== undefined) {
       this.runtimeObservabilityService.recordStreamTurn(trace);
@@ -2128,6 +2184,46 @@ export class TurnExecutionService {
     const provider = this.asNativeManagedProvider(slot?.providerKey);
     const model = this.asNonEmptyString(slot?.modelKey);
     return provider !== null && model !== null ? { provider, model } : null;
+  }
+
+  /**
+   * ADR-122 Slice 2 — Read the admin-managed capability fields from the
+   * routing slot for the given model role. Falls back to the normalReply slot
+   * when the role-specific slot is absent (mirrors resolveModelSlotSelection
+   * fall-through). Returns null for both fields when no matching slot exists.
+   */
+  private resolveSlotCapability(
+    bundle: AssistantRuntimeBundle,
+    modelRole: PersaiRuntimeModelRole
+  ): { maxOutputTokens: number | null; contextWindow: number | null } {
+    const routing = this.asObject(bundle.runtime.runtimeProviderRouting);
+    const modelSlots = this.asObject(routing?.modelSlots);
+    const slotKey =
+      modelRole === "premium_reply"
+        ? "premiumReply"
+        : modelRole === "reasoning"
+          ? "reasoning"
+          : modelRole === "system_tool"
+            ? "systemTool"
+            : modelRole === "retrieval"
+              ? "retrieval"
+              : "normalReply";
+    let slot = this.asObject(modelSlots?.[slotKey]);
+    if (slot === null && modelRole !== "normal_reply") {
+      slot = this.asObject(modelSlots?.["normalReply"]);
+    }
+    if (slot === null) {
+      return { maxOutputTokens: null, contextWindow: null };
+    }
+    const maxOutputTokens =
+      typeof slot.maxOutputTokens === "number" && Number.isFinite(slot.maxOutputTokens)
+        ? slot.maxOutputTokens
+        : null;
+    const contextWindow =
+      typeof slot.contextWindow === "number" && Number.isFinite(slot.contextWindow)
+        ? slot.contextWindow
+        : null;
+    return { maxOutputTokens, contextWindow };
   }
 
   private resolveProviderSelectionForRole(
@@ -4905,7 +5001,9 @@ export class TurnExecutionService {
       jobDeliveryUpdates: input.jobDeliveryUpdates
     });
     execution.developerInstructionSections = developerInstructionSections;
-    return this.buildProviderRequest(
+    const refreshThinkingBudget =
+      execution.routeDecision.mode === "active" ? execution.routeDecision.thinkingBudget : 0;
+    const refreshedBase = this.buildProviderRequest(
       execution.bundle,
       {
         provider: execution.providerRequest.provider,
@@ -4916,8 +5014,23 @@ export class TurnExecutionService {
       execution.deepModeEnabled,
       developerInstructionSections,
       execution.promptMode,
-      execution.routeDecision.mode === "active" ? execution.routeDecision.thinkingBudget : 0
+      refreshThinkingBudget
     );
+    // ADR-122 Slice 2: propagate the resolved output budget onto the refreshed
+    // request so the context-refresh path also sets maxOutputTokens rather than
+    // relying on the provider-client fallback.
+    const refreshCapability = this.resolveSlotCapability(
+      execution.bundle,
+      execution.selectedModelRole
+    );
+    const refreshInputEstimate = estimateProviderRequestInputTokens(refreshedBase);
+    return {
+      ...refreshedBase,
+      maxOutputTokens: resolveModelOutputBudget(refreshCapability, {
+        inputTokensEstimate: refreshInputEstimate,
+        thinkingBudget: refreshThinkingBudget
+      })
+    };
   }
 
   private createTurnProviderRequestMetadata(input: {

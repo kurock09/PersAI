@@ -450,7 +450,8 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     }
   ]);
   assert.equal(capturedGeneratePayload!.system, "Be concise.");
-  assert.equal(capturedGeneratePayload!.max_tokens, 1_024);
+  // ADR-122 Slice 2: fallback changed from 1_024 to PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS (4_096).
+  assert.equal(capturedGeneratePayload!.max_tokens, 4_096);
   assert.ok(capturedGenerateOptions!.signal instanceof AbortSignal);
   assert.equal(capturedGenerateOptions!.signal!.aborted, false);
   assertNoDeveloperRole(capturedGeneratePayload!.messages);
@@ -1843,10 +1844,11 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     { type: "enabled", budget_tokens: 8_192 },
     "capable model + budget 8192 must emit thinking block (generateText)"
   );
+  // ADR-122 Slice 2: fallback changed from 1_024 to PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS (4_096).
   assert.equal(
     capturedGeneratePayload!.max_tokens,
-    1_024 + 8_192,
-    "max_tokens must equal default maxOutputTokens + thinkingBudget (generateText)"
+    4_096 + 8_192,
+    "max_tokens must equal PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS + thinkingBudget (generateText)"
   );
 
   // capable model + budget >= 1024 → thinking block emitted (streamText)
@@ -1857,10 +1859,11 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     { type: "enabled", budget_tokens: 8_192 },
     "capable model + budget 8192 must emit thinking block (streamText)"
   );
+  // ADR-122 Slice 2: fallback changed from 1_024 to PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS (4_096).
   assert.equal(
     (capturedStreamPayload as unknown as Record<string, unknown>).max_tokens,
-    1_024 + 8_192,
-    "max_tokens must equal default maxOutputTokens + thinkingBudget (streamText)"
+    4_096 + 8_192,
+    "max_tokens must equal PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS + thinkingBudget (streamText)"
   );
 
   // non-capable model + budget 8192 → NO thinking
@@ -1934,5 +1937,95 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     capturedGeneratePayload!.max_tokens,
     4_096 + 8_192,
     "max_tokens must equal provided maxOutputTokens + thinkingBudget"
+  );
+
+  // ADR-122 Slice 3 — truncation signal propagation
+
+  // Non-streaming: stop_reason=max_tokens → truncated:true on result
+  (client as unknown as { client: unknown }).client = {
+    messages: {
+      stream: () => ({
+        finalMessage: async () => ({
+          content: [{ type: "text", text: "cut off mid" }],
+          stop_reason: "max_tokens",
+          usage: { input_tokens: 10, output_tokens: 50 }
+        })
+      })
+    }
+  };
+  const maxTokensGenerateResult = await client.generateText({ ...request });
+  assert.equal(
+    maxTokensGenerateResult.truncated,
+    true,
+    "ADR-122 Slice 3: non-streaming stop_reason=max_tokens must produce truncated:true"
+  );
+  assert.equal(
+    maxTokensGenerateResult.stopReason,
+    "completed",
+    "ADR-122 Slice 3: stopReason must remain 'completed' even when truncated"
+  );
+
+  // Non-streaming: stop_reason=end_turn → truncated:false (falsy)
+  (client as unknown as { client: unknown }).client = {
+    messages: {
+      stream: () => ({
+        finalMessage: async () => ({
+          content: [{ type: "text", text: "full answer" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 30 }
+        })
+      })
+    }
+  };
+  const cleanGenerateResult = await client.generateText({ ...request });
+  assert.ok(
+    cleanGenerateResult.truncated !== true,
+    "ADR-122 Slice 3: non-streaming stop_reason=end_turn must NOT produce truncated:true"
+  );
+
+  // Streaming: stop_reason=max_tokens → truncated:true on completed event result
+  const maxTokensStreamFactory = () =>
+    (async function* (): AsyncGenerator<unknown> {
+      yield {
+        type: "message_start",
+        message: { usage: { input_tokens: 10, output_tokens: 0 } }
+      };
+      yield {
+        type: "content_block_delta",
+        delta: { type: "text_delta", text: "long answer cut" }
+      };
+      yield {
+        type: "message_delta",
+        delta: { stop_reason: "max_tokens", stop_sequence: null },
+        usage: { output_tokens: 15 }
+      };
+      yield { type: "message_stop" };
+    })();
+  installFakeAnthropic(() => maxTokensStreamFactory());
+  const maxTokensStreamEvents = await collectStream(await client.streamText({ ...request }));
+  const maxTokensCompletedEvent = maxTokensStreamEvents.find((e) => e.type === "completed");
+  assert.ok(
+    maxTokensCompletedEvent !== undefined,
+    "ADR-122 Slice 3: max_tokens stream must emit a completed event"
+  );
+  assert.equal(
+    (maxTokensCompletedEvent as { result?: { truncated?: boolean } }).result?.truncated,
+    true,
+    "ADR-122 Slice 3: streaming stop_reason=max_tokens must produce truncated:true on completed result"
+  );
+  assert.equal(
+    (maxTokensCompletedEvent as { result?: { stopReason?: string } }).result?.stopReason,
+    "completed",
+    "ADR-122 Slice 3: streaming stopReason must remain 'completed' when truncated"
+  );
+
+  // Streaming: clean end_turn → truncated:false (falsy)
+  installFakeAnthropic(createDefaultStream);
+  const cleanStreamEvents = await collectStream(await client.streamText({ ...request }));
+  const cleanCompletedEvent = cleanStreamEvents.find((e) => e.type === "completed");
+  assert.ok(
+    (cleanCompletedEvent as { result?: { truncated?: boolean } } | undefined)?.result?.truncated !==
+      true,
+    "ADR-122 Slice 3: clean stream end must NOT produce truncated:true"
   );
 }

@@ -657,3 +657,87 @@ describe("admin runtime router policy helpers", () => {
     ).toBeNull();
   });
 });
+
+describe("ADR-122 — max output tokens and context window inputs", () => {
+  beforeEach(() => {
+    clerkMocks.getToken.mockResolvedValue("token-1");
+    apiMocks.getAdminRuntimeProviderSettings.mockResolvedValue(createRuntimeSettingsState());
+    apiMocks.putAdminRuntimeProviderSettings.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => cleanup());
+
+  it("renders Max output tokens and Context window inputs for a catalog entry", async () => {
+    render(<AdminRuntimePage />);
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByLabelText("Max output tokens").length).toBeGreaterThan(0);
+      expect(screen.getAllByLabelText("Context window").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("accepts a positive integer for Max output tokens and saves it", async () => {
+    render(<AdminRuntimePage />);
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+
+    const inputs = await waitFor(() => screen.getAllByLabelText("Max output tokens"));
+    const input = inputs[0]!;
+    fireEvent.change(input, { target: { value: "64000" } });
+    fireEvent.blur(input);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(apiMocks.putAdminRuntimeProviderSettings).toHaveBeenCalled());
+    const savedArg = apiMocks.putAdminRuntimeProviderSettings.mock.calls[0]![1];
+    const openaiModels = savedArg.availableModelCatalogByProvider?.openai?.models ?? [];
+    expect(openaiModels[0]?.maxOutputTokens).toBe(64000);
+  });
+
+  it("shows placeholder for null Max output tokens and accepts clearing to null", async () => {
+    const stateWithValues = {
+      ...createRuntimeSettingsState(),
+      availableModelCatalogByProvider: {
+        ...createRuntimeSettingsState().availableModelCatalogByProvider,
+        openai: {
+          models: createRuntimeSettingsState().availableModelCatalogByProvider.openai.models.map(
+            (m, i) => (i === 0 ? { ...m, maxOutputTokens: 64000, contextWindow: 200000 } : m)
+          )
+        }
+      }
+    };
+    apiMocks.getAdminRuntimeProviderSettings.mockResolvedValue(stateWithValues);
+
+    render(<AdminRuntimePage />);
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+
+    // The max output tokens input should initially show the seeded value
+    const maxTokenInputs = await waitFor(() => screen.getAllByLabelText("Max output tokens"));
+    const maxTokenInput = maxTokenInputs[0] as HTMLInputElement;
+    expect(maxTokenInput.value).toBe("64000");
+
+    // Context window shows seeded value
+    const ctxInputs = await waitFor(() => screen.getAllByLabelText("Context window"));
+    const ctxInput = ctxInputs[0] as HTMLInputElement;
+    expect(ctxInput.value).toBe("200000");
+
+    // Clearing the value and blurring sets draft to empty and triggers null callback
+    fireEvent.change(maxTokenInput, { target: { value: "" } });
+
+    // After clearing, the draft value should be ""
+    await waitFor(() => {
+      expect(maxTokenInput.value).toBe("");
+    });
+  });
+});

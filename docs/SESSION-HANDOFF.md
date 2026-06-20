@@ -3,6 +3,192 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-20 — ADR-122 Slice 1: maxOutputTokens + contextWindow model capabilities — CHECKPOINT
+
+### What changed
+
+Slice 1 of ADR-122: `maxOutputTokens` and `contextWindow` added as first-class admin-managed capability fields on the model catalog, carried onto routing slots, seeded with authoritative Anthropic values, and exposed in the admin UI.
+
+**D1 (admin-managed fields + UI):**
+- `RuntimeProviderModelProfileBase` gains `maxOutputTokens: number | null` and `contextWindow: number | null`.
+- `normalizeModelProfiles()` in platform settings validates both fields via new `normalizeOptionalPositiveInteger()` helper (null allowed; bounds: max 1_000_000 / 2_000_000).
+- Admin runtime page gains `NullableIntegerField` component + two inputs per model row ("Max output tokens", "Context window").
+
+**D2 (routing slot enrichment):**
+- Each `modelSlots` entry in routing types gains `maxOutputTokens?: number | null` and `contextWindow?: number | null`.
+- `resolve-runtime-provider-routing.service.ts` enriches each slot via `lookupModelCapabilities()` — looks up the active catalog profile for `(providerKey, modelKey)` and attaches the values (null when not found).
+
+**D5 (seeding):**
+- `MODEL_CAPABILITY_DEFAULTS` table defined in `runtime-provider-profile.ts` with authoritative Anthropic values (7 models, all 200k context window at non-premium tier, maxOutputTokens per model). **[SUPERSEDED by Slice 2 corrective pass]** OpenAI was initially left null here — the corrective pass seeded the OpenAI families and moved default fold-in to read/write normalization.
+- Seeding applied only at synthesis/legacy-row normalization — does not overwrite admin-set explicit values; null round-trips as null. **[SUPERSEDED by Slice 2 corrective pass]** known-model nulls are now coerced to the published ceiling at read/write so PROD persisted-null rows are correct without a manual save.
+
+**Contracts:** `RuntimeProviderModelProfileCommonState` in `openapi.yaml` gains both optional nullable integer fields; contracts regenerated and formatted.
+
+**Investigation result (storage model):** Catalog rows are persisted per-model in `platform_runtime_provider_settings.available_model_catalog_by_provider` as a JSONB column. They are synthesized at read-time from `available_models_by_provider` only if the catalog entry is absent. The seeding function `parseLegacyCapabilityCatalog()` / `createDefaultModelProfiles()` applies `MODEL_CAPABILITY_DEFAULTS` only when synthesizing new rows from the weight-only list — admin-set values in real persisted rows are untouched.
+
+### Files touched
+
+| File | Purpose |
+|---|---|
+| `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts` | Added `maxOutputTokens`/`contextWindow` to `RuntimeProviderModelProfileBase`; updated `parseRuntimeProviderModelProfiles()`, `createDefaultModelProfiles()`, `parseLegacyCapabilityCatalog()`; defined `MODEL_CAPABILITY_DEFAULTS` |
+| `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts` | Added `MAX_CONTEXT_WINDOW_VALUE`/`MAX_OUTPUT_TOKENS_VALUE` bounds; added `normalizeOptionalPositiveInteger()`; added both fields to `normalizeModelProfiles()` |
+| `apps/api/src/modules/workspace-management/application/runtime-provider-routing.types.ts` | Added optional `maxOutputTokens`/`contextWindow` to each `modelSlots` slot shape |
+| `apps/api/src/modules/workspace-management/application/resolve-runtime-provider-routing.service.ts` | Added `lookupModelCapabilities()` helper; enriched each routing slot |
+| `apps/api/src/modules/workspace-management/application/tool-path-pricing-catalog.ts` | Added `maxOutputTokens: null`/`contextWindow: null` to `base` to satisfy updated type |
+| `apps/api/test/platform-runtime-provider-settings.test.ts` | Added ADR-122 normalization tests + seeding tests |
+| `apps/api/test/runtime-provider-routing.test.ts` | Added ADR-122 slot enrichment tests |
+| `apps/web/app/admin/runtime/page.tsx` | Added `NullableIntegerField` component; wired two new inputs per model row |
+| `apps/web/app/admin/runtime/page.test.tsx` | Added ADR-122 input rendering, accept-positive-int, and reset-to-null tests |
+| `packages/contracts/openapi.yaml` | Added `maxOutputTokens`/`contextWindow` to `RuntimeProviderModelProfileCommonState` |
+| `packages/contracts/src/generated/model/runtimeProviderModelProfileCommonState.ts` | Regenerated |
+
+### Tests run
+
+- `apps/api/test/platform-runtime-provider-settings.test.ts`: PASS
+- `apps/api/test/runtime-provider-routing.test.ts`: PASS
+- `apps/web/app/admin/runtime/page.test.tsx`: 19/19 PASS
+- `@persai/api` typecheck: PASS
+- `@persai/web` typecheck: PASS
+- `format:check`: PASS (all files)
+
+### Baseline SHA
+
+`bad3d5339eeaefd5cc13bd8442329fe37538eba8`
+
+### Next recommended step
+
+~~Slice 2 of ADR-122~~ — **done** (see checkpoint below).
+
+---
+
+## 2026-06-20 — ADR-122 Slice 2: unified output-budget resolver — CHECKPOINT
+
+### What changed
+
+Slice 2 of ADR-122 (D3 + D4): the single `resolveModelOutputBudget` pure helper, wired into every generation path. Fixes the root bug where main-chat-turn and tool-loop provider calls reached the Anthropic client with no `maxOutputTokens`, causing the `?? 1_024` fallback to truncate long answers.
+
+**D3 — resolver (`apps/runtime/src/modules/turns/model-output-budget.ts`):** **[constants + formula below SUPERSEDED by the corrective pass — see the corrective-pass subsection further down for the authoritative `OUTPUT_BUDGET_MAX = 128_000` / `OUTPUT_BUDGET_FALLBACK = 8_192` and the thinking-aware formula]**
+- `resolveModelOutputBudget(capability, ctx): number` — single pure function.
+- Constants (initial cut, superseded): `OUTPUT_BUDGET_SANITY_CAP = 200_000` (replaced `DEFENSIVE_OUTPUT_TOKEN_CAP = 64_000`), `OUTPUT_BUDGET_FLOOR = 1_024`, `CONTEXT_SAFETY_RESERVE = 4_096`, `APPROX_BYTES_PER_TOKEN = 3`.
+- Formula (initial cut, superseded): base = `maxOutputTokens ?? SANITY_CAP`; if `contextWindow` + `inputTokensEstimate` known: `ctxRoom = contextWindow - input - thinking - RESERVE`; `effective = min(base, ctxRoom)`; return `clamp(effective, FLOOR, SANITY_CAP)`.
+- Unit tests: 9 assertions covering null maxOutputTokens, ctxRoom binding, thinking-budget subtraction, floor clamp, sanity clamp, both-null, null inputTokensEstimate (guard skipped), edge cases.
+
+**D4 — wiring:**
+- `turn-execution.service.ts` `prepareTurnExecution`: new `resolveSlotCapability()` reads `maxOutputTokens` + `contextWindow` from routing slot; computes `inputTokensEstimate` via char-based `estimateProviderRequestInputTokens()`; sets `maxOutputTokens` on the returned providerRequest via the resolver.
+
+**Corrective pass (2026-06-20, founder-mandated PROD-correctness for BOTH providers):**
+- **Resolver formula corrected** for thinking + safe fallback. New constants (replaced `OUTPUT_BUDGET_SANITY_CAP`): `OUTPUT_BUDGET_MAX = 128_000` (absolute cap on FINAL answer+thinking, = largest real ceiling), `OUTPUT_BUDGET_FALLBACK = 8_192` (base when `maxOutputTokens` null — safe on every mainstream model), `OUTPUT_BUDGET_FLOOR = 1_024`, `CONTEXT_SAFETY_RESERVE = 4_096`. New formula reserves thinking out of the total: `totalCeiling = min(maxOutputTokens ?? FALLBACK, MAX)`; `totalRoom = min(totalCeiling, contextWindow - input - reserve)`; `answer = totalRoom - thinkingBudget`; clamp `[FLOOR, MAX]`. This guarantees gateway `max_tokens = answer + thinkingBudget = totalRoom ≤ model ceiling`, eliminating the opus 128k + thinking 32768 = 160768 > 128000 overflow → 400.
+- **OpenAI models seeded** in `MODEL_CAPABILITY_DEFAULTS` (gpt-5.1 / gpt-5.1-codex / gpt-5 / gpt-5-mini / gpt-5-nano = 400k ctx / 128k out; gpt-4o / gpt-4o-mini = 128k ctx / 16_384 out). Fixes OpenAI 400 (it sends `max_output_tokens` verbatim with no clamp). Unlisted OpenAI keys → `OUTPUT_BUDGET_FALLBACK`.
+- **Family defaults folded in at READ + WRITE normalization** (not just synthesis): `parseRuntimeProviderModelProfiles` (DB read) and `normalizeModelProfiles` (admin-save) now coerce a KNOWN-model stored/blank null to the published ceiling; explicit admin value always wins; unknown model stays null. This fixes PROD rows persisted with the brand-new fields = null. Supersedes the earlier "null strictly round-trips" note for known models.
+- **Turn-0 extended thinking enabled** — `prepareTurnExecution` now passes `turnThinkingBudget` to BOTH `buildProviderRequest` and the resolver (was previously only on the tool-loop refresh path). Fixes the ADR-121 wiring gap. Safe: gateway stream timeout is idle-based (resets on every provider event incl. thinking deltas) and watchdogs are disabled. Resolver + gateway receive the SAME thinkingBudget. Tool-loop inherits maxOutputTokens via spread.
+- **Stream timeout confirmed:** `PROVIDER_GATEWAY_STREAM_TIMEOUT_MS = 90_000` (`packages/config/src/provider-gateway-config.ts:64`), IDLE timer (`anthropic-provider.client.ts:1405` `createTimedSignal` reschedules on `reset()`, called at the top of every stream-event iteration `:337`). Thinking deltas reset it. No change needed.
+- `turn-execution.service.ts` `refreshProviderRequestMessages`: same pattern (was already passing thinkingBudget).
+- `runtime-document-provider-adapter.service.ts` `resolveMaxOutputTokens`: refactored to delegate to `resolveModelOutputBudget`; `DEFENSIVE_OUTPUT_TOKEN_CAP = 64_000` removed.
+- `anthropic-provider.client.ts`: `?? 1_024` replaced with `PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS = 4_096` (4 occurrences). Thinking math preserved byte-for-byte.
+
+**Scope discipline confirmed (grep):** auto-extract, turn-router, session-compaction, media-job-completion, background-task-evaluation all set their own named constant budgets — none touched.
+
+### Files touched
+
+| File | Purpose |
+|---|---|
+| `apps/runtime/src/modules/turns/model-output-budget.ts` | New — pure resolver + constants |
+| `apps/runtime/test/model-output-budget.test.ts` | New — 9-case unit test suite |
+| `apps/runtime/test/run-suite.ts` | Registered `runModelOutputBudgetTest` |
+| `apps/runtime/test/run-suite-isolated.ts` | Registered `runModelOutputBudgetTest` |
+| `apps/runtime/src/modules/turns/turn-execution.service.ts` | Added `resolveSlotCapability`, `estimateProviderRequestInputTokens`; wired resolver in `prepareTurnExecution` + `refreshProviderRequestMessages` |
+| `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts` | Refactored `resolveMaxOutputTokens` to delegate to resolver; removed `DEFENSIVE_OUTPUT_TOKEN_CAP` |
+| `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` | Replaced 4× `?? 1_024` with `PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS = 4_096` |
+| `apps/runtime/test/turn-execution.service.test.ts` | Added `OUTPUT_BUDGET_SANITY_CAP` import + maxOutputTokens regression assertion |
+| `apps/provider-gateway/test/anthropic-provider.client.test.ts` | Updated 3 test assertions for new fallback value |
+
+### Tests run
+
+- `runModelOutputBudgetTest` (resolver unit test via run-one): **PASS**
+- `runTurnExecutionServiceTest` (including new maxOutputTokens assertion): **PASS**
+- `runRecentPdfsHintTests`: **PASS**
+- `runAnthropicProviderClientTest` (thinking semantics preserved): **PASS**
+- `@persai/api` typecheck: **PASS**
+- `@persai/runtime` typecheck: **PASS**
+- `@persai/provider-gateway` typecheck: **PASS**
+
+### Baseline SHA
+
+`bad3d5339eeaefd5cc13bd8442329fe37538eba8` (unchanged — Slice 2 not yet committed)
+
+### Next recommended step
+
+~~Slice 3 of ADR-122~~ — **done** (see checkpoint below).
+
+---
+
+## 2026-06-20 — ADR-122 Slice 3: truncation guard — CHECKPOINT
+
+### What changed
+
+Slice 3 of ADR-122 (D6): orthogonal `truncated?: boolean` signal propagated end-to-end so the model no longer continues a cut-off previous answer on the next turn.
+
+**Contract:**
+- `ProviderGatewayTextGenerateResult.truncated?: boolean` — new optional field, orthogonal to `stopReason` (which stays `"completed" | "tool_calls"`).
+- `RuntimeTurnResult.truncated?: boolean` — propagated from the final provider result.
+
+**Provider clients:**
+- Anthropic (non-stream): `truncated: response.stop_reason === "max_tokens"` on the returned result.
+- Anthropic (stream): `truncated: latestStopReason === "max_tokens"` on the `ProviderGatewayTextCompletedEvent` result.
+- OpenAI (non-stream): `truncated: this.isMaxOutputTokensTruncation(response)` — new private helper checks `response.status === "incomplete" && response.incomplete_details?.reason === "max_output_tokens"`.
+- OpenAI (stream): the existing `response.incomplete` handler now checks if reason is `max_output_tokens`; if so yields a completed event with `truncated: true` (and the accumulated text) instead of a failed event. Other incomplete reasons still fail.
+
+**Runtime:**
+- `buildTurnResult` in `turn-execution.service.ts`: `...(providerResult.truncated === true ? { truncated: true } : {})` spread into the `RuntimeTurnResult`.
+
+**API persistence path:**
+- `assistant-runtime.facade.ts`: `truncated?: boolean` on `AssistantRuntimeWebChatTurnStreamChunk`.
+- `web-runtime-stream-client.service.ts`: `...(event.result.truncated === true ? { truncated: true } : {})` on the `done` chunk.
+- `persist-assistant-message.ts`: new `truncatedStatus?: "truncated"` field; `resolvedStatus = truncatedStatus ?? partialStatus` so `metadata.status` is one of `"partial"` (abort/stall) or `"truncated"` (max_tokens) or absent (clean).
+- `stream-web-chat-turn.service.ts`: captures `truncated` from the done chunk; passes `truncatedStatus: isCompletedNormally && runtimeTruncated ? "truncated" : undefined` to persist.
+
+**Hydration guard (`turn-context-hydration.service.ts`):**
+- New `withTruncationMarker(content, message)` private method: for `author === "assistant"` messages with `metadata.status === "partial" | "truncated"`, appends `"\n\n[Note: the previous answer was interrupted before completion.]"` to the string content. Includes idempotency guard (checks for marker before appending). Applied in BOTH the summarized messages loop and the canonical web hydration loop (only for non-current-inbound messages).
+
+### Files touched
+
+| File | Purpose |
+|---|---|
+| `packages/runtime-contract/src/index.ts` | Added `truncated?: boolean` to `ProviderGatewayTextGenerateResult` and `RuntimeTurnResult` |
+| `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` | Set `truncated` on non-streaming and streaming completed results |
+| `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts` | Added `isMaxOutputTokensTruncation()` helper; set `truncated` on non-streaming and streaming results; extracted max_output_tokens incomplete case from failed path |
+| `apps/runtime/src/modules/turns/turn-execution.service.ts` | Propagated `truncated` in `buildTurnResult` |
+| `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts` | Added `truncated?: boolean` to `AssistantRuntimeWebChatTurnStreamChunk` |
+| `apps/api/src/modules/workspace-management/application/web-runtime-stream-client.service.ts` | Forward `truncated` in the `done` chunk |
+| `apps/api/src/modules/workspace-management/application/persist-assistant-message.ts` | Added `truncatedStatus` field; unified into `resolvedStatus` |
+| `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` | Captured `runtimeTruncated`; added to `streamRuntimeAttempt` return; passed `truncatedStatus` to persist |
+| `apps/runtime/src/modules/turns/turn-context-hydration.service.ts` | Added `withTruncationMarker()`; applied in both message hydration loops |
+| `apps/provider-gateway/test/anthropic-provider.client.test.ts` | Added max_tokens non-streaming + streaming truncation tests |
+| `apps/runtime/test/turn-context-hydration.service.test.ts` | Added 4 truncation marker tests (partial, truncated, clean, idempotency) |
+| `apps/runtime/test/turn-execution.service.test.ts` | Added 2 `buildTurnResult` truncated-propagation tests |
+
+### Tests run
+
+- `runAnthropicProviderClientTest` (incl. new ADR-122 Slice 3 truncation cases): **PASS**
+- `runTurnContextHydrationServiceTest` (incl. new truncation marker tests): **PASS**
+- `runTurnExecutionServiceTest` (incl. new truncated-propagation tests): **PASS**
+- Full runtime suite `run-suite.ts`: **PASS**
+- `corepack pnpm run format:check`: **PASS**
+- `@persai/api` typecheck: **PASS**
+- `@persai/runtime` typecheck: **PASS**
+- `@persai/provider-gateway` typecheck: **PASS**
+- `@persai/web` typecheck: **PASS**
+
+### Baseline SHA
+
+`bad3d5339eeaefd5cc13bd8442329fe37538eba8` (unchanged — Slices 1–3 not yet committed)
+
+### Next recommended step
+
+Commit Slices 1–3 of ADR-122 and push to trigger deploy (all three slices are in the working tree; they form a coherent unit). Optionally: close ADR-122 as landed once deployed and live-validated.
+
+---
+
 ## 2026-06-20 — Tool-loop final answer loss fix — CHECKPOINT
 
 ### What changed

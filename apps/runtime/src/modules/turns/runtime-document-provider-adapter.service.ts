@@ -40,6 +40,7 @@ import {
   type PersaiDocumentStyleProfile,
   PERSAI_DOCUMENT_STRUCTURE_VERSION
 } from "./persai-document-structure";
+import { resolveModelOutputBudget } from "./model-output-budget";
 
 type SupportedDocumentProvider = "pdfmonkey" | "gamma";
 type NativeManagedProvider = "openai" | "anthropic";
@@ -140,9 +141,9 @@ const CHUNKED_DOCUMENT_TIMEOUT_MS = 15 * 60 * 1000;
 // section is small (~1-2k tokens). NOT applied to the PDFMonkey render call.
 const DOCUMENT_CLASSIFICATION_TIMEOUT_MS = 240_000;
 const PDFMONKEY_TEMPLATE_MISSING_CODE = "document_template_not_configured";
-// Output-token ceiling resolved per-model from the runtime bundle modelSlots.
-// This cap is the hard defensive upper bound regardless of what the bundle says.
-const DEFENSIVE_OUTPUT_TOKEN_CAP = 64_000;
+// Output-token ceiling for document generation is resolved per-model from the
+// runtime bundle modelSlots via resolveModelOutputBudget. OUTPUT_BUDGET_MAX
+// from model-output-budget.ts is the ultimate sanity clamp.
 // Route to the chunked pipeline when the job has source attachments AND the
 // total inlined source text exceeds this threshold. Simple v1 rule: purely
 // based on objective attachment bytes, no keyword/prompt-text heuristics.
@@ -2683,10 +2684,13 @@ export class RuntimeDocumentProviderAdapterService {
   }
 
   /**
-   * Resolve the effective max output tokens for HTML generation calls.
-   * Reads an optional `maxOutputTokens` from the bundle's modelSlots (future
-   * admin-configured per-model capability) and caps at DEFENSIVE_OUTPUT_TOKEN_CAP.
-   * Falls back to the cap when the bundle does not expose a per-model limit.
+   * ADR-122 Slice 2: Resolve the effective max output tokens for document
+   * generation calls by delegating to the unified resolveModelOutputBudget
+   * helper. Reads admin-managed maxOutputTokens and contextWindow from the
+   * matching routing slot (live from Slice 1). Documents do not use thinking,
+   * so thinkingBudget is 0. inputTokensEstimate is null (skips context guard)
+   * because document requests are large variable-length prompts that are not
+   * cheaply estimated at this call site.
    */
   private resolveMaxOutputTokens(
     bundle: AssistantRuntimeBundle,
@@ -2694,24 +2698,46 @@ export class RuntimeDocumentProviderAdapterService {
   ): number {
     const routing = this.asObject(bundle.runtime.runtimeProviderRouting);
     const modelSlots = this.asObject(routing?.modelSlots);
-    const slotCandidates = modelSlots
+    const allSlots = modelSlots
       ? Object.values(modelSlots)
           .map((slot) => this.asObject(slot))
-          .filter((slot) => slot !== null)
-          .filter(
-            (slot) =>
-              this.asNonEmptyString(slot!.modelKey) === providerSelection.model ||
-              this.asNonEmptyString(slot!.providerKey) === providerSelection.provider
-          )
+          .filter((slot): slot is Record<string, unknown> => slot !== null)
       : [];
-    for (const slot of slotCandidates) {
-      if (slot === null) continue;
-      const limit = slot.maxOutputTokens;
-      if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
-        return Math.min(limit, DEFENSIVE_OUTPUT_TOKEN_CAP);
+    // Prefer a slot whose modelKey matches the destination model EXACTLY so we
+    // never return a different model's ceiling (e.g. the normalReply gpt-5 128k
+    // capability for a gpt-4o-mini document call, which would 400 on OpenAI).
+    // Fall back to a provider-wide match only when no exact-model slot carries
+    // capability fields.
+    const exactModelSlots = allSlots.filter(
+      (slot) => this.asNonEmptyString(slot.modelKey) === providerSelection.model
+    );
+    const providerSlots = allSlots.filter(
+      (slot) =>
+        this.asNonEmptyString(slot.modelKey) !== providerSelection.model &&
+        this.asNonEmptyString(slot.providerKey) === providerSelection.provider
+    );
+    for (const slot of [...exactModelSlots, ...providerSlots]) {
+      const maxOutputTokens =
+        typeof slot.maxOutputTokens === "number" && Number.isFinite(slot.maxOutputTokens)
+          ? slot.maxOutputTokens
+          : null;
+      const contextWindow =
+        typeof slot.contextWindow === "number" && Number.isFinite(slot.contextWindow)
+          ? slot.contextWindow
+          : null;
+      if (maxOutputTokens !== null || contextWindow !== null) {
+        return resolveModelOutputBudget(
+          { maxOutputTokens, contextWindow },
+          { inputTokensEstimate: null, thinkingBudget: 0 }
+        );
       }
     }
-    return DEFENSIVE_OUTPUT_TOKEN_CAP;
+    // No matching slot with capability fields: use the sanity cap as the
+    // conservative default via resolveModelOutputBudget (OUTPUT_BUDGET_FALLBACK).
+    return resolveModelOutputBudget(
+      { maxOutputTokens: null, contextWindow: null },
+      { inputTokensEstimate: null, thinkingBudget: 0 }
+    );
   }
 
   /**

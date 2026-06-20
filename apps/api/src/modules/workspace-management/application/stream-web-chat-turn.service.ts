@@ -357,6 +357,8 @@ export class StreamWebChatTurnService {
     let runtimeFinalAnswer: string | null = null;
     /** Preamble from the runtime. null when no tools ran or before `done` arrives. */
     let runtimeWorkingPreamble: string | null = null;
+    /** ADR-122 Slice 3: true when the runtime reported truncated=true on the done chunk. */
+    let runtimeTruncated = false;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let mediaDeliveryCompleted = false;
     const trace =
@@ -506,6 +508,9 @@ export class StreamWebChatTurnService {
         }
         if (result.workingPreamble !== null) {
           runtimeWorkingPreamble = result.workingPreamble;
+        }
+        if (result.truncated === true) {
+          runtimeTruncated = true;
         }
         for (const m of result.collectedMedia) collectedMedia.push(m);
         if (result.primaryFirstDeltaMs !== null) {
@@ -694,7 +699,8 @@ export class StreamWebChatTurnService {
         deferredMediaJobCount: deferredMediaJobs?.length,
         sourceUserMessageId: prepared.userMessage.id,
         workingPreamble: runtimeWorkingPreamble ?? undefined,
-        partialStatus: isCompletedNormally ? undefined : "partial"
+        partialStatus: isCompletedNormally ? undefined : "partial",
+        truncatedStatus: isCompletedNormally && runtimeTruncated ? "truncated" : undefined
       });
       mainAssistantReplyPersisted = true;
       trace.stage("assistant_message_saved");
@@ -1083,10 +1089,13 @@ export class StreamWebChatTurnService {
     primaryFirstDeltaMs: number | null;
     toolEventCount: number;
     stallReport: CadenceWatchdogStallReport | null;
+    /** ADR-122 Slice 3: true when the runtime done chunk reported truncated=true. */
+    truncated?: true;
   }> {
     let accumulated = input.attempt === 1 ? input.accumulatedSoFar : "";
     let finalAnswer: string | null = null;
     let workingPreamble: string | null = null;
+    let truncated: true | undefined = undefined;
     let respondedAt: string | null = null;
     let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
@@ -1146,7 +1155,8 @@ export class StreamWebChatTurnService {
             collectedMedia,
             primaryFirstDeltaMs,
             toolEventCount,
-            stallReport: capturedStallReport
+            stallReport: capturedStallReport,
+            ...(truncated === true ? { truncated } : {})
           };
         }
 
@@ -1291,6 +1301,9 @@ export class StreamWebChatTurnService {
           if (chunk.workingPreamble !== undefined) {
             workingPreamble = chunk.workingPreamble;
           }
+          if (chunk.truncated === true) {
+            truncated = true;
+          }
           if (chunk.runtimeTrace) {
             input.trace.attachExternalTrace(chunk.runtimeTrace);
           }
@@ -1323,7 +1336,8 @@ export class StreamWebChatTurnService {
           collectedMedia,
           primaryFirstDeltaMs,
           toolEventCount,
-          stallReport: capturedStallReport
+          stallReport: capturedStallReport,
+          ...(truncated === true ? { truncated } : {})
         };
       }
       const safeToRetryAfterConflict =
@@ -1353,7 +1367,8 @@ export class StreamWebChatTurnService {
           collectedMedia,
           primaryFirstDeltaMs,
           toolEventCount,
-          stallReport: capturedStallReport
+          stallReport: capturedStallReport,
+          ...(truncated === true ? { truncated } : {})
         };
       }
       throw error;
@@ -1376,7 +1391,8 @@ export class StreamWebChatTurnService {
         collectedMedia,
         primaryFirstDeltaMs,
         toolEventCount,
-        stallReport: capturedStallReport
+        stallReport: capturedStallReport,
+        ...(truncated === true ? { truncated } : {})
       };
     }
 
@@ -1397,7 +1413,8 @@ export class StreamWebChatTurnService {
         collectedMedia,
         primaryFirstDeltaMs,
         toolEventCount,
-        stallReport: capturedStallReport
+        stallReport: capturedStallReport,
+        ...(truncated === true ? { truncated } : {})
       };
     }
 
@@ -1415,7 +1432,8 @@ export class StreamWebChatTurnService {
       collectedMedia,
       primaryFirstDeltaMs,
       toolEventCount,
-      stallReport: capturedStallReport
+      stallReport: capturedStallReport,
+      ...(truncated === true ? { truncated } : {})
     };
   }
 

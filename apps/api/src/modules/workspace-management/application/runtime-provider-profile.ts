@@ -27,6 +27,46 @@ export const MANAGED_CATALOG_PROVIDERS = [
 ] as const;
 export const VIDEO_GENERATE_PROVIDERS = ["openai", "runway", "kling", "heygen"] as const;
 
+/**
+ * ADR-122 D5 — per-model capability defaults.
+ *
+ * Applied at synthesis time (createDefaultModelProfiles / parseLegacyCapabilityCatalog)
+ * AND folded in at READ/WRITE normalization (parseRuntimeProviderModelProfiles +
+ * normalizeModelProfiles) so PROD rows persisted with the new fields = null (these are
+ * brand-new fields) resolve to the published ceiling without a manual admin save.
+ *
+ * Fold-in rule (ADR-122 corrective pass): for a KNOWN model an explicit admin value
+ * always wins; a stored/blank null is coerced to the published ceiling here. This
+ * supersedes the earlier "null strictly round-trips" note — coercing known-model nulls
+ * to the real ceiling is the deliberate decision so PROD never hits the safe fallback
+ * for a model we actually know. An UNKNOWN model stays null and resolves to the runtime
+ * resolver's OUTPUT_BUDGET_FALLBACK (safe, admin-tunable via the runtime UI).
+ *
+ * Anthropic values are from official docs as of 2026-06-20:
+ *   contextWindow=200_000 (non-premium 200k tier; real inputs are ≪200k).
+ *   maxOutputTokens from the per-model published ceiling.
+ * OpenAI values are official limits as of 2026-06. Any OpenAI key not listed here
+ * resolves to OUTPUT_BUDGET_FALLBACK (safe, admin-tunable via the runtime UI).
+ */
+export const MODEL_CAPABILITY_DEFAULTS: Partial<
+  Record<string, { contextWindow: number | null; maxOutputTokens: number | null }>
+> = {
+  "claude-sonnet-4-6": { contextWindow: 200_000, maxOutputTokens: 64_000 },
+  "claude-sonnet-4-5": { contextWindow: 200_000, maxOutputTokens: 64_000 },
+  "claude-haiku-4-5": { contextWindow: 200_000, maxOutputTokens: 64_000 },
+  "claude-opus-4-5": { contextWindow: 200_000, maxOutputTokens: 64_000 },
+  "claude-opus-4-6": { contextWindow: 200_000, maxOutputTokens: 128_000 },
+  "claude-opus-4-7": { contextWindow: 200_000, maxOutputTokens: 128_000 },
+  "claude-opus-4-8": { contextWindow: 200_000, maxOutputTokens: 128_000 },
+  "gpt-5.1": { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  "gpt-5.1-codex": { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  "gpt-5": { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  "gpt-5-mini": { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  "gpt-5-nano": { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  "gpt-4o": { contextWindow: 128_000, maxOutputTokens: 16_384 },
+  "gpt-4o-mini": { contextWindow: 128_000, maxOutputTokens: 16_384 }
+};
+
 export type ChatRoutingRuntimeProvider = (typeof CHAT_ROUTING_PROVIDERS)[number];
 export type ManagedRuntimeCatalogProvider = (typeof MANAGED_CATALOG_PROVIDERS)[number];
 export type VideoGenerateRuntimeProvider = (typeof VIDEO_GENERATE_PROVIDERS)[number];
@@ -155,6 +195,11 @@ type RuntimeProviderModelProfileBase = {
   inputTokenWeight: number;
   cachedInputTokenWeight: number;
   outputTokenWeight: number;
+  /** ADR-122 — admin-set max answer tokens; null on a known model is coerced to the
+   * published ceiling at normalization, otherwise the runtime resolver OUTPUT_BUDGET_FALLBACK applies. */
+  maxOutputTokens: number | null;
+  /** ADR-122 — admin-set total context window; null ⇒ resolver context-window guard skipped. */
+  contextWindow: number | null;
   displayLabel: string | null;
   notes: string | null;
   videoModelParameters?: RuntimeVideoModelParameters | null;
@@ -413,6 +458,19 @@ function normalizeTokenWeight(value: unknown): number {
 
 function normalizePositiveInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+/**
+ * ADR-122 D1 — lenient read-side parser for persisted capability integers.
+ * Returns null for absent/null/invalid values; never throws. Used only in
+ * `parseRuntimeProviderModelProfiles` (DB read path) so a bad stored value
+ * silently degrades to null rather than breaking the settings load.
+ */
+function parseOptionalPositiveIntegerFromStorage(value: unknown): number | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  return normalizePositiveInteger(value);
 }
 
 function nullableTrimmedString(value: unknown): string | null {
@@ -933,6 +991,7 @@ function createDefaultModelProfiles(
 ): RuntimeProviderModelProfile[] {
   const billingMode = inferBillingMode(capabilities);
   return normalizeCatalogList(models).map((model) => {
+    const capabilityDefaults = MODEL_CAPABILITY_DEFAULTS[model] ?? null;
     const base = {
       model,
       capabilities,
@@ -943,6 +1002,8 @@ function createDefaultModelProfiles(
       inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+      maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
+      contextWindow: capabilityDefaults?.contextWindow ?? null,
       displayLabel: null,
       notes: null
     };
@@ -1035,6 +1096,18 @@ function parseRuntimeProviderModelProfiles(
       inputTokenWeight: normalizeTokenWeight(row.inputTokenWeight),
       cachedInputTokenWeight: normalizeTokenWeight(row.cachedInputTokenWeight),
       outputTokenWeight: normalizeTokenWeight(row.outputTokenWeight),
+      // ADR-122 corrective: fold family default in at READ so PROD rows stored with
+      // null (brand-new fields) resolve to the published ceiling. Explicit stored
+      // value always wins; null on a KNOWN model is coerced to the default; unknown
+      // model stays null (→ resolver OUTPUT_BUDGET_FALLBACK).
+      maxOutputTokens:
+        parseOptionalPositiveIntegerFromStorage(row.maxOutputTokens) ??
+        MODEL_CAPABILITY_DEFAULTS[model]?.maxOutputTokens ??
+        null,
+      contextWindow:
+        parseOptionalPositiveIntegerFromStorage(row.contextWindow) ??
+        MODEL_CAPABILITY_DEFAULTS[model]?.contextWindow ??
+        null,
       displayLabel: nullableTrimmedString(row.displayLabel),
       notes: nullableTrimmedString(row.notes),
       videoModelParameters: capabilities.includes("video")
@@ -1130,6 +1203,7 @@ function parseLegacyCapabilityCatalog(
   return Array.from(byModel.entries()).map(([model, capabilities]) => {
     const capabilityList = Array.from(capabilities);
     const billingMode = inferBillingMode(capabilityList);
+    const capabilityDefaults = MODEL_CAPABILITY_DEFAULTS[model] ?? null;
     const base = {
       model,
       capabilities: capabilityList,
@@ -1140,6 +1214,8 @@ function parseLegacyCapabilityCatalog(
       inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+      maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
+      contextWindow: capabilityDefaults?.contextWindow ?? null,
       displayLabel: null,
       notes: null
     };
