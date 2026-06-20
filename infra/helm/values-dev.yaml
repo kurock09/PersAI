@@ -450,6 +450,9 @@ sandbox:
     SANDBOX_EXEC_IMAGE: "busybox:1.36"
     SANDBOX_EXEC_RUNTIME_CLASS_NAME: "gvisor"
     SANDBOX_EXEC_NODE_SELECTOR_VALUE: "sandbox"
+    SANDBOX_EXEC_EGRESS_PROXY_URL: "http://sandbox-egress-proxy.persai-dev.svc.cluster.local:3128"
+    # Bypass the proxy for loopback, link-local, and in-cluster addresses.
+    SANDBOX_EXEC_NO_PROXY: "localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc.cluster.local,.cluster.local"
   secretEnv:
     PERSAI_INTERNAL_API_TOKEN:
       secretName: persai-runtime-secrets
@@ -491,6 +494,29 @@ sandbox:
   service:
     type: ClusterIP
     port: 3013
+  egressProxy:
+    enabled: true
+    # ubuntu/squid 6.x on Ubuntu 24.04 — Squid forward proxy for exec pod outbound traffic.
+    image: "ubuntu/squid:6.6-24.04_edge"
+    port: 3128
+    # Domain allowlist — only these domains are reachable from exec pods via the proxy.
+    # Each entry is justified; add new entries only with explicit justification.
+    allowedDomains:
+      # Python Package Index: pip install requires pypi.org (index) and files.pythonhosted.org (wheels/sdists).
+      - pypi.org
+      - .pypi.org
+      - files.pythonhosted.org
+      - .files.pythonhosted.org
+      # npm registry: npm/npx install requires registry.npmjs.org.
+      - registry.npmjs.org
+      - .registry.npmjs.org
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
 
 ingress:
   enabled: true

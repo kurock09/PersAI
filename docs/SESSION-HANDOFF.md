@@ -3,7 +3,53 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
-## 2026-06-20 — Follow-up: multi-step working notes (`workingNotes: string[]`) — CHECKPOINT
+## 2026-06-20 — ADR-123 Slice 2: Egress proxy + deny-all exec pod network boundary — CHECKPOINT
+
+### What changed
+
+Kernel-level network isolation for gVisor exec pods: deny-all egress NetworkPolicy + trusted Squid forward proxy with domain allowlist. No `apps/runtime` changes.
+
+- **NetworkPolicy** (`infra/helm/templates/networkpolicies.yaml`): `sandbox-exec-deny-egress` selects exec pods (`app.kubernetes.io/component: sandbox-exec`), `policyTypes: [Egress]`, default deny, allowing only kube-dns (UDP+TCP/53) and the proxy pod (TCP/3128) when `egressProxy.enabled`. `sandbox-egress-proxy-isolation`: ingress only from exec pods on 3128; egress to DNS + internet on TCP 80/443.
+- **Egress proxy** (`infra/helm/templates/sandbox-egress-proxy.yaml`): Squid ConfigMap + Deployment + Service on port 3128; allowlist enforced via `acl allowed_domains dstdomain` + `http_access deny all`; hardened securityContext; writable emptyDirs for cache/logs/run.
+- **Allowed domains**: `pypi.org` / `.pypi.org` / `files.pythonhosted.org` / `.files.pythonhosted.org` (pip) + `registry.npmjs.org` / `.registry.npmjs.org` (npm) — nothing else.
+- **Config** (`packages/config/src/sandbox-config.ts`): `SANDBOX_EXEC_EGRESS_PROXY_URL` + `SANDBOX_EXEC_NO_PROXY` (both default `""`).
+- **Bridge** (`apps/sandbox/src/exec-pod-bridge.service.ts`): `buildProxyEnv()` injects `HTTP_PROXY`/`HTTPS_PROXY`/`http_proxy`/`https_proxy`/`NO_PROXY`/`no_proxy` when proxy URL non-empty; empty URL = `env: []`. Zero secrets injected.
+- **values-dev.yaml**: proxy URL and NO_PROXY set in sandbox env; `sandbox.egressProxy` block added.
+
+### Files touched
+
+| File | Purpose |
+|---|---|
+| `packages/config/src/sandbox-config.ts` | `SANDBOX_EXEC_EGRESS_PROXY_URL` + `SANDBOX_EXEC_NO_PROXY` config fields |
+| `apps/sandbox/src/exec-pod-bridge.service.ts` | `buildProxyEnv()` method; `env: this.buildProxyEnv()` in `createExecPod` |
+| `infra/helm/templates/networkpolicies.yaml` | `sandbox-exec-deny-egress` + `sandbox-egress-proxy-isolation` NetworkPolicies |
+| `infra/helm/templates/sandbox-egress-proxy.yaml` (new) | Squid ConfigMap + Deployment + Service |
+| `infra/helm/values-dev.yaml` | `SANDBOX_EXEC_EGRESS_PROXY_URL`, `SANDBOX_EXEC_NO_PROXY`, `sandbox.egressProxy` block |
+| `apps/sandbox/test/exec-pod-bridge.service.test.ts` | 2 new tests: proxy env injected when URL set; none when empty |
+| `apps/sandbox/test/sandbox-metrics.service.test.ts` | Config fixture updated with 2 new fields |
+| `docs/CHANGELOG.md` | Slice 2 entry |
+| `infra/dev/gke/RUNBOOK.md` | ADR-123 Slice 2 verification steps |
+| `docs/ADR/123-...md` | Slice 2 marked LANDED |
+
+### Tests run
+
+- `@persai/sandbox` test: 8/8 PASS (6 Slice 1 + 2 new proxy env tests)
+- `sandbox-metrics.service.test.ts`: 1/1 PASS
+- repo lint PASS · format:check PASS · `@persai/api`/`@persai/web`/`@persai/runtime`/`@persai/sandbox` typecheck PASS
+- `helm lint` PASS · `helm template` PASS (renders all new resources correctly)
+
+### Baseline SHA
+
+`29a20860` (Slice 1)
+
+### Residuals / next step
+
+- Cluster-side validation (live): verify exec pods cannot reach internet directly; verify Squid allowlist enforcement against real registries (pypi.org pass, google.com denied). See RUNBOOK §ADR-123 Slice 2.
+- Next: ADR-123 **Slice 3** — per-session container lifecycle, idle-TTL, warm pool, GCS-keyed `/workspace` rehydration.
+
+---
+
+
 
 ### What changed
 

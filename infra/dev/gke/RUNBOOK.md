@@ -324,3 +324,68 @@ kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/component=sandbox-exec -
 
 Expected: a short-lived `exec-<jobid>` pod appears with `runtimeClassName: gvisor`, reaches
 Running under the `sandbox-pool` node pool, completes, and is deleted automatically.
+
+## ADR-123 Slice 2: Egress proxy + deny-all exec pod network boundary
+
+### 1. Verify the egress proxy Deployment and Service are running
+
+```bash
+kubectl -n "${NAMESPACE}" get deploy sandbox-egress-proxy
+kubectl -n "${NAMESPACE}" get svc sandbox-egress-proxy
+kubectl -n "${NAMESPACE}" get pods -l app.kubernetes.io/name=sandbox-egress-proxy
+```
+
+Expected: 1/1 Running, Service `sandbox-egress-proxy` on port 3128.
+
+### 2. Verify NetworkPolicies are applied
+
+```bash
+kubectl -n "${NAMESPACE}" get networkpolicies
+```
+
+Expected policies present:
+
+- `sandbox-exec-deny-egress` (selects exec pods by `app.kubernetes.io/component: sandbox-exec`)
+- `sandbox-egress-proxy-isolation` (selects proxy pod by `app.kubernetes.io/name: sandbox-egress-proxy`)
+
+### 3. Verify exec pods cannot reach the internet directly
+
+Submit a sandbox job that runs `curl https://example.com` directly (without the proxy env vars set).
+The connection must time out or be refused immediately — the NetworkPolicy blocks all egress except DNS and the proxy.
+
+```bash
+# Manually inspect an exec pod's env to confirm proxy vars are present:
+kubectl -n "${NAMESPACE}" get pod <exec-pod-name> -o jsonpath='{.spec.containers[0].env}'
+```
+
+Expected: `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy` all set to
+`http://sandbox-egress-proxy.persai-dev.svc.cluster.local:3128`.
+
+### 4. Verify the proxy allowlist is enforced
+
+From within an exec pod (or by running a debug pod with exec-pod labels):
+
+```bash
+# Should succeed: pip install resolves via the allowlisted pypi.org
+https_proxy=http://sandbox-egress-proxy.persai-dev.svc.cluster.local:3128 \
+  curl -I https://pypi.org/simple/
+
+# Should be denied by Squid (403 or connection refused): domain not on allowlist
+https_proxy=http://sandbox-egress-proxy.persai-dev.svc.cluster.local:3128 \
+  curl -I https://google.com
+```
+
+Expected: pypi.org request succeeds (Squid forwards it); google.com request is denied by Squid
+with `HTTP 403 Forbidden` or TCP reset.
+
+### 5. Verify exec pods still carry zero secrets
+
+```bash
+kubectl -n "${NAMESPACE}" get pod <exec-pod-name> -o jsonpath='{.spec.containers[0].env}' | \
+  python3 -c "import sys,json; env=json.load(sys.stdin); \
+  secrets=[e for e in env if any(k in e.get('name','') for k in ['TOKEN','KEY','SECRET','DATABASE_URL'])]; \
+  print('SECRETS FOUND:', secrets) if secrets else print('CLEAN: no secrets in exec pod env')"
+```
+
+Expected: `CLEAN: no secrets in exec pod env`. Only `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`,
+`https_proxy`, `NO_PROXY`, `no_proxy` should be present (all non-secret proxy URLs/host lists).

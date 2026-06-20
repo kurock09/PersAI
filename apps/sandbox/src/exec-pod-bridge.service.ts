@@ -205,7 +205,7 @@ export class ExecPodBridgeService {
                 name: "exec",
                 image,
                 command: ["/bin/sh", "-c", "sleep infinity"],
-                env: [],
+                env: this.buildProxyEnv(),
                 securityContext: {
                   allowPrivilegeEscalation: false,
                   readOnlyRootFilesystem: true,
@@ -562,5 +562,24 @@ export class ExecPodBridgeService {
         `exec_pod_delete_failed pod=${podName} error=${error instanceof Error ? error.message : String(error)}`
       );
     }
+  }
+
+  private buildProxyEnv(): Array<{ name: string; value: string }> {
+    const proxyUrl = this.config.SANDBOX_EXEC_EGRESS_PROXY_URL;
+    if (proxyUrl.length === 0) {
+      return [];
+    }
+    const noProxy = this.config.SANDBOX_EXEC_NO_PROXY;
+    const vars: Array<{ name: string; value: string }> = [
+      { name: "HTTP_PROXY", value: proxyUrl },
+      { name: "HTTPS_PROXY", value: proxyUrl },
+      { name: "http_proxy", value: proxyUrl },
+      { name: "https_proxy", value: proxyUrl }
+    ];
+    if (noProxy.length > 0) {
+      vars.push({ name: "NO_PROXY", value: noProxy });
+      vars.push({ name: "no_proxy", value: noProxy });
+    }
+    return vars;
   }
 }

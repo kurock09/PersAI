@@ -26,7 +26,11 @@ const baseSandboxConfigSchema = z.object({
   SANDBOX_EXEC_NAMESPACE: z.string().min(1).default("persai-dev"),
   SANDBOX_EXEC_IMAGE: z.string().min(1).default("busybox:1.36"),
   SANDBOX_EXEC_RUNTIME_CLASS_NAME: z.string().min(1).default("gvisor"),
-  SANDBOX_EXEC_NODE_SELECTOR_VALUE: z.string().min(1).default("sandbox")
+  SANDBOX_EXEC_NODE_SELECTOR_VALUE: z.string().min(1).default("sandbox"),
+  // Non-secret proxy URL injected into exec pod env. Empty string = no proxy.
+  SANDBOX_EXEC_EGRESS_PROXY_URL: z.string().default(""),
+  // Comma-separated list of hosts/CIDRs to bypass the proxy (NO_PROXY convention).
+  SANDBOX_EXEC_NO_PROXY: z.string().default("")
 });
 
 const localSandboxConfigSchema = baseSandboxConfigSchema.extend({

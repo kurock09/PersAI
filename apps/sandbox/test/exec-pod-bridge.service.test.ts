@@ -25,7 +25,9 @@ function createConfig(): SandboxConfig {
     SANDBOX_EXEC_NAMESPACE: "persai-dev",
     SANDBOX_EXEC_IMAGE: "busybox:1.36",
     SANDBOX_EXEC_RUNTIME_CLASS_NAME: "gvisor",
-    SANDBOX_EXEC_NODE_SELECTOR_VALUE: "sandbox"
+    SANDBOX_EXEC_NODE_SELECTOR_VALUE: "sandbox",
+    SANDBOX_EXEC_EGRESS_PROXY_URL: "",
+    SANDBOX_EXEC_NO_PROXY: ""
   };
 }
 
@@ -246,4 +248,125 @@ test("ExecPodBridgeService: session-scoped pod name is stable across calls with 
 
   const otherName = access.buildPodName("00000000-0000-0000-0000-000000000001");
   assert.notEqual(name, otherName, "different jobIds must produce different pod names");
+});
+
+test("ExecPodBridgeService: createExecPod injects proxy env vars when proxy URL is set", async () => {
+  const proxyUrl = "http://sandbox-egress-proxy.persai-dev.svc.cluster.local:3128";
+  const noProxy =
+    "localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc.cluster.local,.cluster.local";
+  const configWithProxy: SandboxConfig = {
+    ...createConfig(),
+    SANDBOX_EXEC_EGRESS_PROXY_URL: proxyUrl,
+    SANDBOX_EXEC_NO_PROXY: noProxy
+  };
+
+  const ctx: MockK8sContext = {
+    createdPods: [],
+    podPhaseSequence: ["Running"],
+    execResponses: [
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" }
+    ],
+    deletedPods: [],
+    execCallCount: 0
+  };
+
+  const bridge = new ExecPodBridgeService(configWithProxy);
+  (bridge as unknown as { kc: KubeConfigLike }).kc = {
+    loadFromCluster() {},
+    makeApiClient() {
+      return {
+        async createNamespacedPod(params: { namespace: string; body: V1Pod }) {
+          ctx.createdPods.push({ namespace: params.namespace, body: params.body });
+          return params.body as never;
+        },
+        async readNamespacedPod() {
+          return { status: { phase: "Running" } } as never;
+        },
+        async deleteNamespacedPod(params: { name: string; namespace: string }) {
+          ctx.deletedPods.push(params.name);
+          return {} as never;
+        }
+      } as never;
+    }
+  };
+  (bridge as unknown as { k8sApi: unknown }).k8sApi = {
+    async createNamespacedPod(params: { namespace: string; body: V1Pod }) {
+      ctx.createdPods.push({ namespace: params.namespace, body: params.body });
+      return params.body as never;
+    },
+    async readNamespacedPod() {
+      return { status: { phase: "Running" } } as never;
+    },
+    async deleteNamespacedPod(params: { name: string; namespace: string }) {
+      ctx.deletedPods.push(params.name);
+      return {} as never;
+    }
+  };
+
+  const access = bridge as unknown as {
+    createExecPod(
+      podName: string,
+      namespace: string,
+      policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY
+    ): Promise<void>;
+  };
+
+  await access.createExecPod("exec-testproxy", "persai-dev", {
+    ...DEFAULT_RUNTIME_SANDBOX_POLICY,
+    enabled: true
+  });
+
+  assert.equal(ctx.createdPods.length, 1);
+  const pod = ctx.createdPods[0];
+  assert.ok(pod !== undefined);
+  const container = pod.body.spec?.containers?.[0];
+  assert.ok(container !== undefined);
+
+  const env = container.env ?? [];
+  const envMap = Object.fromEntries(env.map((e) => [e.name, e.value]));
+
+  assert.equal(envMap["HTTP_PROXY"], proxyUrl, "HTTP_PROXY must be the proxy URL");
+  assert.equal(envMap["HTTPS_PROXY"], proxyUrl, "HTTPS_PROXY must be the proxy URL");
+  assert.equal(envMap["http_proxy"], proxyUrl, "http_proxy must be the proxy URL");
+  assert.equal(envMap["https_proxy"], proxyUrl, "https_proxy must be the proxy URL");
+  assert.equal(envMap["NO_PROXY"], noProxy, "NO_PROXY must be set");
+  assert.equal(envMap["no_proxy"], noProxy, "no_proxy must be set");
+  assert.equal(env.length, 6, "exactly 6 proxy env vars when proxy URL and NO_PROXY are both set");
+});
+
+test("ExecPodBridgeService: createExecPod injects no env vars when proxy URL is empty", async () => {
+  const ctx: MockK8sContext = {
+    createdPods: [],
+    podPhaseSequence: ["Running"],
+    execResponses: [
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" }
+    ],
+    deletedPods: [],
+    execCallCount: 0
+  };
+
+  const bridge = buildMockBridge(ctx);
+  const access = bridge as unknown as {
+    createExecPod(
+      podName: string,
+      namespace: string,
+      policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY
+    ): Promise<void>;
+  };
+
+  await access.createExecPod("exec-noproxy", "persai-dev", {
+    ...DEFAULT_RUNTIME_SANDBOX_POLICY,
+    enabled: true
+  });
+
+  assert.equal(ctx.createdPods.length, 1);
+  const pod = ctx.createdPods[0];
+  assert.ok(pod !== undefined);
+  const container = pod.body.spec?.containers?.[0];
+  assert.ok(container !== undefined);
+  assert.deepEqual(container.env, [], "env must be empty when proxy URL is not configured");
 });

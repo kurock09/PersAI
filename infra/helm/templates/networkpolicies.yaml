@@ -63,3 +63,89 @@ spec:
           port: {{ .Values.sandbox.service.port }}
 {{- end }}
 ---
+{{- if and .Values.networkPolicy.enabled .Values.sandbox.enabled }}
+{{- $proxyPort := .Values.sandbox.egressProxy.port | int }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-exec-deny-egress
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: sandbox-exec
+  policyTypes:
+    - Egress
+  egress:
+    # DNS: allow kube-dns so package managers can resolve hostnames.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- if .Values.sandbox.egressProxy.enabled }}
+    # Egress proxy: allow only to the trusted Squid pod on the proxy port.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sandbox-egress-proxy
+      ports:
+        - protocol: TCP
+          port: {{ $proxyPort }}
+{{- end }}
+{{- end }}
+---
+{{- if and .Values.networkPolicy.enabled .Values.sandbox.enabled .Values.sandbox.egressProxy.enabled }}
+{{- $proxyPort := .Values.sandbox.egressProxy.port | int }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-egress-proxy-isolation
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sandbox-egress-proxy
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Accept connections only from exec pods.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: sandbox-exec
+      ports:
+        - protocol: TCP
+          port: {{ $proxyPort }}
+  egress:
+    # DNS: allow kube-dns for hostname resolution.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Internet: the proxy is the L7 enforcement boundary; its own egress is allowed
+    # on HTTP(S) ports to the allowlisted domains (enforced by Squid, not here).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+{{- end }}
+---

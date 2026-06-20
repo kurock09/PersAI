@@ -99,7 +99,7 @@ Bounded slices for the orchestrator to dispatch to `sonnet` sub-agents. Each sli
 **Foundation (sequential):**
 
 - **Slice 1 — Isolation & secret-free execution baseline.** D1 + D2: gVisor node pool + `runtimeClassName`, hardened `securityContext`, dedicated least-privilege SA, remove `DATABASE_URL`/internal-token from the execution env, split control-plane vs execution roles. Verify a model command cannot read pod secrets.
-- **Slice 2 — Egress proxy + allowlist.** D3: NetworkPolicy Egress + proxy with domain allowlist; remove `assertNetworkPolicy` string scan; scoped-credential injection at the proxy. Verify deny-all egress and allowlisted package install.
+- **Slice 2 — Egress proxy + allowlist.** D3: NetworkPolicy Egress + proxy with domain allowlist; remove `assertNetworkPolicy` string scan; scoped-credential injection at the proxy. Verify deny-all egress and allowlisted package install. **[LANDED — 2026-06-20]**
 - **Slice 3 — Per-session lifecycle + warm pool + persisted workspace.** D4: per-session container, idle-TTL, warm pool, GCS-keyed `/workspace` rehydration. Verify files persist within a session and across pod restart.
 - **Slice 4 — Image stack.** D5: Python + doc/data libs + Chromium + ripgrep/fd; Node retained. Verify `python3`, `weasyprint`, `chromium`, `rg`, `fd` all run inside the sandbox.
 
