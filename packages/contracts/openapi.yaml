@@ -12094,10 +12094,11 @@ components:
           allOf:
             - $ref: "#/components/schemas/AssistantWebChatPlatformNoticeState"
           nullable: true
-        workingPreamble:
-          type: string
-          nullable: true
-          description: Text the model produced before the first tool call (preamble). Absent/null when no tools ran.
+        workingNotes:
+          type: array
+          items:
+            type: string
+          description: The texts the model produced before each tool call across the tool loop, one entry per step. Absent/empty when no tools ran.
     AssistantWebChatRuntimeState:
       type: object
       required:

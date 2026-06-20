@@ -3,6 +3,44 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-20 — Follow-up: multi-step working notes (`workingNotes: string[]`) — CHECKPOINT
+
+### What changed
+
+The single pre-first-tool "working preamble" string was replaced everywhere by an ordered per-step array `workingNotes: string[]` = the text the model writes before EACH tool call across all tool-loop iterations (empty array = no notes). The old `preambleText` / `workingPreamble` field is gone from contract, API, UI, persistence, and mapper.
+
+- **Runtime** (`turn-execution.service.ts`): notes captured on EVERY `tool_calls` event (was once at `iteration === 0`) from that iteration's own `event.result.text` (per-iteration, not the cumulative `assembledText`). New pure exported `assembleWorkingNotesAndAnswer({ toolStepTexts, finalAnswerText, fullAssistantText })` → `{ workingNotes, answerText, assistantText }`; old `splitPreambleAndAnswer` removed. `answerText` taken from the final iteration's own corrected text (`correctedFinalAnswerText`), never the cumulative `providerResult.text` (the prior duplication bug); `assistantText` stays the verbatim cumulative corrected text.
+- **Invariants** (locked in tests): `workingNotes`=each step once; `answerText`=final answer only; `assistantText`=each note once then answer; no-tools → `[]` + `answerText===assistantText`; empty answer after tools → `answerText=""`; whitespace-only note dropped.
+- **Contract:** `RuntimeTurnResult.workingNotes: string[]` (`runtime-contract`); `AssistantWebChatMessageState.workingNotes` (string array) in `openapi.yaml`, contracts regenerated + formatted.
+- **API:** done chunk + facade carry `workingNotes`; `persist-assistant-message.ts` writes `metadata.workingNotes` only when non-empty; mapper `extractWorkingNotesFromMetadata` → `string[]`. **Symptom-1 fix:** live `completed` transport in `stream-web-chat-turn.service.ts` (`runtimeWorkingNotes`) now includes `workingNotes` on the hand-built `assistantMessage` so the "Выполнено" block shows without reopening the chat.
+- **UI:** `assistant-api-client.ts`, `use-chat.ts` (both `onCompleted` handlers), `chat-message.tsx` (`WorkingTextBlocks` reads `message.workingNotes` directly, no `\n\n` split).
+- **Backfill:** `backfill-working-preamble.ts` → idempotent `backfill-working-notes.ts` (skip already-`workingNotes` rows; `workingPreamble` string → `[workingPreamble]`; legacy `:::working` markers → parsed array + cleaned content).
+
+### Files touched
+
+| File | Purpose |
+|---|---|
+| `packages/runtime-contract/src/index.ts` | `preambleText` → `workingNotes: string[]` on `RuntimeTurnResult` |
+| `packages/contracts/openapi.yaml` + `src/generated/model/assistantWebChatMessageState.ts` | `workingPreamble` → `workingNotes` (array); regenerated |
+| `apps/runtime/src/modules/turns/turn-execution.service.ts` | per-step capture + `assembleWorkingNotesAndAnswer`; `buildTurnResult` rework |
+| `apps/runtime/test/assemble-working-notes-and-answer.test.ts` (new) + `run-suite.ts` / `run-suite-isolated.ts` | unit suite for the pure assembler; registered |
+| `apps/runtime/test/turn-execution.service.test.ts` | multi-step capture + dedupe assertions (replaces split test) |
+| `apps/api/.../web-runtime-stream-client.service.ts`, `assistant-runtime.facade.ts`, `persist-assistant-message.ts`, `stream-web-chat-turn.service.ts`, `web-chat-message-state.mapper.ts`, `web-chat.types.ts` | `workingNotes` end to end + Symptom-1 live transport |
+| `apps/api/prisma/backfill-working-notes.ts` (+ `.test.ts`) | idempotent migration (replaces `backfill-working-preamble.*`) |
+| `apps/web/app/app/assistant-api-client.ts`, `_components/use-chat.ts`, `_components/chat-message.tsx` | `workingNotes` on client + render |
+| api/web test suites | migrated off `workingPreamble`/`preambleText` |
+
+### Tests run
+
+- `runAssembleWorkingNotesAndAnswerTest`: PASS · `runTurnExecutionServiceTest`: PASS (multi-step fails on naive cumulative-as-answer impl — verified by temporary revert)
+- `backfill-working-notes.test.ts`: 9/9 · `stream-web-chat-turn.service.test.ts`: 15/15 · `stream-native-web-chat-turn.service.test.ts`: 9/9
+- web `chat-message` / `use-chat` / `chat-message-streaming`: 132/132
+- repo lint PASS · format:check PASS · `@persai/api`/`@persai/web`/`@persai/runtime`/`@persai/runtime-contract` typecheck PASS
+
+### Residuals / next step
+
+Run `backfill-working-notes.ts` once in PROD to migrate legacy rows. No new ADR (follow-up to the prior preamble/answer split). Old field name remains only in the backfill's legacy-read paths and historical CHANGELOG/handoff entries.
+
 ## 2026-06-20 — ADR-122 Slice 1: maxOutputTokens + contextWindow model capabilities — CHECKPOINT
 
 ### What changed

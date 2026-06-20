@@ -4592,8 +4592,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(completedEvent?.type, "completed");
   if (completedEvent?.type === "completed") {
     assert.equal(completedEvent.result.assistantText, "runtime reply");
-    // No tools ran → no preamble; answerText equals the full text.
-    assert.equal(completedEvent.result.preambleText, null);
+    // No tools ran → no working notes; answerText equals the full text.
+    assert.deepEqual(completedEvent.result.workingNotes, []);
     assert.equal(completedEvent.result.answerText, "runtime reply");
     assert.equal(completedEvent.result.trace?.scope, "stream_turn");
     assert.equal(completedEvent.result.trace?.status, "ok");
@@ -4848,17 +4848,30 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const dedupeToolLoopCompletedEvent = dedupeToolLoopStreamEvents.at(-1);
   assert.equal(dedupeToolLoopCompletedEvent?.type, "completed");
   if (dedupeToolLoopCompletedEvent?.type === "completed") {
-    // Backward-compat full text = the real corrected merged text (single
-    // preamble, never doubled).
+    // Multi-step working notes (Variant 2): a tool-loop turn with two
+    // `tool_calls` steps (note0="First plan.", note1="Second plan.") and a
+    // final answer ("Final answer.").
+    //
+    // Backward-compat full text = the real corrected merged text — each note
+    // appears EXACTLY ONCE followed by the answer (never doubled).
+    const dedupeAssistantText = dedupeToolLoopCompletedEvent.result.assistantText;
+    assert.equal(dedupeAssistantText, "First plan. Second plan. Final answer.");
+    assert.equal(dedupeAssistantText.split("First plan.").length - 1, 1);
+    assert.equal(dedupeAssistantText.split("Second plan.").length - 1, 1);
+    assert.equal(dedupeAssistantText.split("Final answer.").length - 1, 1);
+    // workingNotes = the per-step pre-tool texts, one entry per step.
+    assert.deepEqual(dedupeToolLoopCompletedEvent.result.workingNotes, [
+      "First plan.",
+      "Second plan."
+    ]);
+    // answerText = the FINAL-iteration answer ONLY — it must NOT re-contain the
+    // working notes (the historical duplication bug produced
+    // "Second plan. Final answer." here).
+    assert.equal(dedupeToolLoopCompletedEvent.result.answerText, "Final answer.");
     assert.equal(
-      dedupeToolLoopCompletedEvent.result.assistantText,
-      "First plan. Second plan. Final answer."
+      (dedupeToolLoopCompletedEvent.result.answerText ?? "").includes("Second plan."),
+      false
     );
-    // ADR-120-era tool-loop split: preamble is the iteration-0 pre-tool text;
-    // answerText is the full text with that preamble stripped (NOT the full
-    // text, and the preamble is never duplicated into the answer).
-    assert.equal(dedupeToolLoopCompletedEvent.result.preambleText, "First plan.");
-    assert.equal(dedupeToolLoopCompletedEvent.result.answerText, "Second plan. Final answer.");
   }
 
   if (bundleRegistry.entry !== null) {

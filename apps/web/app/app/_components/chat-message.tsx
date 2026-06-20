@@ -1665,24 +1665,16 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     if (message.role !== "assistant") {
       return { workingBlocks: [], answerText: message.content };
     }
-    // workingPreamble is the structured field from the server;
-    // content is always the clean final answer.
-    const preamble =
-      typeof message.workingPreamble === "string" && message.workingPreamble.trim().length > 0
-        ? message.workingPreamble
-        : null;
-    const preambleBlocks =
-      preamble !== null
-        ? preamble
-            .split(/\n\n+/)
-            .map((b) => b.trim())
-            .filter((b) => b.length > 0)
-        : [];
+    // workingNotes is the structured multi-step field from the server (one entry
+    // per tool-loop step); content is always the clean final answer.
+    const workingBlocks = Array.isArray(message.workingNotes)
+      ? message.workingNotes.map((note) => note.trim()).filter((note) => note.length > 0)
+      : [];
     return {
-      workingBlocks: preambleBlocks,
+      workingBlocks,
       answerText: message.content
     };
-  }, [message.content, message.role, message.workingPreamble]);
+  }, [message.content, message.role, message.workingNotes]);
   const hasWorkingBlocks = assistantSegments.workingBlocks.length > 0;
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const showPreResponseStatus =

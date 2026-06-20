@@ -68,8 +68,8 @@ export interface AssistantWebChatMessageState {
   attachments: AssistantWebChatMessageAttachmentState[];
   createdAt: string;
   platformNotice?: AssistantWebChatPlatformNoticeState;
-  /** Preamble text the model wrote before the first tool call. null/absent when no tools ran. */
-  workingPreamble?: string | null;
+  /** The texts the model wrote before each tool call across the tool loop. Absent/empty when no tools ran. */
+  workingNotes?: string[];
 }
 
 export interface AssistantWebChatTurnRoutingState {

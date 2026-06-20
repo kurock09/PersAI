@@ -896,7 +896,7 @@ describe("ChatMessageBubble — pre-response status", () => {
       <ChatMessageBubble
         message={makeAssistantMessage({
           content: "Да. Вот итог.",
-          workingPreamble: "Смотрю документацию HeyGen.\n\nОткрываю точную страницу API."
+          workingNotes: ["Смотрю документацию HeyGen.", "Открываю точную страницу API."]
         })}
         preResponseStatus={{ kind: "thinking" }}
       />
@@ -915,7 +915,7 @@ describe("ChatMessageBubble — pre-response status", () => {
           thoughtStartedAt: "2026-05-02T10:00:00.000Z",
           thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
           content: "Готово.",
-          workingPreamble: "Проверяю сайт."
+          workingNotes: ["Проверяю сайт."]
         })}
       />
     );
@@ -943,7 +943,7 @@ describe("ChatMessageBubble — pre-response status", () => {
           thoughtStartedAt: "2026-05-02T10:00:20.000Z",
           thoughtFinishedAt: "2026-05-02T10:00:00.000Z",
           content: "Готово.",
-          workingPreamble: "Проверяю сайт."
+          workingNotes: ["Проверяю сайт."]
         })}
       />
     );
@@ -961,7 +961,7 @@ describe("ChatMessageBubble — pre-response status", () => {
           status: "committed",
           thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
           content: "Done.",
-          workingPreamble: "Checking facts.",
+          workingNotes: ["Checking facts."],
           engagementSummary: { skillDisplayName: "Finance", scenarioDisplayName: null }
         })}
       />
@@ -982,7 +982,7 @@ describe("ChatMessageBubble — pre-response status", () => {
           status: "committed",
           thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
           content: "Done.",
-          workingPreamble: "Working on carousel.",
+          workingNotes: ["Working on carousel."],
           engagementSummary: {
             skillDisplayName: "Маркетолог",
             scenarioDisplayName: "Instagram-карусель"
@@ -1006,7 +1006,7 @@ describe("ChatMessageBubble — pre-response status", () => {
           status: "committed",
           thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
           content: "Done.",
-          workingPreamble: "Working.",
+          workingNotes: ["Working."],
           engagementSummary: null
         })}
       />
@@ -1021,7 +1021,7 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Done.",
-          workingPreamble: "Working."
+          workingNotes: ["Working."]
         })}
       />
     );
@@ -1036,7 +1036,7 @@ describe("ChatMessageBubble — pre-response status", () => {
           status: "committed",
           thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
           content: "Done.",
-          workingPreamble: "Some notes.",
+          workingNotes: ["Some notes."],
           engagementSummary: { skillDisplayName: "Finance", scenarioDisplayName: null }
         })}
       />

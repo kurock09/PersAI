@@ -2964,20 +2964,23 @@ export interface RuntimeTurnResult {
   requestId: string;
   sessionId: string;
   /**
-   * Backward-compat full text: equals `preambleText + "\n\n" + answerText` when
-   * a preamble exists, otherwise equals `answerText`. Telegram and non-web
-   * consumers should continue using this field.
+   * Backward-compat full text: the cumulative corrected turn text, in which
+   * every working note appears exactly once followed by the final answer.
+   * Equals `answerText` when no tools ran. Telegram and non-web consumers
+   * should continue using this field.
    */
   assistantText: string;
   /**
-   * Text the model produced in iteration 0 BEFORE the first tool call.
-   * `null` when no tools ran in the turn. The preamble is NOT passed through
-   * `applyAssistantTextCorrections` — it is "as said in the moment".
+   * The texts the model produced BEFORE each tool call across the tool loop,
+   * one entry per step (in order). Each entry is the provider text of that
+   * iteration only — never the cumulative text — so a later step's note never
+   * re-contains an earlier note. Empty array when no tools ran.
    */
-  preambleText?: string | null;
+  workingNotes?: string[];
   /**
    * The sanitised final answer after the last tool finished (or the entire
-   * text when no tools ran). This is the authoritative content to persist.
+   * text when no tools ran). Contains no working notes. This is the
+   * authoritative content to persist.
    */
   answerText?: string;
   artifacts: RuntimeOutputArtifact[];

@@ -183,8 +183,8 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   discoveredFileRefIds?: string[];
   /** The authoritative final answer from the runtime `completed` event. Carried on `done` only. */
   finalAnswer?: string;
-  /** Preamble text the model wrote before the first tool call. null when no tools ran. Carried on `done` only. */
-  workingPreamble?: string | null;
+  /** The texts the model wrote before each tool call across the tool loop. Empty when no tools ran. Carried on `done` only. */
+  workingNotes?: string[];
   /** ADR-122 Slice 3: true when the provider stopped due to max_output_tokens. Carried on `done` only. */
   truncated?: boolean;
   code?: string;

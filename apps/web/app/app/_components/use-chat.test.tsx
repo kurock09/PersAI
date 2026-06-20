@@ -314,7 +314,7 @@ describe("useChat", () => {
     expect(assistantEntry?.message.id).toBe("assistant-msg-1");
   });
 
-  it("preserves prior working preamble when completed transport carries workingPreamble field", async () => {
+  it("preserves working notes when completed transport carries workingNotes field", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
         _token: string,
@@ -347,7 +347,7 @@ describe("useChat", () => {
             assistantMessage: {
               id: "assistant-msg-1",
               content: "Итоговый ответ",
-              workingPreamble: "Проверяю сайт.",
+              workingNotes: ["Проверяю сайт."],
               attachments: []
             },
             runtime: null
@@ -368,7 +368,7 @@ describe("useChat", () => {
     );
 
     expect(assistantEntry?.message.content).toBe("Итоговый ответ");
-    expect(assistantEntry?.message.workingPreamble).toBe("Проверяю сайт.");
+    expect(assistantEntry?.message.workingNotes).toEqual(["Проверяю сайт."]);
   });
 
   it("keeps primary stream ownership when focus status returns running before completed", async () => {

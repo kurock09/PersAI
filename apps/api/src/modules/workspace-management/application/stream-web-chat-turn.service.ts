@@ -73,6 +73,7 @@ import { BackgroundCompactionQueueService } from "./background-compaction-queue.
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
+import { extractWorkingNotesFromMetadata } from "./web-chat-message-state.mapper";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -355,8 +356,8 @@ export class StreamWebChatTurnService {
     let discoveredFileRefIds: string[] | undefined = undefined;
     /** The authoritative final answer from the runtime `completed` event. null until the `done` chunk arrives. */
     let runtimeFinalAnswer: string | null = null;
-    /** Preamble from the runtime. null when no tools ran or before `done` arrives. */
-    let runtimeWorkingPreamble: string | null = null;
+    /** Working notes from the runtime. Empty when no tools ran or before `done` arrives. */
+    let runtimeWorkingNotes: string[] = [];
     /** ADR-122 Slice 3: true when the runtime reported truncated=true on the done chunk. */
     let runtimeTruncated = false;
     const collectedMedia: RuntimeMediaArtifact[] = [];
@@ -506,8 +507,8 @@ export class StreamWebChatTurnService {
         if (result.finalAnswer !== null) {
           runtimeFinalAnswer = result.finalAnswer;
         }
-        if (result.workingPreamble !== null) {
-          runtimeWorkingPreamble = result.workingPreamble;
+        if (result.workingNotes.length > 0) {
+          runtimeWorkingNotes = result.workingNotes;
         }
         if (result.truncated === true) {
           runtimeTruncated = true;
@@ -580,7 +581,7 @@ export class StreamWebChatTurnService {
         });
         accumulated = "";
         runtimeFinalAnswer = null;
-        runtimeWorkingPreamble = null;
+        runtimeWorkingNotes = [];
         respondedAt = null;
         turnRouting = null;
         primaryFirstDeltaMs = null;
@@ -698,7 +699,7 @@ export class StreamWebChatTurnService {
         discoveredFileRefIds,
         deferredMediaJobCount: deferredMediaJobs?.length,
         sourceUserMessageId: prepared.userMessage.id,
-        workingPreamble: runtimeWorkingPreamble ?? undefined,
+        workingNotes: runtimeWorkingNotes.length > 0 ? runtimeWorkingNotes : undefined,
         partialStatus: isCompletedNormally ? undefined : "partial",
         truncatedStatus: isCompletedNormally && runtimeTruncated ? "truncated" : undefined
       });
@@ -841,7 +842,10 @@ export class StreamWebChatTurnService {
             author: assistantMessage.author,
             content: postRuntime.finalAssistantContent,
             attachments: postRuntime.deliveredAttachments,
-            createdAt: assistantMessage.createdAt.toISOString()
+            createdAt: assistantMessage.createdAt.toISOString(),
+            // Symptom 1 fix: carry the working notes on the live completed
+            // transport so the "Done" block appears without reopening the chat.
+            ...(runtimeWorkingNotes.length > 0 ? { workingNotes: runtimeWorkingNotes } : {})
           },
           ...(postRuntime.followUpAssistantMessage === null
             ? {}
@@ -1078,7 +1082,7 @@ export class StreamWebChatTurnService {
     status: "completed" | "client-aborted" | "stalled" | "retry_after_compaction";
     accumulated: string;
     finalAnswer: string | null;
-    workingPreamble: string | null;
+    workingNotes: string[];
     respondedAt: string | null;
     usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
     turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
@@ -1094,7 +1098,7 @@ export class StreamWebChatTurnService {
   }> {
     let accumulated = input.attempt === 1 ? input.accumulatedSoFar : "";
     let finalAnswer: string | null = null;
-    let workingPreamble: string | null = null;
+    let workingNotes: string[] = [];
     let truncated: true | undefined = undefined;
     let respondedAt: string | null = null;
     let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
@@ -1145,7 +1149,7 @@ export class StreamWebChatTurnService {
             status: "client-aborted",
             accumulated,
             finalAnswer: null,
-            workingPreamble: null,
+            workingNotes: [],
             respondedAt,
             usageAccounting,
             turnRouting,
@@ -1294,12 +1298,12 @@ export class StreamWebChatTurnService {
           deferredMediaJobs = chunk.deferredMediaJobs;
           toolInvocations = chunk.toolInvocations;
           discoveredFileRefIds = chunk.discoveredFileRefIds;
-          // Capture the authoritative final answer and preamble from the runtime.
+          // Capture the authoritative final answer and working notes from the runtime.
           if (typeof chunk.finalAnswer === "string") {
             finalAnswer = chunk.finalAnswer;
           }
-          if (chunk.workingPreamble !== undefined) {
-            workingPreamble = chunk.workingPreamble;
+          if (Array.isArray(chunk.workingNotes)) {
+            workingNotes = chunk.workingNotes;
           }
           if (chunk.truncated === true) {
             truncated = true;
@@ -1326,7 +1330,7 @@ export class StreamWebChatTurnService {
           status: "stalled",
           accumulated,
           finalAnswer: null,
-          workingPreamble: null,
+          workingNotes: [],
           respondedAt,
           usageAccounting,
           turnRouting,
@@ -1357,7 +1361,7 @@ export class StreamWebChatTurnService {
           status: "retry_after_compaction",
           accumulated,
           finalAnswer: null,
-          workingPreamble: null,
+          workingNotes: [],
           respondedAt,
           usageAccounting,
           turnRouting,
@@ -1381,7 +1385,7 @@ export class StreamWebChatTurnService {
         status: "client-aborted",
         accumulated,
         finalAnswer: null,
-        workingPreamble: null,
+        workingNotes: [],
         respondedAt,
         usageAccounting,
         turnRouting,
@@ -1403,7 +1407,7 @@ export class StreamWebChatTurnService {
         status: "completed",
         accumulated,
         finalAnswer,
-        workingPreamble,
+        workingNotes,
         respondedAt,
         usageAccounting,
         turnRouting,
@@ -1422,7 +1426,7 @@ export class StreamWebChatTurnService {
       status: "completed",
       accumulated,
       finalAnswer,
-      workingPreamble,
+      workingNotes,
       respondedAt,
       usageAccounting,
       turnRouting,
@@ -1658,7 +1662,11 @@ export class StreamWebChatTurnService {
         author: assistantMessage.author,
         content: assistantMessage.content,
         attachments: assistantAttachments.map((attachment) => toAttachmentState(attachment)),
-        createdAt: assistantMessage.createdAt.toISOString()
+        createdAt: assistantMessage.createdAt.toISOString(),
+        ...(() => {
+          const replayWorkingNotes = extractWorkingNotesFromMetadata(assistantMessage.metadata);
+          return replayWorkingNotes.length > 0 ? { workingNotes: replayWorkingNotes } : {};
+        })()
       },
       ...(followUpAssistantMessage === null
         ? {}

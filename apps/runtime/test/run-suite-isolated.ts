@@ -106,8 +106,8 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   },
   { modulePath: "./tool-budget-policy.test.ts", exportName: "runToolBudgetPolicyTest" },
   {
-    modulePath: "./split-preamble-and-answer.test.ts",
-    exportName: "runSplitPreambleAndAnswerTest"
+    modulePath: "./assemble-working-notes-and-answer.test.ts",
+    exportName: "runAssembleWorkingNotesAndAnswerTest"
   },
   {
     modulePath: "./build-system-reminder-blocks.service.test.ts",

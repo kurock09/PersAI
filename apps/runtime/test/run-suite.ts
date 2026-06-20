@@ -32,7 +32,7 @@ import { runRuntimeVideoGenerateToolServiceTest } from "./runtime-video-generate
 import { runRuntimeMemoryWriteToolServiceTest } from "./runtime-memory-write-tool.service.test";
 import { runSanitizeToolResultForModelTest } from "./sanitize-tool-result-for-model.test";
 import { runToolBudgetPolicyTest } from "./tool-budget-policy.test";
-import { runSplitPreambleAndAnswerTest } from "./split-preamble-and-answer.test";
+import { runAssembleWorkingNotesAndAnswerTest } from "./assemble-working-notes-and-answer.test";
 import { runBuildSystemReminderBlocksServiceTest } from "./build-system-reminder-blocks.service.test";
 import { runAdr119GoldenPromptSnapshotTest } from "./adr119-golden-prompt-snapshot.test";
 import { runAdr119Invariantstest } from "./native-tool-projection.test";
@@ -66,7 +66,7 @@ async function run(): Promise<void> {
   await runPresenceRendererTest();
   await runTurnContextHydrationServiceTest();
   await runToolBudgetPolicyTest();
-  await runSplitPreambleAndAnswerTest();
+  await runAssembleWorkingNotesAndAnswerTest();
   await runSanitizeToolResultForModelTest();
   await runBuildSystemReminderBlocksServiceTest();
   await runTurnExecutionServiceTest();

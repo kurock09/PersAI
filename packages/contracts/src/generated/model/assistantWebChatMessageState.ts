@@ -18,9 +18,6 @@ export interface AssistantWebChatMessageState {
   createdAt: string;
   /** @nullable */
   platformNotice?: AssistantWebChatMessageStatePlatformNotice;
-  /**
-   * Text the model produced before the first tool call (preamble). Absent/null when no tools ran.
-   * @nullable
-   */
-  workingPreamble?: string | null;
+  /** The texts the model produced before each tool call across the tool loop, one entry per step. Absent/empty when no tools ran. */
+  workingNotes?: string[];
 }

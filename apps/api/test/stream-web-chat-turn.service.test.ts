@@ -410,7 +410,7 @@ describe("StreamWebChatTurnService", () => {
             type: "done",
             respondedAt: "2026-04-05T12:00:01.000Z",
             finalAnswer: "Готово.",
-            workingPreamble: "Сначала проверю файл.",
+            workingNotes: ["Сначала проверю файл."],
             turnRouting: {
               mode: "shadow",
               executionMode: "premium",
@@ -505,11 +505,10 @@ describe("StreamWebChatTurnService", () => {
     // Golden test 2: no working markers in content
     assert.doesNotMatch(String(createdMessages[0]?.content), /:::working/);
     assert.doesNotMatch(String(createdMessages[0]?.content), /:::/);
-    // Golden test 3: preamble preserved in metadata
-    assert.equal(
-      (createdMessages[0]?.metadata as Record<string, unknown>)?.workingPreamble,
+    // Golden test 3: working notes preserved in metadata as an array
+    assert.deepEqual((createdMessages[0]?.metadata as Record<string, unknown>)?.workingNotes, [
       "Сначала проверю файл."
-    );
+    ]);
   });
 
   test("persists final answer from done chunk without working markers (multi-tool turn)", async () => {
@@ -600,7 +599,7 @@ describe("StreamWebChatTurnService", () => {
             type: "done",
             respondedAt: "2026-04-05T12:00:01.000Z",
             finalAnswer: "Done.",
-            workingPreamble: "First plan.",
+            workingNotes: ["First plan.", "Second plan."],
             turnRouting: {
               mode: "shadow",
               executionMode: "premium",
@@ -693,11 +692,17 @@ describe("StreamWebChatTurnService", () => {
     // content is the clean final answer — no :::working markers
     assert.equal(createdMessages[0]?.content, "Done.");
     assert.doesNotMatch(String(createdMessages[0]?.content), /:::working/);
-    // preamble preserved in metadata
-    assert.equal(
-      (createdMessages[0]?.metadata as Record<string, unknown>)?.workingPreamble,
-      "First plan."
-    );
+    // multi-step working notes preserved in metadata as an array
+    assert.deepEqual((createdMessages[0]?.metadata as Record<string, unknown>)?.workingNotes, [
+      "First plan.",
+      "Second plan."
+    ]);
+    // Symptom 1: the live completed transport carries workingNotes so the
+    // "Done" block renders without reopening the chat.
+    const liveTransport = (outcome as { transport?: Record<string, unknown> | null }).transport;
+    const liveAssistantMessage = (liveTransport as { assistantMessage?: Record<string, unknown> })
+      ?.assistantMessage;
+    assert.deepEqual(liveAssistantMessage?.workingNotes, ["First plan.", "Second plan."]);
   });
 
   test("delivers compaction follow-up on streamed turns after media has already been attached", async () => {

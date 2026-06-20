@@ -90,8 +90,8 @@ export interface ChatMessage {
   thoughtStartedAt?: string | null;
   thoughtFinishedAt?: string | null;
   engagementSummary?: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
-  /** Preamble text the model wrote before the first tool call. null/absent when no tools ran. */
-  workingPreamble?: string | null;
+  /** The texts the model wrote before each tool call across the tool loop. Absent/empty when no tools ran. */
+  workingNotes?: string[];
 }
 export interface RecentAutoCompactionNotice {
   detectedAt: string;
@@ -554,7 +554,9 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
     content: message.content,
     status: "committed",
     ...(message.platformNotice ? { platformNotice: message.platformNotice } : {}),
-    ...(message.workingPreamble != null ? { workingPreamble: message.workingPreamble } : {}),
+    ...(Array.isArray(message.workingNotes) && message.workingNotes.length > 0
+      ? { workingNotes: message.workingNotes }
+      : {}),
     attachments:
       message.attachments.length > 0 ? (message.attachments as ChatAttachment[]) : undefined
   };
@@ -3058,7 +3060,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             assistantMessage?: {
               id?: string;
               content?: string;
-              workingPreamble?: string | null;
+              workingNotes?: string[];
               attachments?: ChatAttachment[];
             };
             followUpAssistantMessage?: {
@@ -3122,10 +3124,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   typeof t?.assistantMessage?.content === "string"
                     ? reconcileAuthoritativeAssistantContent(m.content, t.assistantMessage.content)
                     : null;
-                const authoritativeWorkingPreamble =
-                  typeof t?.assistantMessage?.workingPreamble === "string" &&
-                  t.assistantMessage.workingPreamble.trim().length > 0
-                    ? t.assistantMessage.workingPreamble
+                const authoritativeWorkingNotes =
+                  Array.isArray(t?.assistantMessage?.workingNotes) &&
+                  t.assistantMessage.workingNotes.length > 0
+                    ? t.assistantMessage.workingNotes
                     : null;
                 return {
                   ...m,
@@ -3133,8 +3135,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   ...(authoritativeAssistantContent !== null
                     ? { content: authoritativeAssistantContent }
                     : {}),
-                  ...(authoritativeWorkingPreamble !== null
-                    ? { workingPreamble: authoritativeWorkingPreamble }
+                  ...(authoritativeWorkingNotes !== null
+                    ? { workingNotes: authoritativeWorkingNotes }
                     : {}),
                   status: "committed" as const,
                   attachments: assistantAttachments,
@@ -3677,6 +3679,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 assistantMessage?: {
                   id?: string;
                   content?: string;
+                  workingNotes?: string[];
                   attachments?: ChatAttachment[];
                 };
                 runtime?: RuntimeTransportMeta;
@@ -3688,6 +3691,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 t.assistantMessage.attachments.length > 0
                   ? t.assistantMessage.attachments.map((attachment) => toChatAttachment(attachment))
                   : undefined;
+              const authoritativeWorkingNotes =
+                Array.isArray(t?.assistantMessage?.workingNotes) &&
+                t.assistantMessage.workingNotes.length > 0
+                  ? t.assistantMessage.workingNotes
+                  : null;
               setMessages((prev) =>
                 prev.map((m) => {
                   if (m.id !== assistantMsgId) {
@@ -3705,6 +3713,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     ...(newAssistantId ? { id: newAssistantId } : {}),
                     ...(authoritativeAssistantContent !== null
                       ? { content: authoritativeAssistantContent }
+                      : {}),
+                    ...(authoritativeWorkingNotes !== null
+                      ? { workingNotes: authoritativeWorkingNotes }
                       : {}),
                     status: "committed" as const,
                     attachments: assistantAttachments

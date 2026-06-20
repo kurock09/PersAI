@@ -392,52 +392,46 @@ const BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS = new Set([
 ]);
 
 /**
- * Split the final corrected turn text into the answer-only text and the
- * backward-compatible full assistant text.
+ * Assemble the multi-step working notes, the answer-only text, and the
+ * backward-compatible full assistant text for a completed turn.
  *
- * `fullText` is the provider's final, already-corrected text for the turn
- * (preamble + answer merged together — corrections never run on the preamble in
- * isolation). `preambleText` is the iteration-0 pre-tool text captured BEFORE
- * corrections (or `null` when no tools ran).
+ * Inputs (all already produced by the streaming loop / corrections):
+ * - `toolStepTexts` — the text the model produced before EACH tool call across
+ *   the tool loop, one entry per `tool_calls` step. Each entry is the provider
+ *   text of that iteration ONLY (never the cumulative text), so a later step's
+ *   note never re-contains an earlier note.
+ * - `finalAnswerText` — the corrected text of the FINAL iteration only (the
+ *   answer after the last tool). It must NOT be derived from the cumulative
+ *   corrected text, which already contains every note; deriving it that way is
+ *   the historical duplication bug this function exists to prevent.
+ * - `fullAssistantText` — the cumulative corrected provider text (single copy
+ *   of each note + the answer). Kept verbatim as the backward-compat
+ *   `assistantText` for Telegram / non-web consumers.
  *
  * Contract:
- * - `assistantText` is `fullText` verbatim — it is already the canonical full
- *   text, so we never reconstruct it from `preamble + answer` (doing so would
- *   double the preamble, since `fullText` already contains it).
- * - `answerText` is `fullText` with the leading preamble stripped. When no
- *   preamble exists, `answerText === fullText`.
- *
- * The preamble was captured pre-correction/pre-merge, so we strip it
- * defensively: verbatim prefix first, then a left-trimmed retry. If the
- * preamble cannot be located at the start (e.g. a correction rewrote the
- * preamble region) we fall back to returning the full text as the answer rather
- * than silently dropping content.
+ * - `workingNotes` = the trimmed, non-empty `toolStepTexts` in order (each note
+ *   exactly once; whitespace-only steps dropped).
+ * - `answerText` = `finalAnswerText` (the answer only, no notes).
+ * - `assistantText` = `fullAssistantText` verbatim (never reconstructed from
+ *   `notes + answer`, which would risk doubling notes).
  */
-export function splitPreambleAndAnswer(
-  fullText: string,
-  preambleText: string | null
-): { answerText: string; assistantText: string } {
-  const assistantText = fullText;
-  const trimmedPreamble = preambleText === null ? "" : preambleText.trim();
-  if (trimmedPreamble.length === 0) {
-    return { answerText: fullText, assistantText };
+export function assembleWorkingNotesAndAnswer(input: {
+  toolStepTexts: readonly string[];
+  finalAnswerText: string;
+  fullAssistantText: string;
+}): { workingNotes: string[]; answerText: string; assistantText: string } {
+  const workingNotes: string[] = [];
+  for (const stepText of input.toolStepTexts) {
+    const trimmed = stepText.trim();
+    if (trimmed.length > 0) {
+      workingNotes.push(trimmed);
+    }
   }
-  if (fullText.startsWith(trimmedPreamble)) {
-    return {
-      answerText: fullText.slice(trimmedPreamble.length).replace(/^\s+/, ""),
-      assistantText
-    };
-  }
-  const leftTrimmed = fullText.replace(/^\s+/, "");
-  if (leftTrimmed.startsWith(trimmedPreamble)) {
-    return {
-      answerText: leftTrimmed.slice(trimmedPreamble.length).replace(/^\s+/, ""),
-      assistantText
-    };
-  }
-  // Preamble not found at the start — keep the full text as the answer rather
-  // than guessing a slice and losing content.
-  return { answerText: fullText, assistantText };
+  return {
+    workingNotes,
+    answerText: input.finalAnswerText,
+    assistantText: input.fullAssistantText
+  };
 }
 
 @Injectable()
@@ -909,10 +903,9 @@ export class TurnExecutionService {
     let forceFinalTextOnly = false;
     let contextOverflowRetryAttempted = false;
     let projectSynthesisEventsEmitted = false;
-    // Preamble: text the model produced in iteration 0 before its first tool call.
-    // Captured once, on the first tool_calls event in iteration 0.
-    let preambleText: string | null = null;
-    let preambleCaptured = false;
+    // Working notes: the text the model produced before EACH tool call across
+    // the tool loop, captured per-iteration (one entry per tool_calls step).
+    const toolStepTexts: string[] = [];
 
     yield {
       type: "started",
@@ -1039,11 +1032,15 @@ export class TurnExecutionService {
 
             if (event.type === "tool_calls") {
               trace?.stage(`iter${String(iteration)}.tool_calls_received`);
-              // Capture preamble: the text assembled before the first tool call in
-              // iteration 0. Not retroactively corrected by applyAssistantTextCorrections.
-              if (iteration === 0 && !preambleCaptured) {
-                preambleCaptured = true;
-                preambleText = assembledText.trim().length > 0 ? assembledText.trim() : null;
+              // Working note for THIS step: the text the provider generated in
+              // this iteration before its tool call. Sourced per-iteration from
+              // `event.result.text` (never the cumulative `assembledText`), so a
+              // later step's note never re-contains an earlier note. Captured on
+              // every iteration, not just iteration 0. Not retroactively
+              // corrected by applyAssistantTextCorrections.
+              const stepNote = (event.result.text ?? "").trim();
+              if (stepNote.length > 0) {
+                toolStepTexts.push(stepNote);
               }
               this.recordUsageEntry(turnState, {
                 stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
@@ -1261,13 +1258,34 @@ export class TurnExecutionService {
                 modelRole: execution.selectedModelRole,
                 usage: correctedProviderResult.usage
               });
+              // Answer-only text = corrections applied to the FINAL iteration's
+              // own provider text (`event.result.text`), never the cumulative
+              // corrected text. The cumulative text already contains every
+              // working note; deriving the answer from it would duplicate the
+              // notes into the answer. Corrections here are
+              // identity-or-full-replacement (deferred-media/document
+              // acknowledgement), so they produce the same final answer whether
+              // applied to the final-iteration text or the cumulative text.
+              const correctedFinalAnswerText = this.applyAssistantTextCorrections({
+                assistantText: event.result.text ?? "",
+                artifacts: turnState.artifacts,
+                deferredMediaJobs: turnState.deferredMediaJobs,
+                hadRejectedMediaRequest: turnState.hadRejectedMediaRequest,
+                deferredDocumentJobs: turnState.deferredDocumentJobs,
+                locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
+              });
+              const { workingNotes, answerText } = assembleWorkingNotesAndAnswer({
+                toolStepTexts,
+                finalAnswerText: correctedFinalAnswerText,
+                fullAssistantText: correctedAssistantText
+              });
               const result = this.buildTurnResult(
                 acceptedTurn,
                 correctedProviderResult,
                 turnState,
                 execution.routeDecision,
                 trace?.build("ok"),
-                preambleText
+                { workingNotes, answerText }
               );
               completionFinalizationAttempted = true;
               const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
@@ -1553,7 +1571,7 @@ export class TurnExecutionService {
     turnState: TurnExecutionState,
     routeDecision?: TurnRouteDecision,
     trace?: RuntimeTrace,
-    preambleText: string | null = null
+    workingNotesAndAnswer?: { workingNotes: readonly string[]; answerText: string }
   ): RuntimeTurnResult {
     if (providerResult.stopReason !== "completed") {
       throw new InternalServerErrorException(
@@ -1572,17 +1590,15 @@ export class TurnExecutionService {
       );
     }
 
-    // `providerResult.text` is the final corrected FULL text (preamble +
-    // answer). Use it directly as the backward-compat `assistantText` and
-    // derive the answer-only text by stripping the captured preamble — never
-    // reconstruct the full text from `preamble + answer` (that doubled the
-    // preamble; see ADR-120-era tool-loop persistence fix).
-    const normalizedPreamble =
-      preambleText !== null && preambleText.trim().length > 0 ? preambleText.trim() : null;
-    const { answerText, assistantText } = splitPreambleAndAnswer(
-      providerResult.text ?? "",
-      normalizedPreamble
-    );
+    // `providerResult.text` is the final corrected FULL text (every working
+    // note once + the answer). Use it directly as the backward-compat
+    // `assistantText`. `workingNotes` and `answerText` are pre-assembled by the
+    // streaming caller (per-step notes + the final-iteration answer only); when
+    // absent (non-stream / Telegram path) there are no tool-loop notes and the
+    // answer equals the full text.
+    const assistantText = providerResult.text ?? "";
+    const workingNotes = workingNotesAndAnswer ? [...workingNotesAndAnswer.workingNotes] : [];
+    const answerText = workingNotesAndAnswer ? workingNotesAndAnswer.answerText : assistantText;
 
     const turnRouting =
       routeDecision === undefined ? null : this.toRuntimeTurnRoutingSnapshot(routeDecision);
@@ -1590,7 +1606,7 @@ export class TurnExecutionService {
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
       assistantText,
-      preambleText: normalizedPreamble,
+      workingNotes,
       answerText,
       artifacts: [...turnState.artifacts],
       respondedAt: providerResult.respondedAt,

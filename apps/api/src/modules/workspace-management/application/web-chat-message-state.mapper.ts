@@ -30,7 +30,7 @@ export function mapAssistantChatMessageToWebState(input: {
   attachments: AssistantWebChatMessageAttachmentState[];
 }): AssistantWebChatMessageState {
   const platformNotice = extractAssistantWebChatPlatformNotice(input.message.metadata);
-  const workingPreamble = extractWorkingPreambleFromMetadata(input.message.metadata);
+  const workingNotes = extractWorkingNotesFromMetadata(input.message.metadata);
   return {
     id: input.message.id,
     chatId: input.message.chatId,
@@ -40,19 +40,21 @@ export function mapAssistantChatMessageToWebState(input: {
     attachments: input.attachments,
     createdAt: input.message.createdAt.toISOString(),
     ...(platformNotice !== null ? { platformNotice } : {}),
-    ...(workingPreamble !== null ? { workingPreamble } : {})
+    ...(workingNotes.length > 0 ? { workingNotes } : {})
   };
 }
 
-export function extractWorkingPreambleFromMetadata(
+export function extractWorkingNotesFromMetadata(
   metadata: Record<string, unknown> | null | undefined
-): string | null {
+): string[] {
   if (metadata === null || metadata === undefined) {
-    return null;
+    return [];
   }
-  const value = metadata.workingPreamble;
-  if (typeof value === "string" && value.trim().length > 0) {
-    return value;
+  const value = metadata.workingNotes;
+  if (!Array.isArray(value)) {
+    return [];
   }
-  return null;
+  return value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.trim().length > 0
+  );
 }
