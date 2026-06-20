@@ -7,6 +7,22 @@ import { KubeConfig, CoreV1Api, Exec, V1Status } from "@kubernetes/client-node";
 import type { SandboxConfig } from "@persai/config";
 import type { RuntimeSandboxPolicy } from "@persai/runtime-contract";
 import { SANDBOX_CONFIG } from "./sandbox-config";
+import { SandboxPrismaService } from "./sandbox-prisma.service";
+
+// Annotation carrying the runtimeSessionId on session exec pods. The idle reaper
+// reads it back from cluster truth to derive last-activity from the sandboxJob
+// table, so eviction survives control-plane restarts and works across replicas
+// (in-memory state would be lost on restart and is not shared between replicas).
+const SESSION_ID_ANNOTATION = "persai.io/session-id";
+// Explicit success marker printed by the remote tar on a successful workspace
+// push. The @kubernetes/client-node exec status frame (channel 3) can race the
+// WebSocket close and be missed; the sentinel is application-level proof that the
+// extract actually succeeded, independent of that frame.
+const WORKSPACE_PUSH_OK_SENTINEL = "__PERSAI_PUSH_OK__";
+// Grace window: when the exec WebSocket closes before a status frame was observed,
+// wait briefly and re-check — the status message is often dispatched in the same
+// tick as close and just ordered after it.
+const EXEC_CLOSE_STATUS_GRACE_MS = 250;
 
 export type PodExecResult = {
   exitCode: number | null;
@@ -101,11 +117,6 @@ class LimitedCollector extends Writable {
   }
 }
 
-type SessionPodState = {
-  podName: string;
-  lastActivityAt: number;
-};
-
 @Injectable()
 export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ExecPodBridgeService.name);
@@ -113,19 +124,12 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly k8sApi: CoreV1Api;
   private readonly execApi: Exec;
 
-  /**
-   * In-memory map of active session pods keyed by runtimeSessionId.
-   * Each control-plane replica maintains its own map; the workspace lease
-   * (Postgres-level mutex per assistantId+workspaceId) ensures only one
-   * replica executes a job for a given session at a time, so cross-replica
-   * stale-map entries are handled gracefully: ensureSessionPodRunning checks
-   * k8s state directly rather than trusting the local map.
-   */
-  private readonly sessionPods = new Map<string, SessionPodState>();
-
   private reaperTimer: NodeJS.Timeout | null = null;
 
-  constructor(@Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig) {
+  constructor(
+    @Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig,
+    private readonly prisma: SandboxPrismaService
+  ) {
     this.kc = new KubeConfig();
     this.kc.loadFromCluster();
     this.k8sApi = this.kc.makeApiClient(CoreV1Api);
@@ -195,14 +199,13 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     const { runtimeSessionId, namespace } = options;
     const podName = this.buildSessionPodName(runtimeSessionId);
 
-    // Mark activity immediately so the reaper won't evict during this job.
-    this.sessionPods.set(runtimeSessionId, { podName, lastActivityAt: Date.now() });
-
     this.logger.log(
       `exec_pod_session job=${options.jobId} pod=${podName} session=${runtimeSessionId}`
     );
 
-    await this.ensureSessionPodRunning(podName, namespace, options.policy);
+    // Idle activity is derived by the reaper from the sandboxJob table keyed by the
+    // session annotation stamped on the pod — no in-memory tracking needed.
+    await this.ensureSessionPodRunning(podName, namespace, options.policy, runtimeSessionId);
     await this.pushWorkspace(podName, namespace, options.workspaceRoot);
     const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
     const result = await this.execCommand(podName, namespace, {
@@ -212,9 +215,6 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       policy: options.policy
     });
     await this.pullWorkspace(podName, namespace, options.workspaceRoot);
-
-    // Refresh activity timestamp after job completion.
-    this.sessionPods.set(runtimeSessionId, { podName, lastActivityAt: Date.now() });
 
     return {
       ...result,
@@ -270,7 +270,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   private async ensureSessionPodRunning(
     podName: string,
     namespace: string,
-    policy: RuntimeSandboxPolicy
+    policy: RuntimeSandboxPolicy,
+    runtimeSessionId: string
   ): Promise<void> {
     let needsCreate = false;
     try {
@@ -306,45 +307,90 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
     if (needsCreate) {
       this.logger.log(`exec_pod_session_create pod=${podName}`);
-      await this.createExecPod(podName, namespace, policy);
+      await this.createExecPod(podName, namespace, policy, {
+        [SESSION_ID_ANNOTATION]: runtimeSessionId
+      });
     }
 
     await this.waitForPodRunning(podName, namespace, policy.maxProcessRuntimeMs);
   }
 
   /**
-   * Reaper tick: delete session pods that have been idle longer than the configured TTL.
-   * Runs on a fixed interval set up in onModuleInit.
+   * Reaper tick: delete exec pods idle longer than the configured TTL.
+   *
+   * Cluster-truth based: it lists the live exec pods (label-selected) rather than
+   * trusting any in-memory state, so it correctly evicts pods created by another
+   * control-plane replica and pods that outlived a control-plane restart (both
+   * cases the previous in-memory reaper silently leaked). Last-activity is derived
+   * from the sandboxJob table keyed by the session annotation; an actively used
+   * session always has a fresh job row, so a busy pod is never evicted. Ephemeral
+   * pods (no session annotation) fall back to the pod creation time, which also
+   * cleans up any leaked ephemeral pod whose post-job delete failed.
    */
   async runReaperTick(): Promise<void> {
     const idleTtlMs = this.config.SANDBOX_EXEC_SESSION_IDLE_TTL_MS;
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const now = Date.now();
-    const staleSessions: string[] = [];
 
-    for (const [sessionId, state] of this.sessionPods.entries()) {
-      if (now - state.lastActivityAt > idleTtlMs) {
-        staleSessions.push(sessionId);
-      }
-    }
-
-    if (staleSessions.length === 0) {
+    let podItems: Array<{
+      metadata?: {
+        name?: string;
+        creationTimestamp?: Date | string;
+        annotations?: Record<string, string>;
+      };
+    }>;
+    try {
+      const podList = await this.k8sApi.listNamespacedPod({
+        namespace,
+        labelSelector: "app.kubernetes.io/component=sandbox-exec"
+      });
+      podItems = podList.items;
+    } catch (error) {
+      this.logger.warn(`exec_pod_reaper_list_failed error=${describeUnknownError(error)}`);
       return;
     }
 
-    this.logger.log(`exec_pod_reaper evicting=${String(staleSessions.length)} idle session pod(s)`);
-
-    for (const sessionId of staleSessions) {
-      const state = this.sessionPods.get(sessionId);
-      if (state === undefined) {
+    for (const pod of podItems) {
+      const podName = pod.metadata?.name;
+      if (podName === undefined) {
         continue;
       }
-      // Remove from map BEFORE the async delete so a concurrent job can safely recreate.
-      this.sessionPods.delete(sessionId);
-      const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
-      this.logger.log(
-        `exec_pod_reaper_evict pod=${state.podName} session=${sessionId} idle_ms=${String(now - state.lastActivityAt)}`
-      );
-      await this.deletePod(state.podName, namespace);
+      const creationMs =
+        pod.metadata?.creationTimestamp === undefined
+          ? now
+          : new Date(pod.metadata.creationTimestamp).getTime();
+      let lastActivityMs = creationMs;
+
+      const sessionId = pod.metadata?.annotations?.[SESSION_ID_ANNOTATION];
+      if (sessionId !== undefined) {
+        try {
+          const latest = await this.prisma.sandboxJob.findFirst({
+            where: { runtimeSessionId: sessionId },
+            orderBy: { createdAt: "desc" },
+            select: { createdAt: true, completedAt: true }
+          });
+          if (latest !== null) {
+            lastActivityMs = Math.max(
+              lastActivityMs,
+              (latest.completedAt ?? latest.createdAt).getTime()
+            );
+          }
+        } catch (error) {
+          // Cannot determine activity — do not risk evicting a live session pod.
+          this.logger.warn(
+            `exec_pod_reaper_activity_query_failed pod=${podName} error=${describeUnknownError(error)}`
+          );
+          continue;
+        }
+      }
+
+      const idleMs = now - lastActivityMs;
+      if (idleMs > idleTtlMs) {
+        this.logger.log(
+          `exec_pod_reaper_evict pod=${podName} session=${sessionId ?? "none"} idle_ms=${String(idleMs)}`
+        );
+        await this.deletePod(podName, namespace);
+      }
     }
   }
 
@@ -376,7 +422,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   private async createExecPod(
     podName: string,
     namespace: string,
-    policy: RuntimeSandboxPolicy
+    policy: RuntimeSandboxPolicy,
+    annotations?: Record<string, string>
   ): Promise<void> {
     const image = this.config.SANDBOX_EXEC_IMAGE;
     const runtimeClassName = this.config.SANDBOX_EXEC_RUNTIME_CLASS_NAME;
@@ -397,7 +444,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             labels: {
               "app.kubernetes.io/name": "exec-pod",
               "app.kubernetes.io/component": "sandbox-exec"
-            }
+            },
+            ...(annotations === undefined ? {} : { annotations })
           },
           spec: {
             runtimeClassName,
@@ -544,59 +592,87 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     const tarball = await this.createLocalTarball(workspaceRoot, entries);
 
     await new Promise<void>((resolve, reject) => {
-      const statusReceived = { value: false };
+      const settled = { value: false };
+      const stdoutBuf: Buffer[] = [];
+      const stderrBuf: Buffer[] = [];
+      const stdout = new Writable({
+        write(chunk: Buffer, _enc: string, cb: () => void) {
+          stdoutBuf.push(chunk);
+          cb();
+        }
+      });
+      const stderr = new Writable({
+        write(chunk: Buffer, _enc: string, cb: () => void) {
+          stderrBuf.push(chunk);
+          cb();
+        }
+      });
+      const stdoutText = () => Buffer.concat(stdoutBuf).toString("utf8");
+      const stderrText = () => Buffer.concat(stderrBuf).toString("utf8").trim();
+      const pushSucceeded = () => stdoutText().includes(WORKSPACE_PUSH_OK_SENTINEL);
+      const succeed = () => {
+        if (settled.value) return;
+        settled.value = true;
+        resolve();
+      };
+      const fail = (message: string) => {
+        if (settled.value) return;
+        settled.value = true;
+        reject(createBridgeError("process_spawn_failed", message));
+      };
+
       this.execApi
         .exec(
           namespace,
           podName,
           "exec",
-          ["tar", "--no-same-owner", "-xf", "-", "-C", "/workspace"],
-          null,
-          null,
+          // Print an explicit sentinel only when tar actually succeeds. The exec
+          // status frame can be missed on close; the sentinel is the reliable
+          // success signal. tar's non-zero exit short-circuits "&&" so no sentinel
+          // is printed on failure.
+          [
+            "/bin/sh",
+            "-c",
+            `tar --no-same-owner -xf - -C /workspace && printf '${WORKSPACE_PUSH_OK_SENTINEL}'`
+          ],
+          stdout,
+          stderr,
           Readable.from([tarball]),
           false,
           (status: V1Status) => {
-            statusReceived.value = true;
-            if (extractExitCode(status) !== 0) {
-              reject(
-                createBridgeError(
-                  "process_spawn_failed",
-                  `Workspace tar push failed: ${status.message ?? "non-zero exit"}`
-                )
-              );
+            if (extractExitCode(status) === 0 || pushSucceeded()) {
+              succeed();
             } else {
-              resolve();
+              fail(`Workspace tar push failed: ${stderrText() || status.message || "non-zero exit"}`);
             }
           }
         )
         .then((ws) => {
           ws.on("close", () => {
-            if (!statusReceived.value) {
-              reject(
-                createBridgeError(
-                  "process_spawn_failed",
-                  "Workspace push WebSocket closed without status"
-                )
-              );
+            // Status may simply not have been observed yet; the sentinel is
+            // definitive proof of success regardless of the status frame.
+            if (settled.value) return;
+            if (pushSucceeded()) {
+              succeed();
+              return;
             }
+            setTimeout(() => {
+              if (pushSucceeded()) {
+                succeed();
+              } else {
+                fail(
+                  `Workspace push closed without success (stderr: ${stderrText() || "none"})`
+                );
+              }
+            }, EXEC_CLOSE_STATUS_GRACE_MS);
           });
           ws.on("error", (err: Error) => {
-            reject(
-              createBridgeError(
-                "process_spawn_failed",
-                `Workspace push WebSocket error: ${describeUnknownError(err)}`
-              )
-            );
+            fail(`Workspace push WebSocket error: ${describeUnknownError(err)}`);
           });
         })
-        .catch((error: unknown) =>
-          reject(
-            createBridgeError(
-              "process_spawn_failed",
-              `Workspace push exec failed: ${describeUnknownError(error)}`
-            )
-          )
-        );
+        .catch((error: unknown) => {
+          fail(`Workspace push exec failed: ${describeUnknownError(error)}`);
+        });
     });
   }
 
@@ -693,7 +769,15 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           )
           .then((ws) => {
             ws.on("close", () => {
-              if (!statusReceived.value) {
+              if (statusReceived.value) {
+                return;
+              }
+              // The status frame is often dispatched in the same tick as close,
+              // just ordered after it. Give it a brief grace window before failing.
+              setTimeout(() => {
+                if (statusReceived.value) {
+                  return;
+                }
                 const limitErr = stdoutCollector.limitError ?? stderrCollector.limitError;
                 if (limitErr !== null) {
                   reject(limitErr);
@@ -706,7 +790,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
                     )
                   );
                 }
-              }
+              }, EXEC_CLOSE_STATUS_GRACE_MS);
             });
             ws.on("error", (err: Error) => {
               reject(
@@ -793,15 +877,20 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         )
         .then((ws) => {
           ws.on("close", () => {
-            if (!statusReceived.value) {
-              reject(
-                createBridgeError(
-                  "sandbox_failed",
-                  "Workspace pull WebSocket closed without status",
-                  false
-                )
-              );
+            if (statusReceived.value) {
+              return;
             }
+            setTimeout(() => {
+              if (!statusReceived.value) {
+                reject(
+                  createBridgeError(
+                    "sandbox_failed",
+                    "Workspace pull WebSocket closed without status",
+                    false
+                  )
+                );
+              }
+            }, EXEC_CLOSE_STATUS_GRACE_MS);
           });
           ws.on("error", (err: Error) => {
             reject(
