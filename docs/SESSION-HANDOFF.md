@@ -3,6 +3,28 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — ADR-123 workspace-push success-detection regression (THE "shell doesn't work" root cause) — CHECKPOINT
+
+### State
+
+Implemented, full local gate green, **committed + pushed to `origin/main`** (push = deploy; the `sandbox` control-plane image rebuild + pin carries it).
+
+### Problem (live-diagnosed, not assumed)
+
+Every `shell`/`exec`/`render_html_to_pdf` job failed `process_spawn_failed` / "Workspace push closed without success (stderr: none)", intermittently, and it persisted after the cold-start deploy. Founder was (rightly) furious that earlier "retry" framing was a band-aid on a shaky diagnosis. Ground truth from `sandbox_jobs` on `persai-dev`: every recent failure had `exec_pod_name: null` + that exact message; one waited **80s** (pod was Running) and still failed → NOT a cold-start timeout. Reproduced with the real `@kubernetes/client-node` from inside the control-plane pod against the live session pod: 1 KB stdin → success sentinel returns; 200 KB / 2 MB stdin → `status=Success` (remote `tar` exits 0) but the exec **stdout channel is silently dropped** and the status frame races the close. So the 2026-06-20 push rework (`9eaf30f8`/`96d3c288`), which reads success off that same stdin-laden socket, failed every real workspace push — a regression.
+
+### Fix
+
+`apps/sandbox/src/exec-pod-bridge.service.ts`: decouple transfer from success detection. Push exec streams the tar + writes a marker file only on `tar` success (its own stdout/status ignored; resolves on clean close, rejects only on real connection failure). A separate **stdin-less** verify exec checks the marker (reliable channels — proven 4/4 with 2 MB in-cluster). Missing marker ⇒ retryable `process_spawn_failed`; command/pull never run on a failed push. New regression test; shared exec mock defaults unseeded calls to success. sandbox 27/27 · typecheck · lint · prettier PASS.
+
+### Open (founder decision, NOT done here)
+
+`sandbox-exec-prepull` DaemonSet currently provides ~zero benefit at `sandbox-pool` **min-nodes=0** (it lands on the freshly-autoscaled node alongside the session, so it does not pre-warm cold starts), and only adds value with **min-nodes≥1** — which costs ~1 node 24/7. Founder flagged it as wasteful. Recommended: **remove the prepull DaemonSet** and keep min-nodes=0 (cold start is now reliable-but-slow ~60–100s once, then warm for the 30-min idle TTL); OR set min-nodes=1 if always-fast start is worth the standing cost. Not changed in this checkpoint.
+
+### Files
+
+`apps/sandbox/src/exec-pod-bridge.service.ts`, `apps/sandbox/test/exec-pod-bridge.service.test.ts`, ADR-123, CHANGELOG, this checkpoint.
+
 ## 2026-06-21 — ADR-123 documents pre-deploy hardening (retryable infra failures + retired-price cleanup) — CHECKPOINT
 
 ### State

@@ -136,9 +136,19 @@ function buildMockBridge(ctx: MockK8sContext): ExecPodBridgeService {
       ctx.execCommands.push([...command]);
 
       if (response === undefined) {
-        return Promise.resolve({
-          on: () => undefined
-        } as never);
+        // Unseeded exec calls default to success so tests stay resilient to the
+        // exact number of internal exec round-trips (push + stdin-less verify +
+        // command + pull). Pull commands still receive a valid empty tar.
+        const ws = { on: () => undefined };
+        void Promise.resolve().then(() => {
+          if (stdout !== null && isWorkspacePull(command)) {
+            stdout.write(VALID_EMPTY_TAR);
+          }
+          if (statusCallback !== undefined) {
+            statusCallback({ status: "Success" });
+          }
+        });
+        return Promise.resolve(ws as never);
       }
 
       const ws = {
@@ -522,6 +532,55 @@ test("ExecPodBridgeService: workspace push extracts by entry name with --no-same
   assert.ok(
     !/-xf\s+-\s+-C\s+\/workspace\s+\./.test(pushScript),
     "push must never extract a '.' member"
+  );
+});
+
+test("ExecPodBridgeService: workspace push success comes from the stdin-less verify, not the push channel", async () => {
+  // Root regression (live-cluster verified): @kubernetes/client-node drops the exec
+  // stdout channel and races the status frame when a non-trivial payload is streamed
+  // on stdin, so the push exec's own return is unusable. Success MUST be asserted by
+  // the separate stdin-less verify probe. Here the push exec (call 0) succeeds but the
+  // verify exec (call 1) reports the marker missing (exit 1) → the whole push must fail
+  // as a retryable spawn failure, and the command/pull must never run.
+  const ctx: MockK8sContext = {
+    createdPods: [],
+    podPhaseSequence: ["Running"],
+    execResponses: [
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 1, stdout: "", stderr: "" }
+    ],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  };
+
+  const bridge = buildMockBridge(ctx);
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-bridge-verify-"));
+  try {
+    await fs.writeFile(join(workspaceRoot, "report.txt"), "hello", "utf8");
+    await assert.rejects(
+      bridge.runInPod({
+        jobId: "job-verify-001",
+        runtimeSessionId: null,
+        workspaceRoot,
+        absoluteCwd: workspaceRoot,
+        command: "/bin/sh",
+        args: ["-c", "echo hi"],
+        policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+      }),
+      /verification failed/
+    );
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
+
+  const verifyCommand = ctx.execCommands.find((command) =>
+    command.some((part) => part.includes("test -f") && part.includes(".persai_push_ok"))
+  );
+  assert.ok(verifyCommand !== undefined, "a stdin-less verify probe must run after the push");
+  assert.ok(
+    !ctx.execCommands.some((command) => command.some((part) => part.includes("echo hi"))),
+    "the command must not run when the workspace push verification fails"
   );
 });
 
