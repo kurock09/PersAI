@@ -48,12 +48,7 @@ type ToolCredentialStatus = {
 type AdminToolCredentialsState = {
   schema: string;
   credentials: ToolCredentialStatus[];
-  documentProviderConfigs: Array<{
-    providerId: "pdfmonkey";
-    templateIdConfigured: boolean;
-    templateIdLastFour: string | null;
-    templateIdUpdatedAt: string | null;
-  }>;
+  documentProviderConfigs: never[];
   mediaReserve: {
     enabled: boolean;
     apiKeyConfigured: boolean;
@@ -189,10 +184,7 @@ const VIDEO_PROVIDER_CREDENTIAL_KEYS = [
   "tool_video_generate_kling",
   "tool_video_generate_heygen"
 ] as const;
-const DOCUMENT_GENERATION_CREDENTIAL_KEYS = [
-  "tool_document_pdfmonkey",
-  "tool_document_gamma"
-] as const;
+const DOCUMENT_GENERATION_CREDENTIAL_KEYS = ["tool_document_gamma"] as const;
 
 function pickCredentials(
   credentials: ToolCredentialStatus[],
@@ -1093,53 +1085,11 @@ export default function AdminToolsPage() {
                   <div>
                     <p className="text-sm font-semibold text-text">Document Generation</p>
                     <p className="text-[11px] text-text-muted">
-                      PDFMonkey template and API keys for rendered PDFs and Gamma decks, plus
-                      per-render tool-path unit prices below.
+                      Gamma API keys for presentation decks, plus per-render tool-path unit prices
+                      below.
                     </p>
                   </div>
                 </div>
-                {state.documentProviderConfigs.map((config) => (
-                  <div
-                    key={config.providerId}
-                    className="mb-3 rounded-lg border border-border bg-surface p-3"
-                  >
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-text">PDFMonkey template id</p>
-                      {config.templateIdConfigured ? (
-                        <span className="flex items-center gap-1 text-[11px] text-success">
-                          <CheckCircle className="h-3 w-3" />
-                          Configured
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-[11px] text-text-subtle">
-                          <XCircle className="h-3 w-3" />
-                          Not set
-                        </span>
-                      )}
-                    </div>
-                    <input
-                      type="password"
-                      value={documentProviderTemplateInputs[config.providerId] ?? ""}
-                      onChange={(e) =>
-                        setDocumentProviderTemplateInputs((prev) => ({
-                          ...prev,
-                          [config.providerId]: e.target.value
-                        }))
-                      }
-                      placeholder={
-                        config.templateIdConfigured
-                          ? `••••${config.templateIdLastFour ?? ""}`
-                          : "Enter template id..."
-                      }
-                      className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-                    />
-                    {config.templateIdUpdatedAt && (
-                      <p className="mt-1 text-[10px] text-text-muted">
-                        Last updated: {new Date(config.templateIdUpdatedAt).toLocaleString()}
-                      </p>
-                    )}
-                  </div>
-                ))}
                 <div className="grid gap-3 sm:grid-cols-2">
                   {pickCredentials(state.credentials, DOCUMENT_GENERATION_CREDENTIAL_KEYS).map(
                     (cred) => (

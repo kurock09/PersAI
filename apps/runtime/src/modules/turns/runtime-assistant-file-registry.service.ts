@@ -374,6 +374,10 @@ export class RuntimeAssistantFileRegistryService {
     return buffer === null ? null : createHash("sha256").update(buffer).digest("hex");
   }
 
+  async deleteById(fileRef: string): Promise<void> {
+    await this.prisma.assistantFile.delete({ where: { id: fileRef } });
+  }
+
   toRuntimeFileRef(record: RuntimeAssistantFileRecord): RuntimeFileRef {
     return {
       fileRef: record.fileRef,

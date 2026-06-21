@@ -8,7 +8,6 @@ export const TOOL_CREDENTIAL_IDS = {
   tool_video_generate_runway: "tool/video_generate/runway/api-key",
   tool_video_generate_kling: "tool/video_generate/kling/api-key",
   tool_video_generate_heygen: "tool/video_generate/heygen/api-key",
-  tool_document_pdfmonkey: "tool/document/pdfmonkey/api-key",
   tool_document_gamma: "tool/document/gamma/api-key",
   tool_browser: "tool/browser/api-key",
   tool_tts_elevenlabs: "tool/tts/elevenlabs/api-key",
@@ -19,10 +18,6 @@ export const TOOL_CREDENTIAL_IDS = {
   // so the existing tool-credential save endpoint can store and expose them).
   notification_email_postmark: "notification/email/postmark/api-key",
   notification_email_postmark_webhook: "notification/email/postmark/webhook-token"
-} as const;
-
-export const DOCUMENT_PROVIDER_CONFIG_KEYS = {
-  pdfmonkeyTemplateId: "tool/document/pdfmonkey/template-id"
 } as const;
 
 export const MEDIA_RESERVE_CONFIG_KEYS = {
@@ -64,7 +59,6 @@ export const TOOL_CODE_BY_CREDENTIAL_KEY: Record<ToolCredentialKey, string> = {
   tool_video_generate_runway: "video_generate",
   tool_video_generate_kling: "video_generate",
   tool_video_generate_heygen: "video_generate",
-  tool_document_pdfmonkey: "document",
   tool_document_gamma: "document",
   tool_browser: "browser",
   tool_tts_elevenlabs: "tts",
@@ -105,14 +99,12 @@ export const TOOL_PROVIDER_OPTIONS: Partial<Record<ToolCredentialKey, ToolProvid
     { id: "perplexity", label: "Perplexity", envVar: "PERPLEXITY_API_KEY" },
     { id: "google", label: "Google (Gemini)", envVar: "GEMINI_API_KEY" }
   ],
-  tool_document_pdfmonkey: [{ id: "pdfmonkey", label: "PDFMonkey", envVar: "PDFMONKEY_API_KEY" }],
   tool_document_gamma: [{ id: "gamma", label: "Gamma", envVar: "GAMMA_API_KEY" }],
   tool_browser: [{ id: "browserless", label: "Browserless", envVar: "BROWSERLESS_API_KEY" }]
 };
 
 export const TOOL_DEFAULT_PROVIDER: Partial<Record<ToolCredentialKey, string>> = {
   tool_web_search: "tavily",
-  tool_document_pdfmonkey: "pdfmonkey",
   tool_document_gamma: "gamma",
   tool_browser: "browserless"
 };
@@ -138,13 +130,6 @@ export type ToolCredentialStatus = {
   providerOptions: ToolProviderOption[] | null;
 };
 
-export type DocumentProviderConfigStatus = {
-  providerId: "pdfmonkey";
-  templateIdConfigured: boolean;
-  templateIdLastFour: string | null;
-  templateIdUpdatedAt: string | null;
-};
-
 export type MediaReserveConfigStatus = {
   enabled: boolean;
   apiKeyConfigured: boolean;
@@ -159,7 +144,7 @@ export type MediaReserveConfigStatus = {
 export type AdminToolCredentialsState = {
   schema: "persai.adminToolCredentials.v2";
   credentials: ToolCredentialStatus[];
-  documentProviderConfigs: DocumentProviderConfigStatus[];
+  documentProviderConfigs: never[];
   mediaReserve: MediaReserveConfigStatus;
   ttsPrimaryProviderId: PersaiRuntimeTtsProviderId;
   ttsPrimaryProviderOptions: ToolProviderOption[];
@@ -173,7 +158,6 @@ export type AdminToolCredentialsState = {
 export type UpdateToolCredentialsInput = {
   keys: Partial<Record<ToolCredentialKey, string>>;
   providers: Partial<Record<ToolCredentialKey, string>>;
-  documentProviderTemplateIds: Partial<Record<"pdfmonkey", string>>;
   mediaReserve?: {
     enabled?: boolean;
     apiKey?: string;
@@ -255,31 +239,6 @@ export function parseUpdateToolCredentialsInput(body: unknown): UpdateToolCreden
     }
   }
 
-  const documentProviderTemplateIds: Partial<Record<"pdfmonkey", string>> = {};
-  const templateIdsRaw = body.documentProviderTemplateIds;
-  if (isObject(templateIdsRaw)) {
-    const value = templateIdsRaw.pdfmonkey;
-    if (value !== undefined && value !== null) {
-      if (typeof value !== "string") {
-        throw new Error("documentProviderTemplateIds.pdfmonkey must be a string.");
-      }
-      const trimmed = value.trim();
-      if (trimmed.length > 0) {
-        if (trimmed.length > MAX_KEY_LENGTH) {
-          throw new Error(
-            `documentProviderTemplateIds.pdfmonkey must be at most ${String(MAX_KEY_LENGTH)} characters.`
-          );
-        }
-        if (containsControlCharacters(trimmed)) {
-          throw new Error(
-            "documentProviderTemplateIds.pdfmonkey contains invalid control characters."
-          );
-        }
-        documentProviderTemplateIds.pdfmonkey = trimmed;
-      }
-    }
-  }
-
   let mediaReserve: UpdateToolCredentialsInput["mediaReserve"] | undefined;
   const mediaReserveRaw = body.mediaReserve;
   if (isObject(mediaReserveRaw)) {
@@ -355,7 +314,6 @@ export function parseUpdateToolCredentialsInput(body: unknown): UpdateToolCreden
   return {
     keys,
     providers,
-    documentProviderTemplateIds,
     ...(mediaReserve === undefined ? {} : { mediaReserve }),
     ...(ttsPrimaryProviderId === undefined
       ? {}
@@ -381,7 +339,6 @@ export function buildToolCredentialSecretRef(credentialKey: ToolCredentialKey): 
 export function buildAdminToolCredentialsState(params: {
   keyMetadata: Record<ToolCredentialKey, PlatformRuntimeProviderKeyMetadata>;
   providerSelections: Partial<Record<ToolCredentialKey, string>>;
-  documentProviderConfigMetadata: Record<"pdfmonkey", PlatformRuntimeProviderKeyMetadata>;
   mediaReserve: {
     enabled: boolean;
     apiKeyMetadata: PlatformRuntimeProviderKeyMetadata;
@@ -404,7 +361,6 @@ export function buildAdminToolCredentialsState(params: {
     tool_video_generate_runway: "Video Generation API Key (Runway)",
     tool_video_generate_kling: "Video Generation Credentials (Kling Access Key + Secret Key JSON)",
     tool_video_generate_heygen: "Video Generation API Key (HeyGen)",
-    tool_document_pdfmonkey: "Document Tool API Key (PDFMonkey)",
     tool_document_gamma: "Document Tool API Key (Gamma)",
     tool_browser: "Browser (Browserless) API Key",
     tool_tts_elevenlabs: "Text-to-Speech API Key (ElevenLabs)",
@@ -431,14 +387,7 @@ export function buildAdminToolCredentialsState(params: {
         providerOptions: TOOL_PROVIDER_OPTIONS[credentialKey] ?? null
       };
     }),
-    documentProviderConfigs: [
-      {
-        providerId: "pdfmonkey",
-        templateIdConfigured: params.documentProviderConfigMetadata.pdfmonkey.configured,
-        templateIdLastFour: params.documentProviderConfigMetadata.pdfmonkey.lastFour,
-        templateIdUpdatedAt: params.documentProviderConfigMetadata.pdfmonkey.updatedAt
-      }
-    ],
+    documentProviderConfigs: [],
     mediaReserve: {
       enabled: params.mediaReserve.enabled,
       apiKeyConfigured: params.mediaReserve.apiKeyMetadata.configured,
@@ -462,8 +411,7 @@ export function buildAdminToolCredentialsState(params: {
       "Runway, Kling, and HeyGen video provider credentials are stored separately for Admin-managed video catalog setup and later video execution slices.",
       "HeyGen voice catalog is cached in PersAI and should be refreshed manually only when operators need a fresh provider sync.",
       'Kling must be stored as JSON with both official values: {"accessKey":"...","secretKey":"..."}; a single API key is not valid for Kling.',
-      "Document generation stores provider-specific keys for PDFMonkey and Gamma as global admin-managed credentials.",
-      "PDFMonkey template selection is persisted as operator-owned Admin > Tools configuration and materialized into the runtime bundle for document jobs.",
+      "Document generation stores the Gamma provider API key as a global admin-managed credential. PDF rendering uses the in-sandbox WeasyPrint renderer (no external billing).",
       "TTS stores provider-specific keys plus one global primary-provider selection.",
       "Knowledge search and indexing do not use a separate external API key; embeddings and retrieval helper costs are tracked via Admin > Runtime model catalog.",
       "Raw keys are write-only and stored encrypted in PersAI."

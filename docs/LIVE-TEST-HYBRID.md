@@ -94,7 +94,7 @@ With a signed-in browser session:
 
 When validating the native `document` tool path, confirm these preconditions before the first turn:
 
-1. `Admin > Tools` has a valid PDFMonkey credential, a valid Gamma credential, and a configured PDFMonkey template id.
+1. `Admin > Tools` has a valid Gamma credential configured.
 2. The target assistant plan has the `document` tool enabled with a non-zero monthly document quota.
 3. `api`, `runtime`, and `provider-gateway` are all deployed on the same ADR-097 code level, and the document-domain Prisma migration is already applied.
 

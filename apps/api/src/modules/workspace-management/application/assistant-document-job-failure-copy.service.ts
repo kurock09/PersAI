@@ -46,7 +46,7 @@ export function buildAssistantDocumentJobPreparingMessage(
 
 /**
  * ADR-097 Slice 2 — patch-revise loop placeholder.
- * Shown while the PDF patch-revise job runs (one LLM call + one PDFMonkey call).
+ * Shown while the PDF patch-revise job runs (one LLM call + one render call).
  */
 export function buildAssistantDocumentJobApplyingEditsMessage(
   locale: AssistantDocumentJobLocale

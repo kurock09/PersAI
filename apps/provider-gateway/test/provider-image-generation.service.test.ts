@@ -15,14 +15,7 @@ import { ProviderDocumentGenerationService } from "../src/modules/providers/prov
 import type { GammaProviderClient } from "../src/modules/providers/gamma/gamma-provider.client";
 import { ProviderImageGenerationService } from "../src/modules/providers/provider-image-generation.service";
 import type { OpenAIProviderClient } from "../src/modules/providers/openai/openai-provider.client";
-import type { PdfMonkeyProviderClient } from "../src/modules/providers/pdfmonkey/pdfmonkey-provider.client";
 import type { PersaiInternalApiClientService } from "../src/modules/providers/persai-internal-api.client.service";
-
-function readPdfMonkeyTemplateId(input: ProviderGatewayDocumentGenerateRequest): string {
-  return input.credential.providerId === "pdfmonkey"
-    ? (input.providerOptions.pdfmonkeyTemplateId ?? "template-123")
-    : "template-123";
-}
 
 function createRequest(): ProviderGatewayImageGenerateRequest {
   return {
@@ -149,45 +142,6 @@ class FakePersaiInternalApiClientService {
   }
 }
 
-class FakePdfMonkeyProviderClient {
-  calls: Array<{ input: ProviderGatewayDocumentGenerateRequest; apiKey: string | undefined }> = [];
-  error: Error | null = null;
-
-  async generateDocument(
-    input: ProviderGatewayDocumentGenerateRequest,
-    options?: { apiKey?: string }
-  ): Promise<ProviderGatewayDocumentGenerateResult> {
-    if (this.error !== null) {
-      throw this.error;
-    }
-    this.calls.push({ input, apiKey: options?.apiKey });
-    return {
-      provider: "pdfmonkey",
-      outputFormat: "pdf",
-      documentId: "pdfmonkey-doc-1",
-      templateId: readPdfMonkeyTemplateId(input),
-      filename: input.filename,
-      bytesBase64: "JVBERi0xLjQK",
-      mimeType: "application/pdf",
-      respondedAt: "2026-05-15T18:00:00.000Z",
-      warning: null,
-      providerStatus: {
-        provider: "pdfmonkey",
-        state: "success",
-        documentId: "pdfmonkey-doc-1",
-        documentTemplateId: readPdfMonkeyTemplateId(input),
-        downloadUrl: "https://example.com/document.pdf",
-        previewUrl: "https://example.com/preview",
-        failureCause: null,
-        filename: input.filename,
-        outputType: "pdf",
-        status: "success",
-        updatedAt: "2026-05-15T18:00:00.000Z"
-      }
-    };
-  }
-}
-
 class FakeGammaProviderClient {
   calls: Array<{ input: ProviderGatewayDocumentGenerateRequest; apiKey: string | undefined }> = [];
 
@@ -229,19 +183,18 @@ function createDocumentRequest(): ProviderGatewayDocumentGenerateRequest {
     timeoutMs: 120000,
     credential: {
       toolCode: "document",
-      secretId: "tool/document/pdfmonkey/api-key",
-      providerId: "pdfmonkey"
+      secretId: "tool/document/gamma/api-key",
+      providerId: "gamma"
     },
     providerOptions: {
-      pdfmonkeyTemplateId: "template-123",
-      outputFormat: "pdf"
+      outputFormat: "pdf",
+      presentationOptions: null
     }
   };
 }
 
 export async function runProviderImageGenerationServiceTest(): Promise<void> {
   const openaiProviderClient = new FakeOpenAIProviderClient();
-  const pdfMonkeyProviderClient = new FakePdfMonkeyProviderClient();
   const gammaProviderClient = new FakeGammaProviderClient();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const service = new ProviderImageGenerationService(
@@ -249,7 +202,6 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
   const documentService = new ProviderDocumentGenerationService(
-    pdfMonkeyProviderClient as unknown as PdfMonkeyProviderClient,
     gammaProviderClient as unknown as GammaProviderClient,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
@@ -395,46 +347,24 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
   );
 
   const documentResult = await documentService.generateDocument(createDocumentRequest());
-  assert.equal(documentResult.provider, "pdfmonkey");
-  assert.equal(documentResult.mimeType, "application/pdf");
-  assert.deepEqual(pdfMonkeyProviderClient.calls[0], {
+  assert.equal(documentResult.provider, "gamma");
+  assert.equal(
+    documentResult.mimeType,
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  );
+  assert.deepEqual(gammaProviderClient.calls[0], {
     input: createDocumentRequest(),
     apiKey: "resolved-tool-secret"
   });
 
-  pdfMonkeyProviderClient.error = new Error("PDFMonkey deterministic failure");
-  await assert.rejects(
-    () => documentService.generateDocument(createDocumentRequest()),
-    /PDFMonkey deterministic failure/
-  );
   assert.deepEqual(persaiInternalApiClientService.secretIds, [
     "tool/image_generate/api-key",
     "tool/image_generate/api-key",
     "tool/image_generate/api-key",
     "tool/image_generate/reserve/api-key",
     "tool/image_generate/api-key",
-    "tool/document/pdfmonkey/api-key",
-    "tool/document/pdfmonkey/api-key"
+    "tool/document/gamma/api-key"
   ]);
-
-  await assert.rejects(
-    () =>
-      documentService.generateDocument({
-        htmlContent: "<!DOCTYPE html><html><body><h1>Test</h1></body></html>",
-        filename: "brief.pdf",
-        timeoutMs: 120000,
-        credential: {
-          toolCode: "document",
-          secretId: "tool/document/pdfmonkey/api-key",
-          providerId: "pdfmonkey"
-        },
-        providerOptions: {
-          outputFormat: "pdf",
-          pdfmonkeyTemplateId: ""
-        }
-      }),
-    /PDFMonkey document generation requires/
-  );
 
   const gammaResult = await documentService.generateDocument({
     htmlContent: "<!DOCTYPE html><html><body><h1>Deck</h1></body></html>",
@@ -471,8 +401,8 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
   });
   assert.equal(gammaResult.provider, "gamma");
   assert.equal(gammaResult.outputFormat, "pptx");
-  assert.equal(gammaProviderClient.calls.length, 1);
-  assert.deepEqual(gammaProviderClient.calls[0], {
+  assert.equal(gammaProviderClient.calls.length, 2);
+  assert.deepEqual(gammaProviderClient.calls[1], {
     input: {
       htmlContent: "<!DOCTYPE html><html><body><h1>Deck</h1></body></html>",
       filename: "deck.pptx",

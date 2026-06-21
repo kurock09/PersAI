@@ -643,7 +643,9 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             if (extractExitCode(status) === 0 || pushSucceeded()) {
               succeed();
             } else {
-              fail(`Workspace tar push failed: ${stderrText() || status.message || "non-zero exit"}`);
+              fail(
+                `Workspace tar push failed: ${stderrText() || status.message || "non-zero exit"}`
+              );
             }
           }
         )
@@ -660,9 +662,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
               if (pushSucceeded()) {
                 succeed();
               } else {
-                fail(
-                  `Workspace push closed without success (stderr: ${stderrText() || "none"})`
-                );
+                fail(`Workspace push closed without success (stderr: ${stderrText() || "none"})`);
               }
             }, EXEC_CLOSE_STATUS_GRACE_MS);
           });

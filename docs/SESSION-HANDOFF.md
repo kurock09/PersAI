@@ -20,6 +20,90 @@ ArgoCD had wedged in a phantom `operationState.phase=Running` (PreSync `api-migr
 
 Foundation is live. Proceed to **Slice 5** (PDF cutover to in-sandbox Chromium; remove PDFMonkey; port template/print CSS; truncation-detector fix) per the program plan, or run an end-to-end sandbox smoke (a real `shell`/grep + pip-install-through-Squid job) before continuing.
 
+## 2026-06-21 — ADR-123 Slice 5: PDF cutover (pdfmonkey → WeasyPrint/sandbox) — CHECKPOINT
+
+### State
+
+All verification gates **PASS**:
+- `corepack pnpm -r --if-present run lint` → **PASS**
+- `corepack pnpm run format:check` → **PASS**
+- `corepack pnpm --filter @persai/api run typecheck` → **PASS**
+- `corepack pnpm --filter @persai/web run typecheck` → **PASS**
+- `corepack pnpm --filter @persai/runtime run typecheck` → **PASS**
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` → **PASS**
+- `corepack pnpm --filter @persai/sandbox run typecheck` → **PASS**
+
+### What changed
+
+ADR-123 Slice 5: Full PDF rendering cutover from the external PDFMonkey SaaS API to in-sandbox WeasyPrint. The pdfmonkey provider is fully removed. The chunked PDF pipeline is removed (truncation re-routes now retry single-shot). Enhanced print CSS is always applied. Sandbox-produced PDF is downloaded, validated, persisted as canonical `runtime_output` artifact; the transient `sandbox_output` AssistantFile is soft-deleted.
+
+### Key decisions
+
+- **Render engine**: `render_html_to_pdf` toolCode in sandbox using WeasyPrint (already installed in exec image from Slice 4).
+- **Chunked removal**: Entire chunked pipeline removed. Truncation now retries single-shot only.
+- **Duplicate file handling**: Download PDF from GCS (via `mediaObjectStorage.downloadObject`) → validate → persist as `runtime_output` → delete transient `sandbox_output` via new `RuntimeAssistantFileRegistryService.deleteById()`.
+- **Enhanced pagination**: `RUNTIME_DOCUMENT_ENHANCED_PAGINATION` env flag removed; always use `DOCUMENT_HTML_ENHANCED_PRINT_CSS`.
+- **`documentProviderTemplateIds`**: Removed from `UpdateToolCredentialsInput` (pdfmonkey had template IDs; sandbox has none).
+- **Prisma migration**: `ALTER TYPE "AssistantDocumentRenderProvider" RENAME VALUE 'pdfmonkey' TO 'sandbox'`.
+
+### Files touched
+
+| Subsystem | File | Change |
+|---|---|---|
+| Runtime contract | `packages/runtime-contract/src/index.ts` | `"pdfmonkey"→"sandbox"` in provider enums/types; remove pdfmonkey member from `ProviderGatewayDocumentGenerateRequest/Result` |
+| Runtime bundle | `packages/runtime-bundle/src/index.ts` | Remove `pdfmonkeyTemplateId` from governance |
+| Prisma schema | `apps/api/prisma/schema.prisma` | Rename enum value `pdfmonkey→sandbox` |
+| Prisma migration | `apps/api/prisma/migrations/20260621000000_adr123_render_provider_sandbox/migration.sql` | SQL rename |
+| Prisma client | Regenerated | `prisma generate` |
+| Runtime adapter | `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts` | Major refactor: sandbox provider, `renderHtmlToPdf()` helper, chunked removal, CSS unification |
+| File registry | `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts` | Add `deleteById()` |
+| Document tool service | `apps/runtime/src/modules/turns/runtime-document-tool.service.ts` | Default provider → `"sandbox"` |
+| Provider gateway client | `apps/runtime/src/modules/turns/provider-gateway.client.service.ts` | Remove pdfmonkey from `isDocumentGenerateResult` |
+| Document jobs controller | `apps/runtime/src/modules/turns/interface/http/internal-runtime-document-jobs.controller.ts` | Validate `"sandbox"` provider |
+| Provider gateway module | `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts` | Remove `PdfMonkeyProviderClient` |
+| Provider document service | `apps/provider-gateway/src/modules/providers/provider-document-generation.service.ts` | Remove pdfmonkey branch |
+| Run suite | `apps/provider-gateway/test/run-suite.ts` | Remove pdfmonkey test |
+| Deleted | `apps/provider-gateway/src/modules/providers/pdfmonkey/pdfmonkey-provider.client.ts` | Deleted |
+| Deleted | `apps/provider-gateway/test/pdfmonkey-provider.client.test.ts` | Deleted (if existed) |
+| Tool credentials | `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts` | Remove all pdfmonkey entries; remove `documentProviderTemplateIds` field |
+| Manage credentials | `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts` | Remove `documentProviderTemplateIds` processing |
+| Enqueue job | `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts` | `pdfmonkey→sandbox`; remove template gate |
+| Job scheduler | `apps/api/src/modules/workspace-management/application/assistant-document-job-scheduler.service.ts` | `pdfmonkey→sandbox` in types and ternaries |
+| Pricing catalog | `apps/api/src/modules/workspace-management/application/tool-path-pricing-catalog.ts` | Remove pdfmonkey billing entry |
+| Runtime tool policy | `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts` | `pdfmonkey→sandbox` |
+| Materialize service | `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` | Remove `pdfmonkeyTemplateId` |
+| Web admin | `apps/web/app/admin/tools/page.tsx` | Remove PDFMonkey credential/template UI |
+| Web economics | `apps/web/app/admin/tools/tool-path-economics.ts` | Remove PDFMonkey display name |
+| Seed data | `apps/api/prisma/site-page-seed-data.ts` | Remove "PDFMonkey" from prose |
+| Docs | `docs/LIVE-TEST-HYBRID.md` | Remove PDFMonkey prerequisite |
+| Tests (runtime) | `apps/runtime/test/runtime-document-provider-adapter.service.test.ts` | Major update: sandbox mock helpers, remove pdfmonkey types |
+| Tests (runtime) | `apps/runtime/test/runtime-document-job-run.service.test.ts` | `pdfmonkey→sandbox` |
+| Tests (runtime) | `apps/runtime/test/provider-gateway.client.service.test.ts` | Remove pdfmonkey fixture |
+| Tests (sandbox) | `apps/sandbox/test/sandbox.service.test.ts` | ADD `render_html_to_pdf` test |
+
+### Tests run
+
+- All 5 typechecks: **PASS**
+- All lint: **PASS**
+- format:check: **PASS**
+- `apps/runtime` test suite (`run-suite-isolated.ts`): **41 pass, 0 fail**
+- `apps/api` test suite: **PASS**
+- `apps/sandbox` test suite: **21 pass, 0 fail**
+- `apps/provider-gateway` test suite: **PASS**
+
+### Residuals / known risks
+
+1. **Database migration** — `ALTER TYPE "AssistantDocumentRenderProvider" RENAME VALUE 'pdfmonkey' TO 'sandbox'` needs to run before deploying. The migration file is at `apps/api/prisma/migrations/20260621000000_adr123_render_provider_sandbox/migration.sql`.
+2. **Sandbox render latency** — WeasyPrint render via exec pod adds ~5–15s vs ~3s pdfmonkey API. If this causes timeouts, increase `DEFAULT_DOCUMENT_TIMEOUT_MS` or the `workerTools.timeoutMs` in bundle governance.
+
+### Next recommended step
+
+1. Deploy Slice 5 to `persai-dev` and verify the `persai-dev` sandbox can render a PDF document via WeasyPrint.
+2. Run full RUNBOOK §ADR-123 Slice 5 validation (create a PDF document end-to-end).
+3. After live validation, proceed to Slice 6 (documents mode B — Excel/DOCX/data-PDF).
+
+---
+
 ## 2026-06-20 — ADR-123 Slice 4: Exec image (Python + Node + doc/data stack + Chromium + ripgrep/fd) — CHECKPOINT
 
 ### What changed

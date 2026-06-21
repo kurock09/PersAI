@@ -119,7 +119,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
       workspaceId: "workspace-1",
       chatId: "chat-1",
       surface: "web",
-      provider: "pdfmonkey",
+      provider: "sandbox",
       outputFormat: "pdf",
       sourceUserMessageId: "message-1",
       requestJson: {
@@ -202,28 +202,26 @@ describe("AssistantDocumentJobSchedulerService", () => {
         docId: "doc-1",
         versionId: "version-1",
         workspaceId: "workspace-1",
-        provider: "pdfmonkey",
+        provider: "sandbox",
         claimToken: "claim-1"
       },
-      "pdfmonkey_auth_failed",
-      "PDFMonkey rejected the configured credential.",
+      "sandbox_render_failed",
+      "Sandbox render failed.",
       {
-        provider: "pdfmonkey",
+        provider: "sandbox",
         state: "failed",
-        status: "http_401",
-        httpStatus: 401,
         retryable: false,
-        documentTemplateId: "template-123",
-        message: "PDFMonkey rejected the configured credential."
+        errorCode: "sandbox_render_failed",
+        message: "Sandbox render failed."
       }
     );
 
-    assert.equal(capturedJobUpdate?.data?.providerStatusJson?.providerStatus?.httpStatus, 401);
+    assert.equal(capturedJobUpdate?.data?.providerStatusJson?.providerStatus?.retryable, false);
     assert.equal(capturedMappingUpdate?.data?.latestProviderStatus, "failed");
-    assert.equal(capturedMappingUpdate?.data?.providerMetadataJson?.httpStatus, 401);
+    assert.equal(capturedMappingUpdate?.data?.providerMetadataJson?.retryable, false);
     assert.equal(
       capturedMappingUpdate?.data?.providerMetadataJson?.errorCode,
-      "pdfmonkey_auth_failed"
+      "sandbox_render_failed"
     );
   });
 
@@ -301,11 +299,11 @@ describe("AssistantDocumentJobSchedulerService", () => {
               toolInvocations: [],
               rawText: null,
               providerStatus: {
-                provider: "pdfmonkey",
+                provider: "sandbox",
                 state: "failed",
                 retryable: true,
-                errorCode: "pdfmonkey_download_unavailable",
-                message: "Temporary PDF download failure"
+                errorCode: "sandbox_render_failed",
+                message: "Temporary PDF render failure"
               }
             }
           };
@@ -354,7 +352,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
       workspaceId: "workspace-1",
       chatId: "chat-1",
       surface: "web",
-      provider: "pdfmonkey",
+      provider: "sandbox",
       outputFormat: "pdf",
       sourceUserMessageId: "message-1",
       requestJson: {
@@ -371,7 +369,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
 
     assert.equal(topLevelUpdates.length, 1);
     assert.equal(topLevelUpdates[0]?.data?.status, "queued");
-    assert.equal(topLevelUpdates[0]?.data?.lastErrorCode, "pdfmonkey_download_unavailable");
+    assert.equal(topLevelUpdates[0]?.data?.lastErrorCode, "sandbox_render_failed");
     assert.equal(topLevelUpdates[0]?.data?.providerStatusJson?.retryable, true);
   });
 
@@ -846,7 +844,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
               ],
               rawText: null,
               renderedHtml: "<!DOCTYPE html><html><body><h1>Test</h1></body></html>",
-              providerStatus: { provider: "pdfmonkey", state: "success" }
+              providerStatus: { provider: "sandbox", state: "success" }
             }
           };
         }
@@ -894,7 +892,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
       workspaceId: "workspace-1",
       chatId: "chat-1",
       surface: "web",
-      provider: "pdfmonkey",
+      provider: "sandbox",
       outputFormat: "pdf",
       sourceUserMessageId: "message-html-1",
       requestJson: {
@@ -1051,7 +1049,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
               styleProfileJson: styleProfile,
               editStrategy: "structured_large",
               structureVersion: 1,
-              providerStatus: { provider: "pdfmonkey", state: "success" }
+              providerStatus: { provider: "sandbox", state: "success" }
             }
           };
         }
@@ -1099,7 +1097,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
       workspaceId: "workspace-1",
       chatId: "chat-1",
       surface: "web",
-      provider: "pdfmonkey",
+      provider: "sandbox",
       outputFormat: "pdf",
       sourceUserMessageId: "message-struct-1",
       requestJson: {
@@ -1221,7 +1219,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
               usage: null,
               toolInvocations: [],
               rawText: null,
-              providerStatus: { provider: "pdfmonkey", state: "success" }
+              providerStatus: { provider: "sandbox", state: "success" }
             }
           };
         }
@@ -1269,7 +1267,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
       workspaceId: "workspace-1",
       chatId: "chat-1",
       surface: "web",
-      provider: "pdfmonkey",
+      provider: "sandbox",
       outputFormat: "pdf",
       sourceUserMessageId: "message-revise-1",
       requestJson: {
@@ -1464,7 +1462,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
                 { name: "document", iteration: 1, ok: true, executionMode: "worker" }
               ],
               rawText: null,
-              providerStatus: { provider: "pdfmonkey", state: "success" }
+              providerStatus: { provider: "sandbox", state: "success" }
             }
           };
         }
@@ -1515,7 +1513,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
       workspaceId: "workspace-1",
       chatId: "chat-ledger-1",
       surface: "web",
-      provider: "pdfmonkey",
+      provider: "sandbox",
       outputFormat: "pdf",
       sourceUserMessageId: "message-ledger-1",
       requestJson: {
@@ -1632,7 +1630,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
                 { name: "document", iteration: 1, ok: true, executionMode: "worker" }
               ],
               rawText: null,
-              providerStatus: { provider: "pdfmonkey", state: "success" }
+              providerStatus: { provider: "sandbox", state: "success" }
             }
           };
         }
@@ -1683,7 +1681,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
       workspaceId: "workspace-1",
       chatId: "chat-null-usage-1",
       surface: "web",
-      provider: "pdfmonkey",
+      provider: "sandbox",
       outputFormat: "pdf",
       sourceUserMessageId: "message-null-usage-1",
       requestJson: {

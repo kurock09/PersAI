@@ -5,13 +5,11 @@ import {
   type ProviderGatewayDocumentGenerateResult
 } from "@persai/runtime-contract";
 import { GammaProviderClient } from "./gamma/gamma-provider.client";
-import { PdfMonkeyProviderClient } from "./pdfmonkey/pdfmonkey-provider.client";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 
 @Injectable()
 export class ProviderDocumentGenerationService {
   constructor(
-    private readonly pdfMonkeyProviderClient: PdfMonkeyProviderClient,
     private readonly gammaProviderClient: GammaProviderClient,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService
   ) {}
@@ -24,12 +22,7 @@ export class ProviderDocumentGenerationService {
       normalized.credential.secretId
     );
 
-    switch (normalized.credential.providerId) {
-      case "pdfmonkey":
-        return this.pdfMonkeyProviderClient.generateDocument(normalized, { apiKey });
-      case "gamma":
-        return this.gammaProviderClient.generateDocument(normalized, { apiKey });
-    }
+    return this.gammaProviderClient.generateDocument(normalized, { apiKey });
   }
 
   private normalizeInput(
@@ -57,35 +50,7 @@ export class ProviderDocumentGenerationService {
     if (!PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS.includes(input.credential.providerId)) {
       throw new BadRequestException("credential.providerId must be a supported document provider");
     }
-    if (input.credential.providerId === "pdfmonkey") {
-      const providerOptions = this.normalizePdfMonkeyProviderOptions(
-        input as Extract<
-          ProviderGatewayDocumentGenerateRequest,
-          { credential: { providerId: "pdfmonkey" } }
-        >
-      );
-      return {
-        htmlContent: input.htmlContent,
-        filename:
-          input.filename === null || input.filename === undefined ? null : input.filename.trim(),
-        timeoutMs:
-          input.timeoutMs === null || input.timeoutMs === undefined
-            ? null
-            : this.normalizeOptionalPositiveInteger(input.timeoutMs, "timeoutMs"),
-        credential: {
-          toolCode: "document",
-          secretId: input.credential.secretId.trim(),
-          providerId: "pdfmonkey"
-        },
-        providerOptions
-      };
-    }
-    const providerOptions = this.normalizeGammaProviderOptions(
-      input as Extract<
-        ProviderGatewayDocumentGenerateRequest,
-        { credential: { providerId: "gamma" } }
-      >
-    );
+    const providerOptions = this.normalizeGammaProviderOptions(input);
     return {
       htmlContent: input.htmlContent,
       filename:
@@ -103,36 +68,9 @@ export class ProviderDocumentGenerationService {
     };
   }
 
-  private normalizePdfMonkeyProviderOptions(
-    input: Extract<
-      ProviderGatewayDocumentGenerateRequest,
-      { credential: { providerId: "pdfmonkey" } }
-    >
-  ): Extract<
-    ProviderGatewayDocumentGenerateRequest,
-    { credential: { providerId: "pdfmonkey" } }
-  >["providerOptions"] {
-    if (
-      input.providerOptions.outputFormat !== "pdf" ||
-      typeof input.providerOptions.pdfmonkeyTemplateId !== "string" ||
-      input.providerOptions.pdfmonkeyTemplateId.trim().length === 0
-    ) {
-      throw new BadRequestException(
-        'PDFMonkey document generation requires providerOptions.outputFormat="pdf" and a non-empty providerOptions.pdfmonkeyTemplateId'
-      );
-    }
-    return {
-      pdfmonkeyTemplateId: input.providerOptions.pdfmonkeyTemplateId.trim(),
-      outputFormat: "pdf"
-    };
-  }
-
   private normalizeGammaProviderOptions(
-    input: Extract<ProviderGatewayDocumentGenerateRequest, { credential: { providerId: "gamma" } }>
-  ): Extract<
-    ProviderGatewayDocumentGenerateRequest,
-    { credential: { providerId: "gamma" } }
-  >["providerOptions"] {
+    input: ProviderGatewayDocumentGenerateRequest
+  ): ProviderGatewayDocumentGenerateRequest["providerOptions"] {
     if (
       input.providerOptions.outputFormat !== "pdf" &&
       input.providerOptions.outputFormat !== "pptx"

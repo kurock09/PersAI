@@ -1966,7 +1966,7 @@ export const PERSAI_RUNTIME_TTS_PROVIDER_IDS = ["elevenlabs", "yandex", "openai"
 
 export type PersaiRuntimeTtsProviderId = (typeof PERSAI_RUNTIME_TTS_PROVIDER_IDS)[number];
 
-export const PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS = ["pdfmonkey", "gamma"] as const;
+export const PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS = ["sandbox", "gamma"] as const;
 
 export type PersaiRuntimeDocumentProviderId = (typeof PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS)[number];
 
@@ -2611,7 +2611,7 @@ export interface RuntimeDocumentJobRunRequest {
     versionId: string;
     surface: "web" | "telegram";
     chatId: string;
-    provider: "pdfmonkey" | "gamma";
+    provider: "sandbox" | "gamma";
     outputFormat: "pdf" | "pptx";
     sourceUserMessageId: string;
     sourceUserMessageText: string;
@@ -2703,7 +2703,7 @@ export interface RuntimeDocumentJobRunResult {
   rawText: string | null;
   providerStatus?: Record<string, unknown> | null;
   billingFacts?: RuntimeBillingFacts | null;
-  /** Exact post-repairHtmlDocument HTML sent to PDFMonkey. Null for Gamma/pptx
+  /** Exact post-repairHtmlDocument HTML sent to WeasyPrint/sandbox. Null for Gamma/pptx
    *  or when generation failed. Persisted on AssistantDocumentVersion so later
    *  revise paths can reuse stable document truth without re-generating. */
   renderedHtml?: string | null;
@@ -3306,120 +3306,77 @@ export interface ProviderGatewaySpeechGenerateResult {
   warning: string | null;
 }
 
-export type ProviderGatewayDocumentGenerateRequest =
-  | {
-      htmlContent: string;
-      filename: string | null;
-      timeoutMs?: number | null;
-      credential: {
-        toolCode: "document";
-        secretId: string;
-        providerId: "pdfmonkey";
-      };
-      providerOptions: {
-        pdfmonkeyTemplateId: string;
-        outputFormat: "pdf";
-        presentationOptions?: never;
-      };
-    }
-  | {
-      htmlContent: string;
-      filename: string | null;
-      timeoutMs?: number | null;
-      credential: {
-        toolCode: "document";
-        secretId: string;
-        providerId: "gamma";
-      };
-      providerOptions: {
-        pdfmonkeyTemplateId?: never;
-        outputFormat: "pdf" | "pptx";
-        presentationOptions?: {
-          themeId?: string | null;
-          textMode?: "generate" | "condense" | "preserve" | null;
-          numCards?: number | null;
-          cardSplit?: "auto" | "inputTextBreaks" | null;
-          additionalInstructions?: string | null;
-          textOptions?: {
-            amount?: "brief" | "medium" | "detailed" | "extensive" | null;
-            language?: string | null;
-            tone?: string | null;
-            audience?: string | null;
-          } | null;
-          imageOptions?: {
-            source?:
-              | "webAllImages"
-              | "webFreeToUse"
-              | "webFreeToUseCommercially"
-              | "aiGenerated"
-              | "pictographic"
-              | "giphy"
-              | "pexels"
-              | "placeholder"
-              | "noImages"
-              | "themeAccent"
-              | null;
-            model?: string | null;
-            style?: string | null;
-            stylePreset?: "illustration" | "abstract" | "3D" | "lineArt" | "custom" | null;
-          } | null;
-          cardOptions?: {
-            dimensions?: "16x9" | "4x3" | "fluid" | null;
-          } | null;
-        } | null;
-      };
-    };
+export type ProviderGatewayDocumentGenerateRequest = {
+  htmlContent: string;
+  filename: string | null;
+  timeoutMs?: number | null;
+  credential: {
+    toolCode: "document";
+    secretId: string;
+    providerId: "gamma";
+  };
+  providerOptions: {
+    outputFormat: "pdf" | "pptx";
+    presentationOptions?: {
+      themeId?: string | null;
+      textMode?: "generate" | "condense" | "preserve" | null;
+      numCards?: number | null;
+      cardSplit?: "auto" | "inputTextBreaks" | null;
+      additionalInstructions?: string | null;
+      textOptions?: {
+        amount?: "brief" | "medium" | "detailed" | "extensive" | null;
+        language?: string | null;
+        tone?: string | null;
+        audience?: string | null;
+      } | null;
+      imageOptions?: {
+        source?:
+          | "webAllImages"
+          | "webFreeToUse"
+          | "webFreeToUseCommercially"
+          | "aiGenerated"
+          | "pictographic"
+          | "giphy"
+          | "pexels"
+          | "placeholder"
+          | "noImages"
+          | "themeAccent"
+          | null;
+        model?: string | null;
+        style?: string | null;
+        stylePreset?: "illustration" | "abstract" | "3D" | "lineArt" | "custom" | null;
+      } | null;
+      cardOptions?: {
+        dimensions?: "16x9" | "4x3" | "fluid" | null;
+      } | null;
+    } | null;
+  };
+};
 
-export type ProviderGatewayDocumentGenerateResult =
-  | {
-      provider: "pdfmonkey";
-      outputFormat: "pdf";
-      documentId: string;
-      templateId: string;
-      filename: string | null;
-      bytesBase64: string;
-      mimeType: string;
-      respondedAt: IsoTimestamp;
-      warning: string | null;
-      providerStatus: {
-        provider: "pdfmonkey";
-        state: "success";
-        documentId: string;
-        documentTemplateId: string;
-        downloadUrl: string;
-        previewUrl: string | null;
-        failureCause: string | null;
-        filename: string | null;
-        outputType: "pdf";
-        status: "success";
-        updatedAt: IsoTimestamp | null;
-      };
-      billingFacts?: RuntimeBillingFacts | null;
-    }
-  | {
-      provider: "gamma";
-      outputFormat: "pdf" | "pptx";
-      documentId: string;
-      templateId: null;
-      filename: string | null;
-      bytesBase64: string;
-      mimeType: string;
-      respondedAt: IsoTimestamp;
-      warning: string | null;
-      providerStatus: {
-        provider: "gamma";
-        state: "success";
-        generationId: string;
-        gammaId: string;
-        gammaUrl: string | null;
-        exportUrl: string;
-        filename: string | null;
-        outputType: "pdf" | "pptx";
-        status: "completed";
-        updatedAt: IsoTimestamp | null;
-      };
-      billingFacts?: RuntimeBillingFacts | null;
-    };
+export type ProviderGatewayDocumentGenerateResult = {
+  provider: "gamma";
+  outputFormat: "pdf" | "pptx";
+  documentId: string;
+  templateId: null;
+  filename: string | null;
+  bytesBase64: string;
+  mimeType: string;
+  respondedAt: IsoTimestamp;
+  warning: string | null;
+  providerStatus: {
+    provider: "gamma";
+    state: "success";
+    generationId: string;
+    gammaId: string;
+    gammaUrl: string | null;
+    exportUrl: string;
+    filename: string | null;
+    outputType: "pdf" | "pptx";
+    status: "completed";
+    updatedAt: IsoTimestamp | null;
+  };
+  billingFacts?: RuntimeBillingFacts | null;
+};
 
 export interface ProviderGatewayImageGenerateRequest {
   prompt: string;

@@ -33,9 +33,6 @@ async function run(): Promise<void> {
     providers: {
       tool_browser: "browserless"
     },
-    documentProviderTemplateIds: {
-      pdfmonkey: "  template-123  "
-    },
     mediaReserve: {
       enabled: true,
       apiKey: "  reserve-key  ",
@@ -49,9 +46,6 @@ async function run(): Promise<void> {
     },
     providers: {
       tool_browser: "browserless"
-    },
-    documentProviderTemplateIds: {
-      pdfmonkey: "template-123"
     },
     mediaReserve: {
       enabled: true,
@@ -86,13 +80,6 @@ async function run(): Promise<void> {
     providerSelections: {
       tool_browser: "browserless"
     },
-    documentProviderConfigMetadata: {
-      pdfmonkey: {
-        configured: true,
-        lastFour: "e123",
-        updatedAt: "2026-05-15T12:00:00.000Z"
-      }
-    },
     mediaReserve: {
       enabled: true,
       apiKeyMetadata: {
@@ -109,20 +96,13 @@ async function run(): Promise<void> {
     }
   });
 
-  assert.equal(state.credentials.length, 14); // 12 visible tool credentials + 2 notification credentials
+  assert.equal(state.credentials.length, 13); // 11 visible tool credentials + 2 notification credentials
   assert.equal(
     state.credentials.find((credential) => credential.credentialKey === "tool_memory_search"),
     undefined
   );
   assert.equal(state.ttsPrimaryProviderId, "elevenlabs");
-  assert.deepEqual(state.documentProviderConfigs, [
-    {
-      providerId: "pdfmonkey",
-      templateIdConfigured: true,
-      templateIdLastFour: "e123",
-      templateIdUpdatedAt: "2026-05-15T12:00:00.000Z"
-    }
-  ]);
+  assert.deepEqual(state.documentProviderConfigs, []);
   assert.deepEqual(state.mediaReserve, {
     enabled: true,
     apiKeyConfigured: true,

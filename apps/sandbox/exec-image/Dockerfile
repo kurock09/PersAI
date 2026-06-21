@@ -73,6 +73,16 @@ COPY apps/sandbox/exec-image/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
   && rm /tmp/requirements.txt
 
+# ── make the venv authoritative for LOGIN shells too ─────────────────────────
+# The image ENV PATH above only survives in non-login shells and direct exec.
+# A login shell (`sh -lc`, which the model's shell tool uses) sources
+# /etc/profile, which on Debian hard-resets PATH and drops /opt/venv/bin — so
+# `python3`/`pip`/`weasyprint` would silently resolve to the bare system
+# interpreter. /etc/profile sources /etc/profile.d/*.sh AFTER setting PATH, so
+# prepending here re-establishes the venv across every shell invocation mode.
+RUN printf '%s\n' 'export PATH="/opt/venv/bin:$PATH"' > /etc/profile.d/10-venv.sh \
+  && chmod 0644 /etc/profile.d/10-venv.sh
+
 # ── refresh font cache into the image layer ───────────────────────────────────
 RUN fc-cache -f -v
 
@@ -103,9 +113,13 @@ ENV MPLCONFIGDIR="/tmp/.matplotlib"
 USER sandbox
 
 # ── self-checks: fail the build loudly if anything is missing ─────────────────
+# The login-shell check guards the /etc/profile.d/10-venv.sh fix: if a future
+# change ever lets a login shell resolve `python3` to the bare system
+# interpreter again, this import fails and the build breaks loudly.
 RUN rg --version \
   && fd --version \
   && python3 -c "import pandas, numpy, matplotlib, openpyxl, docx, weasyprint, pdfplumber, PIL; print('python stack ok')" \
+  && /bin/sh -lc 'python3 -c "import weasyprint, pandas; print(\"login-shell python stack ok\")"' \
   && node --version \
   && (chromium --version || chromium-browser --version)
 

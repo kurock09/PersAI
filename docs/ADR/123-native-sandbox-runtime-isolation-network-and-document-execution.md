@@ -8,7 +8,8 @@ Accepted — 2026-06-20 (open program; bounded slices — see Work plan)
 - **Slice 2 LANDED** — 2026-06-20 (commit `a0336bed`)
 - **Slice 3 LANDED** — 2026-06-20 (per-session pod reuse, idle-TTL reaper, GCS-keyed workspace snapshot; warm pool DEFERRED — see Work plan note)
 - **Slice 4 LANDED** — 2026-06-20 (exec image: Python + Node + doc/data stack + Chromium + ripgrep/fd; CI deploy service `sandbox-exec`; SHA pinning via `sandboxExec.image.tag`)
-- Slices 5–7 pending
+- **Slice 5 LANDED** — 2026-06-21 (commit `<pending>`) — PDF cutover: WeasyPrint render via `render_html_to_pdf` toolCode; PDFMonkey fully removed; pdfmonkey→sandbox provider rename + Prisma migration; chunked pipeline removed; enhanced print CSS always on; truncation detector improved
+- Slices 6–7 pending
 
 > Open orchestration ADR. New long-term system rule: untrusted model-authored code runs inside a kernel-isolated, secret-free, per-session sandbox with deny-all egress behind an allowlist proxy; PDF/Excel/DOCX/data documents are produced **in** that sandbox (headless Chromium + a Python doc/data stack) rather than via an external render SaaS; and `grep`/`glob`/`shell` become first-class workspace tools. This program is executed by an orchestrator dispatching `sonnet` sub-agents. **Prod-first: no transitional flags, no permanent fallbacks, no compatibility shims — user base is still small, so we cut over cleanly.**
 
@@ -111,7 +112,7 @@ Bounded slices for the orchestrator to dispatch to `sonnet` sub-agents. Each sli
 
 **Consumers (after foundation; Slices 5–7 may parallelize where they touch disjoint code):**
 
-- **Slice 5 — PDF cutover.** D6: render via in-sandbox headless Chromium; remove PDFMonkey entirely; port template shell + print CSS in-house; correct the truncation detector; re-examine/simplify chunked. Keep HTML-IR + patch/structured-revise. Verify PDF parity/superiority on long documents.
+- **Slice 5 — PDF cutover. [LANDED — 2026-06-21]** D6 (reconciled): render via in-sandbox **WeasyPrint** (not headless Chromium — founder-approved deviation; WeasyPrint fully supports `@page` print CSS including page-number counters; Chromium CLI does not and is retained for mode B / browser-class rendering in Slice 6). Sandbox `render_html_to_pdf` toolCode (WeasyPrint) is the sole render path; PDFMonkey removed entirely from all subsystems. `pdfmonkey` provider enum value renamed to `sandbox` (Prisma migration applied). Chunked LLM section-generation pipeline removed; truncation now retries single-shot only. `RUNTIME_DOCUMENT_ENHANCED_PAGINATION` env flag removed; enhanced print CSS always applied. Sandbox-produced PDF downloaded from GCS, validated, persisted as `runtime_output`; transient `sandbox_output` AssistantFile deleted. Billing line for PDF render removed (in-sandbox, no external cost). Verify PDF parity/superiority on long documents.
 - **Slice 6 — Documents mode B.** D7: model-writes-code Excel/DOCX/data-PDF executed in sandbox; mode A/B routing in the document worker. Verify a large data document is produced without hitting the output-token ceiling.
 - **Slice 7 — Tools.** D8: add `grep` + `glob` inline tools; rewrite `shell` description and add the `<tool_usage_policy>` code category; point `exec`/`shell` at the new sandbox. Plan-managed activation/loop budget unchanged. Verify the model autonomously uses shell/grep on a multi-step file task.
 

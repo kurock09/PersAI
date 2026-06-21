@@ -96,7 +96,7 @@ enum AssistantDocumentVersionStatus {
 }
 
 enum AssistantDocumentRenderProvider {
-  pdfmonkey
+  sandbox
   gamma
 }
 

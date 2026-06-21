@@ -157,6 +157,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runAdr119GoldenPromptSnapshotTest"
   },
   {
+    modulePath: "./runtime-document-provider-adapter.service.test.ts",
+    exportName: "runRuntimeDocumentProviderAdapterServiceTest"
+  },
+  {
     modulePath: "./model-output-budget.test.ts",
     exportName: "runModelOutputBudgetTest"
   }

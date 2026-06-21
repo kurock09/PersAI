@@ -783,7 +783,7 @@ export class RecordModelCostLedgerService {
   /**
    * ADR-102 Slice 8 — record token-metered worker LLM usage for a document
    * generation job (outline + section + HTML + patch calls). Purpose is
-   * `document_generation`, distinct from `document_render` (PDFMonkey billing
+   * `document_generation`, distinct from `document_render` (in-sandbox render
    * facts) and `chat_helper` (completion framing). Non-blocking: callers must
    * wrap in try/catch.
    */

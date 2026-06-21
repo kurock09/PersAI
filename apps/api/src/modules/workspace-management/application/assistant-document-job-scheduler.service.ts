@@ -80,7 +80,7 @@ type ClaimedDocumentJob = {
   workspaceId: string;
   chatId: string;
   surface: "web" | "telegram";
-  provider: "pdfmonkey" | "gamma";
+  provider: "sandbox" | "gamma";
   outputFormat: "pdf" | "pptx";
   sourceUserMessageId: string;
   requestJson: unknown;
@@ -268,7 +268,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           workspaceId: string;
           chatId: string;
           surface: "web" | "telegram";
-          provider: "pdfmonkey" | "gamma";
+          provider: "sandbox" | "gamma";
           outputFormat: "pdf" | "pptx";
           status: "queued" | "running" | "ready_for_delivery";
           sourceUserMessageId: string | null;
@@ -478,7 +478,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           toolCode: "document",
           descriptorMode:
             requestPayload.descriptorMode ??
-            (job.provider === "pdfmonkey" ? "create_pdf_document" : "create_presentation"),
+            (job.provider === "sandbox" ? "create_pdf_document" : "create_presentation"),
           request: {
             ...requestPayload.sourceJson
           }
@@ -526,7 +526,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           await this.failJob(
             job,
             "document_template_not_configured",
-            'Document provider "pdfmonkey" requires an operator-configured template id.',
+            "Document rendering failed (template_not_configured state — should not occur with sandbox renderer).",
             outcome.result.providerStatus ?? null,
             { requestPayload, retryable: false }
           );
@@ -557,7 +557,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
             providerStatusJson: {
               descriptorMode:
                 requestPayload.descriptorMode ??
-                (job.provider === "pdfmonkey" ? "create_pdf_document" : "create_presentation"),
+                (job.provider === "sandbox" ? "create_pdf_document" : "create_presentation"),
               outputFormat: job.outputFormat,
               sourceUserMessageId: job.sourceUserMessageId,
               sourceUserMessageText: requestPayload.sourceUserMessageText,

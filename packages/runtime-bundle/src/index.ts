@@ -134,9 +134,6 @@ export interface AssistantRuntimeBundleGovernance {
   memoryControl: unknown;
   tasksControl: unknown;
   toolCredentialRefs: Record<string, AssistantRuntimeBundleToolCredentialRef>;
-  documentProviderConfig?: {
-    pdfmonkeyTemplateId: string | null;
-  };
   toolPolicies: AssistantRuntimeBundleToolPolicy[];
   quota: AssistantRuntimeBundleQuota;
   auditHook: unknown;

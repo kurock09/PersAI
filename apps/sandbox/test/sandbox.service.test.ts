@@ -1527,3 +1527,157 @@ test("SandboxService: session snapshot round-trip — save then restore adds eph
     await removePathWithRetries(restoreRoot);
   }
 });
+
+test("SandboxService: render_html_to_pdf runs weasyprint command and removes transient .render-input.html", async () => {
+  const capturedRunInPodCalls: Array<{
+    command: string;
+    args: string[];
+    jobId: string;
+  }> = [];
+
+  // Fake PDF bytes that the mock weasyprint writes into the workspace.
+  const fakePdfBytes = Buffer.concat([
+    Buffer.from("%PDF-1.4\n", "utf8"),
+    Buffer.alloc(500, "X"),
+    Buffer.from("\n%%EOF", "utf8")
+  ]);
+
+  const storedObjects = new Map<string, Buffer>();
+
+  const service = new SandboxService(
+    {
+      sandboxJob: {
+        async update(input: { where: { id: string }; data: Record<string, unknown> }) {
+          return { id: input.where.id, ...input.data };
+        },
+        async findUnique() {
+          return null;
+        }
+      },
+      assistantFile: {
+        async findMany() {
+          return [];
+        },
+        async create(input: { data: Record<string, unknown> }) {
+          return {
+            id: "file-render-1",
+            assistantId: String(input.data.assistantId),
+            workspaceId: String(input.data.workspaceId),
+            sandboxJobId: null,
+            origin: "sandbox_output",
+            sourceToolCode: String(input.data.sourceToolCode),
+            objectKey: String(input.data.objectKey),
+            relativePath: String(input.data.relativePath),
+            displayName: null,
+            mimeType: String(input.data.mimeType),
+            sizeBytes: input.data.sizeBytes as bigint,
+            logicalSizeBytes: null,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        },
+        async deleteMany() {
+          return { count: 0 };
+        }
+      },
+      assistantWorkspaceLease: {
+        async create(input: { data: Record<string, unknown> }) {
+          return {
+            id: "lease-render-1",
+            assistantId: String(input.data.assistantId),
+            workspaceId: String(input.data.workspaceId),
+            sandboxJobId: null,
+            leaseToken: String(input.data.leaseToken),
+            holderId: String(input.data.holderId),
+            expiresAt: input.data.expiresAt as Date
+          };
+        },
+        async updateMany() {
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {
+      buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
+        return `sandbox/${input.assistantId}/${input.jobId}/${input.relativePath}`;
+      },
+      buildSessionSnapshotKey() {
+        return "snap/key";
+      },
+      async saveObject(input: { objectKey: string; buffer: Buffer }) {
+        storedObjects.set(input.objectKey, Buffer.from(input.buffer));
+        return input.buffer.length;
+      },
+      async downloadObject(objectKey: string) {
+        const stored = storedObjects.get(objectKey);
+        return stored !== undefined ? Buffer.from(stored) : null;
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {
+      async runInPod(input: {
+        jobId: string;
+        command: string;
+        args: string[];
+        workspaceRoot: string;
+        absoluteCwd: string;
+        policy: unknown;
+        runtimeSessionId: string | null;
+      }) {
+        capturedRunInPodCalls.push({
+          command: input.command,
+          args: input.args,
+          jobId: input.jobId
+        });
+        // Simulate weasyprint writing the PDF output file.
+        const outputFile = input.args[1]!.replace("/workspace/", "");
+        await fs.writeFile(join(input.workspaceRoot, outputFile), fakePdfBytes);
+        return { exitCode: 0, stdout: null, stderr: null, durationMs: 100, execPodName: null };
+      }
+    } as never
+  );
+
+  const access = service as unknown as SandboxServiceTestAccess;
+
+  await access.executeQueuedJob("render-job-1", {
+    assistantId: "assistant-render-1",
+    workspaceId: "workspace-render-1",
+    runtimeRequestId: "request-render-1",
+    runtimeSessionId: null,
+    toolCode: "render_html_to_pdf",
+    policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
+    args: {
+      htmlContent: "<html><body><h1>Test Document</h1></body></html>",
+      outputFileName: "document.pdf"
+    }
+  });
+
+  // 1. weasyprint must have been called exactly once with correct args.
+  assert.equal(capturedRunInPodCalls.length, 1, "runInPod must be called exactly once");
+  const call = capturedRunInPodCalls[0]!;
+  assert.equal(call.command, "weasyprint", "must invoke weasyprint command");
+  assert.ok(
+    call.args[0]?.endsWith(".render-input.html"),
+    `first arg must be the render-input HTML path, got: ${String(call.args[0])}`
+  );
+  assert.ok(
+    call.args[1]?.endsWith("document.pdf"),
+    `second arg must be the output PDF path, got: ${String(call.args[1])}`
+  );
+
+  // 2. The transient .render-input.html must not appear as a produced file in the workspace.
+  const workspaceRoot = access.resolveWorkspaceSessionRoot(
+    "assistant-render-1",
+    "workspace-render-1"
+  );
+  const filesAfter = await access.collectWorkspaceFiles(workspaceRoot).catch(() => []);
+  const htmlInputPresent = filesAfter.some((f) => f.relativePath.includes(".render-input.html"));
+  assert.equal(
+    htmlInputPresent,
+    false,
+    "transient .render-input.html must be removed after render"
+  );
+});

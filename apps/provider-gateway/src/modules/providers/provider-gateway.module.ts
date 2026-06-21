@@ -33,7 +33,6 @@ import { ProviderWebSearchService } from "./provider-web-search.service";
 import { ProviderStreamObservabilityService } from "./provider-stream-observability.service";
 import { ProviderWarmupService } from "./provider-warmup.service";
 import { YandexProviderClient } from "./yandex/yandex-provider.client";
-import { PdfMonkeyProviderClient } from "./pdfmonkey/pdfmonkey-provider.client";
 import { GammaProviderClient } from "./gamma/gamma-provider.client";
 import { RunwayProviderClient } from "./runway/runway-provider.client";
 
@@ -61,7 +60,6 @@ import { RunwayProviderClient } from "./runway/runway-provider.client";
     KlingProviderClient,
     HeyGenProviderClient,
     YandexProviderClient,
-    PdfMonkeyProviderClient,
     GammaProviderClient,
     PersaiInternalApiClientService,
     ProviderCatalogService,

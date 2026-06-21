@@ -96,7 +96,7 @@ export class RuntimeDocumentToolService {
       outputFormat === "pptx" || effectiveDescriptorMode === "create_presentation"
         ? "presentation"
         : "pdf_document";
-    const provider = documentType === "presentation" ? "gamma" : "pdfmonkey";
+    const provider = documentType === "presentation" ? "gamma" : "sandbox";
     // Diagnostic: surface what the model actually passed in the typed args
     // versus the system-resolved values, so production logs answer "did the
     // model send targetSlideCount?" without guessing.

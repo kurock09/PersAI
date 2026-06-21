@@ -109,8 +109,6 @@ export function toolPathProviderLabel(providerId: string): string {
       return "Firecrawl";
     case "browserless":
       return "Browserless";
-    case "pdfmonkey":
-      return "PDFMonkey";
     case "gamma":
       return "Gamma";
     default:

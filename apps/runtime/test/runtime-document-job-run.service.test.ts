@@ -49,7 +49,7 @@ describe("RuntimeDocumentJobRunService", () => {
             ],
             rawText: null,
             providerStatus: {
-              provider: "pdfmonkey",
+              provider: "sandbox",
               state: "success"
             }
           };
@@ -76,7 +76,7 @@ describe("RuntimeDocumentJobRunService", () => {
         versionId: "version-1",
         surface: "web",
         chatId: "chat-1",
-        provider: "pdfmonkey",
+        provider: "sandbox",
         outputFormat: "pdf",
         sourceUserMessageId: "message-1",
         sourceUserMessageText: "Create a PDF brief",
@@ -101,7 +101,7 @@ describe("RuntimeDocumentJobRunService", () => {
     assert.ok(capturedRequest);
     assert.equal(
       (capturedRequest as { request: { job: { provider: string } } }).request.job.provider,
-      "pdfmonkey"
+      "sandbox"
     );
   });
 });

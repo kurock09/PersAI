@@ -641,6 +641,15 @@ export class SandboxService {
           input.jobId,
           input.request.runtimeSessionId ?? null
         );
+      case "render_html_to_pdf":
+        return this.executeRenderHtmlToPdf(
+          input.workspaceRoot,
+          input.request.args,
+          input.request.policy,
+          input.leaseGuard,
+          input.jobId,
+          input.request.runtimeSessionId ?? null
+        );
       default:
         this.throwPolicy(
           "tool_not_supported",
@@ -832,6 +841,72 @@ export class SandboxService {
       durationMs: result.durationMs,
       execPodName: result.execPodName
     };
+  }
+
+  /**
+   * Internal document-render tool (ADR-123 D6). Not exposed to the model: the runtime
+   * document worker invokes it with model-authored HTML. The HTML is written into the
+   * workspace, rendered to PDF in the exec pod with WeasyPrint (full CSS Paged Media
+   * support — honours our in-house @page size/margins/page-counter print CSS), then the
+   * transient HTML input is removed so only the PDF is collected as a produced file.
+   */
+  private async executeRenderHtmlToPdf(
+    workspaceRoot: string,
+    args: Record<string, unknown>,
+    policy: RuntimeSandboxPolicy,
+    leaseGuard: WorkspaceLeaseGuard,
+    jobId: string,
+    runtimeSessionId: string | null
+  ) {
+    const htmlContent = this.requireString(args.htmlContent, "htmlContent");
+    const outputFileName =
+      args.outputFileName === undefined
+        ? "document.pdf"
+        : this.requireRelativePath(args.outputFileName, "outputFileName");
+    if (!outputFileName.toLowerCase().endsWith(".pdf")) {
+      this.throwPolicy("invalid_path", "render_html_to_pdf outputFileName must end with .pdf");
+    }
+
+    const htmlSizeBytes = Buffer.byteLength(htmlContent, "utf8");
+    if (htmlSizeBytes > policy.maxSingleFileWriteBytes) {
+      this.throwPolicy(
+        "single_file_write_limit_exceeded",
+        `Render HTML input is ${String(htmlSizeBytes)} bytes, above the per-file limit of ${String(
+          policy.maxSingleFileWriteBytes
+        )}.`
+      );
+    }
+
+    this.assertWorkspaceLeaseActive(leaseGuard);
+
+    const inputRelativePath = ".render-input.html";
+    const inputAbsolutePath = this.resolveWorkspacePath(workspaceRoot, inputRelativePath);
+    await fs.writeFile(inputAbsolutePath, htmlContent, "utf8");
+
+    try {
+      const result = await this.execPodBridgeService.runInPod({
+        jobId,
+        runtimeSessionId,
+        workspaceRoot,
+        absoluteCwd: workspaceRoot,
+        command: "weasyprint",
+        args: [`/workspace/${inputRelativePath}`, `/workspace/${outputFileName}`],
+        policy
+      });
+      return {
+        reason: result.exitCode === 0 ? null : "process_failed",
+        warning: null,
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        content: null,
+        durationMs: result.durationMs,
+        execPodName: result.execPodName
+      };
+    } finally {
+      // Drop the transient HTML input so it never becomes a produced artifact.
+      await fs.rm(inputAbsolutePath, { force: true });
+    }
   }
 
   private buildWorkspaceSessionKey(assistantId: string, workspaceId: string): string {

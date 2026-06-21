@@ -8,7 +8,6 @@ import { MaterializationRolloutService } from "./materialization-rollout.service
 import type { PlatformRuntimeProviderKeyMetadata } from "./platform-runtime-provider-settings";
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
-  DOCUMENT_PROVIDER_CONFIG_KEYS,
   DEFAULT_TTS_PRIMARY_PROVIDER,
   DEFAULT_MEDIA_RESERVE_BASE_URL,
   MEDIA_RESERVE_CONFIG_KEYS,
@@ -54,14 +53,12 @@ export class ManageAdminToolCredentialsService {
     await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const keyMetadata = await this.loadToolKeyMetadata();
     const providerSelections = await this.loadProviderSelections();
-    const documentProviderConfigMetadata = await this.loadDocumentProviderConfigMetadata();
     const mediaReserve = await this.loadMediaReserveState();
     const ttsPrimaryProviderId = await this.loadTtsPrimaryProviderId();
     const heygenVoiceCatalogMeta = await this.loadHeygenVoiceCatalogMeta();
     return buildAdminToolCredentialsState({
       keyMetadata,
       providerSelections,
-      documentProviderConfigMetadata,
       mediaReserve,
       ttsPrimaryProviderId,
       heygenVoiceCatalogRefreshedAt: heygenVoiceCatalogMeta.refreshedAt,
@@ -100,14 +97,6 @@ export class ManageAdminToolCredentialsService {
         );
       }
     }
-    const pdfmonkeyTemplateId = input.documentProviderTemplateIds.pdfmonkey;
-    if (typeof pdfmonkeyTemplateId === "string" && pdfmonkeyTemplateId.trim().length > 0) {
-      await this.platformRuntimeProviderSecretStoreService.upsertProviderKey(
-        DOCUMENT_PROVIDER_CONFIG_KEYS.pdfmonkeyTemplateId,
-        pdfmonkeyTemplateId,
-        userId
-      );
-    }
     if (input.ttsPrimaryProviderId !== undefined) {
       await this.platformRuntimeProviderSecretStoreService.upsertProviderKey(
         TTS_PRIMARY_PROVIDER_STORAGE_KEY,
@@ -145,14 +134,12 @@ export class ManageAdminToolCredentialsService {
 
     const keyMetadata = await this.loadToolKeyMetadata();
     const providerSelections = await this.loadProviderSelections();
-    const documentProviderConfigMetadata = await this.loadDocumentProviderConfigMetadata();
     const mediaReserve = await this.loadMediaReserveState();
     const ttsPrimaryProviderId = await this.loadTtsPrimaryProviderId();
     const heygenVoiceCatalogMeta = await this.loadHeygenVoiceCatalogMeta();
     const state = buildAdminToolCredentialsState({
       keyMetadata,
       providerSelections,
-      documentProviderConfigMetadata,
       mediaReserve,
       ttsPrimaryProviderId,
       heygenVoiceCatalogRefreshedAt: heygenVoiceCatalogMeta.refreshedAt,
@@ -176,9 +163,6 @@ export class ManageAdminToolCredentialsService {
         updatedProviders: Object.entries(input.providers)
           .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
           .map(([key, value]) => ({ credentialKey: key, providerId: value })),
-        updatedDocumentProviderTemplateIds: Object.entries(input.documentProviderTemplateIds)
-          .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
-          .map(([providerId]) => providerId),
         updatedMediaReserve: {
           enabled:
             typeof input.mediaReserve?.enabled === "boolean" ? input.mediaReserve.enabled : null,
@@ -204,9 +188,6 @@ export class ManageAdminToolCredentialsService {
         updatedCredentials: Object.entries(input.keys)
           .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
           .map(([key]) => key),
-        updatedDocumentProviderTemplateIds: Object.entries(input.documentProviderTemplateIds)
-          .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
-          .map(([providerId]) => providerId),
         updatedMediaReserve: {
           enabled:
             typeof input.mediaReserve?.enabled === "boolean" ? input.mediaReserve.enabled : null,
@@ -372,18 +353,6 @@ export class ManageAdminToolCredentialsService {
     return {
       refreshedAt: row?.fetchedAt.toISOString() ?? null,
       voicesCount: Array.isArray(row?.voicesJson) ? row.voicesJson.length : 0
-    };
-  }
-
-  private async loadDocumentProviderConfigMetadata(): Promise<
-    Record<"pdfmonkey", PlatformRuntimeProviderKeyMetadata>
-  > {
-    const key = DOCUMENT_PROVIDER_CONFIG_KEYS.pdfmonkeyTemplateId;
-    const metadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys([
-      key
-    ]);
-    return {
-      pdfmonkey: metadata[key] ?? { configured: false, lastFour: null, updatedAt: null }
     };
   }
 

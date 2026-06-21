@@ -331,30 +331,15 @@ function createInput(order: "alpha" | "beta") {
           providerId: "tavily"
         },
         document: {
-          refKey: "tool_document_pdfmonkey",
+          refKey: "persai:persai-runtime:tool/document/gamma/api-key",
           secretRef: {
             source: "persai",
             provider: "persai-runtime",
-            id: "tool/document/pdfmonkey/api-key"
+            id: "tool/document/gamma/api-key"
           },
           configured: true,
-          providerId: "pdfmonkey",
-          fallbacks: [
-            {
-              refKey: "tool_document_gamma",
-              secretRef: {
-                source: "persai",
-                provider: "persai-runtime",
-                id: "tool/document/gamma/api-key"
-              },
-              configured: true,
-              providerId: "gamma"
-            }
-          ]
+          providerId: "gamma"
         }
-      },
-      documentProviderConfig: {
-        pdfmonkeyTemplateId: null
       },
       toolPolicies: [
         {
@@ -552,29 +537,14 @@ async function run(): Promise<void> {
     providerId: "browserless"
   });
   assert.deepEqual(alpha.bundle.governance.toolCredentialRefs.document, {
-    refKey: "tool_document_pdfmonkey",
+    refKey: "persai:persai-runtime:tool/document/gamma/api-key",
     secretRef: {
       source: "persai",
       provider: "persai-runtime",
-      id: "tool/document/pdfmonkey/api-key"
+      id: "tool/document/gamma/api-key"
     },
     configured: true,
-    providerId: "pdfmonkey",
-    fallbacks: [
-      {
-        refKey: "tool_document_gamma",
-        secretRef: {
-          source: "persai",
-          provider: "persai-runtime",
-          id: "tool/document/gamma/api-key"
-        },
-        configured: true,
-        providerId: "gamma"
-      }
-    ]
-  });
-  assert.deepEqual(alpha.bundle.governance.documentProviderConfig, {
-    pdfmonkeyTemplateId: null
+    providerId: "gamma"
   });
   assert.equal(alpha.document, beta.document);
   assert.equal(alpha.hash, beta.hash);

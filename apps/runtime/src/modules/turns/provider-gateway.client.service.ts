@@ -911,7 +911,7 @@ export class ProviderGatewayClientService {
     const row = this.asObject(value);
     const providerStatus = this.asObject(row?.providerStatus);
     return (
-      (row?.provider === "pdfmonkey" || row?.provider === "gamma") &&
+      row?.provider === "gamma" &&
       (row.outputFormat === "pdf" || row.outputFormat === "pptx") &&
       typeof row.documentId === "string" &&
       (typeof row.templateId === "string" || row.templateId === null) &&
@@ -921,27 +921,16 @@ export class ProviderGatewayClientService {
       typeof row.respondedAt === "string" &&
       (row.warning === null || typeof row.warning === "string") &&
       providerStatus !== null &&
-      (providerStatus.provider === "pdfmonkey" || providerStatus.provider === "gamma") &&
+      providerStatus.provider === "gamma" &&
       providerStatus.state === "success" &&
-      ((providerStatus.provider === "pdfmonkey" &&
-        typeof providerStatus.documentId === "string" &&
-        typeof providerStatus.documentTemplateId === "string" &&
-        typeof providerStatus.downloadUrl === "string" &&
-        (providerStatus.previewUrl === null || typeof providerStatus.previewUrl === "string") &&
-        (providerStatus.failureCause === null || typeof providerStatus.failureCause === "string") &&
-        (providerStatus.filename === null || typeof providerStatus.filename === "string") &&
-        providerStatus.outputType === "pdf" &&
-        providerStatus.status === "success" &&
-        (providerStatus.updatedAt === null || typeof providerStatus.updatedAt === "string")) ||
-        (providerStatus.provider === "gamma" &&
-          typeof providerStatus.generationId === "string" &&
-          typeof providerStatus.gammaId === "string" &&
-          (providerStatus.gammaUrl === null || typeof providerStatus.gammaUrl === "string") &&
-          typeof providerStatus.exportUrl === "string" &&
-          (providerStatus.filename === null || typeof providerStatus.filename === "string") &&
-          (providerStatus.outputType === "pdf" || providerStatus.outputType === "pptx") &&
-          providerStatus.status === "completed" &&
-          (providerStatus.updatedAt === null || typeof providerStatus.updatedAt === "string"))) &&
+      typeof providerStatus.generationId === "string" &&
+      typeof providerStatus.gammaId === "string" &&
+      (providerStatus.gammaUrl === null || typeof providerStatus.gammaUrl === "string") &&
+      typeof providerStatus.exportUrl === "string" &&
+      (providerStatus.filename === null || typeof providerStatus.filename === "string") &&
+      (providerStatus.outputType === "pdf" || providerStatus.outputType === "pptx") &&
+      providerStatus.status === "completed" &&
+      (providerStatus.updatedAt === null || typeof providerStatus.updatedAt === "string") &&
       this.isBillingFacts(row.billingFacts)
     );
   }

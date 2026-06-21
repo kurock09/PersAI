@@ -78,9 +78,6 @@ async function run(): Promise<void> {
       providers: {
         tool_browser: "browserless"
       },
-      documentProviderTemplateIds: {
-        pdfmonkey: "template-123"
-      },
       mediaReserve: {
         enabled: true,
         apiKey: "reserve-secret",
@@ -115,7 +112,6 @@ async function run(): Promise<void> {
           providerId: "browserless"
         }
       ],
-      updatedDocumentProviderTemplateIds: ["pdfmonkey"],
       updatedMediaReserve: {
         enabled: true,
         apiKeyUpdated: true,

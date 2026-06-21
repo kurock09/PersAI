@@ -254,11 +254,11 @@ export class InternalRuntimeDocumentJobsController {
     throw new BadRequestException("job.surface must be one of web or telegram.");
   }
 
-  private provider(value: unknown): "pdfmonkey" | "gamma" {
-    if (value === "pdfmonkey" || value === "gamma") {
+  private provider(value: unknown): "sandbox" | "gamma" {
+    if (value === "sandbox" || value === "gamma") {
       return value;
     }
-    throw new BadRequestException("job.provider must be one of pdfmonkey or gamma.");
+    throw new BadRequestException("job.provider must be one of sandbox or gamma.");
   }
 
   private outputFormat(value: unknown): "pdf" | "pptx" {

@@ -247,7 +247,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
             id: "tool/document/api-key"
           },
           configured: true,
-          providerId: "pdfmonkey",
+          providerId: "gamma",
           fallbacks: [
             {
               refKey: "persai:persai-runtime:tool/document/gamma-api-key",

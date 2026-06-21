@@ -221,10 +221,9 @@ function createDocumentGenerateRequest(): ProviderGatewayDocumentGenerateRequest
     credential: {
       toolCode: "document",
       secretId: "secret-1",
-      providerId: "pdfmonkey"
+      providerId: "gamma"
     },
     providerOptions: {
-      pdfmonkeyTemplateId: "template-123",
       outputFormat: "pdf"
     }
   };
@@ -476,27 +475,26 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     if (url.endsWith("/api/v1/providers/generate-document")) {
       return new Response(
         JSON.stringify({
-          provider: "pdfmonkey",
+          provider: "gamma",
           outputFormat: "pdf",
-          documentId: "pdf-doc-1",
-          templateId: "template-123",
+          documentId: "gamma-doc-1",
+          templateId: null,
           filename: "brief.pdf",
           bytesBase64: "JVBERi0xLjQK",
           mimeType: "application/pdf",
           respondedAt: "2026-05-15T18:00:01.000Z",
           warning: null,
           providerStatus: {
-            provider: "pdfmonkey",
+            provider: "gamma",
             state: "success",
-            documentId: "pdf-doc-1",
-            documentTemplateId: "template-123",
-            downloadUrl: "https://example.com/document.pdf",
-            previewUrl: "https://example.com/preview",
-            failureCause: null,
+            generationId: "gen-1",
+            gammaId: "gamma-1",
+            gammaUrl: null,
+            exportUrl: "https://example.com/document.pdf",
             filename: "brief.pdf",
             outputType: "pdf",
-            status: "success",
-            updatedAt: "2026-05-15T18:00:01.000Z"
+            status: "completed",
+            updatedAt: null
           }
         }),
         {
@@ -753,7 +751,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(heygenFieldsVideoGenerate.seconds, 8.5);
     assert.equal(speechGenerate.model, "gpt-4o-mini-tts");
     assert.equal(speechGenerate.mimeType, "audio/ogg");
-    assert.equal(documentGenerate.provider, "pdfmonkey");
+    assert.equal(documentGenerate.provider, "gamma");
     assert.equal(documentGenerate.mimeType, "application/pdf");
     assert.equal(documentFailure.ok, true);
     assert.equal(webFetch.provider, "firecrawl");
@@ -921,11 +919,11 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
         return new Response(
           JSON.stringify({
             error: {
-              code: "pdfmonkey_auth_failed",
-              message: "PDFMonkey rejected the configured credential.",
+              code: "gamma_auth_failed",
+              message: "Gamma rejected the configured credential.",
               retryable: false,
               providerStatus: {
-                provider: "pdfmonkey",
+                provider: "gamma",
                 state: "failed",
                 status: "http_401",
                 httpStatus: 401,
@@ -948,11 +946,11 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.deepEqual(failureOutcome, {
       ok: false,
       status: 401,
-      code: "pdfmonkey_auth_failed",
-      message: "PDFMonkey rejected the configured credential.",
+      code: "gamma_auth_failed",
+      message: "Gamma rejected the configured credential.",
       retryable: false,
       providerStatus: {
-        provider: "pdfmonkey",
+        provider: "gamma",
         state: "failed",
         status: "http_401",
         httpStatus: 401,

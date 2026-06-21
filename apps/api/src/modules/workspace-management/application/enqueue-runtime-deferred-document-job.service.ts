@@ -20,8 +20,6 @@ import { ReadInternalRuntimeQuotaStatusService } from "./read-internal-runtime-q
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { GammaThemePickerService } from "./gamma/gamma-theme-picker.service";
-import { DOCUMENT_PROVIDER_CONFIG_KEYS } from "./tool-credential-settings";
-
 const MAX_OPEN_DOCUMENT_JOBS_PER_CHAT = 2;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -212,19 +210,6 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         : descriptorMode === "export_or_redeliver"
           ? null
           : this.resolveExecutionShape(descriptorMode);
-    if (
-      descriptorMode === "create_pdf_document" &&
-      (await this.readPersistedPdfMonkeyTemplateId()) === null
-    ) {
-      return {
-        accepted: false,
-        code: "document_template_not_configured",
-        message:
-          'Document provider "pdfmonkey" requires an operator-configured template before this request can be accepted.',
-        guidance:
-          "Configure the PDFMonkey template for the document tool first, then retry the document request."
-      };
-    }
     const sourceUserMessageAttachmentsForPayload =
       input.sourceUserMessageAttachments === undefined ||
       input.sourceUserMessageAttachments.length === 0
@@ -460,7 +445,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     if (descriptorMode === "create_pdf_document") {
       return {
         documentType: "pdf_document",
-        provider: "pdfmonkey",
+        provider: "sandbox",
         outputFormat: "pdf"
       };
     }
@@ -570,7 +555,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       };
     }
 
-    const provider = revisionContext.documentType === "presentation" ? "gamma" : "pdfmonkey";
+    const provider = revisionContext.documentType === "presentation" ? "gamma" : "sandbox";
     // Chat delivery is PDF-only for presentations, by system contract. We do
     // not inherit the previous version's outputFormat AND we do not honour a
     // model-supplied outputFormat=pptx on revisions either. Editable PPTX is
@@ -732,7 +717,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       surface: input.surface,
       sourceUserMessageId: input.sourceUserMessageId,
       revisionContext,
-      provider: "pdfmonkey",
+      provider: "sandbox",
       outputFormat,
       request: {
         ...input.request,
@@ -859,7 +844,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       };
     }
 
-    const provider = exportContext.documentType === "presentation" ? "gamma" : "pdfmonkey";
+    const provider = exportContext.documentType === "presentation" ? "gamma" : "sandbox";
     const outputFormat = requestedOutputFormat;
     const created =
       exportContext.latestDeliveredFile !== null &&
@@ -1028,15 +1013,5 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       ...request,
       gammaThemeId: picked.themeId
     };
-  }
-
-  private async readPersistedPdfMonkeyTemplateId(): Promise<string | null> {
-    const templateId =
-      await this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
-        DOCUMENT_PROVIDER_CONFIG_KEYS.pdfmonkeyTemplateId
-      );
-    return typeof templateId === "string" && templateId.trim().length > 0
-      ? templateId.trim()
-      : null;
   }
 }

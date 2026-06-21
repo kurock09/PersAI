@@ -52,7 +52,6 @@ import { buildRuntimeSharedCompactionConfig } from "./runtime-shared-compaction"
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
   DEFAULT_MEDIA_RESERVE_BASE_URL,
-  DOCUMENT_PROVIDER_CONFIG_KEYS,
   MEDIA_RESERVE_CONFIG_KEYS,
   DEFAULT_TTS_PRIMARY_PROVIDER,
   TTS_PRIMARY_PROVIDER_STORAGE_KEY,
@@ -123,10 +122,6 @@ export interface AssistantRuntimeArtifacts {
   assistantWorkspaceDocument: string;
   contentHash: string;
 }
-
-type MaterializedDocumentProviderConfig = {
-  pdfmonkeyTemplateId: string | null;
-};
 
 function sortKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -767,7 +762,6 @@ export class MaterializeAssistantPublishedVersionService {
       workspaceId: assistant.workspaceId,
       talkingVideoEnabled: planTalkingVideoEnabled
     });
-    const documentProviderConfig = await this.resolveDocumentProviderConfig();
     const planToolQuotaPolicy = await this.resolveToolQuotaPolicy(effectivePlanCode);
     const promptTemplateRows = await this.loadPromptTemplateRows();
     const runtimeToolQuotaPolicy = this.resolveRuntimeToolQuotaPolicy(
@@ -983,7 +977,6 @@ export class MaterializeAssistantPublishedVersionService {
         memoryControl,
         tasksControl,
         toolCredentialRefs,
-        documentProviderConfig,
         toolPolicies,
         quota: {
           planCode: effectivePlanCode,
@@ -1355,19 +1348,6 @@ export class MaterializeAssistantPublishedVersionService {
       input.talkingVideoEnabled
     );
     return ref;
-  }
-
-  private async resolveDocumentProviderConfig(): Promise<MaterializedDocumentProviderConfig> {
-    const pdfmonkeyTemplateId =
-      await this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
-        DOCUMENT_PROVIDER_CONFIG_KEYS.pdfmonkeyTemplateId
-      );
-    return {
-      pdfmonkeyTemplateId:
-        pdfmonkeyTemplateId === null || pdfmonkeyTemplateId.trim().length === 0
-          ? null
-          : pdfmonkeyTemplateId.trim()
-    };
   }
 
   private cloneToolCredentialRef(

@@ -174,18 +174,14 @@ async function run(): Promise<void> {
         providerId: "firecrawl"
       },
       document: {
-        refKey: "tool_document_pdfmonkey",
-        secretRef: { source: "env", provider: "pdfmonkey", id: "tool_document_pdfmonkey" },
+        refKey: "persai:persai-runtime:tool/document/gamma/api-key",
+        secretRef: {
+          source: "persai",
+          provider: "persai-runtime",
+          id: "tool/document/gamma/api-key"
+        },
         configured: true,
-        providerId: "pdfmonkey",
-        fallbacks: [
-          {
-            refKey: "tool_document_gamma",
-            secretRef: { source: "env", provider: "gamma", id: "tool_document_gamma" },
-            configured: true,
-            providerId: "gamma"
-          }
-        ]
+        providerId: "gamma"
       }
     },
     knowledgeAccessEnabled: true,

@@ -20,7 +20,6 @@ import {
 } from "./provider-warmup-boot-recovery.test";
 import { runHeyGenProviderClientTest } from "./heygen-provider.client.test";
 import { runKlingProviderClientTest } from "./kling-provider.client.test";
-import { runPdfMonkeyProviderClientTest } from "./pdfmonkey-provider.client.test";
 import { runRunwayProviderClientTest } from "./runway-provider.client.test";
 import { runYandexProviderClientTest } from "./yandex-provider.client.test";
 import { runElevenLabsProviderClientTest } from "./elevenlabs-provider.client.test";
@@ -36,7 +35,6 @@ async function run(): Promise<void> {
   await runOpenAIProviderClientTest();
   await runOpenAIEmptyCompletionTest();
   await runYandexProviderClientTest();
-  await runPdfMonkeyProviderClientTest();
   await runProviderAudioTranscriptionServiceTest();
   await runProviderBrowserServiceTest();
   await runProviderImageGenerationServiceTest();

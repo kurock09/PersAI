@@ -220,8 +220,7 @@ function supportsCurrentNativeDocumentProvider(
   const candidates = [credential, ...(credential.fallbacks ?? [])];
   return candidates.some(
     (entry) =>
-      entry.configured === true &&
-      (entry.providerId === "pdfmonkey" || entry.providerId === "gamma")
+      entry.configured === true && (entry.providerId === "sandbox" || entry.providerId === "gamma")
   );
 }
 

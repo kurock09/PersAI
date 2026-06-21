@@ -84,7 +84,7 @@ const DEFAULT_TOOL_PATH_PROVIDER_BY_CODE: Record<ToolPathCode, readonly string[]
   web_search: ["tavily", "brave", "perplexity", "google"],
   web_fetch: ["firecrawl"],
   browser: ["browserless"],
-  document_render: ["pdfmonkey", "gamma"]
+  document_render: ["gamma"]
 };
 
 const DEFAULT_TOOL_PATH_BILLING_MODE: Record<ToolPathCode, ToolPathBillingMode> = {
@@ -182,20 +182,11 @@ export function createDefaultToolPathPricingRow(input: {
 }
 
 function createDefaultDocumentRenderTieredPriceMetadata(
-  providerId: string
+  _providerId: string
 ): RuntimeProviderTieredOperationPriceConfig {
   const base = createDefaultRuntimeProviderPriceMetadata(
     "tiered_operation"
   ) as RuntimeProviderTieredOperationPriceConfig;
-  if (providerId === "pdfmonkey") {
-    return {
-      ...base,
-      tieredOperationPricing: {
-        unitLabel: "document",
-        tiers: [{ label: "PDF", matchValue: "pdf", price: 0 }]
-      }
-    };
-  }
   return {
     ...base,
     tieredOperationPricing: {

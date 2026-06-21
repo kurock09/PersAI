@@ -102,7 +102,7 @@ async function runEnqueueRevisionUsesLatestPersistedVersionNumber(): Promise<voi
     surface: "web",
     sourceUserMessageId: "message-1",
     revisionContext: buildRevisionContext(3),
-    provider: "pdfmonkey",
+    provider: "sandbox",
     outputFormat: "pdf",
     request: {
       sourceUserMessageText: "Add an appendix",
@@ -139,7 +139,7 @@ async function runEnqueueRevisionRetriesUniqueVersionConflict(): Promise<void> {
     surface: "web",
     sourceUserMessageId: "message-2",
     revisionContext: buildRevisionContext(3),
-    provider: "pdfmonkey",
+    provider: "sandbox",
     outputFormat: "pdf",
     request: {
       sourceUserMessageText: "Tighten the summary",

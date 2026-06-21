@@ -11,8 +11,11 @@ import type {
   RuntimeDocumentJobRunResult,
   RuntimeDocumentSourceFile,
   RuntimeOutputArtifact,
+  RuntimeSandboxJobResult,
+  RuntimeSandboxPolicy,
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
+import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import {
@@ -41,30 +44,13 @@ import {
   PERSAI_DOCUMENT_STRUCTURE_VERSION
 } from "./persai-document-structure";
 import { resolveModelOutputBudget } from "./model-output-budget";
+import { SandboxClientService } from "./sandbox-client.service";
 
-type SupportedDocumentProvider = "pdfmonkey" | "gamma";
+type SupportedDocumentProvider = "sandbox" | "gamma";
 type NativeManagedProvider = "openai" | "anthropic";
 type ProviderSelection = { provider: NativeManagedProvider; model: string };
 
-type ChunkedOutlineSection = {
-  heading: string;
-  intent: string;
-  expectedLength: "short" | "medium" | "long";
-};
-
-type ChunkedOutline = {
-  sections: ChunkedOutlineSection[];
-};
-
 type DocumentContentIntent = "preserve_content" | "rewrite_content";
-
-class DocumentPdfOutlineInvalidError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "DocumentPdfOutlineInvalidError";
-  }
-}
-
 class DocumentPdfPatchReviseInvalidEnvelopeError extends Error {
   constructor(message: string) {
     super(message);
@@ -134,20 +120,18 @@ function mergeUsageSnapshots(
 }
 
 const DEFAULT_DOCUMENT_TIMEOUT_MS = 6 * 60 * 1000;
-const CHUNKED_DOCUMENT_TIMEOUT_MS = 15 * 60 * 1000;
 // ADR-097 Slice 3: per-request timeout hint for document LLM generation calls that may
 // produce up to 64k output tokens. Applied to document_html_generation, document_pdf_outline,
 // and document_pdf_patch_revise. Section generation keeps the default 90s since each
-// section is small (~1-2k tokens). NOT applied to the PDFMonkey render call.
+// section is small (~1-2k tokens).
 const DOCUMENT_CLASSIFICATION_TIMEOUT_MS = 240_000;
-const PDFMONKEY_TEMPLATE_MISSING_CODE = "document_template_not_configured";
 // Output-token ceiling for document generation is resolved per-model from the
 // runtime bundle modelSlots via resolveModelOutputBudget. OUTPUT_BUDGET_MAX
 // from model-output-budget.ts is the ultimate sanity clamp.
 // Route to the chunked pipeline when the job has source attachments AND the
 // total inlined source text exceeds this threshold. Simple v1 rule: purely
 // based on objective attachment bytes, no keyword/prompt-text heuristics.
-const LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES = LARGE_DOCUMENT_STRUCTURE_THRESHOLD_BYTES;
+// NOTE: Chunked pipeline was removed in ADR-123 Slice 5; threshold kept for future use.
 const DOCUMENT_PDF_MAX_RENDER_ATTEMPTS = 3;
 const PDF_VALIDATION_MIN_BYTES = 1_024;
 const PDF_VALIDATION_MIN_TEXT_LENGTH = 80;
@@ -158,14 +142,20 @@ const PDF_VALIDATION_TAIL_INSPECTION_BYTES = 2_048;
 // of the minimum expected envelope, treat it as a truncated response even when
 // the provider did not report finish_reason=length.
 const TRUNCATION_BODY_TEXT_FRACTION = 0.5;
-// Tail-summary cap for chunked section generation (see D.3 in ADR-097 Slice 1).
-const CHUNKED_TAIL_SUMMARY_TOTAL_CAP = 1_500;
-const CHUNKED_TAIL_SUMMARY_PER_SECTION = 400;
-// Legacy baseline used as the kill-switch fallback when enhanced pagination is
-// explicitly disabled via RUNTIME_DOCUMENT_ENHANCED_PAGINATION=off. Keep this
-// in sync with the pre-pagination baseline behavior so an off-switch reverts to
-// the exact previous render.
-const DOCUMENT_HTML_EDITORIAL_STYLE_CSS = [
+
+// Enhanced print CSS: restrained editorial typography + WeasyPrint/Chromium pagination rules.
+// Key behaviors:
+// - @page sets A4 size + margins and shows "page N / total" in the footer.
+// - thead { display: table-header-group } repeats <thead> on every printed page.
+// - tr { break-inside: avoid } keeps rows intact when possible.
+// - p { orphans: 3; widows: 3 } reduces orphan/widow lines.
+// - h1..h6 { break-after: avoid } keeps headings with the content that follows.
+// - .cover-page / .title-page { break-after: page } isolates cover pages.
+// - .keep-together / .card / blockquote / callouts stay on one page when small.
+// - section rhythm + first-child margin reset reduce awkward top offsets after breaks.
+const DOCUMENT_HTML_ENHANCED_PRINT_CSS = [
+  "@page{size:A4;margin:2cm 1.8cm;}",
+  '@page{@bottom-center{content:counter(page) " / " counter(pages);font-size:9pt;color:#64748b;}}',
   'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#1e293b;background:#fff;line-height:1.55;}',
   "h1{font-size:26pt;font-weight:700;letter-spacing:-0.02em;color:#0f172a;margin:0 0 14pt;padding-bottom:8pt;border-bottom:1pt solid #e2e8f0;}",
   "h2{font-size:17pt;font-weight:600;color:#0f172a;margin:22pt 0 8pt;}",
@@ -187,25 +177,7 @@ const DOCUMENT_HTML_EDITORIAL_STYLE_CSS = [
   "hr{border:none;border-top:1pt solid #e2e8f0;margin:18pt 0;}",
   "dl{margin:10pt 0;}",
   "dt{font-weight:600;color:#0f172a;margin-top:8pt;}",
-  "dd{margin:2pt 0 8pt 16pt;}"
-].join("");
-
-const DOCUMENT_HTML_BASELINE_PRINT_CSS = `${DOCUMENT_HTML_EDITORIAL_STYLE_CSS}body{padding:32px 48px;}`;
-
-// Enhanced print CSS: restrained editorial typography + Chromium pagination rules.
-// Key behaviors:
-// - @page sets A4 size + margins and shows "page N / total" in the footer.
-// - thead { display: table-header-group } repeats <thead> on every printed page.
-// - tr { break-inside: avoid } keeps rows intact when possible.
-// - p { orphans: 3; widows: 3 } reduces orphan/widow lines.
-// - h1..h6 { break-after: avoid } keeps headings with the content that follows.
-// - .cover-page / .title-page { break-after: page } isolates cover pages.
-// - .keep-together / .card / blockquote / callouts stay on one page when small.
-// - section rhythm + first-child margin reset reduce awkward top offsets after breaks.
-const DOCUMENT_HTML_ENHANCED_PRINT_CSS = [
-  "@page{size:A4;margin:2cm 1.8cm;}",
-  '@page{@bottom-center{content:counter(page) " / " counter(pages);font-size:9pt;color:#64748b;}}',
-  DOCUMENT_HTML_EDITORIAL_STYLE_CSS,
+  "dd{margin:2pt 0 8pt 16pt;}",
   "body{padding:0;margin:0;}",
   "body > :first-child,section > :first-child{margin-top:0;}",
   "section,article{margin:0 0 14pt;}",
@@ -225,7 +197,6 @@ const DOCUMENT_HTML_ENHANCED_PRINT_CSS = [
   ".cover-page,.title-page{break-after:page;page-break-after:always;}",
   ".cover-page > :first-child,.title-page > :first-child{margin-top:0;}"
 ].join("");
-const DOCUMENT_HTML_ENHANCED_PAGINATION_ENV_KEY = "RUNTIME_DOCUMENT_ENHANCED_PAGINATION";
 
 type DocumentSourceFilePayload = RuntimeDocumentSourceFile;
 
@@ -248,7 +219,8 @@ export class RuntimeDocumentProviderAdapterService {
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService
+    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService,
+    private readonly sandboxClientService: SandboxClientService
   ) {}
 
   async run(input: {
@@ -256,61 +228,32 @@ export class RuntimeDocumentProviderAdapterService {
     request: RuntimeDocumentJobRunRequest;
   }): Promise<RuntimeDocumentJobRunResult> {
     const provider = input.request.job.provider;
-    if (provider !== "pdfmonkey" && provider !== "gamma") {
+    if (provider !== "sandbox" && provider !== "gamma") {
       throw new BadRequestException(`Unsupported document provider "${String(provider)}".`);
     }
 
-    const credential = this.resolveDocumentCredential(input.bundle, provider);
-    if (credential === null) {
-      throw new BadRequestException(
-        `Document provider "${provider}" is not configured in the assistant runtime bundle.`
-      );
-    }
-
-    if (credential.configured !== true) {
-      throw new BadRequestException(
-        `Document provider "${provider}" is not configured with an active admin credential.`
-      );
-    }
-
     if (provider === "gamma") {
+      const credential = this.resolveDocumentCredential(input.bundle, provider);
+      if (credential === null) {
+        throw new BadRequestException(
+          `Document provider "${provider}" is not configured in the assistant runtime bundle.`
+        );
+      }
+      if (credential.configured !== true) {
+        throw new BadRequestException(
+          `Document provider "${provider}" is not configured with an active admin credential.`
+        );
+      }
       return this.runGammaPath(input, credential);
     }
 
-    const templateId = this.readPdfMonkeyTemplateId(input.bundle);
-    if (templateId === null) {
-      return {
-        assistantText: null,
-        artifacts: [],
-        usage: null,
-        toolInvocations: [
-          {
-            name: "document",
-            iteration: 1,
-            ok: false,
-            executionMode: "worker"
-          }
-        ],
-        rawText: null,
-        providerStatus: {
-          provider,
-          state: "template_not_configured",
-          errorCode: PDFMONKEY_TEMPLATE_MISSING_CODE,
-          retryable: false,
-          outputFormat: input.request.job.outputFormat,
-          requestedName: input.request.directToolExecution.request.requestedName ?? null,
-          sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
-          assistantFileRegistryAvailable:
-            typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
-        }
-      };
-    }
+    // sandbox (PDF) path — no external credential required
     const filename = this.resolveRequestedFilename(input.request, input.request.job.outputFormat);
 
     // Revise path: when descriptorMode is "revise_document" and previousVersionRenderedHtml
     // is present, branch into either structured revise (large/structured versions) or
     // patch-revise (fast_small / compact HTML) instead of full create-time regeneration.
-    // Both are bounded worker paths with one PDFMonkey render and no create-path retry loop.
+    // Both are bounded worker paths with one sandbox render and no create-path retry loop.
     const descriptorMode = input.request.directToolExecution.descriptorMode;
     const previousVersionRenderedHtml =
       typeof input.request.previousVersionRenderedHtml === "string" &&
@@ -322,8 +265,6 @@ export class RuntimeDocumentProviderAdapterService {
         return this.runStructuredPdfRevise({
           bundle: input.bundle,
           request: input.request,
-          credential,
-          templateId,
           filename,
           previousVersionRenderedHtml
         });
@@ -331,8 +272,6 @@ export class RuntimeDocumentProviderAdapterService {
       return this.runPdfPatchRevise({
         bundle: input.bundle,
         request: input.request,
-        credential,
-        templateId,
         filename,
         previousVersionRenderedHtml
       });
@@ -343,15 +282,6 @@ export class RuntimeDocumentProviderAdapterService {
       (sum, entry) => sum + (entry.text === null ? 0 : Buffer.byteLength(entry.text, "utf8")),
       0
     );
-    const totalSourceRoutingBytes = sourceFiles.reduce(
-      (sum, entry) =>
-        sum +
-        (entry.text === null
-          ? Math.max(0, entry.sizeBytes)
-          : Buffer.byteLength(entry.text, "utf8")),
-      0
-    );
-    const hasSourceAttachments = sourceFiles.length > 0;
     const hasExtractableSourceText = sourceFiles.some(
       (file) => typeof file.text === "string" && file.text.trim().length > 0
     );
@@ -369,15 +299,6 @@ export class RuntimeDocumentProviderAdapterService {
       createEditStrategy === "structured_large" &&
       contentIntent !== "rewrite_content" &&
       !useDirectSourceTransfer;
-    // Chunked LLM section generation rewrites content and must NOT run when we
-    // already extracted the full source text from attachments. Use chunked only
-    // for large attachment metadata without usable extracted text (rare).
-    let useChunked =
-      !useDirectSourceTransfer &&
-      !useStructuredSourcePreservingCreate &&
-      hasSourceAttachments &&
-      totalSourceRoutingBytes > LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES &&
-      (!hasExtractableSourceText || contentIntent === "rewrite_content");
     if (useDirectSourceTransfer) {
       this.logger.log(
         `[document-pdf-route-direct-source-transfer] jobId=${input.request.job.id} totalInlinedSourceBytes=${String(totalInlinedSourceBytes)} explicitVerbatimRequest=true`
@@ -388,14 +309,7 @@ export class RuntimeDocumentProviderAdapterService {
         `[document-pdf-route-structured-source-create] jobId=${input.request.job.id} totalInlinedSourceBytes=${String(totalInlinedSourceBytes)} transferMode=${String(input.request.directToolExecution.request.transferMode ?? "unset")} contentIntent=${String(contentIntent ?? "unset")}`
       );
     }
-    if (useChunked) {
-      this.logger.log(
-        `[document-pdf-route-chunked] jobId=${input.request.job.id} totalSourceRoutingBytes=${String(totalSourceRoutingBytes)} threshold=${String(LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES)} contentIntent=${String(contentIntent ?? "unset")}`
-      );
-    }
-    const timeoutMs = useChunked
-      ? CHUNKED_DOCUMENT_TIMEOUT_MS
-      : this.resolveWorkerTimeoutMs(input.bundle);
+    const timeoutMs = this.resolveWorkerTimeoutMs(input.bundle);
     let lastProviderFailure: {
       code: string | null;
       status: number | null;
@@ -411,7 +325,6 @@ export class RuntimeDocumentProviderAdapterService {
     let successfulProviderResult: {
       bytesBase64: string;
       mimeType: string;
-      providerStatus: Record<string, unknown>;
       billingFacts?: RuntimeOutputArtifact["billingFacts"];
     } | null = null;
     let capturedRenderedHtml: string | null = null;
@@ -421,7 +334,7 @@ export class RuntimeDocumentProviderAdapterService {
     let accumulatedWorkerUsage: RuntimeUsageSnapshot | null = null;
 
     this.logger.log(
-      `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} templateId=${templateId} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)} useChunked=${String(useChunked)} useDirectSourceTransfer=${String(useDirectSourceTransfer)} useStructuredSourcePreservingCreate=${String(useStructuredSourcePreservingCreate)} contentIntent=${String(contentIntent ?? "unset")} editStrategy=${createEditStrategy}`
+      `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)} useDirectSourceTransfer=${String(useDirectSourceTransfer)} useStructuredSourcePreservingCreate=${String(useStructuredSourcePreservingCreate)} contentIntent=${String(contentIntent ?? "unset")} editStrategy=${createEditStrategy}`
     );
     for (let attempt = 1; attempt <= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS; attempt += 1) {
       let htmlContent: string;
@@ -453,68 +366,6 @@ export class RuntimeDocumentProviderAdapterService {
         this.logger.log(
           `[document-pdf-structured-source-create-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(structuredCreateResult.bodyTextLength)} sourceTextChars=${String(structuredCreateResult.sourceTextChars)}`
         );
-      } else if (useChunked) {
-        // Chunked path: outline → style anchor → sequential section generation → assembly.
-        // Progress is logged at each milestone with localized text.
-        const locale = this.inferDocumentLocale(input.request);
-        try {
-          const chunkedResult = await this.runChunkedPdfPipeline({
-            bundle: input.bundle,
-            request: input.request,
-            sourceFiles,
-            locale,
-            attempt
-          });
-          htmlContent = chunkedResult.htmlContent;
-          capturedRenderedHtml = htmlContent;
-          accumulatedWorkerUsage = mergeUsageSnapshots(accumulatedWorkerUsage, chunkedResult.usage);
-          this.logger.log(
-            `[document-pdf-chunked-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(chunkedResult.bodyTextLength)} sections=${String(chunkedResult.sectionCount)}`
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          // ADR-097 Slice 3: if chunked itself times out, fail the job honestly with a
-          // distinct error code — do NOT re-route again (no third path).
-          if (error instanceof ProviderGatewayTimeoutError) {
-            this.logger.warn(
-              `[document-pdf-chunked-timeout] jobId=${input.request.job.id} attempt=${String(attempt)} timeoutMs=${String(error.timeoutMs)}`
-            );
-            lastValidationFailure = {
-              code: "document_pdf_chunked_timeout",
-              message: `Chunked pipeline LLM call timed out after ${String(error.timeoutMs)}ms. No further re-route.`,
-              metadata: {
-                attempt,
-                timeoutMs: error.timeoutMs,
-                stage: "chunked_html_generation"
-              }
-            };
-            break;
-          }
-          const code =
-            error instanceof DocumentPdfOutlineInvalidError
-              ? "document_pdf_outline_invalid"
-              : "document_html_generation_failed";
-          this.logger.warn(
-            `[document-pdf-chunked-generation-failed] jobId=${input.request.job.id} attempt=${String(attempt)} code=${code} message=${message}`
-          );
-          lastValidationFailure = {
-            code,
-            message,
-            metadata: {
-              attempt,
-              maxAttempts: DOCUMENT_PDF_MAX_RENDER_ATTEMPTS,
-              stage: "chunked_html_generation"
-            }
-          };
-          // Outline invalid → fail immediately, no retry (spec: no fallback)
-          if (error instanceof DocumentPdfOutlineInvalidError) {
-            break;
-          }
-          if (attempt >= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS) {
-            break;
-          }
-          continue;
-        }
       } else {
         // Single-shot path.
         try {
@@ -531,18 +382,13 @@ export class RuntimeDocumentProviderAdapterService {
           this.logger.log(
             `[document-pdf-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(generation.bodyTextLength)}`
           );
-          // ONE explicitly-allowed re-route: if single-shot output is truncated,
-          // switch to chunked for the remaining attempts. This counts as one
-          // wasted attempt against the retry budget. No silent fallback — the
-          // re-route is logged explicitly.
-          if (generation.isTruncated && !useChunked) {
+          if (generation.isTruncated) {
             this.logger.warn(
-              `[document-pdf-single-shot-truncated] jobId=${input.request.job.id} attempt=${String(attempt)} bodyTextLength=${String(generation.bodyTextLength)} htmlBytes=${String(htmlContent.length)} switchingToChunked=true`
+              `[document-pdf-single-shot-truncated] jobId=${input.request.job.id} attempt=${String(attempt)} bodyTextLength=${String(generation.bodyTextLength)} htmlBytes=${String(htmlContent.length)} willRetry=${String(attempt < DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)}`
             );
-            useChunked = true;
             lastValidationFailure = {
               code: "document_single_shot_truncated",
-              message: `Single-shot output was truncated (bodyTextLength=${String(generation.bodyTextLength)}). Switched to chunked path.`,
+              message: `Single-shot output was truncated (bodyTextLength=${String(generation.bodyTextLength)}).`,
               metadata: {
                 attempt,
                 bodyTextLength: generation.bodyTextLength,
@@ -556,17 +402,13 @@ export class RuntimeDocumentProviderAdapterService {
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          // ADR-097 Slice 3: provider-gateway timeout on single-shot → re-route to chunked.
-          // This is the second objective re-route signal alongside truncation. The timed-out
-          // attempt counts as one consumed retry attempt — no retry of single-shot.
-          if (error instanceof ProviderGatewayTimeoutError && !useChunked) {
+          if (error instanceof ProviderGatewayTimeoutError) {
             this.logger.warn(
-              `[document-pdf-single-shot-timeout] jobId=${input.request.job.id} attempt=${String(attempt)} timeoutMs=${String(error.timeoutMs)} switchingToChunked=true`
+              `[document-pdf-single-shot-timeout] jobId=${input.request.job.id} attempt=${String(attempt)} timeoutMs=${String(error.timeoutMs)} willRetry=${String(attempt < DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)}`
             );
-            useChunked = true;
             lastValidationFailure = {
               code: "document_single_shot_timeout",
-              message: `Single-shot LLM call timed out after ${String(error.timeoutMs)}ms. Switched to chunked path.`,
+              message: `Single-shot LLM call timed out after ${String(error.timeoutMs)}ms.`,
               metadata: {
                 attempt,
                 timeoutMs: error.timeoutMs,
@@ -606,39 +448,29 @@ export class RuntimeDocumentProviderAdapterService {
         capturedStyleProfileJson = snapshot.style;
         capturedEditStrategy = createEditStrategy;
       }
-      const providerOutcome = await this.providerGatewayClientService.generateDocumentOutcome(
-        {
-          htmlContent,
-          filename,
-          credential: {
-            toolCode: "document",
-            secretId: credential.secretRef.id,
-            providerId: "pdfmonkey"
-          },
-          providerOptions: {
-            pdfmonkeyTemplateId: templateId,
-            outputFormat: "pdf"
-          }
-        },
-        { timeoutMs }
-      );
-      if (!providerOutcome.ok) {
+      const renderResult = await this.renderHtmlToPdf({
+        bundle: input.bundle,
+        html: htmlContent,
+        filename,
+        jobId: input.request.job.id,
+        chatId: input.request.job.chatId
+      });
+      if (!renderResult.ok) {
         this.logger.warn(
-          `[document-pdf-provider-failed] jobId=${input.request.job.id} attempt=${String(attempt)} status=${String(providerOutcome.status)} code=${String(providerOutcome.code)} retryable=${String(providerOutcome.retryable)} message=${providerOutcome.message}`
+          `[document-pdf-render-failed] jobId=${input.request.job.id} attempt=${String(attempt)} code=${renderResult.code} retryable=${String(renderResult.retryable)} message=${renderResult.message}`
         );
         lastProviderFailure = {
-          code: providerOutcome.code ?? "provider_document_generation_failed",
-          status: providerOutcome.status,
-          message: providerOutcome.message,
-          retryable: providerOutcome.retryable,
-          providerStatus: providerOutcome.providerStatus
+          code: renderResult.code,
+          status: null,
+          message: renderResult.message,
+          retryable: renderResult.retryable,
+          providerStatus: null
         };
         break;
       }
-      const providerResult = providerOutcome.result;
-      const pdfBuffer = Buffer.from(providerResult.bytesBase64, "base64");
+      const pdfBuffer = renderResult.bytes;
       this.logger.log(
-        `[document-pdf-provider-ok] jobId=${input.request.job.id} attempt=${String(attempt)} pdfBytes=${String(pdfBuffer.length)} providerDocumentId=${providerResult.documentId}`
+        `[document-pdf-render-ok] jobId=${input.request.job.id} attempt=${String(attempt)} pdfBytes=${String(pdfBuffer.length)}`
       );
       const validationFailure = await this.validateGeneratedPdfArtifact(pdfBuffer, {
         jobId: input.request.job.id,
@@ -646,7 +478,11 @@ export class RuntimeDocumentProviderAdapterService {
       });
       if (validationFailure === null) {
         lastValidationFailure = null;
-        successfulProviderResult = providerResult;
+        successfulProviderResult = {
+          bytesBase64: pdfBuffer.toString("base64"),
+          mimeType: "application/pdf",
+          billingFacts: null
+        };
         this.logger.log(
           `[document-pdf-success] jobId=${input.request.job.id} attempt=${String(attempt)} pdfBytes=${String(pdfBuffer.length)}`
         );
@@ -729,7 +565,7 @@ export class RuntimeDocumentProviderAdapterService {
           assistantFileRegistryAvailable:
             typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function",
           validation: lastValidationFailure?.metadata ?? {},
-          providerFailure: successfulProviderResult?.providerStatus ?? null
+          providerFailure: null
         }
       };
     }
@@ -780,7 +616,8 @@ export class RuntimeDocumentProviderAdapterService {
           }
         : {}),
       providerStatus: {
-        ...successfulProviderResult.providerStatus,
+        provider: "sandbox",
+        state: "success",
         outputFormat: input.request.job.outputFormat,
         requestedName: filename,
         sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
@@ -794,18 +631,15 @@ export class RuntimeDocumentProviderAdapterService {
    * ADR-097 Slice 2 — SEARCH/REPLACE patch-revise loop for PDF documents.
    *
    * One LLM call (classification: document_pdf_patch_revise) → validates JSON
-   * envelope → applies patches in array order → repairHtmlDocument → PDFMonkey.
+   * envelope → applies patches in array order → repairHtmlDocument → sandbox render.
    * No retry loop. No fallback. One shot; fail honestly on any violation.
    */
   private async runPdfPatchRevise(input: {
     bundle: AssistantRuntimeBundle;
     request: RuntimeDocumentJobRunRequest;
-    credential: AssistantRuntimeBundleToolCredentialRef;
-    templateId: string;
     filename: string;
     previousVersionRenderedHtml: string;
   }): Promise<RuntimeDocumentJobRunResult> {
-    const timeoutMs = this.resolveWorkerTimeoutMs(input.bundle);
     const providerSelection = this.resolveDocumentGenerationProviderSelection(input.bundle);
     const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
 
@@ -924,55 +758,26 @@ export class RuntimeDocumentProviderAdapterService {
       `[document-pdf-patch-revise-repaired] jobId=${input.request.job.id} repairedBytes=${String(repairedHtml.length)} bodyTextLength=${String(repaired.bodyTextLength)}`
     );
 
-    // Send to PDFMonkey.
-    const providerOutcome = await this.providerGatewayClientService.generateDocumentOutcome(
-      {
-        htmlContent: repairedHtml,
-        filename: input.filename,
-        credential: {
-          toolCode: "document",
-          secretId: input.credential.secretRef.id,
-          providerId: "pdfmonkey"
-        },
-        providerOptions: {
-          pdfmonkeyTemplateId: input.templateId,
-          outputFormat: "pdf"
-        }
-      },
-      { timeoutMs }
-    );
-
-    if (!providerOutcome.ok) {
+    // Render via sandbox WeasyPrint.
+    const renderResult = await this.renderHtmlToPdf({
+      bundle: input.bundle,
+      html: repairedHtml,
+      filename: input.filename,
+      jobId: input.request.job.id,
+      chatId: input.request.job.chatId
+    });
+    if (!renderResult.ok) {
       this.logger.warn(
-        `[document-pdf-patch-revise-provider-failed] jobId=${input.request.job.id} status=${String(providerOutcome.status)} code=${String(providerOutcome.code)} retryable=${String(providerOutcome.retryable)}`
+        `[document-pdf-patch-revise-render-failed] jobId=${input.request.job.id} code=${renderResult.code}`
       );
-      return {
-        assistantText: null,
-        artifacts: [],
-        usage: null,
-        toolInvocations: [{ name: "document", iteration: 1, ok: false, executionMode: "worker" }],
-        rawText: null,
-        providerStatus: {
-          provider: "pdfmonkey",
-          state: "failed",
-          errorCode: providerOutcome.code ?? "provider_document_generation_failed",
-          retryable: providerOutcome.retryable,
-          httpStatus: providerOutcome.status,
-          message: providerOutcome.message,
-          outputFormat: input.request.job.outputFormat,
-          requestedName: input.filename,
-          sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
-          assistantFileRegistryAvailable:
-            typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function",
-          ...(providerOutcome.providerStatus === null
-            ? {}
-            : { providerFailure: providerOutcome.providerStatus })
-        }
-      };
+      return this.buildDocumentReviseFailResult(input, {
+        errorCode: renderResult.code,
+        retryable: renderResult.retryable,
+        message: renderResult.message
+      });
     }
 
-    const providerResult = providerOutcome.result;
-    const pdfBuffer = Buffer.from(providerResult.bytesBase64, "base64");
+    const pdfBuffer = renderResult.bytes;
     const validationFailure = await this.validateGeneratedPdfArtifact(pdfBuffer, {
       jobId: input.request.job.id,
       attempt: 1
@@ -997,8 +802,8 @@ export class RuntimeDocumentProviderAdapterService {
       requestPrompt: input.request.directToolExecution.request.prompt,
       requestedName: input.request.directToolExecution.request.requestedName ?? null,
       buffer: pdfBuffer,
-      mimeType: providerResult.mimeType,
-      billingFacts: providerResult.billingFacts ?? null
+      mimeType: "application/pdf",
+      billingFacts: null
     });
 
     this.logger.log(
@@ -1015,7 +820,8 @@ export class RuntimeDocumentProviderAdapterService {
       renderedHtml: repairedHtml,
       editStrategy: "fast_small",
       providerStatus: {
-        ...providerResult.providerStatus,
+        provider: "sandbox",
+        state: "success",
         outputFormat: input.request.job.outputFormat,
         requestedName: input.filename,
         sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
@@ -1129,12 +935,9 @@ export class RuntimeDocumentProviderAdapterService {
   private async runStructuredPdfRevise(input: {
     bundle: AssistantRuntimeBundle;
     request: RuntimeDocumentJobRunRequest;
-    credential: AssistantRuntimeBundleToolCredentialRef;
-    templateId: string;
     filename: string;
     previousVersionRenderedHtml: string;
   }): Promise<RuntimeDocumentJobRunResult> {
-    const timeoutMs = this.resolveWorkerTimeoutMs(input.bundle);
     const providerSelection = this.resolveDocumentGenerationProviderSelection(input.bundle);
     const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
     const operation = this.resolveDocumentEditOperation(input.request);
@@ -1210,33 +1013,22 @@ export class RuntimeDocumentProviderAdapterService {
       });
     }
 
-    const providerOutcome = await this.providerGatewayClientService.generateDocumentOutcome(
-      {
-        htmlContent: repaired.html,
-        filename: input.filename,
-        credential: {
-          toolCode: "document",
-          secretId: input.credential.secretRef.id,
-          providerId: "pdfmonkey"
-        },
-        providerOptions: {
-          pdfmonkeyTemplateId: input.templateId,
-          outputFormat: "pdf"
-        }
-      },
-      { timeoutMs }
-    );
-
-    if (!providerOutcome.ok) {
+    const renderResult = await this.renderHtmlToPdf({
+      bundle: input.bundle,
+      html: repaired.html,
+      filename: input.filename,
+      jobId: input.request.job.id,
+      chatId: input.request.job.chatId
+    });
+    if (!renderResult.ok) {
       return this.buildDocumentReviseFailResult(input, {
-        errorCode: providerOutcome.code ?? "provider_document_generation_failed",
-        retryable: providerOutcome.retryable,
-        message: providerOutcome.message
+        errorCode: renderResult.code,
+        retryable: renderResult.retryable,
+        message: renderResult.message
       });
     }
 
-    const providerResult = providerOutcome.result;
-    const pdfBuffer = Buffer.from(providerResult.bytesBase64, "base64");
+    const pdfBuffer = renderResult.bytes;
     const validationFailure = await this.validateGeneratedPdfArtifact(pdfBuffer, {
       jobId: input.request.job.id,
       attempt: 1
@@ -1258,8 +1050,8 @@ export class RuntimeDocumentProviderAdapterService {
       requestPrompt: input.request.directToolExecution.request.prompt,
       requestedName: input.request.directToolExecution.request.requestedName ?? null,
       buffer: pdfBuffer,
-      mimeType: providerResult.mimeType,
-      billingFacts: providerResult.billingFacts ?? null
+      mimeType: "application/pdf",
+      billingFacts: null
     });
 
     this.logger.log(
@@ -1279,7 +1071,8 @@ export class RuntimeDocumentProviderAdapterService {
       editStrategy: "structured_large",
       structureVersion: PERSAI_DOCUMENT_STRUCTURE_VERSION,
       providerStatus: {
-        ...providerResult.providerStatus,
+        provider: "sandbox",
+        state: "success",
         outputFormat: input.request.job.outputFormat,
         requestedName: input.filename,
         sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
@@ -1502,7 +1295,7 @@ export class RuntimeDocumentProviderAdapterService {
       toolInvocations: [{ name: "document", iteration: 1, ok: false, executionMode: "worker" }],
       rawText: null,
       providerStatus: {
-        provider: "pdfmonkey",
+        provider: "sandbox",
         state: "failed",
         errorCode: failure.errorCode,
         retryable: failure.retryable,
@@ -1766,13 +1559,6 @@ export class RuntimeDocumentProviderAdapterService {
       }
     }
     return null;
-  }
-
-  private readPdfMonkeyTemplateId(bundle: AssistantRuntimeBundle): string | null {
-    const templateId = bundle.governance.documentProviderConfig?.pdfmonkeyTemplateId;
-    return typeof templateId === "string" && templateId.trim().length > 0
-      ? templateId.trim()
-      : null;
   }
 
   private resolveRequestedFilename(
@@ -2305,11 +2091,12 @@ export class RuntimeDocumentProviderAdapterService {
     // legitimately short but complete document.
     const bodyTextShort =
       repaired.bodyTextLength < DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH * TRUNCATION_BODY_TEXT_FRACTION;
-    // Truncation: original output was missing closing tags AND body text is
-    // very short — provider cut off mid-generation. Return isTruncated so the
-    // caller can switch to chunked. This is the ONLY case where we surface a
-    // truncated result instead of throwing.
-    const isTruncated = !hasHtmlCloseInExtracted && !hasBodyCloseInExtracted && bodyTextShort;
+    // Truncation fires when: (a) the LLM explicitly reported truncation via
+    // response.truncated === true (ADR-122 Slice 3 propagation), OR (b) closing
+    // tags are missing AND body text is very short (provider cut off mid-generation).
+    const isTruncated =
+      response.truncated === true ||
+      (!hasHtmlCloseInExtracted && !hasBodyCloseInExtracted && bodyTextShort);
     if (!isTruncated && repaired.bodyTextLength < DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH) {
       throw new Error(
         `Document HTML generation produced too little body text (length=${String(
@@ -2346,7 +2133,7 @@ export class RuntimeDocumentProviderAdapterService {
       "Begin your response with <!DOCTYPE html> and end it with </html>.",
       "The HTML body must contain the actual document content, not meta commentary about the request.",
       "Do not include sections titled Prompt, Instructions, Source User Message, Outline, PersAI Document Draft, or any internal/debug labels.",
-      "Do not mention templates, PDFMonkey, providers, job ids, system prompts, or internal architecture.",
+      "Do not mention templates, providers, job ids, system prompts, or internal architecture.",
       "Write the document in the user's apparent language unless the request clearly asks for another language.",
       "Default to a restrained editorial document style on a white page background: strong heading hierarchy, calm spacing, readable body copy, and light structural accents only where they help scanning.",
       "Unless the user explicitly asks for bold branding, loud colors, or full-page backgrounds, avoid full-bleed colored pages, heavy gradients, and decorative color blocks.",
@@ -2740,470 +2527,6 @@ export class RuntimeDocumentProviderAdapterService {
     );
   }
 
-  /**
-   * Infer document locale from the runtime bundle's userContext or the source
-   * user message text (Cyrillic detection). Mirrors the server-side
-   * inferAssistantDocumentJobLocale in assistant-document-job-failure-copy.service.ts.
-   */
-  private inferDocumentLocale(request: RuntimeDocumentJobRunRequest): "ru" | "en" {
-    const bundleLocale = request.runtimeBundleDocument.includes('"locale":"ru"') ? "ru" : null;
-    if (bundleLocale !== null) {
-      return bundleLocale;
-    }
-    const sourceText = request.job.sourceUserMessageText ?? "";
-    if (/[\u0400-\u04FF]/.test(sourceText)) {
-      return "ru";
-    }
-    return "en";
-  }
-
-  /**
-   * Chunked PDF generation pipeline (ADR-097 Slice 1, Phase D):
-   * 1. Outline call (1 LLM call, strict JSON)
-   * 2. Style anchor (no LLM call, synthesized from bundle)
-   * 3. Section generation (sequential, 1 LLM call per section)
-   * 4. Assembly (concatenate → boilerplate wrap → repairHtmlDocument)
-   *
-   * Progress is emitted as structured logger.log lines with localized text.
-   * The pipeline runs sequentially — no parallel section calls (ADR-097 anchor:
-   * parallel risks style drift).
-   */
-  private async runChunkedPdfPipeline(input: {
-    bundle: AssistantRuntimeBundle;
-    request: RuntimeDocumentJobRunRequest;
-    sourceFiles: DocumentSourceFilePayload[];
-    locale: "ru" | "en";
-    attempt: number;
-  }): Promise<{
-    htmlContent: string;
-    bodyTextLength: number;
-    sectionCount: number;
-    usage: RuntimeUsageSnapshot | null;
-  }> {
-    const providerSelection = this.resolveDocumentGenerationProviderSelection(input.bundle);
-    const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
-    const jobId = input.request.job.id;
-
-    // Step D.1: Outline call
-    const outlineResult = await this.generateChunkedOutline({
-      bundle: input.bundle,
-      request: input.request,
-      sourceFiles: input.sourceFiles,
-      providerSelection,
-      maxOutputTokens
-    });
-    const outline = outlineResult.outline;
-    let accumulatedUsage: RuntimeUsageSnapshot | null = outlineResult.usage;
-    const progressOutline =
-      input.locale === "ru"
-        ? `План готов (${String(outline.sections.length)} разделов)`
-        : `Outline ready (${String(outline.sections.length)} sections)`;
-    this.logger.log(
-      `[document-pdf-chunked-outline-ready] jobId=${jobId} attempt=${String(input.attempt)} sections=${String(outline.sections.length)} progress=${JSON.stringify(progressOutline)}`
-    );
-
-    // Step D.2: Style anchor (no LLM call)
-    const styleAnchor = this.buildStyleAnchor(input.bundle, input.request);
-
-    // Step D.3: Section generation (sequential)
-    const sectionFragments: string[] = [];
-    const tailSummaries: string[] = [];
-    for (let sectionIdx = 0; sectionIdx < outline.sections.length; sectionIdx += 1) {
-      const progressSection =
-        input.locale === "ru"
-          ? `Секция ${String(sectionIdx + 1)} из ${String(outline.sections.length)}`
-          : `Section ${String(sectionIdx + 1)} of ${String(outline.sections.length)}`;
-      this.logger.log(
-        `[document-pdf-chunked-section-start] jobId=${jobId} attempt=${String(input.attempt)} section=${String(sectionIdx + 1)}/${String(outline.sections.length)} progress=${JSON.stringify(progressSection)}`
-      );
-      const sourceSlice = this.sliceSourceForSection(
-        input.sourceFiles,
-        sectionIdx,
-        outline.sections
-      );
-      const tailSummary = this.buildTailSummary(tailSummaries);
-      const sectionResult = await this.generateSectionFragment({
-        bundle: input.bundle,
-        request: input.request,
-        providerSelection,
-        maxOutputTokens,
-        styleAnchor,
-        outline,
-        sectionIdx,
-        sourceSlice,
-        tailSummary
-      });
-      accumulatedUsage = mergeUsageSnapshots(accumulatedUsage, sectionResult.usage);
-      sectionFragments.push(sectionResult.fragment);
-      // Extract plain text tail for the next section's context
-      const plainText = this.extractPlainTextFromHtmlPassthrough(sectionResult.fragment);
-      const tail = plainText.replace(/\s+/g, " ").trim().slice(-CHUNKED_TAIL_SUMMARY_PER_SECTION);
-      tailSummaries.push(tail);
-    }
-
-    // Step D.4: Assembly
-    const progressAssembling = input.locale === "ru" ? "Собираю PDF" : "Assembling PDF";
-    this.logger.log(
-      `[document-pdf-chunked-assembling] jobId=${jobId} attempt=${String(input.attempt)} progress=${JSON.stringify(progressAssembling)}`
-    );
-    const rawAssembled = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${sectionFragments.join("\n")}</body></html>`;
-    const repaired = this.repairHtmlDocument(rawAssembled);
-    if (repaired.bodyTextLength < DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH) {
-      throw new Error(
-        `Chunked assembly produced too little body text (length=${String(repaired.bodyTextLength)}, minimum=${String(DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH)}).`
-      );
-    }
-    return {
-      htmlContent: repaired.html,
-      bodyTextLength: repaired.bodyTextLength,
-      sectionCount: outline.sections.length,
-      usage: accumulatedUsage
-    };
-  }
-
-  private async generateChunkedOutline(input: {
-    bundle: AssistantRuntimeBundle;
-    request: RuntimeDocumentJobRunRequest;
-    sourceFiles: DocumentSourceFilePayload[];
-    providerSelection: ProviderSelection;
-    maxOutputTokens: number;
-  }): Promise<{ outline: ChunkedOutline; usage: RuntimeUsageSnapshot | null }> {
-    const bundle = input.bundle;
-    const request = input.request;
-    const developerInstructions = [
-      [
-        "You are generating a document outline for a PersAI PDF generation pipeline.",
-        'Return ONLY a JSON object in this EXACT envelope: { "mode": "document_pdf_outline", "sections": [ { "heading": "...", "intent": "...", "expectedLength": "short"|"medium"|"long" } ] }',
-        "Do not add any preamble, markdown fences, commentary, or extra fields.",
-        "Each section must have: heading (display title), intent (one sentence describing its content), expectedLength (short/medium/long).",
-        "Create 3-8 sections appropriate for the document scope. Every section must have a clear purpose.",
-        "Write headings and intents in the user's apparent language."
-      ].join("\n")
-    ]
-      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-      .join("\n\n");
-
-    const response = await this.providerGatewayClientService.generateText({
-      provider: input.providerSelection.provider,
-      model: input.providerSelection.model,
-      systemPrompt: this.buildDocumentWorkerSystemPrompt(),
-      ...(developerInstructions.length === 0 ? {} : { developerInstructions }),
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  mode: "document_pdf_outline_request",
-                  documentRequest: {
-                    descriptorMode: request.directToolExecution.descriptorMode,
-                    prompt: request.directToolExecution.request.prompt,
-                    instructions: request.directToolExecution.request.instructions ?? null,
-                    requestedName: request.directToolExecution.request.requestedName ?? null
-                  },
-                  sourceUserMessage: {
-                    text: request.job.sourceUserMessageText,
-                    createdAt: request.job.sourceUserMessageCreatedAt
-                  },
-                  sourceFiles: input.sourceFiles.slice(0, 3).map((entry) => ({
-                    filename: entry.filename,
-                    mimeType: entry.mimeType,
-                    sizeBytes: entry.sizeBytes,
-                    // Only include a short excerpt in the outline call to keep it focused
-                    textExcerpt: entry.text !== null ? entry.text.slice(0, 2_000) : null,
-                    note: entry.note
-                  })),
-                  assistant: {
-                    name: bundle.persona.displayName,
-                    userLocale: bundle.userContext.locale
-                  }
-                },
-                null,
-                2
-              )
-            }
-          ]
-        }
-      ],
-      maxOutputTokens: Math.min(input.maxOutputTokens, 4_000),
-      requestMetadata: {
-        runtimeSessionId: `document-job:${request.job.id}`,
-        runtimeRequestId: `document-outline:${request.job.id}`,
-        toolLoopIteration: null,
-        compactionToolCode: null,
-        classification: "document_pdf_outline"
-      },
-      // ADR-097 Slice 3: raise timeout for outline call — it can produce a moderately large
-      // structured JSON envelope and deserves the same extended budget as html generation.
-      timeoutMsHint: DOCUMENT_CLASSIFICATION_TIMEOUT_MS
-    });
-
-    const rawText = (response.text ?? "").trim();
-    const outline = this.parseChunkedOutline(rawText);
-    if (outline === null || outline.sections.length === 0) {
-      throw new DocumentPdfOutlineInvalidError(
-        `Outline call returned invalid or empty JSON envelope. rawLength=${String(rawText.length)} preview=${JSON.stringify(rawText.slice(0, 200))}`
-      );
-    }
-    return { outline, usage: response.usage ?? null };
-  }
-
-  private parseChunkedOutline(rawText: string): ChunkedOutline | null {
-    const stripped = this.stripMarkdownFences(rawText);
-    const candidate = stripped.trim();
-    const objectStart = candidate.indexOf("{");
-    const objectEnd = candidate.lastIndexOf("}");
-    if (objectStart === -1 || objectEnd <= objectStart) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(candidate.slice(objectStart, objectEnd + 1)) as unknown;
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return null;
-      }
-      const obj = parsed as Record<string, unknown>;
-      if (obj.mode !== "document_pdf_outline") {
-        return null;
-      }
-      if (!Array.isArray(obj.sections) || obj.sections.length === 0) {
-        return null;
-      }
-      const sections: ChunkedOutlineSection[] = [];
-      for (const entry of obj.sections as unknown[]) {
-        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
-          return null;
-        }
-        const sec = entry as Record<string, unknown>;
-        if (typeof sec.heading !== "string" || typeof sec.intent !== "string") {
-          return null;
-        }
-        const expectedLength =
-          sec.expectedLength === "short" || sec.expectedLength === "long"
-            ? sec.expectedLength
-            : "medium";
-        sections.push({
-          heading: sec.heading,
-          intent: sec.intent,
-          expectedLength
-        });
-      }
-      return { sections };
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Style anchor: synthesized from prompt + instructions + persona name + locale.
-   * 3-5 sentences covering tone, typographic style, header rhythm, list/table
-   * conventions, language, and audience. Identical verbatim string in every section call.
-   */
-  private buildStyleAnchor(
-    bundle: AssistantRuntimeBundle,
-    request: RuntimeDocumentJobRunRequest
-  ): string {
-    const locale = bundle.userContext.locale ?? "en";
-    const lang = locale.startsWith("ru") ? "Russian" : "English";
-    const personaName = bundle.persona.displayName ?? "PersAI";
-    const instructions = request.directToolExecution.request.instructions?.trim() ?? "";
-    const instructionNote =
-      instructions.length > 0 ? `User style guidance: "${instructions.slice(0, 300)}".` : "";
-    return [
-      `This document is authored by ${personaName} in ${lang}.`,
-      "Use a restrained editorial tone: professional, clear, and direct without being dry.",
-      "Heading hierarchy: H1 for the cover title, H2 for major chapters, H3 for subsections. Do not skip levels.",
-      "Lists are formatted as tight bullet points; tables use clean semantic markup with <thead>/<tbody>.",
-      `Target audience: readers who expect a polished, content-dense PDF document delivered in ${lang}.`,
-      ...(instructionNote.length > 0 ? [instructionNote] : [])
-    ].join(" ");
-  }
-
-  private async generateSectionFragment(input: {
-    bundle: AssistantRuntimeBundle;
-    request: RuntimeDocumentJobRunRequest;
-    providerSelection: ProviderSelection;
-    maxOutputTokens: number;
-    styleAnchor: string;
-    outline: ChunkedOutline;
-    sectionIdx: number;
-    sourceSlice: string;
-    tailSummary: string;
-  }): Promise<{ fragment: string; usage: RuntimeUsageSnapshot | null }> {
-    const section = input.outline.sections[input.sectionIdx];
-    if (section === undefined) {
-      throw new Error(
-        `Section index ${String(input.sectionIdx)} is out of bounds for outline with ${String(input.outline.sections.length)} sections.`
-      );
-    }
-    const bundle = input.bundle;
-    const request = input.request;
-    const isFirstSection = input.sectionIdx === 0;
-    const developerInstructions = [
-      [
-        "You are generating ONE section of a multi-section PDF document.",
-        "Return ONLY the HTML fragment for this section. No <!DOCTYPE>, no <html>, no <head>, no <body> wrapper.",
-        "Cover page = <h1>, chapters = <h2>, subsections = <h3>.",
-        "Do not add preamble, markdown fences, JSON envelopes, or closing remarks.",
-        "Close every tag you open.",
-        "Do not embed external scripts, iframes, or remote stylesheets.",
-        "Apply the style anchor consistently — same tone, heading rhythm, and list/table style as specified."
-      ].join("\n")
-    ]
-      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-      .join("\n\n");
-
-    const response = await this.providerGatewayClientService.generateText({
-      provider: input.providerSelection.provider,
-      model: input.providerSelection.model,
-      systemPrompt: this.buildDocumentWorkerSystemPrompt(),
-      ...(developerInstructions.length === 0 ? {} : { developerInstructions }),
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  mode: "document_pdf_section_generation",
-                  styleAnchor: input.styleAnchor,
-                  fullOutline: input.outline.sections.map((s, idx) => ({
-                    index: idx,
-                    heading: s.heading,
-                    intent: s.intent,
-                    expectedLength: s.expectedLength,
-                    isCurrent: idx === input.sectionIdx
-                  })),
-                  currentSectionIndex: input.sectionIdx,
-                  totalSections: input.outline.sections.length,
-                  currentSection: {
-                    heading: section.heading,
-                    intent: section.intent,
-                    expectedLength: section.expectedLength
-                  },
-                  // Proportional source slice for this section (v1: simple split by weight)
-                  sourceSliceText: input.sourceSlice.length > 0 ? input.sourceSlice : null,
-                  // Last 300-500 chars of each prior section concatenated, capped at 1500 chars total
-                  priorSectionsTailSummary: input.tailSummary.length > 0 ? input.tailSummary : null,
-                  isFirstSection,
-                  documentRequest: {
-                    descriptorMode: request.directToolExecution.descriptorMode,
-                    prompt: request.directToolExecution.request.prompt,
-                    instructions: request.directToolExecution.request.instructions ?? null
-                  },
-                  sourceUserMessage: {
-                    text: request.job.sourceUserMessageText
-                  },
-                  assistant: {
-                    name: bundle.persona.displayName,
-                    userLocale: bundle.userContext.locale
-                  }
-                },
-                null,
-                2
-              )
-            }
-          ]
-        }
-      ],
-      maxOutputTokens: input.maxOutputTokens,
-      requestMetadata: {
-        runtimeSessionId: `document-job:${request.job.id}`,
-        runtimeRequestId: `document-section:${request.job.id}:section-${String(input.sectionIdx)}`,
-        toolLoopIteration: null,
-        compactionToolCode: null,
-        classification: "document_pdf_section_generation"
-      }
-    });
-
-    const rawText = (response.text ?? "").trim();
-    if (rawText.length === 0) {
-      throw new Error(
-        `Section ${String(input.sectionIdx + 1)} of ${String(input.outline.sections.length)} returned empty output.`
-      );
-    }
-    // Extract the fragment: prefer inner HTML content, strip any accidental wrappers
-    const extracted = this.extractSectionFragment(rawText);
-    return { fragment: extracted.length > 0 ? extracted : rawText, usage: response.usage ?? null };
-  }
-
-  /**
-   * Extract a section fragment from the model output. Strips any accidental
-   * <!DOCTYPE>/html/body wrappers that the model might have added despite
-   * being told not to. Returns a clean HTML fragment.
-   */
-  private extractSectionFragment(raw: string): string {
-    const stripped = this.stripMarkdownFences(raw);
-    const lower = stripped.toLowerCase();
-    // If model returned full document structure, extract body contents
-    const bodyStart = lower.indexOf("<body");
-    const bodyEnd = lower.lastIndexOf("</body>");
-    if (bodyStart !== -1 && bodyEnd !== -1 && bodyEnd > bodyStart) {
-      const bodyTagEnd = stripped.indexOf(">", bodyStart);
-      if (bodyTagEnd !== -1 && bodyTagEnd < bodyEnd) {
-        return stripped.slice(bodyTagEnd + 1, bodyEnd).trim();
-      }
-    }
-    // Strip DOCTYPE/html/head wrappers only
-    let result = stripped;
-    result = result.replace(/^\s*<!DOCTYPE[^>]*>\s*/i, "");
-    result = result.replace(/^\s*<html[^>]*>\s*/i, "");
-    result = result.replace(/\s*<\/html\s*>\s*$/i, "");
-    result = result.replace(/^\s*<head[\s\S]*?<\/head>\s*/i, "");
-    return result.trim();
-  }
-
-  /**
-   * Proportionally slice the total inlined source text for a given section.
-   * Weight: short=1, medium=2, long=3. Simple v1 implementation — not smart
-   * retrieval. Documented intentionally as v1 per ADR-097 Slice 1.
-   */
-  private sliceSourceForSection(
-    sourceFiles: DocumentSourceFilePayload[],
-    sectionIdx: number,
-    sections: ChunkedOutlineSection[]
-  ): string {
-    const allText = sourceFiles
-      .map((f) => f.text ?? "")
-      .filter((t) => t.length > 0)
-      .join("\n\n");
-    if (allText.length === 0) {
-      return "";
-    }
-    const weightOf = (s: ChunkedOutlineSection): number =>
-      s.expectedLength === "short" ? 1 : s.expectedLength === "long" ? 3 : 2;
-    const totalWeight = sections.reduce((sum, s) => sum + weightOf(s), 0);
-    if (totalWeight === 0) {
-      return "";
-    }
-    let startFraction = 0;
-    for (let i = 0; i < sectionIdx; i += 1) {
-      const s = sections[i];
-      if (s !== undefined) {
-        startFraction += weightOf(s) / totalWeight;
-      }
-    }
-    const currentSection = sections[sectionIdx];
-    const endFraction =
-      startFraction + (currentSection !== undefined ? weightOf(currentSection) : 0) / totalWeight;
-    const startIdx = Math.floor(startFraction * allText.length);
-    const endIdx = Math.min(Math.ceil(endFraction * allText.length), allText.length);
-    return allText.slice(startIdx, endIdx);
-  }
-
-  /** Concatenate tail summaries from prior sections, cap at CHUNKED_TAIL_SUMMARY_TOTAL_CAP. */
-  private buildTailSummary(priorTails: string[]): string {
-    if (priorTails.length === 0) {
-      return "";
-    }
-    const joined = priorTails.join(" … ");
-    return joined.length > CHUNKED_TAIL_SUMMARY_TOTAL_CAP
-      ? joined.slice(-CHUNKED_TAIL_SUMMARY_TOTAL_CAP)
-      : joined;
-  }
-
   private resolveProviderSelection(
     bundle: AssistantRuntimeBundle,
     modelRole: PersaiRuntimeModelRole
@@ -3552,12 +2875,12 @@ export class RuntimeDocumentProviderAdapterService {
    * - implicitly create <html>/<head>/<body> wrappers if missing,
    * - close any tags the model forgot to close,
    * - drop nothing — parse5 keeps content even when structure is broken,
-   * - re-serialize back into clean, well-formed HTML PDFMonkey can render.
+   * - re-serialize back into clean, well-formed HTML the sandbox renderer can render.
    *
    * Also injects a baseline print CSS so any HTML the model gives us renders as
    * a real document (typography, headings, lists, tables) instead of an
    * unstyled wall of text. Returns the visible body text length so callers can
-   * reject obviously empty documents before sending them to PDFMonkey.
+   * reject obviously empty documents before sending to the render engine.
    */
   private repairHtmlDocument(htmlInput: string): {
     html: string;
@@ -3565,8 +2888,8 @@ export class RuntimeDocumentProviderAdapterService {
     paginationEnhanced: boolean;
     theadPromoted: number;
   } {
-    const activeCss = this.resolveActivePrintCss();
-    const paginationEnhanced = activeCss === DOCUMENT_HTML_ENHANCED_PRINT_CSS;
+    const activeCss = DOCUMENT_HTML_ENHANCED_PRINT_CSS;
+    const paginationEnhanced = true;
     let parse5: {
       parse: (html: string) => Parse5Document;
       serialize: (node: Parse5Node) => string;
@@ -3615,13 +2938,6 @@ export class RuntimeDocumentProviderAdapterService {
       serialized = serialized.replace(/<\/head>/i, `<style>${activeCss}</style></head>`);
     }
     return { html: serialized, bodyTextLength, paginationEnhanced, theadPromoted };
-  }
-
-  private resolveActivePrintCss(): string {
-    const flag = process.env[DOCUMENT_HTML_ENHANCED_PAGINATION_ENV_KEY];
-    return flag === "off" || flag === "false" || flag === "0"
-      ? DOCUMENT_HTML_BASELINE_PRINT_CSS
-      : DOCUMENT_HTML_ENHANCED_PRINT_CSS;
   }
 
   private wrapHtmlInBoilerplate(value: string, css: string): string {
@@ -3695,7 +3011,7 @@ export class RuntimeDocumentProviderAdapterService {
    * contains only <th> cells, wrap that row in a new <thead>. Returns the
    * number of tables that were modified so callers can log/test the effect.
    *
-   * Why: PDFMonkey / Chromium only repeats the table header on every printed
+   * Why: WeasyPrint / Chromium only repeats the table header on every printed
    * page when the header row is inside <thead>. Models routinely forget the
    * <thead> wrapper. This safe, syntactic auto-promote fixes the common case
    * without changing any visible content.
@@ -3831,5 +3147,87 @@ export class RuntimeDocumentProviderAdapterService {
       hash = (hash * 31 + prompt.charCodeAt(index)) >>> 0;
     }
     return hash.toString(16);
+  }
+
+  private async renderHtmlToPdf(input: {
+    bundle: AssistantRuntimeBundle;
+    html: string;
+    filename: string;
+    jobId: string;
+    chatId: string;
+  }): Promise<
+    | { ok: true; bytes: Buffer; mimeType: "application/pdf" }
+    | { ok: false; code: string; message: string; retryable: boolean }
+  > {
+    // Render policy: start from bundle sandbox policy and override for render operation.
+    // Uses ephemeral pod (runtimeSessionId: null) so renders never contend the user's session workspace.
+    const basePolicy =
+      (input.bundle.runtime.sandbox as RuntimeSandboxPolicy | null | undefined) ??
+      DEFAULT_RUNTIME_SANDBOX_POLICY;
+    const renderPolicy: RuntimeSandboxPolicy = {
+      ...basePolicy,
+      enabled: true,
+      maxProcessRuntimeMs: 90_000,
+      maxCpuMsPerJob: 90_000,
+      maxSingleFileWriteBytes: Math.max(basePolicy.maxSingleFileWriteBytes, 50 * 1024 * 1024),
+      maxWorkspaceBytesPerJob: Math.max(basePolicy.maxWorkspaceBytesPerJob, 64 * 1024 * 1024)
+    };
+    let result: RuntimeSandboxJobResult;
+    try {
+      result = await this.sandboxClientService.waitForCompletion({
+        assistantId: input.bundle.metadata.assistantId,
+        workspaceId: input.bundle.metadata.workspaceId,
+        runtimeRequestId: input.jobId,
+        runtimeSessionId: null, // ephemeral pod — never touches user session workspace
+        toolCode: "render_html_to_pdf",
+        policy: renderPolicy,
+        args: { htmlContent: input.html, outputFileName: input.filename },
+        mountedFileRefs: []
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, code: "sandbox_render_failed", message, retryable: true };
+    }
+    if (result.status !== "completed" || result.exitCode !== 0) {
+      const message =
+        result.violationMessage ?? result.stderr ?? result.reason ?? "WeasyPrint render failed.";
+      return {
+        ok: false,
+        code: result.violationCode ?? "sandbox_render_failed",
+        message,
+        retryable: result.status === "failed"
+      };
+    }
+    const producedPdf = result.files.find(
+      (f) => f.relativePath.toLowerCase().endsWith(".pdf") || f.mimeType === "application/pdf"
+    );
+    if (producedPdf === undefined) {
+      return {
+        ok: false,
+        code: "sandbox_render_no_pdf",
+        message: "WeasyPrint completed but produced no PDF file.",
+        retryable: false
+      };
+    }
+    const bytes = await this.mediaObjectStorage.downloadObject(producedPdf.fileRef.objectKey);
+    if (bytes === null) {
+      return {
+        ok: false,
+        code: "sandbox_render_download_failed",
+        message: "Failed to download rendered PDF from object storage.",
+        retryable: true
+      };
+    }
+    // The sandbox auto-creates a sandbox_output AssistantFile for the produced PDF.
+    // persistGeneratedArtifact will create the canonical runtime_output artifact.
+    // Delete the transient sandbox file to avoid a duplicate per-document.
+    try {
+      await this.runtimeAssistantFileRegistryService.deleteById(producedPdf.fileRef.fileRef);
+    } catch (err) {
+      this.logger.warn(
+        `[document-pdf-render-cleanup] Failed to delete transient sandbox file: ${String(err)}`
+      );
+    }
+    return { ok: true, bytes, mimeType: "application/pdf" };
   }
 }
