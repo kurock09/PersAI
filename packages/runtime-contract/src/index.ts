@@ -216,6 +216,8 @@ export const DEFAULT_RUNTIME_SANDBOX_POLICY: RuntimeSandboxPolicy = {
     "application/json",
     "application/pdf",
     "application/zip",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "image/png",
     "image/jpeg",
     "audio/mpeg",
@@ -1943,11 +1945,12 @@ export interface RuntimeDocumentToolResult {
     | "create_presentation"
     | "revise_document"
     | "export_or_redeliver"
+    | "create_data_document"
     | null;
-  documentType: "pdf_document" | "presentation" | null;
+  documentType: "pdf_document" | "presentation" | "data_document" | null;
   provider: PersaiRuntimeDocumentProviderId | null;
   prompt: string | null;
-  outputFormat: "pdf" | "pptx" | null;
+  outputFormat: "pdf" | "pptx" | "xlsx" | "docx" | null;
   docId: string | null;
   requestedName: string | null;
   artifacts: RuntimeOutputArtifact[];
@@ -2612,7 +2615,7 @@ export interface RuntimeDocumentJobRunRequest {
     surface: "web" | "telegram";
     chatId: string;
     provider: "sandbox" | "gamma";
-    outputFormat: "pdf" | "pptx";
+    outputFormat: "pdf" | "pptx" | "xlsx" | "docx";
     sourceUserMessageId: string;
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
@@ -2649,11 +2652,12 @@ export interface RuntimeDocumentJobRunRequest {
       | "create_pdf_document"
       | "create_presentation"
       | "revise_document"
-      | "export_or_redeliver";
+      | "export_or_redeliver"
+      | "create_data_document";
     request: {
       prompt: string;
       instructions?: string | null;
-      outputFormat?: "pdf" | "pptx" | null;
+      outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
       docId?: string | null;
       /**
        * ADR-097 Slice 4 — cross-chat revise via AssistantFile id.
@@ -2746,12 +2750,13 @@ export interface RuntimeDocumentJobCompletionRequest {
     versionId: string;
     surface: "web" | "telegram";
     chatId: string;
-    outputFormat: "pdf" | "pptx";
+    outputFormat: "pdf" | "pptx" | "xlsx" | "docx";
     descriptorMode:
       | "create_pdf_document"
       | "create_presentation"
       | "revise_document"
-      | "export_or_redeliver";
+      | "export_or_redeliver"
+      | "create_data_document";
     sourceUserMessageId: string;
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
@@ -2870,8 +2875,9 @@ export interface RuntimeOpenDocumentJobContext {
     | "create_pdf_document"
     | "create_presentation"
     | "revise_document"
-    | "export_or_redeliver";
-  documentType: "pdf_document" | "presentation";
+    | "export_or_redeliver"
+    | "create_data_document";
+  documentType: "pdf_document" | "presentation" | "data_document";
   status: "queued" | "running";
   sourceSummary: string | null;
   createdAt: IsoTimestamp;
@@ -2906,8 +2912,9 @@ export interface RuntimeDocumentJobDeliveryUpdate {
     | "create_pdf_document"
     | "create_presentation"
     | "revise_document"
-    | "export_or_redeliver";
-  documentType: "pdf_document" | "presentation";
+    | "export_or_redeliver"
+    | "create_data_document";
+  documentType: "pdf_document" | "presentation" | "data_document";
   deliveryStatus: "finalizing_delivery" | "delivered_recently";
   sourceSummary: string | null;
   createdAt: IsoTimestamp;
@@ -2956,8 +2963,9 @@ export interface RuntimeDeferredDocumentJobSummary {
     | "create_pdf_document"
     | "create_presentation"
     | "revise_document"
-    | "export_or_redeliver";
-  documentType: "pdf_document" | "presentation";
+    | "export_or_redeliver"
+    | "create_data_document";
+  documentType: "pdf_document" | "presentation" | "data_document";
 }
 
 export interface RuntimeTurnResult {
@@ -3144,6 +3152,7 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   "quota_advisory_evaluation",
   "skill_state_classifier",
   "document_html_generation",
+  "document_code_generation",
   "document_pdf_outline",
   "document_pdf_section_generation",
   "document_pdf_patch_revise",

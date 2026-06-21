@@ -261,11 +261,11 @@ export class InternalRuntimeDocumentJobsController {
     throw new BadRequestException("job.provider must be one of sandbox or gamma.");
   }
 
-  private outputFormat(value: unknown): "pdf" | "pptx" {
-    if (value === "pdf" || value === "pptx") {
+  private outputFormat(value: unknown): "pdf" | "pptx" | "xlsx" | "docx" {
+    if (value === "pdf" || value === "pptx" || value === "xlsx" || value === "docx") {
       return value;
     }
-    throw new BadRequestException("outputFormat must be one of pdf or pptx.");
+    throw new BadRequestException("outputFormat must be one of pdf, pptx, xlsx, or docx.");
   }
 
   private toolCode(value: unknown): "document" {
@@ -277,12 +277,18 @@ export class InternalRuntimeDocumentJobsController {
 
   private descriptorMode(
     value: unknown
-  ): "create_pdf_document" | "create_presentation" | "revise_document" | "export_or_redeliver" {
+  ):
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver"
+    | "create_data_document" {
     if (
       value === "create_pdf_document" ||
       value === "create_presentation" ||
       value === "revise_document" ||
-      value === "export_or_redeliver"
+      value === "export_or_redeliver" ||
+      value === "create_data_document"
     ) {
       return value;
     }

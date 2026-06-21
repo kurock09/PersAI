@@ -207,12 +207,13 @@ export type AssistantWebChatActiveDocumentJobStatus =
 
 export interface AssistantWebChatActiveDocumentJobState {
   id: string;
-  documentType: "pdf_document" | "presentation";
+  documentType: "pdf_document" | "presentation" | "data_document";
   descriptorMode:
     | "create_pdf_document"
     | "create_presentation"
     | "revise_document"
-    | "export_or_redeliver";
+    | "export_or_redeliver"
+    | "create_data_document";
   status: AssistantWebChatActiveDocumentJobStatus;
   createdAt: string;
   startedAt: string | null;

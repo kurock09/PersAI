@@ -69,6 +69,7 @@ enum AssistantMediaJobStatus {
 enum AssistantDocumentType {
   pdf_document
   presentation
+  data_document
 }
 
 enum AssistantDocumentStatus {
@@ -84,6 +85,7 @@ enum AssistantDocumentDescriptorMode {
   create_presentation
   revise_document
   export_or_redeliver
+  create_data_document
 }
 
 enum AssistantDocumentVersionStatus {
@@ -103,6 +105,8 @@ enum AssistantDocumentRenderProvider {
 enum AssistantDocumentOutputFormat {
   pdf
   pptx
+  xlsx
+  docx
 }
 
 enum AssistantDocumentRenderJobStatus {

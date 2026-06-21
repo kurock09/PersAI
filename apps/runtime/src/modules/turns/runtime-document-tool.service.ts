@@ -93,9 +93,17 @@ export class RuntimeDocumentToolService {
     });
     const outputFormat = normalizedRequest.outputFormat ?? null;
     const documentType =
-      outputFormat === "pptx" || effectiveDescriptorMode === "create_presentation"
-        ? "presentation"
-        : "pdf_document";
+      effectiveDescriptorMode === "create_data_document"
+        ? "data_document"
+        : outputFormat === "pptx" || effectiveDescriptorMode === "create_presentation"
+          ? "presentation"
+          : "pdf_document";
+    // Mode B (create_data_document) always uses the sandbox provider.
+    // For mode B, default outputFormat to xlsx if not specified.
+    const effectiveOutputFormat: "pdf" | "pptx" | "xlsx" | "docx" | null =
+      effectiveDescriptorMode === "create_data_document" && outputFormat === null
+        ? "xlsx"
+        : outputFormat;
     const provider = documentType === "presentation" ? "gamma" : "sandbox";
     // Diagnostic: surface what the model actually passed in the typed args
     // versus the system-resolved values, so production logs answer "did the
@@ -111,6 +119,10 @@ export class RuntimeDocumentToolService {
         parsed.request.outline === undefined || parsed.request.outline === null ? "false" : "true"
       } sourceAttachmentCount=${sourceAttachments.length}`
     );
+    const enqueueRequest = {
+      ...normalizedRequest,
+      outputFormat: effectiveOutputFormat
+    };
     try {
       const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredDocumentJob({
         assistantId: params.bundle.metadata.assistantId,
@@ -120,7 +132,7 @@ export class RuntimeDocumentToolService {
         directToolExecution: {
           toolCode: "document",
           descriptorMode: effectiveDescriptorMode,
-          request: normalizedRequest
+          request: enqueueRequest
         }
       });
       if (!enqueueOutcome.accepted) {
@@ -132,7 +144,7 @@ export class RuntimeDocumentToolService {
             documentType,
             provider,
             prompt: normalizedRequest.prompt,
-            outputFormat: normalizedRequest.outputFormat ?? null,
+            outputFormat: effectiveOutputFormat,
             docId: normalizedRequest.docId ?? null,
             requestedName: normalizedRequest.requestedName ?? null,
             artifacts: [],
@@ -155,7 +167,7 @@ export class RuntimeDocumentToolService {
           documentType: enqueueOutcome.documentType,
           provider,
           prompt: normalizedRequest.prompt,
-          outputFormat: normalizedRequest.outputFormat ?? null,
+          outputFormat: effectiveOutputFormat,
           docId: enqueueOutcome.docId,
           requestedName: normalizedRequest.requestedName ?? null,
           artifacts: [],
@@ -182,7 +194,7 @@ export class RuntimeDocumentToolService {
           documentType,
           provider,
           prompt: normalizedRequest.prompt,
-          outputFormat: normalizedRequest.outputFormat ?? null,
+          outputFormat: effectiveOutputFormat,
           docId: normalizedRequest.docId ?? null,
           requestedName: normalizedRequest.requestedName ?? null,
           artifacts: [],
@@ -207,12 +219,15 @@ export class RuntimeDocumentToolService {
       | "create_presentation"
       | "revise_document"
       | "export_or_redeliver"
+      | "create_data_document"
   ): string {
     switch (descriptorMode) {
       case "create_presentation":
         return "Request accepted. I am preparing the presentation and will send it separately when it is ready.";
       case "revise_document":
         return "Request accepted. I am revising the document and will send the updated version separately when it is ready.";
+      case "create_data_document":
+        return "Request accepted. I am generating the data document and will send it separately when it is ready.";
       case "export_or_redeliver":
       case "create_pdf_document":
       default:
@@ -226,11 +241,12 @@ export class RuntimeDocumentToolService {
           | "create_pdf_document"
           | "create_presentation"
           | "revise_document"
-          | "export_or_redeliver";
+          | "export_or_redeliver"
+          | "create_data_document";
         request: {
           prompt: string;
           instructions?: string | null;
-          outputFormat?: "pdf" | "pptx" | null;
+          outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
           docId?: string | null;
           /** ADR-097 Slice 4 — AssistantFile.id for cross-chat revise. */
           fileRef?: string | null;
@@ -253,10 +269,11 @@ export class RuntimeDocumentToolService {
       descriptorMode !== "create_pdf_document" &&
       descriptorMode !== "create_presentation" &&
       descriptorMode !== "revise_document" &&
-      descriptorMode !== "export_or_redeliver"
+      descriptorMode !== "export_or_redeliver" &&
+      descriptorMode !== "create_data_document"
     ) {
       return new Error(
-        "document.descriptorMode must be create_pdf_document, create_presentation, revise_document, or export_or_redeliver."
+        "document.descriptorMode must be create_pdf_document, create_presentation, revise_document, export_or_redeliver, or create_data_document."
       );
     }
     if (typeof row.prompt !== "string" || row.prompt.trim().length === 0) {
@@ -272,7 +289,12 @@ export class RuntimeDocumentToolService {
       return new Error("document.metadata must be an object when provided.");
     }
     const outputFormat =
-      row.outputFormat === "pdf" || row.outputFormat === "pptx" ? row.outputFormat : null;
+      row.outputFormat === "pdf" ||
+      row.outputFormat === "pptx" ||
+      row.outputFormat === "xlsx" ||
+      row.outputFormat === "docx"
+        ? row.outputFormat
+        : null;
     return {
       descriptorMode,
       request: {
@@ -344,7 +366,8 @@ export class RuntimeDocumentToolService {
       | "create_pdf_document"
       | "create_presentation"
       | "revise_document"
-      | "export_or_redeliver";
+      | "export_or_redeliver"
+      | "create_data_document";
     prompt: string;
     sourceUserMessageText: string;
   }): RuntimeAttachmentRef[] {
@@ -356,7 +379,8 @@ export class RuntimeDocumentToolService {
     }
     if (
       (input.descriptorMode === "create_pdf_document" ||
-        input.descriptorMode === "create_presentation") &&
+        input.descriptorMode === "create_presentation" ||
+        input.descriptorMode === "create_data_document") &&
       this.referencesPriorSourceAttachment(input.prompt, input.sourceUserMessageText)
     ) {
       return input.attachments;
@@ -384,13 +408,19 @@ export class RuntimeDocumentToolService {
       | "create_pdf_document"
       | "create_presentation"
       | "revise_document"
-      | "export_or_redeliver";
-    outputFormat: "pdf" | "pptx" | null;
+      | "export_or_redeliver"
+      | "create_data_document";
+    outputFormat: "pdf" | "pptx" | "xlsx" | "docx" | null;
     docId: string | null;
     /** ADR-097 Slice 4 — treat a valid fileRef as a confirmed revise intent. */
     fileRef?: string | null;
     sourceAttachmentCount: number;
-  }): "create_pdf_document" | "create_presentation" | "revise_document" | "export_or_redeliver" {
+  }):
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver"
+    | "create_data_document" {
     if (input.descriptorMode !== "revise_document") {
       return input.descriptorMode;
     }
@@ -433,11 +463,12 @@ export class RuntimeDocumentToolService {
       | "create_pdf_document"
       | "create_presentation"
       | "revise_document"
-      | "export_or_redeliver";
+      | "export_or_redeliver"
+      | "create_data_document";
     request: {
       prompt: string;
       instructions?: string | null;
-      outputFormat?: "pdf" | "pptx" | null;
+      outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
       docId?: string | null;
       fileRef?: string | null;
       requestedName?: string | null;
@@ -451,7 +482,7 @@ export class RuntimeDocumentToolService {
   }): {
     prompt: string;
     instructions?: string | null;
-    outputFormat?: "pdf" | "pptx" | null;
+    outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
     docId?: string | null;
     fileRef?: string | null;
     requestedName?: string | null;

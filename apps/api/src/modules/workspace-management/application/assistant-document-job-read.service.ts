@@ -51,11 +51,18 @@ function normalizeDescriptorMode(
     mode === "create_pdf_document" ||
     mode === "create_presentation" ||
     mode === "revise_document" ||
-    mode === "export_or_redeliver"
+    mode === "export_or_redeliver" ||
+    mode === "create_data_document"
   ) {
     return mode;
   }
-  return documentType === "presentation" ? "create_presentation" : "create_pdf_document";
+  if (documentType === "presentation") {
+    return "create_presentation";
+  }
+  if (documentType === "data_document") {
+    return "create_data_document";
+  }
+  return "create_pdf_document";
 }
 
 function normalizeSourceSummary(value: unknown): string | null {

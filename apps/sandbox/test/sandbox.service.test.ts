@@ -1681,3 +1681,236 @@ test("SandboxService: render_html_to_pdf runs weasyprint command and removes tra
     "transient .render-input.html must be removed after render"
   );
 });
+
+// ADR-123 Slice 6 — execute_document_code: runs the model-authored program,
+// mounts source files + OCR sidecars into /workspace/sources, removes the
+// transient program and sources after the run, and persists the produced file.
+test("SandboxService: execute_document_code mounts sources, runs python3, and cleans up transients", async () => {
+  const capturedRunInPodCalls: Array<{ command: string; args: string[] }> = [];
+  const sourcesAtRunTime: {
+    sourcePdf: string | null;
+    ocrSidecar: string | null;
+    program: string | null;
+  } = { sourcePdf: null, ocrSidecar: null, program: null };
+  const createdAssistantFiles: Array<{ relativePath: string; origin: string; mimeType: string }> =
+    [];
+
+  const sourcePdfBytes = Buffer.concat([
+    Buffer.from("%PDF-1.4\n", "utf8"),
+    Buffer.alloc(400, "S"),
+    Buffer.from("\n%%EOF", "utf8")
+  ]);
+  // ZIP local-file-header magic so the output passes downstream office validation.
+  const fakeXlsxBytes = Buffer.concat([
+    Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+    Buffer.alloc(1024, 9)
+  ]);
+
+  const storedObjects = new Map<string, Buffer>();
+  storedObjects.set("obj/source.pdf", sourcePdfBytes);
+
+  const service = new SandboxService(
+    {
+      sandboxJob: {
+        async update(input: { where: { id: string }; data: Record<string, unknown> }) {
+          return { id: input.where.id, ...input.data };
+        },
+        async findUnique() {
+          return null;
+        }
+      },
+      assistantFile: {
+        async findMany() {
+          // The mounted source AssistantFile (looked up by mountedFileRefs).
+          return [
+            {
+              id: "src-file-1",
+              assistantId: "assistant-code-1",
+              workspaceId: "workspace-code-1",
+              origin: "uploaded_attachment",
+              sourceToolCode: null,
+              objectKey: "obj/source.pdf",
+              relativePath: "uploads/att-1/source.pdf",
+              displayName: "source.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: BigInt(sourcePdfBytes.length),
+              logicalSizeBytes: BigInt(sourcePdfBytes.length),
+              sha256: null,
+              metadata: null,
+              createdAt: new Date("2026-06-21T00:00:00.000Z"),
+              updatedAt: new Date("2026-06-21T00:00:00.000Z")
+            }
+          ];
+        },
+        async create(input: { data: Record<string, unknown> }) {
+          createdAssistantFiles.push({
+            relativePath: String(input.data.relativePath),
+            origin: String(input.data.origin),
+            mimeType: String(input.data.mimeType)
+          });
+          return {
+            id: "file-code-out-1",
+            assistantId: String(input.data.assistantId),
+            workspaceId: String(input.data.workspaceId),
+            sandboxJobId: null,
+            origin: String(input.data.origin),
+            sourceToolCode: String(input.data.sourceToolCode),
+            objectKey: String(input.data.objectKey),
+            relativePath: String(input.data.relativePath),
+            displayName: null,
+            mimeType: String(input.data.mimeType),
+            sizeBytes: input.data.sizeBytes as bigint,
+            logicalSizeBytes: null,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        },
+        async update(input: { where: { id: string }; data: Record<string, unknown> }) {
+          return {
+            id: input.where.id,
+            assistantId: "assistant-code-1",
+            workspaceId: "workspace-code-1",
+            sandboxJobId: null,
+            origin: "uploaded_attachment",
+            sourceToolCode: null,
+            objectKey: "obj/source.pdf",
+            relativePath: "uploads/att-1/source.pdf",
+            displayName: "source.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: BigInt(sourcePdfBytes.length),
+            logicalSizeBytes: BigInt(sourcePdfBytes.length),
+            sha256: null,
+            metadata: null,
+            createdAt: new Date("2026-06-21T00:00:00.000Z"),
+            updatedAt: new Date("2026-06-21T00:00:00.000Z"),
+            ...input.data
+          };
+        },
+        async deleteMany() {
+          return { count: 0 };
+        }
+      },
+      assistantWorkspaceLease: {
+        async create(input: { data: Record<string, unknown> }) {
+          return {
+            id: "lease-code-1",
+            assistantId: String(input.data.assistantId),
+            workspaceId: String(input.data.workspaceId),
+            sandboxJobId: null,
+            leaseToken: String(input.data.leaseToken),
+            holderId: String(input.data.holderId),
+            expiresAt: input.data.expiresAt as Date
+          };
+        },
+        async updateMany() {
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {
+      buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
+        return `sandbox/${input.assistantId}/${input.jobId}/${input.relativePath}`;
+      },
+      buildSessionSnapshotKey() {
+        return "snap/key";
+      },
+      async saveObject(input: { objectKey: string; buffer: Buffer }) {
+        storedObjects.set(input.objectKey, Buffer.from(input.buffer));
+        return input.buffer.length;
+      },
+      async downloadObject(objectKey: string) {
+        const stored = storedObjects.get(objectKey);
+        return stored !== undefined ? Buffer.from(stored) : null;
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {
+      async runInPod(input: {
+        jobId: string;
+        command: string;
+        args: string[];
+        workspaceRoot: string;
+        absoluteCwd: string;
+        policy: unknown;
+        runtimeSessionId: string | null;
+      }) {
+        capturedRunInPodCalls.push({ command: input.command, args: input.args });
+        // Observe the mounted source + OCR sidecar + program as the program would see them.
+        sourcesAtRunTime.sourcePdf = await fs
+          .readFile(join(input.workspaceRoot, "sources", "source.pdf"))
+          .then((b) => b.toString("utf8"))
+          .catch(() => null);
+        sourcesAtRunTime.ocrSidecar = await fs
+          .readFile(join(input.workspaceRoot, "sources", "source.pdf.ocr.txt"), "utf8")
+          .catch(() => null);
+        sourcesAtRunTime.program = await fs
+          .readFile(join(input.workspaceRoot, ".document-code.py"), "utf8")
+          .catch(() => null);
+        // Simulate the program writing the xlsx output file.
+        await fs.writeFile(join(input.workspaceRoot, "report.xlsx"), fakeXlsxBytes);
+        return { exitCode: 0, stdout: null, stderr: null, durationMs: 50, execPodName: null };
+      }
+    } as never
+  );
+
+  const access = service as unknown as SandboxServiceTestAccess;
+
+  await access.executeQueuedJob("code-job-1", {
+    assistantId: "assistant-code-1",
+    workspaceId: "workspace-code-1",
+    runtimeRequestId: "request-code-1",
+    runtimeSessionId: null,
+    toolCode: "execute_document_code",
+    policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
+    args: {
+      programSource: "import openpyxl\nopenpyxl.Workbook().save('/workspace/report.xlsx')\n",
+      outputFileName: "report.xlsx",
+      sourceMounts: [{ fileRef: "src-file-1", mountPath: "sources/source.pdf" }],
+      textSidecars: [{ mountPath: "sources/source.pdf.ocr.txt", text: "OCR TEXT" }]
+    },
+    mountedFileRefs: ["src-file-1"]
+  });
+
+  // 1. python3 must have run against the transient program file.
+  assert.equal(capturedRunInPodCalls.length, 1, "runInPod must be called exactly once");
+  assert.equal(capturedRunInPodCalls[0]!.command, "python3");
+  assert.ok(
+    capturedRunInPodCalls[0]!.args[0]?.endsWith(".document-code.py"),
+    `python3 must run the transient program, got: ${String(capturedRunInPodCalls[0]!.args[0])}`
+  );
+
+  // 2. The source file + OCR sidecar were materialized for the program to read.
+  assert.equal(
+    sourcesAtRunTime.sourcePdf?.startsWith("%PDF-1.4"),
+    true,
+    "source pdf must be mounted under /workspace/sources"
+  );
+  assert.equal(
+    sourcesAtRunTime.ocrSidecar,
+    "OCR TEXT",
+    "OCR sidecar must be written under /workspace/sources"
+  );
+  assert.ok((sourcesAtRunTime.program ?? "").includes("openpyxl"), "program file must be written");
+
+  // 3. Transients removed: the program and the entire sources/ dir are gone.
+  const workspaceRoot = access.resolveWorkspaceSessionRoot("assistant-code-1", "workspace-code-1");
+  const filesAfter = await access.collectWorkspaceFiles(workspaceRoot).catch(() => []);
+  assert.equal(
+    filesAfter.some((f) => f.relativePath.includes(".document-code.py")),
+    false,
+    "transient .document-code.py must be removed"
+  );
+  assert.equal(
+    filesAfter.some((f) => f.relativePath.startsWith("sources/")),
+    false,
+    "transient sources/ copies must be removed"
+  );
+
+  // 4. The produced output file was persisted as a sandbox_output AssistantFile.
+  const producedOutput = createdAssistantFiles.find((f) => f.relativePath === "report.xlsx");
+  assert.ok(producedOutput, "report.xlsx must be persisted as a produced file");
+  assert.equal(producedOutput!.origin, "sandbox_output");
+});

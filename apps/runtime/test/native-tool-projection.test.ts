@@ -762,7 +762,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "create_pdf_document",
     "create_presentation",
     "revise_document",
-    "export_or_redeliver"
+    "export_or_redeliver",
+    "create_data_document"
   ]);
   assert.match(document?.description ?? "", /existing PersAI document ids/);
   assert.match(documentProperties?.docId?.description ?? "", /UUID/);

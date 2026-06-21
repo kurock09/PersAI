@@ -161,6 +161,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runRuntimeDocumentProviderAdapterServiceTest"
   },
   {
+    modulePath: "./runtime-document-tool.service.test.ts",
+    exportName: "runRuntimeDocumentToolServiceTest"
+  },
+  {
     modulePath: "./model-output-budget.test.ts",
     exportName: "runModelOutputBudgetTest"
   }

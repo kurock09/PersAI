@@ -13,6 +13,7 @@ import type {
   RuntimeOutputArtifact,
   RuntimeSandboxJobResult,
   RuntimeSandboxPolicy,
+  RuntimeSandboxProducedFile,
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
@@ -137,6 +138,10 @@ const PDF_VALIDATION_MIN_BYTES = 1_024;
 const PDF_VALIDATION_MIN_TEXT_LENGTH = 80;
 const PDF_VALIDATION_MIN_ALNUM_COUNT = 24;
 const DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH = 120;
+// ADR-123 Slice 6 — mode B PDF text-layer probe. A digital PDF yields
+// hundreds+ of alphanumeric characters; a scanned PDF yields ~none. Below this
+// alnum count the worker treats the PDF as scanned and provides an OCR sidecar.
+const DATA_DOC_PDF_TEXT_LAYER_MIN_ALNUM = 32;
 const PDF_VALIDATION_TAIL_INSPECTION_BYTES = 2_048;
 // Truncation detection: if single-shot HTML body text is below this fraction
 // of the minimum expected envelope, treat it as a truncated response even when
@@ -247,14 +252,20 @@ export class RuntimeDocumentProviderAdapterService {
       return this.runGammaPath(input, credential);
     }
 
-    // sandbox (PDF) path — no external credential required
+    // sandbox path — no external credential required
     const filename = this.resolveRequestedFilename(input.request, input.request.job.outputFormat);
+
+    // Mode B: create_data_document → model-writes-code path (ADR-123 Slice 6).
+    // Does NOT go through the HTML→WeasyPrint pipeline.
+    const descriptorMode = input.request.directToolExecution.descriptorMode;
+    if (descriptorMode === "create_data_document") {
+      return this.runCodeDocumentPath({ bundle: input.bundle, request: input.request, filename });
+    }
 
     // Revise path: when descriptorMode is "revise_document" and previousVersionRenderedHtml
     // is present, branch into either structured revise (large/structured versions) or
     // patch-revise (fast_small / compact HTML) instead of full create-time regeneration.
     // Both are bounded worker paths with one sandbox render and no create-path retry loop.
-    const descriptorMode = input.request.directToolExecution.descriptorMode;
     const previousVersionRenderedHtml =
       typeof input.request.previousVersionRenderedHtml === "string" &&
       input.request.previousVersionRenderedHtml.length > 0
@@ -1467,7 +1478,8 @@ export class RuntimeDocumentProviderAdapterService {
           providerId: "gamma"
         },
         providerOptions: {
-          outputFormat: input.request.job.outputFormat,
+          // Gamma path only runs for presentations; coerce to its pdf|pptx union.
+          outputFormat: input.request.job.outputFormat === "pptx" ? "pptx" : "pdf",
           presentationOptions: this.buildGammaPresentationOptions(input.request)
         }
       },
@@ -1563,17 +1575,27 @@ export class RuntimeDocumentProviderAdapterService {
 
   private resolveRequestedFilename(
     request: RuntimeDocumentJobRunRequest,
-    outputFormat: "pdf" | "pptx"
+    outputFormat: "pdf" | "pptx" | "xlsx" | "docx"
   ): string {
     const requested = request.directToolExecution.request.requestedName?.trim() ?? "";
     const base =
       requested.length > 0 ? requested.replace(/[\\/:*?"<>|]+/g, " ").trim() : "document";
-    const extension = outputFormat === "pptx" ? "pptx" : "pdf";
+    const extension =
+      outputFormat === "pptx"
+        ? "pptx"
+        : outputFormat === "xlsx"
+          ? "xlsx"
+          : outputFormat === "docx"
+            ? "docx"
+            : "pdf";
     const normalizedBase = this.stripMatchingExtensionSuffix(base, extension);
     return `${normalizedBase.length > 0 ? normalizedBase : "document"}.${extension}`;
   }
 
-  private stripMatchingExtensionSuffix(value: string, extension: "pdf" | "pptx"): string {
+  private stripMatchingExtensionSuffix(
+    value: string,
+    extension: "pdf" | "pptx" | "xlsx" | "docx"
+  ): string {
     const normalized = value.trim();
     if (normalized.length === 0) {
       return "";
@@ -2332,6 +2354,52 @@ export class RuntimeDocumentProviderAdapterService {
     return null;
   }
 
+  /**
+   * Validates an Office Open XML artifact (xlsx or docx) by checking the
+   * ZIP local-file-header magic bytes (PK\x03\x04) and a non-trivial minimum
+   * size. Does NOT attempt to parse the ZIP; that would require a full Office
+   * library. The magic check is sufficient to catch empty files, truncated
+   * downloads, and obviously wrong content (e.g. a Python error traceback).
+   */
+  private validateGeneratedOfficeArtifact(
+    buffer: Buffer,
+    context: { jobId: string; mimeType: string }
+  ): { code: string; message: string; metadata: Record<string, unknown> } | null {
+    const OFFICE_VALIDATION_MIN_BYTES = 512;
+    if (buffer.length === 0) {
+      return {
+        code: "document_office_empty",
+        message: "Office document provider returned an empty payload.",
+        metadata: { bytes: 0, mimeType: context.mimeType }
+      };
+    }
+    if (buffer.length < OFFICE_VALIDATION_MIN_BYTES) {
+      return {
+        code: "document_office_too_small",
+        message: "Office document payload is too small to be a real Office file.",
+        metadata: {
+          bytes: buffer.length,
+          minBytes: OFFICE_VALIDATION_MIN_BYTES,
+          mimeType: context.mimeType
+        }
+      };
+    }
+    // ZIP local-file-header magic: 50 4B 03 04
+    if (buffer[0] !== 0x50 || buffer[1] !== 0x4b || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
+      return {
+        code: "document_office_missing_magic",
+        message:
+          "Office document payload does not start with the ZIP local-file-header (PK\\x03\\x04). The Python program likely failed to write a valid file.",
+        metadata: {
+          bytes: buffer.length,
+          headHex: buffer.subarray(0, 8).toString("hex"),
+          mimeType: context.mimeType
+        }
+      };
+    }
+    return null;
+  }
+
   private looksLikeDebugDraft(text: string): boolean {
     const normalized = text.toLowerCase();
     if (!normalized.includes("persai document draft")) {
@@ -2451,12 +2519,18 @@ export class RuntimeDocumentProviderAdapterService {
     };
   }
 
-  private extensionForMimeType(mimeType: string): "pdf" | "pptx" | null {
+  private extensionForMimeType(mimeType: string): "pdf" | "pptx" | "xlsx" | "docx" | null {
     if (mimeType === "application/pdf") {
       return "pdf";
     }
     if (mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation") {
       return "pptx";
+    }
+    if (mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
+      return "xlsx";
+    }
+    if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+      return "docx";
     }
     return null;
   }
@@ -3229,5 +3303,578 @@ export class RuntimeDocumentProviderAdapterService {
       );
     }
     return { ok: true, bytes, mimeType: "application/pdf" };
+  }
+
+  /**
+   * ADR-123 Slice 6 — Documents mode B: model-writes-code path.
+   *
+   * The LLM authors a self-contained Python 3 program that writes exactly one
+   * Office/data file to /workspace/<targetFilename>. Source files are made
+   * available to the program via the sandbox workspace (sandbox-first, two-tier
+   * ingestion — see buildDataDocumentSourcePlan); their content is NEVER inlined
+   * into the LLM prompt, so document size is unbounded by the output-token
+   * budget. The program is executed inside the sandbox. On non-zero exit, one
+   * self-repair attempt is made (LLM call with stderr feedback). After two
+   * failures the job terminates with a non-retryable document_code_failed code.
+   */
+  private async runCodeDocumentPath(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeDocumentJobRunRequest;
+    filename: string;
+  }): Promise<RuntimeDocumentJobRunResult> {
+    const { bundle, request, filename } = input;
+    const jobId = request.job.id;
+    const outputFormat = request.job.outputFormat as "pdf" | "xlsx" | "docx";
+    this.logger.log(
+      `[document-code-path] jobId=${jobId} outputFormat=${outputFormat} filename=${filename}`
+    );
+
+    const mimeForFormat = (fmt: string): string => {
+      if (fmt === "xlsx") {
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      }
+      if (fmt === "docx") {
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      }
+      return "application/pdf";
+    };
+    const targetMime = mimeForFormat(outputFormat);
+
+    const providerSelection = this.resolveDocumentGenerationProviderSelection(bundle);
+    const maxOutputTokens = this.resolveMaxOutputTokens(bundle, providerSelection);
+
+    // Sandbox-first, two-tier source ingestion. Decides per source whether to
+    // mount the raw file (Tier 1) or also provide an OCR text sidecar (Tier 2).
+    const sourcePlan = await this.buildDataDocumentSourcePlan(request);
+    this.logger.log(
+      `[document-code-source-plan] jobId=${jobId} mounts=${String(
+        sourcePlan.sourceMounts.length
+      )} sidecars=${String(sourcePlan.textSidecars.length)}`
+    );
+
+    // First LLM call: generate the Python program (references mounted paths only).
+    let programSource = await this.generateDocumentCode({
+      bundle,
+      request,
+      filename,
+      sourceDescriptors: sourcePlan.descriptors,
+      providerSelection,
+      maxOutputTokens,
+      previousProgram: null,
+      previousStderr: null,
+      attempt: 1
+    });
+
+    // Sandbox execution attempt 1.
+    const execResult1 = await this.executeDocumentCodeInSandbox({
+      bundle,
+      request,
+      programSource,
+      filename,
+      jobId,
+      sourcePlan
+    });
+
+    if (execResult1.ok) {
+      return this.finalizeCodeDocumentResult({
+        bundle,
+        request,
+        filename,
+        targetMime,
+        producedFile: execResult1.producedFile
+      });
+    }
+
+    // Self-repair: one LLM call with stderr, then one more sandbox exec.
+    this.logger.warn(
+      `[document-code-path-repair] jobId=${jobId} attempt=1 exitCode=${String(
+        execResult1.exitCode
+      )} stderr=${String(execResult1.stderr).slice(0, 500)} — attempting self-repair`
+    );
+    programSource = await this.generateDocumentCode({
+      bundle,
+      request,
+      filename,
+      sourceDescriptors: sourcePlan.descriptors,
+      providerSelection,
+      maxOutputTokens,
+      previousProgram: programSource,
+      previousStderr: execResult1.stderr,
+      attempt: 2
+    });
+
+    const execResult2 = await this.executeDocumentCodeInSandbox({
+      bundle,
+      request,
+      programSource,
+      filename,
+      jobId,
+      sourcePlan
+    });
+
+    if (execResult2.ok) {
+      return this.finalizeCodeDocumentResult({
+        bundle,
+        request,
+        filename,
+        targetMime,
+        producedFile: execResult2.producedFile
+      });
+    }
+
+    // Both attempts failed — terminal failure, non-retryable at the provider level.
+    this.logger.error(
+      `[document-code-path-failed] jobId=${jobId} attempt=2 exitCode=${String(
+        execResult2.exitCode
+      )} stderr=${String(execResult2.stderr).slice(0, 500)}`
+    );
+    return this.buildCodeDocumentFailResult({
+      request,
+      filename,
+      errorCode: "document_code_failed",
+      message:
+        "The data document program failed to produce a valid file after two attempts. The request cannot be retried automatically."
+    });
+  }
+
+  /**
+   * ADR-123 Slice 6 — sandbox-first, two-tier source ingestion plan.
+   *
+   * TIER 1 (default): mount the raw source file into the exec workspace so the
+   * model's Python program reads it natively (pdfplumber/openpyxl/pandas/
+   * python-docx). No source text is inlined into the LLM prompt → no token bound.
+   *
+   * TIER 2 (fallback): when a PDF has no extractable text layer (scanned) or the
+   * source is an image, also provide an OCR text sidecar. The OCR text is taken
+   * from sourceFiles[].text — the output of the EXISTING extraction/OCR pipeline
+   * which already runs at the API scheduler (apps/api document-extraction). The
+   * sandbox cannot reach the external OCR (deny-all egress), so OCR is never run
+   * inside the sandbox. The text-layer decision is made here in the worker using
+   * the already-present pdf-parse probe (no sandbox round-trip).
+   */
+  private async buildDataDocumentSourcePlan(request: RuntimeDocumentJobRunRequest): Promise<{
+    mountedFileRefs: string[];
+    sourceMounts: Array<{ fileRef: string; mountPath: string }>;
+    textSidecars: Array<{ mountPath: string; text: string }>;
+    descriptors: string[];
+  }> {
+    const plan = {
+      mountedFileRefs: [] as string[],
+      sourceMounts: [] as Array<{ fileRef: string; mountPath: string }>,
+      textSidecars: [] as Array<{ mountPath: string; text: string }>,
+      descriptors: [] as string[]
+    };
+    const attachments = request.attachments ?? [];
+    const sourceFiles = request.sourceFiles ?? [];
+    const usedNames = new Set<string>();
+    for (const attachment of attachments) {
+      const mime = attachment.mimeType.trim().toLowerCase();
+      let baseName = this.sanitizeSourceBasename(attachment.filename, attachment.attachmentId);
+      while (usedNames.has(baseName.toLowerCase())) {
+        baseName = `${randomUUID().slice(0, 4)}_${baseName}`;
+      }
+      usedNames.add(baseName.toLowerCase());
+      const mountPath = `sources/${baseName}`;
+      const wsPath = `/workspace/${mountPath}`;
+      const matchedSource =
+        sourceFiles.find((entry) => entry.attachmentId === attachment.attachmentId) ?? null;
+      const ocrText =
+        matchedSource?.text !== null &&
+        matchedSource?.text !== undefined &&
+        matchedSource.text.trim().length > 0
+          ? matchedSource.text.trim()
+          : null;
+      const fileRef =
+        typeof attachment.fileRef === "string" && attachment.fileRef.trim().length > 0
+          ? attachment.fileRef.trim()
+          : null;
+      const isPdf = mime === "application/pdf" || mime === "application/x-pdf";
+      const isImage = mime.startsWith("image/");
+
+      // Without a mountable AssistantFile id we cannot mount the raw file.
+      // Fall back to the extracted-text sidecar when available.
+      if (fileRef === null) {
+        if (ocrText !== null) {
+          const sidecarPath = `sources/${baseName}.txt`;
+          plan.textSidecars.push({ mountPath: sidecarPath, text: ocrText });
+          plan.descriptors.push(
+            `/workspace/${sidecarPath} — extracted text of "${
+              attachment.filename ?? baseName
+            }" (raw file not mountable). Read this text file.`
+          );
+        }
+        continue;
+      }
+
+      plan.mountedFileRefs.push(fileRef);
+      plan.sourceMounts.push({ fileRef, mountPath });
+
+      if (isPdf) {
+        const probe = await this.probePdfTextLayer(attachment.objectKey);
+        if (probe.hasTextLayer) {
+          plan.descriptors.push(
+            `${wsPath} — PDF WITH a text layer (digital). Read it directly with pdfplumber (import pdfplumber).`
+          );
+        } else if (ocrText !== null) {
+          const sidecarPath = `${mountPath}.ocr.txt`;
+          plan.textSidecars.push({ mountPath: sidecarPath, text: ocrText });
+          plan.descriptors.push(
+            `${wsPath} — scanned PDF (NO text layer). An OCR text sidecar is provided at /workspace/${sidecarPath}; read the sidecar (the scan has no layout to preserve).`
+          );
+        } else {
+          plan.descriptors.push(
+            `${wsPath} — scanned PDF (NO text layer) and OCR text is unavailable. Do not fabricate its contents; rely on the document request.`
+          );
+        }
+      } else if (isImage) {
+        if (ocrText !== null) {
+          const sidecarPath = `${mountPath}.ocr.txt`;
+          plan.textSidecars.push({ mountPath: sidecarPath, text: ocrText });
+          plan.descriptors.push(
+            `${wsPath} — image. An OCR text sidecar is provided at /workspace/${sidecarPath}; read the sidecar for its text content.`
+          );
+        } else {
+          plan.descriptors.push(
+            `${wsPath} — image (no OCR text available). Embed it with Pillow only if relevant.`
+          );
+        }
+      } else if (
+        mime.includes("spreadsheet") ||
+        mime === "text/csv" ||
+        baseName.toLowerCase().endsWith(".csv") ||
+        baseName.toLowerCase().endsWith(".xlsx")
+      ) {
+        plan.descriptors.push(
+          `${wsPath} — spreadsheet/tabular source. Read with openpyxl or pandas (pandas.read_excel / read_csv).`
+        );
+      } else if (mime.includes("wordprocessingml") || baseName.toLowerCase().endsWith(".docx")) {
+        plan.descriptors.push(`${wsPath} — Word document. Read with python-docx (import docx).`);
+      } else {
+        plan.descriptors.push(
+          `${wsPath} — source file. Read it with the appropriate Python library or as text.`
+        );
+      }
+    }
+    return plan;
+  }
+
+  /**
+   * Cheap PDF text-layer probe using the already-present pdf-parse dependency.
+   * A digital PDF yields hundreds+ of alphanumeric characters; a scanned PDF
+   * yields ~none. Returns hasTextLayer=false on any download/parse failure so
+   * the caller falls back to the OCR sidecar tier.
+   */
+  private async probePdfTextLayer(
+    objectKey: string
+  ): Promise<{ hasTextLayer: boolean; chars: number }> {
+    try {
+      const bytes = await this.mediaObjectStorage.downloadObject(objectKey);
+      if (bytes === null) {
+        return { hasTextLayer: false, chars: 0 };
+      }
+      const extraction = await this.extractPdfText(bytes);
+      const text = extraction.text ?? "";
+      const alnum = text.match(/[0-9A-Za-z\u0400-\u04FF]/g)?.length ?? 0;
+      return { hasTextLayer: alnum >= DATA_DOC_PDF_TEXT_LAYER_MIN_ALNUM, chars: alnum };
+    } catch {
+      return { hasTextLayer: false, chars: 0 };
+    }
+  }
+
+  private sanitizeSourceBasename(filename: string | null, attachmentId: string): string {
+    const raw = (filename ?? "").trim();
+    const sanitized = raw
+      .replace(/[\\/]+/g, "_")
+      .replace(/[:*?"<>|]+/g, "_")
+      .replace(/\s+/g, "_")
+      .trim();
+    if (sanitized.length > 0) {
+      return sanitized;
+    }
+    return `source_${attachmentId.slice(0, 8)}`;
+  }
+
+  private async generateDocumentCode(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeDocumentJobRunRequest;
+    filename: string;
+    sourceDescriptors: string[];
+    providerSelection: ProviderSelection;
+    maxOutputTokens: number;
+    previousProgram: string | null;
+    previousStderr: string | null;
+    attempt: number;
+  }): Promise<string> {
+    const { request, filename, providerSelection, maxOutputTokens, sourceDescriptors } = input;
+    const outputFormat = request.job.outputFormat as string;
+    const libraryHint =
+      outputFormat === "xlsx"
+        ? "openpyxl"
+        : outputFormat === "docx"
+          ? "python-docx (import docx)"
+          : "weasyprint (for PDF from HTML)";
+    const userPayload = {
+      classification: "document_code_generation",
+      mode: "document_code_generation",
+      documentRequest: {
+        prompt: request.directToolExecution.request.prompt,
+        instructions: request.directToolExecution.request.instructions ?? null,
+        outputFormat,
+        requestedName: request.directToolExecution.request.requestedName ?? null,
+        sourceUserMessageText: request.job.sourceUserMessageText
+      },
+      outputFileName: filename,
+      ...(sourceDescriptors.length > 0 ? { sourceFiles: sourceDescriptors } : {}),
+      ...(input.previousProgram !== null
+        ? {
+            previousProgram: input.previousProgram,
+            previousStderr: input.previousStderr ?? ""
+          }
+        : {})
+    };
+    const repairClause =
+      input.previousProgram !== null
+        ? [
+            "The previous program failed. The failed program is in `previousProgram` and the stderr is in `previousStderr`.",
+            "Output ONLY a corrected, complete Python 3 program. Do NOT repeat the old program unless fully corrected."
+          ].join(" ")
+        : null;
+    const sourceClause =
+      sourceDescriptors.length > 0
+        ? [
+            "SOURCE FILES: the source file(s) are mounted in the sandbox workspace. Their paths and how to read each one are listed in `sourceFiles` of the payload.",
+            "Read the actual content from those mounted files inside your program. The file content is NOT included in this prompt and there is no size limit on it.",
+            "Do NOT fabricate source content; read it from the mounted paths."
+          ].join(" ")
+        : null;
+    const developerInstructions = [
+      "You are generating a self-contained Python 3 program for a PersAI data document job.",
+      "Output ONLY a single Python 3 program with no markdown fences, no prose, no preamble.",
+      `The program MUST write exactly one file to the absolute path /workspace/${filename} using the preinstalled ${libraryHint} library.`,
+      "Preinstalled: openpyxl, python-docx, pandas, matplotlib, weasyprint, reportlab, Pillow, pdfplumber.",
+      "Do NOT use pip install or import any library that is not in the preinstalled list.",
+      "Do NOT make network requests (egress is deny-all).",
+      "The program must be deterministic and must not print the document content to stdout.",
+      ...(sourceClause !== null ? [sourceClause] : []),
+      ...(repairClause !== null ? [repairClause] : [])
+    ].join(" ");
+    const response = await this.providerGatewayClientService.generateText({
+      provider: providerSelection.provider,
+      model: providerSelection.model,
+      systemPrompt: this.buildDocumentWorkerSystemPrompt(),
+      developerInstructions,
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: JSON.stringify(userPayload, null, 2) }]
+        }
+      ],
+      maxOutputTokens,
+      requestMetadata: {
+        runtimeSessionId: `document-job:${request.job.id}`,
+        runtimeRequestId: `document-code:${request.job.id}:attempt-${String(input.attempt)}`,
+        toolLoopIteration: null,
+        compactionToolCode: null,
+        classification: "document_code_generation"
+      },
+      timeoutMsHint: DOCUMENT_CLASSIFICATION_TIMEOUT_MS
+    });
+    const rawText = (response.text ?? "").trim();
+    this.logger.log(
+      `[document-code-gen] jobId=${request.job.id} attempt=${String(input.attempt)} provider=${providerSelection.provider} model=${providerSelection.model} rawLength=${String(rawText.length)} preview=${JSON.stringify(rawText.slice(0, 200))}`
+    );
+    // Strip markdown fences if the model disobeys the no-fence instruction.
+    const fenceStripped = rawText
+      .replace(/^```[\w]*\n?/m, "")
+      .replace(/\n?```\s*$/m, "")
+      .trim();
+    return fenceStripped.length > 0 ? fenceStripped : rawText;
+  }
+
+  private async executeDocumentCodeInSandbox(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeDocumentJobRunRequest;
+    programSource: string;
+    filename: string;
+    jobId: string;
+    sourcePlan: {
+      mountedFileRefs: string[];
+      sourceMounts: Array<{ fileRef: string; mountPath: string }>;
+      textSidecars: Array<{ mountPath: string; text: string }>;
+      descriptors: string[];
+    };
+  }): Promise<
+    | { ok: true; producedFile: RuntimeSandboxProducedFile }
+    | { ok: false; exitCode: number | null; stderr: string | null }
+  > {
+    const basePolicy =
+      (input.bundle.runtime.sandbox as RuntimeSandboxPolicy | null | undefined) ??
+      DEFAULT_RUNTIME_SANDBOX_POLICY;
+    const codePolicy: RuntimeSandboxPolicy = {
+      ...basePolicy,
+      enabled: true,
+      maxProcessRuntimeMs: 120_000,
+      maxCpuMsPerJob: 120_000,
+      maxSingleFileWriteBytes: Math.max(basePolicy.maxSingleFileWriteBytes, 50 * 1024 * 1024),
+      maxWorkspaceBytesPerJob: Math.max(basePolicy.maxWorkspaceBytesPerJob, 64 * 1024 * 1024)
+    };
+    let result: RuntimeSandboxJobResult;
+    try {
+      result = await this.sandboxClientService.waitForCompletion({
+        assistantId: input.bundle.metadata.assistantId,
+        workspaceId: input.bundle.metadata.workspaceId,
+        runtimeRequestId: input.jobId,
+        runtimeSessionId: null,
+        toolCode: "execute_document_code",
+        policy: codePolicy,
+        args: {
+          programSource: input.programSource,
+          outputFileName: input.filename,
+          sourceMounts: input.sourcePlan.sourceMounts,
+          textSidecars: input.sourcePlan.textSidecars
+        },
+        mountedFileRefs: input.sourcePlan.mountedFileRefs
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[document-code-sandbox-error] jobId=${input.jobId} error=${message}`);
+      return { ok: false, exitCode: null, stderr: message };
+    }
+    if (result.status !== "completed" || result.exitCode !== 0) {
+      return {
+        ok: false,
+        exitCode: result.exitCode,
+        stderr: result.stderr ?? result.violationMessage ?? result.reason ?? null
+      };
+    }
+    const producedFile = result.files.find(
+      (f) =>
+        f.relativePath.toLowerCase() === input.filename.toLowerCase() ||
+        f.relativePath.toLowerCase().endsWith(`/${input.filename.toLowerCase()}`)
+    );
+    if (producedFile === undefined) {
+      return {
+        ok: false,
+        exitCode: 0,
+        stderr: `No output file matching "${input.filename}" in sandbox result.`
+      };
+    }
+    return { ok: true, producedFile };
+  }
+
+  private async finalizeCodeDocumentResult(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeDocumentJobRunRequest;
+    filename: string;
+    targetMime: string;
+    producedFile: RuntimeSandboxProducedFile;
+  }): Promise<RuntimeDocumentJobRunResult> {
+    const { bundle, request, filename, targetMime, producedFile } = input;
+    const jobId = request.job.id;
+
+    const bytes = await this.mediaObjectStorage.downloadObject(producedFile.fileRef.objectKey);
+    if (bytes === null) {
+      return this.buildCodeDocumentFailResult({
+        request,
+        filename,
+        errorCode: "document_code_download_failed",
+        message: "Failed to download the produced data document from object storage.",
+        retryable: true
+      });
+    }
+
+    // Validate the produced artifact (xlsx/docx → ZIP magic; pdf → %PDF validator).
+    const validationFailure =
+      targetMime === "application/pdf"
+        ? await this.validateGeneratedPdfArtifact(bytes, { jobId, attempt: 1 })
+        : this.validateGeneratedOfficeArtifact(bytes, { jobId, mimeType: targetMime });
+    if (validationFailure !== null) {
+      this.logger.error(
+        `[document-code-validation-failed] jobId=${jobId} code=${validationFailure.code} message=${validationFailure.message}`
+      );
+      // Best-effort cleanup of the transient sandbox file before failing.
+      try {
+        await this.runtimeAssistantFileRegistryService.deleteById(producedFile.fileRef.fileRef);
+      } catch {
+        /* ignore */
+      }
+      return this.buildCodeDocumentFailResult({
+        request,
+        filename,
+        errorCode: validationFailure.code,
+        message: validationFailure.message
+      });
+    }
+
+    const artifact = await this.persistGeneratedArtifact({
+      assistantId: bundle.metadata.assistantId,
+      workspaceId: bundle.metadata.workspaceId,
+      sessionId: request.job.chatId,
+      requestId: jobId,
+      filename,
+      requestPrompt: request.directToolExecution.request.prompt,
+      requestedName: request.directToolExecution.request.requestedName ?? null,
+      buffer: bytes,
+      mimeType: targetMime
+    });
+
+    // Delete the transient sandbox_output file to avoid a duplicate per-document.
+    try {
+      await this.runtimeAssistantFileRegistryService.deleteById(producedFile.fileRef.fileRef);
+    } catch (err) {
+      this.logger.warn(
+        `[document-code-cleanup] Failed to delete transient sandbox file: ${String(err)}`
+      );
+    }
+
+    this.logger.log(
+      `[document-code-path-done] jobId=${jobId} filename=${filename} bytes=${String(bytes.length)}`
+    );
+    return {
+      assistantText: null,
+      artifacts: [artifact],
+      usage: null,
+      billingFacts: artifact.billingFacts ?? null,
+      toolInvocations: [{ name: "document", iteration: 1, ok: true, executionMode: "worker" }],
+      rawText: null,
+      renderedHtml: null,
+      providerStatus: {
+        provider: "sandbox",
+        state: "success",
+        outputFormat: request.job.outputFormat,
+        requestedName: filename,
+        sourcePromptHash: this.hashPrompt(request.directToolExecution.request.prompt),
+        assistantFileRegistryAvailable:
+          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+      }
+    };
+  }
+
+  private buildCodeDocumentFailResult(input: {
+    request: RuntimeDocumentJobRunRequest;
+    filename: string;
+    errorCode: string;
+    message: string;
+    retryable?: boolean;
+  }): RuntimeDocumentJobRunResult {
+    return {
+      assistantText: null,
+      artifacts: [],
+      usage: null,
+      toolInvocations: [{ name: "document", iteration: 1, ok: false, executionMode: "worker" }],
+      rawText: null,
+      providerStatus: {
+        provider: "sandbox",
+        state: "failed",
+        errorCode: input.errorCode,
+        retryable: input.retryable === true,
+        message: input.message,
+        outputFormat: input.request.job.outputFormat,
+        requestedName: input.filename,
+        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
+        assistantFileRegistryAvailable:
+          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+      }
+    };
   }
 }

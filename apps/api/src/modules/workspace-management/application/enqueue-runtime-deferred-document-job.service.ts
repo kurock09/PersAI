@@ -29,7 +29,8 @@ type DocumentDirectToolExecutionPayload = {
     | "create_pdf_document"
     | "create_presentation"
     | "revise_document"
-    | "export_or_redeliver";
+    | "export_or_redeliver"
+    | "create_data_document";
   request: AssistantDocumentSourcePayload;
   /** ADR-097 Slice 4 — AssistantFile.id for cross-chat revise. Mutually exclusive with request.docId. */
   fileRef?: string | null;
@@ -145,7 +146,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         docId: string;
         versionId: string;
         renderJobId: string;
-        documentType: "pdf_document" | "presentation";
+        documentType: "pdf_document" | "presentation" | "data_document";
       }
     | {
         accepted: false;
@@ -209,7 +210,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         ? null
         : descriptorMode === "export_or_redeliver"
           ? null
-          : this.resolveExecutionShape(descriptorMode);
+          : this.resolveExecutionShape(
+              descriptorMode,
+              input.directToolExecution.request.outputFormat
+            );
     const sourceUserMessageAttachmentsForPayload =
       input.sourceUserMessageAttachments === undefined ||
       input.sourceUserMessageAttachments.length === 0
@@ -437,7 +441,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     return requestedOutputFormat === context.currentOutputFormat;
   }
 
-  private resolveExecutionShape(descriptorMode: AssistantDocumentDescriptorMode): {
+  private resolveExecutionShape(
+    descriptorMode: AssistantDocumentDescriptorMode,
+    requestedOutputFormat?: string | null
+  ): {
     documentType: AssistantDocumentType;
     provider: AssistantDocumentRenderProvider;
     outputFormat: AssistantDocumentOutputFormat;
@@ -457,6 +464,20 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         // The model may still emit outputFormat=pptx, but it cannot opt the
         // ordinary create path into PPTX; editable PPTX is prepared separately.
         outputFormat: "pdf"
+      };
+    }
+    if (descriptorMode === "create_data_document") {
+      // Default to xlsx; model may explicitly request docx or pdf for data docs.
+      const fmt: AssistantDocumentOutputFormat =
+        requestedOutputFormat === "docx"
+          ? "docx"
+          : requestedOutputFormat === "pdf"
+            ? "pdf"
+            : "xlsx";
+      return {
+        documentType: "data_document",
+        provider: "sandbox",
+        outputFormat: fmt
       };
     }
     if (descriptorMode === "revise_document") {
@@ -489,7 +510,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         docId: string;
         versionId: string;
         renderJobId: string;
-        documentType: "pdf_document" | "presentation";
+        documentType: "pdf_document" | "presentation" | "data_document";
       }
     | {
         accepted: false;
@@ -665,7 +686,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         docId: string;
         versionId: string;
         renderJobId: string;
-        documentType: "pdf_document" | "presentation";
+        documentType: "pdf_document" | "presentation" | "data_document";
       }
     | {
         accepted: false;
@@ -758,7 +779,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         docId: string;
         versionId: string;
         renderJobId: string;
-        documentType: "pdf_document" | "presentation";
+        documentType: "pdf_document" | "presentation" | "data_document";
       }
     | {
         accepted: false;
@@ -896,10 +917,11 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       descriptorMode !== "create_pdf_document" &&
       descriptorMode !== "create_presentation" &&
       descriptorMode !== "revise_document" &&
-      descriptorMode !== "export_or_redeliver"
+      descriptorMode !== "export_or_redeliver" &&
+      descriptorMode !== "create_data_document"
     ) {
       throw new BadRequestException(
-        "directToolExecution.descriptorMode must be create_pdf_document, create_presentation, revise_document, or export_or_redeliver."
+        "directToolExecution.descriptorMode must be create_pdf_document, create_presentation, revise_document, export_or_redeliver, or create_data_document."
       );
     }
     const request = this.objectValue(row.request, "directToolExecution.request");
@@ -915,7 +937,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         prompt: this.requiredString(request.prompt, "directToolExecution.request.prompt"),
         instructions: typeof request.instructions === "string" ? request.instructions : null,
         outputFormat:
-          request.outputFormat === "pdf" || request.outputFormat === "pptx"
+          request.outputFormat === "pdf" ||
+          request.outputFormat === "pptx" ||
+          request.outputFormat === "xlsx" ||
+          request.outputFormat === "docx"
             ? request.outputFormat
             : null,
         docId: typeof request.docId === "string" ? request.docId : null,

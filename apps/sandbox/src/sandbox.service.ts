@@ -650,6 +650,16 @@ export class SandboxService {
           input.jobId,
           input.request.runtimeSessionId ?? null
         );
+      case "execute_document_code":
+        return this.executeDocumentCode(
+          input.workspaceRoot,
+          input.request.args,
+          input.request.policy,
+          input.mountedFiles,
+          input.leaseGuard,
+          input.jobId,
+          input.request.runtimeSessionId ?? null
+        );
       default:
         this.throwPolicy(
           "tool_not_supported",
@@ -907,6 +917,164 @@ export class SandboxService {
       // Drop the transient HTML input so it never becomes a produced artifact.
       await fs.rm(inputAbsolutePath, { force: true });
     }
+  }
+
+  /**
+   * ADR-123 Slice 6 — Documents mode B: execute a model-authored Python 3
+   * program that writes exactly one Office/data file to /workspace/<outputFileName>.
+   *
+   * Source ingestion (sandbox-first, two-tier — decided by the runtime worker):
+   * - `args.sourceMounts: [{ fileRef, mountPath }]` — the raw source files are
+   *   mounted by the generic mountedFileRefs machinery at their canonical
+   *   relativePath; here we COPY each into the deterministic worker-chosen
+   *   `mountPath` (e.g. sources/<name>) so the program can read a known path.
+   * - `args.textSidecars: [{ mountPath, text }]` — OCR/extracted text sidecars
+   *   (Tier 2) written verbatim into the workspace.
+   * All transient source copies/sidecars + the program file live under
+   * /workspace/sources and /workspace/.document-code.py and are removed in the
+   * `finally` block so only the produced output file is collected.
+   */
+  private async executeDocumentCode(
+    workspaceRoot: string,
+    args: Record<string, unknown>,
+    policy: RuntimeSandboxPolicy,
+    mountedFiles: MountedWorkspaceState,
+    leaseGuard: WorkspaceLeaseGuard,
+    jobId: string,
+    runtimeSessionId: string | null
+  ) {
+    const programSource = this.requireString(args.programSource, "programSource");
+    const outputFileName = this.requireRelativePath(args.outputFileName, "outputFileName");
+    const lowerOutput = outputFileName.toLowerCase();
+    if (
+      !lowerOutput.endsWith(".xlsx") &&
+      !lowerOutput.endsWith(".docx") &&
+      !lowerOutput.endsWith(".pdf")
+    ) {
+      this.throwPolicy(
+        "invalid_path",
+        "execute_document_code outputFileName must end with .xlsx, .docx, or .pdf"
+      );
+    }
+
+    const programSizeBytes = Buffer.byteLength(programSource, "utf8");
+    if (programSizeBytes > policy.maxSingleFileWriteBytes) {
+      this.throwPolicy(
+        "single_file_write_limit_exceeded",
+        `Document code program is ${String(programSizeBytes)} bytes, above the per-file limit of ${String(
+          policy.maxSingleFileWriteBytes
+        )}.`
+      );
+    }
+
+    this.assertWorkspaceLeaseActive(leaseGuard);
+
+    const programRelativePath = ".document-code.py";
+    const programAbsolutePath = this.resolveWorkspacePath(workspaceRoot, programRelativePath);
+    const sourcesDirAbsolute = this.resolveWorkspacePath(workspaceRoot, "sources");
+
+    try {
+      // Materialize Tier 1 source copies into deterministic mount paths.
+      const sourceMounts = this.readDocumentCodeSourceMounts(args.sourceMounts);
+      for (const mount of sourceMounts) {
+        const mounted = mountedFiles.byRef.get(mount.fileRef);
+        if (mounted === undefined) {
+          this.throwPolicy(
+            "file_ref_not_found",
+            `Document code source mount references unknown fileRef "${mount.fileRef}".`
+          );
+        }
+        const mountedAbsolute = this.resolveWorkspacePath(workspaceRoot, mounted.relativePath);
+        const targetAbsolute = this.resolveWorkspacePath(workspaceRoot, mount.mountPath);
+        await fs.mkdir(dirname(targetAbsolute), { recursive: true });
+        const buffer = await fs.readFile(mountedAbsolute);
+        await fs.writeFile(targetAbsolute, buffer);
+      }
+
+      // Materialize Tier 2 OCR/extracted-text sidecars.
+      const textSidecars = this.readDocumentCodeTextSidecars(args.textSidecars);
+      for (const sidecar of textSidecars) {
+        const targetAbsolute = this.resolveWorkspacePath(workspaceRoot, sidecar.mountPath);
+        await fs.mkdir(dirname(targetAbsolute), { recursive: true });
+        await fs.writeFile(targetAbsolute, sidecar.text, "utf8");
+      }
+
+      await fs.writeFile(programAbsolutePath, programSource, "utf8");
+
+      const result = await this.execPodBridgeService.runInPod({
+        jobId,
+        runtimeSessionId,
+        workspaceRoot,
+        absoluteCwd: workspaceRoot,
+        command: "python3",
+        args: [`/workspace/${programRelativePath}`],
+        policy
+      });
+      return {
+        reason: result.exitCode === 0 ? null : "process_failed",
+        warning: null,
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        content: null,
+        durationMs: result.durationMs,
+        execPodName: result.execPodName
+      };
+    } finally {
+      // Remove the program and all transient source copies/sidecars so only the
+      // produced output file is collected. The whole sources/ dir is removed in
+      // case the program created extra files under it.
+      await fs.rm(programAbsolutePath, { force: true });
+      await fs.rm(sourcesDirAbsolute, { recursive: true, force: true });
+    }
+  }
+
+  private readDocumentCodeSourceMounts(
+    value: unknown
+  ): Array<{ fileRef: string; mountPath: string }> {
+    if (value === undefined || value === null) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      this.throwPolicy("invalid_arguments", "execute_document_code sourceMounts must be an array.");
+    }
+    const mounts: Array<{ fileRef: string; mountPath: string }> = [];
+    for (const entry of value as unknown[]) {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        this.throwPolicy(
+          "invalid_arguments",
+          "execute_document_code sourceMounts[] must be objects."
+        );
+      }
+      const row = entry as Record<string, unknown>;
+      const fileRef = this.requireString(row.fileRef, "sourceMounts[].fileRef");
+      const mountPath = this.requireRelativePath(row.mountPath, "sourceMounts[].mountPath");
+      mounts.push({ fileRef, mountPath });
+    }
+    return mounts;
+  }
+
+  private readDocumentCodeTextSidecars(value: unknown): Array<{ mountPath: string; text: string }> {
+    if (value === undefined || value === null) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      this.throwPolicy("invalid_arguments", "execute_document_code textSidecars must be an array.");
+    }
+    const sidecars: Array<{ mountPath: string; text: string }> = [];
+    for (const entry of value as unknown[]) {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        this.throwPolicy(
+          "invalid_arguments",
+          "execute_document_code textSidecars[] must be objects."
+        );
+      }
+      const row = entry as Record<string, unknown>;
+      const mountPath = this.requireRelativePath(row.mountPath, "textSidecars[].mountPath");
+      const text = typeof row.text === "string" ? row.text : "";
+      sidecars.push({ mountPath, text });
+    }
+    return sidecars;
   }
 
   private buildWorkspaceSessionKey(assistantId: string, workspaceId: string): string {
@@ -2002,6 +2170,10 @@ export class SandboxService {
         return "text/plain";
       case ".pdf":
         return "application/pdf";
+      case ".xlsx":
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      case ".docx":
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
       case ".zip":
         return "application/zip";
       case ".png":

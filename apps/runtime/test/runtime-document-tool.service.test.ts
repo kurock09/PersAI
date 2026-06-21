@@ -553,4 +553,128 @@ describe("RuntimeDocumentToolService", () => {
       "must log [document-tool] fileRef-not-uuid when fileRef is a non-UUID alias"
     );
   });
+
+  // ADR-123 Slice 6 — create_data_document routing (mode B).
+  test("create_data_document with xlsx routes to data_document + sandbox", async () => {
+    const capturedInputs: Array<{
+      directToolExecution: { descriptorMode: string; request: { outputFormat?: string | null } };
+    }> = [];
+    const service = new RuntimeDocumentToolService({
+      async enqueueDeferredDocumentJob(input: {
+        directToolExecution: {
+          descriptorMode: string;
+          request: { outputFormat?: string | null };
+        };
+      }) {
+        capturedInputs.push(input);
+        return {
+          accepted: true as const,
+          jobId: "doc-data-1",
+          docId: "doc-1",
+          versionId: "version-1",
+          documentType: "data_document" as const
+        };
+      }
+    } as never);
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-data-1",
+        name: "document",
+        arguments: {
+          descriptorMode: "create_data_document",
+          prompt: "Build a spreadsheet of monthly revenue",
+          outputFormat: "xlsx"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-data-1",
+        sourceUserMessageText: "Сделай таблицу",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "pending_delivery");
+    assert.equal(result.payload.descriptorMode, "create_data_document");
+    assert.equal(result.payload.documentType, "data_document");
+    assert.equal(result.payload.provider, "sandbox");
+    assert.equal(result.payload.outputFormat, "xlsx");
+    assert.equal(capturedInputs[0]!.directToolExecution.descriptorMode, "create_data_document");
+    assert.equal(capturedInputs[0]!.directToolExecution.request.outputFormat, "xlsx");
+  });
+
+  test("create_data_document defaults outputFormat to xlsx when omitted", async () => {
+    const capturedInputs: Array<{
+      directToolExecution: { request: { outputFormat?: string | null } };
+    }> = [];
+    const service = new RuntimeDocumentToolService({
+      async enqueueDeferredDocumentJob(input: {
+        directToolExecution: { request: { outputFormat?: string | null } };
+      }) {
+        capturedInputs.push(input);
+        return {
+          accepted: true as const,
+          jobId: "doc-data-2",
+          documentType: "data_document" as const
+        };
+      }
+    } as never);
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-data-2",
+        name: "document",
+        arguments: {
+          descriptorMode: "create_data_document",
+          prompt: "Spreadsheet with no explicit format"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-data-2",
+        sourceUserMessageText: "Сделай таблицу без формата",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+    assert.equal(result.payload.outputFormat, "xlsx");
+    assert.equal(capturedInputs[0]!.directToolExecution.request.outputFormat, "xlsx");
+  });
+
+  test("create_data_document with docx keeps docx format and sandbox provider", async () => {
+    const service = new RuntimeDocumentToolService({
+      async enqueueDeferredDocumentJob() {
+        return {
+          accepted: true as const,
+          jobId: "doc-data-3",
+          documentType: "data_document" as const
+        };
+      }
+    } as never);
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-data-3",
+        name: "document",
+        arguments: {
+          descriptorMode: "create_data_document",
+          prompt: "Convert the attached PDF to a Word document",
+          outputFormat: "docx"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-data-3",
+        sourceUserMessageText: "Сделай Word",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+    assert.equal(result.payload.documentType, "data_document");
+    assert.equal(result.payload.provider, "sandbox");
+    assert.equal(result.payload.outputFormat, "docx");
+  });
 });
+
+export async function runRuntimeDocumentToolServiceTest(): Promise<void> {
+  // Tests are registered at module level via describe(); they run automatically in the child process.
+}

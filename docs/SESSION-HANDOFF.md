@@ -3,6 +3,47 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — ADR-123 Slice 6: Documents mode B (model-writes-code, create-only) — CHECKPOINT
+
+### State
+
+Implemented in the working tree (not committed/pushed — left for the orchestrator). Full verification gate **PASS**: lint · format:check · all 5 typechecks (`@persai/api`/`@persai/web`/`@persai/runtime`/`@persai/provider-gateway`/`@persai/sandbox`) · runtime tests · sandbox 22/22 · api tests.
+
+### What changed
+
+New parallel document path: the model authors a Python 3 program that deterministically emits a native **Excel/DOCX/data-PDF**, executed in the sandbox — decoupling document size from the output-token budget. Mode A (HTML→WeasyPrint) is unchanged. **Create-only** this slice (no revise/export for data documents).
+
+### Key decisions
+
+- **Routing**: `descriptorMode: "create_data_document"` → `documentType: "data_document"`, `provider: "sandbox"`; `outputFormat` ∈ {xlsx (default), docx, pdf}.
+- **Sandbox toolCode**: new `execute_document_code` runs `python3 /workspace/.document-code.py`; transient program + `/workspace/sources` cleaned in `finally` so they are not collected as output.
+- **Self-repair**: exactly one retry — sandbox stderr is fed back into a second authoring call; terminal `document_code_failed` after the second failure (no loop).
+- **Artifact validation**: xlsx/docx = `PK\x03\x04` ZIP magic + min size; pdf = existing `%PDF-` validator. Persist as `runtime_output`; soft-delete the transient `sandbox_output`.
+- **Two-tier source ingestion (founder-approved — source text is NEVER inlined into the prompt)**:
+  - **TIER 1 (default)**: raw source files mounted via `RuntimeSandboxJobRequest.mountedFileRefs` into `/workspace/sources/<name>`; the prompt tells the model to read them natively (pdfplumber/python-docx/openpyxl/pandas). Source size is unbounded by tokens.
+  - **TIER 2 (fallback)**: a runtime-layer `pdf-parse` text-layer probe (`probePdfTextLayer`, ≥32 alnum chars = digital) decides per-PDF; scanned PDFs / images run the existing `document-extraction.service` OCR and mount a `<name>.ocr.txt` sidecar alongside the original. The tier decision lives entirely in the runtime worker — no sandbox round-trip.
+- **Source-ref threading**: reuses the existing `RuntimeAttachmentRef.fileRef` + `objectKey` already carried on document jobs (`buildDataDocumentSourcePlan` reads `request.attachments[]`); no new enqueue→job-run plumbing was needed.
+
+### Files touched (Slice 6)
+
+- `apps/api/prisma/schema.prisma` + migration `apps/api/prisma/migrations/20260621000001_adr123_slice6_data_document/migration.sql` (additive enum values)
+- `packages/runtime-contract/src/index.ts` (widened document unions + Office MIME allowlist + `document_code_generation` classification)
+- `apps/runtime/src/modules/turns/runtime-document-tool.service.ts` (routing)
+- `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts` (`resolveExecutionShape`)
+- `apps/runtime/src/modules/turns/interface/http/internal-runtime-document-jobs.controller.ts` (validation)
+- `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts` (mode-B router, `runCodeDocumentPath`, `buildDataDocumentSourcePlan`, `probePdfTextLayer`, Office validation)
+- `apps/sandbox/src/sandbox.service.ts` (`execute_document_code` + source/sidecar materialization + cleanup; `inferMimeType` xlsx/docx)
+- `apps/api/prisma/tool-catalog-data.ts` + `apps/runtime/src/modules/turns/native-tool-projection.ts` (model-facing schema/guidance)
+- Tests: `runtime-document-provider-adapter.service.test.ts`, `runtime-document-tool.service.test.ts`, `enqueue-runtime-deferred-document-job.service.test.ts`, `sandbox.service.test.ts`
+
+### Deploy residual
+
+The additive enum migration `20260621000001_adr123_slice6_data_document` must run at deploy (it pauses on the `persai-dev-migrations` GitHub Environment for approval before GitOps pinning per CI policy).
+
+### Next recommended step
+
+Proceed to **Slice 7** (tools — `grep`/`glob` inline + first-class `shell`), or run an end-to-end live smoke of mode B (a `create_data_document` xlsx with a mounted digital PDF source and a scanned-PDF OCR fallback) before continuing.
+
 ## 2026-06-20 — ADR-123 foundation (Slices 1–4) DEPLOYED & live-healthy on persai-dev — CHECKPOINT
 
 ### State

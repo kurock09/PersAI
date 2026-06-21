@@ -24,7 +24,7 @@ const MAX_REVISION_VERSION_ALLOCATION_ATTEMPTS = 3;
 export type AssistantDocumentSourcePayload = {
   prompt: string;
   instructions?: string | null;
-  outputFormat?: "pdf" | "pptx" | null;
+  outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
   docId?: string | null;
   requestedName?: string | null;
   visualStyle?: PersaiRuntimePresentationVisualStyle | null;

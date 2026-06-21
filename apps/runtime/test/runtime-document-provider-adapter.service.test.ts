@@ -1896,122 +1896,92 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.equal(result.providerStatus?.companionOriginal, undefined);
   });
   test("injects enhanced print CSS with @page, thead repeat, tr break-inside, orphans/widows and cover-page page-break by default", () => {
-    const previousFlag = process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
-    delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
-    try {
-      const service = new RuntimeDocumentProviderAdapterService(
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never
-      );
-      const result = (
-        service as unknown as {
-          repairHtmlDocument(html: string): {
-            html: string;
-            bodyTextLength: number;
-            paginationEnhanced: boolean;
-            theadPromoted: number;
-          };
-        }
-      ).repairHtmlDocument(
-        '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><h1>Report</h1><p>The actual document content goes here, long enough to clear the minimum body text gate and pass HTML repair validation before sandbox WeasyPrint rendering.</p></body></html>'
-      );
-      assert.equal(result.paginationEnhanced, true);
-      assert.match(result.html, /<style>[\s\S]*<\/style>/i);
-      assert.match(result.html, /@page\{size:A4;margin:2cm 1.8cm;\}/);
-      assert.match(result.html, /thead\{display:table-header-group;\}/);
-      assert.match(result.html, /tr\{page-break-inside:avoid;break-inside:avoid;\}/);
-      assert.match(result.html, /orphans:3;widows:3/);
-      assert.match(
-        result.html,
-        /\.cover-page,\.title-page\{break-after:page;page-break-after:always;\}/
-      );
-      assert.match(result.html, /table\{[^}]*table-layout:fixed/);
-      assert.match(result.html, /blockquote\{[^}]*#f8fafc/);
-      assert.match(result.html, /\.callout[^}]*#f8fafc/);
-      assert.match(result.html, /body\{[^}]*background:#fff/);
-    } finally {
-      if (previousFlag === undefined) {
-        delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
-      } else {
-        process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION = previousFlag;
+    const service = new RuntimeDocumentProviderAdapterService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const result = (
+      service as unknown as {
+        repairHtmlDocument(html: string): {
+          html: string;
+          bodyTextLength: number;
+          paginationEnhanced: boolean;
+          theadPromoted: number;
+        };
       }
-    }
+    ).repairHtmlDocument(
+      '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><h1>Report</h1><p>The actual document content goes here, long enough to clear the minimum body text gate and pass HTML repair validation before sandbox WeasyPrint rendering.</p></body></html>'
+    );
+    assert.equal(result.paginationEnhanced, true);
+    assert.match(result.html, /<style>[\s\S]*<\/style>/i);
+    assert.match(result.html, /@page\{size:A4;margin:2cm 1.8cm;\}/);
+    assert.match(result.html, /thead\{display:table-header-group;\}/);
+    assert.match(result.html, /tr\{page-break-inside:avoid;break-inside:avoid;\}/);
+    assert.match(result.html, /orphans:3;widows:3/);
+    assert.match(
+      result.html,
+      /\.cover-page,\.title-page\{break-after:page;page-break-after:always;\}/
+    );
+    assert.match(result.html, /table\{[^}]*table-layout:fixed/);
+    assert.match(result.html, /blockquote\{[^}]*#f8fafc/);
+    assert.match(result.html, /\.callout[^}]*#f8fafc/);
+    assert.match(result.html, /body\{[^}]*background:#fff/);
   });
   test("auto-promotes first <tr> with all <th> cells into <thead> when <thead> is missing", () => {
-    const previousFlag = process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
-    delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
-    try {
-      const service = new RuntimeDocumentProviderAdapterService(
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never
-      );
-      const repair = (
-        service as unknown as {
-          repairHtmlDocument(html: string): {
-            html: string;
-            bodyTextLength: number;
-            paginationEnhanced: boolean;
-            theadPromoted: number;
-          };
-        }
-      ).repairHtmlDocument(
-        "<!DOCTYPE html><html><head></head><body><h1>Report</h1><p>The actual document content goes here, long enough to clear the minimum body text gate and pass HTML repair validation before sandbox WeasyPrint rendering.</p><table><tbody><tr><th>Quarter</th><th>Revenue</th></tr><tr><td>Q1</td><td>100</td></tr><tr><td>Q2</td><td>120</td></tr></tbody></table></body></html>"
-      );
-      assert.equal(repair.paginationEnhanced, true);
-      assert.equal(repair.theadPromoted, 1);
-      assert.match(
-        repair.html,
-        /<thead>\s*<tr>\s*<th>Quarter<\/th>\s*<th>Revenue<\/th>\s*<\/tr>\s*<\/thead>/i
-      );
-      assert.match(repair.html, /<tbody>\s*<tr>\s*<td>Q1<\/td>/i);
-    } finally {
-      if (previousFlag === undefined) {
-        delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
-      } else {
-        process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION = previousFlag;
+    const service = new RuntimeDocumentProviderAdapterService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const repair = (
+      service as unknown as {
+        repairHtmlDocument(html: string): {
+          html: string;
+          bodyTextLength: number;
+          paginationEnhanced: boolean;
+          theadPromoted: number;
+        };
       }
-    }
+    ).repairHtmlDocument(
+      "<!DOCTYPE html><html><head></head><body><h1>Report</h1><p>The actual document content goes here, long enough to clear the minimum body text gate and pass HTML repair validation before sandbox WeasyPrint rendering.</p><table><tbody><tr><th>Quarter</th><th>Revenue</th></tr><tr><td>Q1</td><td>100</td></tr><tr><td>Q2</td><td>120</td></tr></tbody></table></body></html>"
+    );
+    assert.equal(repair.paginationEnhanced, true);
+    assert.equal(repair.theadPromoted, 1);
+    assert.match(
+      repair.html,
+      /<thead>\s*<tr>\s*<th>Quarter<\/th>\s*<th>Revenue<\/th>\s*<\/tr>\s*<\/thead>/i
+    );
+    assert.match(repair.html, /<tbody>\s*<tr>\s*<td>Q1<\/td>/i);
   });
   test("keeps existing <thead> intact and does not promote first body row when it is not header-only", () => {
-    const previousFlag = process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
-    delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
-    try {
-      const service = new RuntimeDocumentProviderAdapterService(
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never
-      );
-      const repair = (
-        service as unknown as {
-          repairHtmlDocument(html: string): {
-            html: string;
-            bodyTextLength: number;
-            paginationEnhanced: boolean;
-            theadPromoted: number;
-          };
-        }
-      ).repairHtmlDocument(
-        "<!DOCTYPE html><html><head></head><body><h1>Report</h1><p>Filler body text long enough to clear the minimum body text gate before sandbox WeasyPrint rendering of the resulting PDF document.</p><table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table><table><tbody><tr><th>Row label</th><td>Value</td></tr><tr><th>Other label</th><td>Other</td></tr></tbody></table></body></html>"
-      );
-      assert.equal(repair.paginationEnhanced, true);
-      assert.equal(repair.theadPromoted, 0);
-      assert.equal(
-        (repair.html.match(/<thead>/gi) ?? []).length,
-        1,
-        "should not duplicate or add a second <thead>"
-      );
-    } finally {
-      if (previousFlag === undefined) {
-        delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
-      } else {
-        process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION = previousFlag;
+    const service = new RuntimeDocumentProviderAdapterService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const repair = (
+      service as unknown as {
+        repairHtmlDocument(html: string): {
+          html: string;
+          bodyTextLength: number;
+          paginationEnhanced: boolean;
+          theadPromoted: number;
+        };
       }
-    }
+    ).repairHtmlDocument(
+      "<!DOCTYPE html><html><head></head><body><h1>Report</h1><p>Filler body text long enough to clear the minimum body text gate before sandbox WeasyPrint rendering of the resulting PDF document.</p><table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table><table><tbody><tr><th>Row label</th><td>Value</td></tr><tr><th>Other label</th><td>Other</td></tr></tbody></table></body></html>"
+    );
+    assert.equal(repair.paginationEnhanced, true);
+    assert.equal(repair.theadPromoted, 0);
+    assert.equal(
+      (repair.html.match(/<thead>/gi) ?? []).length,
+      1,
+      "should not duplicate or add a second <thead>"
+    );
   });
   test("HTML generation prompt includes pagination guidance for cover-page, keep-together, long-table thead, and no manual page-breaks", () => {
     const service = new RuntimeDocumentProviderAdapterService(
@@ -4670,5 +4640,437 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       assert.equal(usage.cachedInputTokens, 1000, "cachedInputTokens must be propagated");
       assert.equal(usage.outputTokens, 200, "outputTokens must match generateText usage");
     });
+  });
+});
+
+// ADR-123 Slice 6 — Documents mode B (model-writes-code / create_data_document).
+function makeXlsxBytes(): Buffer {
+  // ZIP local-file-header magic (PK\x03\x04) + padding above the 512-byte floor.
+  return Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(2048, 7)]);
+}
+function makeSandboxCodeResult(input: {
+  exitCode: number;
+  stderr?: string | null;
+  objectKey?: string;
+  relativePath?: string;
+}) {
+  const relativePath = input.relativePath ?? "Revenue.xlsx";
+  return {
+    status: "completed",
+    exitCode: input.exitCode,
+    reason: input.exitCode === 0 ? null : "process_failed",
+    violationCode: null,
+    violationMessage: null,
+    stdout: null,
+    stderr: input.stderr ?? null,
+    content: null,
+    files:
+      input.exitCode === 0
+        ? [
+            {
+              relativePath,
+              displayName: relativePath,
+              mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              sizeBytes: 2052,
+              logicalSizeBytes: 2052,
+              fileRef: {
+                fileRef: "file-sandbox-code-1",
+                origin: "sandbox_output" as const,
+                sourceToolCode: "execute_document_code",
+                objectKey: input.objectKey ?? "sandbox-output/report.xlsx",
+                relativePath,
+                displayName: relativePath,
+                mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                sizeBytes: 2052,
+                logicalSizeBytes: 2052
+              }
+            }
+          ]
+        : []
+  } as never;
+}
+function createModeBService(config: {
+  generateProgram: (input: {
+    classification: string;
+    payloadText: string;
+    developerInstructions: string | null;
+  }) => string;
+  waitForCompletion: (request: {
+    toolCode: string;
+    args: Record<string, unknown>;
+    mountedFileRefs?: string[];
+  }) => Promise<unknown>;
+  downloadObject?: (objectKey: string) => Promise<Buffer | null>;
+  onDelete?: (fileRef: string) => void;
+}) {
+  const generateCalls: Array<{ classification: string; payloadText: string }> = [];
+  const sandboxCalls: Array<{
+    toolCode: string;
+    args: Record<string, unknown>;
+    mountedFileRefs: string[];
+  }> = [];
+  const deletedFileRefs: string[] = [];
+  const savedObjects: Array<{ objectKey: string; mimeType: string; bytes: Buffer }> = [];
+  const service = new RuntimeDocumentProviderAdapterService(
+    {
+      async generateText(input: {
+        developerInstructions?: string;
+        messages: Array<{ content: Array<{ type: string; text: string }> }>;
+        requestMetadata?: { classification?: string };
+      }) {
+        const classification = input.requestMetadata?.classification ?? "";
+        const payloadText = input.messages?.[0]?.content?.[0]?.text ?? "";
+        generateCalls.push({ classification, payloadText });
+        const text = config.generateProgram({
+          classification,
+          payloadText,
+          developerInstructions: input.developerInstructions ?? null
+        });
+        return {
+          provider: "openai",
+          model: "gpt-4.1-mini",
+          text,
+          respondedAt: "2026-06-21T10:00:00.000Z",
+          stopReason: "completed",
+          toolCalls: [],
+          usage: null
+        };
+      }
+    } as never,
+    {
+      buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+        return `assistant-media/${input.artifactId}.${input.extension}`;
+      },
+      async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+        savedObjects.push({
+          objectKey: input.objectKey,
+          mimeType: input.mimeType,
+          bytes: input.buffer
+        });
+        return {
+          objectKey: input.objectKey,
+          sizeBytes: input.buffer.length,
+          mimeType: input.mimeType
+        };
+      },
+      async downloadObject(objectKey: string) {
+        if (config.downloadObject) {
+          return config.downloadObject(objectKey);
+        }
+        return makeXlsxBytes();
+      }
+    } as never,
+    {
+      async ensureAttachmentBackedFile(input: {
+        referenceId: string;
+        objectKey: string;
+        filename: string | null;
+        mimeType: string;
+        sizeBytes: number;
+      }) {
+        return {
+          fileRef: `file-${input.referenceId}`,
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          sandboxJobId: null,
+          origin: "runtime_output",
+          sourceToolCode: "document",
+          objectKey: input.objectKey,
+          relativePath: `artifacts/${input.filename}`,
+          displayName: input.filename,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes,
+          logicalSizeBytes: input.sizeBytes,
+          sha256: null,
+          metadata: null,
+          createdAt: new Date()
+        };
+      },
+      toRuntimeFileRef(record: { fileRef: string }) {
+        return {
+          fileRef: record.fileRef,
+          origin: "runtime_output",
+          sourceToolCode: "document",
+          objectKey: "k",
+          relativePath: "r",
+          displayName: "d",
+          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          sizeBytes: 1,
+          logicalSizeBytes: 1
+        };
+      },
+      async deleteById(fileRef: string) {
+        deletedFileRefs.push(fileRef);
+        config.onDelete?.(fileRef);
+      }
+    } as never,
+    {
+      async waitForCompletion(request: {
+        toolCode: string;
+        args: Record<string, unknown>;
+        mountedFileRefs?: string[];
+      }) {
+        sandboxCalls.push({
+          toolCode: request.toolCode,
+          args: request.args,
+          mountedFileRefs: request.mountedFileRefs ?? []
+        });
+        return config.waitForCompletion(request);
+      }
+    } as never
+  );
+  return { service, generateCalls, sandboxCalls, deletedFileRefs, savedObjects };
+}
+function makeModeBRequest(overrides?: {
+  outputFormat?: "xlsx" | "docx" | "pdf";
+  attachments?: unknown[];
+  sourceFiles?: unknown[];
+}) {
+  return {
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    runtimeTier: "paid_shared_restricted",
+    runtimeBundleDocument: "{}",
+    job: {
+      id: "job-codedoc-1",
+      docId: "doc-1",
+      versionId: "version-1",
+      surface: "web",
+      chatId: "chat-1",
+      provider: "sandbox",
+      outputFormat: overrides?.outputFormat ?? "xlsx",
+      sourceUserMessageId: "message-1",
+      sourceUserMessageText: "Build a spreadsheet of monthly revenue",
+      sourceUserMessageCreatedAt: "2026-06-21T09:59:00.000Z"
+    },
+    attachments: overrides?.attachments ?? [],
+    sourceFiles: overrides?.sourceFiles ?? [],
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "create_data_document",
+      request: {
+        prompt: "Build a spreadsheet of monthly revenue",
+        requestedName: "Revenue",
+        outputFormat: overrides?.outputFormat ?? "xlsx"
+      }
+    }
+  } as never;
+}
+describe("RuntimeDocumentProviderAdapterService — ADR-123 Slice 6 mode B", () => {
+  test("create_data_document xlsx happy path persists artifact and deletes transient", async () => {
+    const harness = createModeBService({
+      generateProgram: () =>
+        "import openpyxl\nwb = openpyxl.Workbook()\nwb.save('/workspace/report.xlsx')\n",
+      async waitForCompletion() {
+        return makeSandboxCodeResult({ exitCode: 0 });
+      }
+    });
+    const result = await harness.service.run({
+      bundle: createBundle(),
+      request: makeModeBRequest({ outputFormat: "xlsx" })
+    });
+    assert.equal(harness.generateCalls.length, 1);
+    assert.equal(harness.generateCalls[0]!.classification, "document_code_generation");
+    assert.equal(harness.sandboxCalls.length, 1);
+    assert.equal(harness.sandboxCalls[0]!.toolCode, "execute_document_code");
+    assert.equal(typeof harness.sandboxCalls[0]!.args.programSource, "string");
+    assert.equal(harness.sandboxCalls[0]!.args.outputFileName, "Revenue.xlsx");
+    assert.equal(result.artifacts.length, 1);
+    assert.equal(result.providerStatus?.state, "success");
+    assert.equal(result.renderedHtml ?? null, null);
+    assert.deepEqual(harness.deletedFileRefs, ["file-sandbox-code-1"]);
+    assert.equal(harness.savedObjects.length, 1);
+  });
+
+  test("self-repair: first sandbox failure triggers second LLM call and exec, then succeeds", async () => {
+    let exec = 0;
+    const harness = createModeBService({
+      generateProgram: () =>
+        "import openpyxl\nopenpyxl.Workbook().save('/workspace/report.xlsx')\n",
+      async waitForCompletion() {
+        exec += 1;
+        if (exec === 1) {
+          return makeSandboxCodeResult({
+            exitCode: 1,
+            stderr: "NameError: name 'opnpyxl' is not defined"
+          });
+        }
+        return makeSandboxCodeResult({ exitCode: 0 });
+      }
+    });
+    const result = await harness.service.run({
+      bundle: createBundle(),
+      request: makeModeBRequest({ outputFormat: "xlsx" })
+    });
+    assert.equal(harness.generateCalls.length, 2);
+    assert.equal(harness.sandboxCalls.length, 2);
+    // Second generation must include the previous stderr for repair.
+    assert.ok(
+      harness.generateCalls[1]!.payloadText.includes("NameError"),
+      "repair LLM call should include previous stderr"
+    );
+    assert.equal(result.artifacts.length, 1);
+    assert.equal(result.providerStatus?.state, "success");
+  });
+
+  test("two sandbox failures yield non-retryable document_code_failed", async () => {
+    const harness = createModeBService({
+      generateProgram: () => "raise SystemExit(1)\n",
+      async waitForCompletion() {
+        return makeSandboxCodeResult({ exitCode: 1, stderr: "boom" });
+      }
+    });
+    const result = await harness.service.run({
+      bundle: createBundle(),
+      request: makeModeBRequest({ outputFormat: "xlsx" })
+    });
+    assert.equal(harness.sandboxCalls.length, 2);
+    assert.equal(result.artifacts.length, 0);
+    assert.equal(result.providerStatus?.state, "failed");
+    assert.equal(result.providerStatus?.errorCode, "document_code_failed");
+    assert.equal(result.providerStatus?.retryable, false);
+  });
+
+  test("invalid artifact (not a real xlsx ZIP) fails office validation", async () => {
+    const harness = createModeBService({
+      generateProgram: () => "open('/workspace/report.xlsx','w').write('x'*1024)\n",
+      async waitForCompletion() {
+        return makeSandboxCodeResult({ exitCode: 0 });
+      },
+      async downloadObject() {
+        // 1KB of non-ZIP content — passes the size floor, fails the PK magic check.
+        return Buffer.alloc(1024, 0x41);
+      }
+    });
+    const result = await harness.service.run({
+      bundle: createBundle(),
+      request: makeModeBRequest({ outputFormat: "xlsx" })
+    });
+    assert.equal(result.artifacts.length, 0);
+    assert.equal(result.providerStatus?.state, "failed");
+    assert.equal(result.providerStatus?.errorCode, "document_office_missing_magic");
+  });
+
+  test("digital PDF source is mounted with no OCR sidecar (Tier 1)", async () => {
+    const harness = createModeBService({
+      generateProgram: () =>
+        "import openpyxl\nopenpyxl.Workbook().save('/workspace/report.xlsx')\n",
+      async waitForCompletion() {
+        return makeSandboxCodeResult({ exitCode: 0 });
+      },
+      async downloadObject(objectKey: string) {
+        if (objectKey === "uploads/att-1/source.pdf") {
+          return makePdfBytes();
+        }
+        return makeXlsxBytes();
+      }
+    });
+    // Digital PDF: probe returns a substantial text layer.
+    mockExtractedPdfText(
+      harness.service,
+      "This digital PDF has a real extractable text layer with plenty of alphanumeric characters."
+    );
+    const result = await harness.service.run({
+      bundle: createBundle(),
+      request: makeModeBRequest({
+        outputFormat: "xlsx",
+        attachments: [
+          {
+            attachmentId: "att-1",
+            kind: "document",
+            objectKey: "uploads/att-1/source.pdf",
+            mimeType: "application/pdf",
+            filename: "source.pdf",
+            sizeBytes: 4096,
+            fileRef: "assistant-file-att-1"
+          }
+        ],
+        sourceFiles: [
+          {
+            attachmentId: "att-1",
+            filename: "source.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 4096,
+            text: "This digital PDF has a real extractable text layer.",
+            markdown: null,
+            note: null,
+            provider: null,
+            quality: null
+          }
+        ]
+      })
+    });
+    assert.equal(result.providerStatus?.state, "success");
+    const call = harness.sandboxCalls[0]!;
+    assert.deepEqual(call.mountedFileRefs, ["assistant-file-att-1"]);
+    const sourceMounts = call.args.sourceMounts as Array<{ fileRef: string; mountPath: string }>;
+    assert.equal(sourceMounts.length, 1);
+    assert.equal(sourceMounts[0]!.fileRef, "assistant-file-att-1");
+    assert.equal(sourceMounts[0]!.mountPath, "sources/source.pdf");
+    const sidecars = call.args.textSidecars as Array<{ mountPath: string }>;
+    assert.equal(sidecars.length, 0, "digital PDF must not get an OCR sidecar");
+    // The code-gen prompt references the mounted path and pdfplumber, not inline text.
+    assert.ok(harness.generateCalls[0]!.payloadText.includes("/workspace/sources/source.pdf"));
+  });
+
+  test("scanned PDF source gets an OCR text sidecar from extracted text (Tier 2)", async () => {
+    const harness = createModeBService({
+      generateProgram: () =>
+        "import openpyxl\nopenpyxl.Workbook().save('/workspace/report.xlsx')\n",
+      async waitForCompletion() {
+        return makeSandboxCodeResult({ exitCode: 0 });
+      },
+      async downloadObject(objectKey: string) {
+        if (objectKey === "uploads/att-2/scan.pdf") {
+          return makePdfBytes();
+        }
+        return makeXlsxBytes();
+      }
+    });
+    // Scanned PDF: probe returns ~no text layer.
+    mockExtractedPdfText(harness.service, "");
+    const result = await harness.service.run({
+      bundle: createBundle(),
+      request: makeModeBRequest({
+        outputFormat: "xlsx",
+        attachments: [
+          {
+            attachmentId: "att-2",
+            kind: "document",
+            objectKey: "uploads/att-2/scan.pdf",
+            mimeType: "application/pdf",
+            filename: "scan.pdf",
+            sizeBytes: 8192,
+            fileRef: "assistant-file-att-2"
+          }
+        ],
+        sourceFiles: [
+          {
+            attachmentId: "att-2",
+            filename: "scan.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 8192,
+            text: "OCR EXTRACTED TEXT FROM THE SCANNED INVOICE",
+            markdown: null,
+            note: null,
+            provider: {
+              providerKey: "mistral",
+              processorMode: "high_quality_fallback",
+              attemptedProviderKeys: ["local", "mistral"]
+            },
+            quality: null
+          }
+        ]
+      })
+    });
+    assert.equal(result.providerStatus?.state, "success");
+    const call = harness.sandboxCalls[0]!;
+    assert.deepEqual(call.mountedFileRefs, ["assistant-file-att-2"]);
+    const sidecars = call.args.textSidecars as Array<{ mountPath: string; text: string }>;
+    assert.equal(sidecars.length, 1);
+    assert.equal(sidecars[0]!.mountPath, "sources/scan.pdf.ocr.txt");
+    assert.equal(sidecars[0]!.text, "OCR EXTRACTED TEXT FROM THE SCANNED INVOICE");
+    // The prompt tells the model an OCR sidecar is provided.
+    assert.ok(harness.generateCalls[0]!.payloadText.includes("sources/scan.pdf.ocr.txt"));
   });
 });

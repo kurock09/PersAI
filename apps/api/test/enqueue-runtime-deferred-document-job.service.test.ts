@@ -145,6 +145,369 @@ async function runAcceptedCase(): Promise<void> {
   );
 }
 
+async function runCreateDataDocumentCase(): Promise<void> {
+  let capturedEnqueueInput: Record<string, unknown> | null = null;
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    {
+      async findMessageByIdForAssistant(messageId: string, assistantId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "user" as const,
+          createdAt: new Date("2026-06-21T12:00:00.000Z")
+        };
+      },
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "web" as const
+        };
+      }
+    } as never,
+    {
+      async countOpenJobsForChat() {
+        return 0;
+      },
+      async enqueue(input) {
+        capturedEnqueueInput = input as Record<string, unknown>;
+        return {
+          docId: "doc-data-1",
+          versionId: "version-data-1",
+          renderJobId: "render-data-1",
+          status: "queued" as const
+        };
+      }
+    } as never,
+    {
+      async build() {
+        return null;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          monthlyToolQuotas: {
+            planCode: "pro",
+            periodStartedAt: "2026-06-01T00:00:00.000Z",
+            periodEndsAt: "2026-07-01T00:00:00.000Z",
+            periodSource: "subscription_period" as const,
+            tools: [
+              {
+                toolCode: "document",
+                displayName: "Document",
+                usedUnits: 0,
+                reservedUnits: 0,
+                settledUnits: 0,
+                releasedUnits: 0,
+                reconciliationRequiredUnits: 0,
+                limitUnits: 10,
+                effectiveLimitUnits: 10,
+                remainingUnits: 10,
+                usageAvailable: true,
+                status: "ok" as const
+              }
+            ]
+          }
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          tools: [
+            {
+              toolCode: "document",
+              activationStatus: "active" as const
+            }
+          ]
+        };
+      }
+    } as never,
+    {
+      async resolveSecretValueByProviderKey() {
+        return "template-123";
+      }
+    } as never,
+    noopGammaThemePickerMock()
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Сделай Excel с выручкой по месяцам",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "create_data_document",
+      request: {
+        prompt: "Monthly revenue spreadsheet",
+        outputFormat: "xlsx",
+        requestedName: "revenue"
+      }
+    }
+  });
+
+  assert.deepEqual(result, {
+    accepted: true,
+    docId: "doc-data-1",
+    versionId: "version-data-1",
+    renderJobId: "render-data-1",
+    documentType: "data_document"
+  });
+  const captured = capturedEnqueueInput as {
+    documentType: string;
+    provider: string;
+    outputFormat: string;
+    request: { sourceJson: { outputFormat: string } };
+  } | null;
+  assert.equal(captured?.documentType, "data_document");
+  assert.equal(captured?.provider, "sandbox", "data documents must execute in the sandbox");
+  assert.equal(captured?.outputFormat, "xlsx");
+  assert.equal(captured?.request.sourceJson.outputFormat, "xlsx");
+}
+
+async function runCreateDataDocumentDefaultsToXlsxCase(): Promise<void> {
+  let capturedEnqueueInput: Record<string, unknown> | null = null;
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    {
+      async findMessageByIdForAssistant(messageId: string, assistantId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "user" as const,
+          createdAt: new Date("2026-06-21T12:30:00.000Z")
+        };
+      },
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "web" as const
+        };
+      }
+    } as never,
+    {
+      async countOpenJobsForChat() {
+        return 0;
+      },
+      async enqueue(input) {
+        capturedEnqueueInput = input as Record<string, unknown>;
+        return {
+          docId: "doc-data-2",
+          versionId: "version-data-2",
+          renderJobId: "render-data-2",
+          status: "queued" as const
+        };
+      }
+    } as never,
+    {
+      async build() {
+        return null;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          monthlyToolQuotas: {
+            planCode: "pro",
+            periodStartedAt: "2026-06-01T00:00:00.000Z",
+            periodEndsAt: "2026-07-01T00:00:00.000Z",
+            periodSource: "subscription_period" as const,
+            tools: [
+              {
+                toolCode: "document",
+                displayName: "Document",
+                usedUnits: 0,
+                reservedUnits: 0,
+                settledUnits: 0,
+                releasedUnits: 0,
+                reconciliationRequiredUnits: 0,
+                limitUnits: 10,
+                effectiveLimitUnits: 10,
+                remainingUnits: 10,
+                usageAvailable: true,
+                status: "ok" as const
+              }
+            ]
+          }
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          tools: [
+            {
+              toolCode: "document",
+              activationStatus: "active" as const
+            }
+          ]
+        };
+      }
+    } as never,
+    {
+      async resolveSecretValueByProviderKey() {
+        return "template-123";
+      }
+    } as never,
+    noopGammaThemePickerMock()
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Собери таблицу",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "create_data_document",
+      request: {
+        prompt: "Build a data table"
+      }
+    }
+  });
+
+  assert.equal(result.accepted, true);
+  const captured = capturedEnqueueInput as {
+    documentType: string;
+    provider: string;
+    outputFormat: string;
+  } | null;
+  assert.equal(captured?.documentType, "data_document");
+  assert.equal(captured?.provider, "sandbox");
+  assert.equal(
+    captured?.outputFormat,
+    "xlsx",
+    "create_data_document must default to xlsx when outputFormat is omitted"
+  );
+}
+
+async function runCreateDataDocumentDocxCase(): Promise<void> {
+  let capturedEnqueueInput: Record<string, unknown> | null = null;
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    {
+      async findMessageByIdForAssistant(messageId: string, assistantId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "user" as const,
+          createdAt: new Date("2026-06-21T13:00:00.000Z")
+        };
+      },
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "web" as const
+        };
+      }
+    } as never,
+    {
+      async countOpenJobsForChat() {
+        return 0;
+      },
+      async enqueue(input) {
+        capturedEnqueueInput = input as Record<string, unknown>;
+        return {
+          docId: "doc-data-3",
+          versionId: "version-data-3",
+          renderJobId: "render-data-3",
+          status: "queued" as const
+        };
+      }
+    } as never,
+    {
+      async build() {
+        return null;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          monthlyToolQuotas: {
+            planCode: "pro",
+            periodStartedAt: "2026-06-01T00:00:00.000Z",
+            periodEndsAt: "2026-07-01T00:00:00.000Z",
+            periodSource: "subscription_period" as const,
+            tools: [
+              {
+                toolCode: "document",
+                displayName: "Document",
+                usedUnits: 0,
+                reservedUnits: 0,
+                settledUnits: 0,
+                releasedUnits: 0,
+                reconciliationRequiredUnits: 0,
+                limitUnits: 10,
+                effectiveLimitUnits: 10,
+                remainingUnits: 10,
+                usageAvailable: true,
+                status: "ok" as const
+              }
+            ]
+          }
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          tools: [
+            {
+              toolCode: "document",
+              activationStatus: "active" as const
+            }
+          ]
+        };
+      }
+    } as never,
+    {
+      async resolveSecretValueByProviderKey() {
+        return "template-123";
+      }
+    } as never,
+    noopGammaThemePickerMock()
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Сделай Word документ",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "create_data_document",
+      request: {
+        prompt: "Build a Word report",
+        outputFormat: "docx"
+      }
+    }
+  });
+
+  assert.equal(result.accepted, true);
+  const captured = capturedEnqueueInput as {
+    documentType: string;
+    provider: string;
+    outputFormat: string;
+  } | null;
+  assert.equal(captured?.documentType, "data_document");
+  assert.equal(captured?.provider, "sandbox");
+  assert.equal(captured?.outputFormat, "docx");
+}
+
 async function runPresentationDefaultsToPdfCase(): Promise<void> {
   let capturedEnqueueInput: Record<string, unknown> | null = null;
   const service = new EnqueueRuntimeDeferredDocumentJobService(
@@ -1554,6 +1917,9 @@ async function runEnqueueRevisionAttachesPreviousRenderedHtmlToRuntimeRequest():
 
 async function run(): Promise<void> {
   await runAcceptedCase();
+  await runCreateDataDocumentCase();
+  await runCreateDataDocumentDefaultsToXlsxCase();
+  await runCreateDataDocumentDocxCase();
   await runPresentationDefaultsToPdfCase();
   await runLimitReachedCase();
   await runRevisionAcceptedCase();

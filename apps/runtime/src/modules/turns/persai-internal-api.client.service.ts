@@ -343,7 +343,8 @@ export type InternalEnqueueDeferredDocumentJobInput = {
       | "create_pdf_document"
       | "create_presentation"
       | "revise_document"
-      | "export_or_redeliver";
+      | "export_or_redeliver"
+      | "create_data_document";
     request: RuntimeDocumentJobRunRequest["directToolExecution"]["request"];
   };
 };
@@ -585,7 +586,7 @@ export class PersaiInternalApiClientService {
         jobId: string;
         docId: string;
         versionId: string;
-        documentType: "pdf_document" | "presentation";
+        documentType: "pdf_document" | "presentation" | "data_document";
       }
     | {
         accepted: false;
@@ -613,7 +614,9 @@ export class PersaiInternalApiClientService {
         typeof payload.renderJobId === "string" &&
         typeof payload.docId === "string" &&
         typeof payload.versionId === "string" &&
-        (payload.documentType === "pdf_document" || payload.documentType === "presentation")
+        (payload.documentType === "pdf_document" ||
+          payload.documentType === "presentation" ||
+          payload.documentType === "data_document")
       ) {
         return {
           accepted: true,
