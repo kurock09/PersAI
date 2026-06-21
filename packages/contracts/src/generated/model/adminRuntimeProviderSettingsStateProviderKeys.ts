@@ -9,4 +9,5 @@ import type { AdminRuntimeProviderKeyState } from "./adminRuntimeProviderKeyStat
 export type AdminRuntimeProviderSettingsStateProviderKeys = {
   openai: AdminRuntimeProviderKeyState;
   anthropic: AdminRuntimeProviderKeyState;
+  deepseek: AdminRuntimeProviderKeyState;
 };

@@ -8,4 +8,5 @@
 export interface AdminRuntimeProviderSettingsProviderKeysInput {
   openai?: string;
   anthropic?: string;
+  deepseek?: string;
 }

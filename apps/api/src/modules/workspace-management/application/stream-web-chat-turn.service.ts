@@ -82,7 +82,10 @@ export interface StreamWebChatTurnPrepared {
   assistantId: string;
   publishedVersionId: string;
   runtimeTier: RuntimeTier;
-  quotaDegradeModelOverride: { provider: "openai" | "anthropic"; model: string } | null;
+  quotaDegradeModelOverride: {
+    provider: "openai" | "anthropic" | "deepseek";
+    model: string;
+  } | null;
   quotaDegradeReason: "token_budget_limit_reached" | null;
   welcomeFirstTurnPrompt: string | null;
   userId: string;
@@ -951,7 +954,7 @@ export class StreamWebChatTurnService {
     chatMode?: WebRuntimeStreamClientInput["chatMode"];
     deepMode?: WebRuntimeStreamClientInput["deepMode"];
     modelRoleOverride?: WebRuntimeStreamClientInput["modelRoleOverride"];
-    providerOverride?: "openai" | "anthropic";
+    providerOverride?: "openai" | "anthropic" | "deepseek";
     modelOverride?: string;
   }): WebRuntimeStreamClientInput {
     return {

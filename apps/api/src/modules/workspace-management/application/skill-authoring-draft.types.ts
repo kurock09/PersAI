@@ -18,7 +18,7 @@ export type SkillAuthoringDraftKnowledgeCardProposal = {
 
 export type SkillAuthoringDraftProposalState = {
   schema: typeof SKILL_AUTHORING_DRAFT_PROPOSAL_SCHEMA;
-  providerKey: "openai" | "anthropic";
+  providerKey: "openai" | "anthropic" | "deepseek";
   modelKey: string;
   generatedAt: string;
   skillDraft: Partial<AdminSkillUpsertInput>;
@@ -40,7 +40,7 @@ export function parseSkillAuthoringDraftRequest(body: unknown): SkillAuthoringDr
 }
 
 export function normalizeSkillAuthoringDraftProposal(input: {
-  providerKey: "openai" | "anthropic";
+  providerKey: "openai" | "anthropic" | "deepseek";
   modelKey: string;
   generatedAt: Date;
   rawProposal: unknown;

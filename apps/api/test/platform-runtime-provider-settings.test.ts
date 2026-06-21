@@ -165,7 +165,8 @@ async function run(): Promise<void> {
     },
     availableModelsByProvider: {
       openai: ["gpt‑5.4", "gpt‑5.4-mini"],
-      anthropic: ["claude-sonnet-4-5"]
+      anthropic: ["claude-sonnet-4-5"],
+      deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"]
     },
     availableModelCatalogByProvider: {
       openai: {
@@ -275,6 +276,48 @@ async function run(): Promise<void> {
             notes: null
           }
         ]
+      },
+      deepseek: {
+        models: [
+          {
+            model: "deepseek-v4-flash",
+            capabilities: ["chat"],
+            ...tokenMeteredDefaults(),
+            providerPriceMetadata: {
+              currency: "USD",
+              tokenPricing: {
+                inputPer1M: 0.14,
+                cacheCreationInputPer1M: 0,
+                cachedInputPer1M: 0.0028,
+                outputPer1M: 0.28
+              }
+            },
+            inputTokenWeight: 0.112,
+            cachedInputTokenWeight: 0.00224,
+            outputTokenWeight: 0.224,
+            displayLabel: "DeepSeek V4 Flash",
+            notes: null
+          },
+          {
+            model: "deepseek-v4-pro",
+            capabilities: ["chat"],
+            ...tokenMeteredDefaults(),
+            providerPriceMetadata: {
+              currency: "USD",
+              tokenPricing: {
+                inputPer1M: 0.435,
+                cacheCreationInputPer1M: 0,
+                cachedInputPer1M: 0.003625,
+                outputPer1M: 0.87
+              }
+            },
+            inputTokenWeight: 0.348,
+            cachedInputTokenWeight: 0.0029,
+            outputTokenWeight: 0.696,
+            displayLabel: "DeepSeek V4 Pro",
+            notes: null
+          }
+        ]
       }
     },
     routingFastModelKey: "gpt‑5.4-mini",
@@ -294,7 +337,8 @@ async function run(): Promise<void> {
     },
     providerKeys: {
       openai: " sk-openai-new ",
-      anthropic: "sk-anthropic-new"
+      anthropic: "sk-anthropic-new",
+      deepseek: "sk-deepseek-new"
     }
   });
 
@@ -309,8 +353,13 @@ async function run(): Promise<void> {
   assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.premiumTerms, ["rewrite"]);
   assert.deepEqual(parsed.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
   assert.deepEqual(parsed.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
+  assert.deepEqual(parsed.availableModelsByProvider.deepseek, [
+    "deepseek-v4-flash",
+    "deepseek-v4-pro"
+  ]);
   assert.deepEqual(Object.keys(parsed.availableModelCatalogByProvider).sort(), [
     "anthropic",
+    "deepseek",
     "heygen",
     "kling",
     "openai",
@@ -414,6 +463,7 @@ async function run(): Promise<void> {
   assert.deepEqual(parsed.availableModelCatalogByProvider.runway.models, []);
   assert.deepEqual(parsed.availableModelCatalogByProvider.kling.models, []);
   assert.equal(parsed.providerKeys.openai, "sk-openai-new");
+  assert.equal(parsed.providerKeys.deepseek, "sk-deepseek-new");
 
   const parsedWithVideoCatalogProviders = parseUpdatePlatformRuntimeProviderSettingsInput({
     ...parsed,
@@ -453,7 +503,8 @@ async function run(): Promise<void> {
   });
   assert.deepEqual(parsedWithVideoCatalogProviders.availableModelsByProvider, {
     openai: ["gpt-5.4", "gpt-5.4-mini"],
-    anthropic: ["claude-sonnet-4-5"]
+    anthropic: ["claude-sonnet-4-5"],
+    deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"]
   });
   assert.deepEqual(
     parsedWithVideoCatalogProviders.availableModelCatalogByProvider.runway.models.map(
@@ -1133,9 +1184,10 @@ async function run(): Promise<void> {
   assert.equal(profile.mode, "admin_managed");
   assert.deepEqual(profile.availableModelsByProvider, {
     openai: ["gpt-5.4", "gpt-5.4-mini"],
-    anthropic: ["claude-sonnet-4-5"]
+    anthropic: ["claude-sonnet-4-5"],
+    deepseek: []
   });
-  assert.deepEqual(profile.allowedProviders, ["openai", "anthropic"]);
+  assert.deepEqual(profile.allowedProviders, ["openai", "anthropic", "deepseek"]);
   assert.deepEqual(
     profile.availableModelCatalogByProvider.openai.models
       .filter((modelProfile) => modelProfile.capabilities.includes("image"))
@@ -1185,25 +1237,40 @@ function minimalCatalogInput(modelOverrides: Record<string, unknown> = {}) {
 function runAdr122NormalizationTests() {
   // null is allowed for both fields (round-trips as null)
   const withNulls = parseUpdatePlatformRuntimeProviderSettingsInput(
-    minimalCatalogInput({ maxOutputTokens: null, contextWindow: null })
+    minimalCatalogInput({ maxOutputTokens: null, contextWindow: null, promptCacheRetention: null })
   );
   const withNullsModel = withNulls.availableModelCatalogByProvider.openai.models[0];
   assert.equal(withNullsModel?.maxOutputTokens, null, "maxOutputTokens=null round-trips as null");
   assert.equal(withNullsModel?.contextWindow, null, "contextWindow=null round-trips as null");
+  assert.equal(
+    withNullsModel?.promptCacheRetention,
+    null,
+    "promptCacheRetention=null round-trips as null"
+  );
 
   // undefined (absent) is treated as null
   const withAbsent = parseUpdatePlatformRuntimeProviderSettingsInput(minimalCatalogInput());
   const withAbsentModel = withAbsent.availableModelCatalogByProvider.openai.models[0];
   assert.equal(withAbsentModel?.maxOutputTokens, null, "absent maxOutputTokens defaults to null");
   assert.equal(withAbsentModel?.contextWindow, null, "absent contextWindow defaults to null");
+  assert.equal(
+    withAbsentModel?.promptCacheRetention,
+    null,
+    "absent promptCacheRetention defaults to null"
+  );
 
   // Valid positive integers are accepted
   const withValid = parseUpdatePlatformRuntimeProviderSettingsInput(
-    minimalCatalogInput({ maxOutputTokens: 64000, contextWindow: 200000 })
+    minimalCatalogInput({
+      maxOutputTokens: 64000,
+      contextWindow: 200000,
+      promptCacheRetention: "24h"
+    })
   );
   const withValidModel = withValid.availableModelCatalogByProvider.openai.models[0];
   assert.equal(withValidModel?.maxOutputTokens, 64000, "positive integer maxOutputTokens accepted");
   assert.equal(withValidModel?.contextWindow, 200000, "positive integer contextWindow accepted");
+  assert.equal(withValidModel?.promptCacheRetention, "24h", "valid promptCacheRetention accepted");
 
   // 0 is rejected
   assert.throws(
@@ -1260,6 +1327,14 @@ function runAdr122NormalizationTests() {
     /contextWindow must be at most/,
     "over-max rejected for contextWindow"
   );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput(
+        minimalCatalogInput({ promptCacheRetention: "forever" })
+      ),
+    /promptCacheRetention must be one of: in_memory, 24h/,
+    "invalid promptCacheRetention rejected"
+  );
 }
 
 function runAdr122SeedingTests() {
@@ -1276,6 +1351,7 @@ function runAdr122SeedingTests() {
   );
   assert.equal(seededModel?.maxOutputTokens, 64_000, "claude-sonnet-4-6 seeded maxOutputTokens");
   assert.equal(seededModel?.contextWindow, 200_000, "claude-sonnet-4-6 seeded contextWindow");
+  assert.equal(seededModel?.promptCacheRetention, "in_memory");
 
   // claude-opus-4-6 has higher maxOutputTokens
   const fromLegacyOpus = parseUpdatePlatformRuntimeProviderSettingsInput({
@@ -1289,6 +1365,18 @@ function runAdr122SeedingTests() {
   );
   assert.equal(opusModel?.maxOutputTokens, 128_000, "claude-opus-4-6 seeded maxOutputTokens=128k");
   assert.equal(opusModel?.contextWindow, 200_000, "claude-opus-4-6 seeded contextWindow=200k");
+  assert.equal(opusModel?.promptCacheRetention, "in_memory");
+
+  const fromLegacyGpt55 = parseUpdatePlatformRuntimeProviderSettingsInput({
+    primary: { provider: "openai", model: "gpt-5.5" },
+    fallback: null,
+    availableModelsByProvider: { openai: ["gpt-5.5"], anthropic: [] },
+    availableModelCatalogByProvider: null
+  });
+  const gpt55Seeded = fromLegacyGpt55.availableModelCatalogByProvider.openai.models.find(
+    (m) => m.model === "gpt-5.5"
+  );
+  assert.equal(gpt55Seeded?.promptCacheRetention, "24h", "gpt-5.5 seeded promptCacheRetention=24h");
 
   // Unknown model seeds null (no defaults applied)
   const fromLegacyUnknown = parseUpdatePlatformRuntimeProviderSettingsInput({
@@ -1302,10 +1390,15 @@ function runAdr122SeedingTests() {
   );
   assert.equal(unknownModel?.maxOutputTokens, null, "unknown model seeds null maxOutputTokens");
   assert.equal(unknownModel?.contextWindow, null, "unknown model seeds null contextWindow");
+  assert.equal(
+    unknownModel?.promptCacheRetention,
+    null,
+    "unknown model seeds null promptCacheRetention"
+  );
 
   // Null on an UNKNOWN model row round-trips as null (gpt-5.4 is not in defaults).
   const withExplicitNullCatalog = parseUpdatePlatformRuntimeProviderSettingsInput(
-    minimalCatalogInput({ maxOutputTokens: null, contextWindow: null })
+    minimalCatalogInput({ maxOutputTokens: null, contextWindow: null, promptCacheRetention: null })
   );
   const explicitNullModel =
     withExplicitNullCatalog.availableModelCatalogByProvider.openai.models[0];
@@ -1314,6 +1407,11 @@ function runAdr122SeedingTests() {
     explicitNullModel?.contextWindow,
     null,
     "unknown-model null contextWindow round-trips as null"
+  );
+  assert.equal(
+    explicitNullModel?.promptCacheRetention,
+    null,
+    "unknown-model null promptCacheRetention round-trips as null"
   );
 
   runAdr122WriteFoldInTests();
@@ -1355,7 +1453,11 @@ function knownModelCatalogInput(
 function runAdr122WriteFoldInTests() {
   // KNOWN model with null stored → folded to the family default (OpenAI gpt-5).
   const gpt5Null = parseUpdatePlatformRuntimeProviderSettingsInput(
-    knownModelCatalogInput("openai", "gpt-5", { maxOutputTokens: null, contextWindow: null })
+    knownModelCatalogInput("openai", "gpt-5", {
+      maxOutputTokens: null,
+      contextWindow: null,
+      promptCacheRetention: null
+    })
   );
   const gpt5NullModel = gpt5Null.availableModelCatalogByProvider.openai.models.find(
     (m) => m.model === "gpt-5"
@@ -1370,10 +1472,19 @@ function runAdr122WriteFoldInTests() {
     400_000,
     "WRITE fold-in: known OpenAI model (gpt-5) null contextWindow → family default 400k"
   );
+  assert.equal(
+    gpt5NullModel?.promptCacheRetention,
+    "in_memory",
+    "WRITE fold-in: known OpenAI model (gpt-5) null promptCacheRetention → family default in_memory"
+  );
 
   // KNOWN model with explicit value → admin value overrides the family default.
   const gpt5Explicit = parseUpdatePlatformRuntimeProviderSettingsInput(
-    knownModelCatalogInput("openai", "gpt-5", { maxOutputTokens: 32_000, contextWindow: 250_000 })
+    knownModelCatalogInput("openai", "gpt-5", {
+      maxOutputTokens: 32_000,
+      contextWindow: 250_000,
+      promptCacheRetention: "24h"
+    })
   );
   const gpt5ExplicitModel = gpt5Explicit.availableModelCatalogByProvider.openai.models.find(
     (m) => m.model === "gpt-5"
@@ -1388,12 +1499,18 @@ function runAdr122WriteFoldInTests() {
     250_000,
     "WRITE fold-in: explicit admin contextWindow overrides the family default"
   );
+  assert.equal(
+    gpt5ExplicitModel?.promptCacheRetention,
+    "24h",
+    "WRITE fold-in: explicit admin promptCacheRetention overrides the family default"
+  );
 
   // KNOWN Anthropic model with null → folded to Anthropic default.
   const sonnetNull = parseUpdatePlatformRuntimeProviderSettingsInput(
     knownModelCatalogInput("anthropic", "claude-sonnet-4-5", {
       maxOutputTokens: null,
-      contextWindow: null
+      contextWindow: null,
+      promptCacheRetention: null
     })
   );
   const sonnetNullModel = sonnetNull.availableModelCatalogByProvider.anthropic.models.find(
@@ -1409,12 +1526,34 @@ function runAdr122WriteFoldInTests() {
     200_000,
     "WRITE fold-in: known Anthropic model null contextWindow → family default 200k"
   );
+  assert.equal(
+    sonnetNullModel?.promptCacheRetention,
+    "in_memory",
+    "WRITE fold-in: known Anthropic model null promptCacheRetention → family default in_memory"
+  );
+
+  const gpt55Null = parseUpdatePlatformRuntimeProviderSettingsInput(
+    knownModelCatalogInput("openai", "gpt-5.5", {
+      maxOutputTokens: null,
+      contextWindow: null,
+      promptCacheRetention: null
+    })
+  );
+  const gpt55NullModel = gpt55Null.availableModelCatalogByProvider.openai.models.find(
+    (m) => m.model === "gpt-5.5"
+  );
+  assert.equal(
+    gpt55NullModel?.promptCacheRetention,
+    "24h",
+    "WRITE fold-in: known OpenAI model gpt-5.5 null promptCacheRetention → family default 24h"
+  );
 
   // UNKNOWN model with null → stays null (resolver fallback governs at runtime).
   const unknownNull = parseUpdatePlatformRuntimeProviderSettingsInput(
     knownModelCatalogInput("openai", "gpt-unknown-write", {
       maxOutputTokens: null,
-      contextWindow: null
+      contextWindow: null,
+      promptCacheRetention: null
     })
   );
   const unknownNullModel = unknownNull.availableModelCatalogByProvider.openai.models.find(
@@ -1429,6 +1568,11 @@ function runAdr122WriteFoldInTests() {
     unknownNullModel?.contextWindow,
     null,
     "WRITE fold-in: unknown model null contextWindow stays null"
+  );
+  assert.equal(
+    unknownNullModel?.promptCacheRetention,
+    null,
+    "WRITE fold-in: unknown model null promptCacheRetention stays null"
   );
 }
 

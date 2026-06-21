@@ -11,5 +11,6 @@ export type ManagedRuntimeProvider =
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ManagedRuntimeProvider = {
   openai: "openai",
-  anthropic: "anthropic"
+  anthropic: "anthropic",
+  deepseek: "deepseek"
 } as const;

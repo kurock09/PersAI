@@ -140,6 +140,11 @@ export type AdminPlanPresentation = {
   highlightItems: AdminPlanLocalizedTextList;
 };
 
+export type AdminPlanTextModelProviderSelection = {
+  providerKey: string | null;
+  modelKey: string | null;
+};
+
 export type AdminPlanInput = {
   displayName: string;
   description: string | null;
@@ -176,10 +181,15 @@ export type AdminPlanInput = {
   retrievalPolicy: AdminPlanRetrievalPolicy;
   sandboxPolicy: AdminPlanSandboxPolicy;
   primaryModelKey: string | null;
+  primaryModelProviderKey: string | null;
   premiumModelKey: string | null;
+  premiumModelProviderKey: string | null;
   reasoningModelKey: string | null;
+  reasoningModelProviderKey: string | null;
   systemToolModelKey: string | null;
+  systemToolModelProviderKey: string | null;
   retrievalModelKey: string | null;
+  retrievalModelProviderKey: string | null;
   imageGenerateModelKey: string | null;
   imageGenerateFallbackModelKey: string | null;
   imageEditModelKey: string | null;
@@ -278,10 +288,15 @@ export type AdminPlanState = {
   retrievalPolicy: AdminPlanRetrievalPolicy;
   sandboxPolicy: AdminPlanSandboxPolicy;
   primaryModelKey: string | null;
+  primaryModelProviderKey: string | null;
   premiumModelKey: string | null;
+  premiumModelProviderKey: string | null;
   reasoningModelKey: string | null;
+  reasoningModelProviderKey: string | null;
   systemToolModelKey: string | null;
+  systemToolModelProviderKey: string | null;
   retrievalModelKey: string | null;
+  retrievalModelProviderKey: string | null;
   imageGenerateModelKey: string | null;
   imageGenerateFallbackModelKey: string | null;
   imageEditModelKey: string | null;

@@ -55,6 +55,7 @@ import {
   toPlanThinkingBudgetByLevelDocument
 } from "./thinking-budgets-policy";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
+import type { PlatformRuntimeProviderSettingsState } from "./platform-runtime-provider-settings";
 import { parseVideoVcoinMonthlyGrant } from "./vcoin/parse-video-vcoin-monthly-grant";
 import { TYPICAL_VIDEO_SECONDS } from "./vcoin/typical-video-seconds";
 import { getRuntimeProviderCatalogModelsByCapability } from "./runtime-provider-profile";
@@ -181,6 +182,67 @@ function parseOptionalPlanModelKey(value: unknown, fieldName: string): string | 
     throw new BadRequestException(`${fieldName} must be a non-empty string or null.`);
   }
   return modelKey;
+}
+
+function parseOptionalPlanProviderKey(value: unknown, fieldName: string): string | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new BadRequestException(`${fieldName} must be a non-empty string or null.`);
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return null;
+  }
+  return normalized;
+}
+
+type ActiveChatModelIndex = {
+  modelsByProvider: Map<string, Set<string>>;
+  providersByModel: Map<string, Set<string>>;
+};
+
+function deriveStoredTextModelProviderKey(params: {
+  billingHints: Record<string, unknown>;
+  providerField:
+    | "primaryModelProviderKey"
+    | "premiumModelProviderKey"
+    | "reasoningModelProviderKey"
+    | "systemToolModelProviderKey"
+    | "retrievalModelProviderKey";
+  modelKey: string | null;
+  primaryProviderKey: string | null;
+  activeChatModelIndex: ActiveChatModelIndex | null;
+}): string | null {
+  if (params.modelKey === null) {
+    return null;
+  }
+  const storedProviderKey = parseOptionalPlanProviderKey(
+    params.billingHints[params.providerField],
+    params.providerField
+  );
+  const index = params.activeChatModelIndex;
+  if (index === null) {
+    return storedProviderKey;
+  }
+  if (
+    storedProviderKey !== null &&
+    index.modelsByProvider.get(storedProviderKey)?.has(params.modelKey) === true
+  ) {
+    return storedProviderKey;
+  }
+  if (
+    params.primaryProviderKey !== null &&
+    index.modelsByProvider.get(params.primaryProviderKey)?.has(params.modelKey) === true
+  ) {
+    return params.primaryProviderKey;
+  }
+  const providers = index.providersByModel.get(params.modelKey);
+  if (providers !== undefined && providers.size === 1) {
+    return Array.from(providers)[0] ?? null;
+  }
+  return storedProviderKey;
 }
 
 function parseTrialDuration(value: unknown, trialEnabled: boolean): number | null {
@@ -558,8 +620,10 @@ export class ManageAdminPlansService {
       );
       plans = await this.planCatalogRepository.listAll();
     }
-
-    return plans.map((plan) => this.toAdminPlanState(plan));
+    const runtimeSettings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    return plans.map((plan) =>
+      this.toAdminPlanState(plan, this.buildActiveChatModelIndex(runtimeSettings), runtimeSettings)
+    );
   }
 
   async listPublicPricingPlans(): Promise<PublicPricingPlanState[]> {
@@ -643,25 +707,55 @@ export class ManageAdminPlansService {
     if (existing !== null) {
       throw new ConflictException("Plan code already exists.");
     }
-    await this.assertModelKeysAvailable([
-      input.primaryModelKey,
-      input.premiumModelKey,
-      input.reasoningModelKey,
-      input.systemToolModelKey,
-      input.retrievalModelKey
-    ]);
-    await this.assertCapabilityModelKeysAvailable([
-      { modelKey: input.imageGenerateModelKey, capability: "image" },
-      { modelKey: input.imageGenerateFallbackModelKey, capability: "image" },
-      { modelKey: input.imageEditModelKey, capability: "image" },
-      { modelKey: input.imageEditFallbackModelKey, capability: "image" },
-      { modelKey: input.videoGenerateModelKey, capability: "video" },
-      { modelKey: input.videoGenerateFallbackModelKey, capability: "video" }
-    ]);
-    await this.assertTalkingAvatarModelKeysAvailable([
-      { modelKey: input.talkingAvatarModelKey, field: "talkingAvatarModelKey" },
-      { modelKey: input.talkingAvatarFallbackModelKey, field: "talkingAvatarFallbackModelKey" }
-    ]);
+    const runtimeSettings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    await this.assertTextModelSelectionsAvailable(
+      [
+        {
+          providerKey: input.primaryModelProviderKey,
+          modelKey: input.primaryModelKey,
+          fieldLabel: "primaryModel"
+        },
+        {
+          providerKey: input.premiumModelProviderKey,
+          modelKey: input.premiumModelKey,
+          fieldLabel: "premiumModel"
+        },
+        {
+          providerKey: input.reasoningModelProviderKey,
+          modelKey: input.reasoningModelKey,
+          fieldLabel: "reasoningModel"
+        },
+        {
+          providerKey: input.systemToolModelProviderKey,
+          modelKey: input.systemToolModelKey,
+          fieldLabel: "systemToolModel"
+        },
+        {
+          providerKey: input.retrievalModelProviderKey,
+          modelKey: input.retrievalModelKey,
+          fieldLabel: "retrievalModel"
+        }
+      ],
+      runtimeSettings
+    );
+    await this.assertCapabilityModelKeysAvailable(
+      [
+        { modelKey: input.imageGenerateModelKey, capability: "image" },
+        { modelKey: input.imageGenerateFallbackModelKey, capability: "image" },
+        { modelKey: input.imageEditModelKey, capability: "image" },
+        { modelKey: input.imageEditFallbackModelKey, capability: "image" },
+        { modelKey: input.videoGenerateModelKey, capability: "video" },
+        { modelKey: input.videoGenerateFallbackModelKey, capability: "video" }
+      ],
+      runtimeSettings
+    );
+    await this.assertTalkingAvatarModelKeysAvailable(
+      [
+        { modelKey: input.talkingAvatarModelKey, field: "talkingAvatarModelKey" },
+        { modelKey: input.talkingAvatarFallbackModelKey, field: "talkingAvatarFallbackModelKey" }
+      ],
+      runtimeSettings
+    );
     await this.assertLifecycleFallbackPlansAreActive(input, input.code);
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
@@ -698,7 +792,11 @@ export class ManageAdminPlansService {
         trialEnabled: created.isTrialPlan
       }
     });
-    return this.toAdminPlanState(created);
+    return this.toAdminPlanState(
+      created,
+      this.buildActiveChatModelIndex(runtimeSettings),
+      runtimeSettings
+    );
   }
 
   async updatePlan(
@@ -717,31 +815,68 @@ export class ManageAdminPlansService {
     if (existing === null) {
       throw new NotFoundException("Plan not found.");
     }
+    const runtimeSettings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
     const mergedInput = this.parsePlanInput(
-      mergePlanPatchObject(this.toAdminPlanState(existing), patch)
+      mergePlanPatchObject(
+        this.toAdminPlanState(
+          existing,
+          this.buildActiveChatModelIndex(runtimeSettings),
+          runtimeSettings
+        ),
+        patch
+      )
     );
-    await this.assertModelKeysAvailable([
-      mergedInput.primaryModelKey,
-      mergedInput.premiumModelKey,
-      mergedInput.reasoningModelKey,
-      mergedInput.systemToolModelKey,
-      mergedInput.retrievalModelKey
-    ]);
-    await this.assertCapabilityModelKeysAvailable([
-      { modelKey: mergedInput.imageGenerateModelKey, capability: "image" },
-      { modelKey: mergedInput.imageGenerateFallbackModelKey, capability: "image" },
-      { modelKey: mergedInput.imageEditModelKey, capability: "image" },
-      { modelKey: mergedInput.imageEditFallbackModelKey, capability: "image" },
-      { modelKey: mergedInput.videoGenerateModelKey, capability: "video" },
-      { modelKey: mergedInput.videoGenerateFallbackModelKey, capability: "video" }
-    ]);
-    await this.assertTalkingAvatarModelKeysAvailable([
-      { modelKey: mergedInput.talkingAvatarModelKey, field: "talkingAvatarModelKey" },
-      {
-        modelKey: mergedInput.talkingAvatarFallbackModelKey,
-        field: "talkingAvatarFallbackModelKey"
-      }
-    ]);
+    await this.assertTextModelSelectionsAvailable(
+      [
+        {
+          providerKey: mergedInput.primaryModelProviderKey,
+          modelKey: mergedInput.primaryModelKey,
+          fieldLabel: "primaryModel"
+        },
+        {
+          providerKey: mergedInput.premiumModelProviderKey,
+          modelKey: mergedInput.premiumModelKey,
+          fieldLabel: "premiumModel"
+        },
+        {
+          providerKey: mergedInput.reasoningModelProviderKey,
+          modelKey: mergedInput.reasoningModelKey,
+          fieldLabel: "reasoningModel"
+        },
+        {
+          providerKey: mergedInput.systemToolModelProviderKey,
+          modelKey: mergedInput.systemToolModelKey,
+          fieldLabel: "systemToolModel"
+        },
+        {
+          providerKey: mergedInput.retrievalModelProviderKey,
+          modelKey: mergedInput.retrievalModelKey,
+          fieldLabel: "retrievalModel"
+        }
+      ],
+      runtimeSettings
+    );
+    await this.assertCapabilityModelKeysAvailable(
+      [
+        { modelKey: mergedInput.imageGenerateModelKey, capability: "image" },
+        { modelKey: mergedInput.imageGenerateFallbackModelKey, capability: "image" },
+        { modelKey: mergedInput.imageEditModelKey, capability: "image" },
+        { modelKey: mergedInput.imageEditFallbackModelKey, capability: "image" },
+        { modelKey: mergedInput.videoGenerateModelKey, capability: "video" },
+        { modelKey: mergedInput.videoGenerateFallbackModelKey, capability: "video" }
+      ],
+      runtimeSettings
+    );
+    await this.assertTalkingAvatarModelKeysAvailable(
+      [
+        { modelKey: mergedInput.talkingAvatarModelKey, field: "talkingAvatarModelKey" },
+        {
+          modelKey: mergedInput.talkingAvatarFallbackModelKey,
+          field: "talkingAvatarFallbackModelKey"
+        }
+      ],
+      runtimeSettings
+    );
     await this.assertLifecycleFallbackPlansAreActive(mergedInput, normalizedCode);
     const updated = await this.planCatalogRepository.updateByCode(
       normalizedCode,
@@ -783,7 +918,11 @@ export class ManageAdminPlansService {
         trialEnabled: updated.isTrialPlan
       }
     });
-    return this.toAdminPlanState(updated);
+    return this.toAdminPlanState(
+      updated,
+      this.buildActiveChatModelIndex(runtimeSettings),
+      runtimeSettings
+    );
   }
 
   async deletePlan(userId: string, code: string, stepUpToken: string | null): Promise<void> {
@@ -954,10 +1093,30 @@ export class ManageAdminPlansService {
       retrievalPolicy,
       sandboxPolicy,
       primaryModelKey: toNormalizedNonEmptyModelKey(parsed.primaryModelKey),
+      primaryModelProviderKey: parseOptionalPlanProviderKey(
+        parsed.primaryModelProviderKey,
+        "primaryModelProviderKey"
+      ),
       premiumModelKey: toNormalizedNonEmptyModelKey(parsed.premiumModelKey),
+      premiumModelProviderKey: parseOptionalPlanProviderKey(
+        parsed.premiumModelProviderKey,
+        "premiumModelProviderKey"
+      ),
       reasoningModelKey: toNormalizedNonEmptyModelKey(parsed.reasoningModelKey),
+      reasoningModelProviderKey: parseOptionalPlanProviderKey(
+        parsed.reasoningModelProviderKey,
+        "reasoningModelProviderKey"
+      ),
       systemToolModelKey: toNormalizedNonEmptyModelKey(parsed.systemToolModelKey),
+      systemToolModelProviderKey: parseOptionalPlanProviderKey(
+        parsed.systemToolModelProviderKey,
+        "systemToolModelProviderKey"
+      ),
       retrievalModelKey: toNormalizedNonEmptyModelKey(parsed.retrievalModelKey),
+      retrievalModelProviderKey: parseOptionalPlanProviderKey(
+        parsed.retrievalModelProviderKey,
+        "retrievalModelProviderKey"
+      ),
       imageGenerateModelKey: parseOptionalPlanModelKey(
         parsed.imageGenerateModelKey,
         "imageGenerateModelKey"
@@ -1173,12 +1332,27 @@ export class ManageAdminPlansService {
         retrievalPolicy: input.retrievalPolicy,
         sandboxPolicy: toPlanSandboxPolicyDocument(input.sandboxPolicy),
         ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {}),
+        ...(input.primaryModelProviderKey !== null
+          ? { primaryModelProviderKey: input.primaryModelProviderKey }
+          : {}),
         ...(input.premiumModelKey !== null ? { premiumModelKey: input.premiumModelKey } : {}),
+        ...(input.premiumModelProviderKey !== null
+          ? { premiumModelProviderKey: input.premiumModelProviderKey }
+          : {}),
         ...(input.reasoningModelKey !== null ? { reasoningModelKey: input.reasoningModelKey } : {}),
+        ...(input.reasoningModelProviderKey !== null
+          ? { reasoningModelProviderKey: input.reasoningModelProviderKey }
+          : {}),
         ...(input.systemToolModelKey !== null
           ? { systemToolModelKey: input.systemToolModelKey }
           : {}),
+        ...(input.systemToolModelProviderKey !== null
+          ? { systemToolModelProviderKey: input.systemToolModelProviderKey }
+          : {}),
         ...(input.retrievalModelKey !== null ? { retrievalModelKey: input.retrievalModelKey } : {}),
+        ...(input.retrievalModelProviderKey !== null
+          ? { retrievalModelProviderKey: input.retrievalModelProviderKey }
+          : {}),
         ...(input.imageGenerateModelKey !== null
           ? { imageGenerateModelKey: input.imageGenerateModelKey }
           : {}),
@@ -1285,28 +1459,80 @@ export class ManageAdminPlansService {
     });
   }
 
-  private async assertModelKeysAvailable(modelKeys: Array<string | null>): Promise<void> {
-    const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
-    const catalog = [
-      ...settings.availableModelsByProvider.openai,
-      ...settings.availableModelsByProvider.anthropic
-    ];
-    for (const modelKey of modelKeys) {
-      if (modelKey === null) {
+  private buildActiveChatModelIndex(
+    settings: Pick<PlatformRuntimeProviderSettingsState, "availableModelCatalogByProvider">
+  ): ActiveChatModelIndex {
+    const modelsByProvider = new Map<string, Set<string>>();
+    const providersByModel = new Map<string, Set<string>>();
+    for (const [providerKey, providerCatalog] of Object.entries(
+      settings.availableModelCatalogByProvider
+    )) {
+      const models = new Set<string>();
+      for (const profile of providerCatalog.models) {
+        if (!profile.active || !profile.capabilities.includes("chat")) {
+          continue;
+        }
+        models.add(profile.model);
+        const providers = providersByModel.get(profile.model) ?? new Set<string>();
+        providers.add(providerKey);
+        providersByModel.set(profile.model, providers);
+      }
+      modelsByProvider.set(providerKey, models);
+    }
+    return { modelsByProvider, providersByModel };
+  }
+
+  private async assertTextModelSelectionsAvailable(
+    entries: Array<{
+      providerKey: string | null;
+      modelKey: string | null;
+      fieldLabel: string;
+    }>,
+    runtimeSettings?: Pick<PlatformRuntimeProviderSettingsState, "availableModelCatalogByProvider">
+  ): Promise<void> {
+    const settings =
+      runtimeSettings ?? (await this.resolvePlatformRuntimeProviderSettingsService.execute());
+    const activeChatModelIndex = this.buildActiveChatModelIndex(settings);
+    for (const entry of entries) {
+      if (entry.modelKey === null) {
+        if (entry.providerKey !== null) {
+          throw new BadRequestException(
+            `${entry.fieldLabel} provider cannot be set without a model.`
+          );
+        }
         continue;
       }
-      if (!catalog.includes(modelKey)) {
+      if (entry.providerKey !== null) {
+        const providerModels = activeChatModelIndex.modelsByProvider.get(entry.providerKey);
+        if (providerModels === undefined || !providerModels.has(entry.modelKey)) {
+          throw new BadRequestException(
+            `${entry.fieldLabel} must reference an active chat model on provider "${entry.providerKey}".`
+          );
+        }
+        continue;
+      }
+      const matchingProviders = activeChatModelIndex.providersByModel.get(entry.modelKey);
+      if (matchingProviders === undefined || matchingProviders.size === 0) {
         throw new BadRequestException(
-          `"${modelKey}" must be selected from Runtime Admin available models.`
+          `"${entry.modelKey}" must be selected from Runtime Admin active chat models.`
+        );
+      }
+      if (matchingProviders.size > 1) {
+        throw new BadRequestException(
+          `"${entry.modelKey}" is ambiguous across active Runtime Admin chat models (${Array.from(
+            matchingProviders
+          ).join(", ")}). Select an explicit provider for ${entry.fieldLabel}.`
         );
       }
     }
   }
 
   private async assertCapabilityModelKeysAvailable(
-    entries: Array<{ modelKey: string | null; capability: "image" | "video" }>
+    entries: Array<{ modelKey: string | null; capability: "image" | "video" }>,
+    runtimeSettings?: Pick<PlatformRuntimeProviderSettingsState, "availableModelCatalogByProvider">
   ): Promise<void> {
-    const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    const settings =
+      runtimeSettings ?? (await this.resolvePlatformRuntimeProviderSettingsService.execute());
     const catalogs = settings.availableModelCatalogByProvider;
     const getCapabilityModels = (
       providerCatalog:
@@ -1417,13 +1643,15 @@ export class ManageAdminPlansService {
   // ADR-109 Slice 10c: validate that talkingAvatarModelKey / talkingAvatarFallbackModelKey
   // reference active HeyGen rows with kind='talking_avatar'. Cinematic rows are refused.
   private async assertTalkingAvatarModelKeysAvailable(
-    entries: Array<{ modelKey: string | null; field: string }>
+    entries: Array<{ modelKey: string | null; field: string }>,
+    runtimeSettings?: Pick<PlatformRuntimeProviderSettingsState, "availableModelCatalogByProvider">
   ): Promise<void> {
     const nonNull = entries.filter((e) => e.modelKey !== null);
     if (nonNull.length === 0) {
       return;
     }
-    const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    const settings =
+      runtimeSettings ?? (await this.resolvePlatformRuntimeProviderSettingsService.execute());
     const heygenCatalog = settings.availableModelCatalogByProvider.heygen;
     for (const entry of nonNull) {
       const modelKey = entry.modelKey!;
@@ -1480,7 +1708,11 @@ export class ManageAdminPlansService {
     }
   }
 
-  private toAdminPlanState(plan: AssistantPlanCatalog): AdminPlanState {
+  private toAdminPlanState(
+    plan: AssistantPlanCatalog,
+    activeChatModelIndex: ActiveChatModelIndex | null = null,
+    runtimeSettings: Pick<PlatformRuntimeProviderSettingsState, "primary"> | null = null
+  ): AdminPlanState {
     const billingHints =
       plan.billingProviderHints !== null &&
       typeof plan.billingProviderHints === "object" &&
@@ -1522,6 +1754,12 @@ export class ManageAdminPlansService {
     const thinkingBudgetByLevel = resolveStoredPlanThinkingBudgetByLevel(
       billingHints.thinkingBudgetByLevel
     );
+    const primaryProviderKey = runtimeSettings?.primary?.provider ?? null;
+    const primaryModelKey = toNormalizedNonEmptyModelKey(billingHints.primaryModelKey);
+    const premiumModelKey = toNormalizedNonEmptyModelKey(billingHints.premiumModelKey);
+    const reasoningModelKey = toNormalizedNonEmptyModelKey(billingHints.reasoningModelKey);
+    const systemToolModelKey = toNormalizedNonEmptyModelKey(billingHints.systemToolModelKey);
+    const retrievalModelKey = toNormalizedNonEmptyModelKey(billingHints.retrievalModelKey);
 
     return {
       code: plan.code,
@@ -1613,11 +1851,46 @@ export class ManageAdminPlansService {
       contextPolicy,
       retrievalPolicy,
       sandboxPolicy,
-      primaryModelKey: toNormalizedNonEmptyModelKey(billingHints.primaryModelKey),
-      premiumModelKey: toNormalizedNonEmptyModelKey(billingHints.premiumModelKey),
-      reasoningModelKey: toNormalizedNonEmptyModelKey(billingHints.reasoningModelKey),
-      systemToolModelKey: toNormalizedNonEmptyModelKey(billingHints.systemToolModelKey),
-      retrievalModelKey: toNormalizedNonEmptyModelKey(billingHints.retrievalModelKey),
+      primaryModelKey,
+      primaryModelProviderKey: deriveStoredTextModelProviderKey({
+        billingHints,
+        providerField: "primaryModelProviderKey",
+        modelKey: primaryModelKey,
+        primaryProviderKey,
+        activeChatModelIndex
+      }),
+      premiumModelKey,
+      premiumModelProviderKey: deriveStoredTextModelProviderKey({
+        billingHints,
+        providerField: "premiumModelProviderKey",
+        modelKey: premiumModelKey,
+        primaryProviderKey,
+        activeChatModelIndex
+      }),
+      reasoningModelKey,
+      reasoningModelProviderKey: deriveStoredTextModelProviderKey({
+        billingHints,
+        providerField: "reasoningModelProviderKey",
+        modelKey: reasoningModelKey,
+        primaryProviderKey,
+        activeChatModelIndex
+      }),
+      systemToolModelKey,
+      systemToolModelProviderKey: deriveStoredTextModelProviderKey({
+        billingHints,
+        providerField: "systemToolModelProviderKey",
+        modelKey: systemToolModelKey,
+        primaryProviderKey,
+        activeChatModelIndex
+      }),
+      retrievalModelKey,
+      retrievalModelProviderKey: deriveStoredTextModelProviderKey({
+        billingHints,
+        providerField: "retrievalModelProviderKey",
+        modelKey: retrievalModelKey,
+        primaryProviderKey,
+        activeChatModelIndex
+      }),
       imageGenerateModelKey: toNormalizedNonEmptyModelKey(billingHints.imageGenerateModelKey),
       imageGenerateFallbackModelKey: toNormalizedNonEmptyModelKey(
         billingHints.imageGenerateFallbackModelKey

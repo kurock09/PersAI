@@ -6,12 +6,18 @@ import type {
   RuntimeProviderModelProfileState
 } from "@persai/contracts";
 
-export const MANAGED_RUNTIME_PROVIDERS: ManagedRuntimeProvider[] = ["openai", "anthropic"];
+export const MANAGED_RUNTIME_PROVIDERS: ManagedRuntimeProvider[] = [
+  "openai",
+  "anthropic",
+  "deepseek"
+];
 export const MANAGED_RUNTIME_CATALOG_PROVIDERS: ManagedRuntimeCatalogProvider[] = [
   "openai",
   "anthropic",
+  "deepseek",
   "runway",
-  "kling"
+  "kling",
+  "heygen"
 ];
 
 type RuntimeProviderSelectionDraft = {
@@ -57,6 +63,11 @@ function createEmptyProviderKeyState(): RuntimeProviderProviderKeyState {
       configured: false,
       lastFour: null,
       updatedAt: null
+    },
+    deepseek: {
+      configured: false,
+      lastFour: null,
+      updatedAt: null
     }
   };
 }
@@ -75,13 +86,15 @@ export function createDefaultRuntimeProviderSettingsAdminDraft(): RuntimeProvide
     modelProfilesTextByProvider: {
       openai: "",
       anthropic: "",
+      deepseek: "",
       runway: "",
       kling: "",
       heygen: ""
     },
     providerKeys: {
       openai: "",
-      anthropic: ""
+      anthropic: "",
+      deepseek: ""
     }
   };
 }
@@ -345,6 +358,9 @@ export function resolveRuntimeProviderSettingsAdminFormState(
     anthropic: formatRuntimeProviderModelProfilesText(
       settings.availableModelCatalogByProvider.anthropic.models
     ),
+    deepseek: formatRuntimeProviderModelProfilesText(
+      settings.availableModelCatalogByProvider.deepseek.models
+    ),
     runway: formatRuntimeProviderModelProfilesText(
       settings.availableModelCatalogByProvider.runway.models
     ),
@@ -421,6 +437,9 @@ export function buildRuntimeProviderSettingsRequest(params: {
   const anthropicProfiles = parseRuntimeProviderModelProfilesText(
     params.draft.modelProfilesTextByProvider.anthropic
   );
+  const deepseekProfiles = parseRuntimeProviderModelProfilesText(
+    params.draft.modelProfilesTextByProvider.deepseek
+  );
   const runwayProfiles = parseRuntimeProviderModelProfilesText(
     params.draft.modelProfilesTextByProvider.runway
   );
@@ -436,6 +455,9 @@ export function buildRuntimeProviderSettingsRequest(params: {
       .map((profile) => profile.model),
     anthropic: anthropicProfiles
       .filter((profile) => profile.capabilities.includes("chat"))
+      .map((profile) => profile.model),
+    deepseek: deepseekProfiles
+      .filter((profile) => profile.capabilities.includes("chat"))
       .map((profile) => profile.model)
   };
   const availableModelCatalogByProvider = {
@@ -444,6 +466,9 @@ export function buildRuntimeProviderSettingsRequest(params: {
     },
     anthropic: {
       models: anthropicProfiles
+    },
+    deepseek: {
+      models: deepseekProfiles
     },
     runway: {
       models: runwayProfiles

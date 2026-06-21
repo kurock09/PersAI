@@ -63,9 +63,43 @@ type PlanQuotaLimitsDraftShape = AdminPlanQuotaLimits & {
 type ModelOption = {
   provider: string;
   model: string;
+  value?: string;
   label?: string;
   disabled?: boolean;
 };
+
+const TEXT_MODEL_SELECTION_SEPARATOR = "::";
+
+function encodeTextModelSelection(providerKey: string, modelKey: string): string {
+  return `${providerKey}${TEXT_MODEL_SELECTION_SEPARATOR}${modelKey}`;
+}
+
+function decodeTextModelSelection(value: string): { providerKey: string; modelKey: string } | null {
+  const separatorIndex = value.indexOf(TEXT_MODEL_SELECTION_SEPARATOR);
+  if (
+    separatorIndex <= 0 ||
+    separatorIndex >= value.length - TEXT_MODEL_SELECTION_SEPARATOR.length
+  ) {
+    return null;
+  }
+  const providerKey = value.slice(0, separatorIndex).trim().toLowerCase();
+  const modelKey = value.slice(separatorIndex + TEXT_MODEL_SELECTION_SEPARATOR.length).trim();
+  if (providerKey.length === 0 || modelKey.length === 0) {
+    return null;
+  }
+  return { providerKey, modelKey };
+}
+
+function formatSlotSelectionSummary(
+  modelKey: string | null | undefined,
+  providerKey: string | null | undefined,
+  fallbackLabel: string
+): string {
+  if (!modelKey) {
+    return fallbackLabel;
+  }
+  return providerKey ? `${providerKey} / ${modelKey}` : modelKey;
+}
 
 export type PlanDraft = {
   displayName: string;
@@ -169,10 +203,15 @@ export type PlanDraft = {
   crossSessionCarryOverIdleHours: string;
   crossSessionCarryOverCooldownHours: string;
   primaryModelKey: string;
+  primaryModelProviderKey: string;
   premiumModelKey: string;
+  premiumModelProviderKey: string;
   reasoningModelKey: string;
+  reasoningModelProviderKey: string;
   systemToolModelKey: string;
+  systemToolModelProviderKey: string;
   retrievalModelKey: string;
+  retrievalModelProviderKey: string;
   imageGenerateModelKey: string;
   imageGenerateFallbackModelKey: string;
   imageEditModelKey: string;
@@ -917,10 +956,15 @@ function emptyDraft(): PlanDraft {
     maxAssistants: "1",
     ...applyContextPolicyPreset("balanced"),
     primaryModelKey: "",
+    primaryModelProviderKey: "",
     premiumModelKey: "",
+    premiumModelProviderKey: "",
     reasoningModelKey: "",
+    reasoningModelProviderKey: "",
     systemToolModelKey: "",
+    systemToolModelProviderKey: "",
     retrievalModelKey: "",
+    retrievalModelProviderKey: "",
     imageGenerateModelKey: "",
     imageGenerateFallbackModelKey: "",
     imageEditModelKey: "",
@@ -1060,10 +1104,15 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     crossSessionCarryOverCooldownHours:
       plan.contextPolicy.crossSessionCarryOverCooldownHours.toString(),
     primaryModelKey: plan.primaryModelKey ?? "",
+    primaryModelProviderKey: plan.primaryModelProviderKey ?? "",
     premiumModelKey: plan.premiumModelKey ?? "",
+    premiumModelProviderKey: plan.premiumModelProviderKey ?? "",
     reasoningModelKey: plan.reasoningModelKey ?? "",
+    reasoningModelProviderKey: plan.reasoningModelProviderKey ?? "",
     systemToolModelKey: plan.systemToolModelKey ?? "",
+    systemToolModelProviderKey: plan.systemToolModelProviderKey ?? "",
     retrievalModelKey: plan.retrievalModelKey ?? "",
+    retrievalModelProviderKey: plan.retrievalModelProviderKey ?? "",
     imageGenerateModelKey: plan.imageGenerateModelKey ?? "",
     imageGenerateFallbackModelKey: plan.imageGenerateFallbackModelKey ?? "",
     imageEditModelKey: plan.imageEditModelKey ?? "",
@@ -1473,10 +1522,15 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       )!
     },
     primaryModelKey: toNullable(draft.primaryModelKey),
+    primaryModelProviderKey: toNullable(draft.primaryModelProviderKey),
     premiumModelKey: toNullable(draft.premiumModelKey),
+    premiumModelProviderKey: toNullable(draft.premiumModelProviderKey),
     reasoningModelKey: toNullable(draft.reasoningModelKey),
+    reasoningModelProviderKey: toNullable(draft.reasoningModelProviderKey),
     systemToolModelKey: toNullable(draft.systemToolModelKey),
+    systemToolModelProviderKey: toNullable(draft.systemToolModelProviderKey),
     retrievalModelKey: toNullable(draft.retrievalModelKey),
+    retrievalModelProviderKey: toNullable(draft.retrievalModelProviderKey),
     imageGenerateModelKey: toNullable(draft.imageGenerateModelKey),
     imageGenerateFallbackModelKey: toNullable(draft.imageGenerateFallbackModelKey),
     imageEditModelKey: toNullable(draft.imageEditModelKey),
@@ -2261,7 +2315,7 @@ function ModelOptionSelect({
           {models.map((option) => (
             <option
               key={`${provider}-${option.model}`}
-              value={option.model}
+              value={option.value ?? option.model}
               disabled={option.disabled}
             >
               {option.label ?? option.model}
@@ -2821,68 +2875,109 @@ export function PlanForm({
                     {
                       label: "Normal reply",
                       slot: "normal" as const,
-                      value: draft.primaryModelKey,
-                      patch: (value: string) => onPatch({ primaryModelKey: value }),
+                      value:
+                        draft.primaryModelKey && draft.primaryModelProviderKey
+                          ? encodeTextModelSelection(
+                              draft.primaryModelProviderKey,
+                              draft.primaryModelKey
+                            )
+                          : "",
+                      patch: (value: string) => {
+                        const selection = decodeTextModelSelection(value);
+                        onPatch({
+                          primaryModelKey: selection?.modelKey ?? "",
+                          primaryModelProviderKey: selection?.providerKey ?? ""
+                        });
+                      },
                       placeholder: "platform default"
                     },
                     {
                       label: "Premium reply",
                       slot: "premium" as const,
-                      value: draft.premiumModelKey,
-                      patch: (value: string) => onPatch({ premiumModelKey: value }),
+                      value:
+                        draft.premiumModelKey && draft.premiumModelProviderKey
+                          ? encodeTextModelSelection(
+                              draft.premiumModelProviderKey,
+                              draft.premiumModelKey
+                            )
+                          : "",
+                      patch: (value: string) => {
+                        const selection = decodeTextModelSelection(value);
+                        onPatch({
+                          premiumModelKey: selection?.modelKey ?? "",
+                          premiumModelProviderKey: selection?.providerKey ?? ""
+                        });
+                      },
                       placeholder: "normal reply"
                     },
                     {
                       label: "Reasoning",
                       slot: "reasoning" as const,
-                      value: draft.reasoningModelKey,
-                      patch: (value: string) => onPatch({ reasoningModelKey: value }),
+                      value:
+                        draft.reasoningModelKey && draft.reasoningModelProviderKey
+                          ? encodeTextModelSelection(
+                              draft.reasoningModelProviderKey,
+                              draft.reasoningModelKey
+                            )
+                          : "",
+                      patch: (value: string) => {
+                        const selection = decodeTextModelSelection(value);
+                        onPatch({
+                          reasoningModelKey: selection?.modelKey ?? "",
+                          reasoningModelProviderKey: selection?.providerKey ?? ""
+                        });
+                      },
                       placeholder: "premium reply"
                     },
                     {
                       label: "System tool",
                       slot: null,
-                      value: draft.systemToolModelKey,
-                      patch: (value: string) => onPatch({ systemToolModelKey: value }),
+                      value:
+                        draft.systemToolModelKey && draft.systemToolModelProviderKey
+                          ? encodeTextModelSelection(
+                              draft.systemToolModelProviderKey,
+                              draft.systemToolModelKey
+                            )
+                          : "",
+                      patch: (value: string) => {
+                        const selection = decodeTextModelSelection(value);
+                        onPatch({
+                          systemToolModelKey: selection?.modelKey ?? "",
+                          systemToolModelProviderKey: selection?.providerKey ?? ""
+                        });
+                      },
                       placeholder: "normal reply"
                     },
                     {
                       label: "Retrieval helper",
                       slot: null,
-                      value: draft.retrievalModelKey,
-                      patch: (value: string) => onPatch({ retrievalModelKey: value }),
+                      value:
+                        draft.retrievalModelKey && draft.retrievalModelProviderKey
+                          ? encodeTextModelSelection(
+                              draft.retrievalModelProviderKey,
+                              draft.retrievalModelKey
+                            )
+                          : "",
+                      patch: (value: string) => {
+                        const selection = decodeTextModelSelection(value);
+                        onPatch({
+                          retrievalModelKey: selection?.modelKey ?? "",
+                          retrievalModelProviderKey: selection?.providerKey ?? ""
+                        });
+                      },
                       placeholder: "system/runtime default"
                     }
                   ] as const
                 ).map((slot) => (
                   <label key={slot.label} className="grid gap-1">
                     <span className="text-[11px] font-medium text-text">{slot.label}</span>
-                    <select
+                    <ModelOptionSelect
                       value={slot.value}
-                      onChange={(e) => slot.patch(e.target.value)}
+                      onChange={slot.patch}
+                      options={availableModelKeys}
+                      placeholder={slot.placeholder}
                       className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
-                    >
-                      <option value="">{slot.placeholder}</option>
-                      {availableModelKeys.length > 0
-                        ? Object.entries(
-                            availableModelKeys.reduce<Record<string, string[]>>(
-                              (acc, { provider, model }) => {
-                                (acc[provider] ??= []).push(model);
-                                return acc;
-                              },
-                              {}
-                            )
-                          ).map(([provider, models]) => (
-                            <optgroup key={provider} label={provider}>
-                              {models.map((m) => (
-                                <option key={`${slot.label}-${m}`} value={m}>
-                                  {m}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ))
-                        : null}
-                    </select>
+                    />
                     {slot.slot !== null
                       ? (() => {
                           const creditHint = formatPlanModelSlotCreditHint(
@@ -4180,23 +4275,43 @@ function PlanCardReadOnly({
               <div className="grid gap-1 text-[10px] text-text-subtle">
                 <div>
                   <span className="text-text-muted">Normal</span> ·{" "}
-                  {plan.primaryModelKey ?? "platform default"}
+                  {formatSlotSelectionSummary(
+                    plan.primaryModelKey,
+                    plan.primaryModelProviderKey,
+                    "platform default"
+                  )}
                 </div>
                 <div>
                   <span className="text-text-muted">Premium</span> ·{" "}
-                  {plan.premiumModelKey ?? "normal reply"}
+                  {formatSlotSelectionSummary(
+                    plan.premiumModelKey,
+                    plan.premiumModelProviderKey,
+                    "normal reply"
+                  )}
                 </div>
                 <div>
                   <span className="text-text-muted">Reasoning</span> ·{" "}
-                  {plan.reasoningModelKey ?? "premium reply"}
+                  {formatSlotSelectionSummary(
+                    plan.reasoningModelKey,
+                    plan.reasoningModelProviderKey,
+                    "premium reply"
+                  )}
                 </div>
                 <div>
                   <span className="text-text-muted">System</span> ·{" "}
-                  {plan.systemToolModelKey ?? "normal reply"}
+                  {formatSlotSelectionSummary(
+                    plan.systemToolModelKey,
+                    plan.systemToolModelProviderKey,
+                    "normal reply"
+                  )}
                 </div>
                 <div>
                   <span className="text-text-muted">Retrieval</span> ·{" "}
-                  {plan.retrievalModelKey ?? "runtime default"}
+                  {formatSlotSelectionSummary(
+                    plan.retrievalModelKey,
+                    plan.retrievalModelProviderKey,
+                    "runtime default"
+                  )}
                 </div>
               </div>
             </Panel>
@@ -4361,20 +4476,10 @@ export default function AdminPlansPage() {
       getAdminMediaPackages(token)
         .then(setPackages)
         .catch(() => null);
-      if (runtimeData?.availableModelsByProvider) {
-        const keys: ModelOption[] = [];
-        for (const [provider, models] of Object.entries(
-          runtimeData.availableModelsByProvider as unknown as Record<string, string[]>
-        )) {
-          for (const model of models) {
-            keys.push({ provider, model });
-          }
-        }
-        setAvailableModelKeys(keys);
-      }
       setRuntimePrimaryModelKey(runtimeData?.primary?.model ?? null);
       if (runtimeData?.availableModelCatalogByProvider) {
         const weightsByModel: Record<string, TokenMeteredWeights> = {};
+        const textKeys: ModelOption[] = [];
         const imageKeys: ModelOption[] = [];
         const rawVideoKeys: ModelOption[] = [];
         const talkingAvatarKeys: ModelOption[] = [];
@@ -4397,6 +4502,14 @@ export default function AdminPlansPage() {
           >
         )) {
           for (const profile of catalog.models ?? []) {
+            if (profile.active && profile.capabilities.includes("chat")) {
+              textKeys.push({
+                provider,
+                model: profile.model,
+                value: encodeTextModelSelection(provider, profile.model),
+                label: profile.model
+              });
+            }
             if (
               profile.active &&
               profile.billingMode === "token_metered" &&
@@ -4451,11 +4564,13 @@ export default function AdminPlansPage() {
               }
             : option
         );
+        setAvailableModelKeys(textKeys);
         setTokenMeteredWeightsByModel(weightsByModel);
         setAvailableImageModelKeys(imageKeys);
         setAvailableVideoModelKeys(videoKeys);
         setAvailableTalkingAvatarModelKeys(talkingAvatarKeys);
       } else {
+        setAvailableModelKeys([]);
         setTokenMeteredWeightsByModel({});
       }
       setVcoinExchangeRate(runtimeData?.vcoinExchangeRate ?? 20);

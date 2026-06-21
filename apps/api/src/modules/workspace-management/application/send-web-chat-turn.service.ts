@@ -801,7 +801,7 @@ export class SendWebChatTurnService {
     chatMode?: WebRuntimeTurnClientInput["chatMode"];
     deepMode?: WebRuntimeTurnClientInput["deepMode"];
     modelRoleOverride?: WebRuntimeTurnClientInput["modelRoleOverride"];
-    providerOverride?: "openai" | "anthropic";
+    providerOverride?: "openai" | "anthropic" | "deepseek";
     modelOverride?: string;
   }): WebRuntimeTurnClientInput {
     return {

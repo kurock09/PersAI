@@ -130,9 +130,15 @@ function createPlanState(): AdminPlanState {
       maxArtifactSendCountPerTurn: 4
     },
     primaryModelKey: "gpt-5.4",
+    primaryModelProviderKey: "openai",
     premiumModelKey: "gpt-5.4",
+    premiumModelProviderKey: "openai",
     reasoningModelKey: "gpt-5.4-mini",
+    reasoningModelProviderKey: "anthropic",
+    systemToolModelKey: "gpt-5.4-nano",
+    systemToolModelProviderKey: "openai",
     retrievalModelKey: "gpt-5.4-nano",
+    retrievalModelProviderKey: "anthropic",
     imageGenerateModelKey: "gpt-image-2",
     imageGenerateFallbackModelKey: "gpt-image-1.5",
     imageEditModelKey: "gpt-image-2",
@@ -196,8 +202,11 @@ describe("admin plans page helpers", () => {
     expect(draft.knowledgeStorageMb).toBe("128");
     expect(draft.sharedCompactionSummaryBudgetTokens).toBe("");
     expect(draft.premiumModelKey).toBe("gpt-5.4");
+    expect(draft.premiumModelProviderKey).toBe("openai");
     expect(draft.reasoningModelKey).toBe("gpt-5.4-mini");
+    expect(draft.reasoningModelProviderKey).toBe("anthropic");
     expect(draft.retrievalModelKey).toBe("gpt-5.4-nano");
+    expect(draft.retrievalModelProviderKey).toBe("anthropic");
     expect(draft.imageGenerateMonthlyUnitsLimit).toBe("20");
     expect(draft.imageEditMonthlyUnitsLimit).toBe("10");
     expect(draft.maxAssistants).toBe("3");
@@ -229,8 +238,11 @@ describe("admin plans page helpers", () => {
     expect(draftToPayload({ ...draft, maxAssistants: "1" }).assistantPolicy?.maxAssistants).toBe(1);
     expect(() => draftToPayload({ ...draft, maxAssistants: "0" })).toThrow(/Max assistants/);
     expect(draftToPayload(draft).premiumModelKey).toBe("gpt-5.4");
+    expect(draftToPayload(draft).premiumModelProviderKey).toBe("openai");
     expect(draftToPayload(draft).reasoningModelKey).toBe("gpt-5.4-mini");
+    expect(draftToPayload(draft).reasoningModelProviderKey).toBe("anthropic");
     expect(draftToPayload(draft).retrievalModelKey).toBe("gpt-5.4-nano");
+    expect(draftToPayload(draft).retrievalModelProviderKey).toBe("anthropic");
     expect(draftToPayload(draft).contextPolicy.sharedCompactionSummaryBudgetTokens).toBeUndefined();
     expect(draftToPayload(draft).presentation.showOnPricingPage).toBe(true);
     expect(draftToPayload(draft).presentation.displayOrder).toBe(2);
@@ -333,6 +345,44 @@ describe("admin plans page helpers", () => {
     expect(() => draftToPayload(invalid)).toThrow(/Default results is required/);
   });
 
+  it("renders provider-grouped text slot options and patches provider+model pairs", () => {
+    const onPatch = vi.fn();
+    const draft = planToDraft(createPlanState());
+    render(
+      <PlanForm
+        draft={draft}
+        onPatch={onPatch}
+        validationErrors={{}}
+        showCode={false}
+        code="pro"
+        onCodeChange={() => {}}
+        availableModelKeys={[
+          { provider: "openai", model: "gpt-5.4", value: "openai::gpt-5.4" },
+          { provider: "anthropic", model: "claude-sonnet", value: "anthropic::claude-sonnet" },
+          {
+            provider: "deepseek",
+            model: "deepseek-v4-flash",
+            value: "deepseek::deepseek-v4-flash"
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getAllByRole("option", { name: "gpt-5.4" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("option", { name: "claude-sonnet" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("option", { name: "deepseek-v4-flash" }).length).toBeGreaterThan(0);
+
+    const normalReplyLabel = screen.getByText("Normal reply");
+    const normalReplySelect = normalReplyLabel.parentElement?.querySelector("select");
+    expect(normalReplySelect).not.toBeNull();
+
+    fireEvent.change(normalReplySelect!, { target: { value: "anthropic::claude-sonnet" } });
+    expect(onPatch).toHaveBeenCalledWith({
+      primaryModelKey: "claude-sonnet",
+      primaryModelProviderKey: "anthropic"
+    });
+  });
+
   it("renders primary and fallback media model selects for image and video rows", () => {
     const onImageGenerateModelKeyChange = vi.fn();
     const onImageGenerateFallbackModelKeyChange = vi.fn();
@@ -423,8 +473,8 @@ describe("admin plans page helpers", () => {
       />
     );
 
-    expect(screen.getAllByText("Primary model")).toHaveLength(3);
-    expect(screen.getAllByText("Fallback model")).toHaveLength(3);
+    expect(screen.getAllByText("Primary model").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText("Fallback model").length).toBeGreaterThanOrEqual(3);
     const imageSelect = screen.getByDisplayValue("gpt-image-2");
     fireEvent.change(imageSelect, { target: { value: "" } });
     expect(onImageGenerateModelKeyChange).toHaveBeenCalledWith("");

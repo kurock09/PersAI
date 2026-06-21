@@ -2274,6 +2274,345 @@ async function run(): Promise<void> {
       error instanceof BadRequestException && /talkingAvatarModelKey/.test(error.message),
     "Slice 10c: Slice 2b refusal must reference talkingAvatarModelKey (updated message text)"
   );
+
+  const providerAwareSettings = {
+    primary: { provider: "openai", model: "gpt-5.4" },
+    availableModelCatalogByProvider: {
+      openai: {
+        models: [
+          {
+            model: "gpt-5.4",
+            capabilities: ["chat"],
+            active: true
+          },
+          {
+            model: "gpt-5.4-nano",
+            capabilities: ["chat"],
+            active: true
+          }
+        ]
+      },
+      anthropic: {
+        models: [
+          {
+            model: "claude-sonnet",
+            capabilities: ["chat"],
+            active: true
+          },
+          {
+            model: "gpt-5.4-nano",
+            capabilities: ["chat"],
+            active: true
+          },
+          {
+            model: "claude-search",
+            capabilities: ["chat"],
+            active: true
+          },
+          {
+            model: "inactive-chat",
+            capabilities: ["chat"],
+            active: false
+          },
+          {
+            model: "image-only",
+            capabilities: ["image"],
+            active: true
+          }
+        ]
+      },
+      deepseek: {
+        models: [
+          {
+            model: "deepseek-v4-pro",
+            capabilities: ["chat"],
+            active: true
+          }
+        ]
+      },
+      runway: { models: [] },
+      kling: { models: [] },
+      heygen: { models: [] }
+    }
+  };
+
+  const providerAwareService = createService({
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return providerAwareSettings;
+      }
+    }
+  });
+
+  const providerAwareParsed = providerAwareService.parseUpdateInput({
+    displayName: "Provider Aware",
+    description: null,
+    status: "active",
+    defaultOnRegistration: false,
+    trialEnabled: false,
+    trialDurationDays: null,
+    lifecyclePolicy: {},
+    metadata: {},
+    presentation: {
+      showOnPricingPage: false,
+      displayOrder: 0,
+      highlighted: false,
+      title: {},
+      subtitle: {},
+      notes: {},
+      badge: {},
+      ctaLabel: {},
+      price: {},
+      highlightItems: {}
+    },
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: true,
+        utilityTools: true,
+        costDrivingQuotaGoverned: true,
+        utilityQuotaGoverned: true
+      },
+      channelsAndSurfaces: {
+        webChat: true,
+        telegram: true,
+        whatsapp: false,
+        max: false
+      }
+    },
+    quotaLimits: {},
+    skillPolicy: {},
+    assistantPolicy: { maxAssistants: 1 },
+    contextPolicy,
+    retrievalPolicy: retrievalPolicyForTest,
+    sandboxPolicy: {
+      enabled: false,
+      maxSingleFileWriteBytes: 1_048_576,
+      maxWorkspaceBytesPerJob: 2_097_152,
+      maxPersistedArtifactsPerJob: 16,
+      maxFileCountPerJob: 64,
+      maxDirectoryCountPerJob: 32,
+      maxProcessRuntimeMs: 15_000,
+      maxCpuMsPerJob: 15_000,
+      maxMemoryBytesPerJob: 128 * 1024 * 1024,
+      maxConcurrentProcesses: 2,
+      maxStdoutBytes: 64 * 1024,
+      maxStderrBytes: 64 * 1024,
+      networkAccessEnabled: false,
+      artifactMimeAllowlist: ["text/plain"],
+      webMaxOutboundBytes: 5 * 1024 * 1024,
+      telegramMaxOutboundBytes: 5 * 1024 * 1024,
+      sandboxJobsPerDay: null,
+      maxArtifactSendCountPerTurn: 2
+    },
+    primaryModelKey: "gpt-5.4",
+    primaryModelProviderKey: "openai",
+    premiumModelKey: "claude-sonnet",
+    premiumModelProviderKey: "anthropic",
+    reasoningModelKey: "deepseek-v4-pro",
+    reasoningModelProviderKey: "deepseek",
+    systemToolModelKey: "gpt-5.4-nano",
+    systemToolModelProviderKey: "openai",
+    retrievalModelKey: "claude-search",
+    retrievalModelProviderKey: "anthropic"
+  });
+  const providerAwareWriteInput = (
+    providerAwareService as unknown as {
+      toWriteInput(input: typeof providerAwareParsed): {
+        billingProviderHints: Record<string, unknown>;
+      };
+    }
+  ).toWriteInput(providerAwareParsed);
+  assert.equal(providerAwareWriteInput.billingProviderHints.primaryModelProviderKey, "openai");
+  assert.equal(providerAwareWriteInput.billingProviderHints.premiumModelProviderKey, "anthropic");
+  assert.equal(providerAwareWriteInput.billingProviderHints.reasoningModelProviderKey, "deepseek");
+  const providerAwareState = (
+    providerAwareService as unknown as {
+      toAdminPlanState(
+        plan: AssistantPlanCatalog,
+        activeChatModelIndex: unknown,
+        runtimeSettings: unknown
+      ): {
+        primaryModelProviderKey: string | null;
+        premiumModelProviderKey: string | null;
+        reasoningModelProviderKey: string | null;
+        systemToolModelProviderKey: string | null;
+        retrievalModelProviderKey: string | null;
+      };
+      buildActiveChatModelIndex(settings: unknown): unknown;
+    }
+  ).toAdminPlanState(
+    {
+      id: "provider-aware",
+      code: "provider-aware",
+      displayName: "Provider Aware",
+      description: null,
+      status: "active",
+      billingProviderHints: providerAwareWriteInput.billingProviderHints,
+      entitlementModel: null,
+      toolActivations: [],
+      isDefaultFirstRegistrationPlan: false,
+      isTrialPlan: false,
+      trialDurationDays: null,
+      createdAt: new Date("2026-04-14T12:00:00.000Z"),
+      updatedAt: new Date("2026-04-14T12:00:00.000Z")
+    },
+    (
+      providerAwareService as unknown as {
+        buildActiveChatModelIndex(settings: unknown): unknown;
+      }
+    ).buildActiveChatModelIndex(providerAwareSettings),
+    providerAwareSettings
+  );
+  assert.equal(providerAwareState.primaryModelProviderKey, "openai");
+  assert.equal(providerAwareState.premiumModelProviderKey, "anthropic");
+  assert.equal(providerAwareState.reasoningModelProviderKey, "deepseek");
+  assert.equal(providerAwareState.systemToolModelProviderKey, "openai");
+  assert.equal(providerAwareState.retrievalModelProviderKey, "anthropic");
+
+  await assert.doesNotReject(
+    () =>
+      (
+        providerAwareService as unknown as {
+          assertTextModelSelectionsAvailable(
+            entries: Array<{
+              providerKey: string | null;
+              modelKey: string | null;
+              fieldLabel: string;
+            }>
+          ): Promise<void>;
+        }
+      ).assertTextModelSelectionsAvailable([
+        { providerKey: "openai", modelKey: "gpt-5.4", fieldLabel: "primaryModel" },
+        { providerKey: "anthropic", modelKey: "claude-sonnet", fieldLabel: "premiumModel" },
+        { providerKey: "deepseek", modelKey: "deepseek-v4-pro", fieldLabel: "reasoningModel" }
+      ]),
+    "provider/model chat pairs should validate when both are active"
+  );
+
+  await assert.rejects(
+    () =>
+      (
+        providerAwareService as unknown as {
+          assertTextModelSelectionsAvailable(
+            entries: Array<{
+              providerKey: string | null;
+              modelKey: string | null;
+              fieldLabel: string;
+            }>
+          ): Promise<void>;
+        }
+      ).assertTextModelSelectionsAvailable([
+        { providerKey: "anthropic", modelKey: "gpt-5.4", fieldLabel: "primaryModel" }
+      ]),
+    (error: unknown) =>
+      error instanceof BadRequestException &&
+      /primaryModel/.test(error.message) &&
+      /anthropic/.test(error.message),
+    "provider mismatch should be rejected"
+  );
+
+  await assert.rejects(
+    () =>
+      (
+        providerAwareService as unknown as {
+          assertTextModelSelectionsAvailable(
+            entries: Array<{
+              providerKey: string | null;
+              modelKey: string | null;
+              fieldLabel: string;
+            }>
+          ): Promise<void>;
+        }
+      ).assertTextModelSelectionsAvailable([
+        { providerKey: "anthropic", modelKey: "inactive-chat", fieldLabel: "reasoningModel" }
+      ]),
+    (error: unknown) =>
+      error instanceof BadRequestException && /reasoningModel/.test(error.message),
+    "inactive chat models should be rejected"
+  );
+
+  await assert.rejects(
+    () =>
+      (
+        providerAwareService as unknown as {
+          assertTextModelSelectionsAvailable(
+            entries: Array<{
+              providerKey: string | null;
+              modelKey: string | null;
+              fieldLabel: string;
+            }>
+          ): Promise<void>;
+        }
+      ).assertTextModelSelectionsAvailable([
+        { providerKey: "anthropic", modelKey: "image-only", fieldLabel: "systemToolModel" }
+      ]),
+    (error: unknown) =>
+      error instanceof BadRequestException && /systemToolModel/.test(error.message),
+    "non-chat models should be rejected"
+  );
+
+  const legacyPlanState = (
+    providerAwareService as unknown as {
+      toAdminPlanState(
+        plan: AssistantPlanCatalog,
+        activeChatModelIndex: unknown,
+        runtimeSettings: unknown
+      ): {
+        primaryModelProviderKey: string | null;
+        premiumModelProviderKey: string | null;
+        systemToolModelProviderKey: string | null;
+        retrievalModelProviderKey: string | null;
+      };
+      buildActiveChatModelIndex(settings: unknown): unknown;
+    }
+  ).toAdminPlanState(
+    {
+      id: "legacy-plan",
+      code: "legacy",
+      displayName: "Legacy",
+      description: null,
+      status: "active",
+      billingProviderHints: {
+        primaryModelKey: "gpt-5.4",
+        premiumModelKey: "claude-sonnet",
+        systemToolModelKey: "gpt-5.4-nano",
+        retrievalModelKey: "claude-search"
+      },
+      entitlementModel: null,
+      toolActivations: [],
+      isDefaultFirstRegistrationPlan: false,
+      isTrialPlan: false,
+      trialDurationDays: null,
+      createdAt: new Date("2026-04-14T12:00:00.000Z"),
+      updatedAt: new Date("2026-04-14T12:00:00.000Z")
+    },
+    (
+      providerAwareService as unknown as {
+        buildActiveChatModelIndex(settings: unknown): unknown;
+      }
+    ).buildActiveChatModelIndex(providerAwareSettings),
+    providerAwareSettings
+  );
+  assert.equal(
+    legacyPlanState.primaryModelProviderKey,
+    "openai",
+    "legacy normal slot should default to runtime primary provider"
+  );
+  assert.equal(
+    legacyPlanState.premiumModelProviderKey,
+    "anthropic",
+    "legacy premium slot should derive its provider from the unique active chat model"
+  );
+  assert.equal(
+    legacyPlanState.systemToolModelProviderKey,
+    "openai",
+    "legacy duplicate model ids should prefer runtime primary provider when it matches"
+  );
+  assert.equal(
+    legacyPlanState.retrievalModelProviderKey,
+    "anthropic",
+    "legacy retrieval slot should derive provider from unique active chat model"
+  );
 }
 
 void run();

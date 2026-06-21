@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  HttpException,
   BadRequestException,
   Inject,
   Injectable,
@@ -24,6 +25,8 @@ import type {
   ProviderGatewaySpeechGenerateResult,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
+  ProviderGatewayTextErrorKind,
+  ProviderGatewayTextErrorResponse,
   ProviderGatewayTextStreamEvent,
   ProviderGatewayWebSearchRequest,
   ProviderGatewayWebSearchResult,
@@ -76,13 +79,30 @@ export class ProviderGatewayTimeoutError extends Error {
   }
 }
 
-export class ProviderGatewayHttpError extends ServiceUnavailableException {
+export class ProviderGatewayHttpError extends HttpException {
   readonly httpStatus: number;
+  readonly providerErrorKind: ProviderGatewayTextErrorKind | null;
+  readonly providerErrorCode: string | null;
+  readonly providerErrorType: string | null;
+  readonly providerErrorStatus: number | null;
 
-  constructor(status: number, message: string) {
-    super(message);
+  constructor(
+    status: number,
+    message: string,
+    details?: {
+      providerErrorKind?: ProviderGatewayTextErrorKind | null;
+      providerErrorCode?: string | null;
+      providerErrorType?: string | null;
+      providerErrorStatus?: number | null;
+    }
+  ) {
+    super(message, status);
     this.name = "ProviderGatewayHttpError";
     this.httpStatus = status;
+    this.providerErrorKind = details?.providerErrorKind ?? null;
+    this.providerErrorCode = details?.providerErrorCode ?? null;
+    this.providerErrorType = details?.providerErrorType ?? null;
+    this.providerErrorStatus = details?.providerErrorStatus ?? null;
   }
 }
 
@@ -759,18 +779,27 @@ export class ProviderGatewayClientService {
     response: JsonResponse
   ): BadGatewayException | BadRequestException | ProviderGatewayHttpError {
     const message = this.extractErrorMessage(response.body);
+    const structured = this.extractStructuredError(response.body);
     if (this.isPayloadTooLargeFailure(response.status, message)) {
       return new BadRequestException(DIRECT_INPUT_PAYLOAD_TOO_LARGE_MESSAGE);
     }
     if (response.status === 400) {
+      if (this.hasTextProviderClassification(structured)) {
+        return new ProviderGatewayHttpError(
+          response.status,
+          message ?? `Provider gateway rejected the request with status ${response.status}.`,
+          structured
+        );
+      }
       return new BadRequestException(
         message ?? `Provider gateway rejected the request with status ${response.status}.`
       );
     }
-    if (response.status >= 500) {
+    if (this.hasTextProviderClassification(structured) || response.status >= 500) {
       return new ProviderGatewayHttpError(
         response.status,
-        message ?? `Provider gateway request failed with status ${response.status}.`
+        message ?? `Provider gateway request failed with status ${response.status}.`,
+        structured
       );
     }
     return new BadGatewayException(
@@ -795,23 +824,58 @@ export class ProviderGatewayClientService {
     message: string | null;
     retryable: boolean | null;
     providerStatus: Record<string, unknown> | null;
+    providerErrorKind: ProviderGatewayTextErrorKind | null;
+    providerErrorCode: string | null;
+    providerErrorType: string | null;
+    providerErrorStatus: number | null;
   } {
     if (typeof body === "string" && body.trim().length > 0) {
       return {
         code: null,
         message: body.trim(),
         retryable: null,
-        providerStatus: null
+        providerStatus: null,
+        providerErrorKind: null,
+        providerErrorCode: null,
+        providerErrorType: null,
+        providerErrorStatus: null
       };
     }
-    const row = this.asObject(body);
+    const row = this.asObject(body) as
+      | ProviderGatewayTextErrorResponse
+      | Record<string, unknown>
+      | null;
     const error = this.asObject(row?.error);
     return {
       code: typeof error?.code === "string" ? error.code : null,
       message: typeof error?.message === "string" ? error.message : null,
       retryable: typeof error?.retryable === "boolean" ? error.retryable : null,
-      providerStatus: this.asObject(error?.providerStatus)
+      providerStatus: this.asObject(error?.providerStatus),
+      providerErrorKind: this.asTextProviderErrorKind(error?.providerErrorKind),
+      providerErrorCode:
+        typeof error?.providerErrorCode === "string" ? error.providerErrorCode : null,
+      providerErrorType:
+        typeof error?.providerErrorType === "string" ? error.providerErrorType : null,
+      providerErrorStatus:
+        typeof error?.providerErrorStatus === "number" &&
+        Number.isInteger(error.providerErrorStatus)
+          ? error.providerErrorStatus
+          : null
     };
+  }
+
+  private hasTextProviderClassification(input: {
+    providerErrorKind: ProviderGatewayTextErrorKind | null;
+    providerErrorCode: string | null;
+    providerErrorType: string | null;
+    providerErrorStatus: number | null;
+  }): boolean {
+    return (
+      input.providerErrorKind !== null ||
+      input.providerErrorCode !== null ||
+      input.providerErrorType !== null ||
+      input.providerErrorStatus !== null
+    );
   }
 
   private isImageProviderSafetyRejected(status: number, code: string | null): boolean {
@@ -1136,9 +1200,41 @@ export class ProviderGatewayClientService {
       return this.isTextGenerateResult(row.result) && row.result.stopReason === "tool_calls";
     }
     if (row?.type === "failed") {
-      return typeof row.code === "string" && typeof row.message === "string";
+      return (
+        typeof row.code === "string" &&
+        typeof row.message === "string" &&
+        (row.providerErrorKind === undefined ||
+          row.providerErrorKind === null ||
+          this.asTextProviderErrorKind(row.providerErrorKind) !== null) &&
+        (row.providerErrorCode === undefined ||
+          row.providerErrorCode === null ||
+          typeof row.providerErrorCode === "string") &&
+        (row.providerErrorType === undefined ||
+          row.providerErrorType === null ||
+          typeof row.providerErrorType === "string") &&
+        (row.providerErrorStatus === undefined ||
+          row.providerErrorStatus === null ||
+          (typeof row.providerErrorStatus === "number" &&
+            Number.isInteger(row.providerErrorStatus)))
+      );
     }
     return false;
+  }
+
+  private asTextProviderErrorKind(value: unknown): ProviderGatewayTextErrorKind | null {
+    switch (value) {
+      case "billing_quota":
+      case "rate_limit":
+      case "capacity":
+      case "provider_auth":
+      case "invalid_request":
+      case "timeout":
+      case "server_error":
+      case "unknown":
+        return value;
+      default:
+        return null;
+    }
   }
 
   private createTimedSignal(

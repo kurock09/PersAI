@@ -3,6 +3,40 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — ADR-124 provider routing/capabilities/fallback/DeepSeek — CHECKPOINT
+
+### State
+
+Implemented locally. Full AGENTS gate and ADR-124 focused checks green. Needs commit + push/deploy. Baseline SHA before ADR-124 work: `5e27f5b8ecd99bb1a9c56558f02c63459e938e4f`.
+
+### What changed
+
+ADR-124 landed as one bounded provider-routing slice:
+
+- `promptCacheRetention` is a model-profile capability and OpenAI request shaping reads it from resolved slot catalog truth (`gpt-5.5` defaults to `24h`).
+- Anthropic structured-output schemas now remove unsupported constraint keywords such as numeric `minimum`/`maximum`.
+- Provider-gateway/runtime error propagation now classifies provider text failures and permits pre-first-token fallback for billing/quota/rate-limit/capacity/auth style provider failures, but not malformed requests.
+- Admin plans and routing slots now carry provider+model selections per text slot; `primaryProvider` remains only a default seed and the single global fallback remains unchanged.
+- DeepSeek is registered as a credential-gated managed text provider (`deepseek/api-key`) with a thin OpenAI-compatible Chat Completions adapter and active defaults for `deepseek-v4-flash` / `deepseek-v4-pro`.
+
+### Files
+
+Provider/runtime/API/web/contract changes across `apps/provider-gateway`, `apps/runtime`, `apps/api`, `apps/web`, `packages/runtime-contract`, and `packages/contracts`; ADR-124, CHANGELOG, this checkpoint.
+
+### Verified
+
+Full AGENTS gate green: repo lint, format check, API typecheck, web typecheck. Extra ADR-124 gate green: runtime/provider-gateway typechecks plus focused provider-gateway, runtime fallback, API routing/catalog/admin-plan, and web admin runtime/plans tests.
+
+### Next recommended step
+
+Commit + push. After deploy to `persai-dev`, verify:
+
+- `gpt-5.5` no longer fails due to prompt-cache retention.
+- Anthropic structured output no longer rejects number `minimum`/`maximum`.
+- balance/quota/capacity/auth provider errors fall back before the first token.
+- a slot can resolve provider+model independently from the account default.
+- DeepSeek remains unconfigured until `deepseek/api-key` is stored, then warms and serves a chat/structured-output/fallback smoke.
+
 ## 2026-06-21 — ADR-123 exec image curated baseline — CHECKPOINT
 
 ### State

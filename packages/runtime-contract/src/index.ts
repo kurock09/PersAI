@@ -2880,7 +2880,7 @@ export interface RuntimeTurnRequest {
   chatMode?: "normal" | "smart" | "project";
   deepMode?: boolean;
   modelRoleOverride?: PersaiRuntimeModelRole;
-  providerOverride?: "openai" | "anthropic";
+  providerOverride?: "openai" | "anthropic" | "deepseek";
   modelOverride?: string;
   skillStateContext?: RuntimeSkillStateContext;
 }
@@ -3218,6 +3218,44 @@ export const PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS = ["in_memory", "24h"] as c
 export type ProviderGatewayPromptCacheRetention =
   (typeof PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS)[number];
 
+export const PERSAI_PROVIDER_TEXT_ERROR_KINDS = [
+  "billing_quota",
+  "rate_limit",
+  "capacity",
+  "provider_auth",
+  "invalid_request",
+  "timeout",
+  "server_error",
+  "unknown"
+] as const;
+
+export type ProviderGatewayTextErrorKind = (typeof PERSAI_PROVIDER_TEXT_ERROR_KINDS)[number];
+
+export interface ProviderGatewayTextErrorDetails {
+  providerErrorKind?: ProviderGatewayTextErrorKind | null;
+  providerErrorCode?: string | null;
+  providerErrorType?: string | null;
+  providerErrorStatus?: number | null;
+}
+
+export const RETRYABLE_PROVIDER_GATEWAY_TEXT_ERROR_KINDS = [
+  "billing_quota",
+  "rate_limit",
+  "capacity",
+  "provider_auth",
+  "timeout",
+  "server_error"
+] as const;
+
+export function isRetryableProviderGatewayTextErrorKind(
+  kind: ProviderGatewayTextErrorKind | null | undefined
+): boolean {
+  return (
+    typeof kind === "string" &&
+    (RETRYABLE_PROVIDER_GATEWAY_TEXT_ERROR_KINDS as readonly string[]).includes(kind)
+  );
+}
+
 export interface ProviderGatewayPromptCacheConfig {
   key?: string;
   retention?: ProviderGatewayPromptCacheRetention;
@@ -3233,7 +3271,7 @@ export interface ProviderGatewayPromptCacheConfig {
 }
 
 export interface ProviderGatewayTextGenerateRequest {
-  provider: "openai" | "anthropic";
+  provider: "openai" | "anthropic" | "deepseek";
   model: string;
   systemPrompt: string | null;
   /**
@@ -3289,7 +3327,7 @@ export interface ProviderGatewayTextGenerateRequest {
 }
 
 export interface ProviderGatewayTextGenerateResult {
-  provider: "openai" | "anthropic";
+  provider: "openai" | "anthropic" | "deepseek";
   model: string;
   text: string | null;
   respondedAt: IsoTimestamp;
@@ -3303,6 +3341,17 @@ export interface ProviderGatewayTextGenerateResult {
    */
   truncated?: boolean;
   toolCalls: ProviderGatewayToolCall[];
+}
+
+export interface ProviderGatewayTextErrorResponse {
+  error: {
+    code: string | null;
+    message: string;
+    providerErrorKind?: ProviderGatewayTextErrorKind | null;
+    providerErrorCode?: string | null;
+    providerErrorType?: string | null;
+    providerErrorStatus?: number | null;
+  };
 }
 
 export interface ProviderGatewayAudioTranscriptionResult {
@@ -3694,7 +3743,7 @@ export interface ProviderGatewayTextToolCallsEvent {
   result: ProviderGatewayTextGenerateResult;
 }
 
-export interface ProviderGatewayTextFailedEvent {
+export interface ProviderGatewayTextFailedEvent extends ProviderGatewayTextErrorDetails {
   type: "failed";
   code: string;
   message: string;

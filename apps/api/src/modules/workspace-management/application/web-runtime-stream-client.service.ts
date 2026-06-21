@@ -53,7 +53,7 @@ export interface WebRuntimeStreamClientInput {
   chatMode?: RuntimeTurnRequest["chatMode"];
   deepMode?: RuntimeTurnRequest["deepMode"];
   modelRoleOverride?: RuntimeTurnRequest["modelRoleOverride"];
-  providerOverride?: "openai" | "anthropic";
+  providerOverride?: "openai" | "anthropic" | "deepseek";
   modelOverride?: string;
   skillStateContext?: RuntimeSkillStateContext;
 }

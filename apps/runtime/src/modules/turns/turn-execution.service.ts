@@ -22,6 +22,7 @@ import {
   type PersaiRuntimeWebSearchProviderId,
   type PersaiRuntimeSharedCompactionToolCode,
   type ProviderGatewayPromptCacheConfig,
+  type ProviderGatewayPromptCacheRetention,
   type ProviderGatewayRequestMetadata,
   type ProviderGatewayMessageContentBlock,
   type ProviderGatewayToolCall,
@@ -29,6 +30,7 @@ import {
   type ProviderGatewayTextMessage,
   type ProviderGatewayTextGenerateRequest,
   type ProviderGatewayTextGenerateResult,
+  type ProviderGatewayTextStreamEvent,
   type PersaiRuntimeWebFetchExtractMode,
   type RuntimeKnowledgeFetchToolResult,
   type RuntimeKnowledgeSearchToolResult,
@@ -89,7 +91,7 @@ import { PersaiInternalApiClientService } from "./persai-internal-api.client.ser
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import {
   isRetryableRuntimeTextFailure,
-  isRetryableRuntimeTextStreamFailureCode,
+  isRetryableRuntimeTextStreamFailure,
   resolveRuntimeTextFallbackSelection,
   sameProviderSelection,
   type ProviderSelection
@@ -112,6 +114,7 @@ import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
+import { OPENAI_PROMPT_CACHE_RETENTION_FALLBACK } from "./openai-prompt-cache-retention";
 import {
   buildPromptCacheStableBlockToken,
   resolveLeadingHydratedPromptCacheStableBlockTokens
@@ -136,7 +139,7 @@ import {
 } from "./runtime-execution-admission.service";
 import { resolveModelOutputBudget, APPROX_BYTES_PER_TOKEN } from "./model-output-budget";
 
-type NativeManagedProvider = "openai" | "anthropic";
+type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
 
 /**
  * ADR-122 Slice 2 — Estimate the number of input tokens already present in an
@@ -162,7 +165,6 @@ function estimateProviderRequestInputTokens(req: {
 
 const PROMPT_CACHE_KEY_BUCKETS = 8;
 const PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
-const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 const ANTHROPIC_HISTORY_BREAKPOINT_MIN_TOKENS = 3_000;
 const MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS = 4;
 const MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS = 4;
@@ -757,6 +759,10 @@ export class TurnExecutionService {
       bundleEntry.parsedBundle,
       executionPlan.modelRole
     );
+    const promptCacheRetention = this.resolveSlotPromptCacheRetention(
+      bundleEntry.parsedBundle,
+      executionPlan.modelRole
+    );
     // ADR-122 corrective: apply the route's thinking budget on the INITIAL main turn
     // (iteration 0), not just the tool-loop refresh path. This fixes an ADR-121 wiring
     // gap where turn 0 never received the thinking budget. Safe because the gateway
@@ -776,7 +782,8 @@ export class TurnExecutionService {
       input.deepMode === true,
       developerInstructionSections,
       promptMode,
-      turnThinkingBudget
+      turnThinkingBudget,
+      promptCacheRetention
     );
     // ADR-122 Slice 2 (D3+D4): set maxOutputTokens via the unified resolver so
     // the main chat turn (and every tool-loop continuation that spreads this
@@ -959,7 +966,7 @@ export class TurnExecutionService {
           const iterationBaseText = assembledText;
           const pendingFilePreviewBlocks = turnState.pendingFilePreviewBlocks;
           delete turnState.pendingFilePreviewBlocks;
-          const providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
+          let providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
             assistantText: iterationBaseText,
             baseDeveloperInstructionSections: execution.developerInstructionSections,
             toolHistory,
@@ -976,444 +983,474 @@ export class TurnExecutionService {
               toolLoopIteration: iteration
             })
           });
-          this.logger.log(
-            `[turn-stream] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} modelRole=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} toolCount=${String(providerRequest.tools?.length ?? 0)} toolHistoryCount=${String(providerRequest.toolHistory?.length ?? 0)}`
-          );
-          trace?.stage(`iter${String(iteration)}.provider_request_ready`);
-          let providerStream = await this.providerGatewayClientService.streamText(
-            providerRequest,
-            this.buildProviderGatewayStreamOptions(signal, traceEnabled)
-          );
-          trace?.stage(`iter${String(iteration)}.provider_headers_received`);
           let advancedToNextIteration = false;
-          let firstProviderEventSeen = false;
+          let providerOutputSeen = false;
           let streamFallbackAttempted = false;
 
-          for await (const event of providerStream) {
-            if (signal?.aborted) {
-              await this.interruptAcceptedTurnQuietly({
-                acceptedTurn,
-                event: this.toInterruptedEvent(
-                  acceptedTurn,
-                  deliveredText,
-                  null,
-                  trace?.build("interrupted"),
-                  turnState
-                )
-              });
-              return;
-            }
+          while (true) {
+            this.logger.log(
+              `[turn-stream] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} modelRole=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} toolCount=${String(providerRequest.tools?.length ?? 0)} toolHistoryCount=${String(providerRequest.toolHistory?.length ?? 0)}`
+            );
+            trace?.stage(`iter${String(iteration)}.provider_request_ready`);
 
-            if (event.type === "keepalive") {
-              continue;
-            }
-            if (!firstProviderEventSeen) {
-              firstProviderEventSeen = true;
-              trace?.stage(`iter${String(iteration)}.first_provider_event`);
-            }
-
-            if (event.type === "text_delta" && event.delta !== undefined) {
-              assembledText = this.mergeAssistantTurnText(iterationBaseText, event.accumulatedText);
-              if (deliveredText.length === 0) {
-                trace?.stage("stream.first_text_delta");
-              }
-              const deltaEvent = this.createVisibleTextDeltaStreamEvent({
-                acceptedTurn,
-                previousDeliveredText: deliveredText,
-                nextVisibleText: assembledText,
-                source: "provider_text_delta"
-              });
-              if (deltaEvent !== null) {
-                if (projectModeActive && !projectSynthesisEventsEmitted) {
-                  projectSynthesisEventsEmitted = true;
-                  for (const projectEvent of createProjectModeSynthesisStreamEvents(
-                    projectStreamIdentity
-                  )) {
-                    yield projectEvent;
-                  }
-                }
-                deliveredText = deltaEvent.accumulatedText;
-                yield deltaEvent;
-              }
-              continue;
-            }
-
-            if (event.type === "tool_calls") {
-              trace?.stage(`iter${String(iteration)}.tool_calls_received`);
-              // Working note for THIS step: the text the provider generated in
-              // this iteration before its tool call. Sourced per-iteration from
-              // `event.result.text` (never the cumulative `assembledText`), so a
-              // later step's note never re-contains an earlier note. Captured on
-              // every iteration, not just iteration 0. Not retroactively
-              // corrected by applyAssistantTextCorrections.
-              const stepNote = (event.result.text ?? "").trim();
-              if (stepNote.length > 0) {
-                toolStepTexts.push(stepNote);
-              }
-              this.recordUsageEntry(turnState, {
-                stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
-                modelRole: execution.selectedModelRole,
-                usage: event.result.usage
-              });
-              assembledText = this.resolveCompletedStreamAssistantText(
-                iterationBaseText,
-                assembledText,
-                event.result.text
+            let providerStream: AsyncGenerator<ProviderGatewayTextStreamEvent>;
+            try {
+              providerStream = await this.providerGatewayClientService.streamText(
+                providerRequest,
+                this.buildProviderGatewayStreamOptions(signal, traceEnabled)
               );
-              forceFinalTextOnly = false;
-              if (event.result.toolCalls.length === 0) {
-                throw new TurnExecutionError(
-                  "native_tool_result_invalid",
-                  new ServiceUnavailableException(
-                    "Provider stream returned a tool-call stop without any tool calls."
-                  )
-                );
-              }
-
-              const bufferedPrefixEvent = this.createVisibleTextDeltaStreamEvent({
-                acceptedTurn,
-                previousDeliveredText: deliveredText,
-                nextVisibleText: assembledText,
-                source: "provider_tool_calls_result_text"
-              });
-              if (bufferedPrefixEvent !== null) {
-                deliveredText = bufferedPrefixEvent.accumulatedText;
-                yield bufferedPrefixEvent;
-              }
-
-              let durableCompactionExecuted = false;
-              const plannedToolExecutions = this.planToolExecutions(
-                this.reorderToolCallsDocumentFirst(event.result.toolCalls),
-                toolBudgetPolicy,
-                iteration
-              );
-              for (
-                let batchStart = 0;
-                batchStart < plannedToolExecutions.length;
-                batchStart = this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
-              ) {
-                const batch = plannedToolExecutions.slice(
-                  batchStart,
-                  this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
-                );
-                if (batch[0]?.parallelSafe) {
-                  for (const entry of batch) {
-                    yield this.createToolStartedStreamEvent(acceptedTurn, entry.toolCall);
-                  }
-                  const batchResults = await this.executeParallelToolChunk({
-                    plannedToolExecutions: batch,
-                    execution,
-                    acceptedTurn,
-                    input,
-                    turnState,
-                    availableWorkingFileRefs: execution.availableWorkingFileRefs,
-                    trace,
-                    iteration
-                  });
-                  let firstError: unknown = null;
-                  for (const result of batchResults) {
-                    if (result.outcome !== undefined) {
-                      this.maybeRefundToolRequestRejectionReservation(
-                        toolBudgetPolicy,
-                        batch.find((entry) => entry.toolCall.id === result.toolCall.id) ?? null,
-                        result.outcome
-                      );
-                      toolHistory.push(result.outcome.exchange);
-                      this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
-                      durableCompactionExecuted =
-                        durableCompactionExecuted ||
-                        result.outcome.sharedCompaction?.durableStatePersisted === true;
-                      yield this.createToolFinishedStreamEvent(
-                        acceptedTurn,
-                        result.toolCall,
-                        result.outcome.exchange.toolResult.isError
-                      );
-                      if (result.outcome.artifacts !== undefined) {
-                        for (const artifact of result.outcome.artifacts) {
-                          yield this.createArtifactStreamEvent(acceptedTurn, artifact);
-                        }
-                      }
-                      continue;
-                    }
-                    firstError ??= result.error;
-                    yield this.createToolFinishedStreamEvent(acceptedTurn, result.toolCall, true);
-                  }
-                  if (firstError !== null) {
-                    throw firstError;
-                  }
-                  continue;
-                }
-                for (const entry of batch) {
-                  const toolCall = entry.toolCall;
-                  yield this.createToolStartedStreamEvent(acceptedTurn, toolCall);
-                  let outcome: ToolExecutionOutcome;
-                  if (entry.reservation.exhausted) {
-                    outcome = this.createToolBudgetExhaustedOutcome({
-                      toolCall,
-                      reservation: entry.reservation,
-                      trace,
-                      iteration,
-                      acceptedTurn
-                    });
-                  } else {
-                    try {
-                      outcome = await this.executeProjectedToolCall(
-                        execution,
-                        acceptedTurn,
-                        input,
-                        toolCall,
-                        input.idempotencyKey,
-                        turnState.artifacts,
-                        turnState.fileRefs,
-                        execution.availableWorkingFileRefs,
-                        turnState.deferredDocumentJobs
-                      );
-                    } catch (error) {
-                      yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
-                      throw error;
-                    }
-                  }
-                  this.maybeRefundToolRequestRejectionReservation(toolBudgetPolicy, entry, outcome);
-                  toolHistory.push(outcome.exchange);
-                  this.applyToolExecutionOutcome(turnState, outcome, iteration);
-                  durableCompactionExecuted =
-                    durableCompactionExecuted ||
-                    outcome.sharedCompaction?.durableStatePersisted === true;
-                  yield this.createToolFinishedStreamEvent(
-                    acceptedTurn,
-                    toolCall,
-                    outcome.exchange.toolResult.isError
-                  );
-                  if (outcome.artifacts !== undefined) {
-                    for (const artifact of outcome.artifacts) {
-                      yield this.createArtifactStreamEvent(acceptedTurn, artifact);
-                    }
-                  }
-                }
-              }
-              if (durableCompactionExecuted) {
-                const refreshStartedAtMs = Date.now();
-                execution.providerRequest = await this.refreshProviderRequestMessages(
-                  execution,
-                  input
-                );
-                const refreshElapsedMs = Date.now() - refreshStartedAtMs;
-                trace?.stage(`iter${String(iteration)}.provider_request_refreshed`);
-                if (traceEnabled) {
-                  this.logger.log(
-                    `[turn-stream-refresh] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} refreshProviderRequestMessagesMs=${String(refreshElapsedMs)} reason=durable_compaction`
-                  );
-                }
-              }
-
-              previewFollowUpExtraIterations = this.reservePreviewFollowUpIterationIfNeeded({
-                turnState,
-                iteration,
-                maxToolLoopIterations,
-                previewFollowUpExtraIterations
-              });
-
-              advancedToNextIteration = true;
-              break;
-            }
-
-            if (event.type === "completed" && event.result !== undefined) {
-              trace?.stage(`iter${String(iteration)}.completed_event`);
-              const completedProviderResult = this.withAssistantText(
-                event.result,
-                this.resolveCompletedStreamAssistantText(
-                  iterationBaseText,
-                  assembledText,
-                  event.result.text
-                )
-              );
+            } catch (error) {
+              const fallbackSelection = resolveRuntimeTextFallbackSelection(execution.bundle);
               if (
-                (completedProviderResult.text ?? "").trim().length === 0 &&
-                toolHistory.length > 0 &&
-                iteration + 1 < maxToolLoopIterations
-              ) {
-                forceFinalTextOnly = true;
-                advancedToNextIteration = true;
-                trace?.stage(`iter${String(iteration)}.empty_tool_followup_retry`);
-                break;
-              }
-              const correctedAssistantText = this.applyAssistantTextCorrections({
-                assistantText: completedProviderResult.text ?? "",
-                artifacts: turnState.artifacts,
-                deferredMediaJobs: turnState.deferredMediaJobs,
-                hadRejectedMediaRequest: turnState.hadRejectedMediaRequest,
-                deferredDocumentJobs: turnState.deferredDocumentJobs,
-                locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
-              });
-              if (correctedAssistantText !== (completedProviderResult.text ?? "")) {
-                const correctionDeltaEvent = this.createVisibleTextDeltaStreamEvent({
-                  acceptedTurn,
-                  previousDeliveredText: deliveredText,
-                  nextVisibleText: correctedAssistantText,
-                  source: "provider_tool_calls_result_text"
-                });
-                if (correctionDeltaEvent !== null) {
-                  deliveredText = correctionDeltaEvent.accumulatedText;
-                  yield correctionDeltaEvent;
-                }
-              }
-              const correctedProviderResult = this.withAssistantText(
-                completedProviderResult,
-                correctedAssistantText
-              );
-              this.recordUsageEntry(turnState, {
-                stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
-                modelRole: execution.selectedModelRole,
-                usage: correctedProviderResult.usage
-              });
-              // Answer-only text = corrections applied to the FINAL iteration's
-              // own provider text (`event.result.text`), never the cumulative
-              // corrected text. The cumulative text already contains every
-              // working note; deriving the answer from it would duplicate the
-              // notes into the answer. Corrections here are
-              // identity-or-full-replacement (deferred-media/document
-              // acknowledgement), so they produce the same final answer whether
-              // applied to the final-iteration text or the cumulative text.
-              const correctedFinalAnswerText = this.applyAssistantTextCorrections({
-                assistantText: event.result.text ?? "",
-                artifacts: turnState.artifacts,
-                deferredMediaJobs: turnState.deferredMediaJobs,
-                hadRejectedMediaRequest: turnState.hadRejectedMediaRequest,
-                deferredDocumentJobs: turnState.deferredDocumentJobs,
-                locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
-              });
-              const { workingNotes, answerText } = assembleWorkingNotesAndAnswer({
-                toolStepTexts,
-                finalAnswerText: correctedFinalAnswerText,
-                fullAssistantText: correctedAssistantText
-              });
-              const result = this.buildTurnResult(
-                acceptedTurn,
-                correctedProviderResult,
-                turnState,
-                execution.routeDecision,
-                trace?.build("ok"),
-                { workingNotes, answerText }
-              );
-              completionFinalizationAttempted = true;
-              const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
-                acceptedTurn,
-                result,
-                input,
-                bundle: execution.bundle,
-                turnState
-              });
-              yield {
-                type: "completed",
-                result: finalizedResult
-              };
-              return;
-            }
-
-            if (event.type === "failed") {
-              trace?.stage(`iter${String(iteration)}.failed_event`);
-              if (
-                !firstProviderEventSeen &&
                 !streamFallbackAttempted &&
-                isRetryableRuntimeTextStreamFailureCode(event.code)
+                !providerOutputSeen &&
+                isRetryableRuntimeTextFailure(error) &&
+                fallbackSelection !== null &&
+                !sameProviderSelection(
+                  { provider: providerRequest.provider, model: providerRequest.model },
+                  fallbackSelection
+                )
               ) {
-                const fallbackSelection = resolveRuntimeTextFallbackSelection(execution.bundle);
-                if (
-                  fallbackSelection !== null &&
-                  !sameProviderSelection(
-                    { provider: providerRequest.provider, model: providerRequest.model },
-                    fallbackSelection
-                  )
-                ) {
-                  streamFallbackAttempted = true;
-                  this.logger.warn(
-                    `[runtime-text-fallback-primary-failed] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} errorCode=${event.code ?? "unknown"} errorMessage=${event.message ?? "Provider stream failed."}`
-                  );
-                  try {
-                    providerStream = await this.providerGatewayClientService.streamText(
-                      {
-                        ...providerRequest,
-                        provider: fallbackSelection.provider,
-                        model: fallbackSelection.model
-                      },
-                      this.buildProviderGatewayStreamOptions(signal, traceEnabled)
-                    );
-                    this.logger.log(
-                      `[runtime-text-fallback-succeeded] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} primaryProvider=${providerRequest.provider} primaryModel=${providerRequest.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model}`
-                    );
-                    firstProviderEventSeen = false;
-                    break;
-                  } catch (fallbackError) {
-                    this.logger.warn(
-                      `[runtime-text-fallback-failed] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} primaryProvider=${providerRequest.provider} primaryModel=${providerRequest.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} error=${
-                        fallbackError instanceof Error
-                          ? fallbackError.message
-                          : String(fallbackError)
-                      }`
-                    );
-                    throw fallbackError;
-                  }
-                }
+                streamFallbackAttempted = true;
+                this.logger.warn(
+                  `[runtime-text-fallback-primary-failed] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} error=${
+                    error instanceof Error ? error.message : String(error)
+                  }`
+                );
+                providerRequest = {
+                  ...providerRequest,
+                  provider: fallbackSelection.provider,
+                  model: fallbackSelection.model
+                };
+                this.logger.log(
+                  `[runtime-text-fallback-rerouted] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model}`
+                );
+                continue;
               }
-              if (
-                event.code === "provider_context_window_exceeded" &&
-                !contextOverflowRetryAttempted &&
-                deliveredText.trim().length === 0 &&
-                iteration + 1 < maxToolLoopIterations + previewFollowUpExtraIterations
-              ) {
-                contextOverflowRetryAttempted = true;
-                this.restorePendingFilePreviewBlocksAfterOverflow(
-                  turnState,
-                  pendingFilePreviewBlocks
-                );
-                toolHistory.splice(0, toolHistory.length);
-                forceFinalTextOnly = true;
-                execution.providerRequest = this.buildContextOverflowRecoveryProviderRequest(
-                  execution.providerRequest
-                );
-                advancedToNextIteration = true;
-                trace?.stage(`iter${String(iteration)}.context_overflow_retry`);
-                break;
-              }
-              if (deliveredText.trim().length > 0) {
-                const interrupted = this.toInterruptedEvent(
-                  acceptedTurn,
-                  deliveredText,
-                  null,
-                  trace?.build("interrupted"),
-                  turnState
-                );
+              throw error;
+            }
+            trace?.stage(`iter${String(iteration)}.provider_headers_received`);
+
+            let restartProviderAttempt = false;
+            for await (const event of providerStream) {
+              if (signal?.aborted) {
                 await this.interruptAcceptedTurnQuietly({
                   acceptedTurn,
-                  event: interrupted
+                  event: this.toInterruptedEvent(
+                    acceptedTurn,
+                    deliveredText,
+                    null,
+                    trace?.build("interrupted"),
+                    turnState
+                  )
                 });
-                yield interrupted;
                 return;
               }
 
-              const failed = await this.failAcceptedTurnQuietly(
-                acceptedTurn,
-                {
-                  type: "failed",
-                  requestId: acceptedTurn.receipt.requestId,
-                  sessionId: acceptedTurn.session.sessionId,
-                  code: event.code ?? "provider_stream_failed",
-                  message: event.message ?? "Provider stream failed.",
-                  willRetry: false,
-                  ...(trace === undefined ? {} : { trace: trace.build("failed") })
-                },
-                undefined,
-                turnState
-              );
-              yield failed;
-              return;
+              if (event.type === "keepalive") {
+                continue;
+              }
+
+              if (event.type === "text_delta" && event.delta !== undefined) {
+                providerOutputSeen = true;
+                assembledText = this.mergeAssistantTurnText(
+                  iterationBaseText,
+                  event.accumulatedText
+                );
+                if (deliveredText.length === 0) {
+                  trace?.stage("stream.first_text_delta");
+                }
+                const deltaEvent = this.createVisibleTextDeltaStreamEvent({
+                  acceptedTurn,
+                  previousDeliveredText: deliveredText,
+                  nextVisibleText: assembledText,
+                  source: "provider_text_delta"
+                });
+                if (deltaEvent !== null) {
+                  if (projectModeActive && !projectSynthesisEventsEmitted) {
+                    projectSynthesisEventsEmitted = true;
+                    for (const projectEvent of createProjectModeSynthesisStreamEvents(
+                      projectStreamIdentity
+                    )) {
+                      yield projectEvent;
+                    }
+                  }
+                  deliveredText = deltaEvent.accumulatedText;
+                  yield deltaEvent;
+                }
+                continue;
+              }
+
+              if (event.type === "tool_calls") {
+                providerOutputSeen = true;
+                trace?.stage(`iter${String(iteration)}.tool_calls_received`);
+                // Working note for THIS step: the text the provider generated in
+                // this iteration before its tool call. Sourced per-iteration from
+                // `event.result.text` (never the cumulative `assembledText`), so a
+                // later step's note never re-contains an earlier note. Captured on
+                // every iteration, not just iteration 0. Not retroactively
+                // corrected by applyAssistantTextCorrections.
+                const stepNote = (event.result.text ?? "").trim();
+                if (stepNote.length > 0) {
+                  toolStepTexts.push(stepNote);
+                }
+                this.recordUsageEntry(turnState, {
+                  stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
+                  modelRole: execution.selectedModelRole,
+                  usage: event.result.usage
+                });
+                assembledText = this.resolveCompletedStreamAssistantText(
+                  iterationBaseText,
+                  assembledText,
+                  event.result.text
+                );
+                forceFinalTextOnly = false;
+                if (event.result.toolCalls.length === 0) {
+                  throw new TurnExecutionError(
+                    "native_tool_result_invalid",
+                    new ServiceUnavailableException(
+                      "Provider stream returned a tool-call stop without any tool calls."
+                    )
+                  );
+                }
+
+                const bufferedPrefixEvent = this.createVisibleTextDeltaStreamEvent({
+                  acceptedTurn,
+                  previousDeliveredText: deliveredText,
+                  nextVisibleText: assembledText,
+                  source: "provider_tool_calls_result_text"
+                });
+                if (bufferedPrefixEvent !== null) {
+                  deliveredText = bufferedPrefixEvent.accumulatedText;
+                  yield bufferedPrefixEvent;
+                }
+
+                let durableCompactionExecuted = false;
+                const plannedToolExecutions = this.planToolExecutions(
+                  this.reorderToolCallsDocumentFirst(event.result.toolCalls),
+                  toolBudgetPolicy,
+                  iteration
+                );
+                for (
+                  let batchStart = 0;
+                  batchStart < plannedToolExecutions.length;
+                  batchStart = this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
+                ) {
+                  const batch = plannedToolExecutions.slice(
+                    batchStart,
+                    this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
+                  );
+                  if (batch[0]?.parallelSafe) {
+                    for (const entry of batch) {
+                      yield this.createToolStartedStreamEvent(acceptedTurn, entry.toolCall);
+                    }
+                    const batchResults = await this.executeParallelToolChunk({
+                      plannedToolExecutions: batch,
+                      execution,
+                      acceptedTurn,
+                      input,
+                      turnState,
+                      availableWorkingFileRefs: execution.availableWorkingFileRefs,
+                      trace,
+                      iteration
+                    });
+                    let firstError: unknown = null;
+                    for (const result of batchResults) {
+                      if (result.outcome !== undefined) {
+                        this.maybeRefundToolRequestRejectionReservation(
+                          toolBudgetPolicy,
+                          batch.find((entry) => entry.toolCall.id === result.toolCall.id) ?? null,
+                          result.outcome
+                        );
+                        toolHistory.push(result.outcome.exchange);
+                        this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
+                        durableCompactionExecuted =
+                          durableCompactionExecuted ||
+                          result.outcome.sharedCompaction?.durableStatePersisted === true;
+                        yield this.createToolFinishedStreamEvent(
+                          acceptedTurn,
+                          result.toolCall,
+                          result.outcome.exchange.toolResult.isError
+                        );
+                        if (result.outcome.artifacts !== undefined) {
+                          for (const artifact of result.outcome.artifacts) {
+                            yield this.createArtifactStreamEvent(acceptedTurn, artifact);
+                          }
+                        }
+                        continue;
+                      }
+                      firstError ??= result.error;
+                      yield this.createToolFinishedStreamEvent(acceptedTurn, result.toolCall, true);
+                    }
+                    if (firstError !== null) {
+                      throw firstError;
+                    }
+                    continue;
+                  }
+                  for (const entry of batch) {
+                    const toolCall = entry.toolCall;
+                    yield this.createToolStartedStreamEvent(acceptedTurn, toolCall);
+                    let outcome: ToolExecutionOutcome;
+                    if (entry.reservation.exhausted) {
+                      outcome = this.createToolBudgetExhaustedOutcome({
+                        toolCall,
+                        reservation: entry.reservation,
+                        trace,
+                        iteration,
+                        acceptedTurn
+                      });
+                    } else {
+                      try {
+                        outcome = await this.executeProjectedToolCall(
+                          execution,
+                          acceptedTurn,
+                          input,
+                          toolCall,
+                          input.idempotencyKey,
+                          turnState.artifacts,
+                          turnState.fileRefs,
+                          execution.availableWorkingFileRefs,
+                          turnState.deferredDocumentJobs
+                        );
+                      } catch (error) {
+                        yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
+                        throw error;
+                      }
+                    }
+                    this.maybeRefundToolRequestRejectionReservation(
+                      toolBudgetPolicy,
+                      entry,
+                      outcome
+                    );
+                    toolHistory.push(outcome.exchange);
+                    this.applyToolExecutionOutcome(turnState, outcome, iteration);
+                    durableCompactionExecuted =
+                      durableCompactionExecuted ||
+                      outcome.sharedCompaction?.durableStatePersisted === true;
+                    yield this.createToolFinishedStreamEvent(
+                      acceptedTurn,
+                      toolCall,
+                      outcome.exchange.toolResult.isError
+                    );
+                    if (outcome.artifacts !== undefined) {
+                      for (const artifact of outcome.artifacts) {
+                        yield this.createArtifactStreamEvent(acceptedTurn, artifact);
+                      }
+                    }
+                  }
+                }
+                if (durableCompactionExecuted) {
+                  const refreshStartedAtMs = Date.now();
+                  execution.providerRequest = await this.refreshProviderRequestMessages(
+                    execution,
+                    input
+                  );
+                  const refreshElapsedMs = Date.now() - refreshStartedAtMs;
+                  trace?.stage(`iter${String(iteration)}.provider_request_refreshed`);
+                  if (traceEnabled) {
+                    this.logger.log(
+                      `[turn-stream-refresh] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} refreshProviderRequestMessagesMs=${String(refreshElapsedMs)} reason=durable_compaction`
+                    );
+                  }
+                }
+
+                previewFollowUpExtraIterations = this.reservePreviewFollowUpIterationIfNeeded({
+                  turnState,
+                  iteration,
+                  maxToolLoopIterations,
+                  previewFollowUpExtraIterations
+                });
+
+                advancedToNextIteration = true;
+                break;
+              }
+
+              if (event.type === "completed" && event.result !== undefined) {
+                providerOutputSeen = true;
+                trace?.stage(`iter${String(iteration)}.completed_event`);
+                const completedProviderResult = this.withAssistantText(
+                  event.result,
+                  this.resolveCompletedStreamAssistantText(
+                    iterationBaseText,
+                    assembledText,
+                    event.result.text
+                  )
+                );
+                if (
+                  (completedProviderResult.text ?? "").trim().length === 0 &&
+                  toolHistory.length > 0 &&
+                  iteration + 1 < maxToolLoopIterations
+                ) {
+                  forceFinalTextOnly = true;
+                  advancedToNextIteration = true;
+                  trace?.stage(`iter${String(iteration)}.empty_tool_followup_retry`);
+                  break;
+                }
+                const correctedAssistantText = this.applyAssistantTextCorrections({
+                  assistantText: completedProviderResult.text ?? "",
+                  artifacts: turnState.artifacts,
+                  deferredMediaJobs: turnState.deferredMediaJobs,
+                  hadRejectedMediaRequest: turnState.hadRejectedMediaRequest,
+                  deferredDocumentJobs: turnState.deferredDocumentJobs,
+                  locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
+                });
+                if (correctedAssistantText !== (completedProviderResult.text ?? "")) {
+                  const correctionDeltaEvent = this.createVisibleTextDeltaStreamEvent({
+                    acceptedTurn,
+                    previousDeliveredText: deliveredText,
+                    nextVisibleText: correctedAssistantText,
+                    source: "provider_tool_calls_result_text"
+                  });
+                  if (correctionDeltaEvent !== null) {
+                    deliveredText = correctionDeltaEvent.accumulatedText;
+                    yield correctionDeltaEvent;
+                  }
+                }
+                const correctedProviderResult = this.withAssistantText(
+                  completedProviderResult,
+                  correctedAssistantText
+                );
+                this.recordUsageEntry(turnState, {
+                  stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
+                  modelRole: execution.selectedModelRole,
+                  usage: correctedProviderResult.usage
+                });
+                // Answer-only text = corrections applied to the FINAL iteration's
+                // own provider text (`event.result.text`), never the cumulative
+                // corrected text. The cumulative text already contains every
+                // working note; deriving the answer from it would duplicate the
+                // notes into the answer. Corrections here are
+                // identity-or-full-replacement (deferred-media/document
+                // acknowledgement), so they produce the same final answer whether
+                // applied to the final-iteration text or the cumulative text.
+                const correctedFinalAnswerText = this.applyAssistantTextCorrections({
+                  assistantText: event.result.text ?? "",
+                  artifacts: turnState.artifacts,
+                  deferredMediaJobs: turnState.deferredMediaJobs,
+                  hadRejectedMediaRequest: turnState.hadRejectedMediaRequest,
+                  deferredDocumentJobs: turnState.deferredDocumentJobs,
+                  locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
+                });
+                const { workingNotes, answerText } = assembleWorkingNotesAndAnswer({
+                  toolStepTexts,
+                  finalAnswerText: correctedFinalAnswerText,
+                  fullAssistantText: correctedAssistantText
+                });
+                const result = this.buildTurnResult(
+                  acceptedTurn,
+                  correctedProviderResult,
+                  turnState,
+                  execution.routeDecision,
+                  trace?.build("ok"),
+                  { workingNotes, answerText }
+                );
+                completionFinalizationAttempted = true;
+                const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
+                  acceptedTurn,
+                  result,
+                  input,
+                  bundle: execution.bundle,
+                  turnState
+                });
+                yield {
+                  type: "completed",
+                  result: finalizedResult
+                };
+                return;
+              }
+
+              if (event.type === "failed") {
+                trace?.stage(`iter${String(iteration)}.failed_event`);
+                if (
+                  !providerOutputSeen &&
+                  !streamFallbackAttempted &&
+                  isRetryableRuntimeTextStreamFailure(event)
+                ) {
+                  const fallbackSelection = resolveRuntimeTextFallbackSelection(execution.bundle);
+                  if (
+                    fallbackSelection !== null &&
+                    !sameProviderSelection(
+                      { provider: providerRequest.provider, model: providerRequest.model },
+                      fallbackSelection
+                    )
+                  ) {
+                    streamFallbackAttempted = true;
+                    this.logger.warn(
+                      `[runtime-text-fallback-primary-failed] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} errorCode=${event.code ?? "unknown"} errorMessage=${event.message ?? "Provider stream failed."}`
+                    );
+                    providerRequest = {
+                      ...providerRequest,
+                      provider: fallbackSelection.provider,
+                      model: fallbackSelection.model
+                    };
+                    this.logger.log(
+                      `[runtime-text-fallback-rerouted] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model}`
+                    );
+                    restartProviderAttempt = true;
+                    break;
+                  }
+                }
+                if (
+                  event.code === "provider_context_window_exceeded" &&
+                  !contextOverflowRetryAttempted &&
+                  deliveredText.trim().length === 0 &&
+                  iteration + 1 < maxToolLoopIterations + previewFollowUpExtraIterations
+                ) {
+                  contextOverflowRetryAttempted = true;
+                  this.restorePendingFilePreviewBlocksAfterOverflow(
+                    turnState,
+                    pendingFilePreviewBlocks
+                  );
+                  toolHistory.splice(0, toolHistory.length);
+                  forceFinalTextOnly = true;
+                  execution.providerRequest = this.buildContextOverflowRecoveryProviderRequest(
+                    execution.providerRequest
+                  );
+                  advancedToNextIteration = true;
+                  trace?.stage(`iter${String(iteration)}.context_overflow_retry`);
+                  break;
+                }
+                if (deliveredText.trim().length > 0) {
+                  const interrupted = this.toInterruptedEvent(
+                    acceptedTurn,
+                    deliveredText,
+                    null,
+                    trace?.build("interrupted"),
+                    turnState
+                  );
+                  await this.interruptAcceptedTurnQuietly({
+                    acceptedTurn,
+                    event: interrupted
+                  });
+                  yield interrupted;
+                  return;
+                }
+
+                const failed = await this.failAcceptedTurnQuietly(
+                  acceptedTurn,
+                  {
+                    type: "failed",
+                    requestId: acceptedTurn.receipt.requestId,
+                    sessionId: acceptedTurn.session.sessionId,
+                    code: event.code ?? "provider_stream_failed",
+                    message: event.message ?? "Provider stream failed.",
+                    willRetry: false,
+                    ...(trace === undefined ? {} : { trace: trace.build("failed") })
+                  },
+                  undefined,
+                  turnState
+                );
+                yield failed;
+                return;
+              }
+            }
+
+            if (!restartProviderAttempt) {
+              break;
             }
           }
 
           if (advancedToNextIteration) {
-            continue;
-          }
-          if (streamFallbackAttempted && !firstProviderEventSeen) {
             continue;
           }
 
@@ -1771,7 +1808,8 @@ export class TurnExecutionService {
     deepModeEnabled: boolean,
     developerInstructionSections: DeveloperInstructionSection[],
     promptMode: "chat" | "background_worker",
-    thinkingBudget: number = 0
+    thinkingBudget: number = 0,
+    promptCacheRetention: ProviderGatewayPromptCacheRetention = OPENAI_PROMPT_CACHE_RETENTION_FALLBACK
   ): ProviderGatewayTextGenerateRequest {
     const promptCache = this.buildPromptCacheConfig({
       bundle,
@@ -1782,6 +1820,7 @@ export class TurnExecutionService {
           : deepModeEnabled
             ? "deep_chat"
             : "ordinary_chat",
+      promptCacheRetention,
       messages,
       deepModeEnabled,
       projectedTools
@@ -2248,6 +2287,32 @@ export class TurnExecutionService {
         ? slot.contextWindow
         : null;
     return { maxOutputTokens, contextWindow };
+  }
+
+  private resolveSlotPromptCacheRetention(
+    bundle: AssistantRuntimeBundle,
+    modelRole: PersaiRuntimeModelRole
+  ): ProviderGatewayPromptCacheRetention {
+    const routing = this.asObject(bundle.runtime.runtimeProviderRouting);
+    const modelSlots = this.asObject(routing?.modelSlots);
+    const slotKey =
+      modelRole === "premium_reply"
+        ? "premiumReply"
+        : modelRole === "reasoning"
+          ? "reasoning"
+          : modelRole === "system_tool"
+            ? "systemTool"
+            : modelRole === "retrieval"
+              ? "retrieval"
+              : "normalReply";
+    let slot = this.asObject(modelSlots?.[slotKey]);
+    if (slot === null && modelRole !== "normal_reply") {
+      slot = this.asObject(modelSlots?.["normalReply"]);
+    }
+    return (
+      this.asPromptCacheRetention(slot?.promptCacheRetention) ??
+      OPENAI_PROMPT_CACHE_RETENTION_FALLBACK
+    );
   }
 
   private resolveProviderSelectionForRole(
@@ -5060,7 +5125,8 @@ export class TurnExecutionService {
       execution.deepModeEnabled,
       developerInstructionSections,
       execution.promptMode,
-      refreshThinkingBudget
+      refreshThinkingBudget,
+      this.resolveSlotPromptCacheRetention(execution.bundle, execution.selectedModelRole)
     );
     // ADR-122 Slice 2: propagate the resolved output budget onto the refreshed
     // request so the context-refresh path also sets maxOutputTokens rather than
@@ -5097,6 +5163,7 @@ export class TurnExecutionService {
     bundle: AssistantRuntimeBundle;
     provider: NativeManagedProvider;
     family: string;
+    promptCacheRetention: ProviderGatewayPromptCacheRetention;
     messages?: ProviderGatewayTextMessage[];
     deepModeEnabled?: boolean;
     projectedTools?: RuntimeNativeToolProjection;
@@ -5143,7 +5210,7 @@ export class TurnExecutionService {
         hydratedStableBlockTokens,
         variantHash
       }),
-      retention: DEFAULT_OPENAI_PROMPT_CACHE_RETENTION
+      retention: input.promptCacheRetention
     };
   }
 
@@ -5549,6 +5616,10 @@ export class TurnExecutionService {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
+  private asPromptCacheRetention(value: unknown): ProviderGatewayPromptCacheRetention | null {
+    return value === "in_memory" || value === "24h" ? value : null;
+  }
+
   private isContextWindowExceededError(error: unknown): boolean {
     if (this.isRuntimeFailedEvent(error) && error.code === "provider_context_window_exceeded") {
       return true;
@@ -5567,7 +5638,7 @@ export class TurnExecutionService {
   }
 
   private asNativeManagedProvider(value: unknown): NativeManagedProvider | null {
-    return value === "openai" || value === "anthropic" ? value : null;
+    return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
   }
 
   private formatLogError(error: unknown): string {

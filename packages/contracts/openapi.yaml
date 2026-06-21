@@ -13437,16 +13437,31 @@ components:
         primaryModelKey:
           type: string
           nullable: true
+        primaryModelProviderKey:
+          type: string
+          nullable: true
         premiumModelKey:
+          type: string
+          nullable: true
+        premiumModelProviderKey:
           type: string
           nullable: true
         reasoningModelKey:
           type: string
           nullable: true
+        reasoningModelProviderKey:
+          type: string
+          nullable: true
         systemToolModelKey:
           type: string
           nullable: true
+        systemToolModelProviderKey:
+          type: string
+          nullable: true
         retrievalModelKey:
+          type: string
+          nullable: true
+        retrievalModelProviderKey:
           type: string
           nullable: true
         imageGenerateModelKey:
@@ -13814,16 +13829,31 @@ components:
         primaryModelKey:
           type: string
           nullable: true
+        primaryModelProviderKey:
+          type: string
+          nullable: true
         premiumModelKey:
+          type: string
+          nullable: true
+        premiumModelProviderKey:
           type: string
           nullable: true
         reasoningModelKey:
           type: string
           nullable: true
+        reasoningModelProviderKey:
+          type: string
+          nullable: true
         systemToolModelKey:
           type: string
           nullable: true
+        systemToolModelProviderKey:
+          type: string
+          nullable: true
         retrievalModelKey:
+          type: string
+          nullable: true
+        retrievalModelProviderKey:
           type: string
           nullable: true
         imageGenerateModelKey:
@@ -15767,11 +15797,13 @@ components:
       enum:
         - openai
         - anthropic
+        - deepseek
     ManagedRuntimeCatalogProvider:
       type: string
       enum:
         - openai
         - anthropic
+        - deepseek
         - runway
         - kling
         - heygen
@@ -15790,12 +15822,17 @@ components:
       required:
         - openai
         - anthropic
+        - deepseek
       properties:
         openai:
           type: array
           items:
             type: string
         anthropic:
+          type: array
+          items:
+            type: string
+        deepseek:
           type: array
           items:
             type: string
@@ -16173,6 +16210,13 @@ components:
           minimum: 1
           nullable: true
           description: "ADR-122 D1 — admin-set total context window; null means context-window guard is skipped."
+        promptCacheRetention:
+          type: string
+          enum:
+            - in_memory
+            - 24h
+          nullable: true
+          description: "ADR-124 Slice 1 — admin-set OpenAI prompt-cache retention; null means runtime fallback applies."
         displayLabel:
           type: string
           nullable: true
@@ -16525,6 +16569,8 @@ components:
         openai:
           type: string
         anthropic:
+          type: string
+        deepseek:
           type: string
     AdminRuntimeProviderSettingsRequest:
       type: object

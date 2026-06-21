@@ -303,6 +303,92 @@ async function run(): Promise<void> {
   );
 
   assert.equal(
+    resolveAllowedPlanPrimaryModelKey({
+      runtimeProviderProfile: {
+        ...adminManagedProfile,
+        primary: {
+          ...adminManagedProfile.primary,
+          provider: "openai",
+          model: "gpt-5.4"
+        },
+        availableModelCatalogByProvider: {
+          ...adminManagedProfile.availableModelCatalogByProvider,
+          anthropic: {
+            models: [
+              {
+                model: "shared-foreign-model",
+                capabilities: ["chat"],
+                kind: "cinematic",
+                active: true,
+                billingMode: "token_metered",
+                effectiveFrom: null,
+                effectiveTo: null,
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                maxOutputTokens: null,
+                contextWindow: null,
+                promptCacheRetention: null,
+                displayLabel: null,
+                notes: null,
+                videoModelParameters: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  tokenPricing: {
+                    inputPer1M: 0,
+                    cacheCreationInputPer1M: 0,
+                    cachedInputPer1M: 0,
+                    outputPer1M: 0
+                  },
+                  timePricing: null,
+                  fixedOperationPricing: null,
+                  tieredOperationPricing: null
+                }
+              }
+            ]
+          },
+          runway: {
+            models: [
+              {
+                model: "shared-foreign-model",
+                capabilities: ["chat"],
+                kind: "cinematic",
+                active: true,
+                billingMode: "token_metered",
+                effectiveFrom: null,
+                effectiveTo: null,
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                maxOutputTokens: null,
+                contextWindow: null,
+                promptCacheRetention: null,
+                displayLabel: null,
+                notes: null,
+                videoModelParameters: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  tokenPricing: {
+                    inputPer1M: 0,
+                    cacheCreationInputPer1M: 0,
+                    cachedInputPer1M: 0,
+                    outputPer1M: 0
+                  },
+                  timePricing: null,
+                  fixedOperationPricing: null,
+                  tieredOperationPricing: null
+                }
+              }
+            ]
+          }
+        }
+      },
+      planPrimaryModelKey: "shared-foreign-model"
+    }),
+    null
+  );
+
+  assert.equal(
     resolveAllowedPlanCapabilityModelKey({
       runtimeProviderProfile: adminManagedProfile,
       planModelKey: "gpt-image-1.5",

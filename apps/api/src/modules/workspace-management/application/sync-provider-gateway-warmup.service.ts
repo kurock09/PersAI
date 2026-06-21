@@ -5,7 +5,7 @@ import type { AssistantMaterializedSpec } from "../domain/assistant-materialized
 import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 type ProviderGatewayWarmupStatus = "skipped_unconfigured" | "warmed";
-type ManagedRuntimeProvider = "openai" | "anthropic";
+type ManagedRuntimeProvider = "openai" | "anthropic" | "deepseek";
 
 type ProviderGatewayWarmupRequest = {
   schema: "persai.providerGatewayWarmupRequest.v1";
@@ -73,7 +73,8 @@ export class SyncProviderGatewayWarmupService {
 
     return {
       openai: normalizeModelList(availableModelsByProvider?.openai),
-      anthropic: normalizeModelList(availableModelsByProvider?.anthropic)
+      anthropic: normalizeModelList(availableModelsByProvider?.anthropic),
+      deepseek: normalizeModelList(availableModelsByProvider?.deepseek)
     };
   }
 

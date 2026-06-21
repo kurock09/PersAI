@@ -4,7 +4,7 @@ export const RUNTIME_PROVIDER_PROFILE_SCHEMA = "persai.runtimeProviderProfile.v1
 export const RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA = "persai.runtimeProviderCredentialRefs.v1";
 export const ASSISTANT_SECRET_REFS_SCHEMA = "persai.secretRefs.v1";
 
-export const MANAGED_RUNTIME_PROVIDERS = ["openai", "anthropic"] as const;
+export const MANAGED_RUNTIME_PROVIDERS = ["openai", "anthropic", "deepseek"] as const;
 export const RUNTIME_SECRET_REF_SOURCES = ["env", "file", "exec"] as const;
 
 export type ManagedRuntimeProvider = (typeof MANAGED_RUNTIME_PROVIDERS)[number];
@@ -47,7 +47,7 @@ function asNonEmptyString(value: unknown): string | null {
 }
 
 function normalizeProvider(value: unknown): ManagedRuntimeProvider | null {
-  return value === "openai" || value === "anthropic" ? value : null;
+  return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
 }
 
 function normalizeSecretSource(value: unknown): RuntimeSecretRefSource {
@@ -76,7 +76,8 @@ export function createDefaultRuntimeProviderAdminDraft(): RuntimeProviderAdminDr
     },
     credentials: {
       openai: createEmptyCredentialDraft(),
-      anthropic: createEmptyCredentialDraft()
+      anthropic: createEmptyCredentialDraft(),
+      deepseek: createEmptyCredentialDraft()
     }
   };
 }
@@ -128,6 +129,10 @@ export function resolveRuntimeProviderAdminFormState(
     providers?.anthropic,
     draft.credentials.anthropic
   );
+  draft.credentials.deepseek = parseCredentialDraft(
+    providers?.deepseek,
+    draft.credentials.deepseek
+  );
 
   if (profile === null || profile.schema !== RUNTIME_PROVIDER_PROFILE_SCHEMA) {
     return {
@@ -163,7 +168,7 @@ function isCredentialDraftTouched(value: RuntimeProviderCredentialDraft): boolea
 }
 
 function providerLabel(provider: ManagedRuntimeProvider): string {
-  return provider === "openai" ? "OpenAI" : "Anthropic";
+  return provider === "openai" ? "OpenAI" : provider === "anthropic" ? "Anthropic" : "DeepSeek";
 }
 
 export function validateRuntimeProviderAdminDraft(draft: RuntimeProviderAdminDraft): string | null {

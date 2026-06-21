@@ -1,4 +1,4 @@
-export const PROVIDER_GATEWAY_PROVIDERS = ["openai", "anthropic"] as const;
+export const PROVIDER_GATEWAY_PROVIDERS = ["openai", "anthropic", "deepseek"] as const;
 
 export type ProviderGatewayProvider = (typeof PROVIDER_GATEWAY_PROVIDERS)[number];
 

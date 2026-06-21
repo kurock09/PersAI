@@ -9,6 +9,7 @@ import type { RuntimeProviderModelCatalogState } from "./runtimeProviderModelCat
 export interface RuntimeProviderModelCatalogByProviderState {
   openai: RuntimeProviderModelCatalogState;
   anthropic: RuntimeProviderModelCatalogState;
+  deepseek: RuntimeProviderModelCatalogState;
   runway: RuntimeProviderModelCatalogState;
   kling: RuntimeProviderModelCatalogState;
   heygen: RuntimeProviderModelCatalogState;

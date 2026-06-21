@@ -9,6 +9,7 @@ import {
   type ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
 import { AnthropicProviderClient } from "./anthropic/anthropic-provider.client";
+import { DeepSeekProviderClient } from "./deepseek/deepseek-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 import { ProviderWarmupService } from "./provider-warmup.service";
@@ -20,7 +21,8 @@ export class ProviderTextGenerationService {
   constructor(
     private readonly providerWarmupService: ProviderWarmupService,
     private readonly openaiProviderClient: OpenAIProviderClient,
-    private readonly anthropicProviderClient: AnthropicProviderClient
+    private readonly anthropicProviderClient: AnthropicProviderClient,
+    private readonly deepseekProviderClient: DeepSeekProviderClient
   ) {}
 
   async generateText(
@@ -34,6 +36,8 @@ export class ProviderTextGenerationService {
         return this.openaiProviderClient.generateText(input);
       case "anthropic":
         return this.anthropicProviderClient.generateText(input);
+      case "deepseek":
+        return this.deepseekProviderClient.generateText(input);
     }
   }
 
@@ -57,6 +61,8 @@ export class ProviderTextGenerationService {
         return this.openaiProviderClient.streamText(input, signal);
       case "anthropic":
         return this.anthropicProviderClient.streamText(input, signal);
+      case "deepseek":
+        return this.deepseekProviderClient.streamText(input, signal);
     }
   }
 

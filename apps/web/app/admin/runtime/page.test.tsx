@@ -49,7 +49,8 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
     },
     availableModelsByProvider: {
       openai: ["gpt-5.4"],
-      anthropic: []
+      anthropic: [],
+      deepseek: ["deepseek-v4-flash"]
     },
     availableModelCatalogByProvider: {
       openai: {
@@ -103,6 +104,33 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
       anthropic: {
         models: []
       },
+      deepseek: {
+        models: [
+          {
+            model: "deepseek-v4-flash",
+            capabilities: ["chat"],
+            kind: "cinematic",
+            active: true,
+            billingMode: "token_metered",
+            effectiveFrom: null,
+            effectiveTo: null,
+            inputTokenWeight: 0.112,
+            cachedInputTokenWeight: 0.00224,
+            outputTokenWeight: 0.224,
+            displayLabel: "DeepSeek V4 Flash",
+            notes: null,
+            providerPriceMetadata: {
+              currency: "USD",
+              tokenPricing: {
+                inputPer1M: 0.14,
+                cacheCreationInputPer1M: 0,
+                cachedInputPer1M: 0.0028,
+                outputPer1M: 0.28
+              }
+            }
+          }
+        ]
+      },
       runway: {
         models: []
       },
@@ -120,6 +148,11 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
         updatedAt: "2026-05-20T16:00:00.000Z"
       },
       anthropic: {
+        configured: false,
+        lastFour: null,
+        updatedAt: null
+      },
+      deepseek: {
         configured: false,
         lastFour: null,
         updatedAt: null
@@ -155,7 +188,7 @@ describe("AdminRuntimePage", () => {
       target: { value: "1" }
     });
 
-    fireEvent.change(screen.getByLabelText("Billing mode"), {
+    fireEvent.change(screen.getAllByLabelText("Billing mode")[0]!, {
       target: { value: "tiered_operation" }
     });
 
@@ -287,20 +320,20 @@ describe("AdminRuntimePage catalog picker", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
 
-    expect(screen.getAllByLabelText("Billing mode")).toHaveLength(1);
-    expect(screen.getByLabelText("Input / 1M")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Billing mode")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Input / 1M")).toHaveLength(2);
     expect(screen.queryByLabelText("Price / operation")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("OpenAI catalog entry"), {
       target: { value: "1" }
     });
 
-    expect(screen.getAllByLabelText("Billing mode")).toHaveLength(1);
-    expect(screen.queryByLabelText("Input / 1M")).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText("Billing mode")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Input / 1M")).toHaveLength(1);
     expect(screen.getByLabelText("Price / operation")).toBeInTheDocument();
   });
 
-  it("renders Runway and Kling catalog cards while keeping chat provider selectors OpenAI/Anthropic-only", async () => {
+  it("renders DeepSeek alongside video catalog cards in chat provider selectors", async () => {
     render(<AdminRuntimePage />);
 
     await waitFor(() =>
@@ -319,7 +352,7 @@ describe("AdminRuntimePage catalog picker", () => {
       const optionValues = within(select)
         .getAllByRole("option")
         .map((option) => option.textContent);
-      expect(optionValues).toEqual(["OpenAI", "Anthropic"]);
+      expect(optionValues).toEqual(["OpenAI", "Anthropic", "DeepSeek"]);
     }
   });
 
@@ -332,22 +365,11 @@ describe("AdminRuntimePage catalog picker", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Add model" })[2]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Add model" })[3]!);
 
-    const runwayHint = screen.getByText(/Runway is a video-only catalog provider/i);
-    expect(runwayHint).toBeInTheDocument();
-    const runwayEditor = runwayHint.closest("div");
-    expect(runwayEditor).not.toBeNull();
-    const runway = within(runwayEditor!);
-
-    expect(runway.getByLabelText("Billing mode")).toHaveValue("time_metered");
-    expect(runway.getByLabelText("video")).toBeChecked();
-    expect(runway.queryByLabelText("chat")).not.toBeInTheDocument();
-    expect(runway.queryByLabelText("image")).not.toBeInTheDocument();
-    expect(runway.queryByLabelText("speech_to_text")).not.toBeInTheDocument();
-    expect(runway.queryByLabelText("text_to_speech")).not.toBeInTheDocument();
-
-    fireEvent.change(runway.getByLabelText("Model key"), {
+    const runwayBillingMode = screen.getAllByLabelText("Billing mode").at(-1)!;
+    expect(runwayBillingMode).toHaveValue("time_metered");
+    fireEvent.change(screen.getAllByLabelText("Model key").at(-1)!, {
       target: { value: "runway-gen-4" }
     });
 
@@ -380,7 +402,8 @@ describe("AdminRuntimePage catalog picker", () => {
     });
     expect(request.availableModelsByProvider).toEqual({
       openai: ["gpt-5.4"],
-      anthropic: []
+      anthropic: [],
+      deepseek: ["deepseek-v4-flash"]
     });
   });
 
@@ -392,14 +415,9 @@ describe("AdminRuntimePage catalog picker", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Add model" })[3]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Add model" })[4]!);
 
-    const klingHint = screen.getByText(/Kling is a video-only catalog provider/i);
-    const klingEditor = klingHint.closest("div");
-    expect(klingEditor).not.toBeNull();
-    const kling = within(klingEditor!);
-
-    fireEvent.change(kling.getByLabelText("Model key"), {
+    fireEvent.change(screen.getAllByLabelText("Model key").at(-1)!, {
       target: { value: "kling-v3" }
     });
 
@@ -534,7 +552,7 @@ describe("AdminRuntimePage decimal pricing", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
 
-    const inputPer1M = screen.getByLabelText("Input / 1M");
+    const inputPer1M = screen.getAllByLabelText("Input / 1M")[0]!;
     await act(async () => {
       fireEvent.focus(inputPer1M);
       fireEvent.change(inputPer1M, { target: { value: "0,075" } });

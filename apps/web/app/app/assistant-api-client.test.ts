@@ -255,7 +255,8 @@ describe("admin rollout client", () => {
         },
         availableModelsByProvider: {
           openai: ["gpt-5.4"],
-          anthropic: []
+          anthropic: [],
+          deepseek: []
         },
         availableModelCatalogByProvider: {
           openai: {
@@ -321,6 +322,7 @@ describe("admin rollout client", () => {
               }
             ]
           },
+          deepseek: { models: [] },
           anthropic: { models: [] },
           runway: { models: [] },
           kling: { models: [] },

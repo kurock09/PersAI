@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Logger } from "@nestjs/common";
+import { HttpException, Logger } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayTextGenerateRequest,
@@ -509,13 +509,53 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
 
   const sanitizationSourceSchema = {
     type: "object",
+    description: "Root schema",
     properties: {
       items: {
         type: "array",
         maxItems: 5,
         minItems: 1,
+        uniqueItems: true,
         items: {
-          type: "string"
+          type: "string",
+          minLength: 2,
+          maxLength: 40,
+          pattern: "^[a-z]+$"
+        }
+      },
+      score: {
+        type: "number",
+        description: "Score",
+        minimum: 0,
+        maximum: 10,
+        exclusiveMinimum: -1,
+        exclusiveMaximum: 11,
+        multipleOf: 0.5
+      },
+      metadata: {
+        type: "object",
+        description: "Metadata",
+        additionalProperties: false,
+        minProperties: 1,
+        maxProperties: 2
+      },
+      mode: {
+        type: "string",
+        enum: ["draft", "ready"]
+      },
+      choice: {
+        anyOf: [{ type: "string" }, { type: "number" }]
+      },
+      child: {
+        type: "object",
+        properties: {
+          tags: {
+            type: "array",
+            minItems: 0,
+            items: {
+              type: "string"
+            }
+          }
         }
       }
     }
@@ -540,14 +580,71 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
         type?: unknown;
         maxItems?: unknown;
         minItems?: unknown;
-        items?: { type?: unknown };
+        uniqueItems?: unknown;
+        items?: {
+          type?: unknown;
+          minLength?: unknown;
+          maxLength?: unknown;
+          pattern?: unknown;
+        };
+      };
+      score?: {
+        type?: unknown;
+        description?: unknown;
+        minimum?: unknown;
+        maximum?: unknown;
+        exclusiveMinimum?: unknown;
+        exclusiveMaximum?: unknown;
+        multipleOf?: unknown;
+      };
+      metadata?: {
+        type?: unknown;
+        description?: unknown;
+        additionalProperties?: unknown;
+        minProperties?: unknown;
+        maxProperties?: unknown;
+      };
+      mode?: {
+        enum?: unknown;
+      };
+      choice?: {
+        anyOf?: unknown;
+      };
+      child?: {
+        properties?: {
+          tags?: {
+            minItems?: unknown;
+          };
+        };
       };
     };
   };
   assert.equal(sanitizedSchema.properties?.items?.type, "array");
   assert.equal(sanitizedSchema.properties?.items?.maxItems, undefined);
-  assert.equal(sanitizedSchema.properties?.items?.minItems, undefined);
+  assert.equal(sanitizedSchema.properties?.items?.minItems, 1);
+  assert.equal(sanitizedSchema.properties?.items?.uniqueItems, undefined);
   assert.equal(sanitizedSchema.properties?.items?.items?.type, "string");
+  assert.equal(sanitizedSchema.properties?.items?.items?.minLength, undefined);
+  assert.equal(sanitizedSchema.properties?.items?.items?.maxLength, undefined);
+  assert.equal(sanitizedSchema.properties?.items?.items?.pattern, undefined);
+  assert.equal(sanitizedSchema.properties?.score?.type, "number");
+  assert.equal(sanitizedSchema.properties?.score?.description, "Score");
+  assert.equal(sanitizedSchema.properties?.score?.minimum, undefined);
+  assert.equal(sanitizedSchema.properties?.score?.maximum, undefined);
+  assert.equal(sanitizedSchema.properties?.score?.exclusiveMinimum, undefined);
+  assert.equal(sanitizedSchema.properties?.score?.exclusiveMaximum, undefined);
+  assert.equal(sanitizedSchema.properties?.score?.multipleOf, undefined);
+  assert.equal(sanitizedSchema.properties?.metadata?.type, "object");
+  assert.equal(sanitizedSchema.properties?.metadata?.description, "Metadata");
+  assert.equal(sanitizedSchema.properties?.metadata?.additionalProperties, false);
+  assert.equal(sanitizedSchema.properties?.metadata?.minProperties, undefined);
+  assert.equal(sanitizedSchema.properties?.metadata?.maxProperties, undefined);
+  assert.deepEqual(sanitizedSchema.properties?.mode?.enum, ["draft", "ready"]);
+  assert.deepEqual(sanitizedSchema.properties?.choice?.anyOf, [
+    { type: "string" },
+    { type: "number" }
+  ]);
+  assert.equal(sanitizedSchema.properties?.child?.properties?.tags?.minItems, 0);
   assert.equal(sanitizationSourceSchema.properties.items.maxItems, 5);
   assert.equal(sanitizationSourceSchema.properties.items.minItems, 1);
 
@@ -559,13 +656,15 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
         maxItems: 3,
         items: {
           type: "object",
+          minProperties: 1,
           properties: {
             inner: {
               type: "array",
               maxItems: 7,
               minItems: 2,
               items: {
-                type: "string"
+                type: "string",
+                maxLength: 10
               }
             }
           }
@@ -590,11 +689,12 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       outer?: {
         maxItems?: unknown;
         items?: {
+          minProperties?: unknown;
           properties?: {
             inner?: {
               maxItems?: unknown;
               minItems?: unknown;
-              items?: { type?: unknown };
+              items?: { type?: unknown; maxLength?: unknown };
             };
           };
         };
@@ -602,6 +702,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     };
   };
   assert.equal(nestedSanitizedSchema.properties?.outer?.maxItems, undefined);
+  assert.equal(nestedSanitizedSchema.properties?.outer?.items?.minProperties, undefined);
   assert.equal(
     nestedSanitizedSchema.properties?.outer?.items?.properties?.inner?.maxItems,
     undefined
@@ -613,6 +714,10 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   assert.equal(
     nestedSanitizedSchema.properties?.outer?.items?.properties?.inner?.items?.type,
     "string"
+  );
+  assert.equal(
+    nestedSanitizedSchema.properties?.outer?.items?.properties?.inner?.items?.maxLength,
+    undefined
   );
   assert.equal(nestedSanitizationSourceSchema.properties.outer.maxItems, 3);
   assert.equal(nestedSanitizationSourceSchema.properties.outer.items.properties.inner.maxItems, 7);
@@ -1514,6 +1619,83 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     structuredStreamEvents.map((event) => event.type),
     ["text_delta", "completed"]
   );
+
+  const textErrorClient = new AnthropicProviderClient(createConfig());
+  (textErrorClient as unknown as { client: unknown }).client = {
+    messages: {
+      stream: () => ({
+        finalMessage: async () => {
+          const error = new Error("Invalid API key.");
+          (
+            error as Error & {
+              status?: number;
+              error?: { type?: string; message?: string };
+            }
+          ).status = 401;
+          (error as Error & { error?: { type?: string; message?: string } }).error = {
+            type: "authentication_error",
+            message: "Invalid API key."
+          };
+          throw error;
+        }
+      }),
+      create: async () => ({
+        [Symbol.asyncIterator](): AsyncIterator<unknown> {
+          return {
+            next: async () => {
+              const error = new Error("Anthropic overloaded.");
+              (
+                error as Error & {
+                  status?: number;
+                  error?: { type?: string; message?: string };
+                }
+              ).status = 529;
+              (error as Error & { error?: { type?: string; message?: string } }).error = {
+                type: "overloaded_error",
+                message: "Anthropic overloaded."
+              };
+              throw error;
+            }
+          };
+        }
+      })
+    }
+  };
+  await assert.rejects(
+    () => textErrorClient.generateText(request),
+    (error) => {
+      assert.ok(error instanceof HttpException);
+      assert.equal(error.getStatus(), 401);
+      const response = error.getResponse() as {
+        error?: {
+          code?: string;
+          providerErrorKind?: string;
+          providerErrorCode?: string | null;
+          providerErrorType?: string;
+          providerErrorStatus?: number;
+        };
+      };
+      assert.equal(response.error?.code, "authentication_error");
+      assert.equal(response.error?.providerErrorKind, "provider_auth");
+      assert.equal(response.error?.providerErrorCode ?? null, null);
+      assert.equal(response.error?.providerErrorType, "authentication_error");
+      assert.equal(response.error?.providerErrorStatus, 401);
+      return true;
+    }
+  );
+  const textErrorStream = await textErrorClient.streamText(request);
+  const textErrorStreamEvents = await collectStream(textErrorStream);
+  assert.deepEqual(textErrorStreamEvents, [
+    {
+      type: "failed",
+      code: "overloaded_error",
+      message: "Anthropic overloaded.",
+      providerErrorKind: "capacity",
+      providerErrorCode: null,
+      providerErrorType: "overloaded_error",
+      providerErrorStatus: 529
+    }
+  ]);
 
   const toolStream = await client.streamText(toolRequest);
   const toolStreamEvents = await collectStream(toolStream);

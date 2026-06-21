@@ -39,7 +39,10 @@ import type { RuntimeBundleCacheEntry } from "../src/modules/bundles/bundle.type
 import type { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
 import { RuntimeObservabilityService } from "../src/modules/observability/runtime-observability.service";
 import { RuntimeExecutionAdmissionService } from "../src/modules/turns/runtime-execution-admission.service";
-import type { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
+import {
+  ProviderGatewayHttpError,
+  type ProviderGatewayClientService
+} from "../src/modules/turns/provider-gateway.client.service";
 import { TurnRoutingService } from "../src/modules/turns/turn-routing.service";
 import type { TurnContextHydrationService } from "../src/modules/turns/turn-context-hydration.service";
 import type {
@@ -791,6 +794,7 @@ class FakeProviderGatewayClientService {
   resultQueue: ProviderGatewayTextGenerateResult[] = [];
   error: Error | null = null;
   streamError: Error | null = null;
+  streamErrorQueue: Error[] = [];
   webSearchError: Error | null = null;
   webFetchError: Error | null = null;
   imageEditError: Error | null = null;
@@ -981,6 +985,10 @@ class FakeProviderGatewayClientService {
     input: ProviderGatewayTextGenerateRequest
   ): Promise<AsyncGenerator<ProviderGatewayTextStreamEvent>> {
     this.streamCalls.push(input);
+    const queuedStreamError = this.streamErrorQueue.shift();
+    if (queuedStreamError !== undefined) {
+      throw queuedStreamError;
+    }
     if (this.streamError !== null) {
       throw this.streamError;
     }
@@ -2347,6 +2355,33 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     /^ps1:oc:[a-f0-9]{32}:b\d{2}$/
   );
   assert.ok((providerGatewayClient.calls[0]?.promptCache?.key?.length ?? 0) <= 64);
+  const promptCacheRetentionCallCountBefore = providerGatewayClient.calls.length;
+  if (bundleRegistry.entry !== null) {
+    const routing = bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting as {
+      modelSlots?: {
+        normalReply?: {
+          providerKey?: string;
+          modelKey?: string | null;
+          promptCacheRetention?: string | null;
+        };
+      };
+    };
+    routing.modelSlots = {
+      ...routing.modelSlots,
+      normalReply: {
+        ...(routing.modelSlots?.normalReply ?? {}),
+        promptCacheRetention: "24h"
+      }
+    };
+  }
+  const promptCacheRetentionRequest = createRuntimeTurnRequest();
+  promptCacheRetentionRequest.bundle.bundleHash =
+    bundleRegistry.entry?.bundle.bundleHash ?? promptCacheRetentionRequest.bundle.bundleHash;
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    promptCacheRetentionRequest.bundle.bundleHash;
+  await service.createTurn(promptCacheRetentionRequest);
+  assert.equal(providerGatewayClient.calls.length, promptCacheRetentionCallCountBefore + 1);
+  assert.equal(providerGatewayClient.calls.at(-1)?.promptCache?.retention, "24h");
   assert.deepEqual(
     providerGatewayClient.calls[0]?.tools?.map((tool) => tool.name),
     [
@@ -2381,7 +2416,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[0]?.systemPrompt ?? "",
     /web_search|memory_search|browser|persai_workspace_attach|persai_tool_quota_status/
   );
-  assert.equal(turnFinalizationService.completed.length, 1);
+  assert.equal(turnFinalizationService.completed.length, 2);
   assert.equal(turnFinalizationService.failed.length, 0);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
@@ -2411,7 +2446,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls.push(input);
     if (primaryFailurePending) {
       primaryFailurePending = false;
-      throw new ServiceUnavailableException("primary down");
+      throw new ProviderGatewayHttpError(429, "Quota exceeded.", {
+        providerErrorKind: "billing_quota",
+        providerErrorCode: "insufficient_quota",
+        providerErrorType: "billing_error",
+        providerErrorStatus: 429
+      });
     }
     return originalGenerateText(input, options);
   };
@@ -4652,6 +4692,31 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     "validation-ish failures must not trigger provider fallback"
   );
 
+  providerGatewayClient.error = new ProviderGatewayHttpError(
+    400,
+    "Unsupported parameter: prompt_cache_retention.",
+    {
+      providerErrorKind: "invalid_request",
+      providerErrorCode: "unsupported_parameter",
+      providerErrorType: "invalid_request_error",
+      providerErrorStatus: 400
+    }
+  );
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const callsBeforeStructuredInvalid = providerGatewayClient.calls.length;
+  await assert.rejects(
+    () => service.createTurn(request),
+    /Unsupported parameter: prompt_cache_retention/
+  );
+  assert.equal(turnFinalizationService.failed.length, 3);
+  assert.deepEqual(
+    providerGatewayClient.calls.slice(callsBeforeStructuredInvalid).map((call) => call.provider),
+    ["openai"],
+    "provider malformed-request failures must not trigger provider fallback"
+  );
+
   providerGatewayClient.error = null;
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
@@ -4690,10 +4755,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     toolLoopIteration: 0,
     compactionToolCode: null
   });
-  assert.equal(
-    providerGatewayClient.streamCalls[streamCallOffset]?.promptCache?.retention,
-    "in_memory"
-  );
+  assert.equal(providerGatewayClient.streamCalls[streamCallOffset]?.promptCache?.retention, "24h");
   assert.match(
     providerGatewayClient.streamCalls[streamCallOffset]?.promptCache?.key ?? "",
     /^ps1:oc:[a-f0-9]{32}:b\d{2}$/
@@ -4751,6 +4813,261 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       completedEvent.result.trace?.stages.some((stage) => stage.key.includes("first_text_delta"))
     );
   }
+
+  const thrownFallbackOffset = providerGatewayClient.streamCalls.length;
+  providerGatewayClient.streamErrorQueue = [
+    new ProviderGatewayHttpError(429, "Quota exceeded.", {
+      providerErrorKind: "billing_quota",
+      providerErrorCode: "insufficient_quota",
+      providerErrorType: "billing_error",
+      providerErrorStatus: 429
+    })
+  ];
+  providerGatewayClient.streamEventsQueue = [
+    [
+      {
+        type: "text_delta",
+        delta: "thrown fallback ",
+        accumulatedText: "thrown fallback "
+      },
+      {
+        type: "completed",
+        result: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-5",
+          text: "thrown fallback reply",
+          respondedAt: "2026-04-11T12:00:03.500Z",
+          usage: {
+            providerKey: "anthropic",
+            modelKey: "claude-sonnet-4-5",
+            inputTokens: 11,
+            outputTokens: 7,
+            totalTokens: 18
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      }
+    ]
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const thrownFallbackStream = await service.streamTurn(request);
+  const thrownFallbackEvents = await collectStreamEvents(thrownFallbackStream);
+  assert.deepEqual(
+    thrownFallbackEvents.map((event) => event.type),
+    ["started", "text_delta", "completed"]
+  );
+  assert.deepEqual(
+    providerGatewayClient.streamCalls.slice(thrownFallbackOffset).map((call) => ({
+      provider: call.provider,
+      toolLoopIteration: call.requestMetadata?.toolLoopIteration
+    })),
+    [
+      { provider: "openai", toolLoopIteration: 0 },
+      { provider: "anthropic", toolLoopIteration: 0 }
+    ],
+    "pre-header retryable provider failures must reroute within the same logical tool-loop iteration"
+  );
+
+  const thrownInvalidRequestOffset = providerGatewayClient.streamCalls.length;
+  providerGatewayClient.streamErrorQueue = [
+    new ProviderGatewayHttpError(400, "Bad schema.", {
+      providerErrorKind: "invalid_request",
+      providerErrorCode: "invalid_request_error",
+      providerErrorType: "invalid_request",
+      providerErrorStatus: 400
+    })
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const thrownInvalidRequestStream = await service.streamTurn(request);
+  const thrownInvalidRequestEvents = await collectStreamEvents(thrownInvalidRequestStream);
+  assert.deepEqual(
+    thrownInvalidRequestEvents.map((event) => event.type),
+    ["started", "failed"]
+  );
+  assert.deepEqual(
+    providerGatewayClient.streamCalls
+      .slice(thrownInvalidRequestOffset)
+      .map((call) => call.provider),
+    ["openai"],
+    "non-retryable pre-header provider failures must not reroute to a fallback provider"
+  );
+
+  const streamFallbackCallOffset = providerGatewayClient.streamCalls.length;
+  providerGatewayClient.streamEventsQueue = [
+    [
+      {
+        type: "failed",
+        code: "insufficient_quota",
+        message: "Quota exceeded.",
+        providerErrorKind: "billing_quota",
+        providerErrorCode: "insufficient_quota",
+        providerErrorType: "billing_error",
+        providerErrorStatus: 429
+      }
+    ],
+    [
+      {
+        type: "text_delta",
+        delta: "fallback ",
+        accumulatedText: "fallback "
+      },
+      {
+        type: "completed",
+        result: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-5",
+          text: "fallback stream reply",
+          respondedAt: "2026-04-11T12:00:04.000Z",
+          usage: {
+            providerKey: "anthropic",
+            modelKey: "claude-sonnet-4-5",
+            inputTokens: 9,
+            outputTokens: 6,
+            totalTokens: 15
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      }
+    ]
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const fallbackStream = await service.streamTurn(request);
+  const fallbackStreamEvents = await collectStreamEvents(fallbackStream);
+  assert.deepEqual(
+    fallbackStreamEvents.map((event) => event.type),
+    ["started", "text_delta", "completed"]
+  );
+  assert.deepEqual(
+    providerGatewayClient.streamCalls.slice(streamFallbackCallOffset).map((call) => call.provider),
+    ["openai", "anthropic"],
+    "pre-output satisfiable provider failure must retry on the configured fallback provider"
+  );
+  assert.deepEqual(
+    providerGatewayClient.streamCalls
+      .slice(streamFallbackCallOffset)
+      .map((call) => call.requestMetadata?.toolLoopIteration),
+    [0, 0],
+    "pre-output satisfiable provider failure must stay within the same logical tool-loop iteration"
+  );
+  const fallbackCompletedEvent = fallbackStreamEvents.at(-1);
+  assert.equal(fallbackCompletedEvent?.type, "completed");
+  if (fallbackCompletedEvent?.type === "completed") {
+    assert.equal(fallbackCompletedEvent.result.assistantText, "fallback stream reply");
+    assert.equal(
+      fallbackCompletedEvent.result.usageAccounting?.entries.at(-1)?.providerKey,
+      "anthropic"
+    );
+  }
+
+  const projectFallbackOffset = providerGatewayClient.streamCalls.length;
+  const projectFallbackRequest = createRuntimeTurnRequest();
+  projectFallbackRequest.bundle.bundleHash = request.bundle.bundleHash;
+  projectFallbackRequest.chatMode = "project";
+  projectFallbackRequest.deepMode = true;
+  projectFallbackRequest.message.text = "Audit the project and tell me if we need more evidence.";
+  providerGatewayClient.streamEventsQueue = [
+    [
+      {
+        type: "failed",
+        code: "insufficient_quota",
+        message: "Quota exceeded.",
+        providerErrorKind: "billing_quota",
+        providerErrorCode: "insufficient_quota",
+        providerErrorType: "billing_error",
+        providerErrorStatus: 429
+      }
+    ],
+    [
+      {
+        type: "text_delta",
+        delta: "project fallback ",
+        accumulatedText: "project fallback "
+      },
+      {
+        type: "completed",
+        result: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-5",
+          text: "project fallback answer",
+          respondedAt: "2026-04-11T12:00:04.250Z",
+          usage: {
+            providerKey: "anthropic",
+            modelKey: "claude-sonnet-4-5",
+            inputTokens: 10,
+            outputTokens: 8,
+            totalTokens: 18
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      }
+    ]
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    projectFallbackRequest.bundle.bundleHash;
+  const projectFallbackStream = await service.streamTurn(projectFallbackRequest);
+  const projectFallbackEvents = await collectStreamEvents(projectFallbackStream);
+  assert.deepEqual(
+    providerGatewayClient.streamCalls.slice(projectFallbackOffset).map((call) => ({
+      provider: call.provider,
+      toolLoopIteration: call.requestMetadata?.toolLoopIteration
+    })),
+    [
+      { provider: "openai", toolLoopIteration: 0 },
+      { provider: "anthropic", toolLoopIteration: 0 }
+    ],
+    "project-mode pre-output fallback must reroute within the same logical provider attempt"
+  );
+  assert.deepEqual(
+    projectFallbackEvents
+      .filter((event) => event.type === "project_activity")
+      .map((event) => event.stage),
+    ["plan", "synthesize"],
+    "project-mode pre-output fallback must not emit a replan event before fallback output"
+  );
+
+  const noRerunAfterTextOffset = providerGatewayClient.streamCalls.length;
+  providerGatewayClient.streamEventsQueue = [
+    [
+      {
+        type: "text_delta",
+        delta: "partial ",
+        accumulatedText: "partial "
+      },
+      {
+        type: "failed",
+        code: "insufficient_quota",
+        message: "Quota exceeded.",
+        providerErrorKind: "billing_quota",
+        providerErrorCode: "insufficient_quota",
+        providerErrorType: "billing_error",
+        providerErrorStatus: 429
+      }
+    ]
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const noRerunStream = await service.streamTurn(request);
+  const noRerunStreamEvents = await collectStreamEvents(noRerunStream);
+  assert.deepEqual(
+    noRerunStreamEvents.map((event) => event.type),
+    ["started", "text_delta", "interrupted"]
+  );
+  assert.deepEqual(
+    providerGatewayClient.streamCalls.slice(noRerunAfterTextOffset).map((call) => call.provider),
+    ["openai"],
+    "post-output provider failures must not rerun on a fallback provider"
+  );
 
   providerGatewayClient.streamEventsQueue = [
     [

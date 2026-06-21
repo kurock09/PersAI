@@ -41,6 +41,7 @@ import {
   PROVIDER_DEBUG_LOGGER_NAME,
   ProviderDebugPayloadLogger
 } from "../provider-debug-payload-logger";
+import { toProviderTextFailedEvent, toProviderTextHttpException } from "../provider-text-error";
 
 const OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 const OPENAI_IMAGE_GENERATION_MODEL = "gpt-image-1";
@@ -59,7 +60,6 @@ const MAX_OPENAI_IMAGE_EDIT_TIMEOUT_MS = 420_000;
 const OPENAI_VIDEO_GENERATION_TIMEOUT_MS = 600_000;
 const OPENAI_VIDEO_POLL_INTERVAL_MS = 2_000;
 const OPENAI_MAX_TRANSIENT_VIDEO_POLL_FETCH_FAILURES = 3;
-const OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE = "provider_context_window_exceeded";
 type OpenAIResponseCreateParams = Parameters<OpenAI["responses"]["create"]>[0];
 type OpenAINonStreamingCreateParams = Exclude<OpenAIResponseCreateParams, { stream: true }>;
 type OpenAIResponseInputParam = NonNullable<OpenAINonStreamingCreateParams["input"]>;
@@ -310,6 +310,8 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         truncated: this.isMaxOutputTokensTruncation(response),
         toolCalls: []
       };
+    } catch (error) {
+      throw toProviderTextHttpException("openai", error, "OpenAI provider text request failed.");
     } finally {
       dispose();
     }
@@ -1165,17 +1167,11 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         }
 
         if (event?.type === "error") {
-          const message =
-            typeof event.message === "string" ? event.message : "OpenAI provider stream failed.";
-          const failedEvent: ProviderGatewayTextFailedEvent = {
-            type: "failed",
-            code: this.isContextWindowExceededMessage(message)
-              ? OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE
-              : typeof event.code === "string"
-                ? event.code
-                : "provider_stream_error",
-            message
-          };
+          const failedEvent = toProviderTextFailedEvent(
+            "openai",
+            event,
+            "OpenAI provider stream failed."
+          );
           yield failedEvent;
           return;
         }
@@ -1212,36 +1208,22 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
             return;
           }
           const response = incompleteResponse;
-          const error = this.asObject(response?.error);
-          const message =
-            typeof error?.message === "string"
-              ? error.message
-              : "OpenAI provider stream did not complete successfully.";
-          const failedEvent: ProviderGatewayTextFailedEvent = {
-            type: "failed",
-            code: this.isContextWindowExceededMessage(message)
-              ? OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE
-              : "provider_stream_failed",
-            message
-          };
+          const failedEvent = toProviderTextFailedEvent(
+            "openai",
+            response,
+            "OpenAI provider stream did not complete successfully."
+          );
           yield failedEvent;
           return;
         }
 
         if (event?.type === "response.failed") {
           const response = this.asObject(event.response);
-          const error = this.asObject(response?.error);
-          const message =
-            typeof error?.message === "string"
-              ? error.message
-              : "OpenAI provider stream did not complete successfully.";
-          const failedEvent: ProviderGatewayTextFailedEvent = {
-            type: "failed",
-            code: this.isContextWindowExceededMessage(message)
-              ? OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE
-              : "provider_stream_failed",
-            message
-          };
+          const failedEvent = toProviderTextFailedEvent(
+            "openai",
+            response,
+            "OpenAI provider stream did not complete successfully."
+          );
           yield failedEvent;
           return;
         }
@@ -1250,7 +1232,11 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       const failedEvent: ProviderGatewayTextFailedEvent = {
         type: "failed",
         code: "provider_stream_ended",
-        message: "OpenAI provider stream ended before a completed result was emitted."
+        message: "OpenAI provider stream ended before a completed result was emitted.",
+        providerErrorKind: "server_error",
+        providerErrorCode: null,
+        providerErrorType: null,
+        providerErrorStatus: null
       };
       yield failedEvent;
     } catch (error) {
@@ -1265,14 +1251,11 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       if (this.isAbortError(error) || signal?.aborted) {
         return;
       }
-      const failedEvent: ProviderGatewayTextFailedEvent = {
-        type: "failed",
-        code:
-          error instanceof Error && this.isContextWindowExceededMessage(error.message)
-            ? OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE
-            : "provider_stream_failed",
-        message: error instanceof Error ? error.message : "OpenAI provider stream failed."
-      };
+      const failedEvent = toProviderTextFailedEvent(
+        "openai",
+        error,
+        "OpenAI provider stream failed."
+      );
       yield failedEvent;
     } finally {
       dispose();
@@ -1866,16 +1849,6 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
   private asPositiveInteger(value: unknown): number | null {
     return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
-  }
-
-  private isContextWindowExceededMessage(message: string): boolean {
-    const normalized = message.toLowerCase();
-    return (
-      normalized.includes("exceeds the context window") ||
-      normalized.includes("context window") ||
-      normalized.includes("maximum context length") ||
-      normalized.includes("too many tokens")
-    );
   }
 
   private resolveApiKey(apiKey?: string): string {

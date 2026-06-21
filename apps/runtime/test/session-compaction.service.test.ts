@@ -673,6 +673,27 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(providerGateway.requests[0]?.promptCache?.retention, "in_memory");
   assert.match(providerGateway.requests[0]?.promptCache?.key ?? "", /^ps1:sc:[a-f0-9]{32}:b\d{2}$/);
   assert.ok((providerGateway.requests[0]?.promptCache?.key?.length ?? 0) <= 64);
+  if (bundleRegistry.entry !== null) {
+    const routing = bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting as {
+      modelSlots?: {
+        systemTool?: {
+          providerKey?: string;
+          modelKey?: string | null;
+          promptCacheRetention?: string | null;
+        };
+      };
+    };
+    routing.modelSlots = {
+      ...routing.modelSlots,
+      systemTool: {
+        ...(routing.modelSlots?.systemTool ?? {}),
+        promptCacheRetention: "24h"
+      }
+    };
+  }
+  sessionStore.resolvedSession = createResolvedSession(7000);
+  await service.compactSession(createCompactionRequest());
+  assert.equal(providerGateway.requests.at(-1)?.promptCache?.retention, "24h");
   assert.deepEqual(
     providerGateway.requests[0]?.outputSchema,
     REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA

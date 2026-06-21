@@ -333,7 +333,7 @@ function asNonNegativeInteger(value: number | null | undefined): number {
 }
 
 function normalizeManagedProvider(value: string | null): ManagedRuntimeProvider | null {
-  return value === "openai" || value === "anthropic" ? value : null;
+  return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
 }
 
 function defaultTokenWeights(): Pick<

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { ProviderGatewayConfig } from "@persai/config";
 import { AnthropicProviderClient } from "../src/modules/providers/anthropic/anthropic-provider.client";
+import { DeepSeekProviderClient } from "../src/modules/providers/deepseek/deepseek-provider.client";
 import { OpenAIProviderClient } from "../src/modules/providers/openai/openai-provider.client";
 import { ProviderGatewayReadinessService } from "../src/modules/platform-core/application/provider-gateway-readiness.service";
 import {
@@ -52,7 +53,8 @@ export async function runProviderWarmupBootRecoveryTest(): Promise<void> {
       "isConfigured" | "resolveSecretValue"
     > as PersaiInternalApiClientService,
     new OpenAIProviderClient(config),
-    new AnthropicProviderClient(config)
+    new AnthropicProviderClient(config),
+    new DeepSeekProviderClient(config)
   );
   const readinessService = new ProviderGatewayReadinessService(warmupService);
 
@@ -62,6 +64,7 @@ export async function runProviderWarmupBootRecoveryTest(): Promise<void> {
   assert.equal(snapshot.ready, true);
   assert.equal(snapshot.providers[0]?.state, "ready");
   assert.equal(snapshot.providers[1]?.state, "ready");
+  assert.equal(snapshot.providers[2]?.state, "unconfigured");
   assert.equal(anthropicResolveAttempts, 2);
   assert.equal(isProviderGatewayWarmupReady(warmupService.getSnapshot()), true);
   assert.equal(hasRetryableWarmupFailures(warmupService.getSnapshot()), false);
@@ -98,7 +101,8 @@ export async function runProviderWarmupBootRecoveryLoopTest(): Promise<void> {
       "isConfigured" | "resolveSecretValue"
     > as PersaiInternalApiClientService,
     new OpenAIProviderClient(config),
-    new AnthropicProviderClient(config)
+    new AnthropicProviderClient(config),
+    new DeepSeekProviderClient(config)
   );
   const readinessService = new ProviderGatewayReadinessService(warmupService);
 

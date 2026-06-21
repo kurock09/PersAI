@@ -6,6 +6,7 @@
  */
 import type { RuntimeVideoModelKind } from "./runtimeVideoModelKind";
 import type { RuntimeProviderModelCapability } from "./runtimeProviderModelCapability";
+import type { RuntimeProviderModelProfileCommonStatePromptCacheRetention } from "./runtimeProviderModelProfileCommonStatePromptCacheRetention";
 import type { RuntimeProviderModelProfileCommonStateVideoModelParameters } from "./runtimeProviderModelProfileCommonStateVideoModelParameters";
 
 export interface RuntimeProviderModelProfileCommonState {
@@ -36,6 +37,11 @@ export interface RuntimeProviderModelProfileCommonState {
    * @nullable
    */
   contextWindow?: number | null;
+  /**
+   * ADR-124 Slice 1 — admin-set OpenAI prompt-cache retention; null means runtime fallback applies.
+   * @nullable
+   */
+  promptCacheRetention?: RuntimeProviderModelProfileCommonStatePromptCacheRetention;
   /** @nullable */
   displayLabel: string | null;
   /** @nullable */

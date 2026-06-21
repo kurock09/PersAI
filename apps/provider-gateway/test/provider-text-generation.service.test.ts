@@ -9,6 +9,7 @@ import { normalizeModelKey } from "../src/modules/providers/model-key-normalizat
 import { ProviderTextGenerationService } from "../src/modules/providers/provider-text-generation.service";
 import type { ProviderWarmupService } from "../src/modules/providers/provider-warmup.service";
 import type { AnthropicProviderClient } from "../src/modules/providers/anthropic/anthropic-provider.client";
+import type { DeepSeekProviderClient } from "../src/modules/providers/deepseek/deepseek-provider.client";
 import type { OpenAIProviderClient } from "../src/modules/providers/openai/openai-provider.client";
 
 function createWarmupSnapshot(): ProviderWarmupSnapshot {
@@ -38,6 +39,15 @@ function createWarmupSnapshot(): ProviderWarmupSnapshot {
         catalogSource: "control_plane_apply",
         warmedAt: "2026-04-11T12:00:00.000Z",
         error: null
+      },
+      {
+        provider: "deepseek",
+        configured: true,
+        state: "ready",
+        catalogModels: ["deepseek-v4-flash"],
+        catalogSource: "control_plane_apply",
+        warmedAt: "2026-04-11T12:00:00.000Z",
+        error: null
       }
     ]
   };
@@ -51,7 +61,7 @@ class FakeProviderWarmupService {
   }
 
   async ensureReadyForRequest(input: {
-    provider: "openai" | "anthropic";
+    provider: "openai" | "anthropic" | "deepseek";
     model: string;
   }): Promise<ProviderWarmupSnapshot["providers"][number]> {
     const providerState = this.snapshot.providers.find(
@@ -160,6 +170,49 @@ class FakeAnthropicProviderClient {
   }
 }
 
+class FakeDeepSeekProviderClient {
+  calls: ProviderGatewayTextGenerateRequest[] = [];
+  streamCalls: ProviderGatewayTextGenerateRequest[] = [];
+
+  async generateText(
+    input: ProviderGatewayTextGenerateRequest
+  ): Promise<ProviderGatewayTextGenerateResult> {
+    this.calls.push(input);
+    return {
+      provider: "deepseek",
+      model: input.model,
+      text: "deepseek-result",
+      respondedAt: "2026-04-11T12:00:05.000Z",
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
+    };
+  }
+
+  async *streamText(
+    input: ProviderGatewayTextGenerateRequest
+  ): AsyncGenerator<ProviderGatewayTextStreamEvent> {
+    this.streamCalls.push(input);
+    yield {
+      type: "text_delta",
+      delta: "deepseek-",
+      accumulatedText: "deepseek-"
+    };
+    yield {
+      type: "completed",
+      result: {
+        provider: "deepseek",
+        model: input.model,
+        text: "deepseek-stream",
+        respondedAt: "2026-04-11T12:00:06.000Z",
+        usage: null,
+        stopReason: "completed",
+        toolCalls: []
+      }
+    };
+  }
+}
+
 async function collectStreamEvents(
   generator: AsyncGenerator<ProviderGatewayTextStreamEvent>
 ): Promise<ProviderGatewayTextStreamEvent[]> {
@@ -170,10 +223,17 @@ async function collectStreamEvents(
   return events;
 }
 
-function createRequest(provider: "openai" | "anthropic"): ProviderGatewayTextGenerateRequest {
+function createRequest(
+  provider: "openai" | "anthropic" | "deepseek"
+): ProviderGatewayTextGenerateRequest {
   return {
     provider,
-    model: provider === "openai" ? "gpt-5.4" : "claude-sonnet-4-5",
+    model:
+      provider === "openai"
+        ? "gpt-5.4"
+        : provider === "anthropic"
+          ? "claude-sonnet-4-5"
+          : "deepseek-v4-flash",
     systemPrompt: "Be helpful.",
     ...(provider === "openai"
       ? {
@@ -196,10 +256,12 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
   const warmupService = new FakeProviderWarmupService();
   const openaiClient = new FakeOpenAIProviderClient();
   const anthropicClient = new FakeAnthropicProviderClient();
+  const deepseekClient = new FakeDeepSeekProviderClient();
   const service = new ProviderTextGenerationService(
     warmupService as unknown as ProviderWarmupService,
     openaiClient as unknown as OpenAIProviderClient,
-    anthropicClient as unknown as AnthropicProviderClient
+    anthropicClient as unknown as AnthropicProviderClient,
+    deepseekClient as unknown as DeepSeekProviderClient
   );
 
   const openaiResult = await service.generateText(createRequest("openai"));
@@ -258,6 +320,10 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
   const anthropicResult = await service.generateText(createRequest("anthropic"));
   assert.equal(anthropicResult.text, "anthropic-result");
   assert.equal(anthropicClient.calls.length, 1);
+
+  const deepseekResult = await service.generateText(createRequest("deepseek"));
+  assert.equal(deepseekResult.text, "deepseek-result");
+  assert.equal(deepseekClient.calls.length, 1);
 
   const structuredOpenAIResult = await service.generateText({
     ...createRequest("openai"),
@@ -335,6 +401,14 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
   assert.equal(openaiClient.streamCalls.length, 1);
   assert.deepEqual(
     openaiStreamEvents.map((event) => event.type),
+    ["text_delta", "completed"]
+  );
+
+  const deepseekStream = await service.streamText(createRequest("deepseek"));
+  const deepseekStreamEvents = await collectStreamEvents(deepseekStream);
+  assert.equal(deepseekClient.streamCalls.length, 1);
+  assert.deepEqual(
+    deepseekStreamEvents.map((event) => event.type),
     ["text_delta", "completed"]
   );
 

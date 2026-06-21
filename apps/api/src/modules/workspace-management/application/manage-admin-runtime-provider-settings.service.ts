@@ -105,7 +105,7 @@ export class ManageAdminRuntimeProviderSettingsService {
       }
     });
 
-    for (const provider of ["openai", "anthropic"] as const) {
+    for (const provider of ["openai", "anthropic", "deepseek"] as const) {
       const nextKey = input.providerKeys[provider];
       if (typeof nextKey === "string" && nextKey.trim().length > 0) {
         await this.platformRuntimeProviderSecretStoreService.upsertProviderKey(

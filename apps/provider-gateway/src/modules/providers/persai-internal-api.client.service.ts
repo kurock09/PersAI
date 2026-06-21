@@ -27,11 +27,15 @@ type AppendAuditEventRequest = {
   details?: Record<string, unknown>;
 };
 
+const INTERNAL_DEFAULT_PROVIDER_KEYS = ["openai", "anthropic", "deepseek"] as const;
+
+type InternalDefaultProvider = (typeof INTERNAL_DEFAULT_PROVIDER_KEYS)[number];
+
 export type InternalDefaultProviderSettings = {
   generation: number;
   mode: "unconfigured_default" | "global_settings";
-  primary: { provider: "openai" | "anthropic"; model: string } | null;
-  availableModelsByProvider: Record<"openai" | "anthropic", string[]>;
+  primary: { provider: InternalDefaultProvider; model: string } | null;
+  availableModelsByProvider: Record<InternalDefaultProvider, string[]>;
 };
 
 @Injectable()
@@ -116,34 +120,22 @@ export class PersaiInternalApiClientService {
     }
 
     const payload = this.asObject(response.body);
-    const availableModelsByProvider = this.asObject(payload?.availableModelsByProvider);
-    const primary = this.asObject(payload?.primary);
+    const availableModelsByProvider = this.parseAvailableModelsByProvider(
+      payload?.availableModelsByProvider
+    );
+    const primary = this.parseDefaultProviderPrimary(payload?.primary);
     if (
       typeof payload?.generation === "number" &&
       Number.isInteger(payload.generation) &&
       (payload.mode === "unconfigured_default" || payload.mode === "global_settings") &&
       availableModelsByProvider !== null &&
-      Array.isArray(availableModelsByProvider.openai) &&
-      Array.isArray(availableModelsByProvider.anthropic) &&
-      (payload.primary === null ||
-        (primary !== null &&
-          (primary.provider === "openai" || primary.provider === "anthropic") &&
-          typeof primary.model === "string"))
+      primary !== undefined
     ) {
       return {
         generation: payload.generation,
         mode: payload.mode,
-        primary:
-          payload.primary === null
-            ? null
-            : {
-                provider: primary!.provider as "openai" | "anthropic",
-                model: primary!.model as string
-              },
-        availableModelsByProvider: {
-          openai: [...(availableModelsByProvider.openai as string[])],
-          anthropic: [...(availableModelsByProvider.anthropic as string[])]
-        }
+        primary,
+        availableModelsByProvider
       };
     }
 
@@ -254,6 +246,63 @@ export class PersaiInternalApiClientService {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private asStringArray(value: unknown): string[] | null {
+    return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+      ? [...value]
+      : null;
+  }
+
+  private isInternalDefaultProvider(value: unknown): value is InternalDefaultProvider {
+    return (
+      typeof value === "string" &&
+      INTERNAL_DEFAULT_PROVIDER_KEYS.some((provider) => provider === value)
+    );
+  }
+
+  private parseAvailableModelsByProvider(
+    value: unknown
+  ): InternalDefaultProviderSettings["availableModelsByProvider"] | null {
+    const row = this.asObject(value);
+    if (row === null) {
+      return null;
+    }
+
+    const openai = this.asStringArray(row.openai);
+    const anthropic = this.asStringArray(row.anthropic);
+    const deepseek = this.asStringArray(row.deepseek);
+    if (openai === null || anthropic === null || deepseek === null) {
+      return null;
+    }
+
+    return {
+      openai,
+      anthropic,
+      deepseek
+    };
+  }
+
+  private parseDefaultProviderPrimary(
+    value: unknown
+  ): InternalDefaultProviderSettings["primary"] | undefined {
+    if (value === null) {
+      return null;
+    }
+
+    const row = this.asObject(value);
+    if (
+      row === null ||
+      !this.isInternalDefaultProvider(row.provider) ||
+      typeof row.model !== "string"
+    ) {
+      return undefined;
+    }
+
+    return {
+      provider: row.provider,
+      model: row.model
+    };
   }
 
   private extractErrorMessage(body: unknown): string | null {

@@ -18,6 +18,7 @@ import {
   PROVIDER_DEBUG_LOGGER_NAME,
   ProviderDebugPayloadLogger
 } from "../provider-debug-payload-logger";
+import { toProviderTextFailedEvent, toProviderTextHttpException } from "../provider-text-error";
 
 type AnthropicCreateMessageParams = Parameters<Anthropic["messages"]["create"]>[0];
 type AnthropicNonStreamingCreateMessageParams = Exclude<
@@ -255,6 +256,12 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         truncated: response.stop_reason === "max_tokens",
         toolCalls: []
       };
+    } catch (error) {
+      throw toProviderTextHttpException(
+        "anthropic",
+        error,
+        "Anthropic provider text request failed."
+      );
     } finally {
       dispose();
     }
@@ -370,7 +377,11 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
               const failedEvent: ProviderGatewayTextFailedEvent = {
                 type: "failed",
                 code: "provider_invalid_response",
-                message: "Anthropic provider stream stopped for tool use without any tool calls."
+                message: "Anthropic provider stream stopped for tool use without any tool calls.",
+                providerErrorKind: "server_error",
+                providerErrorCode: null,
+                providerErrorType: null,
+                providerErrorStatus: null
               };
               yield failedEvent;
               return;
@@ -446,7 +457,11 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
               const failedEvent: ProviderGatewayTextFailedEvent = {
                 type: "failed",
                 code: "provider_invalid_response",
-                message: "Anthropic provider stream stopped for tool use without any tool calls."
+                message: "Anthropic provider stream stopped for tool use without any tool calls.",
+                providerErrorKind: "server_error",
+                providerErrorCode: null,
+                providerErrorType: null,
+                providerErrorStatus: null
               };
               yield failedEvent;
               return;
@@ -531,7 +546,11 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       const failedEvent: ProviderGatewayTextFailedEvent = {
         type: "failed",
         code: "provider_stream_ended",
-        message: "Anthropic provider stream ended before a completed result was emitted."
+        message: "Anthropic provider stream ended before a completed result was emitted.",
+        providerErrorKind: "server_error",
+        providerErrorCode: null,
+        providerErrorType: null,
+        providerErrorStatus: null
       };
       yield failedEvent;
     } catch (error) {
@@ -544,16 +563,20 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           code: "provider_stream_timeout",
           message: `Anthropic provider stream timed out after ${String(
             this.config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS
-          )}ms without provider activity.`
+          )}ms without provider activity.`,
+          providerErrorKind: "timeout",
+          providerErrorCode: null,
+          providerErrorType: null,
+          providerErrorStatus: null
         };
         yield failedEvent;
         return;
       }
-      const failedEvent: ProviderGatewayTextFailedEvent = {
-        type: "failed",
-        code: "provider_stream_failed",
-        message: error instanceof Error ? error.message : "Anthropic provider stream failed."
-      };
+      const failedEvent = toProviderTextFailedEvent(
+        "anthropic",
+        error,
+        "Anthropic provider stream failed."
+      );
       yield failedEvent;
     } finally {
       dispose();
@@ -1198,7 +1221,26 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     }
     const next: Record<string, unknown> = {};
     for (const [key, entryValue] of Object.entries(objectValue)) {
-      if (key === "maxItems" || key === "minItems") {
+      if (
+        key === "minimum" ||
+        key === "maximum" ||
+        key === "exclusiveMinimum" ||
+        key === "exclusiveMaximum" ||
+        key === "multipleOf" ||
+        key === "minLength" ||
+        key === "maxLength" ||
+        key === "pattern" ||
+        key === "maxItems" ||
+        key === "uniqueItems" ||
+        key === "minProperties" ||
+        key === "maxProperties"
+      ) {
+        continue;
+      }
+      if (
+        key === "minItems" &&
+        !(typeof entryValue === "number" && (entryValue === 0 || entryValue === 1))
+      ) {
         continue;
       }
       next[key] = this.sanitizeAnthropicStructuredOutputSchema(entryValue);

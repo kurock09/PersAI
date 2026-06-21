@@ -9,6 +9,7 @@ import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   PersaiRuntimeSharedCompactionToolCode,
   ProviderGatewayPromptCacheConfig,
+  ProviderGatewayPromptCacheRetention,
   ProviderGatewayRequestMetadata,
   ProviderGatewayTextGenerateRequest,
   RuntimeCompactionRequest,
@@ -38,8 +39,9 @@ import {
 } from "./runtime-context-hydration-policy";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
 import { AutoExtractToMemoryService } from "./auto-extract-to-memory.service";
+import { OPENAI_PROMPT_CACHE_RETENTION_FALLBACK } from "./openai-prompt-cache-retention";
 
-type NativeManagedProvider = "openai" | "anthropic";
+type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
 
 type ProviderSelection = {
   provider: NativeManagedProvider;
@@ -103,7 +105,6 @@ const SHARED_COMPACTION_MAX_ATTEMPTS = 2;
 const SHARED_COMPACTION_MAX_OUTPUT_TOKENS = 1_200;
 const SHARED_COMPACTION_PROMPT_CACHE_BUCKETS = 8;
 const SHARED_COMPACTION_PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
-const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 const IDLE_MEMORY_EXTRACTION_MIN_NEW_MESSAGES = 10;
 
 @Injectable()
@@ -863,7 +864,7 @@ export class SessionCompactionService {
     }
     return {
       key: this.buildOpenAIPromptCacheKey(bundle),
-      retention: DEFAULT_OPENAI_PROMPT_CACHE_RETENTION
+      retention: this.resolveSystemToolPromptCacheRetention(bundle)
     };
   }
 
@@ -941,6 +942,18 @@ export class SessionCompactionService {
 
     throw new ServiceUnavailableException(
       "Runtime bundle does not declare a native managed provider/model for shared compaction."
+    );
+  }
+
+  private resolveSystemToolPromptCacheRetention(
+    bundle: AssistantRuntimeBundle
+  ): ProviderGatewayPromptCacheRetention {
+    const routing = this.asObject(bundle.runtime.runtimeProviderRouting);
+    const modelSlots = this.asObject(routing?.modelSlots);
+    const systemTool = this.asObject(modelSlots?.systemTool);
+    return (
+      this.asPromptCacheRetention(systemTool?.promptCacheRetention) ??
+      OPENAI_PROMPT_CACHE_RETENTION_FALLBACK
     );
   }
 
@@ -1072,8 +1085,12 @@ export class SessionCompactionService {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
+  private asPromptCacheRetention(value: unknown): ProviderGatewayPromptCacheRetention | null {
+    return value === "in_memory" || value === "24h" ? value : null;
+  }
+
   private asNativeManagedProvider(value: unknown): NativeManagedProvider | null {
-    return value === "openai" || value === "anthropic" ? value : null;
+    return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
   }
 
   private async releaseLeaseQuietly(lease: {

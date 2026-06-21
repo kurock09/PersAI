@@ -1,21 +1,26 @@
 import { HttpException } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
+  isRetryableProviderGatewayTextErrorKind,
+  type ProviderGatewayTextFailedEvent
+} from "@persai/runtime-contract";
+import {
   ProviderGatewayHttpError,
   ProviderGatewayTimeoutError
 } from "./provider-gateway.client.service";
 
-export type NativeManagedProvider = "openai" | "anthropic";
+export type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
 
 export type ProviderSelection = {
   provider: NativeManagedProvider;
   model: string;
 };
 
-const RETRYABLE_STREAM_FAILURE_CODES = new Set([
+const RETRYABLE_LEGACY_STREAM_FAILURE_CODES = new Set([
   "provider_stream_failed",
   "provider_stream_ended",
-  "provider_invalid_response"
+  "provider_invalid_response",
+  "provider_stream_timeout"
 ]);
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -25,7 +30,7 @@ function asObject(value: unknown): Record<string, unknown> | null {
 }
 
 function asNativeManagedProvider(value: unknown): NativeManagedProvider | null {
-  return value === "openai" || value === "anthropic" ? value : null;
+  return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
 }
 
 function asNonEmptyString(value: unknown): string | null {
@@ -61,6 +66,9 @@ export function isRetryableRuntimeTextFailure(error: unknown): boolean {
     return true;
   }
   if (error instanceof ProviderGatewayHttpError) {
+    if (isRetryableProviderGatewayTextErrorKind(error.providerErrorKind)) {
+      return true;
+    }
     return error.httpStatus >= 500;
   }
   if (error instanceof HttpException) {
@@ -69,6 +77,14 @@ export function isRetryableRuntimeTextFailure(error: unknown): boolean {
   return false;
 }
 
-export function isRetryableRuntimeTextStreamFailureCode(code: string | null | undefined): boolean {
-  return typeof code === "string" && RETRYABLE_STREAM_FAILURE_CODES.has(code);
+export function isRetryableRuntimeTextStreamFailure(
+  event: Pick<ProviderGatewayTextFailedEvent, "code" | "providerErrorKind"> | null | undefined
+): boolean {
+  if (event === null || event === undefined) {
+    return false;
+  }
+  if (isRetryableProviderGatewayTextErrorKind(event.providerErrorKind)) {
+    return true;
+  }
+  return RETRYABLE_LEGACY_STREAM_FAILURE_CODES.has(event.code);
 }

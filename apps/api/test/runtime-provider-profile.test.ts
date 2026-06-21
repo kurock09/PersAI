@@ -88,10 +88,12 @@ async function run(): Promise<void> {
   assert.equal(managed.fallback?.credentialRef.secretRef.id, "ANTHROPIC_API_KEY");
   assert.deepEqual(managed.availableModelsByProvider, {
     openai: [],
-    anthropic: []
+    anthropic: [],
+    deepseek: []
   });
   assert.deepEqual(Object.keys(managed.availableModelCatalogByProvider).sort(), [
     "anthropic",
+    "deepseek",
     "heygen",
     "kling",
     "openai",
@@ -110,16 +112,23 @@ async function run(): Promise<void> {
           model: "gpt-5.4"
         },
         availableModelsByProvider: {
-          openai: ["gpt-5.4"],
+          openai: ["gpt-5.4", "gpt-5.5"],
           anthropic: ["claude-sonnet-4-5"],
+          deepseek: ["deepseek-v4-flash"],
           runway: ["runway-gen-4"]
         },
         availableModelCatalogByProvider: {
           openai: {
-            models: [{ model: "gpt-5.4", capabilities: ["chat"] }]
+            models: [
+              { model: "gpt-5.4", capabilities: ["chat"] },
+              { model: "gpt-5.5", capabilities: ["chat"] }
+            ]
           },
           anthropic: {
             models: [{ model: "claude-sonnet-4-5", capabilities: ["chat"] }]
+          },
+          deepseek: {
+            models: [{ model: "deepseek-v4-flash", capabilities: ["chat"] }]
           },
           runway: {
             models: [
@@ -160,8 +169,9 @@ async function run(): Promise<void> {
     }
   });
   assert.deepEqual(catalogOnlyManaged.availableModelsByProvider, {
-    openai: ["gpt-5.4"],
-    anthropic: ["claude-sonnet-4-5"]
+    openai: ["gpt-5.4", "gpt-5.5"],
+    anthropic: ["claude-sonnet-4-5"],
+    deepseek: ["deepseek-v4-flash"]
   });
   assert.deepEqual(
     catalogOnlyManaged.availableModelCatalogByProvider.runway.models.map(
@@ -200,6 +210,11 @@ async function run(): Promise<void> {
     200_000,
     "READ fold-in: known model claude-sonnet-4-5 null contextWindow → family default 200k"
   );
+  assert.equal(
+    sonnetRead?.promptCacheRetention,
+    "in_memory",
+    "READ fold-in: known Anthropic model claude-sonnet-4-5 null promptCacheRetention → family default in_memory"
+  );
   const gpt54Read = catalogOnlyManaged.availableModelCatalogByProvider.openai.models.find(
     (profile) => profile.model === "gpt-5.4"
   );
@@ -212,6 +227,19 @@ async function run(): Promise<void> {
     gpt54Read?.contextWindow,
     null,
     "READ fold-in: unknown model gpt-5.4 contextWindow stays null"
+  );
+  assert.equal(
+    gpt54Read?.promptCacheRetention,
+    null,
+    "READ fold-in: unknown model gpt-5.4 promptCacheRetention stays null"
+  );
+  const gpt55Read = catalogOnlyManaged.availableModelCatalogByProvider.openai.models.find(
+    (profile) => profile.model === "gpt-5.5"
+  );
+  assert.equal(
+    gpt55Read?.promptCacheRetention,
+    "24h",
+    "READ fold-in: known OpenAI model gpt-5.5 null promptCacheRetention → family default 24h"
   );
   const legacyVideoDefaults = resolveRuntimeProviderProfileState({
     policyEnvelope: {
@@ -273,6 +301,96 @@ async function run(): Promise<void> {
     legacyVideoDefaults.availableModelCatalogByProvider.openai.models[0]?.videoModelParameters
       ?.inputCapabilities,
     ["text"]
+  );
+
+  const invalidPromptCacheRetentionKnown = resolveRuntimeProviderProfileState({
+    policyEnvelope: {
+      runtimeProviderProfile: {
+        schema: "persai.runtimeProviderProfile.v1",
+        primary: {
+          provider: "openai",
+          model: "gpt-5.5"
+        },
+        availableModelCatalogByProvider: {
+          openai: {
+            models: [
+              {
+                model: "gpt-5.5",
+                capabilities: ["chat"],
+                promptCacheRetention: "forever"
+              }
+            ]
+          }
+        }
+      }
+    },
+    secretRefs: {
+      refs: {
+        runtime_provider_credentials: {
+          schema: "persai.runtimeProviderCredentialRefs.v1",
+          providers: {
+            openai: {
+              secretRef: {
+                source: "env",
+                provider: "default",
+                id: "OPENAI_API_KEY"
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+  assert.equal(
+    invalidPromptCacheRetentionKnown.availableModelCatalogByProvider.openai.models[0]
+      ?.promptCacheRetention,
+    "24h",
+    "READ fold-in: invalid stored promptCacheRetention on known gpt-5.5 falls back to 24h"
+  );
+
+  const invalidPromptCacheRetentionUnknown = resolveRuntimeProviderProfileState({
+    policyEnvelope: {
+      runtimeProviderProfile: {
+        schema: "persai.runtimeProviderProfile.v1",
+        primary: {
+          provider: "openai",
+          model: "gpt-unknown"
+        },
+        availableModelCatalogByProvider: {
+          openai: {
+            models: [
+              {
+                model: "gpt-unknown",
+                capabilities: ["chat"],
+                promptCacheRetention: "forever"
+              }
+            ]
+          }
+        }
+      }
+    },
+    secretRefs: {
+      refs: {
+        runtime_provider_credentials: {
+          schema: "persai.runtimeProviderCredentialRefs.v1",
+          providers: {
+            openai: {
+              secretRef: {
+                source: "env",
+                provider: "default",
+                id: "OPENAI_API_KEY"
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+  assert.equal(
+    invalidPromptCacheRetentionUnknown.availableModelCatalogByProvider.openai.models[0]
+      ?.promptCacheRetention,
+    null,
+    "READ fold-in: invalid stored promptCacheRetention on unknown model stays null"
   );
 
   assert.throws(

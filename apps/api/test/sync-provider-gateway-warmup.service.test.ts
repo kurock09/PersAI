@@ -17,7 +17,8 @@ function createMaterializedSpec(): AssistantMaterializedSpec {
           runtimeProviderProfile: {
             availableModelsByProvider: {
               openai: ["gpt-5.4", "gpt‑5.4-mini", "gpt-5.4"],
-              anthropic: ["claude-sonnet-4-5"]
+              anthropic: ["claude-sonnet-4-5"],
+              deepseek: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash"]
             }
           }
         }
@@ -82,7 +83,8 @@ async function run(): Promise<void> {
       source: "control_plane_apply",
       availableModelsByProvider: {
         openai: ["gpt-5.4", "gpt-5.4-mini"],
-        anthropic: ["claude-sonnet-4-5"]
+        anthropic: ["claude-sonnet-4-5"],
+        deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"]
       }
     });
 

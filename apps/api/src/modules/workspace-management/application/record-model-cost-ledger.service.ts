@@ -100,7 +100,7 @@ const CHAT_MAIN_REPLY_STEP_TYPES = new Set(["main_turn", "tool_loop_followup"]);
 const ROUTER_STEP_TYPES = new Set(["turn_routing", "skill_state_routing"]);
 
 function normalizeManagedProvider(value: string | null): ManagedRuntimeProvider | null {
-  return value === "openai" || value === "anthropic" ? value : null;
+  return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
 }
 
 function normalizeModelKey(value: string | null): string | null {

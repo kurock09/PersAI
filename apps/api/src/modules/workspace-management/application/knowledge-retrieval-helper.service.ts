@@ -27,7 +27,7 @@ const KNOWLEDGE_HELPER_OUTPUT_SCHEMA = {
 export type KnowledgeRetrievalHelperRankingResult = {
   rankedReferenceIds: string[];
   modelKey: string;
-  providerKey: "openai" | "anthropic";
+  providerKey: "openai" | "anthropic" | "deepseek";
   usage: ProviderGatewayTextGenerateResult["usage"];
 };
 
@@ -186,7 +186,7 @@ export class KnowledgeRetrievalHelperService {
     url: string;
     request: ProviderGatewayTextGenerateRequest;
     timeoutMs: number;
-    fallback: { provider: "openai" | "anthropic"; model: string } | null;
+    fallback: { provider: "openai" | "anthropic" | "deepseek"; model: string } | null;
   }): Promise<ProviderGatewayTextGenerateResult> {
     try {
       return await this.postJson(input.url, input.request, input.timeoutMs);

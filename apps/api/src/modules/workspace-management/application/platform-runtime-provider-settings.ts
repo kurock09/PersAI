@@ -16,7 +16,9 @@ import {
   type RuntimeProviderModelCapability,
   type RuntimeProviderModelCatalogByProvider,
   type RuntimeProviderModelProfile,
+  RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS,
   type RuntimeProviderPriceMetadata,
+  type RuntimeProviderPromptCacheRetention,
   type RuntimeProviderTextCharsMeteredPriceConfig,
   type RuntimeProviderTokenMeteredPriceConfig,
   type RuntimeProviderTimeMeteredPriceConfig,
@@ -60,7 +62,8 @@ export const DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE = 20;
 
 export const PERSAI_RUNTIME_PROVIDER_SECRET_IDS: Record<ManagedRuntimeProvider, string> = {
   openai: "openai/api-key",
-  anthropic: "anthropic/api-key"
+  anthropic: "anthropic/api-key",
+  deepseek: "deepseek/api-key"
 };
 
 const MAX_MODEL_LENGTH = 256;
@@ -304,7 +307,8 @@ function containsControlCharacters(value: string): boolean {
 export function createEmptyAvailableModelsByProvider(): RuntimeProviderAvailableModelsByProvider {
   return {
     openai: [],
-    anthropic: []
+    anthropic: [],
+    deepseek: []
   };
 }
 
@@ -312,6 +316,7 @@ export function createEmptyAvailableModelCatalogByProvider(): RuntimeProviderMod
   return {
     openai: { models: [] },
     anthropic: { models: [] },
+    deepseek: { models: [] },
     runway: { models: [] },
     kling: { models: [] },
     heygen: { models: [] }
@@ -332,13 +337,18 @@ export function createEmptyPlatformRuntimeProviderKeyMetadata(): Record<
       configured: false,
       lastFour: null,
       updatedAt: null
+    },
+    deepseek: {
+      configured: false,
+      lastFour: null,
+      updatedAt: null
     }
   };
 }
 
 function normalizeProvider(value: unknown, path: string): ManagedRuntimeProvider {
   const normalized = asNonEmptyString(value)?.toLowerCase();
-  if (normalized === "openai" || normalized === "anthropic") {
+  if (normalized === "openai" || normalized === "anthropic" || normalized === "deepseek") {
     return normalized;
   }
   throw new Error(`${path} must be one of: ${CHAT_ROUTING_PROVIDERS.join(", ")}.`);
@@ -741,6 +751,9 @@ export function normalizeAvailableModelsByProvider(
       : [],
     anthropic: Array.isArray(row.anthropic)
       ? normalizeAvailableModelList(row.anthropic, `${path}.anthropic`)
+      : [],
+    deepseek: Array.isArray(row.deepseek)
+      ? normalizeAvailableModelList(row.deepseek, `${path}.deepseek`)
       : []
   };
 }
@@ -755,6 +768,7 @@ export function normalizeAvailableModelCatalogByProvider(
     return {
       openai: { models: createDefaultModelProfiles(chatFallback.openai, ["chat"]) },
       anthropic: { models: createDefaultModelProfiles(chatFallback.anthropic, ["chat"]) },
+      deepseek: { models: createDefaultModelProfiles(chatFallback.deepseek, ["chat"]) },
       runway: { models: [] },
       kling: { models: [] },
       heygen: { models: [] }
@@ -797,6 +811,7 @@ export function normalizeAvailableModelCatalogByProvider(
   return {
     openai: normalizeProviderCatalog("openai"),
     anthropic: normalizeProviderCatalog("anthropic"),
+    deepseek: normalizeProviderCatalog("deepseek"),
     runway: normalizeProviderCatalog("runway"),
     kling: normalizeProviderCatalog("kling"),
     heygen: normalizeProviderCatalog("heygen")
@@ -818,7 +833,8 @@ function deriveAvailableModelsFromProfileCatalog(
   };
   return {
     openai: collectActiveChatModels(catalog.openai.models),
-    anthropic: collectActiveChatModels(catalog.anthropic.models)
+    anthropic: collectActiveChatModels(catalog.anthropic.models),
+    deepseek: collectActiveChatModels(catalog.deepseek.models)
   };
 }
 
@@ -879,6 +895,23 @@ function normalizeOptionalPositiveInteger(
     throw new Error(`${path} must be at most ${String(options.max)}.`);
   }
   return value;
+}
+
+function normalizeOptionalPromptCacheRetention(
+  value: unknown,
+  path: string
+): RuntimeProviderPromptCacheRetention | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (
+    RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS.includes(value as RuntimeProviderPromptCacheRetention)
+  ) {
+    return value as RuntimeProviderPromptCacheRetention;
+  }
+  throw new Error(
+    `${path} must be one of: ${RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS.join(", ")}.`
+  );
 }
 
 function normalizeOptionalBoundedString(
@@ -1257,6 +1290,13 @@ function normalizeModelProfiles(
         }) ??
         MODEL_CAPABILITY_DEFAULTS[model]?.contextWindow ??
         null,
+      promptCacheRetention:
+        normalizeOptionalPromptCacheRetention(
+          row.promptCacheRetention,
+          `${entryPath}.promptCacheRetention`
+        ) ??
+        MODEL_CAPABILITY_DEFAULTS[model]?.promptCacheRetention ??
+        null,
       displayLabel: normalizeOptionalBoundedString(
         row.displayLabel,
         `${entryPath}.displayLabel`,
@@ -1402,6 +1442,7 @@ function createDefaultModelProfiles(
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
+      promptCacheRetention: capabilityDefaults?.promptCacheRetention ?? null,
       displayLabel: null,
       notes: null
     };
@@ -1474,6 +1515,7 @@ function normalizeLegacyCapabilityCatalog(
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
+      promptCacheRetention: capabilityDefaults?.promptCacheRetention ?? null,
       displayLabel: null,
       notes: null
     };
@@ -1517,7 +1559,12 @@ function assertSelectionInCatalog(params: {
   if (
     !params.availableModelsByProvider[params.selection.provider].includes(params.selection.model)
   ) {
-    const providerLabel = params.selection.provider === "openai" ? "OpenAI" : "Anthropic";
+    const providerLabel =
+      params.selection.provider === "openai"
+        ? "OpenAI"
+        : params.selection.provider === "anthropic"
+          ? "Anthropic"
+          : "DeepSeek";
     throw new Error(
       `${params.path}.model must be listed in availableModelsByProvider.${params.selection.provider} for ${providerLabel}.`
     );
@@ -1738,11 +1785,15 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     providerKeysRow?.anthropic,
     "providerKeys.anthropic"
   );
+  const deepseekKey = normalizeProviderKeyInput(providerKeysRow?.deepseek, "providerKeys.deepseek");
   if (openaiKey !== undefined) {
     providerKeys.openai = openaiKey;
   }
   if (anthropicKey !== undefined) {
     providerKeys.anthropic = anthropicKey;
+  }
+  if (deepseekKey !== undefined) {
+    providerKeys.deepseek = deepseekKey;
   }
   const vcoinExchangeRate = normalizeVcoinExchangeRate(row.vcoinExchangeRate, "vcoinExchangeRate");
   const heygenPersonaWorkspaceLimit = normalizeHeygenPersonaWorkspaceLimit(
@@ -2064,7 +2115,8 @@ export function assertRequiredProviderKeysAvailable(params: {
       typeof params.incomingProviderKeys[provider] === "string" &&
       (params.incomingProviderKeys[provider] as string).trim().length > 0;
     if (!hasExisting && !hasIncoming) {
-      const label = provider === "openai" ? "OpenAI" : "Anthropic";
+      const label =
+        provider === "openai" ? "OpenAI" : provider === "anthropic" ? "Anthropic" : "DeepSeek";
       throw new Error(`${label} API key is required for the selected provider.`);
     }
   }

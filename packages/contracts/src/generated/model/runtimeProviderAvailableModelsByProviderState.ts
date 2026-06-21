@@ -8,4 +8,5 @@
 export interface RuntimeProviderAvailableModelsByProviderState {
   openai: string[];
   anthropic: string[];
+  deepseek: string[];
 }

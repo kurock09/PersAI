@@ -12,6 +12,7 @@ export type ManagedRuntimeCatalogProvider =
 export const ManagedRuntimeCatalogProvider = {
   openai: "openai",
   anthropic: "anthropic",
+  deepseek: "deepseek",
   runway: "runway",
   kling: "kling",
   heygen: "heygen"

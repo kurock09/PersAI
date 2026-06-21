@@ -625,6 +625,50 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       );
     }
 
+    if (url.endsWith("/api/v1/providers/generate-text")) {
+      const requestBody = bodyText === null ? null : JSON.parse(bodyText);
+      if (requestBody?.model === "quota-structured") {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "insufficient_quota",
+              message: "Quota exceeded for the selected account.",
+              providerErrorKind: "billing_quota",
+              providerErrorCode: "insufficient_quota",
+              providerErrorType: "billing_error",
+              providerErrorStatus: 429
+            }
+          }),
+          {
+            status: 429,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
+      if (requestBody?.model === "provider-invalid-request") {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "unsupported_parameter",
+              message: "Unsupported parameter: prompt_cache_retention.",
+              providerErrorKind: "invalid_request",
+              providerErrorCode: "unsupported_parameter",
+              providerErrorType: "invalid_request_error",
+              providerErrorStatus: 400
+            }
+          }),
+          {
+            status: 400,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
+    }
+
     const payload: ProviderGatewayTextGenerateResult = {
       provider: "openai",
       model: "gpt-5.4",
@@ -911,6 +955,38 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.deepEqual(
       delayedKeepaliveEvents.map((event) => event.type),
       ["keepalive", "completed"]
+    );
+    await assert.rejects(
+      () =>
+        service.generateText({
+          ...createGenerateTextRequest(),
+          model: "quota-structured"
+        }),
+      (error) => {
+        assert.ok(error instanceof ProviderGatewayHttpError);
+        assert.equal(error.httpStatus, 429);
+        assert.equal(error.providerErrorKind, "billing_quota");
+        assert.equal(error.providerErrorCode, "insufficient_quota");
+        assert.equal(error.providerErrorType, "billing_error");
+        assert.equal(error.providerErrorStatus, 429);
+        return true;
+      }
+    );
+    await assert.rejects(
+      () =>
+        service.generateText({
+          ...createGenerateTextRequest(),
+          model: "provider-invalid-request"
+        }),
+      (error) => {
+        assert.ok(error instanceof ProviderGatewayHttpError);
+        assert.equal(error.httpStatus, 400);
+        assert.equal(error.providerErrorKind, "invalid_request");
+        assert.equal(error.providerErrorCode, "unsupported_parameter");
+        assert.equal(error.providerErrorType, "invalid_request_error");
+        assert.equal(error.providerErrorStatus, 400);
+        return true;
+      }
     );
 
     globalThis.fetch = (async (input: URL | RequestInfo) => {

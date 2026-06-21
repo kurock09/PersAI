@@ -55,7 +55,10 @@ export interface PreparedAssistantInboundTurn {
   assistantId: string;
   publishedVersionId: string;
   runtimeTier: RuntimeTier;
-  quotaDegradeModelOverride: { provider: "openai" | "anthropic"; model: string } | null;
+  quotaDegradeModelOverride: {
+    provider: "openai" | "anthropic" | "deepseek";
+    model: string;
+  } | null;
   quotaDegradeReason: AssistantInboundQuotaDegradeReason | null;
   welcomeFirstTurnPrompt: string | null;
   userId: string;

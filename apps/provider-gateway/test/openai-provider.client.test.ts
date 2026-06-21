@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { BadRequestException, Logger } from "@nestjs/common";
+import { BadRequestException, HttpException, Logger } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayImageEditRequest,
@@ -908,6 +908,77 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   if (delayedCompletedEvent?.type === "completed") {
     assert.equal(delayedCompletedEvent.result.text, "delayed done");
   }
+
+  const textErrorClient = new OpenAIProviderClient(createConfig());
+  (textErrorClient as unknown as { client: unknown }).client = {
+    responses: {
+      create: async (payload: { stream?: boolean }) => {
+        if (payload.stream) {
+          return (async function* (): AsyncGenerator<unknown> {
+            yield {
+              type: "response.failed",
+              response: {
+                status: 429,
+                error: {
+                  code: "insufficient_quota",
+                  type: "billing_error",
+                  message: "Quota exceeded"
+                }
+              }
+            };
+          })();
+        }
+        const error = new Error("Quota exceeded");
+        (
+          error as Error & {
+            status?: number;
+            error?: { code?: string; type?: string; message?: string };
+          }
+        ).status = 429;
+        (error as Error & { error?: { code?: string; type?: string; message?: string } }).error = {
+          code: "insufficient_quota",
+          type: "billing_error",
+          message: "Quota exceeded"
+        };
+        throw error;
+      }
+    }
+  };
+  await assert.rejects(
+    () => textErrorClient.generateText(request),
+    (error) => {
+      assert.ok(error instanceof HttpException);
+      assert.equal(error.getStatus(), 429);
+      const response = error.getResponse() as {
+        error?: {
+          code?: string;
+          providerErrorKind?: string;
+          providerErrorCode?: string;
+          providerErrorType?: string;
+          providerErrorStatus?: number;
+        };
+      };
+      assert.equal(response.error?.code, "insufficient_quota");
+      assert.equal(response.error?.providerErrorKind, "billing_quota");
+      assert.equal(response.error?.providerErrorCode, "insufficient_quota");
+      assert.equal(response.error?.providerErrorType, "billing_error");
+      assert.equal(response.error?.providerErrorStatus, 429);
+      return true;
+    }
+  );
+  const textErrorStream = await textErrorClient.streamText(request);
+  const textErrorStreamEvents = await collectStream(textErrorStream);
+  assert.deepEqual(textErrorStreamEvents, [
+    {
+      type: "failed",
+      code: "insufficient_quota",
+      message: "Quota exceeded",
+      providerErrorKind: "billing_quota",
+      providerErrorCode: "insufficient_quota",
+      providerErrorType: "billing_error",
+      providerErrorStatus: 429
+    }
+  ]);
 
   const toolStream = await client.streamText(toolRequest);
   const toolStreamEvents = await collectStream(toolStream);

@@ -42,7 +42,8 @@ describe("admin knowledge page helpers", () => {
       flattenAvailableTextModelOptions({
         availableModelsByProvider: {
           openai: ["gpt-5.4-mini", "text-embedding-3-small"],
-          anthropic: ["claude-4.6-sonnet-medium-thinking"]
+          anthropic: ["claude-4.6-sonnet-medium-thinking"],
+          deepseek: ["deepseek-v4-flash"]
         },
         availableModelCatalogByProvider: {
           openai: {
@@ -99,6 +100,33 @@ describe("admin knowledge page helpers", () => {
               }
             ]
           },
+          deepseek: {
+            models: [
+              {
+                model: "deepseek-v4-flash",
+                capabilities: ["chat"],
+                kind: "cinematic",
+                active: true,
+                billingMode: "token_metered",
+                effectiveFrom: null,
+                effectiveTo: null,
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  tokenPricing: {
+                    inputPer1M: 0,
+                    cacheCreationInputPer1M: 0,
+                    cachedInputPer1M: 0,
+                    outputPer1M: 0
+                  }
+                }
+              }
+            ]
+          },
           runway: {
             models: []
           },
@@ -113,7 +141,8 @@ describe("admin knowledge page helpers", () => {
     ).toEqual([
       { provider: "openai", model: "gpt-5.4-mini" },
       { provider: "openai", model: "text-embedding-3-small" },
-      { provider: "anthropic", model: "claude-4.6-sonnet-medium-thinking" }
+      { provider: "anthropic", model: "claude-4.6-sonnet-medium-thinking" },
+      { provider: "deepseek", model: "deepseek-v4-flash" }
     ]);
   });
 
@@ -122,7 +151,8 @@ describe("admin knowledge page helpers", () => {
       flattenAvailableTextModelOptions({
         availableModelsByProvider: {
           openai: [],
-          anthropic: []
+          anthropic: [],
+          deepseek: []
         },
         availableModelCatalogByProvider: {
           openai: {
@@ -214,6 +244,9 @@ describe("admin knowledge page helpers", () => {
                 }
               }
             ]
+          },
+          deepseek: {
+            models: []
           },
           runway: {
             models: []
@@ -331,10 +364,15 @@ describe("AdminKnowledgePage Smart Retrieval Limits (ADR-094)", () => {
       if (url.endsWith("/admin/runtime/provider-settings")) {
         return jsonResponse({
           settings: {
-            availableModelsByProvider: { openai: ["text-embedding-3-large"], anthropic: [] },
+            availableModelsByProvider: {
+              openai: ["text-embedding-3-large"],
+              anthropic: [],
+              deepseek: []
+            },
             availableModelCatalogByProvider: {
               openai: { models: [] },
               anthropic: { models: [] },
+              deepseek: { models: [] },
               runway: { models: [] },
               kling: { models: [] },
               heygen: { models: [] }

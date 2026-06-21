@@ -604,6 +604,7 @@ export function toToolPathPricingProfileForLedger(
     outputTokenWeight: 0,
     maxOutputTokens: null as number | null,
     contextWindow: null as number | null,
+    promptCacheRetention: null as "in_memory" | "24h" | null,
     displayLabel: row.displayLabel,
     notes: row.notes
   };

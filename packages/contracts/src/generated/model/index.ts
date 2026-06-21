@@ -673,6 +673,7 @@ export * from "./runtimeProviderModelCapability";
 export * from "./runtimeProviderModelCatalogByProviderState";
 export * from "./runtimeProviderModelCatalogState";
 export * from "./runtimeProviderModelProfileCommonState";
+export * from "./runtimeProviderModelProfileCommonStatePromptCacheRetention";
 export * from "./runtimeProviderModelProfileCommonStateVideoModelParameters";
 export * from "./runtimeProviderModelProfileState";
 export * from "./runtimeProviderModelProfileStateProviderPriceMetadata";

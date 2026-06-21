@@ -80,7 +80,7 @@ const UPLOAD_MICRO_DESCRIPTION_OUTPUT_SCHEMA = {
 } as const;
 
 type FileDescriptionRoute = {
-  provider: "openai" | "anthropic";
+  provider: "openai" | "anthropic" | "deepseek";
   model: string;
 };
 
@@ -172,7 +172,7 @@ export class AssistantUploadMicroDescriptionService {
     summary: string | null;
     usage: RuntimeUsageSnapshot | null;
     respondedAt: string;
-    provider: "openai" | "anthropic";
+    provider: "openai" | "anthropic" | "deepseek";
     model: string;
   } | null> {
     const route = await this.resolveSystemToolRoute(input.assistantId);

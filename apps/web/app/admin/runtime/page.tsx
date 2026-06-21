@@ -163,6 +163,8 @@ function providerLabel(provider: ManagedRuntimeProvider | ManagedRuntimeCatalogP
       return "OpenAI";
     case "anthropic":
       return "Anthropic";
+    case "deepseek":
+      return "DeepSeek";
     case "runway":
       return "Runway";
     case "kling":
@@ -175,6 +177,7 @@ function providerLabel(provider: ManagedRuntimeProvider | ManagedRuntimeCatalogP
 const MANAGED_CATALOG_PROVIDERS = [
   "openai",
   "anthropic",
+  "deepseek",
   "runway",
   "kling",
   "heygen"
@@ -376,6 +379,7 @@ function normalizeCatalogForSlice2(
   return {
     openai: normalizeProviderCatalog("openai"),
     anthropic: normalizeProviderCatalog("anthropic"),
+    deepseek: normalizeProviderCatalog("deepseek"),
     runway: normalizeProviderCatalog("runway"),
     kling: normalizeProviderCatalog("kling"),
     heygen: normalizeProviderCatalog("heygen")
@@ -705,6 +709,7 @@ function createEmptyCatalog(): RuntimeProviderModelCatalogByProviderState {
   return {
     openai: { models: [] },
     anthropic: { models: [] },
+    deepseek: { models: [] },
     runway: { models: [] },
     kling: { models: [] },
     heygen: { models: [] }
@@ -887,6 +892,11 @@ function withDerivedCatalogWeights(
         applyDerivedTokenMeteredWeights(withVideoModelParameters(profile, "anthropic"))
       )
     },
+    deepseek: {
+      models: catalog.deepseek.models.map((profile) =>
+        applyDerivedTokenMeteredWeights(withVideoModelParameters(profile, "deepseek"))
+      )
+    },
     runway: {
       models: catalog.runway.models.map((profile) =>
         applyDerivedTokenMeteredWeights(withVideoModelParameters(profile, "runway"))
@@ -917,6 +927,12 @@ function buildCatalogFallback(
     },
     anthropic: {
       models: (availableModelsByProvider?.anthropic ?? []).map((model) => ({
+        ...createModelProfile("chat"),
+        model
+      }))
+    },
+    deepseek: {
+      models: (availableModelsByProvider?.deepseek ?? []).map((model) => ({
         ...createModelProfile("chat"),
         model
       }))
@@ -968,7 +984,8 @@ function deriveAvailableModelsByProvider(
 ): AdminRuntimeProviderSettingsRequest["availableModelsByProvider"] {
   return {
     openai: deriveChatModelOptions(catalog, "openai"),
-    anthropic: deriveChatModelOptions(catalog, "anthropic")
+    anthropic: deriveChatModelOptions(catalog, "anthropic"),
+    deepseek: deriveChatModelOptions(catalog, "deepseek")
   };
 }
 
@@ -1034,6 +1051,7 @@ export default function AdminRuntimePage() {
   const [routerPersonalPriorityTermsText, setRouterPersonalPriorityTermsText] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
+  const [deepseekKey, setDeepseekKey] = useState("");
   const [vcoinExchangeRateText, setVcoinExchangeRateText] = useState("20");
   const [heygenPersonaWorkspaceLimitText, setHeygenPersonaWorkspaceLimitText] = useState("10");
   const [heygenPersonaCreationVcoinText, setHeygenPersonaCreationVcoinText] = useState("20");
@@ -1042,10 +1060,17 @@ export default function AdminRuntimePage() {
     useState<RuntimeProviderModelCatalogByProviderState>(createEmptyCatalog());
   const [selectedCatalogIndexByProvider, setSelectedCatalogIndexByProvider] = useState<
     Record<ManagedRuntimeCatalogProvider, number>
-  >({ openai: 0, anthropic: 0, runway: 0, kling: 0, heygen: 0 });
+  >({ openai: 0, anthropic: 0, deepseek: 0, runway: 0, kling: 0, heygen: 0 });
   const [newCatalogCapabilityByProvider, setNewCatalogCapabilityByProvider] = useState<
     Record<ManagedRuntimeCatalogProvider, RuntimeProviderModelProfileState["capabilities"][number]>
-  >({ openai: "chat", anthropic: "chat", runway: "video", kling: "video", heygen: "video" });
+  >({
+    openai: "chat",
+    anthropic: "chat",
+    deepseek: "chat",
+    runway: "video",
+    kling: "video",
+    heygen: "video"
+  });
   modelCatalogRef.current = modelCatalogByProvider;
 
   useEffect(() => {
@@ -1055,6 +1080,7 @@ export default function AdminRuntimePage() {
         current.anthropic,
         modelCatalogByProvider.anthropic.models.length
       ),
+      deepseek: clampCatalogIndex(current.deepseek, modelCatalogByProvider.deepseek.models.length),
       runway: clampCatalogIndex(current.runway, modelCatalogByProvider.runway.models.length),
       kling: clampCatalogIndex(current.kling, modelCatalogByProvider.kling.models.length),
       heygen: clampCatalogIndex(current.heygen, modelCatalogByProvider.heygen.models.length)
@@ -1135,7 +1161,8 @@ export default function AdminRuntimePage() {
 
   const availableModelsForSelect = {
     openai: deriveChatModelOptions(modelCatalogByProvider, "openai"),
-    anthropic: deriveChatModelOptions(modelCatalogByProvider, "anthropic")
+    anthropic: deriveChatModelOptions(modelCatalogByProvider, "anthropic"),
+    deepseek: deriveChatModelOptions(modelCatalogByProvider, "deepseek")
   } satisfies AdminRuntimeProviderSettingsRequest["availableModelsByProvider"];
   const primaryModelProfile = findModelProfile(
     modelCatalogByProvider[primaryProvider].models,
@@ -1237,7 +1264,8 @@ export default function AdminRuntimePage() {
         availableModelCatalogByProvider: parsedModelCatalog,
         providerKeys: {
           ...(openaiKey ? { openai: openaiKey } : {}),
-          ...(anthropicKey ? { anthropic: anthropicKey } : {})
+          ...(anthropicKey ? { anthropic: anthropicKey } : {}),
+          ...(deepseekKey ? { deepseek: deepseekKey } : {})
         },
         vcoinExchangeRate: parsedVcoinExchangeRate,
         heygenPersonaWorkspaceLimit: parsedPersonaWorkspaceLimit,
@@ -1247,6 +1275,7 @@ export default function AdminRuntimePage() {
       setFeedback("Saved successfully. Changes propagate lazily after save.");
       setOpenaiKey("");
       setAnthropicKey("");
+      setDeepseekKey("");
       await load();
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Save failed.");
@@ -1254,6 +1283,7 @@ export default function AdminRuntimePage() {
     setSaving(false);
   }, [
     anthropicKey,
+    deepseekKey,
     fallbackEnabled,
     fallbackModel,
     fallbackProvider,
@@ -1796,6 +1826,25 @@ export default function AdminRuntimePage() {
                 : "Required when Anthropic is selected and no stored key exists yet."}
             </p>
           </Card>
+          <Card title="DeepSeek">
+            <Field
+              label="API key"
+              value={deepseekKey}
+              onChange={setDeepseekKey}
+              type="password"
+              autoComplete="new-password"
+              placeholder={
+                settings?.providerKeys.deepseek.configured
+                  ? `Configured ••••${settings.providerKeys.deepseek.lastFour ?? ""}`
+                  : "sk-..."
+              }
+            />
+            <p className="text-[10px] text-text-subtle">
+              {settings?.providerKeys.deepseek.configured
+                ? `${providerLabel("deepseek")} key is already configured. Leave blank to keep it.`
+                : "Required when DeepSeek is selected and no stored key exists yet."}
+            </p>
+          </Card>
         </div>
       </Fold>
 
@@ -1882,6 +1931,7 @@ function ProviderSelect({
       >
         <option value="openai">OpenAI</option>
         <option value="anthropic">Anthropic</option>
+        <option value="deepseek">DeepSeek</option>
       </select>
     </div>
   );

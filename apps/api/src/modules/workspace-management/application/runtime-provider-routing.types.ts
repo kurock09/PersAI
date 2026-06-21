@@ -14,30 +14,36 @@ export type RuntimeProviderRoutingState = {
       maxOutputTokens?: number | null;
       /** ADR-122 D2 — resolved from model catalog at routing time; null when unset. */
       contextWindow?: number | null;
+      /** ADR-124 Slice 1 — resolved from model catalog at routing time; null when unset. */
+      promptCacheRetention?: "in_memory" | "24h" | null;
     };
     premiumReply: {
       providerKey: string;
       modelKey: string | null;
       maxOutputTokens?: number | null;
       contextWindow?: number | null;
+      promptCacheRetention?: "in_memory" | "24h" | null;
     };
     reasoning: {
       providerKey: string;
       modelKey: string | null;
       maxOutputTokens?: number | null;
       contextWindow?: number | null;
+      promptCacheRetention?: "in_memory" | "24h" | null;
     };
     systemTool: {
       providerKey: string;
       modelKey: string | null;
       maxOutputTokens?: number | null;
       contextWindow?: number | null;
+      promptCacheRetention?: "in_memory" | "24h" | null;
     };
     retrieval: {
       providerKey: string;
       modelKey: string | null;
       maxOutputTokens?: number | null;
       contextWindow?: number | null;
+      promptCacheRetention?: "in_memory" | "24h" | null;
     };
   };
   primaryPath: {

@@ -88,7 +88,8 @@ describe("runtime-provider-settings-admin", () => {
       },
       availableModelsByProvider: {
         openai: ["gpt-5.4", "gpt-4.1"],
-        anthropic: ["claude-sonnet-4-5"]
+        anthropic: ["claude-sonnet-4-5"],
+        deepseek: ["deepseek-v4-flash"]
       },
       availableModelCatalogByProvider: {
         openai: {
@@ -149,6 +150,20 @@ describe("runtime-provider-settings-admin", () => {
             }
           ]
         },
+        deepseek: {
+          models: [
+            {
+              model: "deepseek-v4-flash",
+              capabilities: ["chat"],
+              ...tokenMeteredDefaults(),
+              inputTokenWeight: 0.112,
+              cachedInputTokenWeight: 0.00224,
+              outputTokenWeight: 0.224,
+              displayLabel: "DeepSeek V4 Flash",
+              notes: null
+            }
+          ]
+        },
         runway: {
           models: [
             {
@@ -188,6 +203,11 @@ describe("runtime-provider-settings-admin", () => {
           updatedAt: "2026-03-25T10:00:00.000Z"
         },
         anthropic: {
+          configured: false,
+          lastFour: null,
+          updatedAt: null
+        },
+        deepseek: {
           configured: false,
           lastFour: null,
           updatedAt: null
@@ -237,13 +257,15 @@ describe("runtime-provider-settings-admin", () => {
             "gpt-image-1.5 | image | 1 | 1 | 1\n" +
             "sora-2 | video | 1 | 1 | 1",
           anthropic: "claude-sonnet-4-5 | chat | 1 | 1 | 1",
+          deepseek: "deepseek-v4-flash | chat | 0.112 | 0.00224 | 0.224 | DeepSeek V4 Flash",
           runway: "runway-gen-4 | video | 1 | 1 | 1 | Runway Gen 4",
           kling: "kling-v2 | video | 1 | 1 | 1 | Kling V2",
           heygen: ""
         },
         providerKeys: {
           openai: "",
-          anthropic: "sk-ant-new"
+          anthropic: "sk-ant-new",
+          deepseek: ""
         }
       },
       providerKeyState: {
@@ -253,6 +275,11 @@ describe("runtime-provider-settings-admin", () => {
           updatedAt: "2026-03-25T10:00:00.000Z"
         },
         anthropic: {
+          configured: false,
+          lastFour: null,
+          updatedAt: null
+        },
+        deepseek: {
           configured: false,
           lastFour: null,
           updatedAt: null
@@ -270,6 +297,7 @@ describe("runtime-provider-settings-admin", () => {
     });
     expect(request.availableModelsByProvider.openai).toEqual(["gpt-4.1", "gpt-5.4"]);
     expect(request.availableModelsByProvider.anthropic).toEqual(["claude-sonnet-4-5"]);
+    expect(request.availableModelsByProvider.deepseek).toEqual(["deepseek-v4-flash"]);
     expect(request.availableModelCatalogByProvider.runway.models).toMatchObject([
       {
         model: "runway-gen-4",
@@ -315,13 +343,15 @@ describe("runtime-provider-settings-admin", () => {
         modelProfilesTextByProvider: {
           openai: "gpt-4.1 | chat | 1 | 1 | 1",
           anthropic: "",
+          deepseek: "",
           runway: "",
           kling: "",
           heygen: ""
         },
         providerKeys: {
           openai: "",
-          anthropic: ""
+          anthropic: "",
+          deepseek: ""
         }
       })
     ).toBe("Primary model must be listed under OpenAI available models.");
@@ -343,13 +373,15 @@ describe("runtime-provider-settings-admin", () => {
           modelProfilesTextByProvider: {
             openai: "gpt-5.4 | chat | 1 | 1 | 1",
             anthropic: "",
+            deepseek: "",
             runway: "",
             kling: "",
             heygen: ""
           },
           providerKeys: {
             openai: "",
-            anthropic: ""
+            anthropic: "",
+            deepseek: ""
           }
         },
         providerKeyState: {
@@ -359,6 +391,11 @@ describe("runtime-provider-settings-admin", () => {
             updatedAt: null
           },
           anthropic: {
+            configured: false,
+            lastFour: null,
+            updatedAt: null
+          },
+          deepseek: {
             configured: false,
             lastFour: null,
             updatedAt: null
@@ -383,13 +420,15 @@ describe("runtime-provider-settings-admin", () => {
         modelProfilesTextByProvider: {
           openai: "",
           anthropic: "",
+          deepseek: "",
           runway: "",
           kling: "",
           heygen: ""
         },
         providerKeys: {
           openai: "",
-          anthropic: ""
+          anthropic: "",
+          deepseek: ""
         }
       })
     ).toBe("Primary model is required.");
@@ -410,13 +449,15 @@ describe("runtime-provider-settings-admin", () => {
         modelProfilesTextByProvider: {
           openai: "gpt-5.4 | chat | 1 | 1 | 1",
           anthropic: "",
+          deepseek: "",
           runway: "runway-gen-4 | video | 1 | 1 | 1",
           kling: "kling-v2 | video | 1 | 1 | 1",
           heygen: ""
         },
         providerKeys: {
           openai: "",
-          anthropic: ""
+          anthropic: "",
+          deepseek: ""
         }
       },
       providerKeyState: {
@@ -429,13 +470,19 @@ describe("runtime-provider-settings-admin", () => {
           configured: false,
           lastFour: null,
           updatedAt: null
+        },
+        deepseek: {
+          configured: false,
+          lastFour: null,
+          updatedAt: null
         }
       }
     });
 
     expect(request.availableModelsByProvider).toEqual({
       openai: ["gpt-5.4"],
-      anthropic: []
+      anthropic: [],
+      deepseek: []
     });
     expect(request.availableModelCatalogByProvider.runway.models[0]).toMatchObject({
       model: "runway-gen-4",

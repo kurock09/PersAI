@@ -42,13 +42,23 @@ export interface AdminPlanInputBase {
   /** @nullable */
   primaryModelKey?: string | null;
   /** @nullable */
+  primaryModelProviderKey?: string | null;
+  /** @nullable */
   premiumModelKey?: string | null;
+  /** @nullable */
+  premiumModelProviderKey?: string | null;
   /** @nullable */
   reasoningModelKey?: string | null;
   /** @nullable */
+  reasoningModelProviderKey?: string | null;
+  /** @nullable */
   systemToolModelKey?: string | null;
   /** @nullable */
+  systemToolModelProviderKey?: string | null;
+  /** @nullable */
   retrievalModelKey?: string | null;
+  /** @nullable */
+  retrievalModelProviderKey?: string | null;
   /** @nullable */
   imageGenerateModelKey?: string | null;
   /** @nullable */
