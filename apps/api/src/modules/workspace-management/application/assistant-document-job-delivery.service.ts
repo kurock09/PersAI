@@ -81,7 +81,7 @@ type TerminalExecutionFailureInput = {
     workspaceId: string;
     chatId: string;
     surface: "web" | "telegram";
-    outputFormat: "pdf" | "pptx";
+    outputFormat: "pdf" | "pptx" | "xlsx" | "docx";
     sourceUserMessageId: string;
     attemptCount: number;
     maxAttempts: number;
@@ -90,7 +90,8 @@ type TerminalExecutionFailureInput = {
     | "create_pdf_document"
     | "create_presentation"
     | "revise_document"
-    | "export_or_redeliver";
+    | "export_or_redeliver"
+    | "create_data_document";
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
   failure: {

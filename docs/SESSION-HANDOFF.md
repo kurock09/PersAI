@@ -3,6 +3,35 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — ADR-123 TTL 15m + writable runtime pip installs — CHECKPOINT
+
+### State
+
+Implemented locally along with the document-job replay fix below. Full gate green. Needs commit + push/deploy.
+
+### What changed
+
+1. **Session pod idle TTL shortened to 15 minutes.** `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` default + dev Helm value changed `1800000 -> 900000`. Reason: with `sandbox-pool` `min-nodes=1` and `sandbox-exec-prepull`, pod recreation is fast; holding every session pod for 30 minutes is no longer needed just for latency. Reaper interval remains 2 minutes.
+2. **Runtime `pip install ...` writes to `/workspace/.local`.** The exec image still uses read-only root FS and immutable preinstalled `/opt/venv`, but ordinary model/user shell installs now default to a writable user-site: venv built with `--system-site-packages`, `PYTHONUSERBASE=/workspace/.local`, `PIP_USER=1`, and `/workspace/.local/bin` first on PATH (including login shells). This preserves the security boundary while fixing `pip install colorama==0.4.6` failing with `Read-only file system`.
+
+### Files
+
+`packages/config/src/sandbox-config.ts`, `infra/helm/values-dev.yaml`, `apps/sandbox/exec-image/Dockerfile`, sandbox test fixtures, `infra/dev/gke/RUNBOOK.md`, ADR-123, CHANGELOG, this checkpoint.
+
+### Next recommended step
+
+Commit + push. After deploy, verify `pip install colorama==0.4.6 && python3 -c "import colorama; print(colorama.__version__)"` inside the same assistant shell, verify XLSX/DOCX document jobs deliver, and verify idle session pods disappear after ~15–17 minutes.
+
+### Document-job audit before push
+
+User reported Excel/DOCX not working and PDF succeeded 2/3. Live DB audit:
+
+- XLSX job `dca8f91f-5870-49fc-ad23-2d2124b7845b`: failed `document_artifacts_missing`; nested provider status `invalid_path`, message `render_html_to_pdf outputFileName must end with .pdf`, requested `test-excel.xlsx`.
+- DOCX job `9d2a92de-9917-4480-86bf-8f7430ba5bd7`: same failure, requested `test-docx.docx`.
+- PDF jobs `2b46b873-...` and `89964b4b-...`: delivered OK. PDF job `a0d61f97-...`: failed before render because generated HTML body text was too short (`length=59`, min `120`) after 3 generation attempts — prompt/model quality, not sandbox/push.
+
+Root cause: API scheduler replay parser accepted only `create_pdf_document|create_presentation|revise_document|export_or_redeliver` and only `pdf|pptx`; stored queued `create_data_document` + `xlsx|docx` requests were replayed as `create_pdf_document`, so runtime used `render_html_to_pdf`. Fix in `AssistantDocumentJobSchedulerService.parseRequestPayload()`: preserve `create_data_document`, `xlsx`, `docx`; widen completion/failure framing types; add regression test.
+
 ## 2026-06-21 — ADR-123 workspace-push large-stdin frame root cause — CHECKPOINT
 
 ### State
@@ -405,10 +434,10 @@ Session-lived sandbox execution: pods are now reused across jobs within a sessio
 
 - **Session pod naming** (`exec-pod-bridge.service.ts`): `buildSessionPodName(runtimeSessionId)` derives a stable k8s-safe name `ses-<sha256[0..31]>` from the session ID. Sessionless jobs (null `runtimeSessionId`) retain the Slice 1 ephemeral `exec-<jobId>` create/delete behavior.
 - **Pod reuse** (`exec-pod-bridge.service.ts`): `runInPod` dispatches to `runInSessionPod` or `runInEphemeralPod`. `runInSessionPod` calls `ensureSessionPodRunning` (checks k8s live state; reuses if Running, creates if absent, recreates if terminal), runs the command, updates `lastActivityAt`, and does NOT delete the pod afterward.
-- **Idle-TTL reaper** (`exec-pod-bridge.service.ts`): `OnModuleInit` starts a `setInterval` that calls `runReaperTick()` every `SANDBOX_EXEC_REAPER_INTERVAL_MS` (default 2 min). Tick evicts session pods idle longer than `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` (default 30 min) by calling `deletePod` and removing from the in-memory `sessionPods` map.
+- **Idle-TTL reaper** (`exec-pod-bridge.service.ts`): `OnModuleInit` starts a `setInterval` that calls `runReaperTick()` every `SANDBOX_EXEC_REAPER_INTERVAL_MS` (default 2 min). Tick evicts session pods idle longer than `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` (current default 15 min) by calling `deletePod`.
 - **GCS workspace snapshot** (`sandbox.service.ts` + `sandbox-object-storage.service.ts`): `buildSessionSnapshotKey(assistantId, runtimeSessionId)` → `{prefix}/assistants/{assistantId}/sandbox-sessions/{runtimeSessionId}/workspace.tar`. After each successful session job, `saveSessionWorkspaceSnapshot` tars and uploads the workspace. On hydration (state token mismatch), `restoreSessionSnapshotOverlay` downloads and extracts the tar into a staging dir, then copies only files absent from the workspace (`fs.cp({ force: false })`) so declared files are never overwritten — avoids GNU-vs-BSD tar flag divergence. Missing snapshot handled gracefully.
 - **Serialization**: existing `assistantId+workspaceId` Postgres lease mutex serializes all session jobs — no extra locking.
-- **Config** (`sandbox-config.ts`, `values-dev.yaml`): `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` (default 1800000), `SANDBOX_EXEC_REAPER_INTERVAL_MS` (default 120000).
+- **Config** (`sandbox-config.ts`, `values-dev.yaml`): `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` (default 900000), `SANDBOX_EXEC_REAPER_INTERVAL_MS` (default 120000).
 
 ### Files touched
 

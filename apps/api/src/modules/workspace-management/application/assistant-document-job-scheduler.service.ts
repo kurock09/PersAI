@@ -36,11 +36,12 @@ type DocumentJobRequestPayload = {
     | "create_pdf_document"
     | "create_presentation"
     | "revise_document"
-    | "export_or_redeliver";
+    | "export_or_redeliver"
+    | "create_data_document";
   sourceJson: {
     prompt: string;
     instructions?: string | null;
-    outputFormat?: "pdf" | "pptx" | null;
+    outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
     docId?: string | null;
     requestedName?: string | null;
     visualStyle?: PersaiRuntimePresentationVisualStyle | null;
@@ -765,14 +766,18 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         row.descriptorMode === "create_pdf_document" ||
         row.descriptorMode === "create_presentation" ||
         row.descriptorMode === "revise_document" ||
-        row.descriptorMode === "export_or_redeliver"
+        row.descriptorMode === "export_or_redeliver" ||
+        row.descriptorMode === "create_data_document"
           ? row.descriptorMode
           : "create_pdf_document",
       sourceJson: {
         prompt: sourceJson.prompt,
         instructions: typeof sourceJson.instructions === "string" ? sourceJson.instructions : null,
         outputFormat:
-          sourceJson.outputFormat === "pdf" || sourceJson.outputFormat === "pptx"
+          sourceJson.outputFormat === "pdf" ||
+          sourceJson.outputFormat === "pptx" ||
+          sourceJson.outputFormat === "xlsx" ||
+          sourceJson.outputFormat === "docx"
             ? sourceJson.outputFormat
             : null,
         docId: typeof sourceJson.docId === "string" ? sourceJson.docId : null,

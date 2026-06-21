@@ -16,6 +16,8 @@
 #
 # HOME=/workspace: Python (matplotlib cache), pip user installs, and other home-dir
 # writers go to /workspace which is the session-scoped writable emptyDir.
+# Runtime `pip install ...` defaults to a user install under /workspace/.local;
+# the immutable preinstalled stack stays in /opt/venv.
 # /tmp (second writable emptyDir) is used for Chromium profile and temp files.
 
 FROM debian:bookworm-slim
@@ -67,7 +69,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # The venv lives in the immutable image layer (built as root); it is readable
 # at runtime under readOnlyRootFilesystem: true. pip installs go through the
 # builder network (CI), not the runtime egress proxy.
-RUN python3 -m venv /opt/venv
+#
+# Use --system-site-packages so Python's user site is visible from the venv.
+# Runtime pip is configured below with PIP_USER=1 + PYTHONUSERBASE=/workspace/.local,
+# so ordinary model commands like `pip install colorama` write to the session
+# emptyDir instead of trying to modify read-only /opt/venv.
+RUN python3 -m venv --system-site-packages /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY apps/sandbox/exec-image/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
@@ -79,8 +86,9 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt \
 # /etc/profile, which on Debian hard-resets PATH and drops /opt/venv/bin — so
 # `python3`/`pip`/`weasyprint` would silently resolve to the bare system
 # interpreter. /etc/profile sources /etc/profile.d/*.sh AFTER setting PATH, so
-# prepending here re-establishes the venv across every shell invocation mode.
-RUN printf '%s\n' 'export PATH="/opt/venv/bin:$PATH"' > /etc/profile.d/10-venv.sh \
+# prepending here re-establishes the venv and user script path across every shell
+# invocation mode.
+RUN printf '%s\n' 'export PATH="/workspace/.local/bin:/opt/venv/bin:$PATH"' > /etc/profile.d/10-venv.sh \
   && chmod 0644 /etc/profile.d/10-venv.sh
 
 # ── refresh font cache into the image layer ───────────────────────────────────
@@ -102,6 +110,9 @@ RUN mkdir -p /workspace \
 # HOME=/workspace — the session-scoped writable emptyDir, so the model's own
 # files and runtime `pip install --user` packages persist across the session.
 ENV HOME="/workspace"
+ENV PYTHONUSERBASE="/workspace/.local"
+ENV PIP_USER="1"
+ENV PATH="/workspace/.local/bin:/opt/venv/bin:$PATH"
 
 # Keep regenerable tool caches OUT of the persisted /workspace snapshot by
 # pointing them at the ephemeral /tmp emptyDir. /workspace is tar'd back to GCS
@@ -119,7 +130,9 @@ USER sandbox
 RUN rg --version \
   && fd --version \
   && python3 -c "import pandas, numpy, matplotlib, openpyxl, docx, weasyprint, pdfplumber, PIL; print('python stack ok')" \
+  && python3 -c "import site; assert site.ENABLE_USER_SITE; assert site.getuserbase() == '/workspace/.local'; print('python user-site writable target ok')" \
   && /bin/sh -lc 'python3 -c "import weasyprint, pandas; print(\"login-shell python stack ok\")"' \
+  && /bin/sh -lc 'python3 -c "import site; assert site.ENABLE_USER_SITE and site.getuserbase() == \"/workspace/.local\"; print(\"login-shell python user-site ok\")"' \
   && node --version \
   && (chromium --version || chromium-browser --version)
 

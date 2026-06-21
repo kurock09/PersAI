@@ -3,6 +3,55 @@ import { describe, test } from "node:test";
 import { AssistantDocumentJobSchedulerService } from "../src/modules/workspace-management/application/assistant-document-job-scheduler.service";
 
 describe("AssistantDocumentJobSchedulerService", () => {
+  test("preserves create_data_document descriptor and Office output formats when replaying queued jobs", () => {
+    const service = new AssistantDocumentJobSchedulerService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const access = service as unknown as {
+      parseRequestPayload(value: unknown): {
+        descriptorMode: string;
+        sourceJson: { outputFormat: string | null; requestedName: string | null };
+      } | null;
+    };
+
+    const xlsx = access.parseRequestPayload({
+      sourceUserMessageText: "make excel",
+      sourceUserMessageCreatedAt: "2026-06-21T15:19:01.075Z",
+      descriptorMode: "create_data_document",
+      sourceJson: {
+        prompt: "Create spreadsheet",
+        outputFormat: "xlsx",
+        requestedName: "test-excel.xlsx"
+      }
+    });
+    const docx = access.parseRequestPayload({
+      sourceUserMessageText: "make docx",
+      sourceUserMessageCreatedAt: "2026-06-21T15:21:12.306Z",
+      descriptorMode: "create_data_document",
+      sourceJson: {
+        prompt: "Create Word document",
+        outputFormat: "docx",
+        requestedName: "test-docx"
+      }
+    });
+
+    assert.equal(xlsx?.descriptorMode, "create_data_document");
+    assert.equal(xlsx?.sourceJson.outputFormat, "xlsx");
+    assert.equal(xlsx?.sourceJson.requestedName, "test-excel.xlsx");
+    assert.equal(docx?.descriptorMode, "create_data_document");
+    assert.equal(docx?.sourceJson.outputFormat, "docx");
+    assert.equal(docx?.sourceJson.requestedName, "test-docx");
+  });
+
   test("does not requeue a failed runtime attempt when the worker lost its claim", async () => {
     const topLevelUpdates: Array<Record<string, unknown>> = [];
     const service = new AssistantDocumentJobSchedulerService(

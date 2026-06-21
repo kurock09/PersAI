@@ -432,7 +432,7 @@ Ephemeral pods (`exec-<jobid>`) must be absent after their job completes (sessio
 
 ### 3. Verify idle-TTL reaper fires and deletes stale session pods
 
-After letting a session pod sit idle for longer than `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` (default 30 min), watch the reaper log:
+After letting a session pod sit idle for longer than `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` (default 15 min), watch the reaper log:
 
 ```bash
 kubectl -n "${NAMESPACE}" logs -l app.kubernetes.io/name=sandbox -f | grep exec_pod_reaper

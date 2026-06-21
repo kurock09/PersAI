@@ -31,8 +31,8 @@ const baseSandboxConfigSchema = z.object({
   SANDBOX_EXEC_EGRESS_PROXY_URL: z.string().default(""),
   // Comma-separated list of hosts/CIDRs to bypass the proxy (NO_PROXY convention).
   SANDBOX_EXEC_NO_PROXY: z.string().default(""),
-  // How long a session exec pod may sit idle before the reaper deletes it (ms). Default 30 min.
-  SANDBOX_EXEC_SESSION_IDLE_TTL_MS: z.coerce.number().int().positive().default(1_800_000),
+  // How long a session exec pod may sit idle before the reaper deletes it (ms). Default 15 min.
+  SANDBOX_EXEC_SESSION_IDLE_TTL_MS: z.coerce.number().int().positive().default(900_000),
   // How often the idle-TTL reaper sweeps for stale session pods (ms). Default 2 min.
   SANDBOX_EXEC_REAPER_INTERVAL_MS: z.coerce.number().int().positive().default(120_000),
   // Max time allowed for a *cold-start* exec pod to reach Running. This is a
