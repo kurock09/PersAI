@@ -61,6 +61,23 @@ describe("ActivityBadge", () => {
     expect(screen.queryByText("files_finished")).toBeNull();
   });
 
+  it("humanizes ADR-123 workspace tool lifecycle labels", () => {
+    render(
+      <>
+        <ActivityBadge event={{ id: "activity-grep", type: "tool_use", label: "grep_started" }} />
+        <ActivityBadge event={{ id: "activity-glob", type: "tool_use", label: "glob_started" }} />
+        <ActivityBadge event={{ id: "activity-shell", type: "tool_use", label: "shell_started" }} />
+      </>
+    );
+
+    expect(screen.getByText("activityGrepStart")).toBeInTheDocument();
+    expect(screen.getByText("activityGlobStart")).toBeInTheDocument();
+    expect(screen.getByText("activityShellStart")).toBeInTheDocument();
+    expect(screen.queryByText("grep_started")).toBeNull();
+    expect(screen.queryByText("glob_started")).toBeNull();
+    expect(screen.queryByText("shell_started")).toBeNull();
+  });
+
   it("humanizes retrieval activity labels", () => {
     render(
       <ActivityBadge

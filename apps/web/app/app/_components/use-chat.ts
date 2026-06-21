@@ -92,6 +92,8 @@ export interface ChatMessage {
   engagementSummary?: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
   /** The texts the model wrote before each tool call across the tool loop. Absent/empty when no tools ran. */
   workingNotes?: string[];
+  /** Local-only streaming hint: true while text deltas are actively being appended. */
+  streamingTextActive?: boolean;
 }
 export interface RecentAutoCompactionNotice {
   detectedAt: string;
@@ -329,11 +331,6 @@ const TOOL_ACTIVITY_COPY: Record<string, { start: string; end: string; failure: 
     failure: "Web search failed"
   },
   web_fetch: { start: "Reading the page", end: "Page ready", failure: "Page read failed" },
-  browser: {
-    start: "Working in browser",
-    end: "Browser step done",
-    failure: "Browser step failed"
-  },
   image_generate: {
     start: "Generating image",
     end: "Image ready",
@@ -350,6 +347,39 @@ const TOOL_ACTIVITY_COPY: Record<string, { start: string; end: string; failure: 
     start: "Scheduling task",
     end: "Task scheduled",
     failure: "Task scheduling failed"
+  },
+  browser: { start: "browser_started", end: "browser_finished", failure: "browser_failed" },
+  knowledge_search: {
+    start: "knowledge_search_started",
+    end: "knowledge_search_finished",
+    failure: "knowledge_search_failed"
+  },
+  knowledge_fetch: {
+    start: "knowledge_fetch_started",
+    end: "knowledge_fetch_finished",
+    failure: "knowledge_fetch_failed"
+  },
+  files: { start: "files_started", end: "files_finished", failure: "files_failed" },
+  document: { start: "document_started", end: "document_finished", failure: "document_failed" },
+  grep: { start: "grep_started", end: "grep_finished", failure: "grep_failed" },
+  glob: { start: "glob_started", end: "glob_finished", failure: "glob_failed" },
+  shell: { start: "shell_started", end: "shell_finished", failure: "shell_failed" },
+  exec: { start: "exec_started", end: "exec_finished", failure: "exec_failed" },
+  quota_status: {
+    start: "quota_status_started",
+    end: "quota_status_finished",
+    failure: "quota_status_failed"
+  },
+  memory_write: {
+    start: "memory_write_started",
+    end: "memory_write_finished",
+    failure: "memory_write_failed"
+  },
+  skill: { start: "skill_started", end: "skill_finished", failure: "skill_failed" },
+  background_task: {
+    start: "background_task_started",
+    end: "background_task_finished",
+    failure: "background_task_failed"
   }
 };
 const HIDDEN_MEDIA_ACTIVITY_LABEL = "__hidden_media_activity__";
@@ -2031,7 +2061,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 applyThreadMessages(targetThreadKey, (prev) =>
                   prev.map((message) =>
                     message.role === "assistant" && message.status === "streaming"
-                      ? { ...message, content: `${message.content}${delta}` }
+                      ? {
+                          ...message,
+                          content: `${message.content}${delta}`,
+                          streamingTextActive: true
+                        }
                       : message
                   )
                 );
@@ -2068,6 +2102,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     })
                   )
                 }));
+                applyThreadMessages(targetThreadKey, (prev) =>
+                  prev.map((message) =>
+                    message.id === assistantMessageId
+                      ? { ...message, streamingTextActive: false }
+                      : message
+                  )
+                );
               },
               onProjectActivity: ({ summary, detail }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
@@ -2086,6 +2127,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     })
                   )
                 }));
+                applyThreadMessages(targetThreadKey, (prev) =>
+                  prev.map((message) =>
+                    message.id === assistantMessageId
+                      ? { ...message, streamingTextActive: false }
+                      : message
+                  )
+                );
               },
               onProjectReasoningSummary: ({ summary, detail }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
@@ -2104,6 +2152,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     })
                   )
                 }));
+                applyThreadMessages(targetThreadKey, (prev) =>
+                  prev.map((message) =>
+                    message.id === assistantMessageId
+                      ? { ...message, streamingTextActive: false }
+                      : message
+                  )
+                );
               },
               onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
@@ -2127,6 +2182,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     [assistantMessageId]: mergeLiveActivity(prev[assistantMessageId], nextActivity)
                   };
                 });
+                applyThreadMessages(targetThreadKey, (prev) =>
+                  prev.map((message) =>
+                    message.id === assistantMessageId
+                      ? { ...message, streamingTextActive: false }
+                      : message
+                  )
+                );
               },
               onCompleted: async () => {
                 const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
@@ -2777,7 +2839,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         pendingDelta.raf = 0;
         if (!chunk) return;
         applyThreadMessages(sendThreadKey, (prev) =>
-          prev.map((m) => (m.id === assistantMsgId ? { ...m, content: m.content + chunk } : m))
+          prev.map((m) =>
+            m.id === assistantMsgId
+              ? { ...m, content: m.content + chunk, streamingTextActive: true }
+              : m
+          )
         );
         if (pendingDelta.text.length > 0 && !pendingDelta.raf) {
           pendingDelta.raf = requestAnimationFrame(() => flushDelta());
@@ -2822,6 +2888,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           return;
         }
         commit();
+      };
+      const markAssistantActivityBoundary = () => {
+        applyThreadMessages(sendThreadKey, (prev) =>
+          prev.map((m) => (m.id === assistantMsgId ? { ...m, streamingTextActive: false } : m))
+        );
       };
       /* Pre-headers watchdog: if the server never returns 2xx headers within */ /* HEADERS_TIMEOUT_MS, abort the request so the bubble flips to */ /* "send_failed" instead of hanging indefinitely. Tool turns can stay */ /* silent for tens of seconds AFTER headers, which is fine ��� we only */ /* measure up to the headers, not to the first SSE event. */ let headersOk = false;
       let softDetached = false;
@@ -2904,7 +2975,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           pendingDelta.text = "";
           pendingThought.text = "";
           applyThreadMessages(sendThreadKey, (prev) =>
-            prev.map((m) => (m.id === assistantMsgId ? { ...m, content: "" } : m))
+            prev.map((m) =>
+              m.id === assistantMsgId ? { ...m, content: "", streamingTextActive: false } : m
+            )
           );
         },
         onTool: ({
@@ -2917,6 +2990,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           isError: boolean;
         }) => {
           flushBufferedAssistantState(true);
+          markAssistantActivityBoundary();
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
             [assistantMsgId]: mergeLiveActivity(
@@ -2940,6 +3014,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           detail?: string | null;
         }) => {
           flushBufferedAssistantState(true);
+          markAssistantActivityBoundary();
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
             [assistantMsgId]: mergeLiveActivity(
@@ -2961,6 +3036,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           detail?: string | null;
         }) => {
           flushBufferedAssistantState(true);
+          markAssistantActivityBoundary();
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
             [assistantMsgId]: mergeLiveActivity(
@@ -2985,6 +3061,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           skillIconEmoji?: string | null;
         }) => {
           flushBufferedAssistantState(true);
+          markAssistantActivityBoundary();
           applyThreadLiveActivities(sendThreadKey, (prev) => {
             const nextActivity = buildRetrievalLiveActivity(
               {
@@ -3012,6 +3089,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           willRetry: boolean;
         }) => {
           flushBufferedAssistantState(true);
+          markAssistantActivityBoundary();
           const nextCompactionRunning = phase === "start" || willRetry;
           const snapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
           if (snapshot !== undefined) {
@@ -3606,7 +3684,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         pendingDelta.raf = 0;
         if (!chunk) return;
         setMessages((prev) =>
-          prev.map((m) => (m.id === assistantMsgId ? { ...m, content: m.content + chunk } : m))
+          prev.map((m) =>
+            m.id === assistantMsgId
+              ? { ...m, content: m.content + chunk, streamingTextActive: true }
+              : m
+          )
         );
         if (pendingDelta.text.length > 0 && !pendingDelta.raf) {
           pendingDelta.raf = requestAnimationFrame(() => flushDelta());
@@ -3660,7 +3742,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               cancelBufferedAssistantFlush();
               pendingDelta.text = "";
               setMessages((prev) =>
-                prev.map((m) => (m.id === assistantMsgId ? { ...m, content: "" } : m))
+                prev.map((m) =>
+                  m.id === assistantMsgId ? { ...m, content: "", streamingTextActive: false } : m
+                )
               );
             },
             onRuntimeDone: ({ respondedAt }) => {

@@ -416,8 +416,10 @@ async function runToolsWorkspaceCategoryAdr123Slice7(): Promise<void> {
     1,
     "ADR-119 invariant: <priority_order> block must be preserved"
   );
-  assert.match(tools, /Content search[^\n]*→ `grep`/i);
-  assert.match(tools, /Filename discovery[^\n]*→ `glob`/i);
+  assert.match(tools, /Discover files first with `glob`, then search contents with `grep`/i);
+  assert.match(tools, /Execute commands, scripts, tests, builds, conversions, diagnostics/i);
+  assert.doesNotMatch(tools, /Carousel, series, or multiple variations/i);
+  assert.match(tools, /source material for a PDF, Word, Excel, deck, report, OCR, table/i);
 }
 
 async function run(): Promise<void> {

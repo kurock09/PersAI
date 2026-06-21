@@ -1675,10 +1675,12 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       answerText: message.content
     };
   }, [message.content, message.role, message.workingNotes]);
-  const hasWorkingBlocks = assistantSegments.workingBlocks.length > 0;
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
-  const showPreResponseStatus =
-    isStreaming && preResponseStatus !== undefined && !hasVisibleAnswerText;
+  const isStreamingTextActive = message.streamingTextActive === true;
+  const showInlineStreamingStatus =
+    isStreaming && preResponseStatus !== undefined && !isStreamingTextActive;
+  const showCursorOnlyStatus =
+    isStreaming && (preResponseStatus === undefined || isStreamingTextActive);
   const isUserSending =
     isUser && (message.status === "sending" || message.status === "reconciling");
   const isUserSendFailed = isUser && message.status.startsWith("send_failed");
@@ -1881,18 +1883,22 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                     onAction={onAssistantAction}
                   />
                 ) : null}
-                {(showPreResponseStatus || (!hasVisibleAnswerText && hasWorkingBlocks)) && (
-                  <span className="inline-flex items-center gap-2 align-middle">
-                    {showPreResponseStatus ? (
+                {(showInlineStreamingStatus || showCursorOnlyStatus) && (
+                  <div className="mt-2 flex items-center gap-2">
+                    {showInlineStreamingStatus ? (
                       <InlineStreamingStatus
                         preResponseStatus={preResponseStatus}
                         showShadowRoutingLabel={showShadowRoutingLabel}
                       />
                     ) : null}
-                    {!showPreResponseStatus ? (
-                      <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
+                    {!showInlineStreamingStatus ? (
+                      <span
+                        aria-hidden="true"
+                        data-testid="streaming-cursor"
+                        className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle"
+                      />
                     ) : null}
-                  </span>
+                  </div>
                 )}
               </>
             ) : (

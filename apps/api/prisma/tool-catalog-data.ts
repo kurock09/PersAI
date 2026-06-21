@@ -63,9 +63,7 @@ GOTCHAS:
 WHEN NOT TO USE: A source image is present and the user wants to modify it.
 EXAMPLES:
 - image_generate({prompt:"…"}) — one new image (default, no outputMode needed).
-- image_generate({prompt:"…", outputMode:"series", seriesItems:["slide 1","slide 2"]}) — text-only carousel/series.
 GOTCHAS:
-- outputMode="series" REQUIRES seriesItems[] populated; one string per output frame.
 - For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent".
 - Never claim the image is delivered unless this turn produced a successful image_generate result.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
@@ -81,13 +79,11 @@ GOTCHAS:
       "Edit a single referenced image with prompt-guided changes through supported providers.",
     modelDescription:
       "Edit an existing image with prompt-guided changes (replace, remove, add, recolor, restyle, insert, draw on top).",
-    modelUsageGuidance: `WHEN TO USE: User explicitly asks to modify an image AND a source image is available (current attachment or reusable chat image already in context).
-WHEN NOT TO USE: No source image exists. User wants a brand-new image from text only.
+    modelUsageGuidance: `WHEN TO USE: User explicitly asks to visually modify an image AND a source image is available (current attachment or reusable chat image already in context).
+WHEN NOT TO USE: No source image exists. User wants a brand-new image from text only. User wants OCR, analysis, text extraction, a report, PDF, Word/DOCX, Excel/XLSX, table, or file deliverable from an image/file (answer from vision or use the dedicated file-creation tool).
 EXAMPLES:
 - image_edit({sourceImageAlias:"…", prompt:"…"}) — one edited variant (default).
-- image_edit({sourceImageAlias:"…", prompt:"…", outputMode:"series", seriesItems:["slide 1","slide 2"]}) — carousel/series from one source.
 GOTCHAS:
-- outputMode="series" REQUIRES seriesItems[] populated; one string per output frame.
 - With multiple available images, set sourceImageAlias to the image being edited; you may pass extras via referenceImageAliases (those only guide).
 - For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent".
 - Never claim the edit is done unless this turn produced a successful image_edit result.
@@ -125,7 +121,7 @@ GOTCHAS:
       "Create and revise user-ready PDF documents and presentations through async document providers.",
     modelDescription:
       "Create or revise user-ready business documents, reports, proposals, and slide decks through the unified document tool.",
-    modelUsageGuidance: `WHEN TO USE: User explicitly asks for a generated PDF, presentation, deck, proposal, report, a structured data document (spreadsheet/Excel, Word/DOCX, multi-page data tables), or a revision to an existing PersAI document.
+    modelUsageGuidance: `WHEN TO USE: User explicitly asks for a generated PDF, presentation, deck, proposal, report, a structured data document (spreadsheet/Excel, Word/DOCX, multi-page data tables), or a revision to an existing PersAI document. Use this even when source material is an uploaded image/file.
 WHEN NOT TO USE: User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (use files.send).
 EXAMPLES:
 - document({descriptorMode:"create_pdf_document", prompt:"…"}) — produce a prose/editorial PDF (HTML→PDF).

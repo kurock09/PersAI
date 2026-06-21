@@ -3,6 +3,64 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — Web chat inline streaming cursor restored — CHECKPOINT
+
+### State
+
+Implemented locally and focused web checks green. This is a UI rendering fix only; no runtime/API contract change.
+
+### What changed
+
+- Restored the pulsing inline cursor under streamed assistant text during active turns. While text deltas are actively streaming, the cursor is empty; when streaming pauses on a tool/project/retrieval/compaction boundary, the same row shows cursor + status text.
+- Root cause: `ChatMessageBubble` hid `InlineStreamingStatus` once `message.content` became non-empty. During live streaming, intermediate tool-loop replies arrive as `content`, while completed `workingNotes` only arrive at turn completion. Result: the first cursor/status could show, then it disappeared after the first visible reply.
+- Fix: track a local `streamingTextActive` hint on the live assistant message. `onDelta` sets it true (cursor-only), and tool/project/retrieval/compaction handlers set it false before updating live activity (cursor + localized status). Activity banners remain disabled; this only affects the cursor/status row inside the assistant bubble.
+- Added localized ru/en lifecycle labels for browser, document, grep, glob, shell, exec, quota_status, memory_write, skill, background_task, plus normalized knowledge/files labels so ADR-123 workspace tools no longer fall back to generic activity text.
+
+### Files
+
+`apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/_components/chat-message.test.tsx`, `apps/web/app/app/_components/use-chat.ts`, `apps/web/app/app/_components/use-chat.test.tsx`, `apps/web/app/app/_components/activity-badge.tsx`, `apps/web/app/app/_components/activity-badge.test.tsx`, `apps/web/messages/en.json`, `apps/web/messages/ru.json`, CHANGELOG, this checkpoint.
+
+### Verified
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx app/app/_components/activity-badge.test.tsx`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web run lint`
+- `corepack pnpm run format:check`
+
+### Next recommended step
+
+Commit and push with the prompt-policy fix. After deploy, live-check a multi-tool turn: after every intermediate assistant reply, the cursor/status row should remain on the next line with the latest tool/project/retrieval status text.
+
+## 2026-06-21 — ADR-123 prompt policy alignment — CHECKPOINT
+
+### State
+
+Implemented locally and focused checks green. Baseline SHA before this slice: `384acc5812b861608451a304a46d121aaefcc5c8`. No new ADR: this is a prompt/tool-instruction correction to match ADR-123 truth, not a new architecture decision.
+
+### What changed
+
+- Removed the global "carousel/series" media route from the always-on tool policy and image tool catalog guidance; carousel remains scenario-owned by the marketer Skill fixture.
+- Tightened `image_edit` to visual image modifications only. If an uploaded image/file is source material for a PDF, Word/DOCX, Excel/XLSX, deck, report, OCR, table, or other document, the prompt now routes to `document` (or inline vision when no deliverable is needed), not `image_edit`.
+- Reworded the workspace tool category to the ADR-123 loop: `glob` for discovery, `grep` for content search, `files` for file IO, and proactive `shell` for execution/tests/builds/diagnostics/verification rather than search shortcuts.
+
+### Files
+
+`apps/api/prisma/bootstrap-preset-data.ts`, `apps/api/prisma/tool-catalog-data.ts`, `apps/api/test/bootstrap-preset-data.test.ts`, `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt`, CHANGELOG, this checkpoint.
+
+### Verified
+
+- `corepack pnpm --filter @persai/api exec tsx test/bootstrap-preset-data.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/adr119-golden-prompt-snapshot.test.ts`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Next recommended step
+
+Commit and push after reviewing the concise prompt wording. After deploy, live-check: (1) uploaded photo + "make docs" routes to `document` or inline vision, not `image_edit`; (2) workspace investigation prefers `glob`/`grep` before `shell` search shortcuts while still using `shell` for execution/verification.
+
 ## 2026-06-21 — ADR-124 DeepSeek live fixes: thinking-mode tool loops + text-only multimodal — CHECKPOINT
 
 ### State

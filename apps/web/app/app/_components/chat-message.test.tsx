@@ -879,16 +879,51 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByText("activityKnowledgeSearchDone")).toBeInTheDocument();
   });
 
-  it("hides pre-response status once visible answer text starts streaming", () => {
+  it("keeps the inline cursor status below visible streaming text", () => {
     render(
       <ChatMessageBubble
         message={makeAssistantMessage({ content: "Hello" })}
-        preResponseStatus={{ kind: "thinking" }}
+        preResponseStatus={{
+          kind: "activity",
+          event: {
+            id: "activity-1",
+            type: "tool_use",
+            label: "knowledge_search_finished"
+          }
+        }}
       />
     );
 
     expect(screen.getByText("Hello")).toBeInTheDocument();
+    expect(screen.getByText("activityKnowledgeSearchDone")).toBeInTheDocument();
+  });
+
+  it("keeps an empty inline cursor while assistant text is streaming without activity", () => {
+    render(<ChatMessageBubble message={makeAssistantMessage({ content: "Hello" })} />);
+
+    expect(screen.getByText("Hello")).toBeInTheDocument();
+    expect(screen.getByTestId("streaming-cursor")).toBeInTheDocument();
     expect(screen.queryByText("preResponseThinking")).not.toBeInTheDocument();
+  });
+
+  it("shows only the empty cursor while text deltas are active even with prior activity", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({ content: "Hello", streamingTextActive: true })}
+        preResponseStatus={{
+          kind: "activity",
+          event: {
+            id: "activity-1",
+            type: "tool_use",
+            label: "knowledge_search_finished"
+          }
+        }}
+      />
+    );
+
+    expect(screen.getByText("Hello")).toBeInTheDocument();
+    expect(screen.getByTestId("streaming-cursor")).toBeInTheDocument();
+    expect(screen.queryByText("activityKnowledgeSearchDone")).not.toBeInTheDocument();
   });
 
   it("renders prior working blocks separately from the live answer", () => {

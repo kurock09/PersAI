@@ -1567,7 +1567,7 @@ describe("useChat", () => {
     );
 
     expect(activityEntries).toHaveLength(1);
-    expect(activityEntries[0]?.event.label).toBe("Using knowledge_search");
+    expect(activityEntries[0]?.event.label).toBe("knowledge_search_started");
     expect(activityEntries[0]?.event.emphasis).toBe("strong");
   });
 
