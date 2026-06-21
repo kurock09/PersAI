@@ -445,6 +445,33 @@ test("ExecPodBridgeService: buildSessionPodName is distinct from buildPodName (n
   assert.ok(ephemeralName.startsWith("exec-"));
 });
 
+test("ExecPodBridgeService: workspace push stdin is chunked instead of one huge WebSocket frame", async () => {
+  // Live regression (persai-dev): a 52,582,400-byte workspace tar sent as
+  // Readable.from([tarball]) arrived in the exec pod as 0 bytes; the same tar
+  // split into 64 KiB chunks arrived byte-for-byte and `tar -tf` passed.
+  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
+  const access = bridge as unknown as {
+    readBufferInChunks(buffer: Buffer, chunkBytes: number): AsyncIterable<Buffer>;
+  };
+  const buffer = Buffer.alloc(200_000, 7);
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of access.readBufferInChunks(buffer, 64 * 1024)) {
+    chunks.push(Buffer.from(chunk));
+  }
+
+  assert.ok(chunks.length > 1, "large push payload must be split across multiple chunks");
+  assert.ok(
+    chunks.every((chunk) => chunk.length <= 64 * 1024),
+    "no emitted chunk may exceed the WebSocket-safe push chunk size"
+  );
+  assert.deepEqual(
+    Buffer.concat(chunks),
+    buffer,
+    "chunked push stream must preserve bytes exactly"
+  );
+});
+
 test("ExecPodBridgeService: sessionless runInPod creates and deletes ephemeral pod", async () => {
   const ctx: MockK8sContext = {
     createdPods: [],

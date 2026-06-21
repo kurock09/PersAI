@@ -32,6 +32,11 @@ const WORKSPACE_PUSH_MARKER = "/tmp/.persai_push_ok";
 // wait briefly and re-check — the status message is often dispatched in the same
 // tick as close and just ordered after it.
 const EXEC_CLOSE_STATUS_GRACE_MS = 250;
+// Kubernetes exec stdin cannot be fed a large archive as one WebSocket frame/chunk:
+// live proof on persai-dev showed a 52,582,400-byte workspace tar sent with
+// Readable.from([tarball]) arrived in the pod as 0 bytes, while the same tar split
+// into 64 KiB chunks arrived byte-for-byte (sha256 match) and `tar -tf` passed.
+const WORKSPACE_PUSH_CHUNK_BYTES = 64 * 1024;
 
 export type PodExecResult = {
   exitCode: number | null;
@@ -631,17 +636,21 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     // a fully materialized Readable streams deterministically.
     const tarball = await this.createLocalTarball(workspaceRoot, entries);
 
-    // Two-step push. Success is NOT read from the push exec's own return
-    // channels: @kubernetes/client-node drops the exec stdout channel and races
-    // the status frame whenever a non-trivial payload is multiplexed on the same
-    // WebSocket as stdin (verified in-cluster: a >~1KB stdin payload reliably
-    // yields empty stdout + a missed status frame even though the remote command
-    // exits 0). The previous sentinel-on-push-stdout scheme therefore reported
-    // "closed without success" on every real (non-tiny) workspace. Instead, the
-    // push writes a marker file only when `tar` actually succeeds, and a separate
+    // Success is NOT read from the push exec's own return channels:
+    // @kubernetes/client-node drops the exec stdout channel and races the status
+    // frame whenever a non-trivial payload is multiplexed on the same WebSocket as
+    // stdin (verified in-cluster: a >~1KB stdin payload reliably yields empty stdout
+    // + a missed status frame even though the remote command exits 0). So the push
+    // writes a marker file only when `tar` actually succeeds, and a separate
     // stdin-less probe — whose return channels ARE reliable — verifies it.
+    //
     await this.execWorkspaceTarPush(podName, namespace, tarball);
-    await this.verifyWorkspacePushed(podName, namespace);
+    if (!(await this.verifyWorkspacePushed(podName, namespace))) {
+      throw createBridgeError(
+        "process_spawn_failed",
+        "Workspace push verification failed: tar extraction marker missing"
+      );
+    }
   }
 
   /**
@@ -688,7 +697,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           ],
           drain,
           drain,
-          Readable.from([tarball]),
+          this.readBufferInChunks(tarball, WORKSPACE_PUSH_CHUNK_BYTES),
           false,
           () => done()
         )
@@ -704,14 +713,50 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private readBufferInChunks(buffer: Buffer, chunkBytes: number): Readable {
+    let offset = 0;
+    return new Readable({
+      read() {
+        if (offset >= buffer.length) {
+          this.push(null);
+          return;
+        }
+        const nextOffset = Math.min(offset + chunkBytes, buffer.length);
+        this.push(buffer.subarray(offset, nextOffset));
+        offset = nextOffset;
+      }
+    });
+  }
+
   /**
-   * Step 2: authoritative success check via a stdin-less exec. With no stdin
+   * Authoritative push success check via a stdin-less exec. With no stdin
    * multiplexed on the socket, the exec stdout channel and status frame are
-   * reliable, so the marker-file probe is definitive. Missing marker ⇒ the tar
-   * extraction did not succeed ⇒ retryable spawn failure.
+   * reliable, so the marker-file probe is definitive. Returns `false` (not throws)
+   * when the marker is absent or the probe could not run; the caller turns that
+   * into the retryable workspace-push failure reported to the sandbox job.
    */
-  private async verifyWorkspacePushed(podName: string, namespace: string): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
+  private verifyWorkspacePushed(podName: string, namespace: string): Promise<boolean> {
+    return this.runStdinlessProbe(
+      podName,
+      namespace,
+      `test -f ${WORKSPACE_PUSH_MARKER} && printf '${WORKSPACE_PUSH_OK_SENTINEL}'`,
+      WORKSPACE_PUSH_OK_SENTINEL
+    );
+  }
+
+  /**
+   * Run a stdin-less shell probe and resolve `true` iff it reported success — either
+   * the sentinel reached the (reliable, stdin-free) stdout channel or the exit status
+   * was 0. Never rejects: any failure (non-zero exit, connection error, no sentinel)
+   * resolves `false`, so callers treat it as "not confirmed" and decide what to do.
+   */
+  private runStdinlessProbe(
+    podName: string,
+    namespace: string,
+    shellCommand: string,
+    sentinel: string
+  ): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
       const settled = { value: false };
       const stdoutBuf: Buffer[] = [];
       const stdout = new Writable({
@@ -725,22 +770,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           cb();
         }
       });
-      const sentinelSeen = () =>
-        Buffer.concat(stdoutBuf).toString("utf8").includes(WORKSPACE_PUSH_OK_SENTINEL);
-      const succeed = () => {
+      const sentinelSeen = () => Buffer.concat(stdoutBuf).toString("utf8").includes(sentinel);
+      const finish = (value: boolean) => {
         if (settled.value) return;
         settled.value = true;
-        resolve();
-      };
-      const fail = () => {
-        if (settled.value) return;
-        settled.value = true;
-        reject(
-          createBridgeError(
-            "process_spawn_failed",
-            "Workspace push verification failed: tar extraction marker missing"
-          )
-        );
+        resolve(value);
       };
 
       this.execApi
@@ -748,55 +782,23 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           namespace,
           podName,
           "exec",
-          [
-            "/bin/sh",
-            "-c",
-            `test -f ${WORKSPACE_PUSH_MARKER} && printf '${WORKSPACE_PUSH_OK_SENTINEL}'`
-          ],
+          ["/bin/sh", "-c", shellCommand],
           stdout,
           drain,
           null,
           false,
           (status: V1Status) => {
-            if (sentinelSeen() || extractExitCode(status) === 0) {
-              succeed();
-            } else {
-              fail();
-            }
+            finish(sentinelSeen() || extractExitCode(status) === 0);
           }
         )
         .then((ws) => {
           ws.on("close", () => {
             if (settled.value) return;
-            setTimeout(() => {
-              if (sentinelSeen()) {
-                succeed();
-              } else {
-                fail();
-              }
-            }, EXEC_CLOSE_STATUS_GRACE_MS);
+            setTimeout(() => finish(sentinelSeen()), EXEC_CLOSE_STATUS_GRACE_MS);
           });
-          ws.on("error", (err: Error) => {
-            if (settled.value) return;
-            settled.value = true;
-            reject(
-              createBridgeError(
-                "process_spawn_failed",
-                `Workspace push verify error: ${describeUnknownError(err)}`
-              )
-            );
-          });
+          ws.on("error", () => finish(false));
         })
-        .catch((error: unknown) => {
-          if (settled.value) return;
-          settled.value = true;
-          reject(
-            createBridgeError(
-              "process_spawn_failed",
-              `Workspace push verify exec failed: ${describeUnknownError(error)}`
-            )
-          );
-        });
+        .catch(() => finish(false));
     });
   }
 

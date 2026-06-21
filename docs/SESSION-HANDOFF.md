@@ -3,6 +3,34 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — ADR-123 workspace-push large-stdin frame root cause — CHECKPOINT
+
+### State
+
+Implemented locally after live proof; full AGENTS gate green. Needs commit + push/deploy.
+
+### Correct root cause
+
+The `marker missing` failure was not cold-start readiness, not packages, not path mismatch, and not a marker bug. For assistant `c2df1500-ec77-4224-891d-efc32a16c810`, the real workspace is **165 files / 52,220,007 bytes** in `assistant_files` and hydrated on disk. The earlier "97,933 files / 1.8GB" was an operator/debugger quoting mistake: it inspected the sandbox control-plane container's `/workspace` app repo (PersAI + `node_modules`), not the assistant workspace.
+
+Live reproduction against the real session pod:
+
+- local tar of the real assistant workspace succeeds: `52,582,400` bytes
+- sending that tar as `Readable.from([tarball])` delivers **0 bytes** to the pod (`sha256` = empty file), so remote `tar` prints `This does not look like a tar archive`
+- sending the exact same tar as 64 KiB chunks delivers `52,582,400` bytes, `sha256` matches, and `tar -tf` passes
+
+### Fix
+
+`apps/sandbox/src/exec-pod-bridge.service.ts`: `execWorkspaceTarPush` now feeds Kubernetes exec stdin through `readBufferInChunks(tarball, 64 * 1024)` instead of one giant buffer chunk. The fully materialized local tar remains (keeps the live-child-pipe EOF race fixed); the marker + stdin-less verify remains authoritative. No readiness sleep and no blind retry loop. Regression test added: large push payloads are split into multiple <=64KiB chunks and reassemble byte-for-byte.
+
+### Files
+
+`apps/sandbox/src/exec-pod-bridge.service.ts`, `apps/sandbox/test/exec-pod-bridge.service.test.ts`, ADR-123, CHANGELOG, this checkpoint.
+
+### Next recommended step
+
+Commit + push. After deploy, live-test the same assistant `c2df1500-...` with `echo __SHELL_OK__`; expected: workspace push verifies and the shell command runs.
+
 ## 2026-06-21 — ADR-123 exec pod re-keyed per assistant+workspace + warm node enabled — CHECKPOINT
 
 ### State
