@@ -48,7 +48,7 @@ api:
     gcpServiceAccountEmail: api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: api
-    tag: 7f535b93c78d0e490665cac36d74bf5d5ccec0d7
+    tag: 52566a6b63b88cb34f6fa89894af8a18406855e7
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -273,7 +273,7 @@ providerGateway:
       maxSurge: 1
   image:
     name: provider-gateway
-    tag: 3474bdd1d689f583e3f1f6d6e7f46c6385b87b9e
+    tag: 52566a6b63b88cb34f6fa89894af8a18406855e7
     pullPolicy: IfNotPresent
   env:
     APP_ENV: dev
@@ -351,7 +351,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: 7f535b93c78d0e490665cac36d74bf5d5ccec0d7
+    tag: 52566a6b63b88cb34f6fa89894af8a18406855e7
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -428,7 +428,7 @@ sandbox:
     gcpServiceAccountEmail: sandbox-cp@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: sandbox
-    tag: 779a5716149545e1a47264866ebf8ddeb20685d2
+    tag: 52566a6b63b88cb34f6fa89894af8a18406855e7
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -540,7 +540,7 @@ sandboxExec:
     # Exec image name in GAR (matches the service name in detect-affected + pin script).
     name: sandbox-exec
     # Initial tag; CI pins this to the SHA of the most recent successful build.
-    tag: 3474bdd1d689f583e3f1f6d6e7f46c6385b87b9e
+    tag: 52566a6b63b88cb34f6fa89894af8a18406855e7
   # ADR-123 Slice 3 warm-pool follow-up: a DaemonSet that keeps the exec image pulled on
   # every sandbox node so cold-start exec pods skip the multi-GB image pull. Pairs with a
   # >=1 minimum node on the sandbox pool (set via node-pool autoscaling — see RUNBOOK).
@@ -561,3 +561,4 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
