@@ -540,7 +540,7 @@ sandboxExec:
     # Exec image name in GAR (matches the service name in detect-affected + pin script).
     name: sandbox-exec
     # Initial tag; CI pins this to the SHA of the most recent successful build.
-    tag: 52566a6b63b88cb34f6fa89894af8a18406855e7
+    tag: 5e27f5b8ecd99bb1a9c56558f02c63459e938e4f
   # ADR-123 Slice 3 warm-pool follow-up: a DaemonSet that keeps the exec image pulled on
   # every sandbox node so cold-start exec pods skip the multi-GB image pull. Pairs with a
   # >=1 minimum node on the sandbox pool (set via node-pool autoscaling — see RUNBOOK).
@@ -561,4 +561,5 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
 
