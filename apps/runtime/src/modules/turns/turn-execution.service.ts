@@ -1523,7 +1523,14 @@ export class TurnExecutionService {
           throw this.toHttpException(error);
         }
 
+        const errorDetail = this.formatLogError(error);
+        const requestId = acceptedTurn.receipt.requestId;
+        const providerLabel = `${execution.providerRequest.provider}:${execution.providerRequest.model}`;
+
         if (signal?.aborted || this.isAbortError(error)) {
+          this.logger.warn(
+            `[turn-stream-aborted] requestId=${requestId} provider=${providerLabel} deliveredTextLen=${String(deliveredText.length)} error=${errorDetail}`
+          );
           await this.interruptAcceptedTurnQuietly({
             acceptedTurn,
             event: this.toInterruptedEvent(
@@ -1538,6 +1545,9 @@ export class TurnExecutionService {
         }
 
         if (deliveredText.trim().length > 0) {
+          this.logger.warn(
+            `[turn-stream-interrupted-with-text] requestId=${requestId} provider=${providerLabel} deliveredTextLen=${String(deliveredText.length)} toolHistoryLen=${String(toolHistory.length)} error=${errorDetail}`
+          );
           const interrupted = this.toInterruptedEvent(
             acceptedTurn,
             deliveredText,
@@ -1553,6 +1563,9 @@ export class TurnExecutionService {
           return;
         }
 
+        this.logger.warn(
+          `[turn-stream-failed-empty] requestId=${requestId} provider=${providerLabel} toolHistoryLen=${String(toolHistory.length)} error=${errorDetail}`
+        );
         const failed = await this.failAcceptedTurnQuietly(
           acceptedTurn,
           error,
