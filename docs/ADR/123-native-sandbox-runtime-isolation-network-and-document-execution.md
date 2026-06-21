@@ -48,6 +48,9 @@ With `sandbox-pool` `min-nodes=1` and the `sandbox-exec-prepull` DaemonSet activ
 **Documents mode B async replay bug fixed — 2026-06-21 (founder directive):**
 Live document-job audit before push showed XLSX job `dca8f91f-5870-49fc-ad23-2d2124b7845b` and DOCX job `9d2a92de-9917-4480-86bf-8f7430ba5bd7` failed with `document_artifacts_missing`, while their nested provider status was `invalid_path` / `render_html_to_pdf outputFileName must end with .pdf`. Root cause was **not sandbox execution**: `assistant_document_render_jobs.request_json` correctly stored `descriptorMode: "create_data_document"` and `outputFormat: "xlsx"|"docx"`, but `AssistantDocumentJobSchedulerService.parseRequestPayload()` only accepted `create_pdf_document|create_presentation|revise_document|export_or_redeliver` and only preserved `pdf|pptx` output formats, so queued data-document jobs were replayed to runtime as `create_pdf_document` and routed into the PDF renderer. **Fix:** scheduler request replay now preserves `create_data_document` plus `xlsx`/`docx`; terminal/success failure framing unions were widened accordingly. Regression test locks replay of `create_data_document` + Office formats. Fresh PDF status: two latest PDF jobs delivered; the one PDF failure in the audit was model HTML-generation quality (`body text length=59 < 120` after 3 attempts), not sandbox/push.
 
+**Exec image curated doc/data/image baseline expanded — 2026-06-21 (founder directive):**
+The exec image now preinstalls the full prod baseline for docs/excel/pdf/image/ocr/qr work instead of relying on runtime `apt-get` (blocked by read-only root FS) or ad-hoc `pip install` for common packages. System layer adds `libzbar0`, `tesseract-ocr` (+ eng/rus), `poppler-utils`, `ghostscript`, `git`, `unzip`, `zip`, headless GL/X helpers, image codecs, and XML libs. Python venv adds `xlsxwriter`, `pypdf`, `reportlab`, `pyzbar`, `qrcode`, `pytesseract`, `beautifulsoup4`, `lxml`, `jinja2`, `seaborn`, `python-dateutil`, `pyyaml`, `requests` alongside the existing pandas/openpyxl/python-docx/weasyprint/pdfplumber stack. Build self-checks import the expanded Python baseline and verify `tesseract`, `pdftotext`, `gs`, and `git`. Runtime `pip install` remains only for rare extras into `/workspace/.local`.
+
 ## Date
 
 2026-06-20
@@ -118,7 +121,7 @@ Replace the long-lived shared-process model with **per-session execution contain
 
 ### D5 — Image: Python + Node + doc/data stack + Chromium + ripgrep/fd
 
-The sandbox image preinstalls: **Python 3** with `pandas`, `numpy`, `matplotlib`, `openpyxl`, `python-docx`, `weasyprint`, `pdfplumber`, `Pillow`; **Node** (retained); **headless Chromium** (for PDF render); **ripgrep** + **fd** (fast search backing `grep`/`glob`/`shell`). Controlled additional installs go through the D3 allowlist proxy. The package set is the runtime contract for document mode B and autonomous shell.
+The sandbox image preinstalls: **Python 3** with `pandas`, `numpy`, `matplotlib`, `seaborn`, `openpyxl`, `xlsxwriter`, `python-docx`, `weasyprint`, `pdfplumber`, `pypdf`, `reportlab`, `Pillow`, `pyzbar`, `qrcode`, `pytesseract`, `beautifulsoup4`, `lxml`, `jinja2`, `python-dateutil`, `pyyaml`, `requests`; **system libs/tools** including `libzbar0`, `tesseract-ocr` (+ eng/rus), `poppler-utils`, `ghostscript`, `git`, `unzip`, `zip`; **Node** (retained); **headless Chromium** (for PDF render); **ripgrep** + **fd** (fast search backing `grep`/`glob`/`shell`). Controlled additional installs go through runtime `pip install --user` into `/workspace/.local` for rare extras only; `apt-get` is not available in session pods. The package set is the runtime contract for document mode B and autonomous shell.
 
 ### D6 — PDF cutover: headless Chromium in sandbox, PDFMonkey removed
 

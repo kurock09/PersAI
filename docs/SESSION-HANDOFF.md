@@ -3,6 +3,34 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — ADR-123 exec image curated baseline — CHECKPOINT
+
+### State
+
+Implemented locally. Needs verification gate, commit, push/deploy (rebuild `sandbox-exec` image).
+
+### What changed
+
+Expanded the immutable `sandbox-exec` image with the full prod baseline for docs/excel/pdf/image/ocr/qr work:
+
+- **System:** `libzbar0`, `tesseract-ocr` (+ eng/rus), `poppler-utils`, `ghostscript`, `git`, `unzip`, `zip`, headless GL/X helpers, image codecs, XML libs.
+- **Python:** added `xlsxwriter`, `pypdf`, `reportlab`, `pyzbar`, `qrcode`, `pytesseract`, `beautifulsoup4`, `lxml`, `jinja2`, `seaborn`, `python-dateutil`, `pyyaml`, `requests`.
+- Runtime `pip install` stays for rare extras only (`/workspace/.local`); `apt-get` remains unavailable in session pods.
+
+### Files
+
+`apps/sandbox/exec-image/Dockerfile`, `apps/sandbox/exec-image/requirements.txt`, `apps/sandbox/test/exec-image-dockerfile.test.ts`, ADR-123, CHANGELOG, this checkpoint.
+
+### Next recommended step
+
+Run AGENTS gate, commit, push. After `sandbox-exec` image rebuild + deploy, delete old session pod and verify:
+
+```bash
+python3 -c "import pyzbar, pytesseract, pypdf, reportlab, bs4, lxml, jinja2, seaborn"
+tesseract --version
+pdftotext -v
+```
+
 ## 2026-06-21 — ADR-123 TTL 15m + writable runtime pip installs — CHECKPOINT
 
 ### State

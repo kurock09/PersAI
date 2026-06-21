@@ -23,6 +23,9 @@
 FROM debian:bookworm-slim
 
 # ── system packages ───────────────────────────────────────────────────────────
+# Curated prod baseline: docs/excel/pdf/image/ocr/qr utilities are preinstalled
+# in the immutable image. Runtime `pip install` remains for rare extras only;
+# `apt-get` is intentionally unavailable inside session pods (read-only root FS).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     # shell + core utilities
@@ -32,18 +35,47 @@ RUN apt-get update \
     ca-certificates \
     curl \
     gnupg \
+    git \
+    unzip \
+    zip \
     # Python 3 + venv support
     python3 \
     python3-pip \
     python3-venv \
-    # WeasyPrint text-layout system libs (pango/harfbuzz/cairo stack)
+    # WeasyPrint / headless render text-layout stack
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
+    libpangocairo-1.0-0 \
     libharfbuzz0b \
     libfontconfig1 \
     libcairo2 \
     libgdk-pixbuf2.0-0 \
     libffi8 \
+    shared-mime-info \
+    # headless X/GL helpers (matplotlib, Chromium, image tooling)
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    # image codecs
+    libjpeg62-turbo \
+    libpng16-16 \
+    libwebp7 \
+    libtiff6 \
+    libopenjp2-7 \
+    # Office/XML parsing helpers
+    libxml2 \
+    libxslt1.1 \
+    # QR / barcode (pyzbar)
+    libzbar0 \
+    # PDF tooling
+    poppler-utils \
+    ghostscript \
+    # OCR (pytesseract wrappers; runtime OCR sidecars still come from API pipeline)
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-rus \
     # fast search tools: ripgrep (rg) + fd-find (fdfind → fd symlink below)
     ripgrep \
     fd-find \
@@ -129,9 +161,13 @@ USER sandbox
 # interpreter again, this import fails and the build breaks loudly.
 RUN rg --version \
   && fd --version \
-  && python3 -c "import pandas, numpy, matplotlib, openpyxl, docx, weasyprint, pdfplumber, PIL; print('python stack ok')" \
+  && git --version \
+  && tesseract --version \
+  && pdftotext -v \
+  && gs --version \
+  && python3 -c "import pandas, numpy, matplotlib, seaborn, openpyxl, xlsxwriter, docx, weasyprint, pdfplumber, pypdf, reportlab, PIL, pyzbar, qrcode, pytesseract, bs4, lxml, jinja2, dateutil, yaml, requests; print('python stack ok')" \
   && python3 -c "import site; assert site.ENABLE_USER_SITE; assert site.getuserbase() == '/workspace/.local'; print('python user-site writable target ok')" \
-  && /bin/sh -lc 'python3 -c "import weasyprint, pandas; print(\"login-shell python stack ok\")"' \
+  && /bin/sh -lc 'python3 -c "import weasyprint, pandas, pyzbar, pytesseract; print(\"login-shell python stack ok\")"' \
   && /bin/sh -lc 'python3 -c "import site; assert site.ENABLE_USER_SITE and site.getuserbase() == \"/workspace/.local\"; print(\"login-shell python user-site ok\")"' \
   && node --version \
   && (chromium --version || chromium-browser --version)

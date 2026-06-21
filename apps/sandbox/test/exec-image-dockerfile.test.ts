@@ -32,3 +32,49 @@ test("exec image keeps root read-only while defaulting pip installs to writable 
     "the image must preserve the read-only-root filesystem security invariant"
   );
 });
+
+test("exec image preinstalls curated document/data/image system and python baseline", async () => {
+  const dockerfile = await readFile(join(process.cwd(), "exec-image", "Dockerfile"), "utf8");
+  const requirements = await readFile(
+    join(process.cwd(), "exec-image", "requirements.txt"),
+    "utf8"
+  );
+
+  for (const pkg of [
+    "libzbar0",
+    "tesseract-ocr",
+    "poppler-utils",
+    "ghostscript",
+    "git",
+    "libpangocairo-1.0-0",
+    "shared-mime-info"
+  ]) {
+    assert.match(
+      dockerfile,
+      new RegExp(`\\b${pkg}\\b`),
+      `system package ${pkg} must be preinstalled`
+    );
+  }
+
+  for (const pkg of [
+    "xlsxwriter",
+    "pypdf",
+    "reportlab",
+    "pyzbar",
+    "qrcode",
+    "pytesseract",
+    "beautifulsoup4",
+    "lxml",
+    "jinja2",
+    "seaborn",
+    "python-dateutil",
+    "pyyaml",
+    "requests"
+  ]) {
+    assert.match(
+      requirements,
+      new RegExp(`^${pkg}==`, "m"),
+      `python package ${pkg} must be pinned`
+    );
+  }
+});
