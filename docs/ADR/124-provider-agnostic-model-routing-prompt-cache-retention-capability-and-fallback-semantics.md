@@ -2,9 +2,9 @@
 
 ## Status
 
-Implemented locally — 2026-06-21 (full local gate green; deploy/live validation pending)
+Closed — 2026-06-22 (founder closure — all four slices + DeepSeek live-correctness follow-up landed; DeepSeek tools and text-only multimodal describe path live-verified in `persai-dev`; do not reopen for new scope)
 
-> Open orchestration ADR, implementation complete in the working tree. New long-term system rules: (1) every model routing slot may point at **any active model from any provider** in the catalog — provider is a property of the resolved model, not a single account-wide `primaryProvider`; (2) **prompt-cache retention** is an admin-managed model capability (like output budget / context window in ADR-122), so a model that requires extended caching is expressed in the catalog, not hardcoded; (3) the structured-output JSON schema sent to Anthropic is sanitized to the keywords Anthropic accepts; (4) the provider fallback fires on the **provider-side error classes that another provider can actually satisfy** (balance/quota/capacity/auth, before the first token), not only on HTTP 5xx / timeout; (5) a **third provider is onboarded as a thin OpenAI-compatible client (DeepSeek)** via catalog rows + seed + a client adapter on the prepared seams — never a routing rewrite. DeepSeek code/config is landed and credential-gated; live validation remains pending until `deepseek/api-key` is configured after deploy. Do not treat closed program ADRs as backlog for this work. **Prod-first: no transitional flags, no permanent compatibility shims — user base is still small, so we cut over cleanly.**
+> Closed orchestration ADR. New long-term system rules locked in: (1) every model routing slot may point at **any active model from any provider** in the catalog — provider is a property of the resolved model, not a single account-wide `primaryProvider`; (2) **prompt-cache retention** is an admin-managed model capability (like output budget / context window in ADR-122), so a model that requires extended caching is expressed in the catalog, not hardcoded; (3) the structured-output JSON schema sent to Anthropic is sanitized to the keywords Anthropic accepts; (4) the provider fallback fires on the **provider-side error classes that another provider can actually satisfy** (balance/quota/capacity/auth, before the first token), not only on HTTP 5xx / timeout; (5) a **third provider is onboarded as a thin OpenAI-compatible client (DeepSeek)** via catalog rows + seed + a client adapter on the prepared seams — never a routing rewrite. DeepSeek thinking-mode `reasoning_content` round-trip and text-only multimodal describe path via the `systemTool` slot are landed and live-validated. **Prod-first: no transitional flags, no permanent compatibility shims — user base is still small, so we cut over cleanly.**
 
 ## Date
 
@@ -103,6 +103,17 @@ Bounded slices, gated by the `AGENTS.md` verification gate between slices, commi
 - **Slice 2 — fallback semantics.** D3: propagate provider error class through the gateway boundary; classification-based `isRetryableRuntimeTextFailure`; satisfiable-4xx fallback, pre-first-token only, malformed-request excluded. Unit tests for each error class (balance/quota/rate-limit/capacity/auth ⇒ fallback; malformed 400 ⇒ no fallback; 5xx/timeout ⇒ fallback; mid-stream ⇒ no silent re-run).
 - **Slice 3 — provider-agnostic slots + plan UI.** D4: per-slot provider resolution in `resolve-runtime-provider-routing.service.ts`; plan slot rows select Provider+Model from all active models; single global fallback retained. Regenerate contracts if the routing/plan shape is exposed outward. Tests for slot provider resolution and the unchanged single-fallback shape.
 - **Slice 4 (final, credential-gated) — third provider: DeepSeek.** D5: register the `deepseek` provider + credential wiring; thin OpenAI-compatible client adapter; DeepSeek model catalog rows + pricing/capability seed; add DeepSeek's concrete error `type`/`code` strings to the D3 classification map. Lands **last and separately**; **must not block Slices 1–3**. Unit tests for the adapter shaping + the new error-class mappings; **stays `pending` until real DeepSeek credentials + a live validation turn (chat + structured output + forced fallback) pass.**
+
+## Closure (2026-06-22)
+
+Founder closure on `persai-dev` after the DeepSeek validator allowlist fix landed (`9a586254` runtime fix + `384acc58` formatter pass + `5a8af709` web cursor restore on top). Live state confirmed:
+
+- DeepSeek main-reply turns complete; tool-loop turns no longer disconnect (`reasoning_content` echoed correctly; `parallel_tool_calls: false` keeps one tool call per assistant turn).
+- The runtime gateway-result validator now accepts `deepseek` alongside `openai`/`anthropic`; prior `BadGatewayException: Provider gateway returned an invalid text stream event.` no longer fires for DeepSeek turns.
+- Image/PDF attachments on a DeepSeek main slot are described via the plan's `systemTool` vision slot; the admin guard prevents picking a text-only provider for `systemTool`.
+- Anthropic structured-output 400s on numeric-range keywords are gone; `gpt-5.5` works when its `promptCacheRetention` capability is set to `"24h"`; cross-provider fallback on satisfiable 4xx (balance/quota/capacity/auth) runs before the first token only.
+
+Residuals folded into the founder follow-up on assistant text source-of-truth (separate ADR when opened) — independent of ADR-124's routing decisions.
 
 ## Implementation status (2026-06-21)
 

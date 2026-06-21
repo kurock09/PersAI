@@ -3,6 +3,34 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-22 — ADR-123 + ADR-124 closed by founder — CHECKPOINT
+
+### State
+
+Founder closure on live `persai-dev`. Both orchestration programs are now in the closed archive (`AGENTS.md`). No new code in this slice — docs/status-only.
+
+### What changed
+
+- **ADR-123** (native sandbox runtime — isolation, lifecycle, network, secrets, in-sandbox document execution) marked **Closed — 2026-06-22**. Verified live: sandbox Deployment runs the post-Slice-7 image (`sandbox:31607214…`); `command -v rg` → `/usr/bin/rg` and `command -v fd` → `/usr/local/bin/fd` inside the running pod. gVisor isolation, secret-free execution, deny-all egress + allowlist proxy, per-`(assistantId,workspaceId)` warm exec pod, `sandbox-pool` min-nodes=1 + prepull DaemonSet, 15-min idle TTL, expanded doc/data/image baseline, WeasyPrint PDF cutover, mode-B data documents (`xlsx`/`docx`), and `grep`/`glob`/`shell` are operating against real assistant traffic.
+- **ADR-124** (provider-agnostic model routing, prompt-cache-retention capability, structured-output schema sanitation, fallback semantics, DeepSeek onboarding) marked **Closed — 2026-06-22**. Live state: DeepSeek main-reply turns complete; tool-loop turns no longer disconnect (`reasoning_content` round-trip + `parallel_tool_calls: false`); runtime gateway-result validator accepts `deepseek` alongside `openai`/`anthropic`; image/PDF attachments on a DeepSeek main slot are described via the plan's `systemTool` vision slot; admin guard prevents picking a text-only provider for `systemTool`; Anthropic numeric-range schema 400s gone; `gpt-5.5` works via `promptCacheRetention = "24h"`; cross-provider fallback on satisfiable 4xx runs before the first token only.
+- `AGENTS.md` startup reading order updated: ADR-123 and ADR-124 added to the closed-program archive list (do not reopen for new scope).
+
+### Files
+
+`docs/ADR/123-native-sandbox-runtime-isolation-network-and-document-execution.md` (status header + closure block), `docs/ADR/124-provider-agnostic-model-routing-prompt-cache-retention-capability-and-fallback-semantics.md` (status header + closure block), `AGENTS.md` (closed-program archive list), `docs/CHANGELOG.md`, this checkpoint.
+
+### Verified
+
+Doc-only slice. Live evidence already captured above (sandbox pod `rg`/`fd` on PATH; DeepSeek tools complete; image rollout `runtime:384acc58` running). No code changed; AGENTS gate not re-run for this slice (no source diff).
+
+### Residuals
+
+Open founder follow-up — not in this slice, not reopening ADR-124: assistant text source-of-truth + async file delivery (model text from stream is the answer; placeholders / LLM-framing / hydration-marker should not overwrite a non-empty model reply; same rule for Telegram). Awaits a new ADR open before code work.
+
+### Next recommended step
+
+Open the new ADR for assistant text source-of-truth when ready, with the four-slice plan already discussed (documents path → media path → hydration `[Note: …]` marker removal → optional retro-scrub of historical `metadata.status: partial` messages).
+
 ## 2026-06-21 — Web chat inline streaming cursor restored — CHECKPOINT
 
 ### State

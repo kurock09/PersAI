@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-06-20 (open program; bounded slices — see Work plan)
+Closed — 2026-06-22 (founder closure — Slices 1–7 and every 2026-06-21 addendum LANDED and live-validated in `persai-dev`; sandbox image carries `rg` + `fd` on PATH in the running pod; do not reopen for new scope)
 
 - **Slice 1 LANDED** — 2026-06-20 (commit `29a20860`)
 - **Slice 2 LANDED** — 2026-06-20 (commit `a0336bed`)
@@ -12,7 +12,15 @@ Accepted — 2026-06-20 (open program; bounded slices — see Work plan)
 - **Slice 6 LANDED** — 2026-06-21 (commit `689c7ff8`) — Documents mode B (create-only): `create_data_document` descriptor mode + `xlsx`/`docx` output formats; `data_document` document type; model-writes-Python executed in sandbox via `execute_document_code` toolCode; one bounded self-repair retry; Office ZIP-magic + PDF artifact validation; **sandbox-first two-tier source ingestion** (raw source files mounted into `/workspace/sources` and read natively; scanned-PDF/image fallback mounts an `*.ocr.txt` sidecar produced by the existing runtime OCR pipeline). Source text is never inlined into the code-gen prompt.
 - **Slice 7 LANDED** — 2026-06-21 (commit `3474bdd1`) — Tools: `grep` + `glob` added as **inline** workspace tools that run on the sandbox **control plane** as trusted PersAI subprocesses (`rg`/`fd` against `workspaceRoot`, argv-array + `--` terminator + path containment, hard timeout + output/match caps, `truncated` flag), routed via the `files`-style sandbox-job path (never an exec pod); `shell` `modelUsageGuidance` rewritten to encourage proactive multi-step autonomous use and route search to grep/glob (old "prefer files / reserve shell" discouragement + `grep -r 'TODO'` example removed); additive `<category name="workspace">` in `<tool_usage_policy>` (ADR-119 `<priority_order>`/wrapper preserved; golden byte-snapshot regenerated = +7-line category only); `rg`/`fd` added to the control-plane `apps/sandbox/Dockerfile`; grep/glob `active:true` in `STARTER_TRIAL_TOOL_POLICY` (matching `files`; exec/shell unchanged); grep/glob surfaced in `/admin/presets` via `PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER`. Plan activation defaults + tool-loop budget unchanged. **Deploy residual:** control-plane `sandbox` image must be rebuilt so `rg`/`fd` are on PATH.
 
-> Open orchestration ADR. New long-term system rule: untrusted model-authored code runs inside a kernel-isolated, secret-free, per-session sandbox with deny-all egress behind an allowlist proxy; PDF/Excel/DOCX/data documents are produced **in** that sandbox (headless Chromium + a Python doc/data stack) rather than via an external render SaaS; and `grep`/`glob`/`shell` become first-class workspace tools. This program is executed by an orchestrator dispatching `sonnet` sub-agents. **Prod-first: no transitional flags, no permanent fallbacks, no compatibility shims — user base is still small, so we cut over cleanly.**
+> Closed orchestration ADR. New long-term system rule locked in: untrusted model-authored code runs inside a kernel-isolated, secret-free, per-session sandbox with deny-all egress behind an allowlist proxy; PDF/Excel/DOCX/data documents are produced **in** that sandbox (WeasyPrint for HTML→PDF + a Python doc/data stack + headless Chromium for browser-class rendering) rather than via an external render SaaS; and `grep`/`glob`/`shell` are first-class workspace tools. **Prod-first: no transitional flags, no permanent fallbacks, no compatibility shims — user base is still small, so we cut over cleanly.**
+
+## Closure (2026-06-22)
+
+Founder closure on live `persai-dev`:
+
+- Sandbox Deployment runs the post-Slice-7 image (`sandbox:31607214…`); `rg` and `fd` are on PATH inside the running container (verified `command -v rg` → `/usr/bin/rg`, `command -v fd` → `/usr/local/bin/fd`). The Slice 7 "Deploy residual: rebuild the control-plane `sandbox` image so `rg`/`fd` are on PATH" is satisfied.
+- gVisor isolation, secret-free execution unit, deny-all egress + allowlist proxy, per-`(assistantId,workspaceId)` warm exec pod, sandbox-pool min-nodes=1 + prepull DaemonSet, 15-min idle TTL, expanded doc/data/image baseline image, WeasyPrint PDF cutover, mode-B data documents (`xlsx`/`docx`), and `grep`/`glob`/`shell` tools are all live and operating against real assistant traffic. The workspace-push large-stdin chunking fix and the document-job scheduler `create_data_document` replay fix are deployed and observable in `sandbox_jobs`/`assistant_document_render_jobs`.
+- No transitional flags, fallbacks, or compatibility shims remain in the active code path.
 
 **Post-program config tuning — 2026-06-21 (founder directive):**
 
