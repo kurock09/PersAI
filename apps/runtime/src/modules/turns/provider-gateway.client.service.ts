@@ -909,7 +909,9 @@ export class ProviderGatewayClientService {
     return (
       row?.provider !== undefined &&
       row.provider !== null &&
-      (row.provider === "openai" || row.provider === "anthropic") &&
+      (row.provider === "openai" ||
+        row.provider === "anthropic" ||
+        row.provider === "deepseek") &&
       typeof row.model === "string" &&
       (typeof row.text === "string" || row.text === null) &&
       typeof row.respondedAt === "string" &&
