@@ -9,7 +9,7 @@
 -- of this delivery allowlist. Plans that have no stored sandboxPolicy override
 -- already inherit the new "*/*" default from DEFAULT_RUNTIME_SANDBOX_POLICY, so
 -- this statement only needs to rewrite plans that carry an explicit override.
-UPDATE "PlanCatalogPlan"
+UPDATE "plan_catalog_plans"
 SET "billing_provider_hints" = jsonb_set(
   "billing_provider_hints"::jsonb,
   '{sandboxPolicy,artifactMimeAllowlist}',
