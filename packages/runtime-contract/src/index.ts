@@ -362,6 +362,42 @@ export interface RuntimeFilesToolResult {
   extractionCached?: boolean;
 }
 
+/** ADR-123 Slice 7 — single match entry returned by the inline `grep` tool. */
+export interface RuntimeGrepMatch {
+  /** Workspace-relative file path. */
+  file: string;
+  /** 1-based line number. */
+  line: number;
+  /** Matched line text (trimmed to fit output caps). */
+  text: string;
+}
+
+/** ADR-123 Slice 7 — structured result returned by the inline `grep` tool. */
+export interface RuntimeGrepToolResult {
+  toolCode: "grep";
+  executionMode: "inline";
+  action: "matched" | "skipped";
+  reason: string | null;
+  warning: string | null;
+  matches: RuntimeGrepMatch[];
+  matchCount: number;
+  /** True when output was capped and additional matches exist. */
+  truncated: boolean;
+}
+
+/** ADR-123 Slice 7 — structured result returned by the inline `glob` tool. */
+export interface RuntimeGlobToolResult {
+  toolCode: "glob";
+  executionMode: "inline";
+  action: "found" | "skipped";
+  reason: string | null;
+  warning: string | null;
+  /** Sorted workspace-relative file paths. */
+  paths: string[];
+  /** True when output was capped and additional paths exist. */
+  truncated: boolean;
+}
+
 export interface RuntimeInboundMessage {
   text: string;
   attachments: RuntimeAttachmentRef[];

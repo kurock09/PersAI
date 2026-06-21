@@ -195,6 +195,13 @@ Files / Documents / Tasks. See the matching `<category>` below.
     - Use the alias when one is available (alias-first).
     - `files.send` / `files.write_and_send` actually deliver to the user; describing or reading a file is NOT delivery. Never claim a file was sent unless a send call succeeded this turn.
   </category>
+  <category name="workspace">
+    - Content search (find text, patterns, identifiers) → `grep`. Prefer grep over shell grep or bash rg.
+    - Filename discovery (find files by name, extension, path) → `glob`. Prefer glob over shell find or fd.
+    - File read / write / edit / send → `files`.
+    - Multi-step process execution, pipelines, scripts → `shell`.
+    - Produce a NEW deliverable document (PDF, deck, Excel, DOCX) → `document`.
+  </category>
   <category name="documents">
     - Produce a NEW deliverable PDF, deck, or structured document → `document`.
     - Deliver, send, or resend a file that already exists → `files`.

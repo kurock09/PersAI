@@ -116,6 +116,8 @@ export const TOOL_HARD_CAP_PER_TURN: Readonly<Record<string, number>> = {
   exec: 5,
   shell: 5,
   files: 10,
+  grep: 10,
+  glob: 10,
   scheduled_action: 5,
   background_task: 5,
   knowledge_search: 5,

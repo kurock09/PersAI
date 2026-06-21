@@ -102,6 +102,34 @@ const tools = [
     visibleInPlanEditor: true
   },
   {
+    code: "grep",
+    displayName: "Grep",
+    description: "Workspace content search.",
+    modelDescription: null,
+    modelUsageGuidance: null,
+    capabilityGroup: "workspace_ops",
+    toolClass: "utility",
+    policyClass: "plan_managed",
+    catalogStatus: "active",
+    planActivationStatus: "active",
+    effectiveActivation: "active",
+    visibleInPlanEditor: true
+  },
+  {
+    code: "glob",
+    displayName: "Glob",
+    description: "Workspace filename discovery.",
+    modelDescription: null,
+    modelUsageGuidance: null,
+    capabilityGroup: "workspace_ops",
+    toolClass: "utility",
+    policyClass: "plan_managed",
+    catalogStatus: "active",
+    planActivationStatus: "active",
+    effectiveActivation: "active",
+    visibleInPlanEditor: true
+  },
+  {
     code: "persai_tool_quota_status",
     displayName: "Quota Status",
     description: "Check remaining quota.",
@@ -202,6 +230,14 @@ async function run(): Promise<void> {
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "document" && tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "scheduled_action" && tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "files" && tool.enabled));
+  // ADR-123 Slice 7 — grep/glob are inline workspace tools, available wherever
+  // the sandbox workspace is (sandboxEnabled), with executionMode "inline".
+  const grepPolicy = toolPolicies.find((tool) => tool.toolCode === "grep");
+  assert.ok(grepPolicy?.enabled, "grep must be enabled when active + sandboxEnabled");
+  assert.equal(grepPolicy?.executionMode, "inline", "grep executionMode must be inline");
+  const globPolicy = toolPolicies.find((tool) => tool.toolCode === "glob");
+  assert.ok(globPolicy?.enabled, "glob must be enabled when active + sandboxEnabled");
+  assert.equal(globPolicy?.executionMode, "inline", "glob executionMode must be inline");
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "image_generate" && !tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "cron" && !tool.visibleToModel));
 

@@ -58,6 +58,8 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   scheduled_action: "worker",
   background_task: "worker",
   files: "inline",
+  grep: "inline",
+  glob: "inline",
   exec: "sandbox",
   shell: "sandbox",
   persai_workspace_attach: "inline",
@@ -132,7 +134,7 @@ function resolveRuntimeToolUsageGuidance(
   }
   if (runtimeToolCode === "files") {
     return `WHEN TO USE: Any file-system work in the assistant's managed workspace — list, search, inspect, read, preview, write, write-and-send, edit, delete, or send.
-WHEN NOT TO USE: Real process execution (use exec or shell). Producing a NEW deliverable PDF, deck, or structured document (use document).
+WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a NEW deliverable PDF, deck, or structured document (use document).
 EXAMPLES:
 - files.write_and_send({relativePath:"…", contents:"…"}) — save and immediately deliver in chat.
 - files.write({relativePath:"…", contents:"…"}) — save only.
@@ -145,7 +147,7 @@ GOTCHAS:
 - For files.write and files.write_and_send, always prefer a non-empty relativePath as the canonical save target; \`filename\` is only a delivery-name override, NOT the canonical save path.
 - Delivery honesty: if the user asks you to send, resend, attach, or share an existing file, discovering or reading that file is NOT delivery. Call files.send in the same turn. A working-file alias, relativePath, filename, or markdown link is NOT a substitute for delivery. Never claim a file was sent unless files.send or files.write_and_send succeeded THIS turn.
 - Inventories: by default, present file inventories as a short grouped summary (workspace, uploads, artifacts) and hide raw service paths or UUID folders; only enumerate every raw relativePath when the user explicitly asks for the full raw list.
-- Keep exec and shell for actual process execution only.`;
+- Keep exec and shell for actual process execution only. Use grep for content search and glob for filename discovery.`;
   }
   return tool.modelUsageGuidance;
 }
@@ -291,7 +293,13 @@ function hasNativeModelExecution(
       hasConfiguredCredential(params.toolCredentialRefs, "document")
     );
   }
-  if (runtimeToolCode === "files" || runtimeToolCode === "exec" || runtimeToolCode === "shell") {
+  if (
+    runtimeToolCode === "files" ||
+    runtimeToolCode === "exec" ||
+    runtimeToolCode === "shell" ||
+    runtimeToolCode === "grep" ||
+    runtimeToolCode === "glob"
+  ) {
     return params.sandboxEnabled;
   }
   return false;

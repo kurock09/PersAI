@@ -38,6 +38,8 @@ import {
   type RuntimeBrowserToolResult,
   type RuntimeDocumentToolResult,
   type RuntimeFilesToolResult,
+  type RuntimeGrepToolResult,
+  type RuntimeGlobToolResult,
   type RuntimeImageEditToolResult,
   type RuntimeImageGenerateToolResult,
   type RuntimeFileRef,
@@ -105,6 +107,7 @@ import { BuildSystemReminderBlocksService } from "./build-system-reminder-blocks
 import { RuntimeSkillToolService } from "./runtime-skill-tool.service";
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
+import { RuntimeGrepGlobToolService } from "./runtime-grep-glob-tool.service";
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
@@ -255,6 +258,8 @@ type ToolExecutionOutcome = {
     | RuntimeBrowserToolResult
     | RuntimeDocumentToolResult
     | RuntimeFilesToolResult
+    | RuntimeGrepToolResult
+    | RuntimeGlobToolResult
     | RuntimeImageEditToolResult
     | RuntimeImageGenerateToolResult
     | RuntimeSandboxToolResult
@@ -347,6 +352,8 @@ const IMAGE_GENERATE_TOOL_CODE = "image_generate";
 const VIDEO_GENERATE_TOOL_CODE = "video_generate";
 const TTS_TOOL_CODE = "tts";
 const FILES_TOOL_CODE = "files";
+const GREP_TOOL_CODE = "grep";
+const GLOB_TOOL_CODE = "glob";
 const EXEC_TOOL_CODE = "exec";
 const SHELL_TOOL_CODE = "shell";
 const SAFE_PARALLEL_TOOL_CODES = new Set<string>([
@@ -457,6 +464,7 @@ export class TurnExecutionService {
     private readonly runtimeMemoryWriteToolService: RuntimeMemoryWriteToolService,
     private readonly runtimeQuotaStatusToolService: RuntimeQuotaStatusToolService,
     private readonly runtimeSandboxToolService: RuntimeSandboxToolService,
+    private readonly runtimeGrepGlobToolService: RuntimeGrepGlobToolService,
     private readonly runtimeBackgroundTaskToolService: RuntimeBackgroundTaskToolService,
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
     private readonly runtimeTtsToolService: RuntimeTtsToolService,
@@ -2973,6 +2981,26 @@ export class TurnExecutionService {
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
+      case GREP_TOOL_CODE: {
+        const result = await this.runtimeGrepGlobToolService.executeGrepToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          sessionId: acceptedTurn.session.sessionId,
+          requestId: acceptedTurn.receipt.requestId,
+          currentFileRefs
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
+      case GLOB_TOOL_CODE: {
+        const result = await this.runtimeGrepGlobToolService.executeGlobToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          sessionId: acceptedTurn.session.sessionId,
+          requestId: acceptedTurn.receipt.requestId,
+          currentFileRefs
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
       case WEB_SEARCH_TOOL_CODE:
         return this.executeWebSearchTool(execution, toolCall);
       case WEB_FETCH_TOOL_CODE:
@@ -3563,6 +3591,8 @@ export class TurnExecutionService {
       | RuntimeBrowserToolResult
       | RuntimeDocumentToolResult
       | RuntimeFilesToolResult
+      | RuntimeGrepToolResult
+      | RuntimeGlobToolResult
       | RuntimeImageEditToolResult
       | RuntimeImageGenerateToolResult
       | RuntimeSandboxToolResult

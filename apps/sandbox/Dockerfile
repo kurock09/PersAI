@@ -6,8 +6,14 @@ ENV PATH="$PNPM_HOME:$PATH"
 WORKDIR /workspace
 
 RUN corepack enable
+# ADR-123 Slice 7 — ripgrep (rg) + fd-find back the inline grep/glob workspace
+# tools, which run as TRUSTED PersAI-owned control-plane subprocesses against
+# the hydrated workspace (NOT in an exec pod). Mirrors the exec-image install
+# (apps/sandbox/exec-image/Dockerfile); Debian installs fd as `fdfind`, so we
+# symlink it to `fd` as the exec image does.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && apt-get install -y --no-install-recommends openssl ca-certificates ripgrep fd-find \
+  && ln -s /usr/bin/fdfind /usr/local/bin/fd \
   && rm -rf /var/lib/apt/lists/*
 
 COPY . .

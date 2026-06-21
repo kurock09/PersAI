@@ -621,6 +621,18 @@ export class SandboxService {
         }
         throw new Error(`Unsupported files action: ${String(action)}`);
       }
+      case "grep":
+        return this.executeGrepAction(
+          input.workspaceRoot,
+          input.request.args,
+          input.request.policy
+        );
+      case "glob":
+        return this.executeGlobAction(
+          input.workspaceRoot,
+          input.request.args,
+          input.request.policy
+        );
       case "exec":
         return this.executeExecLike(
           input.workspaceRoot,
@@ -691,6 +703,304 @@ export class SandboxService {
       stderr: null,
       content: this.stripNulCharacters(buffer.toString("utf8"))
     };
+  }
+
+  /**
+   * ADR-123 Slice 7 — inline `grep` tool. Runs the trusted preinstalled `rg`
+   * (ripgrep) binary as a PersAI-owned control-plane subprocess against the
+   * hydrated workspace directory. Model-supplied values (pattern, glob/type,
+   * path) are passed as an argv ARRAY (never through a shell string) with a
+   * leading `--` so they can never be interpreted as ripgrep flags. The
+   * optional path is normalized through `resolveWorkspacePath` so it cannot
+   * escape `workspaceRoot`. This is trusted-binary execution with model data
+   * args; it never spawns an exec pod (D2 control-plane trusted rule holds).
+   */
+  private async executeGrepAction(
+    workspaceRoot: string,
+    args: Record<string, unknown>,
+    policy: RuntimeSandboxPolicy
+  ): Promise<{
+    reason: string | null;
+    warning: string | null;
+    exitCode: number | null;
+    stdout: string | null;
+    stderr: string | null;
+    content: string | null;
+  }> {
+    const pattern = this.requireString(args.pattern, "pattern");
+    const maxMatches = 200;
+    const lineByteCap = 2_000;
+    const rgArgs: string[] = [
+      "--line-number",
+      "--no-heading",
+      "--color=never",
+      "--max-count",
+      String(maxMatches + 1)
+    ];
+    if (args.caseInsensitive === true) {
+      rgArgs.push("--ignore-case");
+    }
+    if (typeof args.contextLines === "number" && Number.isInteger(args.contextLines)) {
+      const context = Math.min(Math.max(args.contextLines, 0), 10);
+      if (context > 0) {
+        rgArgs.push("--context", String(context));
+      }
+    }
+    if (typeof args.glob === "string" && args.glob.trim().length > 0) {
+      rgArgs.push("--glob", args.glob);
+    }
+    if (typeof args.type === "string" && args.type.trim().length > 0) {
+      rgArgs.push("--type", args.type);
+    }
+    const searchRoot = this.resolveOptionalWorkspaceSubdir(workspaceRoot, args.path);
+    // `--` terminates flag parsing so the model pattern/path are pure data.
+    rgArgs.push("--", pattern, searchRoot);
+
+    const result = await this.runTrustedControlPlaneBinary("rg", rgArgs, workspaceRoot, policy);
+    // rg exit code 1 = no matches (not an error); 2+ = real error.
+    if (result.exitCode !== 0 && result.exitCode !== 1) {
+      return {
+        reason: "grep_failed",
+        warning: result.timedOut ? "grep timed out." : (this.firstLine(result.stderr) ?? null),
+        exitCode: result.exitCode,
+        stdout: null,
+        stderr: result.stderr.slice(0, policy.maxStderrBytes),
+        content: JSON.stringify({ matches: [], matchCount: 0, truncated: false })
+      };
+    }
+    const matches = this.parseRipgrepMatches(result.stdout, workspaceRoot, lineByteCap);
+    const truncated = matches.length > maxMatches || result.truncated;
+    const cappedMatches = matches.slice(0, maxMatches);
+    return {
+      reason: null,
+      warning: null,
+      exitCode: 0,
+      stdout: null,
+      stderr: null,
+      content: JSON.stringify({
+        matches: cappedMatches,
+        matchCount: cappedMatches.length,
+        truncated
+      })
+    };
+  }
+
+  /**
+   * ADR-123 Slice 7 — inline `glob` tool. Runs the trusted preinstalled `fd`
+   * binary as a PersAI-owned control-plane subprocess against the hydrated
+   * workspace directory. The model glob pattern and optional path are passed
+   * via an argv ARRAY (never a shell string); the path is contained inside
+   * `workspaceRoot`. Never spawns an exec pod.
+   */
+  private async executeGlobAction(
+    workspaceRoot: string,
+    args: Record<string, unknown>,
+    policy: RuntimeSandboxPolicy
+  ): Promise<{
+    reason: string | null;
+    warning: string | null;
+    exitCode: number | null;
+    stdout: string | null;
+    stderr: string | null;
+    content: string | null;
+  }> {
+    const pattern = this.requireString(args.pattern, "pattern");
+    const maxPaths = 500;
+    const searchRoot = this.resolveOptionalWorkspaceSubdir(workspaceRoot, args.path);
+    const fdArgs: string[] = [
+      "--type",
+      "f",
+      "--color",
+      "never",
+      "--glob",
+      "--max-results",
+      String(maxPaths + 1),
+      "--",
+      pattern,
+      searchRoot
+    ];
+    const result = await this.runTrustedControlPlaneBinary("fd", fdArgs, workspaceRoot, policy);
+    if (result.exitCode !== 0) {
+      return {
+        reason: "glob_failed",
+        warning: result.timedOut ? "glob timed out." : (this.firstLine(result.stderr) ?? null),
+        exitCode: result.exitCode,
+        stdout: null,
+        stderr: result.stderr.slice(0, policy.maxStderrBytes),
+        content: JSON.stringify({ paths: [], truncated: false })
+      };
+    }
+    const normalizedRoot = resolve(workspaceRoot);
+    const paths = result.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((absolutePath) => this.toWorkspaceRelative(absolutePath, normalizedRoot))
+      .filter((relativePath): relativePath is string => relativePath !== null)
+      .sort((a, b) => a.localeCompare(b));
+    const truncated = paths.length > maxPaths || result.truncated;
+    const cappedPaths = paths.slice(0, maxPaths);
+    return {
+      reason: null,
+      warning: null,
+      exitCode: 0,
+      stdout: null,
+      stderr: null,
+      content: JSON.stringify({ paths: cappedPaths, truncated })
+    };
+  }
+
+  /**
+   * Resolve an optional model-supplied search directory to an absolute path
+   * inside `workspaceRoot`. Returns the workspace root itself when no path is
+   * given. Rejects any path that would escape the workspace.
+   */
+  private resolveOptionalWorkspaceSubdir(workspaceRoot: string, value: unknown): string {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      return resolve(workspaceRoot);
+    }
+    return this.resolveWorkspacePath(workspaceRoot, value);
+  }
+
+  private toWorkspaceRelative(absolutePath: string, normalizedRoot: string): string | null {
+    const resolvedPath = resolve(absolutePath);
+    if (resolvedPath === normalizedRoot) {
+      return null;
+    }
+    if (
+      !resolvedPath.startsWith(`${normalizedRoot}/`) &&
+      !resolvedPath.startsWith(normalizedRoot)
+    ) {
+      return null;
+    }
+    const relative = resolvedPath.slice(normalizedRoot.length).replace(/^[/\\]+/, "");
+    return relative.replace(/\\/g, "/");
+  }
+
+  private firstLine(value: string): string | null {
+    const trimmed = value.split("\n").find((line) => line.trim().length > 0);
+    return trimmed === undefined ? null : trimmed.trim();
+  }
+
+  /**
+   * Parse `rg --line-number --no-heading` output lines of the form
+   * `relativePath:lineNumber:text` into structured matches. Absolute search
+   * roots produce absolute file prefixes, so paths are re-based to
+   * workspace-relative. Context lines (`path-lineNumber-text`) are skipped.
+   */
+  private parseRipgrepMatches(
+    stdout: string,
+    workspaceRoot: string,
+    lineByteCap: number
+  ): Array<{ file: string; line: number; text: string }> {
+    const normalizedRoot = resolve(workspaceRoot);
+    const matches: Array<{ file: string; line: number; text: string }> = [];
+    for (const rawLine of stdout.split("\n")) {
+      if (rawLine.length === 0) {
+        continue;
+      }
+      const firstColon = rawLine.indexOf(":");
+      if (firstColon <= 0) {
+        continue;
+      }
+      const secondColon = rawLine.indexOf(":", firstColon + 1);
+      if (secondColon <= firstColon) {
+        continue;
+      }
+      const filePart = rawLine.slice(0, firstColon);
+      const lineNumberPart = rawLine.slice(firstColon + 1, secondColon);
+      const lineNumber = Number.parseInt(lineNumberPart, 10);
+      if (!Number.isFinite(lineNumber) || lineNumber <= 0) {
+        continue;
+      }
+      const text = rawLine.slice(secondColon + 1);
+      const relativeFile =
+        this.toWorkspaceRelative(filePart, normalizedRoot) ??
+        filePart.replace(/\\/g, "/").replace(/^\/+/, "");
+      matches.push({
+        file: relativeFile,
+        line: lineNumber,
+        text: this.stripNulCharacters(text).slice(0, lineByteCap)
+      });
+    }
+    return matches;
+  }
+
+  /**
+   * Spawn a trusted, PersAI-owned binary (`rg`/`fd`) directly on the control
+   * plane with an argv ARRAY (never a shell). Enforces a hard timeout and a
+   * stdout byte cap. This is NOT model-authored command execution: only the
+   * binary name is fixed by PersAI and only data args are model-supplied.
+   */
+  private runTrustedControlPlaneBinary(
+    command: string,
+    args: string[],
+    workspaceRoot: string,
+    policy: RuntimeSandboxPolicy
+  ): Promise<{
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    truncated: boolean;
+    timedOut: boolean;
+  }> {
+    return new Promise((resolvePromise) => {
+      const child = spawn(command, args, {
+        cwd: workspaceRoot,
+        shell: false,
+        env: {
+          PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+          HOME: workspaceRoot
+        }
+      });
+      const stdoutCap = policy.maxStdoutBytes;
+      const stderrCap = policy.maxStderrBytes;
+      let stdout = "";
+      let stderr = "";
+      let truncated = false;
+      let timedOut = false;
+      let settled = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGKILL");
+      }, policy.maxProcessRuntimeMs);
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        if (stdout.length >= stdoutCap) {
+          truncated = true;
+          return;
+        }
+        stdout += chunk.toString("utf8");
+        if (stdout.length > stdoutCap) {
+          stdout = stdout.slice(0, stdoutCap);
+          truncated = true;
+        }
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        if (stderr.length >= stderrCap) {
+          return;
+        }
+        stderr += chunk.toString("utf8");
+        if (stderr.length > stderrCap) {
+          stderr = stderr.slice(0, stderrCap);
+        }
+      });
+      const settle = (exitCode: number) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolvePromise({ exitCode, stdout, stderr, truncated, timedOut });
+      };
+      child.on("error", (error) => {
+        stderr += (stderr.length > 0 ? "\n" : "") + (error instanceof Error ? error.message : "");
+        settle(127);
+      });
+      child.on("close", (code) => {
+        settle(timedOut ? 124 : (code ?? 0));
+      });
+    });
   }
 
   private async executeFilesWriteAction(

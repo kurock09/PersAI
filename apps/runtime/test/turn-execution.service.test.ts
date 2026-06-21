@@ -1741,6 +1741,68 @@ class FakeRuntimeSandboxToolService {
   }
 }
 
+class FakeRuntimeGrepGlobToolService {
+  grepCalls: Array<{
+    bundle: AssistantRuntimeBundle;
+    toolCall: ProviderGatewayToolCall;
+    sessionId: string;
+    requestId: string;
+    currentFileRefs: Array<{ fileRef: string }>;
+  }> = [];
+  globCalls: Array<{
+    bundle: AssistantRuntimeBundle;
+    toolCall: ProviderGatewayToolCall;
+    sessionId: string;
+    requestId: string;
+    currentFileRefs: Array<{ fileRef: string }>;
+  }> = [];
+
+  async executeGrepToolCall(input: {
+    bundle: AssistantRuntimeBundle;
+    toolCall: ProviderGatewayToolCall;
+    sessionId: string;
+    requestId: string;
+    currentFileRefs: Array<{ fileRef: string }>;
+  }) {
+    this.grepCalls.push({ ...input, currentFileRefs: [...input.currentFileRefs] });
+    return {
+      payload: {
+        toolCode: "grep" as const,
+        executionMode: "inline" as const,
+        action: "matched" as const,
+        reason: null,
+        warning: null,
+        matches: [{ file: "src/app.ts", line: 12, text: "const x = 1;" }],
+        matchCount: 1,
+        truncated: false
+      },
+      isError: false
+    };
+  }
+
+  async executeGlobToolCall(input: {
+    bundle: AssistantRuntimeBundle;
+    toolCall: ProviderGatewayToolCall;
+    sessionId: string;
+    requestId: string;
+    currentFileRefs: Array<{ fileRef: string }>;
+  }) {
+    this.globCalls.push({ ...input, currentFileRefs: [...input.currentFileRefs] });
+    return {
+      payload: {
+        toolCode: "glob" as const,
+        executionMode: "inline" as const,
+        action: "found" as const,
+        reason: null,
+        warning: null,
+        paths: ["src/app.ts", "src/index.ts"],
+        truncated: false
+      },
+      isError: false
+    };
+  }
+}
+
 class FakeRuntimeFilesToolService {
   calls: Array<{
     bundle: AssistantRuntimeBundle;
@@ -2106,6 +2168,18 @@ function enableSandboxAndSendMediaTools(entry: RuntimeBundleCacheEntry | null): 
       displayName: "Shell",
       description: "Run a bounded shell command inside the sandbox workspace.",
       executionMode: "sandbox" as const
+    },
+    {
+      toolCode: "grep",
+      displayName: "Grep",
+      description: "Search workspace files for a text pattern.",
+      executionMode: "inline" as const
+    },
+    {
+      toolCode: "glob",
+      displayName: "Glob",
+      description: "Find workspace files by name pattern.",
+      executionMode: "inline" as const
     }
   ]) {
     if (
@@ -2187,6 +2261,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   const runtimeFilesToolService = new FakeRuntimeFilesToolService();
   const runtimeSandboxToolService = new FakeRuntimeSandboxToolService();
+  const runtimeGrepGlobToolService = new FakeRuntimeGrepGlobToolService();
   const runtimeObservabilityService = new RuntimeObservabilityService();
   const runtimeExecutionAdmissionService = new RuntimeExecutionAdmissionService(
     runtimeObservabilityService
@@ -2220,6 +2295,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeMemoryWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
+    runtimeGrepGlobToolService as never,
     runtimeBackgroundTaskToolService,
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
@@ -2398,6 +2474,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeMemoryWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
+    runtimeGrepGlobToolService as never,
     runtimeBackgroundTaskToolService,
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
@@ -2473,6 +2550,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeMemoryWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
+    runtimeGrepGlobToolService as never,
     runtimeBackgroundTaskToolService,
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
@@ -4112,6 +4190,71 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(runtimeSandboxToolService.calls.at(-1)?.toolCall.name, "shell");
   assert.equal(runtimeSandboxToolService.calls.at(-1)?.currentFileRefs[0]?.fileRef, "file-ref-1");
 
+  // ADR-123 Slice 7 — grep/glob tool calls dispatch to the inline grep/glob
+  // service (control-plane search), NOT the exec-pod sandbox service.
+  const grepGlobDispatchRequest = createRuntimeTurnRequest();
+  grepGlobDispatchRequest.bundle.bundleHash = request.bundle.bundleHash;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const grepCallsBefore = runtimeGrepGlobToolService.grepCalls.length;
+  const globCallsBefore = runtimeGrepGlobToolService.globCalls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "",
+      respondedAt: "2026-04-11T12:00:05.000Z",
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-grep-1",
+          name: "grep",
+          arguments: { pattern: "token", glob: "**/*.ts" }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "",
+      respondedAt: "2026-04-11T12:00:05.200Z",
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-glob-1",
+          name: "glob",
+          arguments: { pattern: "*.ts" }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "grep glob reply",
+      respondedAt: "2026-04-11T12:00:05.400Z",
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  const grepGlobDispatchCompleted = await service.createTurn(grepGlobDispatchRequest);
+  assert.equal(grepGlobDispatchCompleted.assistantText, "grep glob reply");
+  assert.equal(
+    runtimeGrepGlobToolService.grepCalls.length,
+    grepCallsBefore + 1,
+    "grep tool call must route to the inline grep/glob service"
+  );
+  assert.equal(
+    runtimeGrepGlobToolService.globCalls.length,
+    globCallsBefore + 1,
+    "glob tool call must route to the inline grep/glob service"
+  );
+  assert.equal(runtimeGrepGlobToolService.grepCalls.at(-1)?.toolCall.arguments.pattern, "token");
+  assert.equal(runtimeGrepGlobToolService.globCalls.at(-1)?.toolCall.arguments.pattern, "*.ts");
+
   const overrideRequest = createRuntimeTurnRequest();
   overrideRequest.bundle.bundleHash = request.bundle.bundleHash;
   overrideRequest.providerOverride = "anthropic";
@@ -4568,6 +4711,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "knowledge_search",
       "knowledge_fetch",
       "files",
+      "grep",
+      "glob",
       "shell"
     ]
   );
@@ -4689,6 +4834,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "knowledge_search",
       "knowledge_fetch",
       "files",
+      "grep",
+      "glob",
       "shell"
     ]
   );
@@ -5332,6 +5479,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "knowledge_fetch",
       "web_fetch",
       "files",
+      "grep",
+      "glob",
       "shell"
     ]
   );
@@ -7717,6 +7866,7 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
     null as never, // runtimeMemoryWriteToolService
     null as never, // runtimeQuotaStatusToolService
     null as never, // runtimeSandboxToolService
+    null as never, // runtimeGrepGlobToolService
     null as never, // runtimeBackgroundTaskToolService
     null as never, // runtimeScheduledActionToolService
     null as never, // runtimeTtsToolService

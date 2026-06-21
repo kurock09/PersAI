@@ -395,6 +395,31 @@ async function runPresenceSlice12(): Promise<void> {
   );
 }
 
+async function runToolsWorkspaceCategoryAdr123Slice7(): Promise<void> {
+  // ADR-123 Slice 7 — the tools template gains a <category name="workspace">
+  // routing content search → grep, filename find → glob, read/edit → files,
+  // execution → shell, document → document. The existing <priority_order> and
+  // <tool_usage_policy> wrapper (ADR-119 golden invariant) must be preserved.
+  const tools = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.tools ?? "";
+  assert.equal(
+    countOccurrences(tools, '<category name="workspace">'),
+    1,
+    'tools template must include exactly one <category name="workspace"> (ADR-123 Slice 7)'
+  );
+  assert.equal(
+    countOccurrences(tools, "<tool_usage_policy>"),
+    1,
+    "ADR-119 invariant: <tool_usage_policy> wrapper must be preserved"
+  );
+  assert.equal(
+    countOccurrences(tools, "<priority_order>"),
+    1,
+    "ADR-119 invariant: <priority_order> block must be preserved"
+  );
+  assert.match(tools, /Content search[^\n]*→ `grep`/i);
+  assert.match(tools, /Filename discovery[^\n]*→ `glob`/i);
+}
+
 async function run(): Promise<void> {
   await runXmlBalance();
   await runOuterTagPresence();
@@ -404,6 +429,7 @@ async function run(): Promise<void> {
   await runMemoryProtocolSlice9();
   await runResponseContractSlice8();
   await runPresenceSlice12();
+  await runToolsWorkspaceCategoryAdr123Slice7();
 }
 
 void run();

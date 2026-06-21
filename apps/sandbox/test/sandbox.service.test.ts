@@ -1914,3 +1914,284 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
   assert.ok(producedOutput, "report.xlsx must be persisted as a produced file");
   assert.equal(producedOutput!.origin, "sandbox_output");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR-123 Slice 7 — inline grep / glob workspace tools.
+// They run trusted PersAI-owned `rg`/`fd` subprocesses on the CONTROL PLANE
+// (never an exec pod). These tests assert: argv ARRAY (no shell), workspaceRoot
+// containment, output caps, and the structured contract result. The trusted
+// binary spawn is overridden so the tests do not depend on rg/fd being present.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type TrustedBinaryCall = { command: string; args: string[]; cwd: string };
+
+function buildGrepGlobService(
+  capturedJobUpdates: Array<Record<string, unknown>>,
+  capturedBinaryCalls: TrustedBinaryCall[],
+  binaryResult: {
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    truncated: boolean;
+    timedOut: boolean;
+  }
+): SandboxService {
+  const service = new SandboxService(
+    {
+      sandboxJob: {
+        async update(input: { where: { id: string }; data: Record<string, unknown> }) {
+          capturedJobUpdates.push(input.data);
+          return { id: input.where.id, ...input.data };
+        },
+        async findUnique() {
+          return null;
+        }
+      },
+      assistantFile: {
+        async findMany() {
+          return [];
+        },
+        async create() {
+          return {};
+        },
+        async deleteMany() {
+          return { count: 0 };
+        }
+      },
+      assistantWorkspaceLease: {
+        async create(input: { data: Record<string, unknown> }) {
+          return {
+            id: "lease-search-1",
+            assistantId: String(input.data.assistantId),
+            workspaceId: String(input.data.workspaceId),
+            sandboxJobId: null,
+            leaseToken: String(input.data.leaseToken),
+            holderId: String(input.data.holderId),
+            expiresAt: input.data.expiresAt as Date
+          };
+        },
+        async updateMany() {
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {
+      buildSandboxObjectKey() {
+        return "obj/key";
+      },
+      buildSessionSnapshotKey() {
+        return "snap/key";
+      },
+      async saveObject(input: { buffer: Buffer }) {
+        return input.buffer.length;
+      },
+      async downloadObject() {
+        return null;
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {
+      async runInPod() {
+        throw new Error("grep/glob must NOT route through the exec pod bridge");
+      }
+    } as never
+  );
+  (
+    service as unknown as {
+      runTrustedControlPlaneBinary: (
+        command: string,
+        args: string[],
+        workspaceRoot: string
+      ) => Promise<typeof binaryResult>;
+    }
+  ).runTrustedControlPlaneBinary = async (command, args, workspaceRoot) => {
+    capturedBinaryCalls.push({ command, args, cwd: workspaceRoot });
+    return binaryResult;
+  };
+  return service;
+}
+
+test("SandboxService: grep runs rg via argv array (no shell) and returns structured matches", async () => {
+  const capturedJobUpdates: Array<Record<string, unknown>> = [];
+  const capturedBinaryCalls: TrustedBinaryCall[] = [];
+  // rg stdout: relativePath:lineNumber:text
+  const service = buildGrepGlobService(capturedJobUpdates, capturedBinaryCalls, {
+    exitCode: 0,
+    stdout: "src/app.ts:12:const token = 1;\nsrc/app.ts:40:const token2 = 2;\n",
+    stderr: "",
+    truncated: false,
+    timedOut: false
+  });
+  const access = service as unknown as SandboxServiceTestAccess;
+
+  await access.executeQueuedJob("grep-job-1", {
+    assistantId: "assistant-grep-1",
+    workspaceId: "workspace-grep-1",
+    runtimeRequestId: "request-grep-1",
+    runtimeSessionId: null,
+    toolCode: "grep",
+    policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
+    args: { pattern: "token", glob: "**/*.ts", caseInsensitive: true }
+  });
+
+  // 1. Exactly one trusted binary call, to `rg`, NOT a shell.
+  assert.equal(capturedBinaryCalls.length, 1, "rg must be called exactly once");
+  const call = capturedBinaryCalls[0]!;
+  assert.equal(call.command, "rg", "must invoke rg");
+  assert.ok(!call.args.includes("-lc"), "must NOT use a shell -lc invocation");
+  // 2. Argv safety: `--` precedes the model pattern so it cannot be read as a flag.
+  const dashDashIndex = call.args.indexOf("--");
+  assert.ok(dashDashIndex >= 0, "args must contain a -- terminator");
+  assert.equal(
+    call.args[dashDashIndex + 1],
+    "token",
+    "model pattern must come immediately after --"
+  );
+  assert.ok(call.args.includes("--glob"), "glob filter must be forwarded as a flag");
+  assert.ok(call.args.includes("--ignore-case"), "caseInsensitive must map to --ignore-case");
+
+  // 3. Structured result persisted as resultPayload.content JSON.
+  const completed = capturedJobUpdates.find((d) => d.status === "completed");
+  assert.ok(completed, "job must complete");
+  const payload = completed!.resultPayload as { content: string | null };
+  const parsed = JSON.parse(payload.content!) as {
+    matches: Array<{ file: string; line: number; text: string }>;
+    matchCount: number;
+    truncated: boolean;
+  };
+  assert.equal(parsed.matchCount, 2);
+  assert.deepEqual(parsed.matches[0], { file: "src/app.ts", line: 12, text: "const token = 1;" });
+  assert.equal(parsed.truncated, false);
+});
+
+test("SandboxService: grep rejects a path that escapes the workspace root", async () => {
+  const capturedJobUpdates: Array<Record<string, unknown>> = [];
+  const capturedBinaryCalls: TrustedBinaryCall[] = [];
+  const service = buildGrepGlobService(capturedJobUpdates, capturedBinaryCalls, {
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+    truncated: false,
+    timedOut: false
+  });
+  const access = service as unknown as SandboxServiceTestAccess;
+
+  await access.executeQueuedJob("grep-job-escape", {
+    assistantId: "assistant-grep-2",
+    workspaceId: "workspace-grep-2",
+    runtimeRequestId: "request-grep-2",
+    runtimeSessionId: null,
+    toolCode: "grep",
+    policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
+    args: { pattern: "secret", path: "../../etc" }
+  });
+
+  // Containment violation is caught before the binary is ever spawned.
+  assert.equal(capturedBinaryCalls.length, 0, "rg must NOT run for an escaping path");
+  const failed = capturedJobUpdates.find((d) => d.status === "failed" || d.status === "blocked");
+  assert.ok(failed, "an escaping path must fail the job (invalid_path) before spawning rg");
+});
+
+test("SandboxService: grep caps match count and flags truncation", async () => {
+  const capturedJobUpdates: Array<Record<string, unknown>> = [];
+  const capturedBinaryCalls: TrustedBinaryCall[] = [];
+  // Produce 250 matches; the handler caps at 200 and flags truncated.
+  const stdout = Array.from(
+    { length: 250 },
+    (_unused, index) => `src/file.ts:${String(index + 1)}:match ${String(index)}`
+  ).join("\n");
+  const service = buildGrepGlobService(capturedJobUpdates, capturedBinaryCalls, {
+    exitCode: 0,
+    stdout,
+    stderr: "",
+    truncated: false,
+    timedOut: false
+  });
+  const access = service as unknown as SandboxServiceTestAccess;
+
+  await access.executeQueuedJob("grep-job-cap", {
+    assistantId: "assistant-grep-3",
+    workspaceId: "workspace-grep-3",
+    runtimeRequestId: "request-grep-3",
+    runtimeSessionId: null,
+    toolCode: "grep",
+    policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
+    args: { pattern: "match" }
+  });
+
+  const completed = capturedJobUpdates.find((d) => d.status === "completed");
+  const payload = completed!.resultPayload as { content: string | null };
+  const parsed = JSON.parse(payload.content!) as { matchCount: number; truncated: boolean };
+  assert.equal(parsed.matchCount, 200, "match count must be capped at 200");
+  assert.equal(parsed.truncated, true, "truncation must be flagged when matches exceed the cap");
+});
+
+test("SandboxService: glob runs fd via argv array and returns sorted relative paths", async () => {
+  const capturedJobUpdates: Array<Record<string, unknown>> = [];
+  const capturedBinaryCalls: TrustedBinaryCall[] = [];
+  // fd prints absolute-ish paths; the handler re-bases them to workspace-relative
+  // and sorts. Use the resolved workspace root for realism.
+  const service = buildGrepGlobService(capturedJobUpdates, capturedBinaryCalls, {
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+    truncated: false,
+    timedOut: false
+  });
+  const access = service as unknown as SandboxServiceTestAccess;
+  const workspaceRoot = access.resolveWorkspaceSessionRoot("assistant-glob-1", "workspace-glob-1");
+  // Re-point the binary result now that we know the workspace root.
+  (
+    service as unknown as {
+      runTrustedControlPlaneBinary: (
+        command: string,
+        args: string[],
+        cwd: string
+      ) => Promise<{
+        exitCode: number;
+        stdout: string;
+        stderr: string;
+        truncated: boolean;
+        timedOut: boolean;
+      }>;
+    }
+  ).runTrustedControlPlaneBinary = async (command, args, cwd) => {
+    capturedBinaryCalls.push({ command, args, cwd });
+    return {
+      exitCode: 0,
+      stdout: `${workspaceRoot}/src/index.ts\n${workspaceRoot}/src/app.ts\n`,
+      stderr: "",
+      truncated: false,
+      timedOut: false
+    };
+  };
+
+  await access.executeQueuedJob("glob-job-1", {
+    assistantId: "assistant-glob-1",
+    workspaceId: "workspace-glob-1",
+    runtimeRequestId: "request-glob-1",
+    runtimeSessionId: null,
+    toolCode: "glob",
+    policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
+    args: { pattern: "*.ts" }
+  });
+
+  assert.equal(capturedBinaryCalls.length, 1, "fd must be called exactly once");
+  const call = capturedBinaryCalls[0]!;
+  assert.equal(call.command, "fd", "must invoke fd");
+  assert.ok(!call.args.includes("-lc"), "must NOT use a shell -lc invocation");
+  const dashDashIndex = call.args.indexOf("--");
+  assert.ok(dashDashIndex >= 0, "args must contain a -- terminator");
+  assert.equal(call.args[dashDashIndex + 1], "*.ts", "model pattern must come after --");
+
+  const completed = capturedJobUpdates.find((d) => d.status === "completed");
+  const payload = completed!.resultPayload as { content: string | null };
+  const parsed = JSON.parse(payload.content!) as { paths: string[]; truncated: boolean };
+  assert.deepEqual(
+    parsed.paths,
+    ["src/app.ts", "src/index.ts"],
+    "paths must be workspace-relative and sorted"
+  );
+  assert.equal(parsed.truncated, false);
+});

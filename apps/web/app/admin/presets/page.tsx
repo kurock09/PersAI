@@ -96,6 +96,8 @@ const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
   "scheduled_action",
   "background_task",
   "files",
+  "grep",
+  "glob",
   "exec",
   "shell"
 ] as const;

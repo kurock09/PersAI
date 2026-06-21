@@ -386,6 +386,14 @@ export function projectRuntimeNativeTools(
   if (filesPolicy !== null) {
     projectedTools.push(createFilesToolDefinition(filesPolicy));
   }
+  const grepPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "grep", "inline");
+  if (grepPolicy !== null) {
+    projectedTools.push(createGrepToolDefinition(grepPolicy));
+  }
+  const globPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "glob", "inline");
+  if (globPolicy !== null) {
+    projectedTools.push(createGlobToolDefinition(globPolicy));
+  }
   const execPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "exec", "sandbox");
   if (execPolicy !== null) {
     projectedTools.push(createExecToolDefinition(execPolicy));
@@ -1592,6 +1600,78 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           description:
             'Optional focus hint for action="preview" (for example "read the nutrition label" or "compare with the previous photo").'
+        }
+      }
+    }
+  };
+}
+
+function createGrepToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  return {
+    name: "grep",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Search workspace files for a text pattern and return structured matches (file path, line number, matched text). Prefer this over shell grep / bash rg for workspace content search."
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["pattern"],
+      properties: {
+        pattern: {
+          type: "string",
+          description: "Regular expression to search for across workspace file contents."
+        },
+        path: {
+          type: "string",
+          description:
+            "Optional workspace-relative directory to scope the search. Omit to search the whole workspace."
+        },
+        glob: {
+          type: "string",
+          description:
+            'Optional glob filter to limit which files are searched, for example "**/*.ts".'
+        },
+        type: {
+          type: "string",
+          description:
+            'Optional ripgrep file-type filter, for example "ts", "py", or "md". Use instead of glob for common languages.'
+        },
+        caseInsensitive: {
+          type: "boolean",
+          description: "Optional case-insensitive match. Defaults to case-sensitive."
+        },
+        contextLines: {
+          type: "integer",
+          minimum: 0,
+          maximum: 10,
+          description: "Optional number of context lines to include around each match."
+        }
+      }
+    }
+  };
+}
+
+function createGlobToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  return {
+    name: "glob",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Find workspace files whose names match a glob pattern and return sorted relative paths. Prefer this over shell find / fd for workspace filename discovery."
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["pattern"],
+      properties: {
+        pattern: {
+          type: "string",
+          description: 'Glob pattern to match file names, for example "*.ts" or "**/README*".'
+        },
+        path: {
+          type: "string",
+          description:
+            "Optional workspace-relative directory to scope the search. Omit to search the whole workspace."
         }
       }
     }

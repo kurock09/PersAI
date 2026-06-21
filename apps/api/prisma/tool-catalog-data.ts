@@ -355,17 +355,63 @@ GOTCHAS:
     displayName: "Shell",
     description: "Run a bounded shell command inside the isolated sandbox workspace.",
     modelDescription: "Run a bounded shell command inside the assistant sandbox workspace.",
-    modelUsageGuidance: `WHEN TO USE: A shell command (pipes, redirects, shell builtins, multi-step composition) is genuinely needed inside the sandbox.
-WHEN NOT TO USE: Plain file IO (use files). A single bounded executable with explicit arguments (use exec). Producing a document, image, or web result (use the dedicated tool).
+    modelUsageGuidance: `WHEN TO USE: Use shell proactively for multi-step autonomous work — pipelines, shell builtins, process composition, running scripts, build commands, transformations, and any multi-command sequencing inside the sandbox. Shell is the primary autonomous execution surface; do not wait to be asked.
+WHEN NOT TO USE: Content search in the workspace (use grep instead of shell grep/rg). Filename discovery (use glob instead of shell find/fd). Plain file IO (use files). Producing a document, image, or web result (use the dedicated tool).
 EXAMPLES:
-- shell({command:"grep -r 'TODO' src/"}) — pipeline-style search.
+- shell({command:"npm install && npm run build"}) — multi-step build pipeline.
 - shell({command:"ls -la artifacts/ | head -20"}) — composed shell pipeline.
+- shell({command:"python3 script.py --input data.csv --output result.json"}) — run a script with arguments.
+- shell({command:"git log --oneline -20"}) — inspect repository state.
 GOTCHAS:
 - Refer to workspace files by relative path; absolute paths outside the sandbox are rejected.
 - Stay within sandbox CPU / memory / time limits.
-- Prefer the \`files\` tool for normal file IO and \`exec\` for single-command runs; reserve shell for genuine shell composition.`,
+- For content search use grep; for filename find use glob. Shell is for genuine execution, not search shortcuts.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
+  },
+  {
+    id: "24242424-2424-2424-2424-242424242424",
+    code: "grep",
+    displayName: "Grep",
+    description: "Fast content search across workspace files using ripgrep.",
+    modelDescription:
+      "Search workspace files for a text pattern and return structured matches (file path, line number, matched text).",
+    modelUsageGuidance: `WHEN TO USE: Content search — find code patterns, strings, identifiers, log entries, or any text across the workspace. Prefer grep over shell grep / bash rg for workspace content search.
+WHEN NOT TO USE: Filename discovery (use glob). File reads (use files). Process execution (use shell or exec).
+EXAMPLES:
+- grep({pattern:"TODO"}) — find all TODO comments in the workspace.
+- grep({pattern:"function processPayment", glob:"**/*.ts"}) — search TypeScript files for a function.
+- grep({pattern:"ERROR", path:"logs/", caseInsensitive:true}) — search a specific directory case-insensitively.
+- grep({pattern:"import.*from.*react", type:"ts"}) — grep by file type.
+GOTCHAS:
+- pattern is a regex; escape special chars (e.g. use \\. not . to match a literal dot).
+- path is a workspace-relative directory to scope the search; omit to search the whole workspace.
+- Use glob or type to narrow by file extension; omit for a broad search.
+- truncated:true means matches were capped; narrow the search with glob, type, or path.`,
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
+  },
+  {
+    id: "25252525-2525-2525-2525-252525252525",
+    code: "glob",
+    displayName: "Glob",
+    description: "Fast filename discovery across workspace files using fd.",
+    modelDescription:
+      "Find workspace files whose names match a glob pattern and return sorted relative paths.",
+    modelUsageGuidance: `WHEN TO USE: Filename discovery — find files by name pattern, extension, or path prefix. Prefer glob over shell find/fd for workspace filename discovery.
+WHEN NOT TO USE: Content search (use grep). File reads (use files). Process execution (use shell or exec).
+EXAMPLES:
+- glob({pattern:"*.ts"}) — find all TypeScript files in the workspace.
+- glob({pattern:"*.test.ts", path:"src/"}) — find test files in a specific directory.
+- glob({pattern:"README*"}) — find README files of any extension.
+GOTCHAS:
+- pattern is a glob expression; use * for any characters in a segment, ** for any depth.
+- path scopes the search to a workspace-relative directory; omit to search the whole workspace.
+- Results are sorted alphabetically; truncated:true means the list was capped.`,
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
   },
   {
@@ -443,6 +489,8 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   scheduled_action: { active: true, dailyCallLimit: null, perTurnCap: null },
   background_task: { active: true, dailyCallLimit: null, perTurnCap: null },
   files: { active: true, dailyCallLimit: 20, perTurnCap: null },
+  grep: { active: true, dailyCallLimit: 20, perTurnCap: null },
+  glob: { active: true, dailyCallLimit: 20, perTurnCap: null },
   exec: { active: false, dailyCallLimit: 5, perTurnCap: null },
   shell: { active: false, dailyCallLimit: 5, perTurnCap: null }
 };

@@ -402,6 +402,32 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           dailyCallLimit: null
         },
         {
+          toolCode: "grep",
+          displayName: "Grep",
+          description: "Search workspace files for a text pattern.",
+          usageGuidance: "Prefer grep over shell grep for workspace content search.",
+          kind: "plan",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "glob",
+          displayName: "Glob",
+          description: "Find workspace files by name pattern.",
+          usageGuidance: "Prefer glob over shell find for workspace filename discovery.",
+          kind: "plan",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
+        {
           toolCode: "scheduled_action",
           displayName: "Scheduled Action",
           description: "Schedule simple unconditional user-visible reminders.",
@@ -479,9 +505,30 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   const backgroundTask = projected.tools.find((tool) => tool.name === "background_task");
   const tts = projected.tools.find((tool) => tool.name === "tts");
   const routeControl = projected.tools.find((tool) => tool.name === "route_control");
+  const grep = projected.tools.find((tool) => tool.name === "grep");
+  const glob = projected.tools.find((tool) => tool.name === "glob");
 
   assert.ok(webSearch, "web_search should be projected when enabled and configured");
   assert.equal(routeControl, undefined);
+  // ADR-123 Slice 7 — grep/glob inline workspace tools are projected when the
+  // policy is enabled + inline.
+  assert.ok(grep, "grep should be projected when policy enabled + inline");
+  assert.ok(glob, "glob should be projected when policy enabled + inline");
+  assert.equal(
+    (grep?.inputSchema as { required?: string[] })?.required?.[0],
+    "pattern",
+    "grep schema requires pattern"
+  );
+  assert.equal(
+    (glob?.inputSchema as { required?: string[] })?.required?.[0],
+    "pattern",
+    "glob schema requires pattern"
+  );
+  assert.match(grep?.description ?? "", /shell grep|content search/i);
+  assert.match(glob?.description ?? "", /shell find|filename/i);
+  // ADR-123 Slice 7 — shell description must no longer steer away ("reserve
+  // shell" / "prefer files") and must not point search at shell.
+  assert.doesNotMatch(shell?.description ?? "", /reserve shell|prefer the .?files/i);
   assert.equal(
     webSearch?.description,
     "Search the public web for current external facts.\nUse this when the answer depends on recent external information or links. May be called in parallel with other independent searches."

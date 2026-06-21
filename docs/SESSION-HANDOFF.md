@@ -3,6 +3,43 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — ADR-123 Slice 7: inline `grep`/`glob` + autonomous `shell` + `<tool_usage_policy>` workspace category — CHECKPOINT (final ADR-123 slice)
+
+### State
+
+Implemented in the working tree (not committed/pushed — left for the orchestrator). Full verification gate **PASS**: lint · format:check · all 5 typechecks (`@persai/api`/`@persai/web`/`@persai/runtime`/`@persai/provider-gateway`/`@persai/sandbox`) · sandbox tests 26/26 · api full suite · runtime full suite · web presets 6/6.
+
+### What changed
+
+`grep` (content search) and `glob` (filename discovery) added as **inline** workspace tools that run on the sandbox **control plane** as trusted PersAI subprocesses (`rg`/`fd`) against the hydrated `workspaceRoot` — NOT in an exec pod. `shell` rewritten to a first-class autonomous multi-step tool (search routed to grep/glob). Additive `<category name="workspace">` added to the `<tool_usage_policy>` prompt. Plan activation defaults and tool-loop budget unchanged.
+
+### Key decisions
+
+- **grep/glob are control-plane trusted-binary execution, not model commands** (D2 holds): model args (pattern/glob/type/path) pass as an argv ARRAY with a `--` terminator (`shell:false`); optional `path` normalized through `resolveWorkspacePath` (escapes rejected before spawn). Hard timeout (`maxProcessRuntimeMs`), stdout byte cap (`maxStdoutBytes`), match/path caps (grep 200 / glob 500) with `truncated`.
+- **Routing reuses the `files` inline path**: a thin `runtime-grep-glob-tool.service.ts` posts a sandbox job (toolCode `grep`/`glob`) → control-plane handler; per-turn caps grep 10 / glob 10.
+- **rg/fd added to the control-plane `apps/sandbox/Dockerfile`** (apt `ripgrep`+`fd-find`, `fdfind`→`fd` symlink), mirroring the exec-image install. (apt distro versions, matching the exec image which also does not pin explicit versions.)
+- **`active:true` for grep/glob** in `STARTER_TRIAL_TOOL_POLICY` (matches `files`; exec/shell stay inactive).
+- **ADR-119 golden invariant preserved**: only an additive `<category name="workspace">` was added; `<priority_order>` + `<tool_usage_policy>` wrapper untouched; structural golden tests green; the byte-snapshot fixture regenerated (diff = exactly the +7-line category).
+
+### Files touched (Slice 7)
+
+- `packages/runtime-contract/src/index.ts` (`RuntimeGrepMatch`/`RuntimeGrepToolResult`/`RuntimeGlobToolResult`)
+- `apps/sandbox/src/sandbox.service.ts` (grep/glob handlers + `runTrustedControlPlaneBinary` + path containment) · `apps/sandbox/Dockerfile` (rg/fd)
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` (grep/glob tool definitions + projection)
+- `apps/runtime/src/modules/turns/runtime-grep-glob-tool.service.ts` (NEW inline service) · `turn-execution.service.ts` (dispatch + result-union) · `turns.module.ts` (DI) · `tool-budget-policy.ts` (caps)
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts` (inline mode + sandbox gate + files guidance) · `apps/api/prisma/tool-catalog-data.ts` (grep/glob rows + shell rewrite + activation) · `apps/api/prisma/bootstrap-preset-data.ts` (`<category name="workspace">`)
+- `apps/web/app/admin/presets/page.tsx` (`PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER` += grep/glob after files)
+- `docs/API-BOUNDARY.md`, `docs/CHANGELOG.md`, `docs/ADR/123-…md` (Slice 7 LANDED)
+- Tests: `apps/sandbox/test/sandbox.service.test.ts`, `apps/api/test/runtime-tool-policy.test.ts`, `apps/api/test/bootstrap-preset-data.test.ts`, `apps/runtime/test/native-tool-projection.test.ts`, `apps/runtime/test/turn-execution.service.test.ts`, regenerated `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt`
+
+### Deploy residual
+
+The control-plane `sandbox` image MUST be rebuilt so `rg`/`fd` are on PATH — inline grep/glob fail without them. No DB migration this slice.
+
+### Next recommended step
+
+Live smoke of grep/glob in `/admin/presets` + a real turn (grep a pattern, glob a name) once the rebuilt sandbox image is deployed; then ADR-123 can be closed in full.
+
 ## 2026-06-21 — ADR-123 Slice 6: Documents mode B (model-writes-code, create-only) — CHECKPOINT
 
 ### State
