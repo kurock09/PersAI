@@ -161,7 +161,7 @@ Semantics are unified. The caller expresses intent ("this many tokens of thinkin
 
 ### D5 — Remove both hardcodes; `project` and `deepMode` become weighted signals
 
-`buildProjectModePrecheckDecision` (`apps/runtime/src/modules/turns/project-execution-profile.ts:50–86`) currently returns a hardcoded `executionMode: "reasoning"` (line 72). Under this ADR, `chatMode === "project"` becomes a strong signal that typically resolves to `level: "heavy"`, not `level: "deep"`. Project mode uses the premium model with extended thinking — not the reasoning-model slot — unless other signals (task complexity, explicit depth cues) push the level to `deep`.
+`chatMode === "project"` is not allowed to bypass the router or pin the reasoning-model slot. Project mode owns the staged pull-first execution contract (files/knowledge/web gather → analyze → synthesize), while task heaviness still comes from the same precheck/classifier path as ordinary and smart turns. Project turns therefore start from the normal routing baseline; they may resolve to `medium`, `heavy`, or `deep` only when the same routing signals (message complexity, file/PDF work, explicit depth cues, retrieval/tool needs, classifier output) justify that escalation. Project mode uses the reasoning-model slot only when the resolved level is `deep`.
 
 `deepMode === true` ("smarter") becomes a +1-level nudge applied to the same level decision, not a separate code path:
 
@@ -182,7 +182,7 @@ The level decision considers all of the following:
 - Request length (character count of the normalized message text).
 - Presence of attachments (any non-trivial file or PDF attachment is a heavy-signal contributor).
 - Active Skill (a running scenario is a medium-or-higher signal).
-- `chatMode` (project is a heavy-level prior; ordinary and smart chat are unaffected).
+- `chatMode` (project selects the pull-first workflow contract; it does not hardcode the model level).
 - Keyword cues: "think hard", "think carefully", "проанализируй", "разбери подробно" are heavy-level contributors.
 - KB availability (retrieval-capable context lowers the bar for `heavy` by removing guesswork).
 
@@ -311,7 +311,7 @@ Key invariant: `executionMode` derivation is a mechanical projection. The policy
 - Replace `executionMode` output with `level` output in `buildPrecheckDecision` and all precheck branches of `turn-routing.service.ts`.
 - Remove the seven deepMode ternaries (lines 554, 576, 598, 637, 683, 707, 735, 751). Replace with a single `applyDeepModeNudge(level): level` helper.
 - Remove `coerceExecutionMode` (lines 1223–1231).
-- Delete the `executionMode: "reasoning"` hardcode in `buildProjectModePrecheckDecision` (`project-execution-profile.ts:72`). Replace with `level: "heavy"` (the default project-mode level); deepMode nudge may elevate it to `"deep"`.
+- Delete the project-mode routing bypass. `project-execution-profile.ts` keeps only the project workflow contract and stream events; `turn-routing.service.ts` lets project turns pass through the ordinary precheck/classifier path so the model level is selected by routing evidence rather than chat mode.
 - Update `ROUTER_OUTPUT_SCHEMA` so `executionMode` is removed from the LLM output; add `level` with `enum: ["light", "medium", "heavy", "deep"]`.
 - Apply the D2 resolver after the level decision to derive `executionMode` before constructing `TurnRouteDecision`.
 - Tests: signal-combination matrix (project mode × deepMode × task cues → expected level); golden test on the resolver grid (all four levels, two plan configs).

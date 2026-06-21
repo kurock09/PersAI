@@ -4211,12 +4211,12 @@ export class TurnExecutionService {
     if (existingText.startsWith(sanitizedNextText)) {
       return existingText;
     }
-    const needsInlineSeparator =
-      !/\s$/.test(existingText) &&
-      !/^\s/.test(sanitizedNextText) &&
+    const needsSegmentSeparator =
+      !/\n\s*$/.test(existingText) &&
+      !/^\s*\n/.test(sanitizedNextText) &&
       !/^[,.;:!?)]/.test(sanitizedNextText);
-    return needsInlineSeparator
-      ? `${existingText} ${sanitizedNextText}`
+    return needsSegmentSeparator
+      ? `${existingText}\n\n${sanitizedNextText.trimStart()}`
       : `${existingText}${sanitizedNextText}`;
   }
 

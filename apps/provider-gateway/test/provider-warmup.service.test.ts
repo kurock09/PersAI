@@ -261,7 +261,7 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
   assert.deepEqual(capturingAnthropicClient.warmedKeys, []);
   assert.deepEqual(capturingDeepseekClient.warmedKeys, []);
 
-  let resolvedSecretId: string | null = null;
+  const resolvedSecretIds: string[] = [];
   const managedAnthropicService = new ProviderWarmupService(
     config,
     {
@@ -269,7 +269,7 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
         return true;
       },
       async resolveSecretValue(secretId: string) {
-        resolvedSecretId = secretId;
+        resolvedSecretIds.push(secretId);
         return "anthropic-managed-test-key";
       },
       async getDefaultProviderSettings() {
@@ -297,7 +297,7 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
     provider: "anthropic",
     model: "claude-opus-4-7"
   });
-  assert.equal(resolvedSecretId, "anthropic/api-key");
+  assert.equal(resolvedSecretIds.includes("anthropic/api-key"), true);
   assert.equal(managedAnthropic.provider, "anthropic");
   assert.equal(managedAnthropic.configured, true);
   assert.equal(managedAnthropic.state, "ready");

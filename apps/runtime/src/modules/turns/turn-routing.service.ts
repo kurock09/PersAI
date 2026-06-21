@@ -13,7 +13,6 @@ import {
   resolveExecutionProfile,
   type ThinkingBudgetOverrides
 } from "./execution-profile-resolver";
-import { buildProjectModePrecheckDecision, isProjectChatMode } from "./project-execution-profile";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import {
   isRetryableRuntimeTextFailure,
@@ -651,23 +650,6 @@ export class TurnRoutingService {
           usage: null,
           skillState: currentSkillDecision
         },
-        input.overrides
-      );
-    }
-
-    if (isProjectChatMode(input.request)) {
-      return this.createDecision(
-        buildProjectModePrecheckDecision({
-          request: input.request,
-          fallbackMode: input.fallbackMode,
-          policyMode: input.policy.mode,
-          availableKnowledge: availableHints.has("knowledge"),
-          availableWeb: availableHints.has("web"),
-          ordinarySourcePriorityMode: ordinaryPriorityMode,
-          productKnowledgeIntent,
-          skillState: currentSkillDecision,
-          selectedSkillIds: []
-        }),
         input.overrides
       );
     }

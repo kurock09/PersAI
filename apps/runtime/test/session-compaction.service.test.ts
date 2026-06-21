@@ -694,6 +694,8 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   sessionStore.resolvedSession = createResolvedSession(7000);
   await service.compactSession(createCompactionRequest());
   assert.equal(providerGateway.requests.at(-1)?.promptCache?.retention, "24h");
+  const requestCountBeforeInstructionCompaction = providerGateway.requests.length;
+  const releasedLeaseCountBeforeInstructionCompaction = leaseService.released.length;
   assert.deepEqual(
     providerGateway.requests[0]?.outputSchema,
     REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA
@@ -730,8 +732,8 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(compacted.toolResult.summaryText, RENDERED_COMPACTION_SUMMARY);
   assert.equal(compacted.toolResult.preservedRecentTurns, 4);
   assert.equal(hydration.inputs.at(-1)?.keepRecentMessageCount, 8);
-  assert.equal(providerGateway.requests.length, 2);
-  assert.deepEqual(providerGateway.requests[1]?.requestMetadata, {
+  assert.equal(providerGateway.requests.length, requestCountBeforeInstructionCompaction + 1);
+  assert.deepEqual(providerGateway.requests.at(-1)?.requestMetadata, {
     classification: "manual_compaction",
     runtimeRequestId: null,
     runtimeSessionId: "session-1",
@@ -739,16 +741,16 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     compactionToolCode: "compact_context"
   });
   assert.deepEqual(
-    providerGateway.requests[1]?.outputSchema,
+    providerGateway.requests.at(-1)?.outputSchema,
     REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA
   );
-  assert.equal(providerGateway.requests[1]?.maxOutputTokens, 1_200);
+  assert.equal(providerGateway.requests.at(-1)?.maxOutputTokens, 1_200);
   assert.match(
-    providerGateway.requests[1]?.systemPrompt ?? "",
+    providerGateway.requests.at(-1)?.systemPrompt ?? "",
     /Additional operator instructions: Keep commitments and open questions\./
   );
   assert.match(
-    providerGateway.requests[1]?.systemPrompt ?? "",
+    providerGateway.requests.at(-1)?.systemPrompt ?? "",
     /30 retained notes total; prefer fewer and keep only the most durable facts and open threads\./
   );
   assert.deepEqual(sessionStore.updateCalls.at(-1), {
@@ -775,7 +777,7 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     tokensBefore: 30000,
     tokensAfter: null
   });
-  assert.equal(leaseService.released.length, 3);
+  assert.equal(leaseService.released.length, releasedLeaseCountBeforeInstructionCompaction + 1);
 
   sessionStore.resolvedSession = sessionStore.updatedSession;
   const autoAfterCompaction = await service.compactSession({
@@ -785,7 +787,7 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   });
   assert.equal(autoAfterCompaction.compacted, false);
   assert.equal(autoAfterCompaction.reason, "threshold_not_reached");
-  assert.equal(providerGateway.requests.length, 2);
+  assert.equal(providerGateway.requests.length, requestCountBeforeInstructionCompaction + 1);
 
   const retryRequestCountBefore = providerGateway.requests.length;
   const retryAppendCountBefore = postgres.appendCalls.length;

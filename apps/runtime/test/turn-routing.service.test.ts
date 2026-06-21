@@ -948,15 +948,14 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
     projectedTools
   });
   assert.equal(projectPdfDecision.source, "precheck");
-  assert.equal(projectPdfDecision.reasonCode, "project_mode_document_context");
-  // deepMode=true: heavy + nudge → deep → reasoning
+  assert.equal(projectPdfDecision.reasonCode, "reasoning_request");
+  // PDF complexity, not project mode itself, can still nudge to reasoning.
   assert.equal(projectPdfDecision.level, "deep");
   assert.equal(projectPdfDecision.executionMode, "reasoning");
   assert.equal(projectPdfDecision.thinkingBudget, 32768);
-  assert.equal(projectPdfDecision.retrievalHint, true);
-  assert.equal(projectPdfDecision.retrievalPlan.useUserKnowledge, true);
+  assert.equal(projectPdfDecision.retrievalHint, false);
+  assert.equal(projectPdfDecision.retrievalPlan.useUserKnowledge, false);
   assert.equal(projectPdfDecision.retrievalPlan.useProductKnowledge, false);
-  assert.notEqual(projectPdfDecision.reasonCode, "reasoning_request");
 
   const projectPricingRequest = createRequest(
     "In this project, compare my PersAI plan limits and pricing against the attached workload."
@@ -969,14 +968,15 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
     projectedTools
   });
   assert.equal(projectPricingDecision.source, "precheck");
-  assert.equal(projectPricingDecision.reasonCode, "project_mode");
-  assert.equal(projectPricingDecision.level, "deep");
-  assert.equal(projectPricingDecision.executionMode, "reasoning");
-  assert.equal(projectPricingDecision.thinkingBudget, 32768);
-  assert.equal(projectPricingDecision.retrievalPlan.useUserKnowledge, true);
+  assert.equal(projectPricingDecision.reasonCode, "product_knowledge_intent");
+  assert.equal(projectPricingDecision.level, "medium");
+  assert.equal(projectPricingDecision.executionMode, "premium");
+  assert.equal(projectPricingDecision.thinkingBudget, 0);
+  assert.equal(projectPricingDecision.retrievalPlan.useUserKnowledge, false);
   assert.equal(projectPricingDecision.retrievalPlan.useProductKnowledge, true);
 
-  // project mode deepMode=false → level heavy → premium
+  // Project mode no longer has a hardcoded heavy/reasoning floor; without deepMode
+  // a simple project turn remains normal unless normal routing signals escalate it.
   const projectNoDeepRequest = createRequest("Summarize the project documents.");
   projectNoDeepRequest.chatMode = "project";
   projectNoDeepRequest.deepMode = false;
@@ -986,9 +986,24 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
     projectedTools
   });
   assert.equal(projectNoDeepDecision.source, "precheck");
-  assert.equal(projectNoDeepDecision.level, "heavy");
-  assert.equal(projectNoDeepDecision.executionMode, "premium");
-  assert.equal(projectNoDeepDecision.thinkingBudget, 8192);
+  assert.equal(projectNoDeepDecision.reasonCode, "simple_turn");
+  assert.equal(projectNoDeepDecision.level, "light");
+  assert.equal(projectNoDeepDecision.executionMode, "normal");
+  assert.equal(projectNoDeepDecision.thinkingBudget, 0);
+
+  const projectSimpleDeepRequest = createRequest("Summarize the project documents.");
+  projectSimpleDeepRequest.chatMode = "project";
+  projectSimpleDeepRequest.deepMode = true;
+  const projectSimpleDeepDecision = await service.decide({
+    bundle,
+    request: projectSimpleDeepRequest,
+    projectedTools
+  });
+  assert.equal(projectSimpleDeepDecision.source, "precheck");
+  assert.equal(projectSimpleDeepDecision.reasonCode, "simple_turn");
+  assert.equal(projectSimpleDeepDecision.level, "medium");
+  assert.equal(projectSimpleDeepDecision.executionMode, "premium");
+  assert.equal(projectSimpleDeepDecision.thinkingBudget, 0);
 
   const smartPdfRequest = {
     ...projectPdfRequest,
@@ -1310,39 +1325,39 @@ async function runSlice5SignalCombinationTests(): Promise<void> {
     "chatMode=smart + medium → thinkingBudget=0"
   );
 
-  // ── Snapshot-shape: heavy-level project-mode turn ────────────────────────
+  // ── Snapshot-shape: normal project-mode turn ─────────────────────────────
   // ADR-121 D7: RuntimeTurnRoutingSnapshot mirrors TurnRouteDecision fields
   // level, executionMode, and thinkingBudget via toRuntimeTurnRoutingSnapshot.
   // Assert all three directly on the routing decision (source of truth for the
   // snapshot); the snapshot copies them verbatim.
   const snapshotProjectRequest = createRequest("Summarize the project context and files.");
   snapshotProjectRequest.chatMode = "project";
-  snapshotProjectRequest.deepMode = false; // heavy base, no deepMode nudge → heavy
-  const snapshotProjectHeavyDecision = await service.decide({
+  snapshotProjectRequest.deepMode = false;
+  const snapshotProjectNormalDecision = await service.decide({
     bundle: precheckBundle,
     request: snapshotProjectRequest,
     projectedTools
   });
   // ADR-121 D7 invariant: RuntimeTurnRoutingSnapshot must carry all three fields.
   assert.equal(
-    snapshotProjectHeavyDecision.level,
-    "heavy",
-    "snapshot|project-heavy: level=heavy (D7 — snapshot gains additive level field)"
+    snapshotProjectNormalDecision.level,
+    "light",
+    "snapshot|project-normal: level=light (D7 — snapshot gains additive level field)"
   );
   assert.equal(
-    snapshotProjectHeavyDecision.executionMode,
-    "premium",
-    "snapshot|project-heavy: executionMode=premium (D3 — kept for back-compat)"
+    snapshotProjectNormalDecision.executionMode,
+    "normal",
+    "snapshot|project-normal: executionMode=normal (D3 — kept for back-compat)"
   );
   assert.equal(
-    snapshotProjectHeavyDecision.thinkingBudget,
-    8192,
-    "snapshot|project-heavy: thinkingBudget=8192 (D7 — snapshot gains additive thinkingBudget)"
+    snapshotProjectNormalDecision.thinkingBudget,
+    0,
+    "snapshot|project-normal: thinkingBudget=0 (D7 — snapshot gains additive thinkingBudget)"
   );
   assert.equal(
-    snapshotProjectHeavyDecision.source,
+    snapshotProjectNormalDecision.source,
     "precheck",
-    "snapshot|project-heavy: source=precheck (stored verbatim in snapshot)"
+    "snapshot|project-normal: source=precheck (stored verbatim in snapshot)"
   );
 
   // ── Plan thinking-budget override: partial medium-only via router ────────

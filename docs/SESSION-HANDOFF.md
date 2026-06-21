@@ -3,6 +3,43 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — Project routing + tool-loop text separation — CHECKPOINT
+
+### State
+
+Implemented locally and verified. Baseline SHA before this slice: `f52d760d`.
+
+### What changed
+
+- Project chat mode no longer bypasses ordinary turn routing. `project-execution-profile.ts` now owns only project workflow helpers (contract + stream events), and `turn-routing.service.ts` lets project turns pass through the same precheck/classifier path as other modes. Result: project remains pull-first/tool-oriented, but it no longer pins every turn to the reasoning slot; reasoning is selected only when routing evidence reaches `deep`.
+- Tool-loop assistant text segments are separated with a blank line when multiple model pre-tool/follow-up snippets are merged into one visible answer, preventing inline "planning snippet planning snippet final answer" mush across many loop passes. Prefix-preserving merge behavior remains intact so cumulative streaming deltas still emit correctly.
+- Repeated the failing GitHub `CI` locally. The failure was from ADR-124 test drift already on `main`: `session-compaction.service.test.ts` used absolute request/lease counts after an added prompt-cache-retention compaction call, and provider-gateway warmup tests did not account for DeepSeek's managed `deepseek/api-key` resolution. Both tests now assert the intended behavior without depending on stale ordering/counts.
+
+### Files
+
+`apps/runtime/src/modules/turns/project-execution-profile.ts`, `apps/runtime/src/modules/turns/turn-routing.service.ts`, `apps/runtime/src/modules/turns/turn-execution.service.ts`, runtime tests, provider-gateway warmup tests, ADR-121, CHANGELOG, this checkpoint.
+
+### Verified
+
+Focused checks passed:
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/turn-routing.service.test.ts runTurnRoutingServiceTest`
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/turn-execution.service.test.ts runTurnExecutionServiceTest`
+- `corepack pnpm --filter @persai/runtime exec tsx test/project-execution-profile.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/session-compaction.service.test.ts runSessionCompactionServiceTest`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+
+Full gate passed:
+
+- `corepack pnpm run format:check`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm -r --if-present run typecheck`
+- `corepack pnpm -r --if-present run test`
+
+### Next recommended step
+
+Commit and push. After deploy, verify one simple project-mode turn routes to normal/premium rather than reasoning, and one genuinely deep project/PDF turn can still escalate to reasoning.
+
 ## 2026-06-21 — ADR-124 provider routing/capabilities/fallback/DeepSeek — CHECKPOINT
 
 ### State

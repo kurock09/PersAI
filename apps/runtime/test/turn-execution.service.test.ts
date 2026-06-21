@@ -5189,7 +5189,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const streamToolLoopCompletedEvent = toolLoopStreamEvents.at(-1);
   assert.equal(streamToolLoopCompletedEvent?.type, "completed");
   if (streamToolLoopCompletedEvent?.type === "completed") {
-    assert.equal(streamToolLoopCompletedEvent.result.assistantText, "reply after summary");
+    assert.equal(streamToolLoopCompletedEvent.result.assistantText, "reply after \n\nsummary");
   }
 
   providerGatewayClient.streamEventsQueue = [
@@ -5319,7 +5319,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     // Backward-compat full text = the real corrected merged text — each note
     // appears EXACTLY ONCE followed by the answer (never doubled).
     const dedupeAssistantText = dedupeToolLoopCompletedEvent.result.assistantText;
-    assert.equal(dedupeAssistantText, "First plan. Second plan. Final answer.");
+    assert.equal(dedupeAssistantText, "First plan.\n\nSecond plan.\n\nFinal answer.");
     assert.equal(dedupeAssistantText.split("First plan.").length - 1, 1);
     assert.equal(dedupeAssistantText.split("Second plan.").length - 1, 1);
     assert.equal(dedupeAssistantText.split("Final answer.").length - 1, 1);
@@ -5644,7 +5644,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const hiddenPrefixCompletedEvent = hiddenPrefixStreamEvents.at(-1);
   assert.equal(hiddenPrefixCompletedEvent?.type, "completed");
   if (hiddenPrefixCompletedEvent?.type === "completed") {
-    assert.equal(hiddenPrefixCompletedEvent.result.assistantText, "reply before tool summary");
+    assert.equal(hiddenPrefixCompletedEvent.result.assistantText, "reply before tool \n\nsummary");
   }
 
   providerGatewayClient.resultQueue = [

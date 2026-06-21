@@ -1,40 +1,7 @@
-import type {
-  RoutingLevel,
-  RuntimeSkillDecisionState,
-  RuntimeTurnStreamEvent,
-  RuntimeTurnRequest
-} from "@persai/runtime-contract";
-import type {
-  CreateDecisionInput,
-  OrdinarySourcePriorityMode,
-  TurnRetrievalPlan,
-  TurnRouteDecision
-} from "./turn-routing.service";
-
-type ProjectPrecheckInput = {
-  request: RuntimeTurnRequest;
-  fallbackMode: TurnRouteDecision["executionMode"];
-  policyMode: TurnRouteDecision["mode"];
-  availableKnowledge: boolean;
-  availableWeb: boolean;
-  ordinarySourcePriorityMode: OrdinarySourcePriorityMode;
-  productKnowledgeIntent: boolean;
-  skillState: RuntimeSkillDecisionState | null;
-  selectedSkillIds: string[];
-};
+import type { RuntimeTurnStreamEvent, RuntimeTurnRequest } from "@persai/runtime-contract";
 
 export function isProjectChatMode(request: RuntimeTurnRequest): boolean {
   return request.chatMode === "project";
-}
-
-export function hasProjectDocumentContext(request: RuntimeTurnRequest): boolean {
-  return request.message.attachments.some(
-    (attachment) =>
-      attachment.kind === "file" &&
-      (attachment.mimeType.toLowerCase() === "application/pdf" ||
-        (typeof attachment.fileRef === "string" && attachment.fileRef.trim().length > 0) ||
-        attachment.objectKey.trim().length > 0)
-  );
 }
 
 export const PROJECT_EXECUTION_DEVELOPER_CONTRACT = [
@@ -48,47 +15,6 @@ export const PROJECT_EXECUTION_DEVELOPER_CONTRACT = [
   "Do not expose raw hidden chain-of-thought. Respect per-turn tool caps and loop limits from the effective plan.",
   "One local file or one retrieved excerpt is not proof of sufficiency, and a single snippet is not the same as the source — fetch the excerpt before relying on it. Do not synthesize from a single source: if the current context is procedural, partial, outdated, or off-target for the actual engineering/business question, continue with narrower follow-up lookup or external verification instead of answering early."
 ].join("\n");
-
-export function buildProjectModePrecheckDecision(input: ProjectPrecheckInput): CreateDecisionInput {
-  const hasDocumentContext = hasProjectDocumentContext(input.request);
-  const useSkills =
-    input.selectedSkillIds.length > 0 &&
-    input.skillState?.status === "active" &&
-    typeof input.skillState.activeSkillId === "string" &&
-    input.skillState.activeSkillId.trim().length > 0;
-  const useUserKnowledge = input.availableKnowledge;
-  const useProductKnowledge = input.availableKnowledge && input.productKnowledgeIntent;
-  const useWeb = input.availableWeb;
-  const retrievalPlan: TurnRetrievalPlan = {
-    useSkills,
-    selectedSkillIds: useSkills ? input.selectedSkillIds : [],
-    useUserKnowledge,
-    useProductKnowledge,
-    useWeb,
-    ordinarySourcePriorityMode: useSkills ? "not_applicable" : input.ordinarySourcePriorityMode,
-    confidence: hasDocumentContext ? "high" : "medium",
-    reasonCode: hasDocumentContext ? "project_mode_document_context" : "project_mode"
-  };
-
-  const deepMode = input.request.deepMode === true;
-  const level: RoutingLevel = deepMode ? "deep" : "heavy";
-
-  return {
-    level,
-    retrievalHint: useUserKnowledge || useProductKnowledge || useSkills,
-    toolHints:
-      useUserKnowledge || useProductKnowledge || useSkills ? "knowledge" : useWeb ? "web" : "none",
-    confidence: "high",
-    clarifyNeeded: false,
-    fallbackMode: input.fallbackMode,
-    reasonCode: retrievalPlan.reasonCode,
-    retrievalPlan,
-    source: "precheck",
-    mode: input.policyMode,
-    usage: null,
-    skillState: input.skillState
-  };
-}
 
 type ProjectStreamIdentity = {
   requestId: string;
