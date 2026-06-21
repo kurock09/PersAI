@@ -37,6 +37,7 @@ import { runBuildSystemReminderBlocksServiceTest } from "./build-system-reminder
 import { runAdr119GoldenPromptSnapshotTest } from "./adr119-golden-prompt-snapshot.test";
 import { runAdr119Invariantstest } from "./native-tool-projection.test";
 import { runModelOutputBudgetTest } from "./model-output-budget.test";
+import { runRuntimeTextOnlyMultimodalSanitizerTest } from "./runtime-text-only-multimodal-sanitizer.test";
 
 async function run(): Promise<void> {
   await runRuntimeConfigTest();
@@ -79,6 +80,7 @@ async function run(): Promise<void> {
   await runAdr119GoldenPromptSnapshotTest();
   await runAdr119Invariantstest();
   await runModelOutputBudgetTest();
+  await runRuntimeTextOnlyMultimodalSanitizerTest();
 }
 
 run().catch((error) => {

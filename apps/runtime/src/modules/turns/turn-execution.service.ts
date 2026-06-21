@@ -128,6 +128,12 @@ import {
   type ToolBudgetSnapshot
 } from "./tool-budget-policy";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
+import {
+  providerAcceptsMultimodalInput,
+  sanitizeMultimodalContentBlocks,
+  sanitizeMultimodalMessages,
+  type MultimodalBlockDescriber
+} from "./runtime-text-only-multimodal-sanitizer";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
@@ -950,6 +956,7 @@ export class TurnExecutionService {
     this.runtimeObservabilityService.beginStreamTurn();
     try {
       try {
+        await this.sanitizeBaseRequestMultimodalForTextOnlyProvider(execution, acceptedTurn);
         for (
           let iteration = 0;
           iteration < maxToolLoopIterations + previewFollowUpExtraIterations;
@@ -964,7 +971,12 @@ export class TurnExecutionService {
             }
           }
           const iterationBaseText = assembledText;
-          const pendingFilePreviewBlocks = turnState.pendingFilePreviewBlocks;
+          const pendingFilePreviewBlocks =
+            await this.sanitizePreviewBlocksMultimodalForTextOnlyProvider(
+              execution,
+              acceptedTurn,
+              turnState.pendingFilePreviewBlocks
+            );
           delete turnState.pendingFilePreviewBlocks;
           let providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
             assistantText: iterationBaseText,
@@ -1162,6 +1174,8 @@ export class TurnExecutionService {
                           batch.find((entry) => entry.toolCall.id === result.toolCall.id) ?? null,
                           result.outcome
                         );
+                        result.outcome.exchange.reasoningContent =
+                          event.result.reasoningContent ?? null;
                         toolHistory.push(result.outcome.exchange);
                         this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
                         durableCompactionExecuted =
@@ -1222,6 +1236,7 @@ export class TurnExecutionService {
                       entry,
                       outcome
                     );
+                    outcome.exchange.reasoningContent = event.result.reasoningContent ?? null;
                     toolHistory.push(outcome.exchange);
                     this.applyToolExecutionOutcome(turnState, outcome, iteration);
                     durableCompactionExecuted =
@@ -2528,6 +2543,7 @@ export class TurnExecutionService {
     const maxToolLoopIterations =
       toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
     let previewFollowUpExtraIterations = 0;
+    await this.sanitizeBaseRequestMultimodalForTextOnlyProvider(execution, acceptedTurn);
     for (
       let iteration = 0;
       iteration < maxToolLoopIterations + previewFollowUpExtraIterations;
@@ -2544,7 +2560,11 @@ export class TurnExecutionService {
             currentFileRefs: turnState.fileRefs,
             currentArtifacts: turnState.artifacts
           });
-        pendingFilePreviewBlocks = turnState.pendingFilePreviewBlocks;
+        pendingFilePreviewBlocks = await this.sanitizePreviewBlocksMultimodalForTextOnlyProvider(
+          execution,
+          acceptedTurn,
+          turnState.pendingFilePreviewBlocks
+        );
         delete turnState.pendingFilePreviewBlocks;
         const request = this.buildToolLoopProviderRequest(execution.providerRequest, {
           assistantText: accumulatedText,
@@ -2662,6 +2682,7 @@ export class TurnExecutionService {
                 batch.find((entry) => entry.toolCall.id === result.toolCall.id) ?? null,
                 result.outcome
               );
+              result.outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
               toolHistory.push(result.outcome.exchange);
               this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
               durableCompactionExecuted =
@@ -2697,6 +2718,7 @@ export class TurnExecutionService {
                 turnState.deferredDocumentJobs
               );
           this.maybeRefundToolRequestRejectionReservation(toolBudgetPolicy, entry, outcome);
+          outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
           toolHistory.push(outcome.exchange);
           this.applyToolExecutionOutcome(turnState, outcome, iteration);
           durableCompactionExecuted =
@@ -5157,6 +5179,107 @@ export class TurnExecutionService {
       toolLoopIteration: input.toolLoopIteration,
       compactionToolCode: null
     };
+  }
+
+  /**
+   * ADR-124 — when the main turn is routed to a text-only provider (DeepSeek),
+   * inline image/PDF blocks cannot be sent to the chat model. We describe each
+   * such block once via the plan's `systemTool` slot (a vision-capable
+   * OpenAI/Anthropic model) and replace it with text. Vision-capable main
+   * providers keep their raw blocks and skip this path entirely. The describer
+   * returns null (→ explicit placeholder, never a silent drop or raw pixels)
+   * when the systemTool slot is not vision-capable or the describe call fails.
+   */
+  private buildTextOnlyMultimodalDescriber(
+    execution: PreparedTurnExecution,
+    acceptedTurn: AcceptedRuntimeTurn
+  ): MultimodalBlockDescriber {
+    const routing = this.asObject(execution.bundle.runtime.runtimeProviderRouting);
+    const systemToolSelection = this.resolveModelSlotSelection(routing, "system_tool");
+    const visionSelection =
+      systemToolSelection !== null && providerAcceptsMultimodalInput(systemToolSelection.provider)
+        ? systemToolSelection
+        : null;
+    return async (block) => {
+      if (visionSelection === null) {
+        return null;
+      }
+      const kind = block.type === "image" ? "image" : "PDF document";
+      const result = await this.providerGatewayClientService.generateText({
+        provider: visionSelection.provider,
+        model: visionSelection.model,
+        systemPrompt:
+          "You are a hidden vision helper for a text-only chat model. Read the attached " +
+          "file and describe its content factually and concisely so the chat model can " +
+          "reason about it: capture visible text verbatim where it matters, plus key " +
+          "structure, data, and visual details. Do not add commentary or refuse.",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: `Describe this ${kind} for a text-only assistant.` },
+              block
+            ]
+          }
+        ],
+        maxOutputTokens: 1024,
+        requestMetadata: {
+          classification: "turn_routing",
+          runtimeRequestId: acceptedTurn.receipt.requestId,
+          runtimeSessionId: acceptedTurn.session.sessionId,
+          toolLoopIteration: null,
+          compactionToolCode: null
+        }
+      });
+      return result.text;
+    };
+  }
+
+  /**
+   * ADR-124 — strip inline image/PDF blocks from the base turn messages once
+   * (idempotent: re-running on already text-only messages is a no-op), before
+   * the tool loop spreads them into every provider call. No-op for
+   * vision-capable main providers.
+   */
+  private async sanitizeBaseRequestMultimodalForTextOnlyProvider(
+    execution: PreparedTurnExecution,
+    acceptedTurn: AcceptedRuntimeTurn
+  ): Promise<void> {
+    if (providerAcceptsMultimodalInput(execution.providerRequest.provider)) {
+      return;
+    }
+    const describe = this.buildTextOnlyMultimodalDescriber(execution, acceptedTurn);
+    const sanitizedMessages = await sanitizeMultimodalMessages(
+      execution.providerRequest.messages,
+      describe
+    );
+    if (sanitizedMessages !== execution.providerRequest.messages) {
+      execution.providerRequest = {
+        ...execution.providerRequest,
+        messages: sanitizedMessages
+      };
+    }
+  }
+
+  /**
+   * ADR-124 — strip inline image/PDF blocks from `files.preview`
+   * follow-up content before it reaches a text-only main provider. No-op for
+   * vision-capable main providers and for an absent block set.
+   */
+  private async sanitizePreviewBlocksMultimodalForTextOnlyProvider(
+    execution: PreparedTurnExecution,
+    acceptedTurn: AcceptedRuntimeTurn,
+    blocks: ProviderGatewayMessageContentBlock[] | undefined
+  ): Promise<ProviderGatewayMessageContentBlock[] | undefined> {
+    if (
+      blocks === undefined ||
+      providerAcceptsMultimodalInput(execution.providerRequest.provider)
+    ) {
+      return blocks;
+    }
+    const describe = this.buildTextOnlyMultimodalDescriber(execution, acceptedTurn);
+    const { blocks: sanitized } = await sanitizeMultimodalContentBlocks(blocks, describe);
+    return sanitized;
   }
 
   private buildPromptCacheConfig(input: {

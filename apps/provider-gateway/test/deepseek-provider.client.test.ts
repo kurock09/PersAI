@@ -226,10 +226,154 @@ export async function runDeepSeekProviderClientTest(): Promise<void> {
     streamEvents.map((event) => event.type),
     ["keepalive", "text_delta", "text_delta", "completed"]
   );
+
+  await runDeepSeekReasoningContentRoundTripTest(client);
 }
 
-async function run(): Promise<void> {
-  await runDeepSeekProviderClientTest();
-}
+/**
+ * ADR-124 — DeepSeek V4 thinking mode emits `reasoning_content` alongside
+ * `tool_calls`, and that content MUST be echoed back on the assistant tool-call
+ * message in the next request or DeepSeek returns a 400. This test pins the full
+ * round-trip: capture on response (non-stream + stream) and re-emit on the next
+ * request built from `toolHistory`.
+ */
+async function runDeepSeekReasoningContentRoundTripTest(
+  client: DeepSeekProviderClient
+): Promise<void> {
+  let capturedPayload: Record<string, unknown> | null = null;
+  (client as unknown as { client: unknown }).client = {
+    chat: {
+      completions: {
+        create: async (payload: Record<string, unknown>) => {
+          capturedPayload = payload;
+          return {
+            choices: [
+              {
+                finish_reason: "tool_calls",
+                message: {
+                  content: null,
+                  reasoning_content: "Let me search the knowledge base first.",
+                  tool_calls: [
+                    {
+                      id: "call-thinking-1",
+                      function: {
+                        name: "knowledge_search",
+                        arguments: '{"query":"refund policy"}'
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 }
+          };
+        }
+      }
+    }
+  };
 
-void run();
+  const firstTurn = await client.generateText(createRequest());
+  assert.equal(firstTurn.stopReason, "tool_calls");
+  assert.equal(firstTurn.reasoningContent, "Let me search the knowledge base first.");
+
+  const followUpRequest: ProviderGatewayTextGenerateRequest = {
+    ...createRequest(),
+    toolChoice: "auto",
+    toolHistory: [
+      {
+        toolCall: {
+          id: "call-thinking-1",
+          name: "knowledge_search",
+          arguments: { query: "refund policy" }
+        },
+        toolResult: {
+          toolCallId: "call-thinking-1",
+          name: "knowledge_search",
+          content: "Refunds allowed within 14 days.",
+          isError: false
+        },
+        reasoningContent: "Let me search the knowledge base first."
+      }
+    ]
+  };
+  await client.generateText(followUpRequest);
+  const followUpMessages = capturedPayload?.["messages"] as unknown as Array<
+    Record<string, unknown>
+  >;
+  const assistantToolCallMessage = followUpMessages.find(
+    (message) => message.role === "assistant" && Array.isArray(message.tool_calls)
+  );
+  assert.ok(assistantToolCallMessage, "assistant tool-call message must be present");
+  assert.equal(
+    assistantToolCallMessage?.["reasoning_content"],
+    "Let me search the knowledge base first."
+  );
+
+  // A tool exchange without captured reasoning must not inject an empty field.
+  const noReasoningRequest: ProviderGatewayTextGenerateRequest = {
+    ...createRequest(),
+    toolChoice: "auto",
+    toolHistory: [
+      {
+        toolCall: {
+          id: "call-no-reasoning",
+          name: "knowledge_search",
+          arguments: { query: "x" }
+        },
+        toolResult: {
+          toolCallId: "call-no-reasoning",
+          name: "knowledge_search",
+          content: "ok",
+          isError: false
+        },
+        reasoningContent: null
+      }
+    ]
+  };
+  await client.generateText(noReasoningRequest);
+  const noReasoningMessages = capturedPayload?.["messages"] as unknown as Array<
+    Record<string, unknown>
+  >;
+  const bareAssistantToolCall = noReasoningMessages.find(
+    (message) => message.role === "assistant" && Array.isArray(message.tool_calls)
+  );
+  assert.ok(bareAssistantToolCall, "assistant tool-call message must be present");
+  assert.equal("reasoning_content" in (bareAssistantToolCall ?? {}), false);
+
+  // Streaming: reasoning_content deltas accumulate and surface on the tool_calls event.
+  (client as unknown as { client: unknown }).client = {
+    chat: {
+      completions: {
+        create: async () => ({
+          async *[Symbol.asyncIterator]() {
+            yield { choices: [{ delta: { reasoning_content: "Thinking " } }] };
+            yield { choices: [{ delta: { reasoning_content: "about it." } }] };
+            yield {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: "call-stream-1",
+                        function: { name: "knowledge_search", arguments: '{"query":"q"}' }
+                      }
+                    ]
+                  },
+                  finish_reason: "tool_calls"
+                }
+              ]
+            };
+          }
+        })
+      }
+    }
+  };
+  const streamToolEvents = await collectStream(await client.streamText(createRequest()));
+  const toolCallsEvent = streamToolEvents.find((event) => event.type === "tool_calls");
+  assert.ok(toolCallsEvent, "stream must emit a tool_calls event");
+  assert.equal(
+    toolCallsEvent?.type === "tool_calls" ? toolCallsEvent.result.reasoningContent : null,
+    "Thinking about it."
+  );
+}

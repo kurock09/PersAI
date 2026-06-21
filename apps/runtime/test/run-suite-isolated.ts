@@ -167,6 +167,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   {
     modulePath: "./model-output-budget.test.ts",
     exportName: "runModelOutputBudgetTest"
+  },
+  {
+    modulePath: "./runtime-text-only-multimodal-sanitizer.test.ts",
+    exportName: "runRuntimeTextOnlyMultimodalSanitizerTest"
   }
 ];
 

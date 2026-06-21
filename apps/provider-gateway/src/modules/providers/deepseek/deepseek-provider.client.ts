@@ -93,6 +93,7 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
           respondedAt: new Date().toISOString(),
           usage: this.toUsageSnapshot(input.model, response.usage),
           stopReason: "tool_calls",
+          reasoningContent: this.extractReasoningContent(message),
           toolCalls
         };
       }
@@ -123,6 +124,7 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
   ): AsyncGenerator<ProviderGatewayTextStreamEvent> {
     const client = this.requireClient();
     let accumulatedText = "";
+    let accumulatedReasoning = "";
     const streamedToolCalls = new Map<number, DeepSeekStreamToolCallState>();
     const {
       signal: timedSignal,
@@ -140,6 +142,10 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
         reset();
         const choice = chunk?.choices?.[0];
         const delta = choice?.delta;
+        const reasoningDelta = this.readReasoningContentDelta(delta);
+        if (reasoningDelta !== null) {
+          accumulatedReasoning += reasoningDelta;
+        }
         if (typeof delta?.content === "string" && delta.content.length > 0) {
           accumulatedText += delta.content;
           const deltaEvent: ProviderGatewayTextDeltaEvent = {
@@ -168,6 +174,7 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
             respondedAt: new Date().toISOString(),
             usage: null,
             stopReason: "tool_calls",
+            reasoningContent: this.normalizeOptionalText(accumulatedReasoning),
             toolCalls: finalizedToolCalls
           }
         };
@@ -233,7 +240,14 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
           parameters: tool.inputSchema
         }
       }));
-      payload.parallel_tool_calls = input.skillsEnabled === true ? false : true;
+      // ADR-124 — DeepSeek V4 runs in thinking mode by default; each thinking
+      // tool-call turn carries a `reasoning_content` that MUST be echoed back on
+      // the assistant message in the next request. Forcing one tool call per
+      // turn keeps that echo strictly canonical (one assistant message = one
+      // tool_call + its reasoning_content), exactly like the official DeepSeek
+      // function-calling example, and avoids ambiguous reasoning attribution
+      // across parallel calls.
+      payload.parallel_tool_calls = false;
     }
     if (input.toolChoice !== undefined) {
       payload.tool_choice =
@@ -292,9 +306,17 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
       });
     }
     for (const exchange of input.toolHistory ?? []) {
+      const reasoningContent =
+        typeof exchange.reasoningContent === "string" && exchange.reasoningContent.trim().length > 0
+          ? exchange.reasoningContent
+          : null;
       messages.push({
         role: "assistant",
         content: null,
+        // ADR-124 — DeepSeek thinking mode requires the assistant tool-call
+        // message to carry back the `reasoning_content` it produced; omitting
+        // it yields a 400 ("reasoning_content ... must be passed back").
+        ...(reasoningContent === null ? {} : { reasoning_content: reasoningContent }),
         tool_calls: [
           {
             id: exchange.toolCall.id,
@@ -459,6 +481,27 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
     }
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+  }
+
+  /**
+   * ADR-124 — DeepSeek returns chain-of-thought in a `reasoning_content` field
+   * that sits alongside `content`, which the OpenAI SDK types do not model.
+   * Read it defensively without widening the typed message shape.
+   */
+  private extractReasoningContent(message: unknown): string | null {
+    if (message === null || typeof message !== "object") {
+      return null;
+    }
+    const candidate = (message as { reasoning_content?: unknown }).reasoning_content;
+    return this.normalizeOptionalText(candidate);
+  }
+
+  private readReasoningContentDelta(delta: unknown): string | null {
+    if (delta === null || typeof delta !== "object") {
+      return null;
+    }
+    const candidate = (delta as { reasoning_content?: unknown }).reasoning_content;
+    return typeof candidate === "string" && candidate.length > 0 ? candidate : null;
   }
 
   private requireClient(): OpenAI {

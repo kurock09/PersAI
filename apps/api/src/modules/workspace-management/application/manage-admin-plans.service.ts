@@ -119,6 +119,13 @@ function toNullableString(value: unknown): string | null {
 
 const MAX_PLAN_HIGHLIGHT_ITEMS = 8;
 
+/**
+ * ADR-124 — providers whose chat API accepts inline image/PDF input. The
+ * systemTool slot must resolve to one of these because it describes visual
+ * uploads for text-only chat models (e.g. DeepSeek).
+ */
+const MULTIMODAL_INPUT_PROVIDER_KEYS: ReadonlySet<string> = new Set(["openai", "anthropic"]);
+
 function parseCurrencyCode(value: unknown, fieldName: string): string | null {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -728,7 +735,8 @@ export class ManageAdminPlansService {
         {
           providerKey: input.systemToolModelProviderKey,
           modelKey: input.systemToolModelKey,
-          fieldLabel: "systemToolModel"
+          fieldLabel: "systemToolModel",
+          requireMultimodalProvider: true
         },
         {
           providerKey: input.retrievalModelProviderKey,
@@ -846,7 +854,8 @@ export class ManageAdminPlansService {
         {
           providerKey: mergedInput.systemToolModelProviderKey,
           modelKey: mergedInput.systemToolModelKey,
-          fieldLabel: "systemToolModel"
+          fieldLabel: "systemToolModel",
+          requireMultimodalProvider: true
         },
         {
           providerKey: mergedInput.retrievalModelProviderKey,
@@ -1487,6 +1496,14 @@ export class ManageAdminPlansService {
       providerKey: string | null;
       modelKey: string | null;
       fieldLabel: string;
+      /**
+       * ADR-124 — the systemTool slot doubles as the vision helper that
+       * describes image/PDF uploads for text-only main models (e.g. DeepSeek).
+       * It must therefore resolve to a provider whose chat API accepts inline
+       * image/PDF input (OpenAI/Anthropic), or vision describe would silently
+       * degrade to placeholders.
+       */
+      requireMultimodalProvider?: boolean;
     }>,
     runtimeSettings?: Pick<PlatformRuntimeProviderSettingsState, "availableModelCatalogByProvider">
   ): Promise<void> {
@@ -1502,6 +1519,7 @@ export class ManageAdminPlansService {
         }
         continue;
       }
+      let effectiveProviderKey: string;
       if (entry.providerKey !== null) {
         const providerModels = activeChatModelIndex.modelsByProvider.get(entry.providerKey);
         if (providerModels === undefined || !providerModels.has(entry.modelKey)) {
@@ -1509,19 +1527,33 @@ export class ManageAdminPlansService {
             `${entry.fieldLabel} must reference an active chat model on provider "${entry.providerKey}".`
           );
         }
-        continue;
+        effectiveProviderKey = entry.providerKey;
+      } else {
+        const matchingProviders = activeChatModelIndex.providersByModel.get(entry.modelKey);
+        if (matchingProviders === undefined || matchingProviders.size === 0) {
+          throw new BadRequestException(
+            `"${entry.modelKey}" must be selected from Runtime Admin active chat models.`
+          );
+        }
+        if (matchingProviders.size > 1) {
+          throw new BadRequestException(
+            `"${entry.modelKey}" is ambiguous across active Runtime Admin chat models (${Array.from(
+              matchingProviders
+            ).join(", ")}). Select an explicit provider for ${entry.fieldLabel}.`
+          );
+        }
+        effectiveProviderKey = Array.from(matchingProviders)[0] as string;
       }
-      const matchingProviders = activeChatModelIndex.providersByModel.get(entry.modelKey);
-      if (matchingProviders === undefined || matchingProviders.size === 0) {
+      if (
+        entry.requireMultimodalProvider === true &&
+        !MULTIMODAL_INPUT_PROVIDER_KEYS.has(effectiveProviderKey)
+      ) {
         throw new BadRequestException(
-          `"${entry.modelKey}" must be selected from Runtime Admin active chat models.`
-        );
-      }
-      if (matchingProviders.size > 1) {
-        throw new BadRequestException(
-          `"${entry.modelKey}" is ambiguous across active Runtime Admin chat models (${Array.from(
-            matchingProviders
-          ).join(", ")}). Select an explicit provider for ${entry.fieldLabel}.`
+          `${entry.fieldLabel} must use a vision-capable provider (${Array.from(
+            MULTIMODAL_INPUT_PROVIDER_KEYS
+          ).join(
+            ", "
+          )}) because it analyzes image/PDF uploads for text-only chat models; "${effectiveProviderKey}" does not accept image input.`
         );
       }
     }

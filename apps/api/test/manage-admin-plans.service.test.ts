@@ -2551,6 +2551,54 @@ async function run(): Promise<void> {
     "non-chat models should be rejected"
   );
 
+  await assert.rejects(
+    () =>
+      (
+        providerAwareService as unknown as {
+          assertTextModelSelectionsAvailable(
+            entries: Array<{
+              providerKey: string | null;
+              modelKey: string | null;
+              fieldLabel: string;
+              requireMultimodalProvider?: boolean;
+            }>
+          ): Promise<void>;
+        }
+      ).assertTextModelSelectionsAvailable([
+        {
+          providerKey: "deepseek",
+          modelKey: "deepseek-v4-pro",
+          fieldLabel: "systemToolModel",
+          requireMultimodalProvider: true
+        }
+      ]),
+    (error: unknown) =>
+      error instanceof BadRequestException &&
+      /systemToolModel/.test(error.message) &&
+      /vision-capable/.test(error.message),
+    "systemTool on a text-only provider should be rejected"
+  );
+
+  await (
+    providerAwareService as unknown as {
+      assertTextModelSelectionsAvailable(
+        entries: Array<{
+          providerKey: string | null;
+          modelKey: string | null;
+          fieldLabel: string;
+          requireMultimodalProvider?: boolean;
+        }>
+      ): Promise<void>;
+    }
+  ).assertTextModelSelectionsAvailable([
+    {
+      providerKey: "openai",
+      modelKey: "gpt-5.4-nano",
+      fieldLabel: "systemToolModel",
+      requireMultimodalProvider: true
+    }
+  ]);
+
   const legacyPlanState = (
     providerAwareService as unknown as {
       toAdminPlanState(

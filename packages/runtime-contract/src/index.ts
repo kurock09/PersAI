@@ -3164,6 +3164,15 @@ export interface ProviderGatewayToolResult {
 export interface ProviderGatewayToolExchange {
   toolCall: ProviderGatewayToolCall;
   toolResult: ProviderGatewayToolResult;
+  /**
+   * ADR-124 — provider-native chain-of-thought (DeepSeek `reasoning_content`)
+   * produced by the assistant turn that emitted this tool call. DeepSeek V4
+   * thinking mode REQUIRES this to be echoed back on the assistant tool-call
+   * message in the next request; omitting it returns a 400. Ephemeral within a
+   * single turn's tool loop and never persisted. Providers that do not use it
+   * (OpenAI/Anthropic) ignore this field.
+   */
+  reasoningContent?: string | null;
 }
 
 export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
@@ -3341,6 +3350,14 @@ export interface ProviderGatewayTextGenerateResult {
    */
   truncated?: boolean;
   toolCalls: ProviderGatewayToolCall[];
+  /**
+   * ADR-124 — provider-native chain-of-thought (DeepSeek `reasoning_content`)
+   * emitted alongside `tool_calls` in thinking mode. The runtime threads this
+   * onto the resulting tool exchanges so it can be echoed back on the next
+   * tool-loop request (DeepSeek rejects thinking-mode tool loops without it).
+   * Null/absent for providers that do not surface reasoning content.
+   */
+  reasoningContent?: string | null;
 }
 
 export interface ProviderGatewayTextErrorResponse {

@@ -3,6 +3,32 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — ADR-124 DeepSeek live fixes: thinking-mode tool loops + text-only multimodal — CHECKPOINT
+
+### State
+
+Implemented locally; full AGENTS gate + ADR-124 focused checks green. Needs commit + push, then deploy to `persai-dev` for live re-validation. Diagnosed live in `persai-dev` (not guessed): the two root causes were reproduced with synthetic gateway calls (`reasoning_content` 400 on tool loops; `400` text-only on image input) and confirmed against DeepSeek's official API docs.
+
+### What changed
+
+- **DeepSeek thinking-mode tool-loop `reasoning_content` round-trip.** Adapter captures `reasoning_content` (stream + non-stream), surfaces it on the text result, echoes it on the assistant tool-call message, and forces `parallel_tool_calls: false`. Runtime threads it onto each tool exchange at the four `toolHistory.push` sites. Fixes the frequent "падает на вызовах любого tool" disconnects.
+- **Text-only multimodal sanitizer.** New `runtime-text-only-multimodal-sanitizer` + two runtime chokepoints (base messages once before the loop; `files.preview` blocks when read) describe image/PDF via the `systemTool` slot vision model and replace with text for text-only providers (DeepSeek). Vision-capable providers untouched; failures/absent helper → explicit placeholder, never pixels, never silent drop.
+- **Admin guard.** `systemTool` plan slot must resolve to a vision-capable provider (OpenAI/Anthropic).
+
+### Files
+
+`packages/runtime-contract/src/index.ts` (`reasoningContent` on result + tool exchange), `apps/provider-gateway/src/modules/providers/deepseek/deepseek-provider.client.ts` (+ test, + run-suite wiring), `apps/runtime/src/modules/turns/turn-execution.service.ts`, new `apps/runtime/src/modules/turns/runtime-text-only-multimodal-sanitizer.ts` (+ test, + run-suite/run-suite-isolated wiring), `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` (+ test), CHANGELOG, ADR-124, this checkpoint.
+
+### Verified
+
+- `corepack pnpm run format:check` · `corepack pnpm -r --if-present run lint`
+- typecheck: `@persai/api` · `@persai/web` · `@persai/runtime` · `@persai/provider-gateway`
+- unit: DeepSeek adapter reasoning round-trip; admin-plan systemTool vision guard; runtime multimodal sanitizer (provider gate, replacement, placeholder, idempotency)
+
+### Next recommended step
+
+Deploy to `persai-dev`, then live-verify: (1) a DeepSeek turn that calls a tool completes instead of disconnecting; (2) a DeepSeek turn with an image/PDF/doc attachment returns a sensible answer (described via systemTool) instead of a silent drop.
+
 ## 2026-06-21 — Project routing + tool-loop text separation — CHECKPOINT
 
 ### State
