@@ -24,6 +24,7 @@ export class SeedToolCatalogService implements OnModuleInit {
       await this.syncToolCatalog();
       await this.ensureDefaultPlan();
       await this.syncNonPlanManagedToolPolicyAcrossPlans();
+      await this.backfillMissingPlanManagedToolActivations();
       await this.backfillNullPlanGovernances();
       await this.syncPromptTemplates();
       await this.syncPlatformSitePages();
@@ -259,6 +260,63 @@ export class SeedToolCatalogService implements OnModuleInit {
           }
         });
       }
+    }
+  }
+
+  /**
+   * Create-if-absent backfill for plan-managed tool activations.
+   *
+   * `syncToolActivations` only runs for a plan with ZERO activations (so it never
+   * reverts operator edits), and `syncNonPlanManagedToolPolicyAcrossPlans`
+   * deliberately skips plan-managed tools — so a NEW plan-managed tool added to
+   * the catalog (e.g. grep/glob in ADR-123 Slice 7) never receives an activation
+   * row on already-configured plans. Without a row, the tool is invisible in the
+   * plan editor and is never materialized for the model. This backfill creates the
+   * missing rows ONLY (never updates existing ones), so operator-tuned activations
+   * are preserved while newly-shipped plan-managed tools become available. Newly
+   * created tools still require a reapply/rollout to reach already-published
+   * assistants (same as any admin tool toggle).
+   */
+  private async backfillMissingPlanManagedToolActivations(): Promise<void> {
+    const [plans, tools] = await Promise.all([
+      this.prisma.planCatalogPlan.findMany({ select: { id: true } }),
+      this.prisma.toolCatalogTool.findMany({
+        where: { status: "active" },
+        select: { id: true, code: true, toolClass: true }
+      })
+    ]);
+    const planManagedTools = tools.filter((tool) => isPlanManagedTool(tool.code));
+    if (plans.length === 0 || planManagedTools.length === 0) {
+      return;
+    }
+
+    let created = 0;
+    for (const plan of plans) {
+      const existing = await this.prisma.planCatalogToolActivation.findMany({
+        where: { planId: plan.id },
+        select: { toolId: true }
+      });
+      const have = new Set(existing.map((row) => row.toolId));
+      for (const tool of planManagedTools) {
+        if (have.has(tool.id)) {
+          continue;
+        }
+        const policy = STARTER_TRIAL_TOOL_POLICY[tool.code];
+        const active = policy?.active ?? tool.toolClass === "utility";
+        await this.prisma.planCatalogToolActivation.create({
+          data: {
+            planId: plan.id,
+            toolId: tool.id,
+            activationStatus: active ? "active" : "inactive",
+            dailyCallLimit: policy?.dailyCallLimit ?? null,
+            perTurnCap: policy?.perTurnCap ?? null
+          }
+        });
+        created++;
+      }
+    }
+    if (created > 0) {
+      this.logger.log(`Backfilled ${created} missing plan-managed tool activation(s)`);
     }
   }
 

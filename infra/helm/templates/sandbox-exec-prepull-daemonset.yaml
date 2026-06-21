@@ -1,0 +1,74 @@
+{{- if and .Values.sandbox.enabled .Values.sandboxExec .Values.sandboxExec.prepull .Values.sandboxExec.prepull.enabled }}
+{{- $execTag := .Values.global.images.tag }}
+{{- if and .Values.sandboxExec.image .Values.sandboxExec.image.tag }}
+{{-   $execTag = .Values.sandboxExec.image.tag }}
+{{- end }}
+{{- $execName := "sandbox-exec" }}
+{{- if and .Values.sandboxExec.image .Values.sandboxExec.image.name }}
+{{-   $execName = .Values.sandboxExec.image.name }}
+{{- end }}
+{{- $nodeSelectorValue := "sandbox" }}
+{{- if and .Values.sandbox.env .Values.sandbox.env.SANDBOX_EXEC_NODE_SELECTOR_VALUE }}
+{{-   $nodeSelectorValue = .Values.sandbox.env.SANDBOX_EXEC_NODE_SELECTOR_VALUE }}
+{{- end }}
+# ADR-123 Slice 3 (warm-pool follow-up): keep the multi-GB exec image (Python + doc/data
+# stack + Chromium + ripgrep/fd) pulled and cached on every sandbox node so a cold-start
+# exec pod does not pay the image-pull cost on first use. Combined with a >=1 minimum node
+# on the sandbox pool (node-pool autoscaling, set operationally — see RUNBOOK), this turns
+# the first sandbox command after idle from ~100s (node autoscale + image pull) into seconds.
+# This pod only sleeps; it never executes model code and holds no secrets.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sandbox-exec-prepull
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: sandbox-exec-prepull
+    app.kubernetes.io/component: sandbox-exec-prepull
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sandbox-exec-prepull
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sandbox-exec-prepull
+        app.kubernetes.io/component: sandbox-exec-prepull
+    spec:
+      automountServiceAccountToken: false
+      # Only on the dedicated sandbox node pool, tolerating the GKE Sandbox taint that
+      # the exec pods themselves tolerate (so this DaemonSet caches the image on exactly
+      # the nodes where exec pods land).
+      nodeSelector:
+        workload: {{ $nodeSelectorValue | quote }}
+      tolerations:
+        - key: sandbox.gke.io/runtime
+          operator: Equal
+          value: gvisor
+          effect: NoSchedule
+      terminationGracePeriodSeconds: 1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: prepull
+          image: {{ printf "%s/%s/%s/%s:%s" .Values.global.images.registryHost .Values.global.images.projectId .Values.global.images.repository $execName $execTag | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c", "sleep infinity"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+{{- end }}

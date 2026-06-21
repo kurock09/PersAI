@@ -1893,7 +1893,13 @@ export class RuntimeFilesToolService {
   }
 
   private assertMimeAllowed(mimeType: string, allowlist: Set<string>): void {
-    if (allowlist.size > 0 && !allowlist.has(mimeType.toLowerCase())) {
+    // Empty allowlist or the "*/*" allow-all sentinel means delivery is open at
+    // this layer; the real ceiling is the persist-time media validation. Any
+    // other non-empty list is an exact-match allowlist.
+    if (allowlist.size === 0 || allowlist.has("*/*") || allowlist.has("*")) {
+      return;
+    }
+    if (!allowlist.has(mimeType.toLowerCase())) {
       throw new Error(`Mime type "${mimeType}" is blocked by sandbox delivery policy.`);
     }
   }

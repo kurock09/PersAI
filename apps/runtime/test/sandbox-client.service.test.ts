@@ -20,6 +20,7 @@ function createConfig(): RuntimeConfig {
     RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 15_000,
     RUNTIME_SANDBOX_BASE_URL: "http://sandbox.local",
     RUNTIME_SANDBOX_TIMEOUT_MS: 30_000,
+    RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS: 240_000,
     PERSAI_INTERNAL_API_TOKEN: "sandbox-token"
   };
 }
@@ -89,6 +90,21 @@ test("SandboxClientService waitForCompletion uses bounded long-poll status reque
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("SandboxClientService completion budget includes cold-start pod provisioning", () => {
+  const service = new SandboxClientService(createConfig());
+  const access = service as unknown as {
+    resolveCompletionTimeoutMs(request: { policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY }): number;
+  };
+  const timeout = access.resolveCompletionTimeoutMs({ policy: DEFAULT_RUNTIME_SANDBOX_POLICY });
+  // A cold start (sandbox node autoscale + multi-GB image pull) is ~100s; the end-to-end
+  // budget must include the 240s provision budget so the runtime does not abandon the job
+  // before the pod is ready (the old ~40s budget surfaced a spurious timeout to the model).
+  assert.ok(
+    timeout >= 240_000,
+    `completion timeout (${String(timeout)}ms) must include the pod provisioning budget`
+  );
 });
 
 test("SandboxClientService pollJob omits wait query when waitMs is zero", async () => {

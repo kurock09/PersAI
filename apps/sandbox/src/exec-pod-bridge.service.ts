@@ -34,7 +34,13 @@ export type PodExecResult = {
 
 type BridgeError = Error & { code: string; blocked: boolean };
 
-function createBridgeError(code: string, message: string, blocked = true): BridgeError {
+// `blocked` marks a terminal policy/limit/workload block (non-retryable). Bridge
+// errors are operational by default (pod spawn/provision/push/exec/pull failures)
+// and MUST be retryable, so the sandbox records them as `failed`, not `blocked` —
+// async consumers (e.g. the document render job) need to retry them. Pass
+// `blocked: true` only for genuine non-retryable blocks (resource limits, command
+// runtime budget exceeded).
+function createBridgeError(code: string, message: string, blocked = false): BridgeError {
   const error = new Error(message) as BridgeError;
   error.code = code;
   error.blocked = blocked;
@@ -107,7 +113,8 @@ class LimitedCollector extends Writable {
     this.totalBytes += chunk.length;
     this.chunks.push(chunk);
     if (this.totalBytes > this.limitBytes && this.limitError === null) {
-      this.limitError = createBridgeError(this.limitCode, this.limitMessage);
+      // Stdout/stderr byte limit exceeded: terminal policy block, not retryable.
+      this.limitError = createBridgeError(this.limitCode, this.limitMessage, true);
     }
     callback();
   }
@@ -244,7 +251,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
     await this.createExecPod(podName, namespace, options.policy);
     try {
-      await this.waitForPodRunning(podName, namespace, options.policy.maxProcessRuntimeMs);
+      await this.waitForPodRunning(
+        podName,
+        namespace,
+        this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+      );
       await this.pushWorkspace(podName, namespace, options.workspaceRoot);
       const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
       const result = await this.execCommand(podName, namespace, {
@@ -312,7 +323,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    await this.waitForPodRunning(podName, namespace, policy.maxProcessRuntimeMs);
+    await this.waitForPodRunning(
+      podName,
+      namespace,
+      this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+    );
   }
 
   /**
@@ -820,7 +835,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           reject(
             createBridgeError(
               "process_timeout",
-              `Sandbox process exceeded ${String(options.policy.maxProcessRuntimeMs)}ms.`
+              `Sandbox process exceeded ${String(options.policy.maxProcessRuntimeMs)}ms.`,
+              // Workload exceeded its own runtime budget — retrying the same command
+              // would time out again. Non-retryable.
+              true
             )
           ),
         options.policy.maxProcessRuntimeMs

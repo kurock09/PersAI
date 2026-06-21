@@ -155,6 +155,7 @@ function createSandboxConfig(overrides: Partial<SandboxConfig> = {}): SandboxCon
     SANDBOX_RUNNING_JOB_GRACE_MS: 15_000,
     SANDBOX_EXEC_SESSION_IDLE_TTL_MS: 1_800_000,
     SANDBOX_EXEC_REAPER_INTERVAL_MS: 120_000,
+    SANDBOX_EXEC_POD_PROVISION_BUDGET_MS: 240_000,
     ...overrides
   } as SandboxConfig;
 }

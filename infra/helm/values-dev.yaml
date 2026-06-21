@@ -372,6 +372,9 @@ runtime:
     RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "90000"
     RUNTIME_SANDBOX_BASE_URL: "http://sandbox:3013"
     RUNTIME_SANDBOX_TIMEOUT_MS: "20000"
+    # End-to-end sandbox job budget must cover cold-start pod provisioning (node autoscale
+    # + image pull, ~100s). Keep in sync with sandbox SANDBOX_EXEC_POD_PROVISION_BUDGET_MS.
+    RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS: "240000"
   secretEnv:
     PERSAI_INTERNAL_API_TOKEN:
       secretName: persai-runtime-secrets
@@ -456,6 +459,10 @@ sandbox:
     SANDBOX_EXEC_SESSION_IDLE_TTL_MS: "1800000"
     # Reaper sweep interval (ms). 2 min default.
     SANDBOX_EXEC_REAPER_INTERVAL_MS: "120000"
+    # Cold-start pod-provisioning budget (ms): max time for an exec pod to reach Running
+    # (sandbox node autoscale + multi-GB image pull). Distinct from the per-command runtime
+    # cap. 4 min — rarely approached once the prepull DaemonSet + warm node are in place.
+    SANDBOX_EXEC_POD_PROVISION_BUDGET_MS: "240000"
   secretEnv:
     PERSAI_INTERNAL_API_TOKEN:
       secretName: persai-runtime-secrets
@@ -514,6 +521,12 @@ sandbox:
       - .files.pythonhosted.org
       # npm registry: npm/npx install requires registry.npmjs.org.
       - .registry.npmjs.org
+      # GitHub: git clone, pip install from VCS, and release/asset downloads.
+      # Dotted form covers the apex plus api./codeload. subdomains.
+      - .github.com
+      # GitHub raw/object hosts: raw.githubusercontent.com, objects.githubusercontent.com
+      # (used by pip/npm tarball fetches and raw file pulls).
+      - .githubusercontent.com
     resources:
       requests:
         cpu: "100m"
@@ -528,6 +541,11 @@ sandboxExec:
     name: sandbox-exec
     # Initial tag; CI pins this to the SHA of the most recent successful build.
     tag: 3474bdd1d689f583e3f1f6d6e7f46c6385b87b9e
+  # ADR-123 Slice 3 warm-pool follow-up: a DaemonSet that keeps the exec image pulled on
+  # every sandbox node so cold-start exec pods skip the multi-GB image pull. Pairs with a
+  # >=1 minimum node on the sandbox pool (set via node-pool autoscaling — see RUNBOOK).
+  prepull:
+    enabled: true
 
 ingress:
   enabled: true

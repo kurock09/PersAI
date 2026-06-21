@@ -1172,6 +1172,33 @@ async function run(): Promise<void> {
   assert.equal(blockedMime.payload.reason, "files_failed");
   assert.match(blockedMime.payload.warning ?? "", /Mime type "image\/png" is blocked/);
 
+  // "*/*" is the allow-all sentinel: the same image/png send must no longer be
+  // blocked by the delivery-MIME policy (the persist layer remains the ceiling).
+  const wildcardAllowsMime = await service.executeToolCall({
+    bundle: createBundle({
+      artifactMimeAllowlist: ["*/*"],
+      maxArtifactSendCountPerTurn: 1
+    }),
+    toolCall: {
+      id: "tool-call-wildcard-mime",
+      name: "files",
+      arguments: {
+        action: "send",
+        aliases: ["image #1"]
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-5b",
+    currentArtifacts: [currentArtifact],
+    currentFileRefs: [],
+    availableWorkingFileRefs: [toRuntimeFileRefWithAliases("file-ref-generated-1", ["image #1"])],
+    channel: "web"
+  });
+  assert.doesNotMatch(
+    wildcardAllowsMime.payload.warning ?? "",
+    /is blocked by sandbox delivery policy/
+  );
+
   const blockedChannelBytes = await service.executeToolCall({
     bundle: createBundle({
       webMaxOutboundBytes: 100,

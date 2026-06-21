@@ -3,6 +3,101 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — ADR-123 documents pre-deploy hardening (retryable infra failures + retired-price cleanup) — CHECKPOINT
+
+### State
+
+Implemented in the working tree, **not committed, not pushed** — folded into the same held pre-deploy batch as the cold-start fix, grep/glob wiring, and MIME/egress (all four are in one uncommitted tree). The pdfmonkey prod row is already cleaned live on `persai-dev`.
+
+### Problem (live-diagnosed, not assumed)
+
+Founder's test PDF: job created, then failed after 24s with `document_artifacts_missing` ("worker completed without deliverable artifacts"). The job's `providerStatusJson` showed the real cause: the render's sandbox job hit a workspace-push flake — `process_spawn_failed`, "Workspace push closed without success (stderr: none)", `retryable: false` — so it died after **1/5** attempts. Root: `exec-pod-bridge.createBridgeError` defaulted `blocked=true`; spawn/provision/push failures were thus recorded as `blocked` (a policy block) → sandbox `status: "blocked"` → the doc worker's `renderHtmlToPdf` derives `retryable = (status === "failed")` → non-retryable. The 24s (not ~100s) timing confirms it was a push flake, not the cold-start timeout itself. Separately, the Admin > Tools `document_render:pdfmonkey` price card (8000) was stale: Slice 5 removed PDFMonkey from code, but the tool-path pricing catalog merge preserves stored rows.
+
+### What changed (this checkpoint)
+
+1. **Retryable-by-default bridge errors.** `createBridgeError` default flipped `blocked=true → false` (operational/retryable). Explicit `blocked=true` kept only for the two genuine non-retryable blocks: the stdout/stderr resource-limit collector and the command-runtime-budget `process_timeout`. Now spawn / pod-provisioning / push failures surface as `failed` → the async document job retries (and lands on a warm pod after the cold-start fix). Aligns `process_spawn_failed`/provisioning `process_timeout` with the already-`blocked:false` `sandbox_failed` exec/pull paths. No runtime-adapter edit needed.
+2. **Retired pricing row removed.** Idempotent data migration `20260621130000_adr123_drop_retired_pdfmonkey_render_price` strips `document_render:pdfmonkey` from the stored `tool_path_pricing_catalog`; prod row removed live (`rows 8 → 7`; only `document_render:gamma` remains).
+3. **Docs.** ADR-123 addendum ("Document-job reliability + retired-pricing cleanup"); CHANGELOG; this checkpoint.
+
+### Files
+
+`apps/sandbox/src/exec-pod-bridge.service.ts`, `apps/api/prisma/migrations/20260621130000_adr123_drop_retired_pdfmonkey_render_price/migration.sql`, ADR-123, CHANGELOG.
+
+### Verified
+
+sandbox typecheck PASS · sandbox lint PASS · prettier (edited TS) PASS. Existing sandbox `blocked`-status tests cover only preflight quota/backlog/containment blocks (unaffected). Full combined gate to run before push.
+
+### Next step
+
+Commit/push grouping for the four held workstreams. On push: sandbox redeploy applies the retry fix; the pdfmonkey migration pauses on `persai-dev-migrations` (already a no-op on prod since the row was cleaned live). Founder can re-run the test document after redeploy to confirm green.
+
+---
+
+## 2026-06-21 — ADR-123 Slice 3 cold-start reliability + warm pool re-opened — CHECKPOINT
+
+### State
+
+Implemented in the working tree, **not committed, not pushed** (founder is reviewing; the grep/glob + MIME/egress work is also held uncommitted in the same tree). The 12 prod `grep`/`glob` plan activation rows are already live and the model already sees them (runtime logs show toolCount 20→22).
+
+### Problem (live-diagnosed, not assumed)
+
+First `shell`/`exec` after idle took ~104s (sandbox-pool node autoscale + multi-GB exec image pull) and **failed**. Four budgets were all sized for the warm path and conflated pod startup with command runtime: `waitForPodRunning` deadline = `maxProcessRuntimeMs` (15s); running-job watchdog `maxProcessRuntimeMs+grace` (~30s); runtime `resolveCompletionTimeoutMs` (~40s); queued-stale (45s). ADR-123 Slice 3's "warm pool deferred, cold start ~2–4s" premise was wrong.
+
+### What changed (this checkpoint)
+
+1. **Reliability — dedicated pod-provisioning budget (default 240s).** `SANDBOX_EXEC_POD_PROVISION_BUDGET_MS` (sandbox) + `RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS` (runtime) threaded through `waitForPodRunning`, the running-job watchdog, and the runtime completion timeout. `maxProcessRuntimeMs` is now only the per-command cap. Cold start succeeds instead of failing.
+2. **Latency — warm pool re-opened.** `sandbox-exec-prepull` DaemonSet (Helm) caches the exec image on every sandbox node; pair with ≥1-min-node `sandbox-pool` via the one-time `gcloud` step in RUNBOOK §Slice 3.8.
+3. **Docs.** ADR-123 addendum ("Cold-start reliability + warm-pool re-opened", supersedes the DEFER note) + Slice 3 status line; CHANGELOG; RUNBOOK §Slice 3.8.
+
+### Files
+
+`packages/config/src/{sandbox,runtime}-config.ts`, `apps/sandbox/src/{exec-pod-bridge,sandbox}.service.ts`, `apps/runtime/src/modules/turns/sandbox-client.service.ts`, `infra/helm/templates/sandbox-exec-prepull-daemonset.yaml`, `infra/helm/values-dev.yaml`, `infra/dev/gke/RUNBOOK.md`, ADR-123, CHANGELOG; tests in `apps/sandbox/test/*` + `apps/runtime/test/*`.
+
+### Verified
+
+helm lint + template (prepull renders, correct exec image) · sandbox typecheck · runtime typecheck · exec-pod-bridge test (16 pass) · sandbox-client test (3 pass, incl. new provision-budget assertion). Full repo lint/format pending in the combined gate.
+
+### Next step
+
+Decide commit/push grouping for the three held workstreams (cold-start fix, grep/glob wiring, MIME/egress). On push: runtime + sandbox redeploy applies the budget fix + prepull DaemonSet; run the one-time `gcloud node-pools update sandbox-pool --min-nodes 1` for the warm node.
+
+---
+
+## 2026-06-21 — ADR-123 post-program config tuning: open delivery MIME + broaden egress — CHECKPOINT
+
+### State
+
+ADR-123 Slices 1–7 are committed and pushed (`origin/main` @ `3474bdd1`); the Dev Image Publish pipeline rebuilds the exec + control-plane images and pauses on `persai-dev-migrations` for founder approval of the Slice 5/6 enum migrations. This follow-up (founder directive) is implemented in the working tree, not yet committed.
+
+### What changed (this checkpoint)
+
+1. **Delivery MIME → allow-all, uniform across all plans.** `DEFAULT_RUNTIME_SANDBOX_POLICY.artifactMimeAllowlist = ["*/*"]`; `assertMimeAllowed` honors the `*/*`/`*` allow-all sentinel; data migration `20260621120000_adr123_open_delivery_mime_allowlist` rewrites every plan's stored `sandboxPolicy.artifactMimeAllowlist` to `["*/*"]`. Real safety stays at the persist layer (`media-security-policy.ts`: `ALLOWED_MEDIA_MIMES` + dangerous-extension block).
+2. **Egress broadened (Claude-style, deny-all + allowlist preserved).** Added `.github.com` + `.githubusercontent.com` to `egressProxy.allowedDomains`. Open internet was rejected; D3 unchanged.
+
+### Key decisions
+
+- **MIME opened at the delivery layer only** — the persist-time media validation is the true ceiling, so wildcard delivery does not let dangerous files through. Founder chose wildcard over an explicit broad list (never hit it again).
+- **Internet = allowlist, not open** — "like Claude" literally means deny-all + curated domains; founder chose to broaden the allowlist (GitHub ecosystem for the current Python+Node stack), not open egress.
+- **Migration is data-only** (no schema change), `create_missing=false`, idempotent (skips rows already `["*/*"]`).
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts` (default allowlist → `["*/*"]`)
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` (`assertMimeAllowed` wildcard) + `apps/runtime/test/runtime-files-tool.service.test.ts` (wildcard test)
+- `apps/api/prisma/migrations/20260621120000_adr123_open_delivery_mime_allowlist/migration.sql` (NEW, data-only)
+- `infra/helm/values-dev.yaml` (egress allowlist += GitHub)
+- `docs/ADR/123-…md` (addendum + slice SHAs filled), `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Deploy residual
+
+Data migration pauses on `persai-dev-migrations` (CI policy); egress change applies on ArgoCD sync (Squid ConfigMap reload). No image rebuild required for the MIME/contract change beyond the runtime service redeploy already triggered by the push.
+
+### Next recommended step
+
+Commit + push this follow-up after the local gate; approve the pending `persai-dev-migrations` so both the Slice 5/6 enum migrations and this data migration apply in order.
+
+---
+
 ## 2026-06-21 — ADR-123 Slice 7: inline `grep`/`glob` + autonomous `shell` + `<tool_usage_policy>` workspace category — CHECKPOINT (final ADR-123 slice)
 
 ### State
@@ -103,6 +198,7 @@ Foundation is live. Proceed to **Slice 5** (PDF cutover to in-sandbox Chromium; 
 ### State
 
 All verification gates **PASS**:
+
 - `corepack pnpm -r --if-present run lint` → **PASS**
 - `corepack pnpm run format:check` → **PASS**
 - `corepack pnpm --filter @persai/api run typecheck` → **PASS**
@@ -126,38 +222,38 @@ ADR-123 Slice 5: Full PDF rendering cutover from the external PDFMonkey SaaS API
 
 ### Files touched
 
-| Subsystem | File | Change |
-|---|---|---|
-| Runtime contract | `packages/runtime-contract/src/index.ts` | `"pdfmonkey"→"sandbox"` in provider enums/types; remove pdfmonkey member from `ProviderGatewayDocumentGenerateRequest/Result` |
-| Runtime bundle | `packages/runtime-bundle/src/index.ts` | Remove `pdfmonkeyTemplateId` from governance |
-| Prisma schema | `apps/api/prisma/schema.prisma` | Rename enum value `pdfmonkey→sandbox` |
-| Prisma migration | `apps/api/prisma/migrations/20260621000000_adr123_render_provider_sandbox/migration.sql` | SQL rename |
-| Prisma client | Regenerated | `prisma generate` |
-| Runtime adapter | `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts` | Major refactor: sandbox provider, `renderHtmlToPdf()` helper, chunked removal, CSS unification |
-| File registry | `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts` | Add `deleteById()` |
-| Document tool service | `apps/runtime/src/modules/turns/runtime-document-tool.service.ts` | Default provider → `"sandbox"` |
-| Provider gateway client | `apps/runtime/src/modules/turns/provider-gateway.client.service.ts` | Remove pdfmonkey from `isDocumentGenerateResult` |
-| Document jobs controller | `apps/runtime/src/modules/turns/interface/http/internal-runtime-document-jobs.controller.ts` | Validate `"sandbox"` provider |
-| Provider gateway module | `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts` | Remove `PdfMonkeyProviderClient` |
-| Provider document service | `apps/provider-gateway/src/modules/providers/provider-document-generation.service.ts` | Remove pdfmonkey branch |
-| Run suite | `apps/provider-gateway/test/run-suite.ts` | Remove pdfmonkey test |
-| Deleted | `apps/provider-gateway/src/modules/providers/pdfmonkey/pdfmonkey-provider.client.ts` | Deleted |
-| Deleted | `apps/provider-gateway/test/pdfmonkey-provider.client.test.ts` | Deleted (if existed) |
-| Tool credentials | `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts` | Remove all pdfmonkey entries; remove `documentProviderTemplateIds` field |
-| Manage credentials | `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts` | Remove `documentProviderTemplateIds` processing |
-| Enqueue job | `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts` | `pdfmonkey→sandbox`; remove template gate |
-| Job scheduler | `apps/api/src/modules/workspace-management/application/assistant-document-job-scheduler.service.ts` | `pdfmonkey→sandbox` in types and ternaries |
-| Pricing catalog | `apps/api/src/modules/workspace-management/application/tool-path-pricing-catalog.ts` | Remove pdfmonkey billing entry |
-| Runtime tool policy | `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts` | `pdfmonkey→sandbox` |
-| Materialize service | `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` | Remove `pdfmonkeyTemplateId` |
-| Web admin | `apps/web/app/admin/tools/page.tsx` | Remove PDFMonkey credential/template UI |
-| Web economics | `apps/web/app/admin/tools/tool-path-economics.ts` | Remove PDFMonkey display name |
-| Seed data | `apps/api/prisma/site-page-seed-data.ts` | Remove "PDFMonkey" from prose |
-| Docs | `docs/LIVE-TEST-HYBRID.md` | Remove PDFMonkey prerequisite |
-| Tests (runtime) | `apps/runtime/test/runtime-document-provider-adapter.service.test.ts` | Major update: sandbox mock helpers, remove pdfmonkey types |
-| Tests (runtime) | `apps/runtime/test/runtime-document-job-run.service.test.ts` | `pdfmonkey→sandbox` |
-| Tests (runtime) | `apps/runtime/test/provider-gateway.client.service.test.ts` | Remove pdfmonkey fixture |
-| Tests (sandbox) | `apps/sandbox/test/sandbox.service.test.ts` | ADD `render_html_to_pdf` test |
+| Subsystem                 | File                                                                                                       | Change                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Runtime contract          | `packages/runtime-contract/src/index.ts`                                                                   | `"pdfmonkey"→"sandbox"` in provider enums/types; remove pdfmonkey member from `ProviderGatewayDocumentGenerateRequest/Result` |
+| Runtime bundle            | `packages/runtime-bundle/src/index.ts`                                                                     | Remove `pdfmonkeyTemplateId` from governance                                                                                  |
+| Prisma schema             | `apps/api/prisma/schema.prisma`                                                                            | Rename enum value `pdfmonkey→sandbox`                                                                                         |
+| Prisma migration          | `apps/api/prisma/migrations/20260621000000_adr123_render_provider_sandbox/migration.sql`                   | SQL rename                                                                                                                    |
+| Prisma client             | Regenerated                                                                                                | `prisma generate`                                                                                                             |
+| Runtime adapter           | `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts`                              | Major refactor: sandbox provider, `renderHtmlToPdf()` helper, chunked removal, CSS unification                                |
+| File registry             | `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts`                                | Add `deleteById()`                                                                                                            |
+| Document tool service     | `apps/runtime/src/modules/turns/runtime-document-tool.service.ts`                                          | Default provider → `"sandbox"`                                                                                                |
+| Provider gateway client   | `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`                                        | Remove pdfmonkey from `isDocumentGenerateResult`                                                                              |
+| Document jobs controller  | `apps/runtime/src/modules/turns/interface/http/internal-runtime-document-jobs.controller.ts`               | Validate `"sandbox"` provider                                                                                                 |
+| Provider gateway module   | `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`                                   | Remove `PdfMonkeyProviderClient`                                                                                              |
+| Provider document service | `apps/provider-gateway/src/modules/providers/provider-document-generation.service.ts`                      | Remove pdfmonkey branch                                                                                                       |
+| Run suite                 | `apps/provider-gateway/test/run-suite.ts`                                                                  | Remove pdfmonkey test                                                                                                         |
+| Deleted                   | `apps/provider-gateway/src/modules/providers/pdfmonkey/pdfmonkey-provider.client.ts`                       | Deleted                                                                                                                       |
+| Deleted                   | `apps/provider-gateway/test/pdfmonkey-provider.client.test.ts`                                             | Deleted (if existed)                                                                                                          |
+| Tool credentials          | `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`                        | Remove all pdfmonkey entries; remove `documentProviderTemplateIds` field                                                      |
+| Manage credentials        | `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts`           | Remove `documentProviderTemplateIds` processing                                                                               |
+| Enqueue job               | `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts`   | `pdfmonkey→sandbox`; remove template gate                                                                                     |
+| Job scheduler             | `apps/api/src/modules/workspace-management/application/assistant-document-job-scheduler.service.ts`        | `pdfmonkey→sandbox` in types and ternaries                                                                                    |
+| Pricing catalog           | `apps/api/src/modules/workspace-management/application/tool-path-pricing-catalog.ts`                       | Remove pdfmonkey billing entry                                                                                                |
+| Runtime tool policy       | `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`                             | `pdfmonkey→sandbox`                                                                                                           |
+| Materialize service       | `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` | Remove `pdfmonkeyTemplateId`                                                                                                  |
+| Web admin                 | `apps/web/app/admin/tools/page.tsx`                                                                        | Remove PDFMonkey credential/template UI                                                                                       |
+| Web economics             | `apps/web/app/admin/tools/tool-path-economics.ts`                                                          | Remove PDFMonkey display name                                                                                                 |
+| Seed data                 | `apps/api/prisma/site-page-seed-data.ts`                                                                   | Remove "PDFMonkey" from prose                                                                                                 |
+| Docs                      | `docs/LIVE-TEST-HYBRID.md`                                                                                 | Remove PDFMonkey prerequisite                                                                                                 |
+| Tests (runtime)           | `apps/runtime/test/runtime-document-provider-adapter.service.test.ts`                                      | Major update: sandbox mock helpers, remove pdfmonkey types                                                                    |
+| Tests (runtime)           | `apps/runtime/test/runtime-document-job-run.service.test.ts`                                               | `pdfmonkey→sandbox`                                                                                                           |
+| Tests (runtime)           | `apps/runtime/test/provider-gateway.client.service.test.ts`                                                | Remove pdfmonkey fixture                                                                                                      |
+| Tests (sandbox)           | `apps/sandbox/test/sandbox.service.test.ts`                                                                | ADD `render_html_to_pdf` test                                                                                                 |
 
 ### Tests run
 
@@ -198,18 +294,18 @@ Replaced placeholder `busybox:1.36` exec image with the real in-sandbox toolchai
 
 ### Files touched
 
-| File | Purpose |
-|---|---|
-| `apps/sandbox/exec-image/Dockerfile` (new) | Exec image: full toolchain |
-| `apps/sandbox/exec-image/requirements.txt` (new) | Pinned Python package versions |
-| `scripts/ci/detect-affected.mjs` | `sandbox-exec` service + classifyFile routing + workflow_dispatch |
-| `scripts/ci/detect-affected.test.mjs` | 3 new tests for sandbox-exec routing |
-| `scripts/ci/pin-dev-image-tags.mjs` | `sandbox-exec` → `sandboxExec` section mapping |
-| `infra/helm/values-dev.yaml` | `sandboxExec.image` block; remove `SANDBOX_EXEC_IMAGE` from `sandbox.env` |
-| `infra/helm/templates/sandbox-deployment.yaml` | Compute `SANDBOX_EXEC_IMAGE` from `sandboxExec.image` |
-| `docs/CHANGELOG.md` | Slice 4 entry |
-| `infra/dev/gke/RUNBOOK.md` | ADR-123 Slice 4 verification steps |
-| `docs/ADR/123-...md` | Slice 4 LANDED |
+| File                                             | Purpose                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------- |
+| `apps/sandbox/exec-image/Dockerfile` (new)       | Exec image: full toolchain                                                |
+| `apps/sandbox/exec-image/requirements.txt` (new) | Pinned Python package versions                                            |
+| `scripts/ci/detect-affected.mjs`                 | `sandbox-exec` service + classifyFile routing + workflow_dispatch         |
+| `scripts/ci/detect-affected.test.mjs`            | 3 new tests for sandbox-exec routing                                      |
+| `scripts/ci/pin-dev-image-tags.mjs`              | `sandbox-exec` → `sandboxExec` section mapping                            |
+| `infra/helm/values-dev.yaml`                     | `sandboxExec.image` block; remove `SANDBOX_EXEC_IMAGE` from `sandbox.env` |
+| `infra/helm/templates/sandbox-deployment.yaml`   | Compute `SANDBOX_EXEC_IMAGE` from `sandboxExec.image`                     |
+| `docs/CHANGELOG.md`                              | Slice 4 entry                                                             |
+| `infra/dev/gke/RUNBOOK.md`                       | ADR-123 Slice 4 verification steps                                        |
+| `docs/ADR/123-...md`                             | Slice 4 LANDED                                                            |
 
 ### Tests run
 
@@ -247,19 +343,19 @@ Session-lived sandbox execution: pods are now reused across jobs within a sessio
 
 ### Files touched
 
-| File | Purpose |
-|---|---|
-| `packages/config/src/sandbox-config.ts` | `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` + `SANDBOX_EXEC_REAPER_INTERVAL_MS` config fields |
-| `apps/sandbox/src/exec-pod-bridge.service.ts` | Session pod reuse, `buildSessionPodName`, `runInSessionPod`, `ensureSessionPodRunning`, `runReaperTick`, `OnModuleInit`/`OnModuleDestroy` reaper wiring |
-| `apps/sandbox/src/sandbox-object-storage.service.ts` | `buildSessionSnapshotKey` method |
-| `apps/sandbox/src/sandbox.service.ts` | `saveSessionWorkspaceSnapshot`, `restoreSessionSnapshotOverlay`, `createTarFromDirectory`, `extractTarOverlay`; `ensureWorkspaceSessionHydrated` + `executeQueuedJob` updated |
-| `infra/helm/values-dev.yaml` | `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` + `SANDBOX_EXEC_REAPER_INTERVAL_MS` under sandbox env |
-| `apps/sandbox/test/exec-pod-bridge.service.test.ts` | Session pod naming, reuse, reaper tests (10 new) |
-| `apps/sandbox/test/sandbox.service.test.ts` | Session snapshot save/restore round-trip tests (4 new) |
-| `apps/sandbox/test/sandbox-metrics.service.test.ts` | Config fixture updated with 2 new fields |
-| `docs/CHANGELOG.md` | Slice 3 entry |
-| `infra/dev/gke/RUNBOOK.md` | ADR-123 Slice 3 verification steps (§7 new steps) |
-| `docs/ADR/123-...md` | Slice 3 LANDED + warm pool DEFERRED noted |
+| File                                                 | Purpose                                                                                                                                                                       |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/config/src/sandbox-config.ts`              | `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` + `SANDBOX_EXEC_REAPER_INTERVAL_MS` config fields                                                                                          |
+| `apps/sandbox/src/exec-pod-bridge.service.ts`        | Session pod reuse, `buildSessionPodName`, `runInSessionPod`, `ensureSessionPodRunning`, `runReaperTick`, `OnModuleInit`/`OnModuleDestroy` reaper wiring                       |
+| `apps/sandbox/src/sandbox-object-storage.service.ts` | `buildSessionSnapshotKey` method                                                                                                                                              |
+| `apps/sandbox/src/sandbox.service.ts`                | `saveSessionWorkspaceSnapshot`, `restoreSessionSnapshotOverlay`, `createTarFromDirectory`, `extractTarOverlay`; `ensureWorkspaceSessionHydrated` + `executeQueuedJob` updated |
+| `infra/helm/values-dev.yaml`                         | `SANDBOX_EXEC_SESSION_IDLE_TTL_MS` + `SANDBOX_EXEC_REAPER_INTERVAL_MS` under sandbox env                                                                                      |
+| `apps/sandbox/test/exec-pod-bridge.service.test.ts`  | Session pod naming, reuse, reaper tests (10 new)                                                                                                                              |
+| `apps/sandbox/test/sandbox.service.test.ts`          | Session snapshot save/restore round-trip tests (4 new)                                                                                                                        |
+| `apps/sandbox/test/sandbox-metrics.service.test.ts`  | Config fixture updated with 2 new fields                                                                                                                                      |
+| `docs/CHANGELOG.md`                                  | Slice 3 entry                                                                                                                                                                 |
+| `infra/dev/gke/RUNBOOK.md`                           | ADR-123 Slice 3 verification steps (§7 new steps)                                                                                                                             |
+| `docs/ADR/123-...md`                                 | Slice 3 LANDED + warm pool DEFERRED noted                                                                                                                                     |
 
 ### Tests run
 
@@ -295,18 +391,18 @@ Kernel-level network isolation for gVisor exec pods: deny-all egress NetworkPoli
 
 ### Files touched
 
-| File | Purpose |
-|---|---|
-| `packages/config/src/sandbox-config.ts` | `SANDBOX_EXEC_EGRESS_PROXY_URL` + `SANDBOX_EXEC_NO_PROXY` config fields |
-| `apps/sandbox/src/exec-pod-bridge.service.ts` | `buildProxyEnv()` method; `env: this.buildProxyEnv()` in `createExecPod` |
-| `infra/helm/templates/networkpolicies.yaml` | `sandbox-exec-deny-egress` + `sandbox-egress-proxy-isolation` NetworkPolicies |
-| `infra/helm/templates/sandbox-egress-proxy.yaml` (new) | Squid ConfigMap + Deployment + Service |
-| `infra/helm/values-dev.yaml` | `SANDBOX_EXEC_EGRESS_PROXY_URL`, `SANDBOX_EXEC_NO_PROXY`, `sandbox.egressProxy` block |
-| `apps/sandbox/test/exec-pod-bridge.service.test.ts` | 2 new tests: proxy env injected when URL set; none when empty |
-| `apps/sandbox/test/sandbox-metrics.service.test.ts` | Config fixture updated with 2 new fields |
-| `docs/CHANGELOG.md` | Slice 2 entry |
-| `infra/dev/gke/RUNBOOK.md` | ADR-123 Slice 2 verification steps |
-| `docs/ADR/123-...md` | Slice 2 marked LANDED |
+| File                                                   | Purpose                                                                               |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `packages/config/src/sandbox-config.ts`                | `SANDBOX_EXEC_EGRESS_PROXY_URL` + `SANDBOX_EXEC_NO_PROXY` config fields               |
+| `apps/sandbox/src/exec-pod-bridge.service.ts`          | `buildProxyEnv()` method; `env: this.buildProxyEnv()` in `createExecPod`              |
+| `infra/helm/templates/networkpolicies.yaml`            | `sandbox-exec-deny-egress` + `sandbox-egress-proxy-isolation` NetworkPolicies         |
+| `infra/helm/templates/sandbox-egress-proxy.yaml` (new) | Squid ConfigMap + Deployment + Service                                                |
+| `infra/helm/values-dev.yaml`                           | `SANDBOX_EXEC_EGRESS_PROXY_URL`, `SANDBOX_EXEC_NO_PROXY`, `sandbox.egressProxy` block |
+| `apps/sandbox/test/exec-pod-bridge.service.test.ts`    | 2 new tests: proxy env injected when URL set; none when empty                         |
+| `apps/sandbox/test/sandbox-metrics.service.test.ts`    | Config fixture updated with 2 new fields                                              |
+| `docs/CHANGELOG.md`                                    | Slice 2 entry                                                                         |
+| `infra/dev/gke/RUNBOOK.md`                             | ADR-123 Slice 2 verification steps                                                    |
+| `docs/ADR/123-...md`                                   | Slice 2 marked LANDED                                                                 |
 
 ### Tests run
 
@@ -326,8 +422,6 @@ Kernel-level network isolation for gVisor exec pods: deny-all egress NetworkPoli
 
 ---
 
-
-
 ### What changed
 
 The single pre-first-tool "working preamble" string was replaced everywhere by an ordered per-step array `workingNotes: string[]` = the text the model writes before EACH tool call across all tool-loop iterations (empty array = no notes). The old `preambleText` / `workingPreamble` field is gone from contract, API, UI, persistence, and mapper.
@@ -341,17 +435,17 @@ The single pre-first-tool "working preamble" string was replaced everywhere by a
 
 ### Files touched
 
-| File | Purpose |
-|---|---|
-| `packages/runtime-contract/src/index.ts` | `preambleText` → `workingNotes: string[]` on `RuntimeTurnResult` |
-| `packages/contracts/openapi.yaml` + `src/generated/model/assistantWebChatMessageState.ts` | `workingPreamble` → `workingNotes` (array); regenerated |
-| `apps/runtime/src/modules/turns/turn-execution.service.ts` | per-step capture + `assembleWorkingNotesAndAnswer`; `buildTurnResult` rework |
-| `apps/runtime/test/assemble-working-notes-and-answer.test.ts` (new) + `run-suite.ts` / `run-suite-isolated.ts` | unit suite for the pure assembler; registered |
-| `apps/runtime/test/turn-execution.service.test.ts` | multi-step capture + dedupe assertions (replaces split test) |
-| `apps/api/.../web-runtime-stream-client.service.ts`, `assistant-runtime.facade.ts`, `persist-assistant-message.ts`, `stream-web-chat-turn.service.ts`, `web-chat-message-state.mapper.ts`, `web-chat.types.ts` | `workingNotes` end to end + Symptom-1 live transport |
-| `apps/api/prisma/backfill-working-notes.ts` (+ `.test.ts`) | idempotent migration (replaces `backfill-working-preamble.*`) |
-| `apps/web/app/app/assistant-api-client.ts`, `_components/use-chat.ts`, `_components/chat-message.tsx` | `workingNotes` on client + render |
-| api/web test suites | migrated off `workingPreamble`/`preambleText` |
+| File                                                                                                                                                                                                           | Purpose                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `packages/runtime-contract/src/index.ts`                                                                                                                                                                       | `preambleText` → `workingNotes: string[]` on `RuntimeTurnResult`             |
+| `packages/contracts/openapi.yaml` + `src/generated/model/assistantWebChatMessageState.ts`                                                                                                                      | `workingPreamble` → `workingNotes` (array); regenerated                      |
+| `apps/runtime/src/modules/turns/turn-execution.service.ts`                                                                                                                                                     | per-step capture + `assembleWorkingNotesAndAnswer`; `buildTurnResult` rework |
+| `apps/runtime/test/assemble-working-notes-and-answer.test.ts` (new) + `run-suite.ts` / `run-suite-isolated.ts`                                                                                                 | unit suite for the pure assembler; registered                                |
+| `apps/runtime/test/turn-execution.service.test.ts`                                                                                                                                                             | multi-step capture + dedupe assertions (replaces split test)                 |
+| `apps/api/.../web-runtime-stream-client.service.ts`, `assistant-runtime.facade.ts`, `persist-assistant-message.ts`, `stream-web-chat-turn.service.ts`, `web-chat-message-state.mapper.ts`, `web-chat.types.ts` | `workingNotes` end to end + Symptom-1 live transport                         |
+| `apps/api/prisma/backfill-working-notes.ts` (+ `.test.ts`)                                                                                                                                                     | idempotent migration (replaces `backfill-working-preamble.*`)                |
+| `apps/web/app/app/assistant-api-client.ts`, `_components/use-chat.ts`, `_components/chat-message.tsx`                                                                                                          | `workingNotes` on client + render                                            |
+| api/web test suites                                                                                                                                                                                            | migrated off `workingPreamble`/`preambleText`                                |
 
 ### Tests run
 
@@ -371,15 +465,18 @@ Run `backfill-working-notes.ts` once in PROD to migrate legacy rows. No new ADR 
 Slice 1 of ADR-122: `maxOutputTokens` and `contextWindow` added as first-class admin-managed capability fields on the model catalog, carried onto routing slots, seeded with authoritative Anthropic values, and exposed in the admin UI.
 
 **D1 (admin-managed fields + UI):**
+
 - `RuntimeProviderModelProfileBase` gains `maxOutputTokens: number | null` and `contextWindow: number | null`.
 - `normalizeModelProfiles()` in platform settings validates both fields via new `normalizeOptionalPositiveInteger()` helper (null allowed; bounds: max 1_000_000 / 2_000_000).
 - Admin runtime page gains `NullableIntegerField` component + two inputs per model row ("Max output tokens", "Context window").
 
 **D2 (routing slot enrichment):**
+
 - Each `modelSlots` entry in routing types gains `maxOutputTokens?: number | null` and `contextWindow?: number | null`.
 - `resolve-runtime-provider-routing.service.ts` enriches each slot via `lookupModelCapabilities()` — looks up the active catalog profile for `(providerKey, modelKey)` and attaches the values (null when not found).
 
 **D5 (seeding):**
+
 - `MODEL_CAPABILITY_DEFAULTS` table defined in `runtime-provider-profile.ts` with authoritative Anthropic values (7 models, all 200k context window at non-premium tier, maxOutputTokens per model). **[SUPERSEDED by Slice 2 corrective pass]** OpenAI was initially left null here — the corrective pass seeded the OpenAI families and moved default fold-in to read/write normalization.
 - Seeding applied only at synthesis/legacy-row normalization — does not overwrite admin-set explicit values; null round-trips as null. **[SUPERSEDED by Slice 2 corrective pass]** known-model nulls are now coerced to the published ceiling at read/write so PROD persisted-null rows are correct without a manual save.
 
@@ -389,19 +486,19 @@ Slice 1 of ADR-122: `maxOutputTokens` and `contextWindow` added as first-class a
 
 ### Files touched
 
-| File | Purpose |
-|---|---|
-| `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts` | Added `maxOutputTokens`/`contextWindow` to `RuntimeProviderModelProfileBase`; updated `parseRuntimeProviderModelProfiles()`, `createDefaultModelProfiles()`, `parseLegacyCapabilityCatalog()`; defined `MODEL_CAPABILITY_DEFAULTS` |
-| `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts` | Added `MAX_CONTEXT_WINDOW_VALUE`/`MAX_OUTPUT_TOKENS_VALUE` bounds; added `normalizeOptionalPositiveInteger()`; added both fields to `normalizeModelProfiles()` |
-| `apps/api/src/modules/workspace-management/application/runtime-provider-routing.types.ts` | Added optional `maxOutputTokens`/`contextWindow` to each `modelSlots` slot shape |
-| `apps/api/src/modules/workspace-management/application/resolve-runtime-provider-routing.service.ts` | Added `lookupModelCapabilities()` helper; enriched each routing slot |
-| `apps/api/src/modules/workspace-management/application/tool-path-pricing-catalog.ts` | Added `maxOutputTokens: null`/`contextWindow: null` to `base` to satisfy updated type |
-| `apps/api/test/platform-runtime-provider-settings.test.ts` | Added ADR-122 normalization tests + seeding tests |
-| `apps/api/test/runtime-provider-routing.test.ts` | Added ADR-122 slot enrichment tests |
-| `apps/web/app/admin/runtime/page.tsx` | Added `NullableIntegerField` component; wired two new inputs per model row |
-| `apps/web/app/admin/runtime/page.test.tsx` | Added ADR-122 input rendering, accept-positive-int, and reset-to-null tests |
-| `packages/contracts/openapi.yaml` | Added `maxOutputTokens`/`contextWindow` to `RuntimeProviderModelProfileCommonState` |
-| `packages/contracts/src/generated/model/runtimeProviderModelProfileCommonState.ts` | Regenerated |
+| File                                                                                                | Purpose                                                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts`                 | Added `maxOutputTokens`/`contextWindow` to `RuntimeProviderModelProfileBase`; updated `parseRuntimeProviderModelProfiles()`, `createDefaultModelProfiles()`, `parseLegacyCapabilityCatalog()`; defined `MODEL_CAPABILITY_DEFAULTS` |
+| `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`       | Added `MAX_CONTEXT_WINDOW_VALUE`/`MAX_OUTPUT_TOKENS_VALUE` bounds; added `normalizeOptionalPositiveInteger()`; added both fields to `normalizeModelProfiles()`                                                                     |
+| `apps/api/src/modules/workspace-management/application/runtime-provider-routing.types.ts`           | Added optional `maxOutputTokens`/`contextWindow` to each `modelSlots` slot shape                                                                                                                                                   |
+| `apps/api/src/modules/workspace-management/application/resolve-runtime-provider-routing.service.ts` | Added `lookupModelCapabilities()` helper; enriched each routing slot                                                                                                                                                               |
+| `apps/api/src/modules/workspace-management/application/tool-path-pricing-catalog.ts`                | Added `maxOutputTokens: null`/`contextWindow: null` to `base` to satisfy updated type                                                                                                                                              |
+| `apps/api/test/platform-runtime-provider-settings.test.ts`                                          | Added ADR-122 normalization tests + seeding tests                                                                                                                                                                                  |
+| `apps/api/test/runtime-provider-routing.test.ts`                                                    | Added ADR-122 slot enrichment tests                                                                                                                                                                                                |
+| `apps/web/app/admin/runtime/page.tsx`                                                               | Added `NullableIntegerField` component; wired two new inputs per model row                                                                                                                                                         |
+| `apps/web/app/admin/runtime/page.test.tsx`                                                          | Added ADR-122 input rendering, accept-positive-int, and reset-to-null tests                                                                                                                                                        |
+| `packages/contracts/openapi.yaml`                                                                   | Added `maxOutputTokens`/`contextWindow` to `RuntimeProviderModelProfileCommonState`                                                                                                                                                |
+| `packages/contracts/src/generated/model/runtimeProviderModelProfileCommonState.ts`                  | Regenerated                                                                                                                                                                                                                        |
 
 ### Tests run
 
@@ -429,15 +526,18 @@ Slice 1 of ADR-122: `maxOutputTokens` and `contextWindow` added as first-class a
 Slice 2 of ADR-122 (D3 + D4): the single `resolveModelOutputBudget` pure helper, wired into every generation path. Fixes the root bug where main-chat-turn and tool-loop provider calls reached the Anthropic client with no `maxOutputTokens`, causing the `?? 1_024` fallback to truncate long answers.
 
 **D3 — resolver (`apps/runtime/src/modules/turns/model-output-budget.ts`):** **[constants + formula below SUPERSEDED by the corrective pass — see the corrective-pass subsection further down for the authoritative `OUTPUT_BUDGET_MAX = 128_000` / `OUTPUT_BUDGET_FALLBACK = 8_192` and the thinking-aware formula]**
+
 - `resolveModelOutputBudget(capability, ctx): number` — single pure function.
 - Constants (initial cut, superseded): `OUTPUT_BUDGET_SANITY_CAP = 200_000` (replaced `DEFENSIVE_OUTPUT_TOKEN_CAP = 64_000`), `OUTPUT_BUDGET_FLOOR = 1_024`, `CONTEXT_SAFETY_RESERVE = 4_096`, `APPROX_BYTES_PER_TOKEN = 3`.
 - Formula (initial cut, superseded): base = `maxOutputTokens ?? SANITY_CAP`; if `contextWindow` + `inputTokensEstimate` known: `ctxRoom = contextWindow - input - thinking - RESERVE`; `effective = min(base, ctxRoom)`; return `clamp(effective, FLOOR, SANITY_CAP)`.
 - Unit tests: 9 assertions covering null maxOutputTokens, ctxRoom binding, thinking-budget subtraction, floor clamp, sanity clamp, both-null, null inputTokensEstimate (guard skipped), edge cases.
 
 **D4 — wiring:**
+
 - `turn-execution.service.ts` `prepareTurnExecution`: new `resolveSlotCapability()` reads `maxOutputTokens` + `contextWindow` from routing slot; computes `inputTokensEstimate` via char-based `estimateProviderRequestInputTokens()`; sets `maxOutputTokens` on the returned providerRequest via the resolver.
 
 **Corrective pass (2026-06-20, founder-mandated PROD-correctness for BOTH providers):**
+
 - **Resolver formula corrected** for thinking + safe fallback. New constants (replaced `OUTPUT_BUDGET_SANITY_CAP`): `OUTPUT_BUDGET_MAX = 128_000` (absolute cap on FINAL answer+thinking, = largest real ceiling), `OUTPUT_BUDGET_FALLBACK = 8_192` (base when `maxOutputTokens` null — safe on every mainstream model), `OUTPUT_BUDGET_FLOOR = 1_024`, `CONTEXT_SAFETY_RESERVE = 4_096`. New formula reserves thinking out of the total: `totalCeiling = min(maxOutputTokens ?? FALLBACK, MAX)`; `totalRoom = min(totalCeiling, contextWindow - input - reserve)`; `answer = totalRoom - thinkingBudget`; clamp `[FLOOR, MAX]`. This guarantees gateway `max_tokens = answer + thinkingBudget = totalRoom ≤ model ceiling`, eliminating the opus 128k + thinking 32768 = 160768 > 128000 overflow → 400.
 - **OpenAI models seeded** in `MODEL_CAPABILITY_DEFAULTS` (gpt-5.1 / gpt-5.1-codex / gpt-5 / gpt-5-mini / gpt-5-nano = 400k ctx / 128k out; gpt-4o / gpt-4o-mini = 128k ctx / 16_384 out). Fixes OpenAI 400 (it sends `max_output_tokens` verbatim with no clamp). Unlisted OpenAI keys → `OUTPUT_BUDGET_FALLBACK`.
 - **Family defaults folded in at READ + WRITE normalization** (not just synthesis): `parseRuntimeProviderModelProfiles` (DB read) and `normalizeModelProfiles` (admin-save) now coerce a KNOWN-model stored/blank null to the published ceiling; explicit admin value always wins; unknown model stays null. This fixes PROD rows persisted with the brand-new fields = null. Supersedes the earlier "null strictly round-trips" note for known models.
@@ -451,17 +551,17 @@ Slice 2 of ADR-122 (D3 + D4): the single `resolveModelOutputBudget` pure helper,
 
 ### Files touched
 
-| File | Purpose |
-|---|---|
-| `apps/runtime/src/modules/turns/model-output-budget.ts` | New — pure resolver + constants |
-| `apps/runtime/test/model-output-budget.test.ts` | New — 9-case unit test suite |
-| `apps/runtime/test/run-suite.ts` | Registered `runModelOutputBudgetTest` |
-| `apps/runtime/test/run-suite-isolated.ts` | Registered `runModelOutputBudgetTest` |
-| `apps/runtime/src/modules/turns/turn-execution.service.ts` | Added `resolveSlotCapability`, `estimateProviderRequestInputTokens`; wired resolver in `prepareTurnExecution` + `refreshProviderRequestMessages` |
-| `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts` | Refactored `resolveMaxOutputTokens` to delegate to resolver; removed `DEFENSIVE_OUTPUT_TOKEN_CAP` |
-| `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` | Replaced 4× `?? 1_024` with `PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS = 4_096` |
-| `apps/runtime/test/turn-execution.service.test.ts` | Added `OUTPUT_BUDGET_SANITY_CAP` import + maxOutputTokens regression assertion |
-| `apps/provider-gateway/test/anthropic-provider.client.test.ts` | Updated 3 test assertions for new fallback value |
+| File                                                                                 | Purpose                                                                                                                                          |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `apps/runtime/src/modules/turns/model-output-budget.ts`                              | New — pure resolver + constants                                                                                                                  |
+| `apps/runtime/test/model-output-budget.test.ts`                                      | New — 9-case unit test suite                                                                                                                     |
+| `apps/runtime/test/run-suite.ts`                                                     | Registered `runModelOutputBudgetTest`                                                                                                            |
+| `apps/runtime/test/run-suite-isolated.ts`                                            | Registered `runModelOutputBudgetTest`                                                                                                            |
+| `apps/runtime/src/modules/turns/turn-execution.service.ts`                           | Added `resolveSlotCapability`, `estimateProviderRequestInputTokens`; wired resolver in `prepareTurnExecution` + `refreshProviderRequestMessages` |
+| `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts`        | Refactored `resolveMaxOutputTokens` to delegate to resolver; removed `DEFENSIVE_OUTPUT_TOKEN_CAP`                                                |
+| `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` | Replaced 4× `?? 1_024` with `PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS = 4_096`                                                                        |
+| `apps/runtime/test/turn-execution.service.test.ts`                                   | Added `OUTPUT_BUDGET_SANITY_CAP` import + maxOutputTokens regression assertion                                                                   |
+| `apps/provider-gateway/test/anthropic-provider.client.test.ts`                       | Updated 3 test assertions for new fallback value                                                                                                 |
 
 ### Tests run
 
@@ -490,43 +590,48 @@ Slice 2 of ADR-122 (D3 + D4): the single `resolveModelOutputBudget` pure helper,
 Slice 3 of ADR-122 (D6): orthogonal `truncated?: boolean` signal propagated end-to-end so the model no longer continues a cut-off previous answer on the next turn.
 
 **Contract:**
+
 - `ProviderGatewayTextGenerateResult.truncated?: boolean` — new optional field, orthogonal to `stopReason` (which stays `"completed" | "tool_calls"`).
 - `RuntimeTurnResult.truncated?: boolean` — propagated from the final provider result.
 
 **Provider clients:**
+
 - Anthropic (non-stream): `truncated: response.stop_reason === "max_tokens"` on the returned result.
 - Anthropic (stream): `truncated: latestStopReason === "max_tokens"` on the `ProviderGatewayTextCompletedEvent` result.
 - OpenAI (non-stream): `truncated: this.isMaxOutputTokensTruncation(response)` — new private helper checks `response.status === "incomplete" && response.incomplete_details?.reason === "max_output_tokens"`.
 - OpenAI (stream): the existing `response.incomplete` handler now checks if reason is `max_output_tokens`; if so yields a completed event with `truncated: true` (and the accumulated text) instead of a failed event. Other incomplete reasons still fail.
 
 **Runtime:**
+
 - `buildTurnResult` in `turn-execution.service.ts`: `...(providerResult.truncated === true ? { truncated: true } : {})` spread into the `RuntimeTurnResult`.
 
 **API persistence path:**
+
 - `assistant-runtime.facade.ts`: `truncated?: boolean` on `AssistantRuntimeWebChatTurnStreamChunk`.
 - `web-runtime-stream-client.service.ts`: `...(event.result.truncated === true ? { truncated: true } : {})` on the `done` chunk.
 - `persist-assistant-message.ts`: new `truncatedStatus?: "truncated"` field; `resolvedStatus = truncatedStatus ?? partialStatus` so `metadata.status` is one of `"partial"` (abort/stall) or `"truncated"` (max_tokens) or absent (clean).
 - `stream-web-chat-turn.service.ts`: captures `truncated` from the done chunk; passes `truncatedStatus: isCompletedNormally && runtimeTruncated ? "truncated" : undefined` to persist.
 
 **Hydration guard (`turn-context-hydration.service.ts`):**
+
 - New `withTruncationMarker(content, message)` private method: for `author === "assistant"` messages with `metadata.status === "partial" | "truncated"`, appends `"\n\n[Note: the previous answer was interrupted before completion.]"` to the string content. Includes idempotency guard (checks for marker before appending). Applied in BOTH the summarized messages loop and the canonical web hydration loop (only for non-current-inbound messages).
 
 ### Files touched
 
-| File | Purpose |
-|---|---|
-| `packages/runtime-contract/src/index.ts` | Added `truncated?: boolean` to `ProviderGatewayTextGenerateResult` and `RuntimeTurnResult` |
-| `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` | Set `truncated` on non-streaming and streaming completed results |
-| `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts` | Added `isMaxOutputTokensTruncation()` helper; set `truncated` on non-streaming and streaming results; extracted max_output_tokens incomplete case from failed path |
-| `apps/runtime/src/modules/turns/turn-execution.service.ts` | Propagated `truncated` in `buildTurnResult` |
-| `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts` | Added `truncated?: boolean` to `AssistantRuntimeWebChatTurnStreamChunk` |
-| `apps/api/src/modules/workspace-management/application/web-runtime-stream-client.service.ts` | Forward `truncated` in the `done` chunk |
-| `apps/api/src/modules/workspace-management/application/persist-assistant-message.ts` | Added `truncatedStatus` field; unified into `resolvedStatus` |
-| `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` | Captured `runtimeTruncated`; added to `streamRuntimeAttempt` return; passed `truncatedStatus` to persist |
-| `apps/runtime/src/modules/turns/turn-context-hydration.service.ts` | Added `withTruncationMarker()`; applied in both message hydration loops |
-| `apps/provider-gateway/test/anthropic-provider.client.test.ts` | Added max_tokens non-streaming + streaming truncation tests |
-| `apps/runtime/test/turn-context-hydration.service.test.ts` | Added 4 truncation marker tests (partial, truncated, clean, idempotency) |
-| `apps/runtime/test/turn-execution.service.test.ts` | Added 2 `buildTurnResult` truncated-propagation tests |
+| File                                                                                         | Purpose                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/runtime-contract/src/index.ts`                                                     | Added `truncated?: boolean` to `ProviderGatewayTextGenerateResult` and `RuntimeTurnResult`                                                                         |
+| `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`         | Set `truncated` on non-streaming and streaming completed results                                                                                                   |
+| `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`               | Added `isMaxOutputTokensTruncation()` helper; set `truncated` on non-streaming and streaming results; extracted max_output_tokens incomplete case from failed path |
+| `apps/runtime/src/modules/turns/turn-execution.service.ts`                                   | Propagated `truncated` in `buildTurnResult`                                                                                                                        |
+| `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts`          | Added `truncated?: boolean` to `AssistantRuntimeWebChatTurnStreamChunk`                                                                                            |
+| `apps/api/src/modules/workspace-management/application/web-runtime-stream-client.service.ts` | Forward `truncated` in the `done` chunk                                                                                                                            |
+| `apps/api/src/modules/workspace-management/application/persist-assistant-message.ts`         | Added `truncatedStatus` field; unified into `resolvedStatus`                                                                                                       |
+| `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`      | Captured `runtimeTruncated`; added to `streamRuntimeAttempt` return; passed `truncatedStatus` to persist                                                           |
+| `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`                           | Added `withTruncationMarker()`; applied in both message hydration loops                                                                                            |
+| `apps/provider-gateway/test/anthropic-provider.client.test.ts`                               | Added max_tokens non-streaming + streaming truncation tests                                                                                                        |
+| `apps/runtime/test/turn-context-hydration.service.test.ts`                                   | Added 4 truncation marker tests (partial, truncated, clean, idempotency)                                                                                           |
+| `apps/runtime/test/turn-execution.service.test.ts`                                           | Added 2 `buildTurnResult` truncated-propagation tests                                                                                                              |
 
 ### Tests run
 
@@ -557,10 +662,12 @@ Commit Slices 1–3 of ADR-122 and push to trigger deploy (all three slices are 
 Production bug fix: tool-loop turns were persisting only the pre-tool preamble text while discarding the final answer after tools finished. Five consecutive tool-loop turns were confirmed persisting only 67–232 bytes while the model generated 488–680 tokens.
 
 **Root cause (two coupled defects):**
+
 1. API `case "completed"` gated acceptance of `event.result.assistantText` on `assistantText.startsWith(accumulated)` — runtime sanitization broke the prefix check, silently dropping the final text.
 2. `:::working` markers were synthetic API-invented wrappers, not a real contract — `buildPersistedWorkingAssistantContent` / `demoteAccumulatedAnswerToWorking` wrote preamble markers into `content` instead of the real final answer.
 
 **Fix:**
+
 - `RuntimeTurnResult` now carries `preambleText: string | null` + `answerText: string` (split by runtime at first `tool_calls` in iter 0); `assistantText` kept as backward-compat field.
 - `startsWith(accumulated)` gate removed from `case "completed"` in `web-runtime-stream-client.service.ts`; `finalAnswer` + `workingPreamble` forwarded on the `done` chunk.
 - Entire `:::working` pipeline deleted from `stream-web-chat-turn.service.ts`; persisted `content = answerText`; `metadata.workingPreamble = preamble`; aborted/stalled turns persist `metadata.status = "partial"`.
@@ -570,32 +677,32 @@ Production bug fix: tool-loop turns were persisting only the pre-tool preamble t
 
 ### Files touched
 
-| File | Purpose |
-|---|---|
-| `packages/runtime-contract/src/index.ts` | Added `preambleText`/`answerText` to `RuntimeTurnResult` |
-| `apps/runtime/src/modules/turns/turn-execution.service.ts` | Capture preamble at first tool_calls; **exported pure `splitPreambleAndAnswer` + `buildTurnResult` delegates to it (regression fix)** |
-| `apps/runtime/test/split-preamble-and-answer.test.ts` | New: runtime unit suite for the preamble/answer split (spec item 6) |
-| `apps/runtime/test/run-suite.ts` / `run-suite-isolated.ts` | Registered the new split suite |
-| `apps/runtime/test/turn-execution.service.test.ts` | Added `preambleText`/`answerText` integration assertions (tool-loop + no-tools) |
-| `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts` | Added `finalAnswer`/`workingPreamble` to stream chunk type |
-| `apps/api/src/modules/workspace-management/application/web-runtime-stream-client.service.ts` | Removed startsWith gate; forward new fields on done chunk |
-| `apps/api/src/modules/workspace-management/application/web-chat.types.ts` | Added `workingPreamble` to `AssistantWebChatMessageState` |
-| `apps/api/src/modules/workspace-management/application/web-chat-message-state.mapper.ts` | Extract workingPreamble from metadata |
-| `apps/api/src/modules/workspace-management/application/persist-assistant-message.ts` | Added `workingPreamble` + `partialStatus` to input; write to metadata |
-| `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` | Removed entire :::working pipeline; persist finalAnswer; partial status |
-| `apps/api/prisma/backfill-working-preamble.ts` | New: one-shot backfill for legacy rows |
-| `packages/contracts/openapi.yaml` | Added `workingPreamble` to `AssistantWebChatMessageState` |
-| `packages/contracts/src/generated/model/assistantWebChatMessageState.ts` | Regenerated |
-| `apps/web/app/app/assistant-api-client.ts` | Added `workingPreamble` to `ChatHistoryMessage` |
-| `apps/web/app/app/_components/use-chat.ts` | Added `workingPreamble` to `ChatMessage`; remove demotion/working fns |
-| `apps/web/app/app/_components/chat-message-streaming.ts` | Removed legacy working block functions |
-| `apps/web/app/app/_components/chat-message.tsx` | Read `workingPreamble` from message; removed splitWorkingMarkdownContent |
-| `apps/api/test/stream-web-chat-turn.service.test.ts` | Updated 2 old tests; added golden test 1+2+3+4 |
-| `apps/api/test/backfill-working-preamble.test.ts` | New: golden test 5 (idempotency) |
-| `apps/web/app/app/_components/chat-message-streaming.test.ts` | Removed obsolete tests; new contract assertion |
-| `apps/web/app/app/_components/chat-message.test.tsx` | Updated 6 tests to use `workingPreamble` field |
-| `apps/web/app/app/_components/use-chat.test.tsx` | Updated 2 tests to new contract |
-| `docs/CHANGELOG.md` | Entry added |
+| File                                                                                         | Purpose                                                                                                                               |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/runtime-contract/src/index.ts`                                                     | Added `preambleText`/`answerText` to `RuntimeTurnResult`                                                                              |
+| `apps/runtime/src/modules/turns/turn-execution.service.ts`                                   | Capture preamble at first tool_calls; **exported pure `splitPreambleAndAnswer` + `buildTurnResult` delegates to it (regression fix)** |
+| `apps/runtime/test/split-preamble-and-answer.test.ts`                                        | New: runtime unit suite for the preamble/answer split (spec item 6)                                                                   |
+| `apps/runtime/test/run-suite.ts` / `run-suite-isolated.ts`                                   | Registered the new split suite                                                                                                        |
+| `apps/runtime/test/turn-execution.service.test.ts`                                           | Added `preambleText`/`answerText` integration assertions (tool-loop + no-tools)                                                       |
+| `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts`          | Added `finalAnswer`/`workingPreamble` to stream chunk type                                                                            |
+| `apps/api/src/modules/workspace-management/application/web-runtime-stream-client.service.ts` | Removed startsWith gate; forward new fields on done chunk                                                                             |
+| `apps/api/src/modules/workspace-management/application/web-chat.types.ts`                    | Added `workingPreamble` to `AssistantWebChatMessageState`                                                                             |
+| `apps/api/src/modules/workspace-management/application/web-chat-message-state.mapper.ts`     | Extract workingPreamble from metadata                                                                                                 |
+| `apps/api/src/modules/workspace-management/application/persist-assistant-message.ts`         | Added `workingPreamble` + `partialStatus` to input; write to metadata                                                                 |
+| `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`      | Removed entire :::working pipeline; persist finalAnswer; partial status                                                               |
+| `apps/api/prisma/backfill-working-preamble.ts`                                               | New: one-shot backfill for legacy rows                                                                                                |
+| `packages/contracts/openapi.yaml`                                                            | Added `workingPreamble` to `AssistantWebChatMessageState`                                                                             |
+| `packages/contracts/src/generated/model/assistantWebChatMessageState.ts`                     | Regenerated                                                                                                                           |
+| `apps/web/app/app/assistant-api-client.ts`                                                   | Added `workingPreamble` to `ChatHistoryMessage`                                                                                       |
+| `apps/web/app/app/_components/use-chat.ts`                                                   | Added `workingPreamble` to `ChatMessage`; remove demotion/working fns                                                                 |
+| `apps/web/app/app/_components/chat-message-streaming.ts`                                     | Removed legacy working block functions                                                                                                |
+| `apps/web/app/app/_components/chat-message.tsx`                                              | Read `workingPreamble` from message; removed splitWorkingMarkdownContent                                                              |
+| `apps/api/test/stream-web-chat-turn.service.test.ts`                                         | Updated 2 old tests; added golden test 1+2+3+4                                                                                        |
+| `apps/api/test/backfill-working-preamble.test.ts`                                            | New: golden test 5 (idempotency)                                                                                                      |
+| `apps/web/app/app/_components/chat-message-streaming.test.ts`                                | Removed obsolete tests; new contract assertion                                                                                        |
+| `apps/web/app/app/_components/chat-message.test.tsx`                                         | Updated 6 tests to use `workingPreamble` field                                                                                        |
+| `apps/web/app/app/_components/use-chat.test.tsx`                                             | Updated 2 tests to new contract                                                                                                       |
+| `docs/CHANGELOG.md`                                                                          | Entry added                                                                                                                           |
 
 ### Runtime split regression (follow-up, same slice)
 
@@ -617,8 +724,6 @@ The first cut of `buildTurnResult` mis-composed the split: `answerText = provide
 
 1. **Run the backfill in PROD** after deploy: `corepack pnpm --filter @persai/api exec ts-node prisma/backfill-working-preamble.ts`. The script is idempotent. It will convert all legacy `:::working` rows to the new format.
 2. **Verify** a live tool-loop turn in production to confirm the final answer is persisted correctly.
-
-
 
 ### Latest completed checkpoint
 
@@ -692,6 +797,7 @@ Orchestrator runs C end-to-end: assign slice → review diff → AGENTS.md gate 
 ### Slice 2 — completed 2026-06-19
 
 **What changed:**
+
 - `TurnRouteDecision` gains `level: RoutingLevel` and `thinkingBudget: number`; `CreateDecisionInput` exported as the `createDecision` input type (omits derived fields).
 - `createDecision` is now the single resolver seat — accepts `CreateDecisionInput`, calls `resolveExecutionProfile(input.level)`, derives `executionMode` + `thinkingBudget`.
 - Seven `deepMode ? "premium" : "normal"` ternaries + `coerceExecutionMode` deleted; replaced by `applyDeepModeNudge(level, deepMode): RoutingLevel` helper. `executionModeToLevel` and `asLevel` helpers added.
@@ -707,6 +813,7 @@ Orchestrator runs C end-to-end: assign slice → review diff → AGENTS.md gate 
 - Tests updated: `turn-routing.service.test.ts`, `project-execution-profile.test.ts`, `turn-execution.service.test.ts` — all classifier JSON fixtures use `level` instead of `executionMode`; new invariant cases: deep cue → deep, reasoning_request → heavy (CHANGED from reasoning), project+deepMode off → heavy/premium, deepMode light → medium, premium_writing+deepMode → heavy.
 
 **Behavior invariants verified:**
+
 - `light` + deepMode off → `normal` ✓
 - `light` + deepMode on → `medium` / `premium` ✓
 - `premium_writing` + deepMode off → `medium` / `premium` / budget 0 ✓
@@ -721,6 +828,7 @@ Orchestrator runs C end-to-end: assign slice → review diff → AGENTS.md gate 
 ### Slice 3 — completed 2026-06-19
 
 **What changed:**
+
 - `buildProviderRequest` in `turn-execution.service.ts` gains trailing `thinkingBudget: number = 0`; spreads `{ thinkingBudget }` into the returned request only when `> 0`. Default `0` preserves all other callers (background worker, tool-loop continuation via spread).
 - Main-turn caller at ~line 5266 passes `execution.routeDecision.mode === "active" ? execution.routeDecision.thinkingBudget : 0` — shadow mode never sends thinking (model role is not applied in shadow).
 - `provider-text-generation.service.ts`: `assertValidThinkingBudget` added; rejects non-integer or negative; called in `assertValidRequest` after `assertValidTimeoutMsHint`.
@@ -767,6 +875,7 @@ Orchestrator runs C end-to-end: assign slice → review diff → AGENTS.md gate 
 **Snapshot-shape test:** A project-mode turn with `chatMode="project"` and `deepMode=false` is routed by `TurnRoutingService.decide()` and the result asserts `level="heavy"`, `executionMode="premium"`, `thinkingBudget=8192`, `source="precheck"`. `toRuntimeTurnRoutingSnapshot` in `turn-execution.service.ts` copies these fields verbatim into `RuntimeTurnRoutingSnapshot`; the routing decision is the authoritative source.
 
 **Test matrix dimensions:**
+
 - Resolver golden grid: 4 levels × 3 override configs × 4 fields = 48 assertions + 4-level invariant loop
 - Router signal-combination: KB axis (2), deepMode×retrieval (1), deepMode saturation (1), Russian deep cue (1), chatMode=normal (1), chatMode=smart (1), snapshot-shape (4), partial override (2), full override (4) = 17 test scenarios
 
@@ -896,8 +1005,8 @@ None on the **system prefix** — the fix only changes per-turn placement of `ca
 
 ### Risks / residuals
 
-- The new marker placement targets the *last* cache-control-capable block in an assistant message. For multi-block messages (text + tool_use), the marker lands on `tool_use`. Anthropic accepts `cache_control` on `tool_use` (verified via type extension + their docs), but if a future API change disallowed it, the fix would need to prefer text-block placement when both are present. **Not a current risk** but flagged.
-- Provider-gateway test suite has long-running fixtures (≈5 min for the full suite). The breakpoint fix added two cases at the very end of the file; ensure new contributors don't add tests *after* them without timing budget.
+- The new marker placement targets the _last_ cache-control-capable block in an assistant message. For multi-block messages (text + tool_use), the marker lands on `tool_use`. Anthropic accepts `cache_control` on `tool_use` (verified via type extension + their docs), but if a future API change disallowed it, the fix would need to prefer text-block placement when both are present. **Not a current risk** but flagged.
+- Provider-gateway test suite has long-running fixtures (≈5 min for the full suite). The breakpoint fix added two cases at the very end of the file; ensure new contributors don't add tests _after_ them without timing budget.
 - OpenAI symmetric breakpoint placement is out of scope (OpenAI does not have an equivalent moving `cache_control` mechanism — it caches whole prefixes implicitly).
 
 ### Next recommended step
@@ -910,8 +1019,8 @@ Commit the fix, push, monitor CI, then run a live-test on `persai-dev` (open cha
 
 Post-live-test audit by the founder surfaced five structural inconsistencies that the staged ADR-119 slices left behind:
 
-1. Markdown `# X` / `## X` headings still surfaced *inside* the XML-wrapped templates (e.g. `# Core Persona` inside `<voice>`, `# Sense of Time` inside `<persai_environment>`). The XML tag IS the heading; duplicating it as markdown is noise and pushes the model toward emitting markdown headings in its own output.
-2. Four prompt templates (`router_classifier`, `skill_state_classifier`, `preview_bootstrap`, `welcome_bootstrap`) were *never* wrapped in canonical XML — they shipped as raw markdown prompts. They had been excluded from the Slice 1 XML balance validator via `SKIPPED_TEMPLATE_KEYS`.
+1. Markdown `# X` / `## X` headings still surfaced _inside_ the XML-wrapped templates (e.g. `# Core Persona` inside `<voice>`, `# Sense of Time` inside `<persai_environment>`). The XML tag IS the heading; duplicating it as markdown is noise and pushes the model toward emitting markdown headings in its own output.
+2. Four prompt templates (`router_classifier`, `skill_state_classifier`, `preview_bootstrap`, `welcome_bootstrap`) were _never_ wrapped in canonical XML — they shipped as raw markdown prompts. They had been excluded from the Slice 1 XML balance validator via `SKIPPED_TEMPLATE_KEYS`.
 3. Slice 7 rewrote 8/20 catalog tools and 3/5 hidden synthetics to the canonical 4-section ACI format (`WHEN TO USE` / `WHEN NOT TO USE` / `EXAMPLES` / `GOTCHAS`). The remaining 12 catalog tools (incl. `video_generate`, `document`, `tts`, `browser`, `scheduled_action`, `background_task`, `persai_tool_quota_status`, `files`, `exec`, `shell`) and 2 synthetics (`summarize_context`, `compact_context`, `quota_status`) still used one-liner prose, so admin UI and tool projection produced inconsistent surfaces.
 4. `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts` carried legacy markdown-heading fallback paths in `generateSoulPrompt`, `generateUserPrompt`, `generateIdentityPrompt`, `generatePreviewPrompt`, and `generateWelcomePrompt`. They fire only when a template is null (test fixtures, fresh DB) but still produce `# Identity` / `# User Context` / `# Character Preview` / `# First Conversation` — exactly the markdown surface the user saw in live-test screenshots.
 5. `renderTraitsBlock` emitted `## Personality Traits\n\n- **trait**: N/100` markdown inside the `<voice>` block via the `{{traits_block}}` placeholder, regardless of which template was in use — visible in the live-test prompt.

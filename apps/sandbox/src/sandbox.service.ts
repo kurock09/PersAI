@@ -285,7 +285,14 @@ export class SandboxService {
     }
     const startedAtMs = job.startedAt?.getTime() ?? job.createdAt.getTime();
     const runningForMs = Date.now() - startedAtMs;
+    // A "running" job spans cold-start pod provisioning (node autoscale + image pull)
+    // BEFORE the command itself runs, so the stale ceiling must include the provisioning
+    // budget on top of the per-command runtime cap + grace. Without it, a cold start was
+    // force-failed as sandbox_execution_timeout at ~30s even though the pod was still
+    // legitimately coming up. Inline jobs (files/grep/glob) complete in ms and never
+    // approach this ceiling, so the added slack only affects pod-spawning exec jobs.
     const maxRunningMs =
+      this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS +
       (policy?.maxProcessRuntimeMs ?? WORKSPACE_LEASE_WAIT_TIMEOUT_MS) +
       this.config.SANDBOX_RUNNING_JOB_GRACE_MS;
     if (runningForMs <= maxRunningMs) {

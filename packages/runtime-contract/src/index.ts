@@ -210,20 +210,13 @@ export const DEFAULT_RUNTIME_SANDBOX_POLICY: RuntimeSandboxPolicy = {
   maxStdoutBytes: 128 * 1024,
   maxStderrBytes: 128 * 1024,
   networkAccessEnabled: false,
-  artifactMimeAllowlist: [
-    "text/plain",
-    "text/markdown",
-    "application/json",
-    "application/pdf",
-    "application/zip",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "image/png",
-    "image/jpeg",
-    "audio/mpeg",
-    "audio/ogg",
-    "video/mp4"
-  ],
+  // "*/*" is the allow-all sentinel for sandbox delivery (files.send). The real
+  // safety ceiling is the persist-time media validation in the API
+  // (media-security-policy.ts: ALLOWED_MEDIA_MIMES + DANGEROUS_FILE_EXTENSIONS),
+  // which runs on every produced artifact regardless of this list. Delivery is
+  // therefore intentionally open so plans never hit a delivery-MIME wall, while
+  // dangerous types are still blocked one layer down.
+  artifactMimeAllowlist: ["*/*"],
   webMaxOutboundBytes: 25 * 1024 * 1024,
   telegramMaxOutboundBytes: 50 * 1024 * 1024,
   sandboxJobsPerDay: null,

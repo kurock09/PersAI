@@ -34,7 +34,15 @@ const baseSandboxConfigSchema = z.object({
   // How long a session exec pod may sit idle before the reaper deletes it (ms). Default 30 min.
   SANDBOX_EXEC_SESSION_IDLE_TTL_MS: z.coerce.number().int().positive().default(1_800_000),
   // How often the idle-TTL reaper sweeps for stale session pods (ms). Default 2 min.
-  SANDBOX_EXEC_REAPER_INTERVAL_MS: z.coerce.number().int().positive().default(120_000)
+  SANDBOX_EXEC_REAPER_INTERVAL_MS: z.coerce.number().int().positive().default(120_000),
+  // Max time allowed for a *cold-start* exec pod to reach Running. This is a
+  // pod-PROVISIONING budget (cluster autoscaler bringing up a sandbox node + pulling
+  // the multi-GB Python/Chromium exec image), which is unrelated to — and far larger
+  // than — the per-command runtime cap (`maxProcessRuntimeMs`). Conflating the two
+  // (using maxProcessRuntimeMs as the pod-ready deadline) made the first command on a
+  // cold sandbox pool fail with process_timeout. Default 4 min; with a warm node +
+  // pre-pulled image this budget is almost never approached.
+  SANDBOX_EXEC_POD_PROVISION_BUDGET_MS: z.coerce.number().int().positive().default(240_000)
 });
 
 const localSandboxConfigSchema = baseSandboxConfigSchema.extend({

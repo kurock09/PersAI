@@ -63,7 +63,15 @@ export class SandboxClientService {
       15_000,
       Math.min(60_000, request.policy.maxProcessRuntimeMs + 5_000)
     );
-    const expectedCompletionMs = leaseWaitMs + request.policy.maxProcessRuntimeMs + 5_000;
+    // The end-to-end budget must cover cold-start pod provisioning (sandbox node
+    // autoscale + multi-GB image pull, ~100s) in addition to lease wait + command
+    // runtime. Omitting it made the runtime give up (~40s) before a cold pod was ready,
+    // surfacing a spurious timeout to the model on the first sandbox call after idle.
+    const expectedCompletionMs =
+      this.config.RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS +
+      leaseWaitMs +
+      request.policy.maxProcessRuntimeMs +
+      5_000;
     return Math.max(this.config.RUNTIME_SANDBOX_TIMEOUT_MS, expectedCompletionMs);
   }
 

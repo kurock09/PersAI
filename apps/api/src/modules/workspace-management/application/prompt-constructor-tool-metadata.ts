@@ -22,6 +22,8 @@ export const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
   "tts",
   "scheduled_action",
   "files",
+  "grep",
+  "glob",
   "exec",
   "shell"
 ] as const;

@@ -37,7 +37,13 @@ const baseRuntimeConfigSchema = z.object({
   RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   RUNTIME_SANDBOX_BASE_URL: optionalUrl,
-  RUNTIME_SANDBOX_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000)
+  RUNTIME_SANDBOX_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  // End-to-end budget the runtime allows for a sandbox job to complete must include
+  // *cold-start pod provisioning* (sandbox node autoscale + multi-GB image pull, ~100s),
+  // not just lease wait + command runtime. Without this the runtime abandoned the job
+  // (~40s) long before a cold pod was ready. Keep in sync with the control-plane
+  // SANDBOX_EXEC_POD_PROVISION_BUDGET_MS. Default 4 min.
+  RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS: z.coerce.number().int().positive().default(240_000)
 });
 
 const localRuntimeConfigSchema = baseRuntimeConfigSchema.extend({

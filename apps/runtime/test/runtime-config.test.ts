@@ -31,4 +31,5 @@ export async function runRuntimeConfigTest(): Promise<void> {
   assert.equal(config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS, 9000);
   assert.equal(config.RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS, 15000);
   assert.equal(config.RUNTIME_SANDBOX_TIMEOUT_MS, 30000);
+  assert.equal(config.RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS, 240000);
 }

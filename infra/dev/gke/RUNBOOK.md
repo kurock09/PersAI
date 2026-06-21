@@ -488,6 +488,39 @@ kubectl -n "${NAMESPACE}" get pod ses-<hash> -o jsonpath='{.spec.automountServic
 # Expected: false
 ```
 
+### 8. Warm-pool follow-up (cold-start latency fix) — REQUIRED operational step
+
+The first exec command after idle was failing because the real cold start is ~100s
+(sandbox node autoscale + multi-GB exec image pull), far longer than the per-command
+runtime cap that was wrongly used as the pod-ready deadline. The code fix introduces a
+dedicated pod-provisioning budget (`SANDBOX_EXEC_POD_PROVISION_BUDGET_MS` /
+`RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS`, default 4 min) so a cold start succeeds. To
+also make it _fast_, keep one warm sandbox node and pre-pull the image:
+
+```bash
+# (a) Keep >=1 node always warm on the sandbox pool so the first command does not wait
+#     for node autoscale. (Image pre-pull is handled declaratively by the
+#     sandbox-exec-prepull DaemonSet shipped in Helm.)
+gcloud container node-pools update sandbox-pool \
+  --cluster personal-ai-gke \
+  --region europe-west1 \
+  --enable-autoscaling \
+  --min-nodes 1 \
+  --max-nodes 4
+
+# (b) Verify the prepull DaemonSet has the exec image cached on every sandbox node:
+kubectl -n "${NAMESPACE}" get ds sandbox-exec-prepull
+# Expected: DESIRED == READY == number of sandbox-pool nodes
+
+# (c) Verify a warm node is present even with no active sessions:
+kubectl get nodes -l workload=sandbox
+# Expected: at least one Ready node
+```
+
+Expected outcome: with a warm node + cached image, the first sandbox command after idle
+completes in seconds instead of ~100s; on a genuinely cold node it still succeeds within
+the provisioning budget instead of failing with `process_timeout` / `sandbox_execution_timeout`.
+
 ---
 
 ## ADR-123 Slice 4: Exec image (Python + Node + doc/data stack + Chromium + ripgrep/fd)

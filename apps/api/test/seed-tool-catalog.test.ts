@@ -453,6 +453,84 @@ async function run(): Promise<void> {
       }
     ]);
   }
+
+  // ADR-123 Slice 7 follow-up: a NEW plan-managed tool (grep/glob) must be
+  // backfilled onto already-configured plans WITHOUT overwriting existing
+  // operator-edited activations, and platform-managed tools must be skipped.
+  {
+    const creates: Array<{
+      planId: string;
+      toolId: string;
+      activationStatus: string;
+      dailyCallLimit: number | null;
+    }> = [];
+    const service = new SeedToolCatalogService({
+      planCatalogPlan: {
+        async findMany() {
+          return [{ id: "planA" }, { id: "planB" }];
+        }
+      },
+      toolCatalogTool: {
+        async findMany() {
+          return [
+            { id: "t-files", code: "files", toolClass: "utility" },
+            { id: "t-grep", code: "grep", toolClass: "utility" },
+            // platform_managed in the real catalog → must be skipped by the backfill.
+            { id: "t-skill", code: "skill", toolClass: "utility" }
+          ];
+        }
+      },
+      planCatalogToolActivation: {
+        async findMany(args: { where: { planId: string } }) {
+          // planA already has files (operator-configured); planB has nothing.
+          return args.where.planId === "planA" ? [{ toolId: "t-files" }] : [];
+        },
+        async create(args: {
+          data: {
+            planId: string;
+            toolId: string;
+            activationStatus: string;
+            dailyCallLimit: number | null;
+          };
+        }) {
+          creates.push({
+            planId: args.data.planId,
+            toolId: args.data.toolId,
+            activationStatus: args.data.activationStatus,
+            dailyCallLimit: args.data.dailyCallLimit
+          });
+          return undefined;
+        }
+      }
+    } as never) as SeedToolCatalogService & {
+      backfillMissingPlanManagedToolActivations(): Promise<void>;
+    };
+
+    await service["backfillMissingPlanManagedToolActivations"]();
+
+    // planA: only grep (files already present, skill skipped); planB: files + grep.
+    assert.equal(creates.length, 3);
+    assert.ok(
+      !creates.some((row) => row.toolId === "t-skill"),
+      "platform-managed tools must not be backfilled"
+    );
+    assert.deepEqual(
+      creates.filter((row) => row.planId === "planA").map((row) => row.toolId),
+      ["t-grep"],
+      "planA must only get the missing grep row, never a duplicate files row"
+    );
+    assert.deepEqual(
+      creates
+        .filter((row) => row.planId === "planB")
+        .map((row) => row.toolId)
+        .sort(),
+      ["t-files", "t-grep"]
+    );
+    for (const row of creates) {
+      assert.equal(row.activationStatus, "active");
+      assert.equal(row.dailyCallLimit, 20);
+    }
+  }
 }
 
 void run();
