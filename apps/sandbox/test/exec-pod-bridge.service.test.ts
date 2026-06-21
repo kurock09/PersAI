@@ -68,15 +68,16 @@ function createConfig(): SandboxConfig {
   };
 }
 
-// Minimal SandboxPrismaService stand-in: the reaper reads last-activity for a
-// session from sandboxJob.findFirst. Other code paths under test never touch the DB.
+// Minimal SandboxPrismaService stand-in: the reaper reads last-activity for an
+// assistant+workspace from sandboxJob.findFirst, keyed by `${assistantId}:${workspaceId}`.
+// Other code paths under test never touch the DB.
 function createMockPrisma(
-  latestBySession: Record<string, { createdAt: Date; completedAt: Date | null } | null> = {}
+  latestByWorkspace: Record<string, { createdAt: Date; completedAt: Date | null } | null> = {}
 ) {
   return {
     sandboxJob: {
-      findFirst: async ({ where }: { where: { runtimeSessionId: string } }) =>
-        latestBySession[where.runtimeSessionId] ?? null
+      findFirst: async ({ where }: { where: { assistantId: string; workspaceId: string } }) =>
+        latestByWorkspace[`${where.assistantId}:${where.workspaceId}`] ?? null
     }
   };
 }
@@ -406,33 +407,38 @@ test("ExecPodBridgeService: createExecPod injects proxy env vars when proxy URL 
   assert.equal(env.length, 6, "exactly 6 proxy env vars when proxy URL and NO_PROXY are both set");
 });
 
-test("ExecPodBridgeService: buildSessionPodName derives stable k8s-safe name from runtimeSessionId", () => {
+test("ExecPodBridgeService: buildSessionPodName derives stable k8s-safe name from assistant+workspace", () => {
   const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
   const access = bridge as unknown as {
-    buildSessionPodName(runtimeSessionId: string): string;
+    buildSessionPodName(assistantId: string, workspaceId: string): string;
   };
 
-  const sessionId = "session-abc-123";
-  const name1 = access.buildSessionPodName(sessionId);
-  const name2 = access.buildSessionPodName(sessionId);
-  assert.equal(name1, name2, "same runtimeSessionId must produce same pod name");
+  const assistantId = "assistant-abc-123";
+  const workspaceId = "workspace-def-456";
+  const name1 = access.buildSessionPodName(assistantId, workspaceId);
+  const name2 = access.buildSessionPodName(assistantId, workspaceId);
+  assert.equal(name1, name2, "same assistant+workspace must produce same pod name");
   assert.ok(name1.startsWith("ses-"), "session pod name must start with ses-");
   assert.ok(name1.length <= 63, "pod name must fit k8s 63-char limit");
   assert.ok(/^[a-z0-9-]+$/.test(name1), "pod name must be lowercase alphanumeric/hyphens");
 
-  const otherId = "session-xyz-999";
-  const otherName = access.buildSessionPodName(otherId);
-  assert.notEqual(name1, otherName, "different sessionIds must produce different pod names");
+  const otherName = access.buildSessionPodName(assistantId, "workspace-other-999");
+  assert.notEqual(name1, otherName, "different workspace must produce different pod names");
+  assert.notEqual(
+    name1,
+    access.buildSessionPodName("assistant-other-999", workspaceId),
+    "different assistant must produce different pod names"
+  );
 });
 
 test("ExecPodBridgeService: buildSessionPodName is distinct from buildPodName (no collisions)", () => {
   const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
   const access = bridge as unknown as {
-    buildSessionPodName(runtimeSessionId: string): string;
+    buildSessionPodName(assistantId: string, workspaceId: string): string;
     buildPodName(jobId: string): string;
   };
 
-  const sessionName = access.buildSessionPodName("abc123");
+  const sessionName = access.buildSessionPodName("abc123", "ws123");
   const ephemeralName = access.buildPodName("abc123-e29b-41d4-a716-446655440000");
   assert.notEqual(sessionName, ephemeralName, "session and ephemeral pod names must not collide");
   assert.ok(sessionName.startsWith("ses-"));
@@ -460,6 +466,8 @@ test("ExecPodBridgeService: sessionless runInPod creates and deletes ephemeral p
     await bridge.runInPod({
       jobId: "job-001",
       runtimeSessionId: null,
+      assistantId: "assistant-eph",
+      workspaceId: "workspace-eph",
       workspaceRoot,
       absoluteCwd: workspaceRoot,
       command: "/bin/sh",
@@ -506,6 +514,8 @@ test("ExecPodBridgeService: workspace push extracts by entry name with --no-same
     await bridge.runInPod({
       jobId: "job-push-001",
       runtimeSessionId: null,
+      assistantId: "assistant-push",
+      workspaceId: "workspace-push",
       workspaceRoot,
       absoluteCwd: workspaceRoot,
       command: "/bin/sh",
@@ -562,6 +572,8 @@ test("ExecPodBridgeService: workspace push success comes from the stdin-less ver
       bridge.runInPod({
         jobId: "job-verify-001",
         runtimeSessionId: null,
+        assistantId: "assistant-verify",
+        workspaceId: "workspace-verify",
         workspaceRoot,
         absoluteCwd: workspaceRoot,
         command: "/bin/sh",
@@ -643,6 +655,8 @@ test("ExecPodBridgeService: session runInPod reuses pod on second call (no recre
   (bridge as unknown as { execApi: unknown }).execApi = mockExec;
 
   const sessionId = "session-reuse-test";
+  const assistantId = "assistant-reuse";
+  const workspaceId = "workspace-reuse";
   const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-bridge-session-"));
   try {
     await fs.writeFile(join(workspaceRoot, "test.txt"), "data", "utf8");
@@ -651,6 +665,8 @@ test("ExecPodBridgeService: session runInPod reuses pod on second call (no recre
     await bridge.runInPod({
       jobId: "job-s1",
       runtimeSessionId: sessionId,
+      assistantId,
+      workspaceId,
       workspaceRoot,
       absoluteCwd: workspaceRoot,
       command: "/bin/sh",
@@ -665,6 +681,8 @@ test("ExecPodBridgeService: session runInPod reuses pod on second call (no recre
     await bridge.runInPod({
       jobId: "job-s2",
       runtimeSessionId: sessionId,
+      assistantId,
+      workspaceId,
       workspaceRoot,
       absoluteCwd: workspaceRoot,
       command: "/bin/sh",
@@ -682,8 +700,8 @@ test("ExecPodBridgeService: session runInPod reuses pod on second call (no recre
 
 test("ExecPodBridgeService: reaper evicts idle pods by cluster truth + DB activity", async () => {
   // Cluster-truth reaper: lists live exec pods and derives last-activity from the
-  // sandboxJob table by session annotation. This survives control-plane restarts and
-  // works across replicas (the old in-memory map leaked both cases).
+  // sandboxJob table by assistant+workspace annotations. This survives control-plane
+  // restarts and works across replicas (the old in-memory map leaked both cases).
   const now = Date.now();
   const idleTtlMs = createConfig().SANDBOX_EXEC_SESSION_IDLE_TTL_MS;
   const oldTs = new Date(now - idleTtlMs - 600_000);
@@ -697,17 +715,23 @@ test("ExecPodBridgeService: reaper evicts idle pods by cluster truth + DB activi
             metadata: {
               name: "ses-stale",
               creationTimestamp: oldTs,
-              annotations: { "persai.io/session-id": "sess-stale" }
+              annotations: {
+                "persai.io/assistant-id": "a-stale",
+                "persai.io/workspace-id": "w-stale"
+              }
             }
           },
           {
             metadata: {
               name: "ses-active",
               creationTimestamp: oldTs,
-              annotations: { "persai.io/session-id": "sess-active" }
+              annotations: {
+                "persai.io/assistant-id": "a-active",
+                "persai.io/workspace-id": "w-active"
+              }
             }
           },
-          // Ephemeral orphan: no session annotation, old creation → evicted by age.
+          // Ephemeral orphan: no workspace annotations, old creation → evicted by age.
           { metadata: { name: "exec-orphan", creationTimestamp: oldTs } }
         ]
       } as never;
@@ -719,11 +743,11 @@ test("ExecPodBridgeService: reaper evicts idle pods by cluster truth + DB activi
   };
 
   const prisma = createMockPrisma({
-    "sess-stale": {
+    "a-stale:w-stale": {
       createdAt: new Date(now - idleTtlMs - 120_000),
       completedAt: new Date(now - idleTtlMs - 100_000)
     },
-    "sess-active": { createdAt: new Date(now - 5_000), completedAt: null }
+    "a-active:w-active": { createdAt: new Date(now - 5_000), completedAt: null }
   });
 
   const bridge = new ExecPodBridgeService(createConfig(), prisma as never);
@@ -731,9 +755,9 @@ test("ExecPodBridgeService: reaper evicts idle pods by cluster truth + DB activi
 
   await bridge.runReaperTick();
 
-  assert.ok(deletedPods.includes("ses-stale"), "idle session pod must be evicted");
+  assert.ok(deletedPods.includes("ses-stale"), "idle workspace pod must be evicted");
   assert.ok(deletedPods.includes("exec-orphan"), "old ephemeral orphan must be evicted");
-  assert.ok(!deletedPods.includes("ses-active"), "session with a fresh job must be kept");
+  assert.ok(!deletedPods.includes("ses-active"), "workspace with a fresh job must be kept");
   assert.equal(deletedPods.length, 2, "exactly the two idle pods are evicted");
 });
 
@@ -748,7 +772,10 @@ test("ExecPodBridgeService: reaper keeps pods when activity is fresh", async () 
             metadata: {
               name: "ses-recent",
               creationTimestamp: new Date(now - 5_000),
-              annotations: { "persai.io/session-id": "sess-recent" }
+              annotations: {
+                "persai.io/assistant-id": "a-recent",
+                "persai.io/workspace-id": "w-recent"
+              }
             }
           }
         ]
@@ -760,7 +787,7 @@ test("ExecPodBridgeService: reaper keeps pods when activity is fresh", async () 
     }
   };
   const prisma = createMockPrisma({
-    "sess-recent": { createdAt: new Date(now - 1_000), completedAt: null }
+    "a-recent:w-recent": { createdAt: new Date(now - 1_000), completedAt: null }
   });
   const bridge = new ExecPodBridgeService(createConfig(), prisma as never);
   (bridge as unknown as { k8sApi: unknown }).k8sApi = mockCoreV1Api;
@@ -784,7 +811,10 @@ test("ExecPodBridgeService: reaper does not evict when activity lookup fails", a
             metadata: {
               name: "ses-unknown",
               creationTimestamp: new Date(now - idleTtlMs - 600_000),
-              annotations: { "persai.io/session-id": "sess-unknown" }
+              annotations: {
+                "persai.io/assistant-id": "a-unknown",
+                "persai.io/workspace-id": "w-unknown"
+              }
             }
           }
         ]

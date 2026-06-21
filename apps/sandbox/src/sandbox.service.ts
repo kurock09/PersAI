@@ -648,7 +648,9 @@ export class SandboxService {
           false,
           input.leaseGuard,
           input.jobId,
-          input.request.runtimeSessionId ?? null
+          input.request.runtimeSessionId ?? null,
+          input.request.assistantId,
+          input.request.workspaceId
         );
       case "shell":
         return this.executeExecLike(
@@ -658,7 +660,9 @@ export class SandboxService {
           true,
           input.leaseGuard,
           input.jobId,
-          input.request.runtimeSessionId ?? null
+          input.request.runtimeSessionId ?? null,
+          input.request.assistantId,
+          input.request.workspaceId
         );
       case "render_html_to_pdf":
         return this.executeRenderHtmlToPdf(
@@ -667,7 +671,9 @@ export class SandboxService {
           input.request.policy,
           input.leaseGuard,
           input.jobId,
-          input.request.runtimeSessionId ?? null
+          input.request.runtimeSessionId ?? null,
+          input.request.assistantId,
+          input.request.workspaceId
         );
       case "execute_document_code":
         return this.executeDocumentCode(
@@ -677,7 +683,9 @@ export class SandboxService {
           input.mountedFiles,
           input.leaseGuard,
           input.jobId,
-          input.request.runtimeSessionId ?? null
+          input.request.runtimeSessionId ?? null,
+          input.request.assistantId,
+          input.request.workspaceId
         );
       default:
         this.throwPolicy(
@@ -1114,7 +1122,9 @@ export class SandboxService {
     shellMode: boolean,
     leaseGuard: WorkspaceLeaseGuard,
     jobId: string,
-    runtimeSessionId: string | null
+    runtimeSessionId: string | null,
+    assistantId: string,
+    workspaceId: string
   ) {
     const cwd = args.cwd === undefined ? "." : this.requireRelativePath(args.cwd, "cwd");
     const absoluteCwd = this.resolveWorkspacePath(workspaceRoot, cwd);
@@ -1127,6 +1137,8 @@ export class SandboxService {
       const result = await this.execPodBridgeService.runInPod({
         jobId,
         runtimeSessionId,
+        assistantId,
+        workspaceId,
         workspaceRoot,
         absoluteCwd,
         command: "/bin/sh",
@@ -1152,6 +1164,8 @@ export class SandboxService {
     const result = await this.execPodBridgeService.runInPod({
       jobId,
       runtimeSessionId,
+      assistantId,
+      workspaceId,
       workspaceRoot,
       absoluteCwd,
       command,
@@ -1183,7 +1197,9 @@ export class SandboxService {
     policy: RuntimeSandboxPolicy,
     leaseGuard: WorkspaceLeaseGuard,
     jobId: string,
-    runtimeSessionId: string | null
+    runtimeSessionId: string | null,
+    assistantId: string,
+    workspaceId: string
   ) {
     const htmlContent = this.requireString(args.htmlContent, "htmlContent");
     const outputFileName =
@@ -1214,6 +1230,8 @@ export class SandboxService {
       const result = await this.execPodBridgeService.runInPod({
         jobId,
         runtimeSessionId,
+        assistantId,
+        workspaceId,
         workspaceRoot,
         absoluteCwd: workspaceRoot,
         command: "weasyprint",
@@ -1258,7 +1276,9 @@ export class SandboxService {
     mountedFiles: MountedWorkspaceState,
     leaseGuard: WorkspaceLeaseGuard,
     jobId: string,
-    runtimeSessionId: string | null
+    runtimeSessionId: string | null,
+    assistantId: string,
+    workspaceId: string
   ) {
     const programSource = this.requireString(args.programSource, "programSource");
     const outputFileName = this.requireRelativePath(args.outputFileName, "outputFileName");
@@ -1321,6 +1341,8 @@ export class SandboxService {
       const result = await this.execPodBridgeService.runInPod({
         jobId,
         runtimeSessionId,
+        assistantId,
+        workspaceId,
         workspaceRoot,
         absoluteCwd: workspaceRoot,
         command: "python3",

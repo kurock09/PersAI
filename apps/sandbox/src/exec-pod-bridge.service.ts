@@ -9,11 +9,16 @@ import type { RuntimeSandboxPolicy } from "@persai/runtime-contract";
 import { SANDBOX_CONFIG } from "./sandbox-config";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
 
-// Annotation carrying the runtimeSessionId on session exec pods. The idle reaper
-// reads it back from cluster truth to derive last-activity from the sandboxJob
-// table, so eviction survives control-plane restarts and works across replicas
-// (in-memory state would be lost on restart and is not shared between replicas).
-const SESSION_ID_ANNOTATION = "persai.io/session-id";
+// Annotations carrying the assistant+workspace identity on the reusable exec pod.
+// The exec pod is keyed by (assistantId, workspaceId), NOT by chat session, so all
+// chats of one assistant+workspace reuse a single warm pod (the workspace lease —
+// assistantId+workspaceId Postgres mutex — serializes jobs, so there is never
+// concurrent use; the pod's /workspace is re-pushed from the control plane on every
+// job, so pod identity is purely a warmth optimization). The idle reaper reads these
+// back from cluster truth to derive last-activity from the sandboxJob table, so
+// eviction survives control-plane restarts and works across replicas.
+const ASSISTANT_ID_ANNOTATION = "persai.io/assistant-id";
+const WORKSPACE_ID_ANNOTATION = "persai.io/workspace-id";
 // Explicit success marker printed by the stdin-less verify probe when the push
 // marker file is present. See pushWorkspace for why success is detected on a
 // separate stdin-less exec rather than the push exec's own return channels.
@@ -167,6 +172,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   async runInPod(options: {
     jobId: string;
     runtimeSessionId: string | null;
+    assistantId: string;
+    workspaceId: string;
     workspaceRoot: string;
     absoluteCwd: string;
     command: string;
@@ -179,7 +186,6 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     if (options.runtimeSessionId !== null) {
       return this.runInSessionPod({
         ...options,
-        runtimeSessionId: options.runtimeSessionId,
         namespace,
         startedAt
       });
@@ -189,16 +195,18 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Session pod path: pod is named after runtimeSessionId and is reused across jobs.
-   * The pod is NOT deleted after the job; the idle-TTL reaper cleans it up.
+   * Reusable workspace pod path: the pod is named after the (assistantId, workspaceId)
+   * identity and reused across every chat/job for that assistant workspace. The pod is
+   * NOT deleted after the job; the idle-TTL reaper cleans it up.
    *
    * Serialization guarantee: the workspace lease (assistantId+workspaceId, Postgres mutex)
-   * ensures at most one job per session runs concurrently, so no two calls to this method
-   * race on the same session pod.
+   * ensures at most one job per assistant workspace runs concurrently, so no two calls to
+   * this method race on the same pod even across chats.
    */
   private async runInSessionPod(options: {
     jobId: string;
-    runtimeSessionId: string;
+    assistantId: string;
+    workspaceId: string;
     workspaceRoot: string;
     absoluteCwd: string;
     command: string;
@@ -207,16 +215,22 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     namespace: string;
     startedAt: number;
   }): Promise<PodExecResult> {
-    const { runtimeSessionId, namespace } = options;
-    const podName = this.buildSessionPodName(runtimeSessionId);
+    const { assistantId, workspaceId, namespace } = options;
+    const podName = this.buildSessionPodName(assistantId, workspaceId);
 
     this.logger.log(
-      `exec_pod_session job=${options.jobId} pod=${podName} session=${runtimeSessionId}`
+      `exec_pod_session job=${options.jobId} pod=${podName} assistant=${assistantId} workspace=${workspaceId}`
     );
 
     // Idle activity is derived by the reaper from the sandboxJob table keyed by the
-    // session annotation stamped on the pod — no in-memory tracking needed.
-    await this.ensureSessionPodRunning(podName, namespace, options.policy, runtimeSessionId);
+    // assistant+workspace annotations stamped on the pod — no in-memory tracking needed.
+    await this.ensureSessionPodRunning(
+      podName,
+      namespace,
+      options.policy,
+      assistantId,
+      workspaceId
+    );
     await this.pushWorkspace(podName, namespace, options.workspaceRoot);
     const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
     const result = await this.execCommand(podName, namespace, {
@@ -286,7 +300,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     podName: string,
     namespace: string,
     policy: RuntimeSandboxPolicy,
-    runtimeSessionId: string
+    assistantId: string,
+    workspaceId: string
   ): Promise<void> {
     let needsCreate = false;
     try {
@@ -323,7 +338,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     if (needsCreate) {
       this.logger.log(`exec_pod_session_create pod=${podName}`);
       await this.createExecPod(podName, namespace, policy, {
-        [SESSION_ID_ANNOTATION]: runtimeSessionId
+        [ASSISTANT_ID_ANNOTATION]: assistantId,
+        [WORKSPACE_ID_ANNOTATION]: workspaceId
       });
     }
 
@@ -380,11 +396,12 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           : new Date(pod.metadata.creationTimestamp).getTime();
       let lastActivityMs = creationMs;
 
-      const sessionId = pod.metadata?.annotations?.[SESSION_ID_ANNOTATION];
-      if (sessionId !== undefined) {
+      const assistantId = pod.metadata?.annotations?.[ASSISTANT_ID_ANNOTATION];
+      const workspaceId = pod.metadata?.annotations?.[WORKSPACE_ID_ANNOTATION];
+      if (assistantId !== undefined && workspaceId !== undefined) {
         try {
           const latest = await this.prisma.sandboxJob.findFirst({
-            where: { runtimeSessionId: sessionId },
+            where: { assistantId, workspaceId },
             orderBy: { createdAt: "desc" },
             select: { createdAt: true, completedAt: true }
           });
@@ -395,7 +412,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             );
           }
         } catch (error) {
-          // Cannot determine activity — do not risk evicting a live session pod.
+          // Cannot determine activity — do not risk evicting a live workspace pod.
           this.logger.warn(
             `exec_pod_reaper_activity_query_failed pod=${podName} error=${describeUnknownError(error)}`
           );
@@ -406,7 +423,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       const idleMs = now - lastActivityMs;
       if (idleMs > idleTtlMs) {
         this.logger.log(
-          `exec_pod_reaper_evict pod=${podName} session=${sessionId ?? "none"} idle_ms=${String(idleMs)}`
+          `exec_pod_reaper_evict pod=${podName} assistant=${assistantId ?? "none"} workspace=${workspaceId ?? "none"} idle_ms=${String(idleMs)}`
         );
         await this.deletePod(podName, namespace);
       }
@@ -414,11 +431,15 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Derive a stable, k8s-safe pod name from a session ID.
-   * Format: ses-<sha256(runtimeSessionId)[0..31]>  (4 + 32 = 36 chars ≤ 63 limit).
+   * Derive a stable, k8s-safe pod name from the assistant+workspace identity, so every
+   * chat/job for one assistant workspace shares a single reusable exec pod.
+   * Format: ses-<sha256(assistantId:workspaceId)[0..31]>  (4 + 32 = 36 chars ≤ 63 limit).
    */
-  buildSessionPodName(runtimeSessionId: string): string {
-    const hash = createHash("sha256").update(runtimeSessionId).digest("hex").slice(0, 32);
+  buildSessionPodName(assistantId: string, workspaceId: string): string {
+    const hash = createHash("sha256")
+      .update(`${assistantId}:${workspaceId}`)
+      .digest("hex")
+      .slice(0, 32);
     return `ses-${hash}`;
   }
 

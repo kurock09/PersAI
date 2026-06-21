@@ -3,6 +3,25 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-21 — ADR-123 exec pod re-keyed per assistant+workspace + warm node enabled — CHECKPOINT
+
+### State
+
+Implemented + full sandbox gate green (typecheck · 27/27 tests · lint · prettier). `min-nodes 1` **applied live** to `sandbox-pool`. Committed locally on this slice's branch; **push = deploy** carries the `sandbox` control-plane image rebuild + pin.
+
+### What changed
+
+1. **Exec pod keyed per `(assistantId, workspaceId)`, not per chat session.** All chats of one assistant workspace now share a single warm pod `ses-<sha256(assistantId:workspaceId)>` — the second/third chat no longer cold-starts its own pod. Safe: the pod's `/workspace` is re-pushed every job (pod identity = warmth only, never file truth) and the `assistantId+workspaceId` Postgres lease already serializes all jobs for the workspace, so the shared pod is never concurrent even across chats. Pod annotations `persai.io/assistant-id` + `persai.io/workspace-id` (replace `persai.io/session-id`); reaper derives activity via `sandboxJob.findFirst({ where: { assistantId, workspaceId } })`. Old per-session pods drain by creation-age fallback after the idle TTL. GCS session snapshot (control-plane, keyed by `assistantId+runtimeSessionId`) unchanged + orthogonal. Sessionless jobs stay ephemeral.
+2. **Warm node enabled (1-month trial).** `gcloud container node-pools update sandbox-pool --zone europe-west1-b --enable-autoscaling --min-nodes 1 --max-nodes 2` applied — one Ready node confirmed, `sandbox-exec-prepull` DaemonSet READY=1 on it (image cached). First command after idle ~2–5s instead of ~100s. Cluster is **zonal** `europe-west1-b` — RUNBOOK §8 corrected from `--region europe-west1`. Founder reviews standing-node cost after ~1 month.
+
+### Files
+
+`apps/sandbox/src/exec-pod-bridge.service.ts`, `apps/sandbox/src/sandbox.service.ts`, `apps/sandbox/test/exec-pod-bridge.service.test.ts`, `infra/dev/gke/RUNBOOK.md`, ADR-123, CHANGELOG, this checkpoint.
+
+### Next recommended step
+
+Push (deploy) so the re-keyed pod logic lands in the redeployed `sandbox` image; then live-verify two chats of one assistant reuse a single `ses-*` pod and warm-start in seconds. Separate open task: ADR-124 (provider-agnostic model routing / capabilities / fallback) is drafted but untracked — not part of this slice.
+
 ## 2026-06-21 — ADR-123 workspace-push success-detection regression (THE "shell doesn't work" root cause) — CHECKPOINT
 
 ### State
@@ -17,9 +36,9 @@ Every `shell`/`exec`/`render_html_to_pdf` job failed `process_spawn_failed` / "W
 
 `apps/sandbox/src/exec-pod-bridge.service.ts`: decouple transfer from success detection. Push exec streams the tar + writes a marker file only on `tar` success (its own stdout/status ignored; resolves on clean close, rejects only on real connection failure). A separate **stdin-less** verify exec checks the marker (reliable channels — proven 4/4 with 2 MB in-cluster). Missing marker ⇒ retryable `process_spawn_failed`; command/pull never run on a failed push. New regression test; shared exec mock defaults unseeded calls to success. sandbox 27/27 · typecheck · lint · prettier PASS.
 
-### Open (founder decision, NOT done here)
+### Open (founder decision) — RESOLVED 2026-06-21
 
-`sandbox-exec-prepull` DaemonSet currently provides ~zero benefit at `sandbox-pool` **min-nodes=0** (it lands on the freshly-autoscaled node alongside the session, so it does not pre-warm cold starts), and only adds value with **min-nodes≥1** — which costs ~1 node 24/7. Founder flagged it as wasteful. Recommended: **remove the prepull DaemonSet** and keep min-nodes=0 (cold start is now reliable-but-slow ~60–100s once, then warm for the 30-min idle TTL); OR set min-nodes=1 if always-fast start is worth the standing cost. Not changed in this checkpoint.
+Founder chose **min-nodes=1 + keep prepull** as a 1-month trial (see the newer checkpoint at the top). The prepull DaemonSet now pays off because there is a standing node to cache the exec image on. Revisit standing-node cost after ~1 month.
 
 ### Files
 

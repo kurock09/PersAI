@@ -500,13 +500,15 @@ also make it _fast_, keep one warm sandbox node and pre-pull the image:
 ```bash
 # (a) Keep >=1 node always warm on the sandbox pool so the first command does not wait
 #     for node autoscale. (Image pre-pull is handled declaratively by the
-#     sandbox-exec-prepull DaemonSet shipped in Helm.)
+#     sandbox-exec-prepull DaemonSet shipped in Helm.) The dev cluster is ZONAL
+#     (europe-west1-b), so use --zone, not --region.
+#     APPLIED 2026-06-21 (ADR-123): min-nodes 0 -> 1 on a 1-month trial; revisit cost then.
 gcloud container node-pools update sandbox-pool \
   --cluster personal-ai-gke \
-  --region europe-west1 \
+  --zone europe-west1-b \
   --enable-autoscaling \
   --min-nodes 1 \
-  --max-nodes 4
+  --max-nodes 2
 
 # (b) Verify the prepull DaemonSet has the exec image cached on every sandbox node:
 kubectl -n "${NAMESPACE}" get ds sandbox-exec-prepull
