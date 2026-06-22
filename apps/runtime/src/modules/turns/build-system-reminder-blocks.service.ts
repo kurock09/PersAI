@@ -10,6 +10,7 @@ import type {
 import type { ToolBudgetSnapshot } from "./tool-budget-policy";
 
 const CHAT_PLAN_REMINDER_CONTENT_MAX = 140;
+const SCENARIO_EXIT_CONDITION_REMINDER_MAX = 300;
 const INTAKE_STEP_TITLE_MAX = 80;
 const INTAKE_MAX_STEPS_RENDERED = 12;
 
@@ -17,9 +18,9 @@ const INTAKE_MAX_STEPS_RENDERED = 12;
  * ADR-119 Slice 5 + ADR-125 follow-up — composes `<system-reminder>` volatile-context blocks
  * for mid-conversation injection.
  *
- * Five reminder classes are supported (emitted in stable order — scenario tick first, then
- * image, then scenario plan intake, then chat-plan lifecycle, then budget reminders alphabetical
- * by tool name):
+ * Six reminder classes are supported (emitted in stable order — scenario tick first,
+ * then image, then scenario plan intake, then chat-plan lifecycle, then scenario
+ * completion/release, then budget reminders alphabetical by tool name):
  *
  *   1. **Active scenario tick** — emitted every turn while a scenario is active and resolvable
  *      from the bundle. Keeps the model oriented to the current step count.
@@ -29,12 +30,12 @@ const INTAKE_MAX_STEPS_RENDERED = 12;
  *      media tool call.
  *
  *   3. **Scenario plan intake** (ADR-125 Option A) — emitted when a scenario is active AND
- *      resolvable from the bundle AND the chat plan is empty. This is the critical "first
- *      move" nudge: after `skill.engage` returns scenario steps, the model is expected to
- *      author a `todo_write({action:"add", items:[...]})` mirroring those steps before any
- *      other work. Tool-catalog guidance alone proved insufficient — this reminder repeats
- *      every turn (until the plan exists) and embeds the actual step list so the model has
- *      the data it needs to compose the `add` call right next to the imperative.
+ *      resolvable from the bundle AND the chat plan has no OPEN rows (`pending` /
+ *      `in_progress`). Completed-only windows do not suppress intake, so a repeated
+ *      entry into the same scenario can re-author a fresh model-owned plan. This is
+ *      the critical "first move" nudge: after `skill.engage` returns scenario steps,
+ *      the model is expected to author a `todo_write({action:"add", items:[...]})`
+ *      mirroring those steps before any other work.
  *
  *   4. **Chat-plan lifecycle** — emitted when the windowed chat plan has at least one open
  *      (non-completed) row. This is the Claude-Code / Cursor-style per-turn nudge that closes
@@ -46,7 +47,12 @@ const INTAKE_MAX_STEPS_RENDERED = 12;
  *          `in_progress` via `todo_write` BEFORE substantive work.
  *      Suppressed entirely when the plan is empty or every windowed row is already completed.
  *
- *   5. **Tool budget warning** — emitted per tool that has consumed ≥ 80% of its `per_tool_cap`.
+ *   5. **Scenario completion / release** — emitted when a scenario is active and the
+ *      windowed chat plan exists but every row is completed. It tells the model to
+ *      release the scenario as the very next action, or add fresh rows if the user's
+ *      latest intent continues the same scenario.
+ *
+ *   6. **Tool budget warning** — emitted per tool that has consumed ≥ 80% of its `per_tool_cap`.
  *      Each qualifying tool gets its own separate message (keeps recency bias mechanism crisp).
  *      Reminders are ordered alphabetically by tool name.
  *
@@ -109,7 +115,16 @@ export class BuildSystemReminderBlocksService {
       messages.push(chatPlanReminder);
     }
 
-    // Reminder 5 — Tool budget warning (one message per qualifying tool, alpha by name).
+    // Reminder 5 — Scenario completion / release.
+    const scenarioCompletionReleaseReminder = buildScenarioCompletionReleaseReminder(
+      resolvedScenario,
+      params.chatPlanTodos ?? null
+    );
+    if (scenarioCompletionReleaseReminder !== null) {
+      messages.push(scenarioCompletionReleaseReminder);
+    }
+
+    // Reminder 6 — Tool budget warning (one message per qualifying tool, alpha by name).
     const budgetWarnings = params.toolBudgetSnapshot
       .filter((entry) => entry.perToolCap > 0 && entry.perToolUsed / entry.perToolCap >= 0.8)
       .slice()
@@ -132,11 +147,12 @@ function buildScenarioPlanIntakeReminder(
   resolvedScenario: RuntimeBundleSkillScenario | null,
   todos: readonly RuntimeTodoItem[] | null
 ): ProviderGatewayTextMessage | null {
-  // Only fire when there IS a scenario AND the plan is empty.
+  // Only fire when there IS a scenario AND the plan has no open rows. A
+  // completed-only window is a finished previous engagement, not an active plan.
   if (resolvedScenario === null) {
     return null;
   }
-  if (todos !== null && todos.length > 0) {
+  if (todos !== null && todos.some((t) => t.status === "in_progress" || t.status === "pending")) {
     return null;
   }
   if (resolvedScenario.steps.length === 0) {
@@ -156,6 +172,22 @@ function buildScenarioPlanIntakeReminder(
     stepsToRender.length > 1 ? `, {content:"${deriveStepTitle(stepsToRender[1]!)}"}` : "";
   return makeReminder(
     `Scenario "${resolvedScenario.displayName}" is active but the chat plan is empty. Your VERY NEXT action MUST be a single todo_write({action:"add", items:[…]}) call that mirrors the scenario steps below — one row per step, in order, first item status:"in_progress", every other item status:"pending". Do this BEFORE replying to the user and BEFORE any other tool call. The scenario IS the plan — do not skip this even if the user has not asked for a plan.\nScenario steps:\n${renderedLines.join("\n")}${truncatedNote}\nExample shape: todo_write({action:"add", items:[{content:"${firstStepTitle}", status:"in_progress"}${secondStepHint}, …]}).`
+  );
+}
+
+function buildScenarioCompletionReleaseReminder(
+  resolvedScenario: RuntimeBundleSkillScenario | null,
+  todos: readonly RuntimeTodoItem[] | null
+): ProviderGatewayTextMessage | null {
+  if (resolvedScenario === null || todos === null || todos.length === 0) {
+    return null;
+  }
+  if (!todos.every((t) => t.status === "completed")) {
+    return null;
+  }
+  const exitCondition = truncateExitConditionForReminder(resolvedScenario.exitCondition);
+  return makeReminder(
+    `Active scenario "${resolvedScenario.displayName}" — exit condition: ${exitCondition}. The chat plan is fully completed (${String(todos.length)} rows). If the user's intent for this scenario has been satisfied, your VERY NEXT action MUST be a single \`skill({action:"release"})\` call BEFORE replying to the user. If the user has signaled a fresh request that fits this same scenario, instead call \`todo_write({action:"add", items:[...]})\` with the new plan rows. Do not silently leave the scenario engaged with a fully-completed plan.`
   );
 }
 
@@ -209,6 +241,14 @@ function truncateForReminder(content: string): string {
     return trimmed;
   }
   return `${trimmed.slice(0, CHAT_PLAN_REMINDER_CONTENT_MAX - 1).trimEnd()}…`;
+}
+
+function truncateExitConditionForReminder(content: string): string {
+  const trimmed = content.trim().replace(/\s+/g, " ");
+  if (trimmed.length <= SCENARIO_EXIT_CONDITION_REMINDER_MAX) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, SCENARIO_EXIT_CONDITION_REMINDER_MAX - 1).trimEnd()}…`;
 }
 
 function resolveScenario(

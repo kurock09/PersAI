@@ -1226,6 +1226,7 @@ class FakePersaiInternalApiClientService {
   reminderTaskListCalls: string[] = [];
   reminderTaskControlCalls: Array<Record<string, unknown>> = [];
   memoryWriteCalls: Array<Record<string, unknown>> = [];
+  todoWriteApplyCalls: Array<Record<string, unknown>> = [];
   memoryWriteDelayQueueMs: number[] = [];
   memoryWriteInFlight = 0;
   memoryWriteMaxInFlight = 0;
@@ -1527,6 +1528,17 @@ class FakePersaiInternalApiClientService {
     } finally {
       this.memoryWriteInFlight -= 1;
     }
+  }
+
+  async applyTodoWriteAction(input: Record<string, unknown>) {
+    this.todoWriteApplyCalls.push(input);
+    return {
+      action: "applied" as const,
+      reason: null,
+      warning: null,
+      todos: [],
+      windowed: false
+    };
   }
 
   enqueueBackgroundCompactionCalls: Array<Record<string, unknown>> = [];
@@ -2245,6 +2257,27 @@ function enableSandboxAndSendMediaTools(entry: RuntimeBundleCacheEntry | null): 
       });
     }
   }
+}
+
+function enableTodoWriteTool(entry: RuntimeBundleCacheEntry | null): void {
+  if (entry === null) {
+    return;
+  }
+  if (entry.parsedBundle.governance.toolPolicies.some((tool) => tool.toolCode === "todo_write")) {
+    return;
+  }
+  entry.parsedBundle.governance.toolPolicies.push({
+    toolCode: "todo_write",
+    displayName: "Todo Write",
+    description: "Manage the chat plan.",
+    kind: "plan",
+    executionMode: "inline",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  });
 }
 
 export async function runTurnExecutionServiceTest(): Promise<void> {
@@ -8256,6 +8289,278 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
             prevBundleToolPoliciesReminder;
         }
       }
+    }
+  }
+
+  // ADR-125 Amendment 3 — post-final self-check hop.
+  {
+    enableTodoWriteTool(bundleRegistry.entry);
+    const openTodo: RuntimeTodoItem = {
+      id: "todo-1",
+      parentId: null,
+      content: "Verify the public website and summarize findings",
+      status: "in_progress"
+    };
+    const openPlan = () => ({
+      block: {
+        role: "user" as const,
+        content:
+          "<persai_chat_plan>\n- [in_progress] Verify the public website and summarize findings\n</persai_chat_plan>",
+        cacheRole: "volatile_context" as const,
+        volatileKind: "chat_plan" as const
+      },
+      todos: [openTodo]
+    });
+    const emptyPlan = () => ({
+      block: {
+        role: "user" as const,
+        content: "<persai_chat_plan>\n</persai_chat_plan>",
+        cacheRole: "volatile_context" as const,
+        volatileKind: "chat_plan" as const
+      },
+      todos: [] as RuntimeTodoItem[]
+    });
+    const completedResult = (
+      text: string,
+      respondedAt: string
+    ): ProviderGatewayTextGenerateResult => ({
+      provider: "openai",
+      model: "gpt-5.4",
+      text,
+      respondedAt,
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
+    });
+    const webSearchToolCallResult = (
+      id: string,
+      respondedAt: string
+    ): ProviderGatewayTextGenerateResult => ({
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "I will check the web first.",
+      respondedAt,
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id,
+          name: "web_search",
+          arguments: { query: "persai.dev", count: 3 }
+        }
+      ]
+    });
+    const todoWriteToolCallResult = (
+      id: string,
+      respondedAt: string
+    ): ProviderGatewayTextGenerateResult => ({
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "",
+      respondedAt,
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id,
+          name: "todo_write",
+          arguments: { action: "complete", id: "todo-1" }
+        }
+      ]
+    });
+
+    // Test A — self-check fires after substantive tool work + open plan.
+    {
+      const selfCheckRequest = createRuntimeTurnRequest();
+      selfCheckRequest.bundle.bundleHash = request.bundle.bundleHash;
+      turnAcceptanceService.result = createAcceptedTurn();
+      (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+        selfCheckRequest.bundle.bundleHash;
+      turnContextHydrationService.chatPlanBlockResults = [null, openPlan()];
+      providerGatewayClient.resultQueue = [
+        webSearchToolCallResult("tool-call-web-search-a", "2026-06-22T20:00:00.000Z"),
+        completedResult("Original final after search", "2026-06-22T20:00:01.000Z"),
+        completedResult("Self-check reconciled final", "2026-06-22T20:00:02.000Z")
+      ];
+      const callOffset = providerGatewayClient.calls.length;
+      const result = await service.createTurn(selfCheckRequest);
+      assert.equal(result.assistantText, "Self-check reconciled final");
+      assert.equal(
+        providerGatewayClient.calls.length,
+        callOffset + 3,
+        "self-check adds one extra provider call after substantive work with open todos"
+      );
+    }
+
+    // Test B — self-check skipped when the fresh plan is clean/empty.
+    {
+      const cleanPlanRequest = createRuntimeTurnRequest();
+      cleanPlanRequest.bundle.bundleHash = request.bundle.bundleHash;
+      turnAcceptanceService.result = createAcceptedTurn();
+      (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+        cleanPlanRequest.bundle.bundleHash;
+      turnContextHydrationService.chatPlanBlockResults = [null, emptyPlan()];
+      providerGatewayClient.resultQueue = [
+        webSearchToolCallResult("tool-call-web-search-b", "2026-06-22T20:01:00.000Z"),
+        completedResult("Original clean-plan final", "2026-06-22T20:01:01.000Z")
+      ];
+      const callOffset = providerGatewayClient.calls.length;
+      const result = await service.createTurn(cleanPlanRequest);
+      assert.equal(
+        result.assistantText,
+        "I will check the web first.\n\nOriginal clean-plan final"
+      );
+      assert.equal(providerGatewayClient.calls.length, callOffset + 2);
+    }
+
+    // Test C — self-check skipped when there was no substantive work/tool call.
+    {
+      const noToolRequest = createRuntimeTurnRequest();
+      noToolRequest.bundle.bundleHash = request.bundle.bundleHash;
+      turnAcceptanceService.result = createAcceptedTurn();
+      (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+        noToolRequest.bundle.bundleHash;
+      turnContextHydrationService.chatPlanBlockResults = [openPlan()];
+      providerGatewayClient.resultQueue = [
+        completedResult("Plain answer with open plan", "2026-06-22T20:02:00.000Z")
+      ];
+      const callOffset = providerGatewayClient.calls.length;
+      const result = await service.createTurn(noToolRequest);
+      assert.equal(result.assistantText, "Plain answer with open plan");
+      assert.equal(providerGatewayClient.calls.length, callOffset + 1);
+    }
+
+    // Test D — self-check executes todo_write reconciliation, then asks for final text once.
+    {
+      const todoWriteCallsBefore = persaiInternalApiClientService.todoWriteApplyCalls.length;
+      const reconcileRequest = createRuntimeTurnRequest();
+      reconcileRequest.bundle.bundleHash = request.bundle.bundleHash;
+      turnAcceptanceService.result = createAcceptedTurn();
+      (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+        reconcileRequest.bundle.bundleHash;
+      turnContextHydrationService.chatPlanBlockResults = [null, openPlan()];
+      providerGatewayClient.resultQueue = [
+        webSearchToolCallResult("tool-call-web-search-d", "2026-06-22T20:03:00.000Z"),
+        completedResult("Original before reconcile", "2026-06-22T20:03:01.000Z"),
+        todoWriteToolCallResult("tool-call-todo-write-d", "2026-06-22T20:03:02.000Z"),
+        completedResult("Final after todo_write reconcile", "2026-06-22T20:03:03.000Z")
+      ];
+      const callOffset = providerGatewayClient.calls.length;
+      const result = await service.createTurn(reconcileRequest);
+      assert.equal(result.assistantText, "Final after todo_write reconcile");
+      assert.equal(providerGatewayClient.calls.length, callOffset + 4);
+      assert.equal(
+        persaiInternalApiClientService.todoWriteApplyCalls.length,
+        todoWriteCallsBefore + 1,
+        "self-check todo_write call must execute through the existing tool path"
+      );
+    }
+
+    // Test E — self-check rejects non-todo_write follow-up tools and keeps the original text.
+    {
+      const warnMessages: string[] = [];
+      const loggerRef = (service as unknown as { logger: { warn: (message: string) => void } })
+        .logger;
+      const originalWarn = loggerRef.warn.bind(loggerRef);
+      loggerRef.warn = (message: string) => {
+        warnMessages.push(message);
+        originalWarn(message);
+      };
+      try {
+        const rejectedRequest = createRuntimeTurnRequest();
+        rejectedRequest.bundle.bundleHash = request.bundle.bundleHash;
+        turnAcceptanceService.result = createAcceptedTurn();
+        (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+          rejectedRequest.bundle.bundleHash;
+        turnContextHydrationService.chatPlanBlockResults = [null, openPlan()];
+        providerGatewayClient.resultQueue = [
+          webSearchToolCallResult("tool-call-web-search-e", "2026-06-22T20:04:00.000Z"),
+          completedResult("Original before rejected self-check", "2026-06-22T20:04:01.000Z"),
+          {
+            provider: "openai",
+            model: "gpt-5.4",
+            text: "",
+            respondedAt: "2026-06-22T20:04:02.000Z",
+            usage: null,
+            stopReason: "tool_calls",
+            toolCalls: [
+              {
+                id: "tool-call-image-generate-e",
+                name: "image_generate",
+                arguments: { prompt: "new work" }
+              }
+            ]
+          }
+        ];
+        const result = await service.createTurn(rejectedRequest);
+        assert.equal(
+          result.assistantText,
+          "I will check the web first.\n\nOriginal before rejected self-check"
+        );
+        assert.equal(
+          warnMessages.some((message) => message.includes("[self-check] rejected")),
+          true,
+          "rejected non-todo_write follow-up must be logged"
+        );
+      } finally {
+        loggerRef.warn = originalWarn;
+      }
+    }
+
+    // Test F — self-check provider exception does not crash the turn.
+    {
+      const exceptionRequest = createRuntimeTurnRequest();
+      exceptionRequest.bundle.bundleHash = request.bundle.bundleHash;
+      turnAcceptanceService.result = createAcceptedTurn();
+      (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+        exceptionRequest.bundle.bundleHash;
+      turnContextHydrationService.chatPlanBlockResults = [null, openPlan()];
+      providerGatewayClient.resultQueue = [
+        webSearchToolCallResult("tool-call-web-search-f", "2026-06-22T20:05:00.000Z"),
+        completedResult("Original before self-check exception", "2026-06-22T20:05:01.000Z")
+      ];
+      const originalGenerateText = providerGatewayClient.generateText.bind(providerGatewayClient);
+      let callsSeen = 0;
+      providerGatewayClient.generateText = async (input, options) => {
+        callsSeen += 1;
+        if (callsSeen === 3) {
+          providerGatewayClient.calls.push(input);
+          throw new Error("self-check provider unavailable");
+        }
+        return originalGenerateText(input, options);
+      };
+      try {
+        const result = await service.createTurn(exceptionRequest);
+        assert.equal(
+          result.assistantText,
+          "I will check the web first.\n\nOriginal before self-check exception"
+        );
+      } finally {
+        providerGatewayClient.generateText = originalGenerateText;
+      }
+    }
+
+    // Test G — completed self-check text is terminal; no recursive second self-check runs.
+    {
+      const capRequest = createRuntimeTurnRequest();
+      capRequest.bundle.bundleHash = request.bundle.bundleHash;
+      turnAcceptanceService.result = createAcceptedTurn();
+      (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+        capRequest.bundle.bundleHash;
+      turnContextHydrationService.chatPlanBlockResults = [null, openPlan(), openPlan()];
+      providerGatewayClient.resultQueue = [
+        webSearchToolCallResult("tool-call-web-search-g", "2026-06-22T20:06:00.000Z"),
+        completedResult("Original before capped self-check", "2026-06-22T20:06:01.000Z"),
+        completedResult("One self-check only", "2026-06-22T20:06:02.000Z")
+      ];
+      const callOffset = providerGatewayClient.calls.length;
+      const result = await service.createTurn(capRequest);
+      assert.equal(result.assistantText, "One self-check only");
+      assert.equal(
+        providerGatewayClient.calls.length,
+        callOffset + 3,
+        "self-check must not recursively start another self-check after its own final text"
+      );
     }
   }
 

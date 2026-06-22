@@ -1,5 +1,41 @@
 # SESSION-HANDOFF
 
+## 2026-06-22 — ADR-125 Amendment 3: post-final self-check hop — CHECKPOINT
+
+### State
+
+Founder pointed out three ADR-125 gaps from live chat evidence on 2026-06-22: completed-only plan windows suppressed scenario re-intake because the prompt window includes two recent completed rows; fully completed active scenarios had no release pressure; and a final assistant reply could land beside an open plan card after substantive tool work. Scope is implementation-only under ADR-125 Amendment 3: no server-side auto-release, no `toolMutatesVolatilePrefix` expansion, no new flags.
+
+### What changed
+
+- **`apps/runtime/src/modules/turns/build-system-reminder-blocks.service.ts`** — scenario intake suppression now checks only open rows (`pending` / `in_progress`), so completed-only windows no longer block re-intake. Added a sixth reminder class, scenario completion/release, emitted after chat-plan lifecycle and before budget warnings when an active scenario has an all-completed plan window. It includes the scenario `exitCondition` (capped at 300 chars), instructs the model to call `skill({action:"release"})`, or add fresh `todo_write` rows if the user's new request continues the same scenario.
+- **`apps/runtime/src/modules/turns/turn-execution.service.ts`** — `PreparedTurnExecution` now carries `selfCheckHopsRemaining = 2`. Sync and streaming finalization run a guarded post-final self-check after existing assistant-text corrections and before `finalizeAcceptedTurnWithPostTurnEffects`: fresh plan read, open-row check, substantive-work check excluding pure `todo_write`, one non-streaming provider self-check call, optional todo_write-only reconciliation via the existing tool dispatcher, then one final text call. Non-`todo_write` follow-up tools are rejected and logged; exceptions warn and fall back to the original final text. Streaming emits an extra visible text delta when self-check replaces the final text.
+- **Tests** — `apps/runtime/test/build-system-reminder-blocks.service.test.ts` now covers completed-only intake, pending/in_progress suppression controls, release reminder presence/absence, exit-condition truncation, and empty-vs-completed ordering. `apps/runtime/test/turn-execution.service.test.ts` adds the ADR-125 Amendment 3 integration block (self-check fires, clean-plan skip, no-substantive-work skip, todo_write reconcile, non-todo rejection, exception fallback, no recursive self-check).
+- **Docs** — ADR-125 now has Amendment 3, and this checkpoint plus `docs/CHANGELOG.md` record the cut.
+
+### Verified
+
+- Focused: `corepack pnpm --filter @persai/runtime exec tsx test/build-system-reminder-blocks.service.test.ts` PASS.
+- Focused: `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts` PASS.
+- Full AGENTS gate for this slice is pending below.
+
+### Residuals / risks
+
+- The self-check is one model-owned recovery opportunity, not deterministic server reconciliation. If the model chooses a one-line clarification instead of `todo_write`, the plan may remain open by design.
+- Completed-only active scenario windows now produce both the intake and release/add guidance: intake enables fresh same-scenario planning; release makes the close-out imperative explicit.
+- No DB schema, no provider contract, no new feature flag, no auto-`skill.release`.
+
+### Files
+
+- modified: `apps/runtime/src/modules/turns/build-system-reminder-blocks.service.ts`, `apps/runtime/src/modules/turns/turn-execution.service.ts`, `apps/runtime/test/build-system-reminder-blocks.service.test.ts`, `apps/runtime/test/turn-execution.service.test.ts`, `docs/ADR/125-in-chat-todo-write-and-scenario-seeded-plan.md`, `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`.
+
+### Next recommended step
+
+1. Run the required AGENTS gate (`runtime` lint/typecheck, api/web typecheck, format, runtime isolated suite).
+2. Orchestrator commit + push, then deploy to `persai-dev` and live-validate the carousel scenario: repeated scenario entry, all-completed release pressure, and post-tool open-plan self-check.
+
+---
+
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 

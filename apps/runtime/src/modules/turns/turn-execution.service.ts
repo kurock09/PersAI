@@ -36,6 +36,7 @@ import {
   type RuntimeKnowledgeSearchToolResult,
   type RuntimeAttachmentRef,
   type RuntimeMemoryWriteToolResult,
+  type RuntimeTodoItem,
   type RuntimeTodoWriteToolResult,
   type RuntimeQuotaStatusToolResult,
   type RuntimeBrowserToolResult,
@@ -181,6 +182,9 @@ const MAX_JOB_DELIVERY_UPDATE_ITEMS = 6;
 const MAX_MODEL_VISIBLE_WORKING_FILES = 20;
 const MAX_WORKING_FILE_MICRO_DESCRIPTION_CHARS = 120;
 const WORKING_FILE_REF_SUFFIX_HEX_LENGTH = 8;
+const POST_FINAL_SELF_CHECK_MAX_HOPS = 2;
+const POST_FINAL_SELF_CHECK_MAX_OPEN_ROWS_RENDERED = 6;
+const POST_FINAL_SELF_CHECK_TODO_TITLE_MAX = 80;
 
 const VISIBLE_WORKING_NOTES_DEVELOPER_CONTRACT = [
   "## Visible working notes",
@@ -219,6 +223,7 @@ type PreparedTurnExecution = {
   volatilePrefixLength: number;
   currentSkillDecisionState: RuntimeSkillDecisionState | null;
   currentTurnHasUserAttachedImage: boolean;
+  selfCheckHopsRemaining: number;
 };
 
 type TurnKnowledgeSourcePolicy = {
@@ -841,7 +846,8 @@ export class TurnExecutionService {
       presenceBlock,
       volatilePrefixLength: volatilePrefix.length,
       currentSkillDecisionState: input.skillStateContext?.decision ?? null,
-      currentTurnHasUserAttachedImage
+      currentTurnHasUserAttachedImage,
+      selfCheckHopsRemaining: POST_FINAL_SELF_CHECK_MAX_HOPS
     };
   }
 
@@ -1368,7 +1374,7 @@ export class TurnExecutionService {
                     yield correctionDeltaEvent;
                   }
                 }
-                const correctedProviderResult = this.withAssistantText(
+                let correctedProviderResult = this.withAssistantText(
                   completedProviderResult,
                   correctedAssistantText
                 );
@@ -1392,10 +1398,34 @@ export class TurnExecutionService {
                   deferredDocumentJobs: turnState.deferredDocumentJobs,
                   locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
                 });
+                correctedProviderResult = await this.runPostFinalChatPlanSelfCheck({
+                  acceptedTurn,
+                  execution,
+                  input,
+                  turnState,
+                  providerResult: correctedProviderResult
+                });
+                const selfCheckedAssistantText = correctedProviderResult.text ?? "";
+                if (selfCheckedAssistantText !== correctedAssistantText) {
+                  const selfCheckDeltaEvent = this.createVisibleTextDeltaStreamEvent({
+                    acceptedTurn,
+                    previousDeliveredText: deliveredText,
+                    nextVisibleText: selfCheckedAssistantText,
+                    source: "provider_tool_calls_result_text"
+                  });
+                  if (selfCheckDeltaEvent !== null) {
+                    deliveredText = selfCheckDeltaEvent.accumulatedText;
+                    yield selfCheckDeltaEvent;
+                  }
+                }
+                const finalAnswerText =
+                  selfCheckedAssistantText === correctedAssistantText
+                    ? correctedFinalAnswerText
+                    : selfCheckedAssistantText;
                 const { workingNotes, answerText } = assembleWorkingNotesAndAnswer({
                   toolStepTexts,
-                  finalAnswerText: correctedFinalAnswerText,
-                  fullAssistantText: correctedAssistantText
+                  finalAnswerText,
+                  fullAssistantText: selfCheckedAssistantText
                 });
                 const result = this.buildTurnResult(
                   acceptedTurn,
@@ -2685,7 +2715,7 @@ export class TurnExecutionService {
           forceFinalTextOnly = true;
           continue;
         }
-        return this.withAssistantText(
+        const correctedProviderResult = this.withAssistantText(
           providerResult,
           this.applyAssistantTextCorrections({
             assistantText: accumulatedText,
@@ -2695,6 +2725,13 @@ export class TurnExecutionService {
             locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
           })
         );
+        return this.runPostFinalChatPlanSelfCheck({
+          acceptedTurn,
+          execution,
+          input,
+          turnState,
+          providerResult: correctedProviderResult
+        });
       }
       if (providerResult.toolCalls.length === 0) {
         throw new TurnExecutionError(
@@ -4975,6 +5012,209 @@ export class TurnExecutionService {
 
   private shouldDeferMediaToolExecution(input: RuntimeTurnRequest): boolean {
     return !input.conversation.externalThreadKey.startsWith("system:media-job:");
+  }
+
+  private async runPostFinalChatPlanSelfCheck(input: {
+    acceptedTurn: AcceptedRuntimeTurn;
+    execution: PreparedTurnExecution;
+    input: RuntimeTurnRequest;
+    turnState: TurnExecutionState;
+    providerResult: ProviderGatewayTextGenerateResult;
+  }): Promise<ProviderGatewayTextGenerateResult> {
+    const originalText = input.providerResult.text ?? "";
+    if (
+      input.providerResult.stopReason !== "completed" ||
+      originalText.trim().length === 0 ||
+      input.execution.selfCheckHopsRemaining <= 0 ||
+      input.turnState.toolInvocations.length === 0 ||
+      !this.hasSubstantiveWorkExcludingTodoWrite(input.turnState)
+    ) {
+      return input.providerResult;
+    }
+
+    try {
+      const chatPlan = await this.turnContextHydrationService.buildChatPlanBlock(input.input);
+      const todos = chatPlan?.todos ?? [];
+      if (todos.length === 0) {
+        return input.providerResult;
+      }
+      const openRows = todos.filter((t) => t.status === "in_progress" || t.status === "pending");
+      if (openRows.length === 0) {
+        return input.providerResult;
+      }
+
+      const reminderMessage: ProviderGatewayTextMessage = {
+        role: "user",
+        content: this.buildPostFinalSelfCheckReminder(openRows),
+        cacheRole: "volatile_context",
+        volatileKind: "system_reminder"
+      };
+      const selfCheckBaseRequest: ProviderGatewayTextGenerateRequest = {
+        ...input.execution.providerRequest,
+        messages: [
+          ...input.execution.providerRequest.messages,
+          { role: "assistant", content: originalText },
+          reminderMessage
+        ],
+        requestMetadata: this.createSelfCheckProviderRequestMetadata(input.acceptedTurn)
+      };
+
+      const firstResult = await this.callPostFinalSelfCheckProvider({
+        acceptedTurn: input.acceptedTurn,
+        execution: input.execution,
+        request: selfCheckBaseRequest,
+        turnState: input.turnState,
+        attemptKey: "self_check:0"
+      });
+
+      if (firstResult.stopReason === "completed") {
+        const text = this.normalizeOptionalText(firstResult.text ?? "") ?? "";
+        return text.length > 0 ? this.withAssistantText(firstResult, text) : input.providerResult;
+      }
+
+      if (firstResult.stopReason !== "tool_calls" || firstResult.toolCalls.length === 0) {
+        return input.providerResult;
+      }
+
+      const nonTodoWriteCall = firstResult.toolCalls.find(
+        (toolCall) => toolCall.name !== TODO_WRITE_TOOL_CODE
+      );
+      if (nonTodoWriteCall !== undefined) {
+        this.logger.warn(
+          `[self-check] rejected non-todo-write follow-up requestId=${input.acceptedTurn.receipt.requestId} tool=${nonTodoWriteCall.name}`
+        );
+        return input.providerResult;
+      }
+
+      const toolHistory: ProviderGatewayToolExchange[] = [];
+      for (const toolCall of firstResult.toolCalls) {
+        const outcome = await this.executeProjectedToolCall(
+          input.execution,
+          input.acceptedTurn,
+          input.input,
+          toolCall,
+          input.input.idempotencyKey,
+          input.turnState.artifacts,
+          input.turnState.fileRefs,
+          input.execution.availableWorkingFileRefs,
+          input.turnState.deferredDocumentJobs
+        );
+        outcome.exchange.reasoningContent = firstResult.reasoningContent ?? null;
+        toolHistory.push(outcome.exchange);
+        this.applyToolExecutionOutcome(input.turnState, outcome, 0);
+      }
+
+      if (input.execution.selfCheckHopsRemaining <= 0) {
+        return input.providerResult;
+      }
+
+      const finalRequest = this.buildToolLoopProviderRequest(selfCheckBaseRequest, {
+        assistantText: "",
+        baseDeveloperInstructionSections: input.execution.developerInstructionSections,
+        toolHistory,
+        availableToolNames: input.execution.projectedTools.tools.map((tool) => tool.name),
+        availableWorkingFileRefs: input.execution.availableWorkingFileRefs,
+        closedOpenLoopRefs: input.turnState.closedOpenLoopRefs,
+        forceFinalTextOnly: true,
+        deferredMediaJobs: input.turnState.deferredMediaJobs,
+        deferredDocumentJobs: input.turnState.deferredDocumentJobs,
+        requestMetadata: this.createSelfCheckProviderRequestMetadata(input.acceptedTurn)
+      });
+      const finalResult = await this.callPostFinalSelfCheckProvider({
+        acceptedTurn: input.acceptedTurn,
+        execution: input.execution,
+        request: finalRequest,
+        turnState: input.turnState,
+        attemptKey: "self_check:1"
+      });
+      if (finalResult.stopReason !== "completed") {
+        return input.providerResult;
+      }
+      const finalText = this.normalizeOptionalText(finalResult.text ?? "") ?? "";
+      return finalText.length > 0
+        ? this.withAssistantText(finalResult, finalText)
+        : input.providerResult;
+    } catch (error) {
+      this.logger.warn(
+        `[self-check] failed requestId=${input.acceptedTurn.receipt.requestId}: ${this.formatLogError(error)}`
+      );
+      return input.providerResult;
+    }
+  }
+
+  private async callPostFinalSelfCheckProvider(input: {
+    acceptedTurn: AcceptedRuntimeTurn;
+    execution: PreparedTurnExecution;
+    request: ProviderGatewayTextGenerateRequest;
+    turnState: TurnExecutionState;
+    attemptKey: string;
+  }): Promise<ProviderGatewayTextGenerateResult> {
+    input.execution.selfCheckHopsRemaining = Math.max(
+      0,
+      input.execution.selfCheckHopsRemaining - 1
+    );
+    const result = await this.generateTextWithRuntimeFallback({
+      bundle: input.execution.bundle,
+      request: input.request,
+      modelRole: input.execution.selectedModelRole,
+      telemetryContext: {
+        surface: "turn_sync",
+        requestId: input.acceptedTurn.receipt.requestId,
+        classification: input.request.requestMetadata?.classification ?? "tool_loop_followup",
+        attemptKey: input.attemptKey
+      }
+    });
+    this.recordUsageEntry(input.turnState, {
+      stepType: "tool_loop_followup",
+      modelRole: input.execution.selectedModelRole,
+      usage: result.usage
+    });
+    return result;
+  }
+
+  private hasSubstantiveWorkExcludingTodoWrite(turnState: TurnExecutionState): boolean {
+    return (
+      turnState.toolInvocations.some((tool) => tool.name !== TODO_WRITE_TOOL_CODE) ||
+      turnState.deferredMediaJobs.length > 0 ||
+      turnState.deferredDocumentJobs.length > 0 ||
+      turnState.artifacts.length > 0
+    );
+  }
+
+  private buildPostFinalSelfCheckReminder(openRows: readonly RuntimeTodoItem[]): string {
+    const renderedRows = openRows
+      .slice(0, POST_FINAL_SELF_CHECK_MAX_OPEN_ROWS_RENDERED)
+      .map(
+        (todo) =>
+          `  - "${this.truncatePostFinalSelfCheckTodoTitle(todo.content)}" (${todo.status}, id ${todo.id})`
+      );
+    const remaining = openRows.length - POST_FINAL_SELF_CHECK_MAX_OPEN_ROWS_RENDERED;
+    const moreLine = remaining > 0 ? `\n  ...and ${String(remaining)} more` : "";
+    return [
+      "You finished your reply but the chat plan still has open rows:",
+      `${renderedRows.join("\n")}${moreLine}`,
+      "Either: (a) call todo_write to reconcile them (complete the in_progress row if your work satisfies it; bring a pending row to in_progress if it is now your active focus), THEN your final reply will be re-emitted; OR (b) reply with a one-line clarification explaining why these rows remain open intentionally. The user sees both your text and the plan card — open rows next to a closing message is confusing."
+    ].join("\n");
+  }
+
+  private truncatePostFinalSelfCheckTodoTitle(content: string): string {
+    const normalized = content.trim().replace(/\s+/g, " ");
+    if (normalized.length <= POST_FINAL_SELF_CHECK_TODO_TITLE_MAX) {
+      return normalized;
+    }
+    return `${normalized.slice(0, POST_FINAL_SELF_CHECK_TODO_TITLE_MAX - 1).trimEnd()}…`;
+  }
+
+  private createSelfCheckProviderRequestMetadata(
+    acceptedTurn: AcceptedRuntimeTurn
+  ): ProviderGatewayRequestMetadata {
+    return {
+      classification: "tool_loop_followup",
+      runtimeRequestId: acceptedTurn.receipt.requestId,
+      runtimeSessionId: acceptedTurn.session.sessionId,
+      toolLoopIteration: null,
+      compactionToolCode: null
+    };
   }
 
   private extractDeferredMediaJob(

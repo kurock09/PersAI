@@ -1,6 +1,6 @@
 # ADR-125 — In-chat TodoWrite and scenario-seeded plan
 
-Status: Implemented locally — pending deploy + live validation (Amendment 2: mid-loop volatile-prefix refresh after `skill.engage` / `todo_write`)
+Status: Implemented locally — pending deploy + live validation (Amendment 3: post-final self-check hop)
 Date: 2026-06-22
 Baseline SHA: `b29c3873`
 Supersedes: none
@@ -402,3 +402,40 @@ Refresh the volatile prefix **inside the tool loop** after any iteration whose b
 - Iteration 0 returns `skill.engage(scenarioKey)` → iteration 1 prompt carries `<persai_active_scenario>` + scenario tick reminder + scenario-plan intake reminder (covered by new test in `apps/runtime/test/turn-execution.service.test.ts`).
 - Subsequent `todo_write({action:"add", …})` in iteration 1 causes the next iteration's prompt to carry `<persai_chat_plan>` + the lifecycle reminder (no intake any more).
 - Durable compaction no longer silently drops the volatile prefix for the remainder of the turn.
+
+## Amendment 3 — Post-final self-check hop (model-owned in-turn reconcile)
+
+Date: 2026-06-22
+
+### Live evidence
+
+Founder pointed out three gaps from a 2026-06-22 chat screenshot after the deferred-job normalization and Amendment 2 work:
+
+1. A repeated scenario entry with a window containing only recently completed rows did not see the scenario-plan intake nudge, because the model prompt window intentionally includes the two most recent completed rows.
+2. A scenario could remain engaged after every visible plan row was completed, with no strong prompt pressure to call `skill({action:"release"})`.
+3. After substantive tool work, the model could emit a closing assistant reply while the visible plan card still had `pending` / `in_progress` rows, leaving the user with contradictory surfaces: "done" in text, open rows in the plan card.
+
+### Root cause
+
+1. `buildScenarioPlanIntakeReminder` suppressed intake on any non-empty `chatPlanTodos` array. That made `selectChatPlanWindow`'s "2 most recent completed" behavior accidentally block re-intake for a fresh scenario pass.
+2. The reminder set had no "completion / release" class. The lifecycle reminder intentionally falls silent when all rows are completed, but there was no successor reminder telling the model to release the active scenario or add fresh rows.
+3. Amendment 2 refreshes volatile context during the tool loop after `skill` / `todo_write`, but it does not run after the final provider completion. If the model did real tool work and then skipped `todo_write` reconciliation, the turn finalized immediately.
+
+### Implementation cuts
+
+1. **Intake suppression narrowed to open rows.** `buildScenarioPlanIntakeReminder` now suppresses only when the window has `pending` or `in_progress` rows. A completed-only window no longer blocks intake, so a repeated scenario entry can author a new model-owned plan.
+2. **Scenario completion / release reminder.** `BuildSystemReminderBlocksService` now emits six reminder classes in stable order: scenario tick → reference image → scenario plan intake → chat-plan lifecycle → scenario completion/release → budget warnings. The new release reminder fires when a scenario is active and every windowed row is completed; it includes `scenario.exitCondition` (truncated to 300 chars) and demands a single `skill({action:"release"})` before the reply unless the user's latest intent fits the same scenario, in which case the model should add fresh `todo_write` rows.
+3. **Post-final self-check hop.** After a completed, non-empty final provider result and before turn finalization, sync and streaming paths read a fresh chat plan via `buildChatPlanBlock(input)`. If open rows remain and the turn did substantive work beyond pure `todo_write`, runtime injects one `<system-reminder>` after the just-finished assistant text and performs a non-streaming self-check provider call. If the model returns only `todo_write` tool calls, runtime executes them through the existing `executeProjectedToolCall` path and allows one final text call. Non-`todo_write` follow-up tools are rejected and logged; errors are swallowed and the original final text is kept.
+4. **Hard cap and guards.** `PreparedTurnExecution.selfCheckHopsRemaining` starts at `2` and is decremented per self-check inference. Self-check is skipped when the turn had no tool calls, when work was only plan-management (`todo_write`), when the fresh plan is empty/clean, or when the original final text is empty.
+
+### Acceptance
+
+- Re-entering an active scenario with a completed-only plan window sees the scenario intake reminder instead of being suppressed by old completed rows.
+- An active scenario with an all-completed plan window receives the completion/release reminder containing the scenario exit condition and `skill({action:"release"})` imperative.
+- A turn with open todos plus substantive work does not finalize without one model-owned self-check inference opportunity.
+- Self-check is capped at two extra inference iterations total: reconcile via `todo_write`, then final text.
+- Self-check exceptions never fail the accepted turn; runtime warns and finalizes with the original provider text.
+
+### Claude Code / Cursor pattern
+
+This preserves model-owned recovery rather than adding server-authored auto-completion or auto-release. The extra hop mirrors Claude Code / Cursor's pattern: when the assistant's visible final text conflicts with the plan state, give the model one immediate chance to reconcile the plan or explain why it remains open, then finalize.
