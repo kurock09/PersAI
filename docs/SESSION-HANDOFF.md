@@ -3,6 +3,87 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-22 — ADR-125 scenario step progression + full-plan web read — CHECKPOINT
+
+### State
+
+Two live regressions surfaced during the second ADR-125 chat-plan validation pass and were folded into a single follow-up slice:
+
+1. **Model not progressing scenario_seeded rows.** With the model-prompt window `<persai_chat_plan>` shipping rows + ids, the model still treated the seeded rows as read-only narration: it walked through scenario steps in the chat but never called `todo_write({action:"update", status:"in_progress"})` / `action:"complete"` on the seeded ids. Cause: `todo_write.modelUsageGuidance` had no SCENARIO_SEEDED LIFECYCLE clause, and the `<persai_chat_plan>` body had no in-block reminder either. The model effectively had no instruction telling it that the `(seeded by …)` rows are mutable and that it owns their lifecycle.
+2. **Web card surfacing "Plan 2/5 +3 more hidden" after the model completed all rows.** `selectChatPlanWindow` is the model-prompt window — it caps completed rows at "last 2 by `completedAt`" so the cached `<persai_chat_plan>` block stays cheap. The web `GET …/plan` endpoint was reusing that window, so once every seeded row was completed the UI showed only the last two with a "+3 more" tail — visually identical to "the plan is broken, 3 rows are stuck". The user-facing surface needs the **full** plan, the model surface keeps the tight window.
+
+### What changed
+
+- **`apps/api/prisma/tool-catalog-data.ts`** — `todo_write.modelUsageGuidance` now carries an explicit `SCENARIO_SEEDED LIFECYCLE:` section that names the `(seeded by …)` rows as model-owned, mandates `action:"update" status:"in_progress"` before substantive work and `action:"complete"` before moving on, repeats the one-`in_progress`-per-parent rule, and reminds the model that ids live in the `— by id <id>` tail of each `<persai_chat_plan>` row. The GOTCHAS block was also tightened to point at the same id source so the model has one canonical way to find an id.
+- **`apps/runtime/src/modules/turns/turn-context-hydration.service.ts`** — `renderChatPlanBlock` now prepends a one-line `// …` instruction to the `<persai_chat_plan>` body whenever at least one `scenario_seeded` row is non-completed. The hint names the `(seeded by …)` tag, asks the model to switch the current row to `in_progress` before working on it and to complete it via `todo_write` before moving on. It is suppressed when no `scenario_seeded` row exists in window, or when every `scenario_seeded` row in window is already completed (so we don't pollute already-finished plans).
+- **`apps/api/src/modules/workspace-management/application/assistant-chat-todos.service.ts`** — new `readFullPlanForWeb({chatId})` that returns up to `WEB_PLAN_RESPONSE_MAX = 50` rows in raw `sortOrder` order, exposing the real `totalCount` and a `windowed` flag only when the cap is tripped. `readWindow` is untouched and still used by the internal runtime endpoint that feeds the model prompt (`<persai_chat_plan>` and the `todo_write` response window).
+- **`apps/api/src/modules/workspace-management/interface/http/assistant-chat-todos.controller.ts`** — `GET /api/v1/assistant/chats/web/:chatId/plan` switched from `readWindow` to `readFullPlanForWeb`, so the card now always sees every completed step. The DELETE handler is untouched.
+- **Tests.** `apps/api/test/assistant-chat-todos.service.test.ts` got two new cases — one walks a 5-step plan to "all completed" and asserts that the model window collapses to 2 rows while `readFullPlanForWeb` returns all 5 in `sortOrder`, the other inserts 60 rows across two `add` calls and asserts the full-plan read flags `windowed: true` at the 50-row cap. `apps/runtime/test/turn-context-hydration.service.test.ts` extends `runChatPlanBlockTest` to assert the lifecycle hint appears when there is an open `scenario_seeded` row, and is suppressed both when no `scenario_seeded` row is present and when every `scenario_seeded` row is already completed. `apps/api/test/tool-catalog-data.test.ts` now pins the `SCENARIO_SEEDED LIFECYCLE` section and the `by id <id>` reference inside `todo_write.modelUsageGuidance` so future edits cannot quietly drop them.
+
+### Files
+
+`apps/api/prisma/tool-catalog-data.ts`, `apps/api/test/tool-catalog-data.test.ts`, `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`, `apps/runtime/test/turn-context-hydration.service.test.ts`, `apps/api/src/modules/workspace-management/application/assistant-chat-todos.service.ts`, `apps/api/src/modules/workspace-management/interface/http/assistant-chat-todos.controller.ts`, `apps/api/test/assistant-chat-todos.service.test.ts`, this checkpoint + `docs/CHANGELOG.md`.
+
+### Verified
+
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-data.test.ts` PASS
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-chat-todos.service.test.ts` PASS (new full-plan + overflow tests included)
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-suite-isolated.ts` PASS (chat-plan-block lifecycle hint covered)
+- `corepack pnpm --filter @persai/web exec vitest run chat-plan-card.test.tsx use-chat.test.tsx assistant-api-client.test.ts` PASS (171/171)
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+
+### Residuals / risks
+
+- The `todo_write.modelUsageGuidance` text is now ~3.5kB. Because `native-tool-projection` caps the projected schema description at 1024 chars (Anthropic limit) and the guidance preamble already exceeds that, the SCENARIO_SEEDED LIFECYCLE clause is truncated out of the JSON-schema description sent to providers — exactly like every other GOTCHAS block on every other tool. The actionable nudge for the model is the in-prompt `<persai_chat_plan>` hint, which is delivered every turn via `volatile_context` and is not subject to the schema cap. Admins viewing the catalog (or any future surface that reads `modelUsageGuidance` whole) still see the full instruction.
+- Web-only surface change for the controller swap — no Prisma changes, no migration. Both api and web images need to be rebuilt and pinned together: api for the new read path + the catalog text, web for nothing new yet but the image must be in sync if rebuilt by the same publish run.
+
+### Next recommended step
+
+Watch the `Dev Image Publish` run for the SHA produced by this commit. After persai-dev pins both api and web:
+1. open a fresh chat and `skill engage` a scenario with ≥3 steps — confirm the assistant marks step 1 in_progress before working on it, completes step 1 before opening step 2, and so on (look at the chat plan card live as the model speaks);
+2. let the model run the scenario to "all done" — the card must read `5/5` (not `2/5 +3 more`) with every row visibly checked off in the expanded body;
+3. confirm `<persai_chat_plan>` in the prompt cache logs carries the `// Rows tagged (seeded by …)…` lead line only while at least one scenario_seeded row is still open.
+
+## 2026-06-22 — ADR-125 plan card redesign (sticky-top, collapsed-by-default, current-task preview) — CHECKPOINT
+
+### State
+
+UX/visual redesign of the in-chat plan card landed on top of `bf37c2ed`. Founder feedback was that the previous card sat above the composer, was always expanded by default, and looked too heavy. The redesigned card now magnetizes to the top of the chat scroll zone (sticky), uses a premium frosted-glass surface, opens collapsed by default with a one-line preview of the current task, and follows the established Cursor / Linear pattern (status icon → title → counts → "·" → current-task preview → chevron). All local gates green.
+
+### What changed
+
+- **Position.** `<ChatPlanCard>` moved from above `<ChatInput>` to inside the chat scroll container as a `sticky top-2 z-20` overlay, centred under the existing `max-w-3xl` column. The card now stays visible while the user scrolls the conversation, and the chat input row is no longer pushed up by it.
+- **Premium surface.** `rounded-xl` + `border-border/40` + `bg-bg/85` with `backdrop-blur-xl backdrop-saturate-150` (and a `supports-[backdrop-filter]:bg-bg/70` fallback). Soft layered shadow `shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_20px_-12px_rgba(0,0,0,0.10)]`. The body strokes use `border-border/40` for a lighter visual weight.
+- **Collapsed-by-default with current-task preview.** Initial `useState(false)` for expanded. Header layout: status icon (green check / spinner / muted circle depending on plan state) → "План" bold → pill `done / total` (tabular nums) → optional `+N more` → "·" separator → current-task preview, truncated. The current task is selected as the first `in_progress` todo, else the first `pending` todo, else the `planAllDone` indicator when everything is completed.
+- **Body still on-demand.** Expanded body keeps the existing parent/child layout (status icons, indented children, `▸` prefix for orphans, `scenario_seeded` badge). Conditional render — body nodes only mount when expanded — so collapsed state stays clean in the DOM. Chevron rotates 180° on expand for the visual cue without a height-tweening hack.
+- **i18n.** New `chat.planAllDone` key — "Все задачи выполнены" / "All tasks completed" — in both `apps/web/messages/ru.json` and `apps/web/messages/en.json`. The existing plan keys are unchanged.
+- **Tests.** `apps/web/app/app/_components/chat-plan-card.test.tsx` updated: the legacy "defaults to expanded" assertion is replaced by three new collapsed-by-default tests — current task is the first `in_progress` (with completed/pending neighbours staying out of the DOM until expanded), header falls back to the first `pending` when nothing is in progress, and the `planAllDone` indicator surfaces when every row is completed. Body-content tests now explicitly `expand(container)` before asserting against `#chat-plan-body`. The toggle test now also asserts the body element disappears on collapse.
+
+### Files
+
+`apps/web/app/app/_components/chat-plan-card.tsx`, `apps/web/app/app/_components/chat-plan-card.test.tsx`, `apps/web/app/app/_components/chat-area.tsx`, `apps/web/messages/en.json`, `apps/web/messages/ru.json`, this checkpoint + `docs/CHANGELOG.md`.
+
+### Verified
+
+- `corepack pnpm --filter @persai/web exec vitest run chat-plan-card.test.tsx` — 16/16 PASS
+- `corepack pnpm --filter @persai/web exec vitest run chat-area.test.tsx use-chat.test.tsx` — 22 + 86 PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+
+### Residuals
+
+- Re-deploy required: this is a web-only change, but the web image still has to be republished. The migration gate does not trigger (no Prisma changes), so the pin will go through the regular `pin-dev-values-tag` path.
+- Live validation after the new web image lands: scroll the chat with a non-empty plan — the card must remain pinned ~8px from the top of the chat zone; collapsed header should show the current task; click toggles expand; on a chat where every todo is completed the header should read "Все задачи выполнены".
+
+### Next recommended step
+
+Watch the `Dev Image Publish` run for SHA produced by this commit, reload the chat that already holds 7 rows in `assistant_chat_todos`, then run the live ADR-125 validation checks (engage seeding idempotency, `+N more` at >12 items, clear-confirm, `from <skill>` pill).
+
 ## 2026-06-22 — ADR-125 plan-route Clerk auth hot-fix — CHECKPOINT
 
 ### State

@@ -21,6 +21,19 @@ function testTodoWriteCatalogRow(): void {
     typeof row.modelUsageGuidance === "string" && row.modelUsageGuidance.length > 0,
     "todo_write modelUsageGuidance must be non-empty"
   );
+  // ADR-125 follow-up — without an explicit SCENARIO_SEEDED LIFECYCLE section
+  // the model leaves seeded scenario steps at `pending` forever (the live
+  // regression that surfaced this requirement). Pin the section so we never
+  // drop it from the catalog by accident.
+  assert.ok(
+    typeof row.modelUsageGuidance === "string" &&
+      row.modelUsageGuidance.includes("SCENARIO_SEEDED LIFECYCLE"),
+    "todo_write modelUsageGuidance must explain the scenario_seeded lifecycle"
+  );
+  assert.ok(
+    typeof row.modelUsageGuidance === "string" && row.modelUsageGuidance.includes("by id <id>"),
+    "todo_write modelUsageGuidance must tell the model where to read row ids from <persai_chat_plan>"
+  );
 }
 
 function testStarterTrialPolicyTodoWrite(): void {

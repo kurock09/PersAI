@@ -235,9 +235,16 @@ function normalizeOptionalString(value: unknown): string | null {
  * if a parent was dropped).
  *
  * Output shape (one line per item):
+ *   <optional scenario lifecycle hint>
  *   - [<status>] <content> — by id <id>
  *     - [<status>] <child content> — by id <id>
  *   + N more
+ *
+ * The scenario lifecycle hint is emitted only when the window contains at
+ * least one non-completed `scenario_seeded` row — the model needs the
+ * explicit reminder that it owns the lifecycle of those rows (mark
+ * in_progress before substantive work, complete on delivery). It is a
+ * one-line `//` comment so it survives provider-side schema lints.
  *
  * The `+ N more` tail appears only when the window truncated the plan.
  */
@@ -253,6 +260,14 @@ export function renderChatPlanBlock(
   }
   const idsInWindow = new Set(todos.map((todo) => todo.id));
   const lines: string[] = [];
+  const hasOpenScenarioSeeded = todos.some(
+    (todo) => todo.origin === "scenario_seeded" && todo.status !== "completed"
+  );
+  if (hasOpenScenarioSeeded) {
+    lines.push(
+      "// Rows tagged (seeded by …) are active scenario steps you own — switch the current one to in_progress before working on it and complete it via todo_write before moving on."
+    );
+  }
   for (const todo of todos) {
     const indent = todo.parentId !== null && idsInWindow.has(todo.parentId) ? "  " : "";
     const statusLabel = renderChatPlanStatusLabel(todo.status);

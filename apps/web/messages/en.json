@@ -704,7 +704,8 @@
     "planClearConfirmAction": "Clear",
     "planClearCancel": "Cancel",
     "planToggleExpand": "Expand plan",
-    "planToggleCollapse": "Collapse plan"
+    "planToggleCollapse": "Collapse plan",
+    "planAllDone": "All tasks completed"
   },
   "sidebar": {
     "defaultAssistant": "Your Assistant",

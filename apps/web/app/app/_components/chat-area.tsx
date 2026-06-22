@@ -608,6 +608,16 @@ export function ChatArea({
         ref={scrollRef}
         className="flex-1 overflow-x-hidden overflow-y-auto md:[scrollbar-gutter:stable_both-edges]"
       >
+        {!isEmpty && chat.chatPlan.length > 0 ? (
+          <div className="sticky top-2 z-20 mx-auto w-full max-w-3xl px-3 md:px-0">
+            <ChatPlanCard
+              todos={chat.chatPlan}
+              totalCount={chat.chatPlanTotalCount}
+              windowed={chat.chatPlanWindowed}
+              onClear={chat.clearChatPlan}
+            />
+          </div>
+        ) : null}
         {isEmpty ? (
           <EmptyState
             name={assistantName}
@@ -1004,16 +1014,6 @@ export function ChatArea({
               </button>
             </div>
           </div>
-        </div>
-      ) : null}
-      {chat.chatPlan.length > 0 ? (
-        <div className="mx-auto w-full max-w-3xl px-4 pb-2">
-          <ChatPlanCard
-            todos={chat.chatPlan}
-            totalCount={chat.chatPlanTotalCount}
-            windowed={chat.chatPlanWindowed}
-            onClear={chat.clearChatPlan}
-          />
         </div>
       ) : null}
       <ChatInput

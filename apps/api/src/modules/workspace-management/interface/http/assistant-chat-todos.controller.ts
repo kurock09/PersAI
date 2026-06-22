@@ -42,13 +42,19 @@ export class AssistantChatTodosController {
   ): Promise<WebChatPlanResponse> {
     const userId = this.resolveRequestUserId(req);
     await this.assertChatBelongsToActiveAssistant(userId, chatId);
-    const window = await this.assistantChatTodosService.readWindow({ chatId });
+    // ADR-125 follow-up — `readWindow` collapses the response to the model
+    // prompt window (in_progress + 6 recent pending + 2 recent completed),
+    // which is wrong for the user-facing card: when all 5 scenario steps
+    // are completed the card was rendering "Plan 2/5 +3 more hidden" with
+    // only the two most-recently-completed rows visible. Use the full-plan
+    // reader instead so the user always sees the real state.
+    const fullPlan = await this.assistantChatTodosService.readFullPlanForWeb({ chatId });
     return {
       requestId: req.requestId ?? null,
       chatId,
-      todos: window.todos,
-      windowed: window.windowed,
-      totalCount: window.totalCount
+      todos: fullPlan.todos,
+      windowed: fullPlan.windowed,
+      totalCount: fullPlan.totalCount
     };
   }
 

@@ -38,6 +38,45 @@ const MAX_CONTENT_LENGTH = 240;
 
 const MAX_ADD_ITEMS_PER_CALL = 50;
 
+/**
+ * ADR-125 follow-up — the model-facing window (`selectChatPlanWindow`) is
+ * intentionally tight (in_progress + 6 recent pending + 2 recent completed)
+ * so the per-turn `<persai_chat_plan>` block stays cheap and cache-friendly.
+ *
+ * The user-facing web plan card has the opposite need: once the user opens
+ * it they want to see the **whole plan**, including every completed step,
+ * not just "the most recent two". With the model window the card was
+ * surfacing things like `Plan 2/5 +3 more hidden` when all five steps had
+ * already been marked completed — visually it looked like "the model said
+ * 'all done' but the plan still has 3 rows hanging around". This per-surface
+ * cap solves that without changing the model prompt window.
+ *
+ * The cap protects against a future model that opens an absurdly large plan.
+ * The web card still renders the `windowed` flag + `+N more` tail when it
+ * trips, so the user can tell the surface was truncated.
+ */
+const WEB_PLAN_RESPONSE_MAX = 50;
+
+/**
+ * ADR-125 — scenario step directives are full instructions (≤600 chars per
+ * `SkillScenarioStepState.directive`). The plan card and the in-prompt
+ * `<persai_chat_plan>` block both want a short title, not the full body.
+ * The model still has access to the full directive via the
+ * `<persai_active_scenario>` block (ADR-119), so storing the title here is
+ * lossless from the model's perspective. The plan card and any future
+ * model-authored todo input share this same ceiling.
+ */
+const SCENARIO_STEP_TITLE_MAX_CHARS = 80;
+
+/**
+ * ADR-125 — minimum characters required before a punctuation mark is
+ * considered a sentence boundary. Prevents pathological splits like
+ * `"OK. Now do …"` from collapsing to just `"OK"`.
+ */
+const SCENARIO_STEP_TITLE_MIN_PREFIX = 12;
+
+const SCENARIO_STEP_TITLE_BREAK_CHARS = [":", ".", "!", "?", ";", "\n"];
+
 export type AssistantChatTodosChannel = "web" | "telegram";
 
 export interface AssistantChatTodosAddItemInput {
@@ -187,6 +226,39 @@ export class AssistantChatTodosService {
       todos: selection.todos,
       windowed: selection.windowed,
       totalCount: rows.length
+    };
+  }
+
+  /**
+   * ADR-125 follow-up — read the **full** plan for the user-facing web card.
+   *
+   * Unlike `readWindow`, this does NOT collapse completed rows down to the
+   * last two — the user wants to see every step they finished, in sortOrder.
+   * The single per-call cap (`WEB_PLAN_RESPONSE_MAX`) only kicks in if the
+   * plan grows past 50 rows, in which case the response flags `windowed:
+   * true` and the card renders its `+N more` tail.
+   */
+  async readFullPlanForWeb(
+    input: AssistantChatTodosWindowInput
+  ): Promise<AssistantChatTodosWindowResult> {
+    const rows = await this.loadAllRows(input.chatId);
+    const orderedRows = [...rows].sort((a, b) => {
+      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    });
+    const limited = orderedRows.slice(0, WEB_PLAN_RESPONSE_MAX);
+    const todos: RuntimeTodoItem[] = limited.map((row) => ({
+      id: row.id,
+      parentId: row.parentId,
+      content: row.content,
+      status: row.status,
+      origin: row.origin,
+      seedSkillLabel: row.seedSkillLabel
+    }));
+    return {
+      todos,
+      windowed: orderedRows.length > limited.length,
+      totalCount: orderedRows.length
     };
   }
 
@@ -777,9 +849,12 @@ export class AssistantChatTodosService {
 
   /**
    * Trim each directive, collapse whitespace, drop empty entries, and
-   * hard-cut anything over `MAX_CONTENT_LENGTH` with an ellipsis. Server-side
-   * truncation keeps a single oversized scenario step from failing the whole
-   * batch and matches the runtime client expectation.
+   * derive a short human-readable title from the directive body. The
+   * `SkillScenarioStepState` schema has no separate title field — the only
+   * persisted text is the full `directive` (up to 600 chars), which is too
+   * long to render as a checklist row. We extract a one-line headline using
+   * `deriveScenarioStepTitle`; the full directive stays accessible to the
+   * model through the `<persai_active_scenario>` block (ADR-119).
    */
   private normalizeScenarioDirectives(values: readonly unknown[]): string[] {
     const out: string[] = [];
@@ -787,13 +862,49 @@ export class AssistantChatTodosService {
       if (typeof raw !== "string") continue;
       const trimmed = raw.trim().replace(/\s+/g, " ");
       if (trimmed.length === 0) continue;
-      if (trimmed.length > MAX_CONTENT_LENGTH) {
-        out.push(`${trimmed.slice(0, MAX_CONTENT_LENGTH - 1)}…`);
-      } else {
-        out.push(trimmed);
-      }
+      out.push(this.deriveScenarioStepTitle(trimmed));
     }
     return out;
+  }
+
+  /**
+   * Reduce a scenario step directive to a one-line title.
+   *
+   * Rules, in order:
+   *  1. If the directive already fits within `SCENARIO_STEP_TITLE_MAX_CHARS`,
+   *     drop a trailing period (which would be redundant on a checklist row)
+   *     and return the rest verbatim. Other terminators (`?`, `!`, `:`) stay
+   *     because they carry meaning.
+   *  2. Otherwise, scan for the earliest natural sentence boundary
+   *     (`:` `.` `!` `?` `;` `\n`) that sits at least
+   *     `SCENARIO_STEP_TITLE_MIN_PREFIX` chars in and within the title
+   *     ceiling. Use the prefix up to that break as the title.
+   *  3. Otherwise, hard-truncate at the last word boundary within the
+   *     ceiling and append an ellipsis. The full string never exceeds
+   *     `SCENARIO_STEP_TITLE_MAX_CHARS` chars including the ellipsis.
+   */
+  private deriveScenarioStepTitle(directive: string): string {
+    if (directive.length <= SCENARIO_STEP_TITLE_MAX_CHARS) {
+      return directive.endsWith(".") ? directive.slice(0, -1) : directive;
+    }
+    let earliestBreak = -1;
+    for (const ch of SCENARIO_STEP_TITLE_BREAK_CHARS) {
+      const idx = directive.indexOf(ch);
+      if (
+        idx >= SCENARIO_STEP_TITLE_MIN_PREFIX &&
+        idx < SCENARIO_STEP_TITLE_MAX_CHARS &&
+        (earliestBreak === -1 || idx < earliestBreak)
+      ) {
+        earliestBreak = idx;
+      }
+    }
+    if (earliestBreak !== -1) {
+      return directive.slice(0, earliestBreak).trimEnd();
+    }
+    const slice = directive.slice(0, SCENARIO_STEP_TITLE_MAX_CHARS - 1);
+    const lastSpace = slice.lastIndexOf(" ");
+    const cutoff = lastSpace > SCENARIO_STEP_TITLE_MAX_CHARS * 0.5 ? lastSpace : slice.length;
+    return `${slice.slice(0, cutoff).trimEnd()}…`;
   }
 
   /**

@@ -586,8 +586,44 @@ async function testSeedSkillScenarioTruncatesOverlongDirectives(): Promise<void>
   const snap = prisma.assistantChatTodo.snapshot();
   assert.equal(snap.length, 1);
   const content = snap[0]?.content ?? "";
-  assert.equal(content.length, 240, `expected 240 chars, got ${content.length}`);
+  // ADR-125 — scenario step titles are capped at SCENARIO_STEP_TITLE_MAX_CHARS (80).
+  assert.ok(
+    content.length <= 80,
+    `expected scenario step title to fit in 80 chars, got ${content.length}`
+  );
   assert.ok(content.endsWith("…"), "long directive must be truncated with an ellipsis");
+}
+
+async function testSeedSkillScenarioDerivesTitleFromColonSeparator(): Promise<void> {
+  // Mirrors the actual Маркетолог step shape seen in the live plan card:
+  // a short imperative headline, a colon, then a long enumeration of detail.
+  // The card row should carry only the headline.
+  const chat = buildChat();
+  const { service, prisma } = buildService(chat);
+  const outcome = await service.seedSkillScenarioTodos({
+    assistantId: chat.assistantId,
+    channel: "web",
+    surfaceThreadKey: chat.surfaceThreadKey,
+    skillId: null,
+    skillLabel: "Маркетолог",
+    scenarioKey: "instagram_carousel",
+    seedKey: "marketer::instagram_carousel::",
+    directives: [
+      "Уточни короткий бриф: аудитория, продукт/услуга, главное сообщение, желаемое действие (CTA), тональность бренда и любые табу. Если что-то критичное отсутствует, задай 1–3 точечных вопроса и подожди ответ перед продолжением.",
+      "Спроектируй нарратив на 4 слайда по схеме: 1) хук, 2) проблема/боль, 3) инсайт, 4) решение/оффер.",
+      "Step A.",
+      "Step B"
+    ]
+  });
+  assert.equal(outcome.kind, "seeded");
+  const snap = prisma.assistantChatTodo.snapshot();
+  assert.equal(snap.length, 4);
+  assert.equal(snap[0]?.content, "Уточни короткий бриф");
+  assert.equal(snap[1]?.content, "Спроектируй нарратив на 4 слайда по схеме");
+  // Trailing period dropped on a short single-sentence directive.
+  assert.equal(snap[2]?.content, "Step A");
+  // No terminator → returned verbatim.
+  assert.equal(snap[3]?.content, "Step B");
 }
 
 async function testSeedSkillScenarioRejectsMissingScenarioKey(): Promise<void> {
@@ -722,6 +758,87 @@ function testWindowSelectorEmpty(): void {
   assert.equal(windowed, false);
 }
 
+async function testReadFullPlanForWebReturnsAllCompletedRows(): Promise<void> {
+  // The user-reported regression: after the model completes every seeded
+  // scenario step, the model-prompt window (`selectChatPlanWindow`) caps
+  // completed rows at the last two, so the web card was rendering
+  // "Plan 2/5 +3 more hidden" with three rows invisibly stashed. The web
+  // surface MUST surface all five completed rows so the user sees
+  // "Plan 5/5" with every checkmark.
+  const chat = buildChat();
+  const { service } = buildService(chat);
+  const add = await service.applyAction({
+    assistantId: chat.assistantId,
+    channel: "web",
+    surfaceThreadKey: chat.surfaceThreadKey,
+    action: {
+      kind: "add",
+      items: [
+        { content: "Step 1" },
+        { content: "Step 2" },
+        { content: "Step 3" },
+        { content: "Step 4" },
+        { content: "Step 5" }
+      ]
+    }
+  });
+  assert.equal(add.action, "applied");
+  for (const todo of add.todos) {
+    const complete = await service.applyActionForChat({
+      chatId: add.chatId,
+      assistantId: chat.assistantId,
+      action: { kind: "complete", id: todo.id }
+    });
+    assert.equal(complete.action, "applied", `complete must apply for id=${todo.id}`);
+  }
+
+  // Sanity: the model-prompt window collapses to two completed rows.
+  const modelWindow = await service.readWindow({ chatId: add.chatId });
+  assert.equal(modelWindow.totalCount, 5);
+  assert.equal(modelWindow.todos.length, 2);
+  assert.equal(modelWindow.windowed, true);
+
+  // The user-facing full read returns every row, no `+N more hidden` tail.
+  const fullPlan = await service.readFullPlanForWeb({ chatId: add.chatId });
+  assert.equal(fullPlan.totalCount, 5);
+  assert.equal(fullPlan.todos.length, 5);
+  assert.equal(fullPlan.windowed, false);
+  const allCompleted = fullPlan.todos.every((t) => t.status === "completed");
+  assert.ok(allCompleted, "every full-plan row must be completed");
+  const contents = fullPlan.todos.map((t) => t.content);
+  assert.deepEqual(contents, ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"]);
+}
+
+async function testReadFullPlanForWebFlagsOverflow(): Promise<void> {
+  // When a plan grows past the per-call cap (50 rows) the response must
+  // expose `windowed: true` and the real total so the card can render its
+  // "+N more" tail.
+  const chat = buildChat();
+  const { service } = buildService(chat);
+  const items = Array.from({ length: 60 }, (_, index) => ({
+    content: `Item ${String(index + 1).padStart(2, "0")}`
+  }));
+  // The add path enforces a per-call max of 50, so split into two batches.
+  const first = await service.applyAction({
+    assistantId: chat.assistantId,
+    channel: "web",
+    surfaceThreadKey: chat.surfaceThreadKey,
+    action: { kind: "add", items: items.slice(0, 50) }
+  });
+  assert.equal(first.action, "applied");
+  const second = await service.applyActionForChat({
+    chatId: first.chatId,
+    assistantId: chat.assistantId,
+    action: { kind: "add", items: items.slice(50) }
+  });
+  assert.equal(second.action, "applied");
+
+  const fullPlan = await service.readFullPlanForWeb({ chatId: first.chatId });
+  assert.equal(fullPlan.totalCount, 60);
+  assert.equal(fullPlan.todos.length, 50);
+  assert.equal(fullPlan.windowed, true);
+}
+
 function testWindowSelectorKeepsChildrenWithParent(): void {
   const rows = [
     buildSelectorRow({ id: "parent", status: "in_progress", sortOrder: 1 }),
@@ -756,12 +873,15 @@ export async function runAssistantChatTodosServiceTest(): Promise<void> {
   await testSeedSkillScenarioIdempotency();
   await testSeedSkillScenarioNoDirectivesSkipped();
   await testSeedSkillScenarioTruncatesOverlongDirectives();
+  await testSeedSkillScenarioDerivesTitleFromColonSeparator();
   await testSeedSkillScenarioRejectsMissingScenarioKey();
   await testSeedSkillScenarioRejectsMissingSeedKey();
   await testSeedSkillScenarioReleaseDoesNotDeleteSeeded();
   testWindowSelectorRespectsCap();
   testWindowSelectorEmpty();
   testWindowSelectorKeepsChildrenWithParent();
+  await testReadFullPlanForWebReturnsAllCompletedRows();
+  await testReadFullPlanForWebFlagsOverflow();
   console.log("[assistant-chat-todos.service] all tests passed");
 }
 

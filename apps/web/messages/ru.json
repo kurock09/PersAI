@@ -704,7 +704,8 @@
     "planClearConfirmAction": "Очистить",
     "planClearCancel": "Отмена",
     "planToggleExpand": "Развернуть план",
-    "planToggleCollapse": "Свернуть план"
+    "planToggleCollapse": "Свернуть план",
+    "planAllDone": "Все задачи выполнены"
   },
   "sidebar": {
     "defaultAssistant": "Твой ассистент",

@@ -2224,6 +2224,8 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
  *   - empty input → null (block omitted entirely)
  *   - parent + child rendering keeps the child indented under its parent
  *   - status badges, seeded skill suffix, and the `+ N more` tail
+ *   - lifecycle hint emitted when any non-completed scenario_seeded row is in window
+ *   - lifecycle hint suppressed when no open scenario_seeded row is present
  *   - rendering refuses to accept more than the window cap
  */
 export async function runChatPlanBlockTest(): Promise<void> {
@@ -2258,12 +2260,52 @@ export async function runChatPlanBlockTest(): Promise<void> {
   const rendered = renderChatPlanBlock(todos, 4);
   assert.ok(rendered !== null);
   const lines = rendered.split("\n");
-  assert.equal(lines.length, 4);
-  assert.match(lines[0] ?? "", /^- \[~\] Research pricing tiers/);
-  assert.match(lines[1] ?? "", /^ {2}- \[ \] Compile sources \(seeded by Marketing\)/);
-  assert.match(lines[2] ?? "", /^- \[x\] Draft the proposal/);
-  assert.match(lines[3] ?? "", /^\+ 4 more$/);
-  assert.match(lines[0] ?? "", /— by id todo-1$/);
+  // hint line + 3 rows + truncation tail
+  assert.equal(lines.length, 5);
+  assert.match(lines[0] ?? "", /^\/\/ Rows tagged \(seeded by …\) are active scenario steps/);
+  assert.match(lines[1] ?? "", /^- \[~\] Research pricing tiers/);
+  assert.match(lines[2] ?? "", /^ {2}- \[ \] Compile sources \(seeded by Marketing\)/);
+  assert.match(lines[3] ?? "", /^- \[x\] Draft the proposal/);
+  assert.match(lines[4] ?? "", /^\+ 4 more$/);
+  assert.match(lines[1] ?? "", /— by id todo-1$/);
+
+  // Hint suppressed when no scenario_seeded row exists at all.
+  const onlyModelAuthored: RuntimeTodoItem[] = [
+    {
+      id: "todo-1",
+      parentId: null,
+      content: "Draft the proposal",
+      status: "in_progress",
+      origin: "model_authored",
+      seedSkillLabel: null
+    }
+  ];
+  const renderedNoHint = renderChatPlanBlock(onlyModelAuthored, 0);
+  assert.ok(renderedNoHint !== null);
+  assert.equal(
+    renderedNoHint.includes("scenario steps"),
+    false,
+    "lifecycle hint must be omitted when no scenario_seeded row is present"
+  );
+
+  // Hint suppressed when every scenario_seeded row is already completed.
+  const onlyCompletedSeeded: RuntimeTodoItem[] = [
+    {
+      id: "todo-1",
+      parentId: null,
+      content: "Already done step",
+      status: "completed",
+      origin: "scenario_seeded",
+      seedSkillLabel: "Marketing"
+    }
+  ];
+  const renderedAllDone = renderChatPlanBlock(onlyCompletedSeeded, 0);
+  assert.ok(renderedAllDone !== null);
+  assert.equal(
+    renderedAllDone.includes("scenario steps"),
+    false,
+    "lifecycle hint must be omitted when every scenario_seeded row is already completed"
+  );
 
   const overSizedInput: RuntimeTodoItem[] = Array.from({ length: 13 }, (_, index) => ({
     id: `todo-${String(index)}`,

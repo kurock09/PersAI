@@ -467,8 +467,9 @@ EXAMPLES:
 - todo_write({action:"complete", id:"<server-id>"}) — close out a finished step before starting the next one.
 - todo_write({action:"update", id:"<server-id>", content:"Draft proposal section (focus on pricing tiers)"}) — sharpen wording without changing identity.
 - todo_write({action:"clear"}) — abandon the plan when the conversation pivots away from the original multi-step work.
+SCENARIO_SEEDED LIFECYCLE: Rows in <persai_chat_plan> tagged "(seeded by <skill>)" are your active scenario steps — the server materialises them when you engage a Skill scenario, but YOU own their lifecycle just like model-authored rows. The moment you start substantive work on a step, switch it to in_progress via todo_write({action:"update", id:"<row-id>", status:"in_progress"}); the moment the step is actually delivered (not just announced), call todo_write({action:"complete", id:"<row-id>"}) BEFORE you move to the next step. Never leave a finished scenario step at pending. Only one in_progress sibling per parent — close the previous step before starting the next. If the conversation pivots away from the scenario, either complete what is genuinely done and call action="clear" on the rest, or call action="clear" alone to abandon the plan.
 GOTCHAS:
-- Use the exact ids returned in the previous todo_write response's todos window when calling update/complete/remove or attaching a parentId; ids are server-minted UUIDs.
+- Use the exact ids returned in the previous todo_write response's todos window — or the "by id <id>" tail on each row in <persai_chat_plan> — when calling update/complete/remove or attaching a parentId; ids are server-minted UUIDs.
 - parentId attaches a child to an existing item; the server rejects cycles, unknown parents, and parents that are already completed.
 - Only one in_progress sibling per parent scope — extras passed at add are coerced to pending with a warning; on update, a sibling switch is rejected with reason="sibling_in_progress".
 - complete on a parent is rejected while it still has open children — close children first.

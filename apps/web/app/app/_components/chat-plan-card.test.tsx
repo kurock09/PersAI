@@ -23,6 +23,11 @@ function makeTodo(overrides: Partial<RuntimeTodoItem> & { id: string }): Runtime
 
 const noop = async () => {};
 
+function expand(container: HTMLElement): void {
+  const btn = container.querySelector("button[aria-expanded]") as HTMLElement;
+  fireEvent.click(btn);
+}
+
 describe("ChatPlanCard", () => {
   it("renders nothing when todos is empty", () => {
     const { container } = render(
@@ -54,11 +59,11 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={todos} totalCount={2} windowed={false} onClear={noop} />
     );
-    const parent = within(container).getByText("Parent task");
-    const child = within(container).getByText("Child task");
-    // parent appears before child in DOM
+    expand(container);
+    const body = container.querySelector("#chat-plan-body") as HTMLElement;
+    const parent = within(body).getByText("Parent task");
+    const child = within(body).getByText("Child task");
     expect(parent.compareDocumentPosition(child) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // child has indentation class
     expect(child.closest("div.pl-5")).not.toBeNull();
   });
 
@@ -74,6 +79,7 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={todos} totalCount={1} windowed={false} onClear={noop} />
     );
+    expand(container);
     expect(within(container).getByText(/planSeededFrom/)).toBeInTheDocument();
     expect(within(container).getByText(/planSeededFrom/).textContent).toMatch("Marketer");
   });
@@ -85,6 +91,7 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={todos} totalCount={1} windowed={false} onClear={noop} />
     );
+    expand(container);
     expect(within(container).getByText("planSeededFromGeneric")).toBeInTheDocument();
   });
 
@@ -122,50 +129,70 @@ describe("ChatPlanCard", () => {
     expect(within(container).queryByText(/planMoreHidden/)).toBeNull();
   });
 
-  it("defaults to expanded when at least one todo is non-completed", () => {
+  it("defaults to collapsed and shows in_progress task as a header preview", () => {
     const todos = [
-      makeTodo({ id: "1", status: "completed", content: "Done" }),
-      makeTodo({ id: "2", status: "pending", content: "Pending" })
+      makeTodo({ id: "1", status: "completed", content: "Done task" }),
+      makeTodo({ id: "2", status: "in_progress", content: "Currently working" }),
+      makeTodo({ id: "3", status: "pending", content: "Future task" })
     ];
     const { container } = render(
-      <ChatPlanCard todos={todos} totalCount={2} windowed={false} onClear={noop} />
+      <ChatPlanCard todos={todos} totalCount={3} windowed={false} onClear={noop} />
     );
-    expect(within(container).getByText("Done")).toBeInTheDocument();
-    expect(within(container).getByText("Pending")).toBeInTheDocument();
-  });
-
-  it("defaults to collapsed when all todos are completed AND doneCount === totalCount", () => {
-    const todos = [
-      makeTodo({ id: "1", status: "completed", content: "Done 1" }),
-      makeTodo({ id: "2", status: "completed", content: "Done 2" })
-    ];
-    const { container } = render(
-      <ChatPlanCard todos={todos} totalCount={2} windowed={false} onClear={noop} />
-    );
-    expect(within(container).queryByText("Done 1")).toBeNull();
-    expect(within(container).queryByText("Done 2")).toBeNull();
-  });
-
-  it("toggle expand/collapse works", () => {
-    const todos = [
-      makeTodo({ id: "1", status: "completed", content: "Done 1" }),
-      makeTodo({ id: "2", status: "completed", content: "Done 2" })
-    ];
-    const { container } = render(
-      <ChatPlanCard todos={todos} totalCount={2} windowed={false} onClear={noop} />
-    );
-    // Initially collapsed (all completed, totalCount===doneCount)
-    expect(within(container).queryByText("Done 1")).toBeNull();
-
-    // The header button is the one with aria-expanded attribute
+    // collapsed body → in_progress label visible in header, other items NOT visible
     const toggleBtn = container.querySelector("button[aria-expanded]") as HTMLElement;
-    expect(toggleBtn).not.toBeNull();
-    fireEvent.click(toggleBtn);
-    expect(within(container).getByText("Done 1")).toBeInTheDocument();
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(within(container).getByText("Currently working")).toBeInTheDocument();
+    expect(within(container).queryByText("Done task")).toBeNull();
+    expect(within(container).queryByText("Future task")).toBeNull();
+  });
 
-    // Collapse again
-    fireEvent.click(toggleBtn);
+  it("falls back to the first pending task in the header preview when nothing is in_progress", () => {
+    const todos = [
+      makeTodo({ id: "1", status: "completed", content: "Done task" }),
+      makeTodo({ id: "2", status: "pending", content: "Next up" }),
+      makeTodo({ id: "3", status: "pending", content: "After that" })
+    ];
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={3} windowed={false} onClear={noop} />
+    );
+    expect(within(container).getByText("Next up")).toBeInTheDocument();
+    expect(within(container).queryByText("After that")).toBeNull();
+  });
+
+  it("shows the All-done indicator in the header preview when every task is completed", () => {
+    const todos = [
+      makeTodo({ id: "1", status: "completed", content: "Done 1" }),
+      makeTodo({ id: "2", status: "completed", content: "Done 2" })
+    ];
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={2} windowed={false} onClear={noop} />
+    );
+    expect(within(container).getByText("planAllDone")).toBeInTheDocument();
+    // body stays collapsed → individual rows are not in the visible body
     expect(within(container).queryByText("Done 1")).toBeNull();
+  });
+
+  it("toggle expand/collapse flips aria-expanded and reveals the body rows", () => {
+    const todos = [
+      makeTodo({ id: "1", status: "completed", content: "Done 1" }),
+      makeTodo({ id: "2", status: "pending", content: "Pending row" })
+    ];
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={2} windowed={false} onClear={noop} />
+    );
+    const toggleBtn = container.querySelector("button[aria-expanded]") as HTMLElement;
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggleBtn);
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("true");
+    const bodyRegion = container.querySelector("#chat-plan-body") as HTMLElement;
+    expect(bodyRegion).not.toBeNull();
+    expect(within(bodyRegion).getByText("Done 1")).toBeInTheDocument();
+    expect(within(bodyRegion).getByText("Pending row")).toBeInTheDocument();
+
+    fireEvent.click(toggleBtn);
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector("#chat-plan-body")).toBeNull();
   });
 
   it("clear button shows confirmation row; Cancel does not call onClear", async () => {
@@ -218,7 +245,9 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={[badTodo, goodTodo]} totalCount={2} windowed={false} onClear={noop} />
     );
-    expect(within(container).getByText("Good task")).toBeInTheDocument();
+    expand(container);
+    const body = container.querySelector("#chat-plan-body") as HTMLElement;
+    expect(within(body).getByText("Good task")).toBeInTheDocument();
   });
 
   it("renders orphan child with ▸ prefix un-indented", () => {
@@ -226,10 +255,10 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={[orphan]} totalCount={1} windowed={false} onClear={noop} />
     );
-    const orphanRow = within(container).getByText("Orphan task").closest("div");
-    // Should NOT have indentation
+    expand(container);
+    const body = container.querySelector("#chat-plan-body") as HTMLElement;
+    const orphanRow = within(body).getByText("Orphan task").closest("div");
     expect(orphanRow?.classList.contains("pl-5")).toBe(false);
-    // Should have ▸ marker nearby
-    expect(within(container).getByText("▸", { exact: false })).toBeInTheDocument();
+    expect(within(body).getByText("▸", { exact: false })).toBeInTheDocument();
   });
 });
