@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   AlertCircle,
@@ -333,6 +333,24 @@ export function ChatArea({
   const displayTitle = title ?? t("newChat");
   const canEdit = !!chat.chatId;
 
+  // Latest committed assistant message's engagementSummary == current
+  // chat-level active skill/scenario. The API derives `engagementSummary`
+  // from `chat.skillDecisionState`, so a release turn lands without the
+  // field and clears the chip. Walking from the tail means we don't react
+  // to streaming/optimistic messages — only committed ones — which avoids
+  // flicker while the model is mid-tool-loop.
+  const activeSkillEngagement = useMemo(() => {
+    for (let i = chat.entries.length - 1; i >= 0; i -= 1) {
+      const entry = chat.entries[i];
+      if (entry === undefined) continue;
+      if (entry.kind !== "message") continue;
+      if (entry.message.role !== "assistant") continue;
+      if (entry.message.status !== "committed") continue;
+      return entry.message.engagementSummary ?? null;
+    }
+    return null;
+  }, [chat.entries]);
+
   const startEdit = useCallback(() => {
     if (!canEdit) return;
     setEditValue(title ?? "");
@@ -575,22 +593,7 @@ export function ChatArea({
                     </button>
                   )}
                 </div>
-                {chatMode !== "normal" && (
-                  // Subtitle is desktop-only on purpose: on mobile the
-                  // Sparkles pill on the right already carries the
-                  // "premium / costs more" signal; doubling it here would
-                  // turn a 280px header into noise.
-                  <span className="mt-0.5 hidden items-center gap-1 text-[10px] font-medium tracking-wide text-accent-premium/80 md:inline-flex">
-                    {chatMode === "project" ? (
-                      <FolderKanban className="h-2.5 w-2.5 text-accent-premium" />
-                    ) : (
-                      <Sparkles className="h-2.5 w-2.5 animate-pulse" />
-                    )}
-                    <span className="truncate">
-                      {chatMode === "project" ? t("modeProjectCaption") : t("modeDeepCaption")}
-                    </span>
-                  </span>
-                )}
+                <ChatHeaderSubtitle chatMode={chatMode} engagement={activeSkillEngagement} t={t} />
               </div>
             )}
           </div>
@@ -1072,6 +1075,102 @@ function chatModeCaption(
     default:
       return t("modeNormalCaption");
   }
+}
+
+/**
+ * Subtitle row that sits directly under the chat title.
+ *
+ * Replaces the previous always-mode-caption row. Surfaces two pieces of
+ * persistent chat-level metadata at most:
+ *   1. Active skill / scenario (when the latest committed assistant
+ *      message carries `engagementSummary`, i.e. `chat.skillDecisionState`
+ *      is `active` server-side). Format: `Skill: <skill> · <scenario>`,
+ *      shown on both desktop and mobile because this is the live working
+ *      context — the user wants to see it everywhere. The scenario half
+ *      is dropped first under truncation so the skill stays readable.
+ *   2. Otherwise, the existing chat-mode caption ("тщательнее, но
+ *      дороже" / "глубокий анализ") when `chatMode !== "normal"`. Kept
+ *      desktop-only because the mode chip on the right already carries
+ *      that signal on mobile, and doubling it would inflate the 280px
+ *      mobile header.
+ *
+ * Mobile height impact: the row only appears on mobile when a skill is
+ * actively engaged, which is the user's explicit working state. Plain
+ * chats keep their compact mobile header.
+ */
+function ChatHeaderSubtitle({
+  chatMode,
+  engagement,
+  t
+}: {
+  chatMode: AssistantChatMode;
+  engagement: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const hasSkill = engagement !== null;
+  const modeIsNonNormal = chatMode !== "normal";
+
+  if (!hasSkill && !modeIsNonNormal) return null;
+
+  const fullSkillText = hasSkill
+    ? engagement.scenarioDisplayName
+      ? `${t("activeSkillPrefix")}: ${engagement.skillDisplayName} · ${engagement.scenarioDisplayName}`
+      : `${t("activeSkillPrefix")}: ${engagement.skillDisplayName}`
+    : "";
+
+  return (
+    <span
+      className={cn(
+        "mt-0.5 min-w-0 items-center gap-1 text-[10px] font-medium tracking-wide",
+        // Skill chip shows everywhere; mode caption stays desktop-only so the
+        // mobile header height doesn't grow for plain non-normal chats.
+        hasSkill ? "inline-flex text-text-subtle" : "hidden md:inline-flex text-accent-premium/80"
+      )}
+      title={hasSkill ? fullSkillText : undefined}
+    >
+      {modeIsNonNormal && (
+        <>
+          {chatMode === "project" ? (
+            <FolderKanban
+              className={cn(
+                "h-2.5 w-2.5 shrink-0",
+                hasSkill ? "text-text-subtle/80" : "text-accent-premium"
+              )}
+            />
+          ) : (
+            <Sparkles
+              className={cn(
+                "h-2.5 w-2.5 shrink-0",
+                hasSkill ? "text-text-subtle/80" : "animate-pulse text-accent-premium"
+              )}
+            />
+          )}
+        </>
+      )}
+      {hasSkill ? (
+        <span className="flex min-w-0 items-baseline gap-1">
+          <span className="shrink-0 uppercase tracking-wider text-text-subtle/70">
+            {t("activeSkillPrefix")}
+          </span>
+          <span className="truncate max-w-[10rem] md:max-w-[22rem]">
+            <span className="font-semibold text-text-muted">{engagement.skillDisplayName}</span>
+            {engagement.scenarioDisplayName ? (
+              <>
+                <span aria-hidden className="px-1 text-text-subtle/50">
+                  ·
+                </span>
+                <span className="text-text-subtle">{engagement.scenarioDisplayName}</span>
+              </>
+            ) : null}
+          </span>
+        </span>
+      ) : (
+        <span className="truncate">
+          {chatMode === "project" ? t("modeProjectCaption") : t("modeDeepCaption")}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function ChatModeIcon({

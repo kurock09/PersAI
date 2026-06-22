@@ -3,6 +3,46 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-22 — Chat-header active-skill subtitle (ADR-119 follow-up) — CHECKPOINT
+
+### State
+
+Founder feedback after the ADR-125 plan-card redesign: the previously-existing "right of «Выполнено»" engagement chip (skill / scenario) was no longer always discoverable, since it only renders inline with each assistant message's collapsed working-notes toggle. Founder asked for a persistent chat-level indicator under the chat title — small, non-noisy, length-bounded, mode icon retained on desktop. This slice adds that subtitle without growing the plain-chat mobile header.
+
+### What changed
+
+- **`apps/web/app/app/_components/chat-area.tsx`** — extracted the subtitle row that used to live inline into a new `ChatHeaderSubtitle` component. New chat-level state `activeSkillEngagement` is derived from the latest **committed** assistant message's `engagementSummary` (the API already populates that field from `chat.skillDecisionState`, so the chip clears the moment the model lands a release-turn). Behaviour matrix:
+  - **Skill active** (any mode) → `<modeIcon?> SKILL · <skillDisplayName> · <scenarioDisplayName?>`. The mode icon stays on the left when `chatMode !== "normal"` so the existing premium signal isn't lost. Render is `inline-flex` on both mobile and desktop because the engagement is the live working context the user wants to see everywhere.
+  - **Skill inactive, mode ≠ normal** → existing mode caption ("тщательнее, но дороже" / "глубокий анализ"), kept `hidden md:inline-flex` so the mobile header stays compact for plain non-normal chats (the right-side `Sparkles` chip already carries the signal there).
+  - **Skill inactive, mode = normal** → nothing rendered (no change vs. before).
+- **Truncation.** Skill+scenario text wrapped in a `truncate max-w-[10rem] md:max-w-[22rem]` span so the scenario half is what shrinks first under narrow widths, and the skill stays readable. Full untruncated text is on `title` for hover.
+- **i18n.** New key `chat.activeSkillPrefix` — `Скилл` (ru) / `Skill` (en) — in both `apps/web/messages/ru.json` and `apps/web/messages/en.json`.
+- **Tests.** `apps/web/app/app/_components/chat-area.test.tsx` gains a `chat-header subtitle` describe with five new cases: renders skill+scenario when `engagementSummary` is set, renders skill-only when no scenario, falls back to the mode caption when no skill, renders nothing for normal+no-skill, and keeps the mode icon visible alongside the skill chip when both signals coexist.
+
+### Files
+
+`apps/web/app/app/_components/chat-area.tsx`, `apps/web/app/app/_components/chat-area.test.tsx`, `apps/web/messages/ru.json`, `apps/web/messages/en.json`, this checkpoint + `docs/CHANGELOG.md`.
+
+### Verified
+
+- `corepack pnpm --filter @persai/web exec vitest run chat-area.test.tsx` — 27/27 PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+
+### Residuals / risks
+
+- Web-only slice — no API/runtime/Prisma changes. New web image must be republished and pinned via the regular `pin-dev-values-tag` path (no migration gate involvement).
+- The chip is derived from per-message `engagementSummary` which is always populated by the API when `chat.skillDecisionState.status === "active"`. If a future API change ever stopped emitting `engagementSummary` while the chat-level skill state stays active, the chip would silently disappear; the `engagement-summary.derivation.test.ts` API-side test still pins that behaviour.
+
+### Next recommended step
+
+Watch the `Dev Image Publish` run for the SHA produced by this commit. After persai-dev pins web:
+1. open a chat, `skill engage <marketer / instagram_carousel>` — confirm a small `Скилл · Маркетолог · Карусель` line shows right under the chat title on both desktop and mobile.
+2. switch the chat to Smart mode — confirm the `Sparkles` icon stays visible on the desktop subtitle alongside the skill chip.
+3. ask the model to release the skill — confirm the subtitle row disappears the moment the release-turn is committed.
+
 ## 2026-06-22 — ADR-125 scenario step progression + full-plan web read — CHECKPOINT
 
 ### State

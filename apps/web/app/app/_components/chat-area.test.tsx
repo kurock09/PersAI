@@ -731,4 +731,86 @@ describe("ChatArea", () => {
     expect(smartItem).toHaveTextContent("modeLimitReachedCaption");
     expect(projectItem).toHaveTextContent("modeLimitReachedCaption");
   });
+
+  // ADR-125 follow-up — chat-header subtitle surfaces the chat-level active
+  // skill/scenario. The subtitle row is shared with the mode caption: when
+  // no skill is engaged it falls back to the mode caption (desktop only).
+  describe("chat-header subtitle", () => {
+    function chatWithEngagement(options: {
+      skillDisplayName: string;
+      scenarioDisplayName: string | null;
+    }): UseChatReturn {
+      const message: ChatMessage = {
+        id: "assistant-engagement",
+        role: "assistant",
+        content: "ok",
+        status: "committed",
+        engagementSummary: {
+          skillDisplayName: options.skillDisplayName,
+          scenarioDisplayName: options.scenarioDisplayName
+        }
+      };
+      return createChat("ok", { isStreaming: false, messages: [message] });
+    }
+
+    it("renders skill + scenario subtitle when latest assistant turn carries engagementSummary", () => {
+      render(
+        <ChatArea
+          chat={chatWithEngagement({
+            skillDisplayName: "Маркетолог",
+            scenarioDisplayName: "Карусель"
+          })}
+          chatMode="normal"
+        />
+      );
+
+      expect(screen.getAllByText("activeSkillPrefix").length).toBeGreaterThan(0);
+      expect(screen.getByText("Маркетолог")).toBeInTheDocument();
+      expect(screen.getByText("Карусель")).toBeInTheDocument();
+      expect(screen.queryByText("modeDeepCaption")).not.toBeInTheDocument();
+    });
+
+    it("renders skill-only subtitle when engagementSummary has no scenario", () => {
+      render(
+        <ChatArea
+          chat={chatWithEngagement({ skillDisplayName: "Finance", scenarioDisplayName: null })}
+          chatMode="normal"
+        />
+      );
+
+      expect(screen.getByText("Finance")).toBeInTheDocument();
+      // Scenario separator should not render when scenarioDisplayName is null.
+      expect(screen.queryByText("·")).not.toBeInTheDocument();
+    });
+
+    it("falls back to mode caption when no skill engagement is active", () => {
+      render(<ChatArea chat={createChat("Hello", { isStreaming: false })} chatMode="smart" />);
+
+      expect(screen.getByText("modeDeepCaption")).toBeInTheDocument();
+      expect(screen.queryByText("activeSkillPrefix")).not.toBeInTheDocument();
+    });
+
+    it("renders no subtitle when chat is normal mode and no skill is engaged", () => {
+      render(<ChatArea chat={createChat("Hello", { isStreaming: false })} chatMode="normal" />);
+
+      expect(screen.queryByText("modeDeepCaption")).not.toBeInTheDocument();
+      expect(screen.queryByText("modeProjectCaption")).not.toBeInTheDocument();
+      expect(screen.queryByText("activeSkillPrefix")).not.toBeInTheDocument();
+    });
+
+    it("keeps the mode icon visible alongside the skill chip when a non-normal mode is active", () => {
+      const { container } = render(
+        <ChatArea
+          chat={chatWithEngagement({ skillDisplayName: "Маркетолог", scenarioDisplayName: null })}
+          chatMode="smart"
+        />
+      );
+
+      // Sparkles is the Smart-mode icon (lucide injects an svg with class
+      // containing "lucide-sparkles"). Presence proves the icon was rendered.
+      const sparkles = container.querySelector("svg.lucide-sparkles");
+      expect(sparkles).not.toBeNull();
+      expect(screen.getByText("Маркетолог")).toBeInTheDocument();
+    });
+  });
 });
