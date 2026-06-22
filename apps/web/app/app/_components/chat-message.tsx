@@ -57,6 +57,7 @@ import {
 } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
 import { isAttachmentsOnlyPlaceholderText } from "./attachments-only-placeholder";
+import type { RuntimeTurnToolInvocation } from "@persai/runtime-contract";
 
 hljs.registerLanguage("cpp", cpp);
 hljs.registerLanguage("c", cpp);
@@ -766,87 +767,194 @@ function MarkdownFragment({ content }: { content: string }) {
   );
 }
 
-function resolveWorkingDurationSeconds(
-  startedAt: string | null | undefined,
-  finishedAt: string | null | undefined
-): number | null {
-  if (!startedAt || !finishedAt) {
-    return null;
+type IterationProcessPiece =
+  | { kind: "text"; markdown: string }
+  | { kind: "tool"; tool: RuntimeTurnToolInvocation };
+
+type IterationBlock =
+  | { kind: "content"; markdown: string }
+  | { kind: "process"; pieces: IterationProcessPiece[] };
+
+function isContentBlock(text: string): boolean {
+  if (/^\s*\|.*\|.*\|/m.test(text)) return true;
+  if (/^\s*#{2,}\s+\S/m.test(text)) return true;
+  if (/```/.test(text)) return true;
+
+  const lines = text.split(/\r?\n/);
+  let consecutiveListLines = 0;
+  for (const line of lines) {
+    if (/^\s*([-*+]|\d+\.)\s+\S/.test(line)) {
+      consecutiveListLines += 1;
+      if (consecutiveListLines >= 3) return true;
+    } else if (line.trim().length === 0) {
+      // Blank lines keep a markdown list visually continuous.
+    } else {
+      consecutiveListLines = 0;
+    }
   }
-  const startedAtMs = Date.parse(startedAt);
-  const finishedAtMs = Date.parse(finishedAt);
-  if (Number.isNaN(startedAtMs) || Number.isNaN(finishedAtMs) || finishedAtMs <= startedAtMs) {
-    return null;
-  }
-  const durationSec = Math.max(1, Math.round((finishedAtMs - startedAtMs) / 1000));
-  return durationSec <= 60 * 60 ? durationSec : null;
+  return false;
 }
 
-function WorkingTextBlocks({
-  blocks,
-  isStreaming,
-  startedAt,
-  finishedAt
-}: {
-  blocks: string[];
-  isStreaming: boolean;
-  startedAt?: string | null | undefined;
-  finishedAt?: string | null | undefined;
-}) {
-  const visibleBlocks = blocks.filter((block) => block.trim().length > 0);
-  const [expanded, setExpanded] = useState(isStreaming);
-  const blockKey = visibleBlocks.join("\n\n");
+function buildIterationBlocks(
+  workingNotes: string[],
+  toolInvocations: RuntimeTurnToolInvocation[]
+): IterationBlock[] {
+  const blocks: IterationBlock[] = [];
+  let currentProcess: IterationProcessPiece[] | null = null;
+
+  const flushProcess = () => {
+    if (currentProcess && currentProcess.length > 0) {
+      blocks.push({ kind: "process", pieces: currentProcess });
+    }
+    currentProcess = null;
+  };
+
+  const iterations = Math.max(
+    workingNotes.length,
+    ...toolInvocations.map((tool) => tool.iteration + 1),
+    0
+  );
+
+  for (let i = 0; i < iterations; i += 1) {
+    const text = (workingNotes[i] ?? "").trim();
+    if (text.length > 0) {
+      if (isContentBlock(text)) {
+        flushProcess();
+        blocks.push({ kind: "content", markdown: text });
+      } else {
+        currentProcess = currentProcess ?? [];
+        currentProcess.push({ kind: "text", markdown: text });
+      }
+    }
+
+    const toolsAtIteration = toolInvocations.filter((tool) => tool.iteration === i);
+    for (const tool of toolsAtIteration) {
+      currentProcess = currentProcess ?? [];
+      currentProcess.push({ kind: "tool", tool });
+    }
+  }
+
+  flushProcess();
+  return blocks;
+}
+
+function toolDisplayName(name: string): string {
+  switch (name) {
+    case "web_search":
+      return "web search";
+    case "web_fetch":
+      return "web fetch";
+    case "image_generate":
+      return "image generate";
+    case "image_edit":
+      return "image edit";
+    case "video_generate":
+      return "video generate";
+    case "knowledge_search":
+      return "knowledge search";
+    case "knowledge_fetch":
+      return "knowledge fetch";
+    case "todo_write":
+      return "todo write";
+    default:
+      return name.replace(/_/g, " ");
+  }
+}
+
+function resolveProcessBadgeLabel(
+  pieces: IterationProcessPiece[],
+  t: ReturnType<typeof useTranslations>
+): string {
+  const toolPieces = pieces.filter(
+    (piece): piece is Extract<IterationProcessPiece, { kind: "tool" }> => piece.kind === "tool"
+  );
+  const allTools = toolPieces.length === pieces.length && toolPieces.length > 0;
+  const firstToolName = toolPieces[0]?.tool.name;
+  const hasSingleToolName =
+    allTools &&
+    firstToolName !== undefined &&
+    toolPieces.every((piece) => piece.tool.name === firstToolName);
+
+  if (hasSingleToolName) {
+    if (firstToolName === "web_search") {
+      return t("processBadge.exploredSearches", { n: toolPieces.length });
+    }
+    if (firstToolName === "image_generate") {
+      return t("processBadge.generatedImages", { n: toolPieces.length });
+    }
+    if (firstToolName === "web_fetch") {
+      return t("processBadge.readPages", { n: toolPieces.length });
+    }
+  }
+
+  return t("processBadge.worked", { steps: pieces.length });
+}
+
+function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
+  const [expanded, setExpanded] = useState(false);
   const t = useTranslations("chat");
-  const durationSec = resolveWorkingDurationSeconds(startedAt, finishedAt);
-  useEffect(() => {
-    setExpanded(isStreaming);
-  }, [blockKey, isStreaming]);
-  if (visibleBlocks.length === 0) {
+  const label = resolveProcessBadgeLabel(pieces, t);
+
+  if (pieces.length === 0) {
     return null;
   }
-  const notes = (
-    <div>
-      <div className="space-y-1.5">
-        {visibleBlocks.map((block, index) => (
-          <div
-            key={`${index}-${block}`}
-            className="text-sm leading-relaxed text-text-muted/72 italic dark:text-text-subtle/72"
-          >
-            <MarkdownFragment content={block} />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-  if (isStreaming) {
-    return <div className="mb-4">{notes}</div>;
-  }
+
   return (
-    <div className="mb-5">
-      <div className="flex items-center gap-2 overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setExpanded((current) => !current)}
-          className="group inline-flex shrink-0 items-center gap-1.5 text-sm leading-relaxed text-text-muted/72 transition-colors hover:text-text-muted"
-          aria-expanded={expanded}
-        >
-          <span>
-            {t("workingNotesDone")}
-            {durationSec !== null ? ` ${t("workingNotesDuration", { seconds: durationSec })}` : ""}
-          </span>
-          {expanded ? (
-            <ChevronUp className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
-          )}
-        </button>
-      </div>
+    <div className="mb-4">
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        className="group inline-flex items-center gap-1.5 text-sm leading-relaxed text-text-muted/72 transition-colors hover:text-text-muted"
+        aria-expanded={expanded}
+      >
+        {expanded ? (
+          <ChevronUp className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 text-text-subtle/70 transition-colors group-hover:text-text-muted" />
+        )}
+        <span>{label}</span>
+      </button>
       {expanded ? (
-        <div className="mt-3">
-          {notes}
-          <div className="mt-4 h-px bg-border/70" />
+        <div className="mt-2 space-y-2 border-l border-border/70 pl-3 text-sm text-text-muted/72">
+          {pieces.map((piece, index) =>
+            piece.kind === "text" ? (
+              <div key={`text-${index}-${piece.markdown}`} className="leading-relaxed">
+                <MarkdownFragment content={piece.markdown} />
+              </div>
+            ) : (
+              <div
+                key={`tool-${index}-${piece.tool.toolCallId ?? piece.tool.name}`}
+                className="leading-relaxed"
+              >
+                <span aria-hidden="true">• </span>
+                <span>
+                  {toolDisplayName(piece.tool.name)}
+                  {piece.tool.ok ? "" : " (failed)"}
+                </span>
+              </div>
+            )
+          )}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function IterationBlocks({ blocks }: { blocks: IterationBlock[] }) {
+  if (blocks.length === 0) {
+    return null;
+  }
+  return (
+    <div className="mb-4 space-y-3">
+      {blocks.map((block, index) =>
+        block.kind === "content" ? (
+          <div key={`content-${index}`} className="text-text">
+            <MarkdownMessageContent content={block.markdown} />
+          </div>
+        ) : (
+          <ProcessBadge key={`process-${index}`} pieces={block.pieces} />
+        )
+      )}
     </div>
   );
 }
@@ -1645,18 +1753,19 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const isStreaming = message.status === "streaming" && message.role === "assistant";
   const assistantSegments = useMemo(() => {
     if (message.role !== "assistant") {
-      return { workingBlocks: [], answerText: message.content };
+      return { iterationBlocks: [], answerText: message.content };
     }
     // workingNotes is the structured multi-step field from the server (one entry
     // per tool-loop step); content is always the clean final answer.
-    const workingBlocks = Array.isArray(message.workingNotes)
+    const workingNotes = Array.isArray(message.workingNotes)
       ? message.workingNotes.map((note) => note.trim()).filter((note) => note.length > 0)
       : [];
+    const toolInvocations = Array.isArray(message.toolInvocations) ? message.toolInvocations : [];
     return {
-      workingBlocks,
+      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations),
       answerText: message.content
     };
-  }, [message.content, message.role, message.workingNotes]);
+  }, [message.content, message.role, message.toolInvocations, message.workingNotes]);
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const isStreamingTextActive = message.streamingTextActive === true;
   const showInlineStreamingStatus =
@@ -1850,12 +1959,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         ) : (
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
-            <WorkingTextBlocks
-              blocks={assistantSegments.workingBlocks}
-              isStreaming={isStreaming}
-              startedAt={message.thoughtStartedAt}
-              finishedAt={message.thoughtFinishedAt}
-            />
+            <IterationBlocks blocks={assistantSegments.iterationBlocks} />
             {isStreaming ? (
               <>
                 {hasVisibleAnswerText ? (

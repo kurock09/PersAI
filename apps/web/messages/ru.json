@@ -611,8 +611,12 @@
     "lightboxTransferFailedShare": "Не получилось подготовить файл для отправки.",
     "lightboxPrevious": "Предыдущее изображение",
     "lightboxNext": "Следующее изображение",
-    "workingNotesDone": "Выполнено",
-    "workingNotesDuration": "за {seconds}с",
+    "processBadge": {
+      "worked": "Сделал · {steps, plural, one {# шаг} few {# шага} other {# шагов}}",
+      "exploredSearches": "Поискал · {n, plural, one {# источник} few {# источника} other {# источников}}",
+      "generatedImages": "Сгенерировал · {n, plural, one {# изобр.} other {# изобр.}}",
+      "readPages": "Прочитал · {n, plural, one {# страница} few {# страницы} other {# страниц}}"
+    },
     "defaultAssistant": "Твой ассистент",
     "greeting1": "Привет! Что у тебя на уме?",
     "greeting2": "Я здесь, когда понадоблюсь.",

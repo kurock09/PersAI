@@ -13,7 +13,27 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string) => key
+  useTranslations: () => (key: string, values?: Record<string, number>) => {
+    if (key === "processBadge.worked") {
+      const steps = values?.steps ?? 0;
+      const suffix = steps === 1 ? "шаг" : steps >= 2 && steps <= 4 ? "шага" : "шагов";
+      return `Сделал · ${String(steps)} ${suffix}`;
+    }
+    if (key === "processBadge.exploredSearches") {
+      const n = values?.n ?? 0;
+      const suffix = n === 1 ? "источник" : n >= 2 && n <= 4 ? "источника" : "источников";
+      return `Поискал · ${String(n)} ${suffix}`;
+    }
+    if (key === "processBadge.generatedImages") {
+      return `Сгенерировал · ${String(values?.n ?? 0)} изобр.`;
+    }
+    if (key === "processBadge.readPages") {
+      const n = values?.n ?? 0;
+      const suffix = n === 1 ? "страница" : n >= 2 && n <= 4 ? "страницы" : "страниц";
+      return `Прочитал · ${String(n)} ${suffix}`;
+    }
+    return key;
+  }
 }));
 
 vi.mock("./assistant-avatar", () => ({
@@ -926,76 +946,198 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.queryByText("activityKnowledgeSearchDone")).not.toBeInTheDocument();
   });
 
-  it("renders prior working blocks separately from the live answer", () => {
-    render(
-      <ChatMessageBubble
-        message={makeAssistantMessage({
-          content: "Да. Вот итог.",
-          workingNotes: ["Смотрю документацию HeyGen.", "Открываю точную страницу API."]
-        })}
-        preResponseStatus={{ kind: "thinking" }}
-      />
-    );
-
-    expect(screen.getByText("Смотрю документацию HeyGen.")).toBeInTheDocument();
-    expect(screen.getByText("Открываю точную страницу API.")).toBeInTheDocument();
-    expect(screen.getByText("Да. Вот итог.")).toBeInTheDocument();
-  });
-
-  it("collapses completed working blocks behind a quiet disclosure", () => {
+  it("renders table working notes inline as content blocks without a process badge", () => {
     render(
       <ChatMessageBubble
         message={makeAssistantMessage({
           status: "committed",
-          thoughtStartedAt: "2026-05-02T10:00:00.000Z",
-          thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
-          content: "Готово.",
-          workingNotes: ["Проверяю сайт."]
+          content: "Финал.",
+          workingNotes: ["Текст 1\n| col | col |\n|---|---|\n| a | b |\n| c | d |"]
         })}
       />
     );
 
-    expect(
-      screen.getByRole("button", { name: "workingNotesDone workingNotesDuration" })
-    ).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("Проверяю сайт.")).not.toBeInTheDocument();
+    expect(screen.getByText(/Текст 1/)).toBeInTheDocument();
+    expect(screen.getByText(/\| col \| col \|/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Сделал|Поискал|Прочитал/ })).toBeNull();
+    expect(screen.getByText("Финал.")).toBeInTheDocument();
+  });
+
+  it("renders list working notes with at least three items inline as content", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Финал.",
+          workingNotes: ["1. step\n2. step\n3. step"]
+        })}
+      />
+    );
+
+    expect(screen.getByText(/1\. step/)).toBeInTheDocument();
+    expect(screen.getByText(/2\. step/)).toBeInTheDocument();
+    expect(screen.getByText(/3\. step/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Сделал/ })).toBeNull();
+  });
+
+  it("renders heading working notes inline as content", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Финал.",
+          workingNotes: ["## Title\nbody"]
+        })}
+      />
+    );
+
+    expect(screen.getByText("Title")).toBeInTheDocument();
+    expect(screen.getByText("body")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Сделал/ })).toBeNull();
+  });
+
+  it("groups only short connective working notes into one process badge", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          workingNotes: ["сейчас", "готово", "продолжаю"]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Сделал · 3 шага" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+    expect(screen.queryByText("сейчас")).not.toBeInTheDocument();
     expect(screen.getByText("Готово.")).toBeInTheDocument();
-    expect(screen.getByText("workingNotesDone workingNotesDuration")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "workingNotesDone workingNotesDuration" }));
-
-    expect(
-      screen.getByRole("button", { name: "workingNotesDone workingNotesDuration" })
-    ).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("Проверяю сайт.")).toBeInTheDocument();
   });
 
-  it("shows no working duration when timestamps are not reliable", () => {
+  it("groups tools without text into a search process badge", () => {
     render(
       <ChatMessageBubble
         message={makeAssistantMessage({
           status: "committed",
-          thoughtStartedAt: "2026-05-02T10:00:20.000Z",
-          thoughtFinishedAt: "2026-05-02T10:00:00.000Z",
           content: "Готово.",
-          workingNotes: ["Проверяю сайт."]
+          toolInvocations: [
+            { name: "web_search", iteration: 0, ok: true },
+            { name: "web_search", iteration: 0, ok: true }
+          ]
         })}
       />
     );
 
-    expect(screen.getByRole("button", { name: "workingNotesDone" })).toBeInTheDocument();
-    expect(screen.queryByText("workingNotesDuration")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Поискал · 2 источника" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+  });
+
+  it("preserves order for mixed connective text, content, then connective text plus tool", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Итог.",
+          workingNotes: ["сейчас", "## Content Title\nbody", "продолжаю"],
+          toolInvocations: [{ name: "web_fetch", iteration: 2, ok: true }]
+        })}
+      />
+    );
+
+    const firstBadge = screen.getByRole("button", { name: "Сделал · 1 шаг" });
+    const contentTitle = screen.getByText("Content Title");
+    const secondBadge = screen.getByRole("button", { name: "Сделал · 2 шага" });
+
+    expect(
+      firstBadge.compareDocumentPosition(contentTitle) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      contentTitle.compareDocumentPosition(secondBadge) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(container).toHaveTextContent("Итог.");
+  });
+
+  it("skips empty working notes between tools and groups only tool pieces", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          workingNotes: ["", ""],
+          toolInvocations: [
+            { name: "web_fetch", iteration: 0, ok: true },
+            { name: "web_fetch", iteration: 1, ok: true }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Прочитал · 2 страницы" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Сделал/ })).toBeNull();
+  });
+
+  it("always renders the final answer text inline even when it is short", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "ок",
+          workingNotes: ["сейчас"]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Сделал · 1 шаг" })).toBeInTheDocument();
+    expect(screen.getByText("ок")).toBeInTheDocument();
+  });
+
+  it("expands a process badge to show text and tool rows", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          workingNotes: ["сейчас"],
+          toolInvocations: [{ name: "web_fetch", iteration: 0, ok: false }]
+        })}
+      />
+    );
+
+    const badge = screen.getByRole("button", { name: "Сделал · 2 шага" });
+    expect(screen.queryByText("сейчас")).not.toBeInTheDocument();
+    expect(screen.queryByText(/web fetch/)).not.toBeInTheDocument();
+
+    fireEvent.click(badge);
+
+    expect(badge).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("сейчас")).toBeInTheDocument();
+    expect(screen.getByText(/web fetch \(failed\)/)).toBeInTheDocument();
+  });
+
+  it("renders only final text for an empty assistant message body with no working notes or tools", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Только ответ."
+        })}
+      />
+    );
+
+    expect(screen.getByText("Только ответ.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Сделал|Поискал|Прочитал/ })).toBeNull();
   });
 
   // ADR-125 follow-up: per-message engagement annotation moved to the chat
-  // header subtitle. The block's toggle row no longer carries skill/scenario
-  // text — it stays clean and identical regardless of active skill.
-  it("never renders an engagement annotation in the block row", () => {
+  // header subtitle. Process badges do not reintroduce skill/scenario text.
+  it("never renders an engagement annotation in the process badge row", () => {
     render(
       <ChatMessageBubble
         message={makeAssistantMessage({
           status: "committed",
-          thoughtFinishedAt: "2026-05-02T10:00:20.000Z",
           content: "Done.",
           workingNotes: ["Checking facts."]
         })}

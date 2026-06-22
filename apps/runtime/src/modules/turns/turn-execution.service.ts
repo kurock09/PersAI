@@ -4529,7 +4529,8 @@ export class TurnExecutionService {
     return [
       `${subject} from this same turn was accepted for async background processing.`,
       "Do not describe the final media as already generated, ready, visible in chat, attached, uploaded, or sent.",
-      "Write only a brief acknowledgement that the request is in progress and the final media will arrive separately when ready.",
+      "Acknowledge in your reply that the request is in progress and the final media will arrive separately when ready.",
+      "You may continue with other independent work in the same turn — call other tools, advance other plan steps, or queue additional media jobs. Do not stop just to wait for user confirmation between independent background jobs.",
       "Do not print raw tool JSON, job ids, filenames, or imagined result details."
     ].join(" ");
   }
@@ -4550,7 +4551,8 @@ export class TurnExecutionService {
       "The document tool result is pending_delivery with canSendFileNow=false until backend delivery completes.",
       "Do not describe the final document as already generated, ready, visible in chat, attached, uploaded, or sent.",
       "Do not call files.send for this document or any older document file in this turn.",
-      "Write only a brief acknowledgement that the request is in progress and the final document will arrive separately when ready.",
+      "Acknowledge in your reply that the request is in progress and the final document will arrive separately when ready.",
+      "You may continue with other independent work in the same turn — call other tools, advance other plan steps, or queue additional document jobs. Do not stop just to wait for user confirmation between independent background jobs.",
       "Do not print raw tool JSON, job ids, filenames, or imagined result details."
     ].join(" ");
   }

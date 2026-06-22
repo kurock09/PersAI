@@ -170,6 +170,7 @@ import {
   type AssistantWebChatMessageAttachmentState,
   type AssistantFilesCleanupSummary
 } from "@persai/contracts";
+import type { RuntimeTurnToolInvocation } from "@persai/runtime-contract";
 import type { RuntimeTodoItem } from "@persai/runtime-contract";
 export type {
   AssistantBillingSubscriptionActionResult,
@@ -2433,6 +2434,7 @@ export type ChatHistoryMessage = {
     reasonCode: string;
   } | null;
   workingNotes?: string[];
+  toolInvocations?: RuntimeTurnToolInvocation[];
 };
 
 export type ChatCompactionState = AssistantWebChatCompactionState & {

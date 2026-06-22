@@ -34,7 +34,7 @@ import {
   type WebChatTurnStatusState,
   type WebChatUxIssue
 } from "../assistant-api-client";
-import type { RuntimeTodoItem } from "@persai/runtime-contract";
+import type { RuntimeTodoItem, RuntimeTurnToolInvocation } from "@persai/runtime-contract";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
 import { dispatchProjectFilesChanged } from "./project-files-events";
@@ -94,6 +94,8 @@ export interface ChatMessage {
   thoughtFinishedAt?: string | null;
   /** The texts the model wrote before each tool call across the tool loop. Absent/empty when no tools ran. */
   workingNotes?: string[];
+  /** Sanitized tool calls emitted by the runtime, used to interleave process badges with working notes. */
+  toolInvocations?: RuntimeTurnToolInvocation[];
   /** Local-only streaming hint: true while text deltas are actively being appended. */
   streamingTextActive?: boolean;
 }
@@ -599,6 +601,9 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
     ...(message.platformNotice ? { platformNotice: message.platformNotice } : {}),
     ...(Array.isArray(message.workingNotes) && message.workingNotes.length > 0
       ? { workingNotes: message.workingNotes }
+      : {}),
+    ...(Array.isArray(message.toolInvocations) && message.toolInvocations.length > 0
+      ? { toolInvocations: message.toolInvocations }
       : {}),
     attachments:
       message.attachments.length > 0 ? (message.attachments as ChatAttachment[]) : undefined
@@ -3202,6 +3207,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               id?: string;
               content?: string;
               workingNotes?: string[];
+              toolInvocations?: RuntimeTurnToolInvocation[];
               attachments?: ChatAttachment[];
             };
             followUpAssistantMessage?: {
@@ -3276,6 +3282,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   t.assistantMessage.workingNotes.length > 0
                     ? t.assistantMessage.workingNotes
                     : null;
+                const authoritativeToolInvocations =
+                  Array.isArray(t?.assistantMessage?.toolInvocations) &&
+                  t.assistantMessage.toolInvocations.length > 0
+                    ? t.assistantMessage.toolInvocations
+                    : null;
                 return {
                   ...m,
                   ...(newAssistantId ? { id: newAssistantId } : {}),
@@ -3284,6 +3295,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     : {}),
                   ...(authoritativeWorkingNotes !== null
                     ? { workingNotes: authoritativeWorkingNotes }
+                    : {}),
+                  ...(authoritativeToolInvocations !== null
+                    ? { toolInvocations: authoritativeToolInvocations }
                     : {}),
                   status: "committed" as const,
                   attachments: assistantAttachments
@@ -3832,6 +3846,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   id?: string;
                   content?: string;
                   workingNotes?: string[];
+                  toolInvocations?: RuntimeTurnToolInvocation[];
                   attachments?: ChatAttachment[];
                 };
                 runtime?: RuntimeTransportMeta;
@@ -3847,6 +3862,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 Array.isArray(t?.assistantMessage?.workingNotes) &&
                 t.assistantMessage.workingNotes.length > 0
                   ? t.assistantMessage.workingNotes
+                  : null;
+              const authoritativeToolInvocations =
+                Array.isArray(t?.assistantMessage?.toolInvocations) &&
+                t.assistantMessage.toolInvocations.length > 0
+                  ? t.assistantMessage.toolInvocations
                   : null;
               setMessages((prev) =>
                 prev.map((m) => {
@@ -3868,6 +3888,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                       : {}),
                     ...(authoritativeWorkingNotes !== null
                       ? { workingNotes: authoritativeWorkingNotes }
+                      : {}),
+                    ...(authoritativeToolInvocations !== null
+                      ? { toolInvocations: authoritativeToolInvocations }
                       : {}),
                     status: "committed" as const,
                     attachments: assistantAttachments

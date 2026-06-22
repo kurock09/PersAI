@@ -611,8 +611,12 @@
     "lightboxTransferFailedShare": "Could not prepare this file for sharing.",
     "lightboxPrevious": "Previous image",
     "lightboxNext": "Next image",
-    "workingNotesDone": "Done",
-    "workingNotesDuration": "in {seconds}s",
+    "processBadge": {
+      "worked": "Worked · {steps, plural, one {# step} other {# steps}}",
+      "exploredSearches": "Searched · {n, plural, one {# source} other {# sources}}",
+      "generatedImages": "Generated · {n} images",
+      "readPages": "Read · {n, plural, one {# page} other {# pages}}"
+    },
     "defaultAssistant": "Your assistant",
     "greeting1": "Hey! What's on your mind?",
     "greeting2": "I'm here whenever you need me.",

@@ -68,6 +68,58 @@ describe("deferred media acknowledgement", () => {
     assert.ok(instructions?.includes("will arrive separately when ready"));
   });
 
+  test("deferred-media follow-up permits independent work while preserving honesty guardrails", () => {
+    const service = createBareTurnExecutionService() as unknown as {
+      buildToolLoopDeveloperInstructions: (
+        existing: unknown[],
+        availableWorkingFileRefs: unknown[],
+        closedOpenLoopRefs: string[],
+        hasToolHistory: boolean,
+        toolHistory: unknown[],
+        availableToolNames: string[],
+        forceFinalTextOnly: boolean,
+        deferredMediaJobs: Array<{
+          jobId: string;
+          toolCode: "image_generate" | "image_edit" | "video_generate";
+          kind: "image" | "video";
+          action: "pending_delivery";
+          canSendFileNow: false;
+          messageToUser: string | null;
+          requestedCount: number | null;
+          expectedResultCount: number | null;
+        }>,
+        deferredDocumentJobs: []
+      ) => string | null;
+    };
+    const instructions = service.buildToolLoopDeveloperInstructions(
+      [],
+      [],
+      [],
+      true,
+      [],
+      [],
+      false,
+      [
+        {
+          jobId: "job-continue-1",
+          toolCode: "image_generate",
+          kind: "image",
+          action: "pending_delivery",
+          canSendFileNow: false,
+          messageToUser: "Accepted. The image will be delivered separately.",
+          requestedCount: 1,
+          expectedResultCount: 1
+        }
+      ],
+      []
+    );
+
+    assert.ok(instructions?.includes("may continue with other independent work"));
+    assert.ok(instructions?.includes("Do not describe the final media as already generated"));
+    assert.ok(instructions?.includes("Do not print raw tool JSON"));
+    assert.equal(instructions?.includes("Write only a brief acknowledgement"), false);
+  });
+
   type DeferredMediaJobFixture = {
     jobId: string;
     toolCode: "image_generate" | "image_edit" | "video_generate";

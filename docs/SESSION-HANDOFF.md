@@ -1,5 +1,39 @@
 # SESSION-HANDOFF
 
+## 2026-06-23 — Deferred-tail continuation + assistant working-content inline UI — CHECKPOINT
+
+### State
+
+Founder approved two bounded implementation slices on clean baseline `5f50fb17`, with no commit/push from the agent: Slice 2 softens the deferred media/document developer tail without weakening ADR-105 pending-delivery honesty, and Slice 6 replaces the web assistant working-notes "done" disclosure with a hybrid content/process rendering pattern.
+
+### What changed
+
+- **`apps/runtime/src/modules/turns/turn-execution.service.ts`** — deferred media/document follow-up instructions no longer say "Write only a brief acknowledgement". They still forbid claiming final media/documents are ready/visible/attached/sent, still forbid raw tool JSON/job ids/imagined result details, and document jobs still forbid `files.send`; the tail now explicitly allows the model to continue independent same-turn work, advance plan steps, call other tools, or queue additional background jobs without waiting for user confirmation between independent jobs.
+- **Runtime tests** — `deferred-media-acknowledgement.test.ts` and `deferred-document-acknowledgement.test.ts` pin the new permissive wording plus preserved honesty guardrails and absence of the old "Write only..." phrase. The document test fixture was also corrected to pass `availableWorkingFileRefs` before `currentDeferredDocumentJobs`, matching the current `executeProjectedToolCall` signature and unblocking the existing pending-document guard tests.
+- **`apps/web/app/app/_components/chat-message.tsx`** — removed the collapsed `WorkingTextBlocks` pattern. Assistant intermediate output now rebuilds iteration order from `workingNotes[i]` and `toolInvocations[iteration]`: structural markdown (tables, headings, fenced code, lists of 3+ items) renders inline as normal assistant markdown; short process text/tools group into collapsed Cursor-style process badges with adaptive labels for search, image generation, page reads, or generic worked steps. Final `answerText` still renders inline.
+- **Web plumbing/i18n/tests** — `ChatMessage`/web client types now carry optional `toolInvocations` when the server provides them; history without tool metadata degrades to text-only process/content handling. Added ru/en `chat.processBadge.*` labels and removed now-unused `workingNotesDone` / `workingNotesDuration` keys. `chat-message.test.tsx` now covers table/list/heading content, process-only notes, tools-only badges, mixed ordering, empty-note skipping, final-answer inline rendering, expansion contents, and empty-message behavior.
+
+### Verified
+
+- Full requested AGENTS gate PASS in order: runtime lint, runtime typecheck, api typecheck, web typecheck, web lint, format check, runtime isolated suite via `tsx test/run-suite-isolated.ts`, and full web test suite.
+- Focused checks also passed: deferred media acknowledgement, deferred document acknowledgement, and `chat-message.test.tsx`.
+
+### Residuals / risks
+
+- Web history can only interleave tool badges when `toolInvocations` is present in the message payload. Older/persisted messages that only carry `workingNotes` still render content inline or process text badges, but cannot reconstruct missing tool rows without an API persistence slice.
+- No runtime/api/contract/Prisma changes were made for Slice 6; no queue/cap/completion-turn/system-reminder scope was touched.
+
+### Files
+
+- modified: `apps/runtime/src/modules/turns/turn-execution.service.ts`, `apps/runtime/test/deferred-media-acknowledgement.test.ts`, `apps/runtime/test/deferred-document-acknowledgement.test.ts`, `apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/_components/chat-message.test.tsx`, `apps/web/app/app/_components/use-chat.ts`, `apps/web/app/app/assistant-api-client.ts`, `apps/web/messages/en.json`, `apps/web/messages/ru.json`, `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`.
+
+### Next recommended step
+
+1. Orchestrator review, commit, push, then deploy runtime + web to `persai-dev`.
+2. Live-validate two flows: deferred media/document job followed by additional independent tool/plan work in the same turn; and assistant intermediate content with tables/lists/headings rendering inline while short process/tool-only steps collapse into badges.
+
+---
+
 ## 2026-06-22 — ADR-125 Amendment 3: post-final self-check hop — CHECKPOINT
 
 ### State

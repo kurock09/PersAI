@@ -125,6 +125,51 @@ describe("deferred document acknowledgement", () => {
     assert.ok(instructions?.includes("final document will arrive separately when ready"));
   });
 
+  test("deferred-document follow-up permits independent work while preserving delivery guardrails", () => {
+    const service = createBareTurnExecutionService() as unknown as {
+      buildToolLoopDeveloperInstructions: (
+        existing: unknown[],
+        availableWorkingFileRefs: unknown[],
+        closedOpenLoopRefs: string[],
+        hasToolHistory: boolean,
+        toolHistory: unknown[],
+        availableToolNames: string[],
+        forceFinalTextOnly: boolean,
+        deferredMediaJobs: [],
+        deferredDocumentJobs: Array<{
+          jobId: string;
+          toolCode: "document";
+          descriptorMode: "create_pdf_document";
+          documentType: "pdf_document";
+        }>
+      ) => string | null;
+    };
+    const instructions = service.buildToolLoopDeveloperInstructions(
+      [],
+      [],
+      [],
+      true,
+      [],
+      [],
+      false,
+      [],
+      [
+        {
+          jobId: "doc-job-continue-1",
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          documentType: "pdf_document"
+        }
+      ]
+    );
+
+    assert.ok(instructions?.includes("may continue with other independent work"));
+    assert.ok(instructions?.includes("Do not describe the final document as already generated"));
+    assert.ok(instructions?.includes("Do not call files.send"));
+    assert.ok(instructions?.includes("Do not print raw tool JSON"));
+    assert.equal(instructions?.includes("Write only a brief acknowledgement"), false);
+  });
+
   type DocumentCorrectionService = {
     applyAssistantTextCorrections(input: {
       assistantText: string;
@@ -212,6 +257,7 @@ describe("deferred document acknowledgement", () => {
         currentUserMessageId: string | null,
         currentArtifacts: unknown[],
         currentFileRefs: unknown[],
+        availableWorkingFileRefs: unknown[],
         currentDeferredDocumentJobs: Array<{
           jobId: string;
           toolCode: "document";
@@ -243,6 +289,7 @@ describe("deferred document acknowledgement", () => {
       "user-message-1",
       [],
       [],
+      [],
       [
         {
           jobId: "doc-job-1",
@@ -267,6 +314,7 @@ describe("deferred document acknowledgement", () => {
         currentUserMessageId: string | null,
         currentArtifacts: unknown[],
         currentFileRefs: unknown[],
+        availableWorkingFileRefs: unknown[],
         currentDeferredDocumentJobs: Array<{
           jobId: string;
           toolCode: "document";
@@ -298,6 +346,7 @@ describe("deferred document acknowledgement", () => {
         arguments: { action: "write_and_send", alias: "result.pdf", content: "..." }
       },
       "user-message-2",
+      [],
       [],
       [],
       [
