@@ -1708,9 +1708,7 @@ describe("getAssistantWebChatPlan", () => {
           id: "t1",
           parentId: null,
           content: "Do a thing",
-          status: "pending",
-          origin: "model_authored",
-          seedSkillLabel: null
+          status: "pending"
         }
       ],
       windowed: false,

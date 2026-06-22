@@ -31,10 +31,12 @@ import type {
   AssistantWebChatActiveMediaJobState,
   AssistantWebChatCompactionResult,
   AssistantWebChatCompactionState,
+  AssistantWebChatEngagementSummary,
   AssistantWebChatListItemState,
   AssistantWebChatMessageAttachmentState,
   AssistantWebChatMessageState
 } from "./web-chat.types";
+import { deriveEngagementSummary } from "./web-chat.types";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
@@ -331,6 +333,13 @@ export class ManageWebChatListService {
     activeTurn: AssistantWebChatActiveTurnState | null;
     activeMediaJobs: AssistantWebChatActiveMediaJobState[];
     activeDocumentJobs: AssistantWebChatActiveDocumentJobState[];
+    /**
+     * ADR-125 follow-up — chat-level "active skill / scenario" projection so
+     * the web header subtitle reads truth on every history reload instead of
+     * walking individual messages (which lose `engagementSummary` after
+     * reconstruction). Derived from `chat.skillDecisionState`.
+     */
+    currentEngagement: AssistantWebChatEngagementSummary | null;
   }> {
     const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
@@ -415,7 +424,16 @@ export class ManageWebChatListService {
       chatId
     });
 
-    return { messages: page, nextCursor, activeTurn, activeMediaJobs, activeDocumentJobs };
+    const currentEngagement = deriveEngagementSummary(chat.skillDecisionState);
+
+    return {
+      messages: page,
+      nextCursor,
+      activeTurn,
+      activeMediaJobs,
+      activeDocumentJobs,
+      currentEngagement
+    };
   }
 
   private async getCompactActiveTurn(input: {

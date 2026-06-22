@@ -15,7 +15,6 @@ import type {
   PersaiRuntimeKnowledgeSource,
   PersaiRuntimeTier,
   PersaiRuntimeTodoWriteStatus,
-  PersaiRuntimeTodoWriteOrigin,
   RuntimeKnowledgeDocument,
   RuntimeKnowledgeSearchHit,
   RuntimeMemoryWriteItem,
@@ -36,10 +35,7 @@ import type {
   RuntimeTodoItem,
   RuntimeVideoGenerateRequest
 } from "@persai/runtime-contract";
-import {
-  PERSAI_RUNTIME_TODO_WRITE_ORIGINS,
-  PERSAI_RUNTIME_TODO_WRITE_STATUSES
-} from "@persai/runtime-contract";
+import { PERSAI_RUNTIME_TODO_WRITE_STATUSES } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../runtime-config";
 
 const INTERNAL_API_TIMEOUT_MS = 10_000;
@@ -315,31 +311,6 @@ export type InternalChatPlanWindowOutcome = {
   windowed: boolean;
   totalCount: number;
 };
-
-// ADR-125 Slice 2 — scenario-seeded skill plan.
-export type InternalSeedSkillScenarioTodosInput = {
-  assistantId: string;
-  channel: "web" | "telegram";
-  surfaceThreadKey: string;
-  skillId: string | null;
-  skillLabel: string | null;
-  scenarioKey: string;
-  /** Stable, runtime-computed; (chatId, seedKey) is unique. */
-  seedKey: string;
-  /** Scenario step directives in scenario order. */
-  directives: string[];
-};
-
-export type InternalSeedSkillScenarioTodosOutcome =
-  | { kind: "seeded"; chatId: string; insertedCount: number; todos: RuntimeTodoItem[] }
-  | { kind: "already_seeded"; chatId: string }
-  | { kind: "skipped"; chatId: string | null; reason: "no_directives" | "cap_exceeded" }
-  | {
-      kind: "request_failed";
-      chatId: null;
-      status: number | null;
-      reason: string;
-    };
 
 export type InternalHydratedDurableMemoryItem = {
   id: string;
@@ -2541,99 +2512,6 @@ export class PersaiInternalApiClientService {
     );
   }
 
-  /**
-   * ADR-125 Slice 2 — runtime-side seed call. Failures are non-blocking:
-   * any transport / 4xx / 5xx / invalid response is funneled into
-   * `{ kind: "request_failed" }` so the caller (skill engage) can warn-log
-   * without aborting the user-perceived engage success.
-   */
-  async seedSkillScenarioTodos(
-    input: InternalSeedSkillScenarioTodosInput
-  ): Promise<InternalSeedSkillScenarioTodosOutcome> {
-    if (!this.isConfigured()) {
-      this.logger.warn(
-        "[chat-todos] Skipping skill-scenario seed: PERSAI_API_BASE_URL or PERSAI_INTERNAL_API_TOKEN is not configured."
-      );
-      return {
-        kind: "request_failed",
-        chatId: null,
-        status: null,
-        reason: "internal_api_not_configured"
-      };
-    }
-
-    let response: JsonResponse;
-    try {
-      response = await this.fetchJson("/api/v1/internal/runtime/chat-todos/seed-skill-scenario", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(input)
-      });
-    } catch (error) {
-      return {
-        kind: "request_failed",
-        chatId: null,
-        status: null,
-        reason: error instanceof Error ? error.message : String(error)
-      };
-    }
-
-    if (!response.ok) {
-      const error = this.extractError(response.body);
-      return {
-        kind: "request_failed",
-        chatId: null,
-        status: response.status,
-        reason: error.message ?? `HTTP ${response.status}`
-      };
-    }
-
-    const parsed = this.parseSeedSkillScenarioOutcome(response.body);
-    if (parsed === null) {
-      return {
-        kind: "request_failed",
-        chatId: null,
-        status: response.status,
-        reason: "invalid_response_shape"
-      };
-    }
-    return parsed;
-  }
-
-  private parseSeedSkillScenarioOutcome(
-    value: unknown
-  ): InternalSeedSkillScenarioTodosOutcome | null {
-    const payload = this.asObject(value);
-    if (payload === null || payload.ok !== true) return null;
-    if (typeof payload.chatId !== "string") return null;
-    const outcome = this.asObject(payload.outcome);
-    if (outcome === null || typeof outcome.kind !== "string") return null;
-    if (outcome.kind === "seeded") {
-      const todos = this.parseRuntimeTodoItemArray(outcome.todos);
-      if (todos === null) return null;
-      if (!this.isNonNegativeInteger(outcome.insertedCount)) return null;
-      return {
-        kind: "seeded",
-        chatId: payload.chatId,
-        insertedCount: outcome.insertedCount,
-        todos
-      };
-    }
-    if (outcome.kind === "already_seeded") {
-      return { kind: "already_seeded", chatId: payload.chatId };
-    }
-    if (outcome.kind === "skipped") {
-      if (outcome.reason !== "no_directives" && outcome.reason !== "cap_exceeded") {
-        return null;
-      }
-      return { kind: "skipped", chatId: payload.chatId, reason: outcome.reason };
-    }
-    return null;
-  }
-
   private parseChatPlanApplyOutcome(value: unknown): InternalChatPlanOutcome | null {
     const payload = this.asObject(value);
     if (payload === null || payload.ok !== true) return null;
@@ -2691,10 +2569,7 @@ export class PersaiInternalApiClientService {
         (row.parentId !== null && typeof row.parentId !== "string") ||
         typeof row.content !== "string" ||
         typeof row.status !== "string" ||
-        !PERSAI_RUNTIME_TODO_WRITE_STATUSES.includes(row.status as PersaiRuntimeTodoWriteStatus) ||
-        typeof row.origin !== "string" ||
-        !PERSAI_RUNTIME_TODO_WRITE_ORIGINS.includes(row.origin as PersaiRuntimeTodoWriteOrigin) ||
-        (row.seedSkillLabel !== null && typeof row.seedSkillLabel !== "string")
+        !PERSAI_RUNTIME_TODO_WRITE_STATUSES.includes(row.status as PersaiRuntimeTodoWriteStatus)
       ) {
         return null;
       }
@@ -2702,9 +2577,7 @@ export class PersaiInternalApiClientService {
         id: row.id,
         parentId: row.parentId as string | null,
         content: row.content,
-        status: row.status as PersaiRuntimeTodoWriteStatus,
-        origin: row.origin as PersaiRuntimeTodoWriteOrigin,
-        seedSkillLabel: row.seedSkillLabel as string | null
+        status: row.status as PersaiRuntimeTodoWriteStatus
       });
     }
     return items;

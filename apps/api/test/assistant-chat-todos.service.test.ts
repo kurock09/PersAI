@@ -15,11 +15,6 @@ interface FakeTodoRow {
   parentId: string | null;
   content: string;
   status: "pending" | "in_progress" | "completed";
-  origin: "model_authored" | "scenario_seeded";
-  seedSkillId: string | null;
-  seedSkillLabel: string | null;
-  seedScenarioKey: string | null;
-  seedKey: string | null;
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
@@ -71,16 +66,10 @@ class FakeAssistantChatTodoTable {
       parentId: string | null;
       content: string;
       status: FakeTodoRow["status"];
-      origin: FakeTodoRow["origin"];
-      seedSkillId?: string | null;
-      seedSkillLabel?: string | null;
-      seedScenarioKey?: string | null;
-      seedKey?: string | null;
       sortOrder: number;
     };
   }): Promise<FakeTodoRow> {
     const now = this.currentDate();
-    const seedKey = args.data.seedKey ?? null;
     const row: FakeTodoRow = {
       id: this.mintId("todo"),
       chatId: args.data.chatId,
@@ -88,11 +77,6 @@ class FakeAssistantChatTodoTable {
       parentId: args.data.parentId,
       content: args.data.content,
       status: args.data.status,
-      origin: args.data.origin,
-      seedSkillId: args.data.seedSkillId ?? null,
-      seedSkillLabel: args.data.seedSkillLabel ?? null,
-      seedScenarioKey: args.data.seedScenarioKey ?? null,
-      seedKey,
       sortOrder: args.data.sortOrder,
       createdAt: now,
       updatedAt: now,
@@ -100,18 +84,6 @@ class FakeAssistantChatTodoTable {
     };
     this.rows.push(row);
     return { ...row };
-  }
-
-  async findFirst(args: {
-    where: { chatId: string; seedKey?: string };
-  }): Promise<{ id: string } | null> {
-    const match = this.rows.find((row) => {
-      if (row.chatId !== args.where.chatId) return false;
-      const keyFilter = args.where.seedKey;
-      if (keyFilter === undefined) return true;
-      return row.seedKey === keyFilter;
-    });
-    return match ? { id: match.id } : null;
   }
 
   async update(args: {
@@ -439,270 +411,17 @@ async function testUnknownChatYieldsNotFound(): Promise<void> {
   );
 }
 
-async function testSeedSkillScenarioTopLevel(): Promise<void> {
-  const chat = buildChat();
-  const { service, prisma } = buildService(chat);
-  const outcome = await service.seedSkillScenarioTodos({
-    assistantId: chat.assistantId,
-    channel: "web",
-    surfaceThreadKey: chat.surfaceThreadKey,
-    skillId: "00000000-0000-0000-0000-000000000001",
-    skillLabel: "Marketer",
-    scenarioKey: "instagram_carousel",
-    seedKey: "00000000-0000-0000-0000-000000000001::instagram_carousel::",
-    directives: ["  Gather   brief from user  ", "Generate slides", ""]
-  });
-  assert.equal(outcome.kind, "seeded");
-  if (outcome.kind !== "seeded") return;
-  assert.equal(outcome.insertedCount, 2);
-  assert.equal(outcome.todos.length, 2);
-  const snap = prisma.assistantChatTodo.snapshot();
-  assert.equal(snap.length, 2);
-  const expectedSeedKey = "00000000-0000-0000-0000-000000000001::instagram_carousel::";
-  for (const row of snap) {
-    assert.equal(row.parentId, null);
-    assert.equal(row.origin, "scenario_seeded");
-    assert.equal(row.status, "pending");
-    assert.equal(row.seedSkillLabel, "Marketer");
-    assert.equal(row.seedScenarioKey, "instagram_carousel");
-    assert.equal(row.seedSkillId, "00000000-0000-0000-0000-000000000001");
-    assert.equal(
-      row.seedKey,
-      expectedSeedKey,
-      `expected every row of one seeded batch to share the same seedKey but got ${
-        row.seedKey ?? "null"
-      }`
-    );
-  }
-  assert.equal(snap[0]?.content, "Gather brief from user");
-  assert.equal(snap[1]?.content, "Generate slides");
-  assert.ok((snap[1]?.sortOrder ?? 0) > (snap[0]?.sortOrder ?? 0));
-}
-
-async function testSeedSkillScenarioUnderDeepestInProgress(): Promise<void> {
-  const chat = buildChat();
-  const { service, prisma } = buildService(chat);
-  const root = await service.applyAction({
-    assistantId: chat.assistantId,
-    channel: "web",
-    surfaceThreadKey: chat.surfaceThreadKey,
-    action: { kind: "add", items: [{ content: "Root", status: "in_progress" }] }
-  });
-  const rootId = root.todos[0]?.id ?? "";
-  const child = await service.applyAction({
-    assistantId: chat.assistantId,
-    channel: "web",
-    surfaceThreadKey: chat.surfaceThreadKey,
-    action: { kind: "add", items: [{ content: "Child", parentId: rootId, status: "in_progress" }] }
-  });
-  const childId = child.todos.find((t) => t.parentId === rootId)?.id ?? "";
-
-  const outcome = await service.seedSkillScenarioTodos({
-    assistantId: chat.assistantId,
-    channel: "web",
-    surfaceThreadKey: chat.surfaceThreadKey,
-    skillId: null,
-    skillLabel: "Marketer",
-    scenarioKey: "deep_scenario",
-    seedKey: "marketer::deep_scenario::",
-    directives: ["Step A", "Step B"]
-  });
-  assert.equal(outcome.kind, "seeded");
-  if (outcome.kind !== "seeded") return;
-  const snap = prisma.assistantChatTodo.snapshot();
-  const seeded = snap.filter((row) => row.origin === "scenario_seeded");
-  assert.equal(seeded.length, 2);
-  for (const row of seeded) {
-    assert.equal(row.parentId, childId);
-  }
-}
-
-async function testSeedSkillScenarioIdempotency(): Promise<void> {
-  const chat = buildChat();
-  const { service, prisma } = buildService(chat);
-  const seedKey = "skill-1::scenario-x::v1";
-  const first = await service.seedSkillScenarioTodos({
-    assistantId: chat.assistantId,
-    channel: "web",
-    surfaceThreadKey: chat.surfaceThreadKey,
-    skillId: null,
-    skillLabel: null,
-    scenarioKey: "scenario-x",
-    seedKey,
-    directives: ["First", "Second"]
-  });
-  assert.equal(first.kind, "seeded");
-  assert.equal(prisma.assistantChatTodo.snapshot().length, 2);
-
-  const second = await service.seedSkillScenarioTodos({
-    assistantId: chat.assistantId,
-    channel: "web",
-    surfaceThreadKey: chat.surfaceThreadKey,
-    skillId: null,
-    skillLabel: null,
-    scenarioKey: "scenario-x",
-    seedKey,
-    directives: ["First", "Second"]
-  });
-  assert.equal(second.kind, "already_seeded");
-  assert.equal(prisma.assistantChatTodo.snapshot().length, 2, "second seed must not add rows");
-}
-
-async function testSeedSkillScenarioNoDirectivesSkipped(): Promise<void> {
-  const chat = buildChat();
-  const { service, prisma } = buildService(chat);
-  const outcome = await service.seedSkillScenarioTodos({
-    assistantId: chat.assistantId,
-    channel: "web",
-    surfaceThreadKey: chat.surfaceThreadKey,
-    skillId: null,
-    skillLabel: null,
-    scenarioKey: "empty_scenario",
-    seedKey: "empty::scenario::",
-    directives: ["   ", ""]
-  });
-  assert.equal(outcome.kind, "skipped");
-  if (outcome.kind === "skipped") {
-    assert.equal(outcome.reason, "no_directives");
-  }
-  assert.equal(prisma.assistantChatTodo.snapshot().length, 0);
-}
-
-async function testSeedSkillScenarioTruncatesOverlongDirectives(): Promise<void> {
-  const chat = buildChat();
-  const { service, prisma } = buildService(chat);
-  const long = "x".repeat(500);
-  const outcome = await service.seedSkillScenarioTodos({
-    assistantId: chat.assistantId,
-    channel: "web",
-    surfaceThreadKey: chat.surfaceThreadKey,
-    skillId: null,
-    skillLabel: null,
-    scenarioKey: "trunc",
-    seedKey: "trunc::scenario::",
-    directives: [long]
-  });
-  assert.equal(outcome.kind, "seeded");
-  const snap = prisma.assistantChatTodo.snapshot();
-  assert.equal(snap.length, 1);
-  const content = snap[0]?.content ?? "";
-  // ADR-125 — scenario step titles are capped at SCENARIO_STEP_TITLE_MAX_CHARS (80).
-  assert.ok(
-    content.length <= 80,
-    `expected scenario step title to fit in 80 chars, got ${content.length}`
-  );
-  assert.ok(content.endsWith("…"), "long directive must be truncated with an ellipsis");
-}
-
-async function testSeedSkillScenarioDerivesTitleFromColonSeparator(): Promise<void> {
-  // Mirrors the actual Маркетолог step shape seen in the live plan card:
-  // a short imperative headline, a colon, then a long enumeration of detail.
-  // The card row should carry only the headline.
-  const chat = buildChat();
-  const { service, prisma } = buildService(chat);
-  const outcome = await service.seedSkillScenarioTodos({
-    assistantId: chat.assistantId,
-    channel: "web",
-    surfaceThreadKey: chat.surfaceThreadKey,
-    skillId: null,
-    skillLabel: "Маркетолог",
-    scenarioKey: "instagram_carousel",
-    seedKey: "marketer::instagram_carousel::",
-    directives: [
-      "Уточни короткий бриф: аудитория, продукт/услуга, главное сообщение, желаемое действие (CTA), тональность бренда и любые табу. Если что-то критичное отсутствует, задай 1–3 точечных вопроса и подожди ответ перед продолжением.",
-      "Спроектируй нарратив на 4 слайда по схеме: 1) хук, 2) проблема/боль, 3) инсайт, 4) решение/оффер.",
-      "Step A.",
-      "Step B"
-    ]
-  });
-  assert.equal(outcome.kind, "seeded");
-  const snap = prisma.assistantChatTodo.snapshot();
-  assert.equal(snap.length, 4);
-  assert.equal(snap[0]?.content, "Уточни короткий бриф");
-  assert.equal(snap[1]?.content, "Спроектируй нарратив на 4 слайда по схеме");
-  // Trailing period dropped on a short single-sentence directive.
-  assert.equal(snap[2]?.content, "Step A");
-  // No terminator → returned verbatim.
-  assert.equal(snap[3]?.content, "Step B");
-}
-
-async function testSeedSkillScenarioRejectsMissingScenarioKey(): Promise<void> {
-  const chat = buildChat();
-  const { service } = buildService(chat);
-  await assert.rejects(
-    service.seedSkillScenarioTodos({
-      assistantId: chat.assistantId,
-      channel: "web",
-      surfaceThreadKey: chat.surfaceThreadKey,
-      skillId: null,
-      skillLabel: null,
-      scenarioKey: "   ",
-      seedKey: "valid::seed::",
-      directives: ["A"]
-    }),
-    BadRequestException
-  );
-}
-
-async function testSeedSkillScenarioRejectsMissingSeedKey(): Promise<void> {
-  const chat = buildChat();
-  const { service } = buildService(chat);
-  await assert.rejects(
-    service.seedSkillScenarioTodos({
-      assistantId: chat.assistantId,
-      channel: "web",
-      surfaceThreadKey: chat.surfaceThreadKey,
-      skillId: null,
-      skillLabel: null,
-      scenarioKey: "scenario",
-      seedKey: "",
-      directives: ["A"]
-    }),
-    BadRequestException
-  );
-}
-
-async function testSeedSkillScenarioReleaseDoesNotDeleteSeeded(): Promise<void> {
-  const chat = buildChat();
-  const { service, prisma } = buildService(chat);
-  await service.seedSkillScenarioTodos({
-    assistantId: chat.assistantId,
-    channel: "web",
-    surfaceThreadKey: chat.surfaceThreadKey,
-    skillId: null,
-    skillLabel: "Marketer",
-    scenarioKey: "release_test",
-    seedKey: "skill::release_test::",
-    directives: ["Persistent step"]
-  });
-  assert.equal(prisma.assistantChatTodo.snapshot().length, 1);
-  // The runtime "release" path only calls updateSkillState, not the todos
-  // service, so seeded todos persist by construction. This test pins the
-  // invariant from the API side: there is no service method that mass-deletes
-  // by skill or scenario engagement state.
-  const window = await service.readWindowForSurfaceThread({
-    assistantId: chat.assistantId,
-    channel: "web",
-    surfaceThreadKey: chat.surfaceThreadKey
-  });
-  assert.equal(window.todos.length, 1);
-}
-
 function buildSelectorRow(overrides: {
   id: string;
   status: "pending" | "in_progress" | "completed";
   parentId?: string | null;
   sortOrder: number;
-  origin?: "model_authored" | "scenario_seeded";
-  seedSkillLabel?: string | null;
   completedAt?: Date | null;
 }): {
   id: string;
   parentId: string | null;
   content: string;
   status: "pending" | "in_progress" | "completed";
-  origin: "model_authored" | "scenario_seeded";
-  seedSkillLabel: string | null;
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
@@ -713,8 +432,6 @@ function buildSelectorRow(overrides: {
     parentId: overrides.parentId ?? null,
     content: `Todo ${overrides.id}`,
     status: overrides.status,
-    origin: overrides.origin ?? "model_authored",
-    seedSkillLabel: overrides.seedSkillLabel ?? null,
     sortOrder: overrides.sortOrder,
     createdAt: new Date(Date.UTC(2026, 5, 22, 0, 0, overrides.sortOrder)),
     updatedAt: new Date(Date.UTC(2026, 5, 22, 0, 0, overrides.sortOrder)),
@@ -868,15 +585,6 @@ export async function runAssistantChatTodosServiceTest(): Promise<void> {
   await testRemoveCascadesToChildren();
   await testClearWipesPlan();
   await testUnknownChatYieldsNotFound();
-  await testSeedSkillScenarioTopLevel();
-  await testSeedSkillScenarioUnderDeepestInProgress();
-  await testSeedSkillScenarioIdempotency();
-  await testSeedSkillScenarioNoDirectivesSkipped();
-  await testSeedSkillScenarioTruncatesOverlongDirectives();
-  await testSeedSkillScenarioDerivesTitleFromColonSeparator();
-  await testSeedSkillScenarioRejectsMissingScenarioKey();
-  await testSeedSkillScenarioRejectsMissingSeedKey();
-  await testSeedSkillScenarioReleaseDoesNotDeleteSeeded();
   testWindowSelectorRespectsCap();
   testWindowSelectorEmpty();
   testWindowSelectorKeepsChildrenWithParent();

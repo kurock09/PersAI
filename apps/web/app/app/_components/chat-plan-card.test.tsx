@@ -15,9 +15,7 @@ function makeTodo(overrides: Partial<RuntimeTodoItem> & { id: string }): Runtime
     id: overrides.id,
     parentId: overrides.parentId ?? null,
     content: overrides.content ?? `Task ${overrides.id}`,
-    status: overrides.status ?? "pending",
-    origin: overrides.origin ?? "model_authored",
-    seedSkillLabel: overrides.seedSkillLabel ?? null
+    status: overrides.status ?? "pending"
   };
 }
 
@@ -41,9 +39,7 @@ describe("ChatPlanCard", () => {
       id: "1",
       parentId: null,
       content: "",
-      status: "pending",
-      origin: "model_authored",
-      seedSkillLabel: null
+      status: "pending"
     };
     const { container } = render(
       <ChatPlanCard todos={[badTodo]} totalCount={1} windowed={false} onClear={noop} />
@@ -65,34 +61,6 @@ describe("ChatPlanCard", () => {
     const child = within(body).getByText("Child task");
     expect(parent.compareDocumentPosition(child) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(child.closest("div.pl-5")).not.toBeNull();
-  });
-
-  it("shows scenario_seeded badge with seedSkillLabel", () => {
-    const todos = [
-      makeTodo({
-        id: "1",
-        origin: "scenario_seeded",
-        seedSkillLabel: "Marketer",
-        content: "Seeded task"
-      })
-    ];
-    const { container } = render(
-      <ChatPlanCard todos={todos} totalCount={1} windowed={false} onClear={noop} />
-    );
-    expand(container);
-    expect(within(container).getByText(/planSeededFrom/)).toBeInTheDocument();
-    expect(within(container).getByText(/planSeededFrom/).textContent).toMatch("Marketer");
-  });
-
-  it("shows generic fallback when seedSkillLabel is null", () => {
-    const todos = [
-      makeTodo({ id: "1", origin: "scenario_seeded", seedSkillLabel: null, content: "Seeded task" })
-    ];
-    const { container } = render(
-      <ChatPlanCard todos={todos} totalCount={1} windowed={false} onClear={noop} />
-    );
-    expand(container);
-    expect(within(container).getByText("planSeededFromGeneric")).toBeInTheDocument();
   });
 
   it("counts header shows done/total via planCounts key", () => {
@@ -195,27 +163,24 @@ describe("ChatPlanCard", () => {
     expect(container.querySelector("#chat-plan-body")).toBeNull();
   });
 
-  it("clear button shows confirmation row; Cancel does not call onClear", async () => {
+  it("clear button on an active plan shows confirmation row; Cancel does not call onClear", async () => {
     const onClear = vi.fn().mockResolvedValue(undefined);
     const todos = [makeTodo({ id: "1", content: "Task 1" })];
     const { container } = render(
       <ChatPlanCard todos={todos} totalCount={1} windowed={false} onClear={onClear} />
     );
 
-    // Click the clear (trash) button - has aria-label="planClear"
     const clearBtn = within(container).getByRole("button", { name: "planClear" });
     fireEvent.click(clearBtn);
 
-    // Confirmation row appears
     expect(within(container).getByText("planClearConfirmPrompt")).toBeInTheDocument();
 
-    // Click Cancel
     fireEvent.click(within(container).getByText("planClearCancel"));
     expect(within(container).queryByText("planClearConfirmPrompt")).toBeNull();
     expect(onClear).not.toHaveBeenCalled();
   });
 
-  it("confirm clear calls onClear", async () => {
+  it("confirm clear on an active plan calls onClear", async () => {
     const onClear = vi.fn().mockResolvedValue(undefined);
     const todos = [makeTodo({ id: "1", content: "Task 1" })];
     const { container } = render(
@@ -223,10 +188,30 @@ describe("ChatPlanCard", () => {
     );
 
     fireEvent.click(within(container).getByRole("button", { name: "planClear" }));
-    // Now click confirm
     const confirmBtn = within(container).getByText("planClearConfirmAction");
     fireEvent.click(confirmBtn);
 
+    await waitFor(() => {
+      expect(onClear).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("clear button on a fully completed plan deletes immediately without confirmation", async () => {
+    // ADR-125 follow-up: when every row is done the plan is already "closed"
+    // in the user's head — a confirm prompt would be obstructive noise.
+    const onClear = vi.fn().mockResolvedValue(undefined);
+    const todos = [
+      makeTodo({ id: "1", status: "completed", content: "Done 1" }),
+      makeTodo({ id: "2", status: "completed", content: "Done 2" })
+    ];
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={2} windowed={false} onClear={onClear} />
+    );
+
+    const clearBtn = within(container).getByRole("button", { name: "planClear" });
+    fireEvent.click(clearBtn);
+
+    expect(within(container).queryByText("planClearConfirmPrompt")).toBeNull();
     await waitFor(() => {
       expect(onClear).toHaveBeenCalledOnce();
     });
@@ -237,9 +222,7 @@ describe("ChatPlanCard", () => {
       id: "1",
       parentId: null,
       content: "",
-      status: "pending",
-      origin: "model_authored",
-      seedSkillLabel: null
+      status: "pending"
     };
     const goodTodo = makeTodo({ id: "2", content: "Good task" });
     const { container } = render(

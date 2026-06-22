@@ -199,10 +199,11 @@ export class RuntimeSkillToolService {
         scenarioKey
       });
 
-      // ADR-125 Slice 2 — seed the scenario's steps as todos in the current
-      // chat. Engage already succeeded; any seed failure is warn-logged and
-      // MUST NOT change the user-perceived engage outcome.
-      await this.seedScenarioTodosAfterEngage(params, request.skillId, skill, scenario);
+      // ADR-125 follow-up — the model now owns scenario intake: the
+      // `skill.engage` tool response below carries `scenario.steps` with
+      // every directive, and `todo_write`'s tool guidance instructs the
+      // model to immediately call `todo_write({ add, items })` from those
+      // directives. No server-side seeding.
 
       const scenarioPayload: RuntimeSkillEngageScenario = {
         key: scenario.key,
@@ -239,64 +240,6 @@ export class RuntimeSkillToolService {
         payload: { error: "invalid_arguments", reason: message },
         isError: true
       };
-    }
-  }
-
-  /**
-   * ADR-125 Slice 2 — fire-and-warn helper. Computes a deterministic seed key
-   * and asks the API to seed the scenario's step directives as `pending`
-   * todos under the deepest in_progress todo (or top-level if none).
-   *
-   * Idempotency lives on the API side via the `(chatId, seedKey)` unique
-   * index, so re-engages of the same scenario coalesce to `already_seeded`.
-   * Skill / scenario versions are not yet exposed on the runtime bundle, so
-   * the version segment is left empty; when versioning is introduced, only
-   * this seed-key composition needs to change.
-   */
-  private async seedScenarioTodosAfterEngage(
-    params: {
-      bundle: AssistantRuntimeBundle;
-      conversation: RuntimeConversationAddress;
-      requestId: string | null;
-    },
-    skillId: string,
-    skill: AssistantRuntimeEnabledSkillSummary,
-    scenario: { key: string; steps: RuntimeBundleSkillScenarioStep[] }
-  ): Promise<void> {
-    const directives = scenario.steps
-      .map((step) => (typeof step.directive === "string" ? step.directive : ""))
-      .filter((value) => value.length > 0);
-    if (directives.length === 0) {
-      return;
-    }
-    // The chat-plan API is web/telegram-scoped (matches the chat-todos surface).
-    // Channels without a backing chat row (e.g. `max_ru`) skip seeding silently.
-    const channel = params.conversation.channel;
-    if (channel !== "web" && channel !== "telegram") {
-      return;
-    }
-    const seedKey = `${skillId}::${scenario.key}::`;
-    try {
-      const outcome = await this.persaiInternalApiClientService.seedSkillScenarioTodos({
-        assistantId: params.bundle.metadata.assistantId,
-        channel,
-        surfaceThreadKey: params.conversation.externalThreadKey,
-        skillId,
-        skillLabel: skill.name,
-        scenarioKey: scenario.key,
-        seedKey,
-        directives
-      });
-      if (outcome.kind === "request_failed") {
-        this.logger.warn(
-          `[skill] scenario seed request_failed assistantId=${params.bundle.metadata.assistantId} skillId=${skillId} scenarioKey=${scenario.key} status=${outcome.status ?? "null"}: ${outcome.reason}`
-        );
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(
-        `[skill] scenario seed threw assistantId=${params.bundle.metadata.assistantId} skillId=${skillId} scenarioKey=${scenario.key}: ${message}`
-      );
     }
   }
 

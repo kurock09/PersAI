@@ -2463,6 +2463,12 @@ export async function getChatMessages(
   activeTurn?: WebChatActiveTurnState | null;
   activeMediaJobs?: WebChatActiveMediaJobState[];
   activeDocumentJobs?: WebChatActiveDocumentJobState[];
+  /**
+   * ADR-125 follow-up — chat-level "active skill / scenario" projection so
+   * the web header subtitle has a stable source of truth across history
+   * reloads. Derived on the API from `chat.skillDecisionState`.
+   */
+  currentEngagement?: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
 }> {
   const base = getApiBaseUrl();
   const params = new URLSearchParams();
@@ -2478,6 +2484,7 @@ export async function getChatMessages(
     activeTurn?: WebChatActiveTurnState | null;
     activeMediaJobs?: WebChatActiveMediaJobState[];
     activeDocumentJobs?: WebChatActiveDocumentJobState[];
+    currentEngagement?: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
   };
 }
 

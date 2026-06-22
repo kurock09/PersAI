@@ -133,10 +133,6 @@ enum AssistantChatTodoStatus {
   completed
 }
 
-enum AssistantChatTodoOrigin {
-  model_authored
-  scenario_seeded
-}
 
 enum AssistantMemoryRegistrySourceType {
   web_chat
@@ -2136,10 +2132,9 @@ model AssistantChat {
 /// single in_progress per parent, no resurrection of completed items, child-
 /// before-parent completion, and the soft 200 / hard 500 row cap. `sortOrder`
 /// keeps the model-declared in-list ordering within a parent scope; new items
-/// append (`max(sortOrder)+1`). `seedKey` is shared across all rows of one
-/// scenario-seeded batch — the runtime checks `(chatId, seedKey)` BEFORE
-/// inserting so re-engage is a no-op (index, not unique, because N steps in
-/// one batch share the same key).
+/// append (`max(sortOrder)+1`). All rows are model-authored — the model owns
+/// the entire plan lifecycle including scenario intake via the `todo_write`
+/// tool when `skill.engage` returns scenario steps.
 model AssistantChatTodo {
   id                 String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   chatId             String                  @map("chat_id") @db.Uuid
@@ -2147,11 +2142,6 @@ model AssistantChatTodo {
   parentId           String?                 @map("parent_id") @db.Uuid
   content            String                  @db.Text
   status             AssistantChatTodoStatus @default(pending)
-  origin             AssistantChatTodoOrigin @default(model_authored)
-  seedSkillId        String?                 @map("seed_skill_id") @db.Uuid
-  seedSkillLabel     String?                 @map("seed_skill_label") @db.Text
-  seedScenarioKey    String?                 @map("seed_scenario_key") @db.Text
-  seedKey            String?                 @map("seed_key") @db.Text
   sortOrder          Int                     @map("sort_order")
   completionCriteria Json?                   @map("completion_criteria") @db.JsonB
   createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -2161,7 +2151,6 @@ model AssistantChatTodo {
   parent             AssistantChatTodo?      @relation("AssistantChatTodoChildren", fields: [parentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   children           AssistantChatTodo[]     @relation("AssistantChatTodoChildren")
 
-  @@index([chatId, seedKey])
   @@index([chatId, sortOrder])
   @@index([chatId, parentId, sortOrder])
   @@index([parentId])

@@ -67,6 +67,7 @@ import type {
   AssistantWebChatActiveTurnState,
   AssistantWebChatCompactionResult,
   AssistantWebChatCompactionState,
+  AssistantWebChatEngagementSummary,
   AssistantWebChatListItemState,
   AssistantWebChatMessageState,
   AssistantWebChatTurnState
@@ -961,6 +962,7 @@ export class AssistantController {
     activeTurn: AssistantWebChatActiveTurnState | null;
     activeMediaJobs: AssistantWebChatListItemState["activeMediaJobs"];
     activeDocumentJobs: AssistantWebChatListItemState["activeDocumentJobs"];
+    currentEngagement: AssistantWebChatEngagementSummary | null;
   }> {
     const userId = this.resolveRequestUserId(req);
     const limit = Math.min(Math.max(parseInt(limitParam ?? "50", 10) || 50, 1), 100);
@@ -975,7 +977,8 @@ export class AssistantController {
       nextCursor: result.nextCursor,
       activeTurn: result.activeTurn,
       activeMediaJobs: result.activeMediaJobs,
-      activeDocumentJobs: result.activeDocumentJobs
+      activeDocumentJobs: result.activeDocumentJobs,
+      currentEngagement: result.currentEngagement
     };
   }
 

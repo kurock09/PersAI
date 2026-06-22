@@ -427,7 +427,8 @@ EXAMPLES:
 GOTCHAS:
 - skillId is the exact <skill id="..."> value from <enabled_skills>; never substitute the display name, category, or any other field.
 - scenarioKey is the exact <scenario key="..."> value from <available_scenarios>; opaque slug, must match verbatim.
-- After action="engage", the engage result returns instruction.body + the active scenario's full structure — read those before any other action.`,
+- After action="engage", the engage result returns instruction.body + the active scenario's full structure — read those before any other action.
+PLAN INTAKE: When the engage result includes a scenario (scenario.steps is a non-empty array), IMMEDIATELY follow up with a single todo_write({action:"add", items:[...]}) call whose items mirror the scenario's steps in order — one row per step, content set to a short title derived from each step's directive, status:"in_progress" on the first item and status:"pending" on the rest. This makes the plan model-authored from the very first move so subsequent in_progress/complete transitions are natural. Do not skip this step even if the user has not asked for a plan — the scenario is the plan.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "platform_managed"
@@ -467,7 +468,8 @@ EXAMPLES:
 - todo_write({action:"complete", id:"<server-id>"}) — close out a finished step before starting the next one.
 - todo_write({action:"update", id:"<server-id>", content:"Draft proposal section (focus on pricing tiers)"}) — sharpen wording without changing identity.
 - todo_write({action:"clear"}) — abandon the plan when the conversation pivots away from the original multi-step work.
-SCENARIO_SEEDED LIFECYCLE: Rows in <persai_chat_plan> tagged "(seeded by <skill>)" are your active scenario steps — the server materialises them when you engage a Skill scenario, but YOU own their lifecycle just like model-authored rows. The moment you start substantive work on a step, switch it to in_progress via todo_write({action:"update", id:"<row-id>", status:"in_progress"}); the moment the step is actually delivered (not just announced), call todo_write({action:"complete", id:"<row-id>"}) BEFORE you move to the next step. Never leave a finished scenario step at pending. Only one in_progress sibling per parent — close the previous step before starting the next. If the conversation pivots away from the scenario, either complete what is genuinely done and call action="clear" on the rest, or call action="clear" alone to abandon the plan.
+SCENARIO INTAKE: When skill({action:"engage", scenarioKey:"..."}) returns a scenario, your very next move is a todo_write({action:"add", items:[...]}) that mirrors the scenario's steps in order (one row per scenario step, content = short title from the step's directive, first item status:"in_progress", rest status:"pending"). This is how a scenario becomes your plan.
+LIFECYCLE: You own every row in the plan. The moment you start substantive work on a step, switch it to in_progress via todo_write({action:"update", id:"<row-id>", status:"in_progress"}); the moment the step is actually delivered (not just announced), call todo_write({action:"complete", id:"<row-id>"}) BEFORE you move to the next step. Never leave a finished step at pending. Only one in_progress sibling per parent — close the previous step before starting the next. If the conversation pivots away, either complete what is genuinely done and call action="clear" on the rest, or call action="clear" alone to abandon the plan.
 GOTCHAS:
 - Use the exact ids returned in the previous todo_write response's todos window — or the "by id <id>" tail on each row in <persai_chat_plan> — when calling update/complete/remove or attaching a parentId; ids are server-minted UUIDs.
 - parentId attaches a child to an existing item; the server rejects cycles, unknown parents, and parents that are already completed.

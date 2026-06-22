@@ -7010,9 +7010,7 @@ describe("useChat", () => {
         id: "todo-lh-1",
         parentId: null,
         content: "Do something",
-        status: "pending" as const,
-        origin: "model_authored" as const,
-        seedSkillLabel: null
+        status: "pending" as const
       };
       assistantApiMocks.getChatMessages.mockResolvedValueOnce({
         messages: [],

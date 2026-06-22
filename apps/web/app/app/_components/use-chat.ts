@@ -92,7 +92,6 @@ export interface ChatMessage {
   thought?: string;
   thoughtStartedAt?: string | null;
   thoughtFinishedAt?: string | null;
-  engagementSummary?: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
   /** The texts the model wrote before each tool call across the tool loop. Absent/empty when no tools ran. */
   workingNotes?: string[];
   /** Local-only streaming hint: true while text deltas are actively being appended. */
@@ -130,6 +129,12 @@ export interface UseChatReturn {
   chatPlanWindowed: boolean;
   refreshChatPlan: () => Promise<void>;
   clearChatPlan: () => Promise<void>;
+  /**
+   * ADR-125 follow-up — chat-level "active skill / scenario" projection so
+   * the header subtitle has a stable source of truth that survives history
+   * reloads. Mirrors `chat.skillDecisionState` derivation on the API.
+   */
+  currentEngagement: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
   send: (text: string, files?: File[], options?: ChatSendOptions) => Promise<void>;
   sendWelcome: (locale: string) => Promise<void>;
   compactNow: (instructions?: string) => Promise<ChatCompactionResult | null>;
@@ -1044,6 +1049,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const [chatPlan, setChatPlan] = useState<RuntimeTodoItem[]>([]);
   const [chatPlanTotalCount, setChatPlanTotalCount] = useState(0);
   const [chatPlanWindowed, setChatPlanWindowed] = useState(false);
+  // ADR-125 follow-up — chat-level active engagement state. Derived on the
+  // API from `chat.skillDecisionState` and delivered via the history endpoint
+  // (initial load) and the SSE turn-completion payload (live updates). The
+  // header subtitle reads this directly so it survives history reloads.
+  const [currentEngagement, setCurrentEngagement] = useState<{
+    skillDisplayName: string;
+    scenarioDisplayName: string | null;
+  } | null>(null);
   const [pendingSendStatus, setPendingSendStatusState] = useState<PendingSendStatus | null>(null);
   /* Slice 1.1 ��� abort controllers are per-thread now (was a single `useRef`). */ /* The single ref clobbered itself when Chat A's stream cleaned up while */ /* Chat B was already mid-flight, which made `stop()` either no-op or abort */ /* the wrong stream. Keying by `threadKey` keeps each turn's controller */ /* independent until *its* stream completes or the user explicitly stops it */ /* from that thread's view. */ /*  */ /* Slice 1.2 ��� each entry now also carries the `clientTurnId` of the */ /* turn it owns. `stop()` needs the id to call the new */ /* `stopAssistantWebChatTurn` API (see `assistant-api-client.ts`); see */ /* the `stop` callback below for why this distinction matters */ /* (soft-detach vs hard-stop). */ const abortControllersByThreadRef =
     useRef<Map<string, { controller: AbortController; clientTurnId: string }>>(new Map());
@@ -3204,6 +3217,22 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             } | null;
             runtime?: RuntimeTransportMeta;
           } | null;
+          // ADR-125 follow-up — drive the chat-level subtitle from the SSE
+          // payload. When the engagement summary is `null` the server is
+          // telling us the chat is now in "no active skill" — apply that
+          // verbatim instead of leaving stale state.
+          {
+            const raw = t?.engagementSummary;
+            if (raw === null) {
+              setCurrentEngagement(null);
+            } else if (raw && typeof raw === "object" && typeof raw.skillDisplayName === "string") {
+              setCurrentEngagement({
+                skillDisplayName: raw.skillDisplayName,
+                scenarioDisplayName:
+                  typeof raw.scenarioDisplayName === "string" ? raw.scenarioDisplayName : null
+              });
+            }
+          }
           const realUserMsgId = typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
           const newAssistantId =
             typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
@@ -3212,16 +3241,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             t.assistantMessage.attachments.length > 0
               ? t.assistantMessage.attachments.map((attachment) => toChatAttachment(attachment))
               : undefined;
-          const engagementSummaryFromTransport: ChatMessage["engagementSummary"] = (() => {
-            const raw = t?.engagementSummary;
-            if (!raw || typeof raw !== "object") return null;
-            if (typeof raw.skillDisplayName !== "string") return null;
-            return {
-              skillDisplayName: raw.skillDisplayName,
-              scenarioDisplayName:
-                typeof raw.scenarioDisplayName === "string" ? raw.scenarioDisplayName : null
-            };
-          })();
           const followUpAssistantMessage =
             typeof t?.followUpAssistantMessage?.id === "string" &&
             typeof t?.followUpAssistantMessage?.content === "string"
@@ -3267,10 +3286,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     ? { workingNotes: authoritativeWorkingNotes }
                     : {}),
                   status: "committed" as const,
-                  attachments: assistantAttachments,
-                  ...(engagementSummaryFromTransport !== null
-                    ? { engagementSummary: engagementSummaryFromTransport }
-                    : {})
+                  attachments: assistantAttachments
                 };
               }
               if (m.id === userMsgId && realUserMsgId) {
@@ -4328,6 +4344,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         setHasOlderMessages(page.nextCursor !== null);
         replaceActiveMediaJobs(nextActiveMediaJobs);
         replaceActiveDocumentJobs(nextActiveDocumentJobs);
+        if (currentThreadKeyRef.current === targetThreadKey) {
+          setCurrentEngagement(page.currentEngagement ?? null);
+        }
         setChatId(targetChatId);
         cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
           clientTurnId:
@@ -4498,6 +4517,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     chatPlanWindowed,
     refreshChatPlan,
     clearChatPlan,
+    currentEngagement,
     send,
     sendWelcome,
     compactNow,

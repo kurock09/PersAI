@@ -10,7 +10,6 @@ import {
   PERSAI_RUNTIME_TODO_WRITE_STATUSES,
   RUNTIME_CHAT_PLAN_WINDOW_MAX,
   type PersaiRuntimeTodoWriteStatus,
-  type PersaiRuntimeTodoWriteOrigin,
   type RuntimeTodoItem
 } from "@persai/runtime-contract";
 import {
@@ -45,37 +44,13 @@ const MAX_ADD_ITEMS_PER_CALL = 50;
  *
  * The user-facing web plan card has the opposite need: once the user opens
  * it they want to see the **whole plan**, including every completed step,
- * not just "the most recent two". With the model window the card was
- * surfacing things like `Plan 2/5 +3 more hidden` when all five steps had
- * already been marked completed — visually it looked like "the model said
- * 'all done' but the plan still has 3 rows hanging around". This per-surface
- * cap solves that without changing the model prompt window.
- *
- * The cap protects against a future model that opens an absurdly large plan.
- * The web card still renders the `windowed` flag + `+N more` tail when it
- * trips, so the user can tell the surface was truncated.
+ * not just "the most recent two". This per-surface cap solves that without
+ * changing the model prompt window, and protects against a future model
+ * that opens an absurdly large plan. The web card still renders the
+ * `windowed` flag + `+N more` tail when it trips, so the user can tell the
+ * surface was truncated.
  */
 const WEB_PLAN_RESPONSE_MAX = 50;
-
-/**
- * ADR-125 — scenario step directives are full instructions (≤600 chars per
- * `SkillScenarioStepState.directive`). The plan card and the in-prompt
- * `<persai_chat_plan>` block both want a short title, not the full body.
- * The model still has access to the full directive via the
- * `<persai_active_scenario>` block (ADR-119), so storing the title here is
- * lossless from the model's perspective. The plan card and any future
- * model-authored todo input share this same ceiling.
- */
-const SCENARIO_STEP_TITLE_MAX_CHARS = 80;
-
-/**
- * ADR-125 — minimum characters required before a punctuation mark is
- * considered a sentence boundary. Prevents pathological splits like
- * `"OK. Now do …"` from collapsing to just `"OK"`.
- */
-const SCENARIO_STEP_TITLE_MIN_PREFIX = 12;
-
-const SCENARIO_STEP_TITLE_BREAK_CHARS = [":", ".", "!", "?", ";", "\n"];
 
 export type AssistantChatTodosChannel = "web" | "telegram";
 
@@ -117,26 +92,6 @@ export interface AssistantChatTodosApplyResult {
   chatId: string;
 }
 
-export interface AssistantChatTodosSeedSkillScenarioInput {
-  assistantId: string;
-  channel: AssistantChatTodosChannel;
-  surfaceThreadKey: string;
-  /** UUID of the skill engagement scenario originated from (or null if unknown). */
-  skillId: string | null;
-  /** Human-readable label persisted on each seeded row so the UI/projection can render attribution. */
-  skillLabel: string | null;
-  scenarioKey: string;
-  /** Stable deterministic key the runtime computes; (chatId, seedKey) is unique. */
-  seedKey: string;
-  /** Scenario step directives in scenario order. */
-  directives: string[];
-}
-
-export type AssistantChatTodosSeedSkillScenarioOutcome =
-  | { kind: "seeded"; chatId: string; insertedCount: number; todos: RuntimeTodoItem[] }
-  | { kind: "already_seeded"; chatId: string }
-  | { kind: "skipped"; chatId: string; reason: "no_directives" | "cap_exceeded" };
-
 export interface AssistantChatTodosWindowInput {
   chatId: string;
 }
@@ -156,8 +111,6 @@ interface TodoRow {
   parentId: string | null;
   content: string;
   status: PersaiRuntimeTodoWriteStatus;
-  origin: PersaiRuntimeTodoWriteOrigin;
-  seedSkillLabel: string | null;
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
@@ -251,121 +204,13 @@ export class AssistantChatTodosService {
       id: row.id,
       parentId: row.parentId,
       content: row.content,
-      status: row.status,
-      origin: row.origin,
-      seedSkillLabel: row.seedSkillLabel
+      status: row.status
     }));
     return {
       todos,
       windowed: orderedRows.length > limited.length,
       totalCount: orderedRows.length
     };
-  }
-
-  /**
-   * ADR-125 Slice 2 — seed the scenario's directives as todos in the current
-   * chat, embedded under the deepest in_progress todo or as top-level items.
-   *
-   * Idempotency: Slice 1 placed a `UNIQUE (chat_id, seed_key)` index on the
-   * table, which means N seeded rows must each carry a distinct `seed_key`.
-   * We honor that by deriving per-row keys from the runtime-supplied
-   * `seedKey` (all N step rows share the same `seedKey`) and treating any
-   * pre-existing row with `(chatId, seedKey) = (current, seedKey)` as proof the
-   * scenario has already been seeded. Concurrent re-engages from two runtime
-   * pods are made safe by running the existence check + inserts inside the same
-   * Prisma transaction.
-   *
-   * Failures here MUST NOT block the engage flow upstream — the runtime calls
-   * this after `updateSkillState` already succeeded and only warn-logs any
-   * thrown error.
-   */
-  async seedSkillScenarioTodos(
-    input: AssistantChatTodosSeedSkillScenarioInput
-  ): Promise<AssistantChatTodosSeedSkillScenarioOutcome> {
-    const scenarioKey = this.normalizeIdentifier(input.scenarioKey, "scenarioKey");
-    const seedKey = this.normalizeIdentifier(input.seedKey, "seedKey");
-    const skillId = input.skillId === null ? null : this.normalizeOptionalIdentifier(input.skillId);
-    const skillLabel = this.normalizeOptionalLabel(input.skillLabel);
-
-    if (!Array.isArray(input.directives)) {
-      throw new BadRequestException("directives must be an array of strings.");
-    }
-    const normalizedDirectives = this.normalizeScenarioDirectives(input.directives);
-    if (normalizedDirectives.length === 0) {
-      const { chatId } = await this.resolveChatIdFromSurfaceThread(
-        input.assistantId,
-        input.channel,
-        input.surfaceThreadKey
-      );
-      return { kind: "skipped", chatId, reason: "no_directives" };
-    }
-
-    const { chatId, assistantId } = await this.resolveChatIdFromSurfaceThread(
-      input.assistantId,
-      input.channel,
-      input.surfaceThreadKey
-    );
-
-    return await this.prisma.$transaction(async (tx) => {
-      const alreadySeeded = await tx.assistantChatTodo.findFirst({
-        where: { chatId, seedKey },
-        select: { id: true }
-      });
-      if (alreadySeeded !== null) {
-        return { kind: "already_seeded" as const, chatId };
-      }
-
-      const existing = await this.loadAllRowsTx(tx, chatId);
-
-      if (existing.length + normalizedDirectives.length > HARD_ACTIVE_CAP) {
-        return { kind: "skipped" as const, chatId, reason: "cap_exceeded" as const };
-      }
-
-      const parentId = this.resolveDeepestInProgressParentId(existing);
-
-      const bucket: string | "__root__" = parentId ?? "__root__";
-      let sortOrderCursor = 0;
-      for (const row of existing) {
-        const rowBucket = row.parentId ?? "__root__";
-        if (rowBucket === bucket && row.sortOrder > sortOrderCursor) {
-          sortOrderCursor = row.sortOrder;
-        }
-      }
-
-      const createdRows: TodoRow[] = [];
-      for (let index = 0; index < normalizedDirectives.length; index += 1) {
-        const directive = normalizedDirectives[index]!;
-        sortOrderCursor += 1;
-        const created = await tx.assistantChatTodo.create({
-          data: {
-            chatId,
-            assistantId,
-            parentId,
-            content: directive,
-            status: "pending",
-            origin: "scenario_seeded",
-            seedSkillId: skillId,
-            seedSkillLabel: skillLabel,
-            seedScenarioKey: scenarioKey,
-            seedKey,
-            sortOrder: sortOrderCursor
-          },
-          select: this.todoSelect()
-        });
-        createdRows.push(this.mapRow(created));
-      }
-
-      const finalRows = [...existing, ...createdRows];
-      const window = selectChatPlanWindow(finalRows);
-      const insertedIds = new Set(createdRows.map((row) => row.id));
-      const todosForResult = window.todos.filter((todo) => insertedIds.has(todo.id));
-      return {
-        kind: "seeded" as const,
-        chatId,
-        insertedCount: createdRows.length,
-        todos: todosForResult
-      };
-    });
   }
 
   async readWindowForSurfaceThread(input: {
@@ -473,7 +318,6 @@ export class AssistantChatTodosService {
             parentId: item.parentId,
             content: item.content,
             status: effectiveStatus,
-            origin: "model_authored",
             sortOrder: nextOrder
           },
           select: this.todoSelect()
@@ -700,8 +544,6 @@ export class AssistantChatTodosService {
       parentId: true,
       content: true,
       status: true,
-      origin: true,
-      seedSkillLabel: true,
       sortOrder: true,
       createdAt: true,
       updatedAt: true,
@@ -714,8 +556,6 @@ export class AssistantChatTodosService {
     parentId: string | null;
     content: string;
     status: PersaiRuntimeTodoWriteStatus;
-    origin: PersaiRuntimeTodoWriteOrigin;
-    seedSkillLabel: string | null;
     sortOrder: number;
     createdAt: Date;
     updatedAt: Date;
@@ -726,8 +566,6 @@ export class AssistantChatTodosService {
       parentId: row.parentId,
       content: row.content,
       status: row.status,
-      origin: row.origin,
-      seedSkillLabel: row.seedSkillLabel,
       sortOrder: row.sortOrder,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -814,132 +652,6 @@ export class AssistantChatTodosService {
     return trimmed;
   }
 
-  private normalizeIdentifier(value: unknown, label: string): string {
-    if (typeof value !== "string") {
-      throw new BadRequestException(`${label} must be a string.`);
-    }
-    const trimmed = value.trim();
-    if (trimmed.length === 0) {
-      throw new BadRequestException(`${label} must be a non-empty string.`);
-    }
-    return trimmed;
-  }
-
-  private normalizeOptionalIdentifier(value: unknown): string | null {
-    if (value === undefined || value === null) return null;
-    if (typeof value !== "string") {
-      throw new BadRequestException("identifier must be a string or null.");
-    }
-    const trimmed = value.trim();
-    return trimmed.length === 0 ? null : trimmed;
-  }
-
-  private normalizeOptionalLabel(value: unknown): string | null {
-    if (value === undefined || value === null) return null;
-    if (typeof value !== "string") {
-      throw new BadRequestException("skillLabel must be a string or null.");
-    }
-    const trimmed = value.trim().replace(/\s+/g, " ");
-    if (trimmed.length === 0) return null;
-    if (trimmed.length > MAX_CONTENT_LENGTH) {
-      return `${trimmed.slice(0, MAX_CONTENT_LENGTH - 1)}…`;
-    }
-    return trimmed;
-  }
-
-  /**
-   * Trim each directive, collapse whitespace, drop empty entries, and
-   * derive a short human-readable title from the directive body. The
-   * `SkillScenarioStepState` schema has no separate title field — the only
-   * persisted text is the full `directive` (up to 600 chars), which is too
-   * long to render as a checklist row. We extract a one-line headline using
-   * `deriveScenarioStepTitle`; the full directive stays accessible to the
-   * model through the `<persai_active_scenario>` block (ADR-119).
-   */
-  private normalizeScenarioDirectives(values: readonly unknown[]): string[] {
-    const out: string[] = [];
-    for (const raw of values) {
-      if (typeof raw !== "string") continue;
-      const trimmed = raw.trim().replace(/\s+/g, " ");
-      if (trimmed.length === 0) continue;
-      out.push(this.deriveScenarioStepTitle(trimmed));
-    }
-    return out;
-  }
-
-  /**
-   * Reduce a scenario step directive to a one-line title.
-   *
-   * Rules, in order:
-   *  1. If the directive already fits within `SCENARIO_STEP_TITLE_MAX_CHARS`,
-   *     drop a trailing period (which would be redundant on a checklist row)
-   *     and return the rest verbatim. Other terminators (`?`, `!`, `:`) stay
-   *     because they carry meaning.
-   *  2. Otherwise, scan for the earliest natural sentence boundary
-   *     (`:` `.` `!` `?` `;` `\n`) that sits at least
-   *     `SCENARIO_STEP_TITLE_MIN_PREFIX` chars in and within the title
-   *     ceiling. Use the prefix up to that break as the title.
-   *  3. Otherwise, hard-truncate at the last word boundary within the
-   *     ceiling and append an ellipsis. The full string never exceeds
-   *     `SCENARIO_STEP_TITLE_MAX_CHARS` chars including the ellipsis.
-   */
-  private deriveScenarioStepTitle(directive: string): string {
-    if (directive.length <= SCENARIO_STEP_TITLE_MAX_CHARS) {
-      return directive.endsWith(".") ? directive.slice(0, -1) : directive;
-    }
-    let earliestBreak = -1;
-    for (const ch of SCENARIO_STEP_TITLE_BREAK_CHARS) {
-      const idx = directive.indexOf(ch);
-      if (
-        idx >= SCENARIO_STEP_TITLE_MIN_PREFIX &&
-        idx < SCENARIO_STEP_TITLE_MAX_CHARS &&
-        (earliestBreak === -1 || idx < earliestBreak)
-      ) {
-        earliestBreak = idx;
-      }
-    }
-    if (earliestBreak !== -1) {
-      return directive.slice(0, earliestBreak).trimEnd();
-    }
-    const slice = directive.slice(0, SCENARIO_STEP_TITLE_MAX_CHARS - 1);
-    const lastSpace = slice.lastIndexOf(" ");
-    const cutoff = lastSpace > SCENARIO_STEP_TITLE_MAX_CHARS * 0.5 ? lastSpace : slice.length;
-    return `${slice.slice(0, cutoff).trimEnd()}…`;
-  }
-
-  /**
-   * Walk the in_progress chain top-down. The handleAdd invariant guarantees
-   * at most one in_progress sibling per parent bucket, so descending greedily
-   * yields a single deepest node. Returns null when no in_progress todo exists,
-   * which signals top-level attachment.
-   */
-  private resolveDeepestInProgressParentId(rows: readonly TodoRow[]): string | null {
-    const inProgressByParent = new Map<string | "__root__", TodoRow>();
-    for (const row of rows) {
-      if (row.status !== "in_progress") continue;
-      const bucket: string | "__root__" = row.parentId ?? "__root__";
-      if (!inProgressByParent.has(bucket)) {
-        inProgressByParent.set(bucket, row);
-      }
-    }
-
-    let cursor: TodoRow | undefined = inProgressByParent.get("__root__");
-    if (cursor === undefined) {
-      return null;
-    }
-    const visited = new Set<string>();
-    while (cursor !== undefined) {
-      if (visited.has(cursor.id)) break;
-      visited.add(cursor.id);
-      const child = inProgressByParent.get(cursor.id);
-      if (child === undefined) {
-        return cursor.id;
-      }
-      cursor = child;
-    }
-    return cursor?.id ?? null;
-  }
-
   private resolveSurface(channel: string): AssistantChatSurface {
     if (channel === "web" || channel === "telegram") {
       return channel;
@@ -996,8 +708,6 @@ export function selectChatPlanWindow(
     parentId: string | null;
     content: string;
     status: PersaiRuntimeTodoWriteStatus;
-    origin: PersaiRuntimeTodoWriteOrigin;
-    seedSkillLabel: string | null;
     sortOrder: number;
     createdAt: Date;
     updatedAt: Date;
@@ -1077,9 +787,7 @@ export function selectChatPlanWindow(
       id: root.id,
       parentId: root.parentId,
       content: root.content,
-      status: root.status,
-      origin: root.origin,
-      seedSkillLabel: root.seedSkillLabel
+      status: root.status
     });
     const children = orderedRows.filter(
       (candidate) => candidate.parentId === rootId && selectedIds.has(candidate.id)

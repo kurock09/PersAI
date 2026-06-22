@@ -203,9 +203,7 @@ class FakePersaiInternalApiClientService {
         id: "todo-0001",
         parentId: null,
         content: "First task",
-        status: "in_progress",
-        origin: "model_authored",
-        seedSkillLabel: null
+        status: "in_progress"
       }
     ],
     windowed: false,

@@ -19,8 +19,7 @@ import {
   AssistantChatTodosService,
   type AssistantChatTodosActionInput,
   type AssistantChatTodosApplyResult,
-  type AssistantChatTodosChannel,
-  type AssistantChatTodosSeedSkillScenarioOutcome
+  type AssistantChatTodosChannel
 } from "../../application/assistant-chat-todos.service";
 import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
 
@@ -45,15 +44,6 @@ interface WindowResponse {
   todos: RuntimeTodoItem[];
   windowed: boolean;
   totalCount: number;
-}
-
-interface SeedSkillScenarioResponse {
-  ok: true;
-  chatId: string;
-  outcome:
-    | { kind: "seeded"; insertedCount: number; todos: RuntimeTodoItem[] }
-    | { kind: "already_seeded" }
-    | { kind: "skipped"; reason: "no_directives" | "cap_exceeded" };
 }
 
 @Controller("api/v1/internal/runtime/chat-todos")
@@ -90,95 +80,6 @@ export class InternalRuntimeChatTodosController {
       windowed: result.windowed,
       totalCount: result.totalCount
     };
-  }
-
-  @HttpCode(200)
-  @Post("seed-skill-scenario")
-  async seedSkillScenario(
-    @Req() req: InternalRequestLike,
-    @Body() body: unknown
-  ): Promise<SeedSkillScenarioResponse> {
-    this.assertAuthorized(req);
-    const parsed = this.parseSeedSkillScenarioBody(body);
-    const outcome = await this.assistantChatTodosService.seedSkillScenarioTodos(parsed);
-    return this.toSeedSkillScenarioResponse(outcome);
-  }
-
-  private toSeedSkillScenarioResponse(
-    outcome: AssistantChatTodosSeedSkillScenarioOutcome
-  ): SeedSkillScenarioResponse {
-    if (outcome.kind === "seeded") {
-      return {
-        ok: true,
-        chatId: outcome.chatId,
-        outcome: {
-          kind: "seeded",
-          insertedCount: outcome.insertedCount,
-          todos: outcome.todos
-        }
-      };
-    }
-    if (outcome.kind === "already_seeded") {
-      return { ok: true, chatId: outcome.chatId, outcome: { kind: "already_seeded" } };
-    }
-    return {
-      ok: true,
-      chatId: outcome.chatId,
-      outcome: { kind: "skipped", reason: outcome.reason }
-    };
-  }
-
-  private parseSeedSkillScenarioBody(body: unknown): {
-    assistantId: string;
-    channel: AssistantChatTodosChannel;
-    surfaceThreadKey: string;
-    skillId: string | null;
-    skillLabel: string | null;
-    scenarioKey: string;
-    seedKey: string;
-    directives: string[];
-  } {
-    if (typeof body !== "object" || body === null || Array.isArray(body)) {
-      throw new BadRequestException("Invalid chat-todos seed-skill-scenario request body.");
-    }
-    const row = body as Record<string, unknown>;
-    const assistantId = this.asNonEmptyString(row.assistantId, "assistantId");
-    const channel = this.asChannel(row.channel);
-    const surfaceThreadKey = this.asNonEmptyString(row.surfaceThreadKey, "surfaceThreadKey");
-    const skillId = this.asOptionalString(row.skillId, "skillId");
-    const skillLabel = this.asOptionalString(row.skillLabel, "skillLabel");
-    const scenarioKey = this.asNonEmptyString(row.scenarioKey, "scenarioKey");
-    const seedKey = this.asNonEmptyString(row.seedKey, "seedKey");
-    if (!Array.isArray(row.directives)) {
-      throw new BadRequestException("directives must be an array of strings.");
-    }
-    const directives: string[] = [];
-    for (let index = 0; index < row.directives.length; index += 1) {
-      const entry = row.directives[index];
-      if (typeof entry !== "string") {
-        throw new BadRequestException(`directives[${index}] must be a string.`);
-      }
-      directives.push(entry);
-    }
-    return {
-      assistantId,
-      channel,
-      surfaceThreadKey,
-      skillId,
-      skillLabel,
-      scenarioKey,
-      seedKey,
-      directives
-    };
-  }
-
-  private asOptionalString(value: unknown, label: string): string | null {
-    if (value === undefined || value === null) return null;
-    if (typeof value !== "string") {
-      throw new BadRequestException(`${label} must be a string or null.`);
-    }
-    const trimmed = value.trim();
-    return trimmed.length === 0 ? null : trimmed;
   }
 
   private toApplyResponse(result: AssistantChatTodosApplyResult): ApplyResponse {

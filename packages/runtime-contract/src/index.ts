@@ -1100,10 +1100,6 @@ export const PERSAI_RUNTIME_TODO_WRITE_STATUSES = ["pending", "in_progress", "co
 
 export type PersaiRuntimeTodoWriteStatus = (typeof PERSAI_RUNTIME_TODO_WRITE_STATUSES)[number];
 
-export const PERSAI_RUNTIME_TODO_WRITE_ORIGINS = ["model_authored", "scenario_seeded"] as const;
-
-export type PersaiRuntimeTodoWriteOrigin = (typeof PERSAI_RUNTIME_TODO_WRITE_ORIGINS)[number];
-
 /** ADR-125 — hard upper bound on items rendered in the volatile plan block and the post-mutation response window. */
 export const RUNTIME_CHAT_PLAN_WINDOW_MAX = 12;
 
@@ -1112,8 +1108,6 @@ export interface RuntimeTodoItem {
   parentId: string | null;
   content: string;
   status: PersaiRuntimeTodoWriteStatus;
-  origin: PersaiRuntimeTodoWriteOrigin;
-  seedSkillLabel: string | null;
 }
 
 export interface RuntimeTodoWriteToolResult {

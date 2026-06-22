@@ -3,6 +3,82 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-22 — ADR-125 Option A: model-authored scenario intake + plan-card polish — CHECKPOINT
+
+### State
+
+After live validation of the scenario-seeded plan path, the model kept "narrating" scenario steps instead of progressing them: it read the seeded rows in `<persai_chat_plan>`, walked the user through them in chat, but never called `todo_write({action:"update", status:"in_progress"})` / `action:"complete"` on the seeded ids — even with the explicit `SCENARIO_SEEDED LIFECYCLE` clause in the tool guidance. The failure mode is a known self-attribution issue: assistants reliably progress todos they themselves authored and routinely ignore externally-seeded ones. Founder approved a clean pivot to **Option A** — the server no longer materialises scenario steps as todos; instead, `skill.engage` returns the scenario's steps verbatim and the model is instructed to call `todo_write({action:"add", items:[...]})` itself as its very next turn. The plan becomes model-authored from the first move, which is the regime Claude/Cursor-style agents naturally progress.
+
+Three additional follow-ups landed in the same slice:
+- the disappearing "Маркетолог · Карусель" chat-header subtitle (caused by message-reconstruction dropping per-message `engagementSummary` on history reload) is now backed by a chat-level `currentEngagement` field on the history endpoint, so the chip reads truth on every reload;
+- the redundant per-message `engagementSummary` chip inside the working-notes toggle row was removed (the header subtitle is now the canonical place);
+- the plan card got the requested polish: trash button on a fully-completed plan deletes without confirmation, desktop banner width matches the chat zone (`max-w-[50rem]`), mobile is flush-to-edges with a hairline divider, desktop carries a quieter `color-mix()` background with no shadow.
+
+### What changed
+
+- **`packages/runtime-contract/src/index.ts`** — dropped `PERSAI_RUNTIME_TODO_WRITE_ORIGINS` / `PersaiRuntimeTodoWriteOrigin` and the `origin` + `seedSkillLabel` fields on `RuntimeTodoItem`. The plan rendering is now origin-agnostic everywhere downstream.
+- **`apps/api/prisma/schema.prisma` + `apps/api/prisma/migrations/20260622180000_adr125_drop_scenario_seeding/migration.sql`** — dropped `AssistantChatTodoOrigin` enum, `origin / seed_skill_id / seed_skill_label / seed_scenario_key / seed_key` columns, and the `assistant_chat_todos_chat_id_seed_key_idx` partial index. The migration is data-safe: previously-seeded rows keep their content/status/sort order and continue to render in the plan card.
+- **`apps/api/src/modules/workspace-management/application/assistant-chat-todos.service.ts`** — removed `seedSkillScenarioTodos`, the `deriveScenarioStepTitle` helper, and the `origin`/`seedSkillLabel` projection on todos. `readWindow` / `readFullPlanForWeb` semantics are unchanged for non-seeded rows.
+- **`apps/api/src/modules/workspace-management/interface/http/internal-runtime-chat-todos.controller.ts`** — deleted the `/seed-skill-scenario` endpoint and all request/response handlers; only the model-owned `apply` / `read` endpoints remain.
+- **`apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`** + **`…/interface/http/assistant.controller.ts`** — the chat-messages history endpoint now returns a chat-level `currentEngagement: { skillDisplayName, scenarioDisplayName } | null` derived from `chat.skillDecisionState` via the existing `deriveEngagementSummary` projection. This is the truth the web header subtitle reads on every reload.
+- **`apps/api/prisma/tool-catalog-data.ts`** — `skill.modelUsageGuidance` gains a `PLAN INTAKE` section instructing the model to follow every `action:"engage"` that returns a scenario with a single `todo_write({action:"add", items:[...]})` call mirroring the scenario's steps (first row `in_progress`, the rest `pending`). `todo_write.modelUsageGuidance` replaces the obsolete `SCENARIO_SEEDED LIFECYCLE` clause with a generic `SCENARIO INTAKE` + `LIFECYCLE` pair that explains the same regime: the model owns every row, switch to `in_progress` before working, `action:"complete"` before moving on, never leave a finished step at pending.
+- **`apps/runtime/src/modules/turns/runtime-skill-tool.service.ts`** — removed the `seedScenarioTodosAfterEngage` call and helper. The `skill.engage` response still includes the scenario object as before, but the runtime no longer mutates the todos table on engage; the model does that itself via `todo_write` on its next turn.
+- **`apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`** — deleted `seedSkillScenarioTodos` and its parser/types. Internal API surface from runtime → API is strictly the model-owned `apply`/`read` endpoints now.
+- **`apps/runtime/src/modules/turns/turn-context-hydration.service.ts`** — `renderChatPlanBlock` no longer emits the `// Rows tagged (seeded by …) …` lifecycle hint or the `(seeded by <label>)` suffix on plan rows. The block is now a flat plan with `— by id <id>` ids and status badges only.
+- **`apps/web/app/app/_components/chat-plan-card.tsx`** — dropped all `origin`/`seedSkillLabel` rendering; new visual: mobile flush (no rounded corners, hairline divider top + bottom), desktop semi-transparent `color-mix()` background with no shadow, content `max-w-[50rem]` to match the chat zone, quieter status icons / typography. When `allDone === true`, the trash button deletes immediately without the confirmation row (`planClearConfirmPrompt` was a noise sink for a plan the user already considers closed).
+- **`apps/web/app/app/_components/use-chat.ts`** — `ChatMessage.engagementSummary` is gone. `useChat` now holds a chat-level `currentEngagement` state populated from (a) the history endpoint's new chat-level field on load, (b) the SSE turn-completion payload on each turn. `loadHistory` reads `page.currentEngagement`; the SSE handler writes `transport.engagementSummary` straight into `currentEngagement` instead of re-deriving it from messages.
+- **`apps/web/app/app/_components/chat-area.tsx`** — `activeSkillEngagement` reads `chat.currentEngagement` directly. The `ChatPlanCard` wrapper switched to `max-w-[50rem]` with mobile-flush / desktop-banner classes per the new design.
+- **`apps/web/app/app/_components/chat-message.tsx`** — removed the per-message `engagementSummary` chip from `WorkingTextBlocks`; the chat header subtitle is the canonical surface.
+- **`apps/web/app/app/assistant-api-client.ts`** — `getChatMessages` return type now exposes the optional `currentEngagement` field.
+- **`apps/web/messages/{ru,en}.json`** — removed the orphan `chat.planSeededFrom` / `chat.planSeededFromGeneric` keys.
+- **Tests.**
+  - `apps/api/test/assistant-chat-todos.service.test.ts` — removed all `testSeedSkillScenario*` cases, the `FakeTodoRow` seed/origin fields, and the `findFirst({seedKey})` path.
+  - `apps/api/test/tool-catalog-data.test.ts` — replaced the `SCENARIO_SEEDED LIFECYCLE` pin with the `SCENARIO INTAKE` + `LIFECYCLE` pins, and added a new pin asserting `skill.modelUsageGuidance` carries the `PLAN INTAKE` section + the literal `todo_write` reference.
+  - `apps/runtime/test/runtime-skill-tool.service.test.ts` — removed `FakeInternalApi.seedScenario*` state, all seed-call assertions, and the seed-related happy/error test cases.
+  - `apps/runtime/test/turn-context-hydration.service.test.ts` — dropped the `scenario_seeded` lifecycle-hint assertions and the seed-suffix expectations.
+  - `apps/runtime/test/runtime-todo-write-tool.service.test.ts` — removed `origin` / `seedSkillLabel` from the mock todo row data.
+  - `apps/web/app/app/_components/chat-plan-card.test.tsx` — dropped the `scenario_seeded` badge / generic-fallback cases, added a case asserting the trash button on a fully-completed plan deletes immediately.
+  - `apps/web/app/app/_components/chat-area.test.tsx` — `chat-header subtitle` cases switched from per-message `engagementSummary` fixtures to the chat-level `currentEngagement` field.
+  - `apps/web/app/app/_components/chat-message.test.tsx` — collapsed the per-message engagement-annotation cases into one pinning that the block row never renders an engagement annotation.
+  - `apps/web/app/app/_components/use-chat.test.tsx`, `apps/web/app/app/assistant-api-client.test.ts` — dropped `origin`/`seedSkillLabel` from todo fixtures.
+
+### Files
+
+`packages/runtime-contract/src/index.ts`, `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20260622180000_adr125_drop_scenario_seeding/migration.sql`, `apps/api/prisma/tool-catalog-data.ts`, `apps/api/src/modules/workspace-management/application/assistant-chat-todos.service.ts`, `apps/api/src/modules/workspace-management/interface/http/internal-runtime-chat-todos.controller.ts`, `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`, `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`, `apps/runtime/src/modules/turns/runtime-skill-tool.service.ts`, `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`, `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`, `apps/web/app/app/_components/chat-plan-card.tsx`, `apps/web/app/app/_components/use-chat.ts`, `apps/web/app/app/_components/chat-area.tsx`, `apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/assistant-api-client.ts`, `apps/web/messages/ru.json`, `apps/web/messages/en.json`, the matching test files listed above, this checkpoint + `docs/CHANGELOG.md`.
+
+### Verified
+
+- `corepack pnpm --filter @persai/runtime-contract run typecheck` PASS
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-chat-todos.service.test.ts` PASS
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-data.test.ts` PASS
+- `corepack pnpm --filter @persai/api exec tsx test/engagement-summary.derivation.test.ts` PASS (8/8)
+- `corepack pnpm --filter @persai/runtime run test` PASS (full isolated suite incl. `runRuntimeSkillToolServiceTest`, `runChatPlanBlockTest`, `runRuntimeTodoWriteToolServiceTest`)
+- `corepack pnpm --filter @persai/web exec vitest run chat-plan-card.test.tsx` — 15/15 PASS
+- `corepack pnpm --filter @persai/web exec vitest run chat-area.test.tsx` — 27/27 PASS
+- `corepack pnpm --filter @persai/web exec vitest run chat-message.test.tsx` — 40/40 PASS
+- `corepack pnpm --filter @persai/web exec vitest run use-chat.test.tsx` — 86/86 PASS
+- `corepack pnpm --filter @persai/web exec vitest run assistant-api-client.test.ts` — 69/69 PASS
+
+### Residuals / risks
+
+- **Migration is destructive on attribution columns.** Existing rows lose their `origin` / `seed_*` provenance. Content/status/sort/parent linkage are preserved, so the plan card and `<persai_chat_plan>` block still render every row; the model just sees a flat plan instead of "(seeded by Marketer)". This is exactly the intended Option A regime — no per-row rollback path is needed.
+- **Migration approval.** Prisma/schema/migration changes pause `Dev Image Publish` on the `persai-dev-migrations` GitHub Environment per AGENTS truth — the migration must be approved before GitOps tag pinning resumes.
+- **Web SSE payload still carries `engagementSummary` per turn.** That is the existing wire shape; the client just routes it to chat-level `currentEngagement` now instead of stamping each message. No protocol change needed.
+- **Skill engagement on first turn.** In Option A, the very first model turn after `skill.engage` is expected to call `todo_write({action:"add", …})` with the scenario steps. If the model skips that call, the plan card simply stays empty until the model adds rows itself — there is no fallback server seeding. This is by design (the whole point of the pivot), but worth observing on the first live engage after deploy.
+
+### Next recommended step
+
+Watch the `Dev Image Publish` job that this commit triggers. After the migration is approved and `persai-dev` repins:
+1. open a chat, `skill engage <marketer / instagram_carousel>` — confirm the model's next assistant turn opens with a `todo_write` adding the scenario's steps; the plan card should populate with the model's titles, first row `in_progress`, the rest `pending`.
+2. walk through 2–3 scenario steps — confirm the model flips each row to `in_progress` before working and to `completed` before moving on, without manual prompting.
+3. reload the chat history mid-engagement — confirm the chat-header subtitle (`Скилл · Маркетолог · Карусель`) survives the reload (this is the regression `currentEngagement` was added to fix).
+4. complete the entire plan — confirm the trash button now deletes the plan card on the first click (no confirm prompt), and the empty card state is reached.
+
 ## 2026-06-22 — Chat-header active-skill subtitle (ADR-119 follow-up) — CHECKPOINT
 
 ### State

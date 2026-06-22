@@ -698,8 +698,6 @@
     "planTitle": "План",
     "planCounts": "{done} / {total}",
     "planMoreHidden": "ещё +{count}",
-    "planSeededFrom": "из {label}",
-    "planSeededFromGeneric": "из навыка",
     "planClear": "Очистить",
     "planClearConfirmPrompt": "Очистить план?",
     "planClearConfirmAction": "Очистить",

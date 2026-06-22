@@ -698,8 +698,6 @@
     "planTitle": "Plan",
     "planCounts": "{done} / {total}",
     "planMoreHidden": "+{count} more",
-    "planSeededFrom": "from {label}",
-    "planSeededFromGeneric": "from skill",
     "planClear": "Clear",
     "planClearConfirmPrompt": "Clear plan?",
     "planClearConfirmAction": "Clear",

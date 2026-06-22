@@ -21,18 +21,37 @@ function testTodoWriteCatalogRow(): void {
     typeof row.modelUsageGuidance === "string" && row.modelUsageGuidance.length > 0,
     "todo_write modelUsageGuidance must be non-empty"
   );
-  // ADR-125 follow-up — without an explicit SCENARIO_SEEDED LIFECYCLE section
-  // the model leaves seeded scenario steps at `pending` forever (the live
-  // regression that surfaced this requirement). Pin the section so we never
-  // drop it from the catalog by accident.
+  // ADR-125 follow-up — the model owns the entire plan lifecycle, including
+  // scenario intake. When `skill.engage` returns a scenario, the model must
+  // immediately call `todo_write` with the scenario's steps. Pin both the
+  // intake instruction and the lifecycle section so the catalog can never
+  // ship without them.
   assert.ok(
     typeof row.modelUsageGuidance === "string" &&
-      row.modelUsageGuidance.includes("SCENARIO_SEEDED LIFECYCLE"),
-    "todo_write modelUsageGuidance must explain the scenario_seeded lifecycle"
+      row.modelUsageGuidance.includes("SCENARIO INTAKE"),
+    "todo_write modelUsageGuidance must explain how to intake scenarios from skill.engage"
+  );
+  assert.ok(
+    typeof row.modelUsageGuidance === "string" && row.modelUsageGuidance.includes("LIFECYCLE"),
+    "todo_write modelUsageGuidance must explain in_progress/complete row lifecycle"
   );
   assert.ok(
     typeof row.modelUsageGuidance === "string" && row.modelUsageGuidance.includes("by id <id>"),
     "todo_write modelUsageGuidance must tell the model where to read row ids from <persai_chat_plan>"
+  );
+}
+
+function testSkillCatalogRowMentionsPlanIntake(): void {
+  const rows = TOOL_CATALOG.filter((t) => t.code === "skill");
+  assert.strictEqual(rows.length, 1, "TOOL_CATALOG must contain exactly one skill row");
+  const row = rows[0];
+  assert.ok(
+    typeof row.modelUsageGuidance === "string" && row.modelUsageGuidance.includes("PLAN INTAKE"),
+    "skill modelUsageGuidance must tell the model to call todo_write after engage-with-scenario"
+  );
+  assert.ok(
+    typeof row.modelUsageGuidance === "string" && row.modelUsageGuidance.includes("todo_write"),
+    "skill modelUsageGuidance must reference the todo_write tool explicitly"
   );
 }
 
@@ -46,6 +65,7 @@ function testStarterTrialPolicyTodoWrite(): void {
 
 export async function runToolCatalogDataTest(): Promise<void> {
   testTodoWriteCatalogRow();
+  testSkillCatalogRowMentionsPlanIntake();
   testStarterTrialPolicyTodoWrite();
   console.log("[tool-catalog-data] all tests passed");
 }

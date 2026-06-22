@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   AlertCircle,
@@ -333,23 +333,13 @@ export function ChatArea({
   const displayTitle = title ?? t("newChat");
   const canEdit = !!chat.chatId;
 
-  // Latest committed assistant message's engagementSummary == current
-  // chat-level active skill/scenario. The API derives `engagementSummary`
-  // from `chat.skillDecisionState`, so a release turn lands without the
-  // field and clears the chip. Walking from the tail means we don't react
-  // to streaming/optimistic messages — only committed ones — which avoids
-  // flicker while the model is mid-tool-loop.
-  const activeSkillEngagement = useMemo(() => {
-    for (let i = chat.entries.length - 1; i >= 0; i -= 1) {
-      const entry = chat.entries[i];
-      if (entry === undefined) continue;
-      if (entry.kind !== "message") continue;
-      if (entry.message.role !== "assistant") continue;
-      if (entry.message.status !== "committed") continue;
-      return entry.message.engagementSummary ?? null;
-    }
-    return null;
-  }, [chat.entries]);
+  // ADR-125 follow-up — read the chat-level engagement projection that the
+  // API derives from `chat.skillDecisionState` and ships in (a) the history
+  // endpoint response on load, (b) the SSE turn-completion payload on each
+  // turn. Walking messages was unreliable because reconstructed history
+  // messages dropped `engagementSummary`, so the chip disappeared a few
+  // seconds after every history reload.
+  const activeSkillEngagement = chat.currentEngagement;
 
   const startEdit = useCallback(() => {
     if (!canEdit) return;
@@ -612,7 +602,12 @@ export function ChatArea({
         className="flex-1 overflow-x-hidden overflow-y-auto md:[scrollbar-gutter:stable_both-edges]"
       >
         {!isEmpty && chat.chatPlan.length > 0 ? (
-          <div className="sticky top-2 z-20 mx-auto w-full max-w-3xl px-3 md:px-0">
+          // ADR-125 follow-up — wrapper has no horizontal padding on mobile
+          // so the banner sits flush to the screen edges (the card itself
+          // drops its left/right borders at that breakpoint). On desktop
+          // the inner card sticks to the same `max-w-[50rem]` envelope as
+          // the message column for a clean width match.
+          <div className="sticky top-0 z-20 mx-auto w-full max-w-[50rem] md:top-2 md:px-0">
             <ChatPlanCard
               todos={chat.chatPlan}
               totalCount={chat.chatPlanTotalCount}

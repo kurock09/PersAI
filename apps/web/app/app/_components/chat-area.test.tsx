@@ -100,6 +100,7 @@ function createChat(
     loadOlderMessages?: UseChatReturn["loadOlderMessages"];
     issue?: UseChatReturn["issue"];
     messages?: ChatMessage[];
+    currentEngagement?: UseChatReturn["currentEngagement"];
   }
 ): UseChatReturn {
   const contents = Array.isArray(messageContent) ? messageContent : [messageContent];
@@ -119,6 +120,7 @@ function createChat(
     chatId: options?.chatId ?? "chat-1",
     activeMediaJobs: [],
     activeDocumentJobs: [],
+    currentEngagement: options?.currentEngagement ?? null,
     isStreaming,
     historyLoading: false,
     hasOlderMessages: options?.hasOlderMessages ?? false,
@@ -740,20 +742,16 @@ describe("ChatArea", () => {
       skillDisplayName: string;
       scenarioDisplayName: string | null;
     }): UseChatReturn {
-      const message: ChatMessage = {
-        id: "assistant-engagement",
-        role: "assistant",
-        content: "ok",
-        status: "committed",
-        engagementSummary: {
+      return createChat("ok", {
+        isStreaming: false,
+        currentEngagement: {
           skillDisplayName: options.skillDisplayName,
           scenarioDisplayName: options.scenarioDisplayName
         }
-      };
-      return createChat("ok", { isStreaming: false, messages: [message] });
+      });
     }
 
-    it("renders skill + scenario subtitle when latest assistant turn carries engagementSummary", () => {
+    it("renders skill + scenario subtitle when chat carries currentEngagement", () => {
       render(
         <ChatArea
           chat={chatWithEngagement({
@@ -770,7 +768,7 @@ describe("ChatArea", () => {
       expect(screen.queryByText("modeDeepCaption")).not.toBeInTheDocument();
     });
 
-    it("renders skill-only subtitle when engagementSummary has no scenario", () => {
+    it("renders skill-only subtitle when currentEngagement has no scenario", () => {
       render(
         <ChatArea
           chat={chatWithEngagement({ skillDisplayName: "Finance", scenarioDisplayName: null })}
