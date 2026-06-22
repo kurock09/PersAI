@@ -209,6 +209,7 @@ const webConversation = {
 };
 
 class FakeInternalApi {
+  callOrder: string[] = [];
   skillStateCalls: Array<Record<string, unknown>> = [];
   skillStateResult: {
     skillId: string;
@@ -220,13 +221,44 @@ class FakeInternalApi {
     previousSkillId: null
   };
   skillStateError: Error | null = null;
+  seedScenarioCalls: Array<Record<string, unknown>> = [];
+  seedScenarioOutcome:
+    | {
+        kind: "seeded";
+        chatId: string;
+        insertedCount: number;
+        todos: unknown[];
+      }
+    | { kind: "already_seeded"; chatId: string }
+    | {
+        kind: "skipped";
+        chatId: string | null;
+        reason: "no_directives" | "cap_exceeded";
+      }
+    | {
+        kind: "request_failed";
+        chatId: null;
+        status: number | null;
+        reason: string;
+      } = { kind: "seeded", chatId: "chat-1", insertedCount: 1, todos: [] };
+  seedScenarioError: Error | null = null;
 
   async updateSkillState(input: Record<string, unknown>) {
+    this.callOrder.push("updateSkillState");
     this.skillStateCalls.push(input);
     if (this.skillStateError !== null) {
       throw this.skillStateError;
     }
     return this.skillStateResult;
+  }
+
+  async seedSkillScenarioTodos(input: Record<string, unknown>) {
+    this.callOrder.push("seedSkillScenarioTodos");
+    this.seedScenarioCalls.push(input);
+    if (this.seedScenarioError !== null) {
+      throw this.seedScenarioError;
+    }
+    return this.seedScenarioOutcome;
   }
 }
 
@@ -308,6 +340,7 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
       skillId: "skill-finance",
       scenarioKey: null
     });
+    assert.equal(api.seedScenarioCalls.length, 0, "engage without scenarioKey must not seed todos");
   }
 
   // (b) Happy path: release
@@ -327,6 +360,7 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
     assert.equal(result.isError, false);
     assert.equal(api.skillStateCalls.length, 1);
     assert.equal(api.skillStateCalls[0]?.action, "release");
+    assert.equal(api.seedScenarioCalls.length, 0, "release must not seed todos");
   }
 
   // (c) Error: skill_not_enabled — skillId not in bundle.skills.enabled
@@ -476,6 +510,28 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
       skillId: "skill-marketer",
       scenarioKey: "instagram_carousel"
     });
+
+    // ADR-125 Slice 2 — engage-with-scenario seeds the scenario's directives.
+    assert.equal(api.seedScenarioCalls.length, 1, "scenario seed must be invoked once");
+    assert.deepEqual(
+      api.callOrder,
+      ["updateSkillState", "seedSkillScenarioTodos"],
+      "seed must run after engage state update"
+    );
+    const seedCall = api.seedScenarioCalls[0];
+    assert.ok(seedCall);
+    assert.equal(seedCall.assistantId, "assistant-1");
+    assert.equal(seedCall.channel, "web");
+    assert.equal(seedCall.surfaceThreadKey, "thread-1");
+    assert.equal(seedCall.skillId, "skill-marketer");
+    assert.equal(seedCall.skillLabel, "Marketer");
+    assert.equal(seedCall.scenarioKey, "instagram_carousel");
+    assert.equal(
+      seedCall.seedKey,
+      "skill-marketer::instagram_carousel::",
+      "seedKey is the deterministic (skillId, scenarioKey, version) fallback"
+    );
+    assert.deepEqual(seedCall.directives, ["CALL image_generate with outputMode=series, count=8"]);
   }
 
   // (j2) instruction payload content is byte-for-byte match to bundle fields
@@ -598,5 +654,102 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
     assert.equal((result.payload as { error: string }).error, "invalid_arguments");
     assert.equal(result.isError, true);
     assert.equal(api.skillStateCalls.length, 0);
+  }
+
+  // ADR-125 Slice 2 — (k) seed `request_failed` outcome MUST NOT break engage.
+  {
+    const api = new FakeInternalApi();
+    api.skillStateResult = {
+      skillId: "skill-marketer",
+      skillDisplayName: "Marketer",
+      previousSkillId: null
+    };
+    api.seedScenarioOutcome = {
+      kind: "request_failed",
+      chatId: null,
+      status: 500,
+      reason: "boom"
+    };
+    const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle: bundleWithSkillAndScenarios,
+      toolCall: createToolCall({
+        action: "engage",
+        skillId: "skill-marketer",
+        scenarioKey: "instagram_carousel"
+      }),
+      conversation: webConversation,
+      requestId: "req-k"
+    });
+    assert.equal(result.isError, false);
+    assert.equal((result.payload as { action: string }).action, "engaged");
+    assert.equal(api.skillStateCalls.length, 1);
+    assert.equal(api.seedScenarioCalls.length, 1);
+  }
+
+  // ADR-125 Slice 2 — (l) seed THROWING MUST also be swallowed (warn-logged).
+  {
+    const api = new FakeInternalApi();
+    api.skillStateResult = {
+      skillId: "skill-marketer",
+      skillDisplayName: "Marketer",
+      previousSkillId: null
+    };
+    api.seedScenarioError = new Error("transport blew up");
+    const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle: bundleWithSkillAndScenarios,
+      toolCall: createToolCall({
+        action: "engage",
+        skillId: "skill-marketer",
+        scenarioKey: "instagram_carousel"
+      }),
+      conversation: webConversation,
+      requestId: "req-l"
+    });
+    assert.equal(result.isError, false);
+    assert.equal((result.payload as { action: string }).action, "engaged");
+    assert.equal(api.seedScenarioCalls.length, 1);
+  }
+
+  // ADR-125 Slice 2 — (m) idempotent re-engage: server returns already_seeded,
+  // the runtime still surfaces `engaged` and does not retry on its own.
+  {
+    const api = new FakeInternalApi();
+    api.skillStateResult = {
+      skillId: "skill-marketer",
+      skillDisplayName: "Marketer",
+      previousSkillId: null
+    };
+    api.seedScenarioOutcome = { kind: "already_seeded", chatId: "chat-1" };
+    const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
+    const first = await svc.executeToolCall({
+      bundle: bundleWithSkillAndScenarios,
+      toolCall: createToolCall({
+        action: "engage",
+        skillId: "skill-marketer",
+        scenarioKey: "instagram_carousel"
+      }),
+      conversation: webConversation,
+      requestId: "req-m1"
+    });
+    const second = await svc.executeToolCall({
+      bundle: bundleWithSkillAndScenarios,
+      toolCall: createToolCall({
+        action: "engage",
+        skillId: "skill-marketer",
+        scenarioKey: "instagram_carousel"
+      }),
+      conversation: webConversation,
+      requestId: "req-m2"
+    });
+    assert.equal((first.payload as { action: string }).action, "engaged");
+    assert.equal((second.payload as { action: string }).action, "engaged");
+    assert.equal(api.seedScenarioCalls.length, 2);
+    assert.equal(
+      api.seedScenarioCalls[0]?.seedKey,
+      api.seedScenarioCalls[1]?.seedKey,
+      "seedKey must be deterministic across re-engages of the same scenario"
+    );
   }
 }

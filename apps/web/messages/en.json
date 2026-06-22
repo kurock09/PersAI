@@ -102,12 +102,12 @@
     "workflow": {
       "eyebrow": "What PersAI does",
       "title": "One assistant. One continuous workflow.",
-      "subtitle": "From conversation to finished artifact \u2014 without restating context or switching tools.",
+      "subtitle": "From conversation to finished artifact — without restating context or switching tools.",
       "scenes": {
         "personality": {
           "tag": "Your assistant",
           "title": "Name, voice, character",
-          "body": "Give your assistant a name, avatar, tone, and voice. Talk to PersAI and hear it back \u2014 it becomes yours, not a faceless chatbot.",
+          "body": "Give your assistant a name, avatar, tone, and voice. Talk to PersAI and hear it back — it becomes yours, not a faceless chatbot.",
           "surface": {
             "prompt": "What should I call you?",
             "reply": "I'm Aurora. How can I help?",
@@ -126,7 +126,7 @@
           "body": "PersAI carries your thread, role, and style across sessions.",
           "surface": {
             "prompt": "Plan a 4-week launch",
-            "reply": "Prep \u2192 Warm-up \u2192 Launch \u2192 Review",
+            "reply": "Prep → Warm-up → Launch → Review",
             "recall": "What about week 2?",
             "memoryTag": "memory"
           }
@@ -138,10 +138,10 @@
           "surface": {
             "prompt": "Prep a post for launch",
             "reply": "Scheduled. I'll remind you in the morning.",
-            "task1": "Tomorrow 11:00 \u00b7 post",
-            "task2": "in 30 min \u00b7 report",
-            "task3": "in background \u00b7 gathering data",
-            "task4": "done \u00b7 sent"
+            "task1": "Tomorrow 11:00 · post",
+            "task2": "in 30 min · report",
+            "task3": "in background · gathering data",
+            "task4": "done · sent"
           }
         },
         "documents": {
@@ -169,7 +169,7 @@
           "body": "Connect your documents and activate specialized Skills. The assistant works in your context.",
           "surface": {
             "prompt": "What did we miss in the plan?",
-            "reply": "Per sources \u2014 two items.",
+            "reply": "Per sources — two items.",
             "skillsLabel": "Skills",
             "sourcesLabel": "Sources",
             "usingLabel": "using",
@@ -234,18 +234,18 @@
     "system": {
       "eyebrow": "Personal system",
       "title": "Personal system.",
-      "lead": "PersAI stays with you \u2014 in the dense context of the day and in the work with documents and materials. One tool, not five separate AI chats.",
+      "lead": "PersAI stays with you — in the dense context of the day and in the work with documents and materials. One tool, not five separate AI chats.",
       "pillars": {
         "personality": {
           "title": "Your character. Your voice.",
-          "body": "Name, avatar, tone, and voice \u2014 the assistant becomes yours. Talk to PersAI and hear it back."
+          "body": "Name, avatar, tone, and voice — the assistant becomes yours. Talk to PersAI and hear it back."
         },
         "memory": {
           "title": "Remembers and continues.",
           "body": "Keeps your context, preferences, and important details. You don't repeat yourself."
         },
         "action": {
-          "title": "Not just answers \u2014 action.",
+          "title": "Not just answers — action.",
           "body": "Plans, reminds, runs background jobs. Creates documents, decks, images, and video."
         },
         "knowledge": {
@@ -278,7 +278,7 @@
       "eyebrow": "Get started",
       "titleLine1": "One step",
       "titleLine2": "to your own PersAI.",
-      "body": "Set up your assistant in a minute. Start free \u2014 expand as your workflow grows.",
+      "body": "Set up your assistant in a minute. Start free — expand as your workflow grows.",
       "trust": {
         "fastStart": "Start in a couple of minutes",
         "payment": "SBP and local cards",
@@ -298,7 +298,7 @@
     "privacyLink": "Privacy",
     "contactsLink": "Contacts",
     "requisitesLink": "Company details",
-    "terms": "By continuing you agree to the Terms\u00a0of\u00a0Service"
+    "terms": "By continuing you agree to the Terms of Service"
   },
   "legalPage": {
     "brandTagline": "Personal AI",
@@ -505,6 +505,9 @@
     "activityBackgroundTaskStart": "Starting background task",
     "activityBackgroundTaskDone": "Background task started",
     "activityBackgroundTaskFailed": "Couldn’t start background task",
+    "activityTodoWriteStart": "Updating plan",
+    "activityTodoWriteDone": "Plan updated",
+    "activityTodoWriteFailed": "Plan update failed",
     "activityImageStart": "Creating an image",
     "activityImageDone": "Image ready",
     "activityImageFailed": "Image generation failed",
@@ -690,7 +693,18 @@
     "compactionPhaseEnded": "Compaction pass ended",
     "compactionWillRetry": "Retrying reply with smaller context",
     "issueCompactionUnavailable": "Context compaction did not complete.",
-    "issueCompactionUnavailableGuidance": "Send a normal message in this thread, wait for a reply, then try “Compact now” again."
+    "issueCompactionUnavailableGuidance": "Send a normal message in this thread, wait for a reply, then try “Compact now” again.",
+    "planTitle": "Plan",
+    "planCounts": "{done} / {total}",
+    "planMoreHidden": "+{count} more",
+    "planSeededFrom": "from {label}",
+    "planSeededFromGeneric": "from skill",
+    "planClear": "Clear",
+    "planClearConfirmPrompt": "Clear plan?",
+    "planClearConfirmAction": "Clear",
+    "planClearCancel": "Cancel",
+    "planToggleExpand": "Expand plan",
+    "planToggleCollapse": "Collapse plan"
   },
   "sidebar": {
     "defaultAssistant": "Your Assistant",
@@ -817,7 +831,7 @@
     "skillsSubtitle": "Optional. Choose Skills now, or enable them later from Assistant Settings.",
     "skillsLoadFailed": "Failed to load Skills.",
     "retrySkillsLoad": "Try again",
-    "termsNotice": "By creating your assistant you agree to the Terms\u00a0of\u00a0Service and Privacy\u00a0Policy.",
+    "termsNotice": "By creating your assistant you agree to the Terms of Service and Privacy Policy.",
     "identity": "Identity: {gender}",
     "back": "Back",
     "continue": "Continue",

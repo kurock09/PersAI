@@ -1,5 +1,5 @@
 import { ContractsApiError } from "@persai/contracts";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   compactChat,
   cleanupAssistantFilesCache,
@@ -1686,5 +1686,106 @@ describe("toWebChatUxIssue", () => {
       message: "Assistant settings activation failed.",
       guidance: "Retry the rollout in Admin > Rollouts, then try again."
     });
+  });
+});
+
+describe("getAssistantWebChatPlan", () => {
+  beforeEach(() => {
+    global.fetch = ORIGINAL_FETCH;
+  });
+
+  afterEach(() => {
+    global.fetch = ORIGINAL_FETCH;
+  });
+
+  it("returns the plan response on success", async () => {
+    const { getAssistantWebChatPlan } = await import("./assistant-api-client");
+    const planBody = {
+      requestId: "r1",
+      chatId: "chat-abc",
+      todos: [
+        {
+          id: "t1",
+          parentId: null,
+          content: "Do a thing",
+          status: "pending",
+          origin: "model_authored",
+          seedSkillLabel: null
+        }
+      ],
+      windowed: false,
+      totalCount: 1
+    };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => planBody
+    } as unknown as Response);
+
+    const result = await getAssistantWebChatPlan("token-123", "chat-abc");
+    expect(result).toEqual(planBody);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/assistant/chats/web/chat-abc/plan"),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer token-123" })
+      })
+    );
+  });
+
+  it("throws on non-2xx response", async () => {
+    const { getAssistantWebChatPlan } = await import("./assistant-api-client");
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404
+    } as unknown as Response);
+
+    await expect(getAssistantWebChatPlan("token-123", "chat-404")).rejects.toThrow(
+      "Failed to load chat plan (404)."
+    );
+  });
+
+  it("throws when token is null", async () => {
+    const { getAssistantWebChatPlan } = await import("./assistant-api-client");
+    await expect(getAssistantWebChatPlan(null, "chat-abc")).rejects.toThrow("Not authenticated.");
+  });
+});
+
+describe("clearAssistantWebChatPlan", () => {
+  beforeEach(() => {
+    global.fetch = ORIGINAL_FETCH;
+  });
+
+  afterEach(() => {
+    global.fetch = ORIGINAL_FETCH;
+  });
+
+  it("resolves on 204 success", async () => {
+    const { clearAssistantWebChatPlan } = await import("./assistant-api-client");
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204
+    } as unknown as Response);
+
+    await expect(clearAssistantWebChatPlan("token-123", "chat-abc")).resolves.toBeUndefined();
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/assistant/chats/web/chat-abc/plan"),
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("throws on 500 error", async () => {
+    const { clearAssistantWebChatPlan } = await import("./assistant-api-client");
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500
+    } as unknown as Response);
+
+    await expect(clearAssistantWebChatPlan("token-123", "chat-abc")).rejects.toThrow(
+      "Failed to clear chat plan (500)."
+    );
+  });
+
+  it("throws when token is null", async () => {
+    const { clearAssistantWebChatPlan } = await import("./assistant-api-client");
+    await expect(clearAssistantWebChatPlan(null, "chat-abc")).rejects.toThrow("Not authenticated.");
   });
 });

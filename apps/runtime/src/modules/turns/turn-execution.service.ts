@@ -36,6 +36,7 @@ import {
   type RuntimeKnowledgeSearchToolResult,
   type RuntimeAttachmentRef,
   type RuntimeMemoryWriteToolResult,
+  type RuntimeTodoWriteToolResult,
   type RuntimeQuotaStatusToolResult,
   type RuntimeBrowserToolResult,
   type RuntimeDocumentToolResult,
@@ -104,6 +105,7 @@ import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
+import { RuntimeTodoWriteToolService } from "./runtime-todo-write-tool.service";
 import { BuildActiveScenarioBlockService } from "./build-active-scenario-block.service";
 import { BuildSystemReminderBlocksService } from "./build-system-reminder-blocks.service";
 import { RuntimeSkillToolService } from "./runtime-skill-tool.service";
@@ -262,6 +264,7 @@ type ToolExecutionOutcome = {
     | RuntimeKnowledgeSearchToolResult
     | RuntimeKnowledgeFetchToolResult
     | RuntimeMemoryWriteToolResult
+    | RuntimeTodoWriteToolResult
     | RuntimeQuotaStatusToolResult
     | RuntimeBrowserToolResult
     | RuntimeDocumentToolResult
@@ -350,6 +353,7 @@ const REFUNDABLE_TOOL_REQUEST_REJECTION_REASONS = new Set<string>([
   "portrait_alias_unavailable"
 ]);
 const MEMORY_WRITE_TOOL_CODE = "memory_write";
+const TODO_WRITE_TOOL_CODE = "todo_write";
 const SKILL_TOOL_CODE = "skill";
 const QUOTA_STATUS_TOOL_CODE = "quota_status";
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
@@ -470,6 +474,7 @@ export class TurnExecutionService {
     private readonly runtimeImageGenerateToolService: RuntimeImageGenerateToolService,
     private readonly runtimeKnowledgeToolService: RuntimeKnowledgeToolService,
     private readonly runtimeMemoryWriteToolService: RuntimeMemoryWriteToolService,
+    private readonly runtimeTodoWriteToolService: RuntimeTodoWriteToolService,
     private readonly runtimeQuotaStatusToolService: RuntimeQuotaStatusToolService,
     private readonly runtimeSandboxToolService: RuntimeSandboxToolService,
     private readonly runtimeGrepGlobToolService: RuntimeGrepGlobToolService,
@@ -679,6 +684,9 @@ export class TurnExecutionService {
       bundle: bundleEntry.parsedBundle,
       skillDecisionState: input.skillStateContext?.decision ?? null
     });
+    // ADR-125 Slice 1: chat plan volatile block. Surfaces the current
+    // windowed plan even when the most recent tool call did not touch it.
+    const chatPlanBlock = await this.turnContextHydrationService.buildChatPlanBlock(input);
     // ADR-119 Slice 5: build system-reminder blocks using an initial empty tool budget snapshot.
     // The snapshot is empty at turn-prep time (no tools used yet); budget-warning reminders
     // fire only when the snapshot is non-empty (e.g. across-iteration accumulation in future).
@@ -692,12 +700,14 @@ export class TurnExecutionService {
       currentTurnHasUserAttachedImage,
       toolBudgetSnapshot: initialBudgetSnapshot
     });
+    const volatilePrefix: ProviderGatewayTextMessage[] = [];
+    if (activeScenarioBlock !== null) volatilePrefix.push(activeScenarioBlock);
+    if (chatPlanBlock !== null) volatilePrefix.push(chatPlanBlock);
+    if (reminderBlocks.length > 0) volatilePrefix.push(...reminderBlocks);
     const hydratedMessages: ProviderGatewayTextMessage[] =
-      activeScenarioBlock !== null
-        ? [activeScenarioBlock, ...reminderBlocks, ...hydratedMessagesBase]
-        : reminderBlocks.length > 0
-          ? [...reminderBlocks, ...hydratedMessagesBase]
-          : hydratedMessagesBase;
+      volatilePrefix.length > 0
+        ? [...volatilePrefix, ...hydratedMessagesBase]
+        : hydratedMessagesBase;
     options?.trace?.stage("prepare.context_hydrated");
     const presenceBlock = await this.turnContextHydrationService.computePresenceBlock(
       input,
@@ -3001,6 +3011,16 @@ export class TurnExecutionService {
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
+      case TODO_WRITE_TOOL_CODE: {
+        // ADR-125 Slice 1: chat plan mutations. Inline, zero provider cost,
+        // backed by the API `chat-todos/apply` endpoint.
+        const result = await this.runtimeTodoWriteToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          conversation: acceptedTurn.session.conversation
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
       case SKILL_TOOL_CODE: {
         // ADR-118 Slice 2: model-owned Skill engage/release. Zero provider cost.
         const result = await this.runtimeSkillToolService.executeToolCall({
@@ -3687,6 +3707,7 @@ export class TurnExecutionService {
       | RuntimeKnowledgeSearchToolResult
       | RuntimeKnowledgeFetchToolResult
       | RuntimeMemoryWriteToolResult
+      | RuntimeTodoWriteToolResult
       | RuntimeQuotaStatusToolResult
       | RuntimeBrowserToolResult
       | RuntimeDocumentToolResult

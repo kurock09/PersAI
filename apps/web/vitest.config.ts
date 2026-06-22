@@ -5,7 +5,11 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname),
-      "@persai/types": path.resolve(__dirname, "../../packages/types/src/index.ts")
+      "@persai/types": path.resolve(__dirname, "../../packages/types/src/index.ts"),
+      "@persai/runtime-contract": path.resolve(
+        __dirname,
+        "../../packages/runtime-contract/src/index.ts"
+      )
     }
   },
   test: {

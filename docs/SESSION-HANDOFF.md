@@ -3,6 +3,46 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-22 — ADR-125 in-chat TodoWrite + scenario-seeded plan — CHECKPOINT
+
+### State
+
+Implemented locally across four bounded slices. AGENTS gate green (full lint + format:check + 4-package typecheck + affected API/runtime/web/provider-gateway tests). Working tree carries the slices on top of baseline SHA `b29c3873`. **Live validation pending** the next dev deploy; the additive Prisma migration `20260622130000_adr125_assistant_chat_todos` pauses on the `persai-dev-migrations` environment per CI policy.
+
+### What changed
+
+- **New runtime tool `todo_write`** projected as a native PersAI tool (mirrors `memory_write`/`skill`): model-owned, zero-provider-cost, durable per `(assistantId, chatId)`. Hierarchical (parent ↔ children), three statuses (`pending` / `in_progress` / `completed`), two origins (`model_authored` / `scenario_seeded`). Server enforces invariants — one `in_progress` per parent, valid status transitions only, parent cannot complete with open children, no resurrection of `completed` rows, cycle detection on parentage, content length cap, soft ~200 active rows / hard 500 cap, content normalization.
+- **Reinjection contract:** `<persai_chat_plan>` block in every turn's `volatile_context` (cacheRole `volatile_context`, `volatileKind: "chat_plan"`). Each provider client wraps the block in `<persai_chat_plan>…</persai_chat_plan>` XML. Window is the next ~12 active items (`RUNTIME_CHAT_PLAN_WINDOW_MAX`) under `selectChatPlanWindow`; older `completed` rows tail off (only last 2 kept).
+- **Scenario seeding (Path C):** when `skill({action:"engage", scenarioKey})` succeeds, the runtime calls `seedSkillScenarioTodos` to materialize scenario steps as `origin: scenario_seeded` todos under the deepest current `in_progress` parent (top-level if none). Idempotent per `(chatId, seedKey)` where one batch shares one `seedKey`; existence check + inserts run in one Prisma transaction. Failures are warn-logged and never fail engage.
+- **Web UI:** `<ChatPlanCard>` rendered inline above the composer (Cursor-style collapsible). Status icons (pending circle / in-progress spinner / completed strike-through), parent/child indenting, `from <skill>` pill for `scenario_seeded`, `done / total` counts, optional `+N more` tail when windowed, inline clear-confirm row. `useChat` integration refetches the plan on chat load, on terminal turn completion/interruption/failure, on `todo_write` SSE tool events, and on soft-detach reconcile / focus-resume paths. New ru/en `chat.plan*` and `activityTodoWrite*` strings.
+- **Admin / catalog:** backend canonical `PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER` and the web `/admin/presets` mirror both include `todo_write` between `memory_write` and `quota_status`. `/admin/plans` toggle shows automatically via existing plan-managed backfill; a one-line blurb is added to `TOOL_CARD_DESCRIPTION`. Starter Trial: `active: true`, both limits `null`. New focused regression test `apps/api/test/tool-catalog-data.test.ts` locks the catalog row + Starter Trial entry.
+- **Out of scope (intentionally — see ADR-125 § Scope fence):** cross-chat continuity (lives in ADR-120 open loops), completion-criteria proof contracts (column reserved, v1 unused), runtime stream resilience, background-task ↔ todo unification, `cancelled` status, user-side todo editing in UI (only clear-all on v1), live two-way binding between scenario state and todos, `<tool_usage_policy>` template additions (the model already discovers `todo_write` via native projection, so the selection guide does not need to change — leaving it out keeps the byte-golden fixture stable).
+
+### Files
+
+`docs/ADR/125-in-chat-todo-write-and-scenario-seeded-plan.md`, `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20260622130000_adr125_assistant_chat_todos/migration.sql`, `apps/api/prisma/tool-catalog-data.ts`, `apps/api/src/modules/workspace-management/application/assistant-chat-todos.service.ts` (NEW), `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`, `apps/api/src/modules/workspace-management/application/prompt-constructor-tool-metadata.ts`, `apps/api/src/modules/workspace-management/interface/http/assistant-chat-todos.controller.ts` (NEW), `apps/api/src/modules/workspace-management/interface/http/internal-runtime-chat-todos.controller.ts` (NEW), `apps/api/src/modules/workspace-management/workspace-management.module.ts`, `apps/api/test/assistant-chat-todos.service.test.ts` (NEW), `apps/api/test/tool-catalog-data.test.ts` (NEW), `apps/runtime/src/modules/turns/runtime-todo-write-tool.service.ts` (NEW), `apps/runtime/src/modules/turns/turn-execution.service.ts`, `apps/runtime/src/modules/turns/turns.module.ts`, `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`, `apps/runtime/src/modules/turns/native-tool-projection.ts`, `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`, `apps/runtime/src/modules/turns/runtime-skill-tool.service.ts`, `apps/runtime/test/runtime-todo-write-tool.service.test.ts` (NEW), `apps/runtime/test/native-tool-projection.test.ts`, `apps/runtime/test/turn-context-hydration.service.test.ts`, `apps/runtime/test/turn-execution.service.test.ts`, `apps/runtime/test/runtime-skill-tool.service.test.ts`, `apps/runtime/test/run-suite-isolated.ts`, `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`, `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`, `apps/provider-gateway/src/modules/providers/deepseek/deepseek-provider.client.ts`, `packages/runtime-contract/src/index.ts`, `apps/web/app/app/_components/chat-plan-card.tsx` (NEW), `apps/web/app/app/_components/chat-plan-card.test.tsx` (NEW), `apps/web/app/app/_components/chat-area.tsx`, `apps/web/app/app/_components/chat-area.test.tsx`, `apps/web/app/app/_components/use-chat.ts`, `apps/web/app/app/_components/use-chat.test.tsx`, `apps/web/app/app/_components/activity-badge.tsx`, `apps/web/app/app/assistant-api-client.ts`, `apps/web/app/app/assistant-api-client.test.ts`, `apps/web/messages/en.json`, `apps/web/messages/ru.json`, `apps/web/app/admin/presets/page.tsx`, `apps/web/app/admin/plans/page.tsx`, `apps/web/package.json`, `apps/web/vitest.config.ts`, `pnpm-lock.yaml`, this checkpoint + `docs/CHANGELOG.md`.
+
+### Verified
+
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` PASS
+- API focused tests (incl. new `assistant-chat-todos.service` 30+ cases and new `tool-catalog-data`) PASS
+- Runtime focused tests (incl. new `runtime-todo-write-tool.service`, extended `runtime-skill-tool.service`, `turn-context-hydration.service` chat-plan-block cases, `native-tool-projection` todo_write assertions, `turn-execution.service` dispatcher case) PASS
+- Web focused tests (`chat-plan-card` 15/15, `chat-area` 22/22, `use-chat` 86/86, `assistant-api-client` 69/69) PASS
+
+### Residuals
+
+- **Deploy + live validation.** The new Prisma migration must run (it pauses on `persai-dev-migrations` per CI policy); the `runtime` + `api` + `web` images must be republished and pinned. Live validation after deploy: (a) the model can `todo_write({action:"add"…})` and the result includes the windowed plan; (b) `complete` marks the row done; (c) the next turn carries `<persai_chat_plan>` in the prompt; (d) `skill({action:"engage"…})` seeds scenario steps under the current `in_progress` parent and re-engaging is a no-op; (e) UI plan card appears, collapses, renders parents + indented children, with the `from <skill>` pill on seeded items; (f) `/admin/presets` shows the `todo_write` editor card; (g) `/admin/plans` exposes the `todo_write` toggle.
+- **No new ADR is opened by this slice.** ADR-125 is a single bounded program ADR; selection-guide and resilience work remain explicitly out of scope.
+
+### Next recommended step
+
+Commit + single push, then watch the dev deploy, approve the `persai-dev-migrations` environment, and run the live checks above. If any live check fails, open a fresh narrow ADR rather than re-opening ADR-125.
+
 ## 2026-06-22 — ADR-123 + ADR-124 closed by founder — CHECKPOINT
 
 ### State

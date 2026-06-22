@@ -170,6 +170,7 @@ import {
   type AssistantWebChatMessageAttachmentState,
   type AssistantFilesCleanupSummary
 } from "@persai/contracts";
+import type { RuntimeTodoItem } from "@persai/runtime-contract";
 export type {
   AssistantBillingSubscriptionActionResult,
   AssistantBillingSubscriptionManagementState
@@ -6186,5 +6187,43 @@ export async function deleteWorkspaceVideoPersona(
     const envelope = await readApiErrorEnvelope(res);
     if (envelope) throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
     throw new Error("Failed to delete persona.");
+  }
+}
+
+export interface WebChatPlanResponse {
+  requestId: string;
+  chatId: string;
+  todos: RuntimeTodoItem[];
+  windowed: boolean;
+  totalCount: number;
+}
+
+export async function getAssistantWebChatPlan(
+  token: string | null,
+  chatId: string
+): Promise<WebChatPlanResponse> {
+  if (!token) throw new Error("Not authenticated.");
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/assistant/chats/web/${encodeURIComponent(chatId)}/plan`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to load chat plan (${res.status}).`);
+  }
+  return res.json() as Promise<WebChatPlanResponse>;
+}
+
+export async function clearAssistantWebChatPlan(
+  token: string | null,
+  chatId: string
+): Promise<void> {
+  if (!token) throw new Error("Not authenticated.");
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/assistant/chats/web/${encodeURIComponent(chatId)}/plan`, {
+    method: "DELETE",
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to clear chat plan (${res.status}).`);
   }
 }

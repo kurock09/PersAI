@@ -127,6 +127,17 @@ enum AssistantChatMessageAuthor {
   system
 }
 
+enum AssistantChatTodoStatus {
+  pending
+  in_progress
+  completed
+}
+
+enum AssistantChatTodoOrigin {
+  model_authored
+  scenario_seeded
+}
+
 enum AssistantMemoryRegistrySourceType {
   web_chat
   memory_write
@@ -2113,10 +2124,48 @@ model AssistantChat {
   documentRenderJobs          AssistantDocumentRenderJob[]
   moderationCases             ModerationCase[]
   safetyModerationReviewJobs  SafetyModerationReviewJob[]
+  todos                       AssistantChatTodo[]
 
   @@unique([assistantId, surface, surfaceThreadKey])
   @@unique([id, assistantId])
   @@map("assistant_chats")
+}
+
+/// ADR-125 — per-chat hierarchical todo list owned by the model via the
+/// `todo_write` native tool. The server is source of truth: it enforces
+/// single in_progress per parent, no resurrection of completed items, child-
+/// before-parent completion, and the soft 200 / hard 500 row cap. `sortOrder`
+/// keeps the model-declared in-list ordering within a parent scope; new items
+/// append (`max(sortOrder)+1`). `seedKey` is shared across all rows of one
+/// scenario-seeded batch — the runtime checks `(chatId, seedKey)` BEFORE
+/// inserting so re-engage is a no-op (index, not unique, because N steps in
+/// one batch share the same key).
+model AssistantChatTodo {
+  id                 String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatId             String                  @map("chat_id") @db.Uuid
+  assistantId        String                  @map("assistant_id") @db.Uuid
+  parentId           String?                 @map("parent_id") @db.Uuid
+  content            String                  @db.Text
+  status             AssistantChatTodoStatus @default(pending)
+  origin             AssistantChatTodoOrigin @default(model_authored)
+  seedSkillId        String?                 @map("seed_skill_id") @db.Uuid
+  seedSkillLabel     String?                 @map("seed_skill_label") @db.Text
+  seedScenarioKey    String?                 @map("seed_scenario_key") @db.Text
+  seedKey            String?                 @map("seed_key") @db.Text
+  sortOrder          Int                     @map("sort_order")
+  completionCriteria Json?                   @map("completion_criteria") @db.JsonB
+  createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  completedAt        DateTime?               @map("completed_at") @db.Timestamptz(6)
+  chat               AssistantChat           @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  parent             AssistantChatTodo?      @relation("AssistantChatTodoChildren", fields: [parentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  children           AssistantChatTodo[]     @relation("AssistantChatTodoChildren")
+
+  @@index([chatId, seedKey])
+  @@index([chatId, sortOrder])
+  @@index([chatId, parentId, sortOrder])
+  @@index([parentId])
+  @@map("assistant_chat_todos")
 }
 
 model AssistantChatMessage {

@@ -62,6 +62,7 @@ import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { RuntimeKnowledgeToolService } from "../src/modules/turns/runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "../src/modules/turns/runtime-memory-write-tool.service";
+import { RuntimeTodoWriteToolService } from "../src/modules/turns/runtime-todo-write-tool.service";
 import { RuntimeSkillToolService } from "../src/modules/turns/runtime-skill-tool.service";
 import { RuntimeQuotaStatusToolService } from "../src/modules/turns/runtime-quota-status-tool.service";
 import { RuntimeBackgroundTaskToolService } from "../src/modules/turns/runtime-background-task-tool.service";
@@ -1128,6 +1129,11 @@ class FakeTurnContextHydrationService {
   async computeOpenLoopRefsDeveloperBlock(..._args: unknown[]): Promise<string | null> {
     void _args.length;
     return this.openLoopRefsDeveloperBlock;
+  }
+
+  async buildChatPlanBlock(..._args: unknown[]): Promise<null> {
+    void _args.length;
+    return null;
   }
 
   pruneClosedOpenLoopRefsDeveloperBlock(
@@ -2243,6 +2249,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeMemoryWriteToolService = new RuntimeMemoryWriteToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
+  const runtimeTodoWriteToolService = new RuntimeTodoWriteToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
   const runtimeSkillToolService = new RuntimeSkillToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
@@ -2301,6 +2310,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeImageGenerateToolService,
     runtimeKnowledgeToolService,
     runtimeMemoryWriteToolService,
+    runtimeTodoWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
     runtimeGrepGlobToolService as never,
@@ -2512,6 +2522,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeImageGenerateToolService,
     runtimeKnowledgeToolService,
     runtimeMemoryWriteToolService,
+    runtimeTodoWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
     runtimeGrepGlobToolService as never,
@@ -2588,6 +2599,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeImageGenerateToolService,
     runtimeKnowledgeToolService,
     runtimeMemoryWriteToolService,
+    runtimeTodoWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
     runtimeGrepGlobToolService as never,
@@ -8181,6 +8193,7 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
     null as never, // runtimeImageGenerateToolService
     null as never, // runtimeKnowledgeToolService
     null as never, // runtimeMemoryWriteToolService
+    null as never, // runtimeTodoWriteToolService
     null as never, // runtimeQuotaStatusToolService
     null as never, // runtimeSandboxToolService
     null as never, // runtimeGrepGlobToolService

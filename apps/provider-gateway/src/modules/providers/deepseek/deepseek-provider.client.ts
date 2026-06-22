@@ -372,13 +372,16 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
 
   private wrapVolatileContext(
     content: string,
-    volatileKind: "active_scenario" | "system_reminder" | undefined
+    volatileKind: "active_scenario" | "system_reminder" | "chat_plan" | undefined
   ): string {
     if (volatileKind === "active_scenario") {
       return `<persai_active_scenario>\n${content}\n</persai_active_scenario>`;
     }
     if (volatileKind === "system_reminder") {
       return `<system-reminder>\n${content}\n</system-reminder>`;
+    }
+    if (volatileKind === "chat_plan") {
+      return `<persai_chat_plan>\n${content}\n</persai_chat_plan>`;
     }
     return content;
   }

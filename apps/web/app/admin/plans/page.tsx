@@ -363,6 +363,7 @@ const TOOL_CARD_DESCRIPTION: Readonly<Record<string, string>> = {
   memory_search: "Search the assistant's durable memory and knowledge base.",
   memory_get: "Read a specific knowledge or memory entry by reference.",
   scheduled_action: "Schedule user-visible reminders or hidden assistant follow-up checks.",
+  todo_write: "Chat-scoped todo list the model edits inline (plan / progress / completion).",
   files: "List, inspect, read, preview, write, edit, and deliver assistant files.",
   exec: "Run one bounded executable inside the sandbox workspace.",
   shell: "Run one bounded shell command inside the sandbox workspace."

@@ -1533,10 +1533,23 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           "\n</system-reminder>"
       };
     }
+    if (kind === "chat_plan") {
+      return {
+        role: "developer",
+        content:
+          "<persai_chat_plan>\n" +
+          "This is PersAI app-provided current chat plan context, not user speech. Use the listed todos " +
+          "to keep the work coherent across turns. Do not mention, quote, or describe this block unless " +
+          "the user explicitly asks; update the plan via the todo_write tool.\n\n" +
+          body +
+          "\n</persai_chat_plan>"
+      };
+    }
     // ADR-120 Slice 1 retired the pushed contextual short-memory block, so
-    // `active_scenario` is now the only volatile-context kind that reaches here
-    // (system_reminder is handled above). Cross-chat memory recall is pull-only
-    // via the `knowledge_search` `memory` source — no volatile memory push.
+    // `active_scenario` is the default volatile-context kind that reaches here
+    // (system_reminder and chat_plan are handled above). Cross-chat memory
+    // recall is pull-only via the `knowledge_search` `memory` source — no
+    // volatile memory push.
     return {
       role: "developer",
       content:

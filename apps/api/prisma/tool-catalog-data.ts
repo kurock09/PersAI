@@ -451,6 +451,32 @@ GOTCHAS:
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "platform_managed"
+  },
+  {
+    id: "34343434-3434-3434-3434-343434343434",
+    code: "todo_write",
+    displayName: "Todo Write",
+    description:
+      "Manage a chat-scoped hierarchical plan of in-progress, pending, and completed todos for the current conversation.",
+    modelDescription: "Manage a chat-scoped todo list for the current conversation.",
+    modelUsageGuidance: `WHEN TO USE: The user's request requires multi-step work, branching subtasks, or visible progress tracking across several tool calls or assistant turns. Open the plan immediately on the first turn you recognise this — do not wait until you have already started. Use one of: action="add" (mint new items), action="update" (rewrite content, change status, or reparent an existing item by id), action="complete" (mark an item done by id), action="remove" (soft-delete an item and its descendants by id), action="clear" (wipe the entire chat plan).
+WHEN NOT TO USE: Single-step requests, pure chitchat, simple Q&A, or anything the user can finish in one assistant turn without sub-work. Do not mirror trivial actions into todos just to look busy. Do not store secrets, transient turn context, or long-form notes in todo content — use memory_write for durable facts and the message body for explanations.
+EXAMPLES:
+- todo_write({action:"add", items:[{content:"Research current pricing tiers", status:"in_progress"}, {content:"Draft proposal section"}]}) — open a plan at the start of a multi-step request.
+- todo_write({action:"add", items:[{content:"Compile source list", parentId:"<server-id-of-research-step>"}]}) — add a child under an existing parent by its server-minted id.
+- todo_write({action:"complete", id:"<server-id>"}) — close out a finished step before starting the next one.
+- todo_write({action:"update", id:"<server-id>", content:"Draft proposal section (focus on pricing tiers)"}) — sharpen wording without changing identity.
+- todo_write({action:"clear"}) — abandon the plan when the conversation pivots away from the original multi-step work.
+GOTCHAS:
+- Use the exact ids returned in the previous todo_write response's todos window when calling update/complete/remove or attaching a parentId; ids are server-minted UUIDs.
+- parentId attaches a child to an existing item; the server rejects cycles, unknown parents, and parents that are already completed.
+- Only one in_progress sibling per parent scope — extras passed at add are coerced to pending with a warning; on update, a sibling switch is rejected with reason="sibling_in_progress".
+- complete on a parent is rejected while it still has open children — close children first.
+- completed items are immutable; remove them or clear the whole plan if you need a fresh slate. Do not try to re-open a completed item.
+- The response always returns the current rendered window (all in_progress, most recent pending, recently completed up to the cap). Use that window to plan the next step; ignore your local copy if it disagrees.`,
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
   }
 ];
 
@@ -488,7 +514,8 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   grep: { active: true, dailyCallLimit: 20, perTurnCap: null },
   glob: { active: true, dailyCallLimit: 20, perTurnCap: null },
   exec: { active: false, dailyCallLimit: 5, perTurnCap: null },
-  shell: { active: false, dailyCallLimit: 5, perTurnCap: null }
+  shell: { active: false, dailyCallLimit: 5, perTurnCap: null },
+  todo_write: { active: true, dailyCallLimit: null, perTurnCap: null }
 };
 
 const TOOL_ENTRY_BY_CODE = new Map(TOOL_CATALOG.map((tool) => [tool.code, tool]));

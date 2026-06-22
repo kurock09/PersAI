@@ -13,6 +13,7 @@ const assistantApiMocks = vi.hoisted(() => ({
   getAssistantWebChatTurnStatus: vi.fn(),
   getChatCompactionState: vi.fn(),
   getChatMessages: vi.fn(),
+  getAssistantWebChatPlan: vi.fn(),
   reattachAssistantWebChatTurnStream: vi.fn(),
   stageWebChatAttachment: vi.fn(),
   uploadAssistantKnowledgeSource: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("../assistant-api-client", async () => {
     getAssistantWebChatTurnStatus: assistantApiMocks.getAssistantWebChatTurnStatus,
     getChatCompactionState: assistantApiMocks.getChatCompactionState,
     getChatMessages: assistantApiMocks.getChatMessages,
+    getAssistantWebChatPlan: assistantApiMocks.getAssistantWebChatPlan,
     reattachAssistantWebChatTurnStream: assistantApiMocks.reattachAssistantWebChatTurnStream,
     stageWebChatAttachment: assistantApiMocks.stageWebChatAttachment,
     uploadAssistantKnowledgeSource: assistantApiMocks.uploadAssistantKnowledgeSource,
@@ -95,6 +97,7 @@ describe("useChat", () => {
     assistantApiMocks.getAssistantWebChatTurnStatus.mockReset();
     assistantApiMocks.getChatCompactionState.mockReset();
     assistantApiMocks.getChatMessages.mockReset();
+    assistantApiMocks.getAssistantWebChatPlan.mockReset();
     assistantApiMocks.reattachAssistantWebChatTurnStream.mockReset();
     assistantApiMocks.stageWebChatAttachment.mockReset();
     assistantApiMocks.uploadAssistantKnowledgeSource.mockReset();
@@ -120,6 +123,13 @@ describe("useChat", () => {
       }
     );
     assistantApiMocks.stopAssistantWebChatTurn.mockResolvedValue(undefined);
+    assistantApiMocks.getAssistantWebChatPlan.mockResolvedValue({
+      requestId: "r0",
+      chatId: "",
+      todos: [],
+      windowed: false,
+      totalCount: 0
+    });
     nextRafId = 1;
     rafCallbacks.clear();
     vi.stubGlobal(
@@ -6990,6 +7000,118 @@ describe("useChat", () => {
         if (sendPromise !== undefined) {
           await sendPromise;
         }
+      });
+    });
+  });
+
+  describe("chat plan integration", () => {
+    it("fetches the plan when loadHistory resolves", async () => {
+      const planTodo = {
+        id: "todo-lh-1",
+        parentId: null,
+        content: "Do something",
+        status: "pending" as const,
+        origin: "model_authored" as const,
+        seedSkillLabel: null
+      };
+      assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+        messages: [],
+        nextCursor: null,
+        activeTurn: null,
+        activeMediaJobs: [],
+        activeDocumentJobs: []
+      });
+      assistantApiMocks.getAssistantWebChatPlan.mockResolvedValueOnce({
+        requestId: "r1",
+        chatId: "chat-plan-lh",
+        todos: [planTodo],
+        windowed: false,
+        totalCount: 1
+      });
+
+      const { result } = renderHook(() => useChat("thread-plan-lh"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.loadHistory("chat-plan-lh");
+      });
+
+      await waitFor(() => {
+        expect(assistantApiMocks.getAssistantWebChatPlan).toHaveBeenCalledWith(
+          "token-1",
+          "chat-plan-lh"
+        );
+        expect(result.current.chatPlan).toEqual([planTodo]);
+        expect(result.current.chatPlanTotalCount).toBe(1);
+      });
+    });
+
+    it("calls getAssistantWebChatPlan after SSE todo_write tool event", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementationOnce(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onTool?: (payload: {
+              phase: "start" | "end";
+              toolName: string;
+              toolCallId: string;
+              isError: boolean;
+            }) => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onStarted?.({ chat: { id: "chat-tw-1" }, userMessage: { id: "u1" } });
+          handlers.onTool?.({
+            phase: "start",
+            toolName: "todo_write",
+            toolCallId: "tc-1",
+            isError: false
+          });
+          handlers.onCompleted?.({ transport: null });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-tw"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.send("Hello");
+      });
+
+      await waitFor(() => {
+        expect(assistantApiMocks.getAssistantWebChatPlan).toHaveBeenCalled();
+      });
+    });
+
+    it("refetches the plan after a terminal turn (onCompleted)", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementationOnce(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onStarted?.({ chat: { id: "chat-term-1" }, userMessage: { id: "u1" } });
+          handlers.onCompleted?.({ transport: null });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-term"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.send("Hello");
+      });
+
+      await waitFor(() => {
+        expect(assistantApiMocks.getAssistantWebChatPlan).toHaveBeenCalled();
       });
     });
   });

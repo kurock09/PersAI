@@ -298,7 +298,7 @@
     "privacyLink": "Конфиденциальность",
     "contactsLink": "Контакты",
     "requisitesLink": "Реквизиты",
-    "terms": "Продолжая, ты принимаешь Условия\u00a0использования"
+    "terms": "Продолжая, ты принимаешь Условия использования"
   },
   "legalPage": {
     "brandTagline": "Персональный AI",
@@ -505,6 +505,9 @@
     "activityBackgroundTaskStart": "Запускаю фоновую задачу",
     "activityBackgroundTaskDone": "Фоновая задача запущена",
     "activityBackgroundTaskFailed": "Не удалось запустить фоновую задачу",
+    "activityTodoWriteStart": "Обновляет план",
+    "activityTodoWriteDone": "План обновлён",
+    "activityTodoWriteFailed": "Не удалось обновить план",
     "activityImageStart": "Создаю изображение",
     "activityImageDone": "Изображение готово",
     "activityImageFailed": "Не удалось создать изображение",
@@ -690,7 +693,18 @@
     "compactionPhaseEnded": "Проход сжатия завершён",
     "compactionWillRetry": "Повторяем ответ с меньшим контекстом",
     "issueCompactionUnavailable": "Не удалось сжать контекст.",
-    "issueCompactionUnavailableGuidance": "Отправь обычное сообщение в этом чате, дождись ответа и снова нажми «Сжать сейчас»."
+    "issueCompactionUnavailableGuidance": "Отправь обычное сообщение в этом чате, дождись ответа и снова нажми «Сжать сейчас».",
+    "planTitle": "План",
+    "planCounts": "{done} / {total}",
+    "planMoreHidden": "ещё +{count}",
+    "planSeededFrom": "из {label}",
+    "planSeededFromGeneric": "из навыка",
+    "planClear": "Очистить",
+    "planClearConfirmPrompt": "Очистить план?",
+    "planClearConfirmAction": "Очистить",
+    "planClearCancel": "Отмена",
+    "planToggleExpand": "Развернуть план",
+    "planToggleCollapse": "Свернуть план"
   },
   "sidebar": {
     "defaultAssistant": "Твой ассистент",
@@ -817,7 +831,7 @@
     "skillsSubtitle": "Необязательно. Выбери Skills сейчас или включи их позже в настройках ассистента.",
     "skillsLoadFailed": "Не удалось загрузить Skills.",
     "retrySkillsLoad": "Попробовать снова",
-    "termsNotice": "Создавая ассистента, ты принимаешь Условия\u00a0использования и Политику\u00a0конфиденциальности.",
+    "termsNotice": "Создавая ассистента, ты принимаешь Условия использования и Политику конфиденциальности.",
     "identity": "Пол: {gender}",
     "back": "Назад",
     "continue": "Продолжить",

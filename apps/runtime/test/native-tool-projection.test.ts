@@ -453,6 +453,20 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           visibleToModel: true,
           visibleInPlanEditor: true,
           dailyCallLimit: null
+        },
+        {
+          toolCode: "todo_write",
+          displayName: "Todo Write",
+          description: "Manage the orchestrator's structured plan for this chat.",
+          usageGuidance:
+            "Open the plan on the first turn you recognise multi-step work; do not wait.",
+          kind: "plan",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
         }
       ],
       quota: {
@@ -507,8 +521,31 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   const routeControl = projected.tools.find((tool) => tool.name === "route_control");
   const grep = projected.tools.find((tool) => tool.name === "grep");
   const glob = projected.tools.find((tool) => tool.name === "glob");
+  const todoWrite = projected.tools.find((tool) => tool.name === "todo_write");
 
   assert.ok(webSearch, "web_search should be projected when enabled and configured");
+  // ADR-125 Slice 1 — todo_write is projected when the bundle policy is
+  // enabled + visibleToModel + usageRule=allowed + executionMode=inline.
+  assert.ok(todoWrite, "todo_write should be projected when policy enabled + inline");
+  const todoWriteSchema = todoWrite?.inputSchema as {
+    required?: string[];
+    additionalProperties?: boolean;
+    properties?: {
+      action?: { enum?: string[] };
+      items?: { type?: string };
+      id?: { type?: string };
+    };
+  };
+  assert.deepEqual(todoWriteSchema.properties?.action?.enum?.slice().sort(), [
+    "add",
+    "clear",
+    "complete",
+    "remove",
+    "update"
+  ]);
+  assert.equal(todoWriteSchema.required?.[0], "action");
+  assert.equal(todoWriteSchema.additionalProperties, false);
+  assert.match(todoWrite?.description ?? "", /Open the plan on the first turn|multi-step work/);
   assert.equal(routeControl, undefined);
   // ADR-123 Slice 7 — grep/glob inline workspace tools are projected when the
   // policy is enabled + inline.

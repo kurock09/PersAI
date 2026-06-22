@@ -37,6 +37,7 @@ import {
   shouldShowProjectFilesHint
 } from "./project-files-events";
 import type { UseChatReturn } from "./use-chat";
+import { ChatPlanCard } from "./chat-plan-card";
 
 interface ChatAreaProps {
   chat: UseChatReturn;
@@ -1003,6 +1004,16 @@ export function ChatArea({
               </button>
             </div>
           </div>
+        </div>
+      ) : null}
+      {chat.chatPlan.length > 0 ? (
+        <div className="mx-auto w-full max-w-3xl px-4 pb-2">
+          <ChatPlanCard
+            todos={chat.chatPlan}
+            totalCount={chat.chatPlanTotalCount}
+            windowed={chat.chatPlanWindowed}
+            onClear={chat.clearChatPlan}
+          />
         </div>
       ) : null}
       <ChatInput

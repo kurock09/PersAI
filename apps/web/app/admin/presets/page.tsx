@@ -82,6 +82,7 @@ const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
   "summarize_context",
   "compact_context",
   "memory_write",
+  "todo_write",
   "quota_status",
   "knowledge_search",
   "knowledge_fetch",

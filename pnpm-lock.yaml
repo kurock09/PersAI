@@ -342,6 +342,9 @@ importers:
       '@persai/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@persai/runtime-contract':
+        specifier: workspace:*
+        version: link:../../packages/runtime-contract
       '@persai/types':
         specifier: workspace:*
         version: link:../../packages/types

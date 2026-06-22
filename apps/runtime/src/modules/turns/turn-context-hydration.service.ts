@@ -10,8 +10,10 @@ import type {
   RuntimeFileRef,
   RuntimeOutputArtifact,
   RuntimeConversationAddress,
+  RuntimeTodoItem,
   RuntimeTurnRequest
 } from "@persai/runtime-contract";
+import { RUNTIME_CHAT_PLAN_WINDOW_MAX } from "@persai/runtime-contract";
 import { RuntimeStatePostgresService } from "../runtime-state/infrastructure/persistence/runtime-state-postgres.service";
 import { RuntimeStatePrismaService } from "../runtime-state/infrastructure/persistence/runtime-state-prisma.service";
 import { RuntimeStateKeyspaceService } from "../runtime-state/runtime-state-keyspace.service";
@@ -220,6 +222,62 @@ function normalizeOpenLoopRefSummary(summary: string): string | null {
 
 function normalizeOptionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+/**
+ * ADR-125 Slice 1 — render the windowed chat plan as the body of the
+ * `<persai_chat_plan>` volatile block. Returns null when there are no items
+ * to render (caller already filters on `todos.length === 0`, but this guard
+ * keeps the helper safe for direct use in tests). Hierarchy is preserved by
+ * indenting child rows under their parent; items whose parent is not in the
+ * window are rendered at the same indent as top-level (the window selector
+ * guarantees parents are co-located when possible, but we degrade gracefully
+ * if a parent was dropped).
+ *
+ * Output shape (one line per item):
+ *   - [<status>] <content> — by id <id>
+ *     - [<status>] <child content> — by id <id>
+ *   + N more
+ *
+ * The `+ N more` tail appears only when the window truncated the plan.
+ */
+export function renderChatPlanBlock(
+  todos: readonly RuntimeTodoItem[],
+  truncatedCount: number
+): string | null {
+  if (todos.length === 0) return null;
+  if (todos.length > RUNTIME_CHAT_PLAN_WINDOW_MAX) {
+    throw new Error(
+      `renderChatPlanBlock received ${String(todos.length)} todos, above the window cap ${String(RUNTIME_CHAT_PLAN_WINDOW_MAX)}.`
+    );
+  }
+  const idsInWindow = new Set(todos.map((todo) => todo.id));
+  const lines: string[] = [];
+  for (const todo of todos) {
+    const indent = todo.parentId !== null && idsInWindow.has(todo.parentId) ? "  " : "";
+    const statusLabel = renderChatPlanStatusLabel(todo.status);
+    const seedSuffix =
+      todo.origin === "scenario_seeded" && todo.seedSkillLabel !== null
+        ? ` (seeded by ${todo.seedSkillLabel})`
+        : "";
+    const safeContent = todo.content.trim().replace(/\s+/g, " ");
+    lines.push(`${indent}- [${statusLabel}] ${safeContent}${seedSuffix} — by id ${todo.id}`);
+  }
+  if (truncatedCount > 0) {
+    lines.push(`+ ${String(truncatedCount)} more`);
+  }
+  return lines.join("\n");
+}
+
+function renderChatPlanStatusLabel(status: RuntimeTodoItem["status"]): string {
+  switch (status) {
+    case "pending":
+      return " ";
+    case "in_progress":
+      return "~";
+    case "completed":
+      return "x";
+  }
 }
 
 type CanonicalChatMessageRow = {
@@ -987,6 +1045,57 @@ export class TurnContextHydrationService {
     closedRefs: readonly string[]
   ): string | null {
     return pruneClosedOpenLoopRefsDeveloperBlock(block, closedRefs);
+  }
+
+  /**
+   * ADR-125 Slice 1 — composes the volatile `<persai_chat_plan>` block from
+   * the current windowed chat plan. Returns null when:
+   * - the internal API client is unconfigured (no plan to fetch)
+   * - the conversation surface is not a canonical chat surface (preview, etc.)
+   * - the chat has no todos (empty window — block is omitted, no chatter)
+   *
+   * The block is emitted as a `ProviderGatewayTextMessage` with
+   * `cacheRole: "volatile_context"` and `volatileKind: "chat_plan"` so the
+   * provider clients wrap the content with the `<persai_chat_plan>` tag.
+   */
+  async buildChatPlanBlock(input: RuntimeTurnRequest): Promise<ProviderGatewayTextMessage | null> {
+    if (!this.persaiInternalApiClient.isConfigured()) {
+      return null;
+    }
+    const canonicalSurface = toHydratedCanonicalSurface(input.conversation.channel);
+    if (canonicalSurface === null) {
+      return null;
+    }
+    const externalThreadKey = input.conversation.externalThreadKey;
+    if (typeof externalThreadKey !== "string" || externalThreadKey.trim().length === 0) {
+      return null;
+    }
+    try {
+      const outcome = await this.persaiInternalApiClient.readChatPlanWindow({
+        assistantId: input.conversation.assistantId,
+        channel: canonicalSurface,
+        surfaceThreadKey: externalThreadKey
+      });
+      if (outcome.todos.length === 0) {
+        return null;
+      }
+      const truncatedCount = Math.max(outcome.totalCount - outcome.todos.length, 0);
+      const content = renderChatPlanBlock(outcome.todos, truncatedCount);
+      if (content === null) {
+        return null;
+      }
+      return {
+        role: "user",
+        content,
+        cacheRole: "volatile_context",
+        volatileKind: "chat_plan"
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Chat plan window lookup failed; continuing without plan block. error=${this.describeError(error)}`
+      );
+      return null;
+    }
   }
 
   // ADR-074 Slice M3.2 — fetch the per-thread cooldown bookkeeping row.

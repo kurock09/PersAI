@@ -15,6 +15,8 @@ import {
   streamAssistantWebChatTurn,
   toWebChatUxIssue,
   uploadAssistantKnowledgeSource,
+  getAssistantWebChatPlan,
+  clearAssistantWebChatPlan,
   WELCOME_THREAD_KEY,
   WELCOME_TURN_SENTINEL,
   XhrAbortError,
@@ -32,6 +34,7 @@ import {
   type WebChatTurnStatusState,
   type WebChatUxIssue
 } from "../assistant-api-client";
+import type { RuntimeTodoItem } from "@persai/runtime-contract";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
 import { dispatchProjectFilesChanged } from "./project-files-events";
@@ -122,6 +125,11 @@ export interface UseChatReturn {
   compaction: ChatCompactionState | null;
   recentAutoCompaction: RecentAutoCompactionNotice | null;
   compactionRunning: boolean;
+  chatPlan: RuntimeTodoItem[];
+  chatPlanTotalCount: number;
+  chatPlanWindowed: boolean;
+  refreshChatPlan: () => Promise<void>;
+  clearChatPlan: () => Promise<void>;
   send: (text: string, files?: File[], options?: ChatSendOptions) => Promise<void>;
   sendWelcome: (locale: string) => Promise<void>;
   compactNow: (instructions?: string) => Promise<ChatCompactionResult | null>;
@@ -1033,6 +1041,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const [recentAutoCompaction, setRecentAutoCompaction] =
     useState<RecentAutoCompactionNotice | null>(null);
   const [compactionRunning, setCompactionRunning] = useState(false);
+  const [chatPlan, setChatPlan] = useState<RuntimeTodoItem[]>([]);
+  const [chatPlanTotalCount, setChatPlanTotalCount] = useState(0);
+  const [chatPlanWindowed, setChatPlanWindowed] = useState(false);
   const [pendingSendStatus, setPendingSendStatusState] = useState<PendingSendStatus | null>(null);
   /* Slice 1.1 ��� abort controllers are per-thread now (was a single `useRef`). */ /* The single ref clobbered itself when Chat A's stream cleaned up while */ /* Chat B was already mid-flight, which made `stop()` either no-op or abort */ /* the wrong stream. Keying by `threadKey` keeps each turn's controller */ /* independent until *its* stream completes or the user explicitly stops it */ /* from that thread's view. */ /*  */ /* Slice 1.2 ��� each entry now also carries the `clientTurnId` of the */ /* turn it owns. `stop()` needs the id to call the new */ /* `stopAssistantWebChatTurn` API (see `assistant-api-client.ts`); see */ /* the `stop` callback below for why this distinction matters */ /* (soft-detach vs hard-stop). */ const abortControllersByThreadRef =
     useRef<Map<string, { controller: AbortController; clientTurnId: string }>>(new Map());
@@ -1494,6 +1505,32 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     },
     [getToken]
   );
+  const refreshChatPlan = useCallback(async () => {
+    const targetChatId = activeChatIdRef.current ?? chatId;
+    if (!targetChatId) return;
+    const token = await getToken({ skipCache: true });
+    if (!token) return;
+    try {
+      const result = await getAssistantWebChatPlan(token, targetChatId);
+      setChatPlan(result.todos);
+      setChatPlanTotalCount(result.totalCount);
+      setChatPlanWindowed(result.windowed);
+    } catch {
+      /* non-critical */
+    }
+  }, [chatId, getToken]);
+  const clearChatPlan = useCallback(async () => {
+    const targetChatId = activeChatIdRef.current ?? chatId;
+    if (!targetChatId) return;
+    const token = await getToken({ skipCache: true });
+    if (!token) return;
+    try {
+      await clearAssistantWebChatPlan(token, targetChatId);
+      await refreshChatPlan();
+    } catch {
+      /* non-critical */
+    }
+  }, [chatId, getToken, refreshChatPlan]);
   const refreshLatestHistory = useCallback(
     async (
       targetChatId: string,
@@ -2109,6 +2146,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                       : message
                   )
                 );
+                if (toolName === "todo_write") {
+                  void refreshChatPlan();
+                }
               },
               onProjectActivity: ({ summary, detail }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
@@ -2195,6 +2235,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 const reconciled = targetChatId
                   ? await refreshLatestHistory(targetChatId, { targetThreadKey })
                   : false;
+                void refreshChatPlan();
                 latestResult = reconciled ? "terminal" : "terminal";
               },
               onInterrupted: async () => {
@@ -2202,6 +2243,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 const reconciled = targetChatId
                   ? await refreshLatestHistory(targetChatId, { targetThreadKey })
                   : false;
+                void refreshChatPlan();
                 latestResult = reconciled ? "terminal" : latestResult;
               },
               onFailed: async (payload) => {
@@ -2210,6 +2252,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 const reconciled = targetChatId
                   ? await refreshLatestHistory(targetChatId, { targetThreadKey })
                   : false;
+                void refreshChatPlan();
                 latestResult = reconciled ? "terminal" : "running";
               }
             },
@@ -2238,6 +2281,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       applyTurnStatusState,
       getToken,
       markStreaming,
+      refreshChatPlan,
       refreshLatestHistory,
       resolveKnownChatIdForThread
     ]
@@ -2463,6 +2507,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 });
               }
               void refreshCompactionState(targetChatId);
+              void refreshChatPlan();
               return;
             }
           }
@@ -2470,6 +2515,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             clearIssueOnReconcile: true,
             targetThreadKey
           });
+          void refreshChatPlan();
           if (reconciled) {
             finalizeReconciledDetachedTurn(targetThreadKey);
             return;
@@ -2503,6 +2549,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     activeThreads,
     chatId,
     finalizeReconciledDetachedTurn,
+    refreshChatPlan,
     refreshCompactionState,
     refreshLatestHistory,
     refreshTurnStatus,
@@ -3003,6 +3050,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               })
             )
           }));
+          if (toolName === "todo_write") {
+            void refreshChatPlan();
+          }
         },
         onProjectActivity: ({
           summary,
@@ -3361,6 +3411,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               baselineCompaction: compactionBeforeTurn
             });
           }
+          void refreshChatPlan();
           completedSuccessfully = true;
           setThreadPendingSend(
             sendThreadKey,
@@ -3590,6 +3641,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       clearThreadLiveActivity,
       clearSoftDetachReconcileTimer,
       markStreaming,
+      refreshChatPlan,
       refreshCompactionState,
       resolveKnownChatIdForThread,
       setThreadPendingSend,
@@ -4305,13 +4357,22 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         });
         cachedThreadKeyByChatIdRef.current.set(targetChatId, targetThreadKey);
         void refreshCompactionState(targetChatId);
+        void refreshChatPlan();
         historyLoadedRef.current.add(targetChatId);
       } catch {
         /* non-critical */
       }
       setHistoryLoading(false);
     },
-    [activeThreads, getToken, markStreaming, messages, refreshCompactionState, setThreadPendingSend]
+    [
+      activeThreads,
+      getToken,
+      markStreaming,
+      messages,
+      refreshCompactionState,
+      refreshChatPlan,
+      setThreadPendingSend
+    ]
   );
   const loadOlderMessages = useCallback(async () => {
     const cursor = olderCursorRef.current;
@@ -4432,6 +4493,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     compaction,
     recentAutoCompaction,
     compactionRunning,
+    chatPlan,
+    chatPlanTotalCount,
+    chatPlanWindowed,
+    refreshChatPlan,
+    clearChatPlan,
     send,
     sendWelcome,
     compactNow,

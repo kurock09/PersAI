@@ -1078,6 +1078,56 @@ export interface RuntimeMemoryWriteItem {
   chatId: string | null;
 }
 
+/**
+ * ADR-125 Slice 1 — `todo_write` native tool. The model owns a per-chat
+ * hierarchical todo list; the server enforces invariants (single in_progress
+ * per parent, no resurrection of completed items, child-before-parent
+ * completion, soft 200 / hard 500 cap). The reinjection window
+ * (`<persai_chat_plan>`) and the post-mutation response window both use the
+ * same selection rule (`RUNTIME_CHAT_PLAN_WINDOW_MAX = 12`).
+ */
+export const PERSAI_RUNTIME_TODO_WRITE_ACTIONS = [
+  "add",
+  "update",
+  "complete",
+  "remove",
+  "clear"
+] as const;
+
+export type PersaiRuntimeTodoWriteAction = (typeof PERSAI_RUNTIME_TODO_WRITE_ACTIONS)[number];
+
+export const PERSAI_RUNTIME_TODO_WRITE_STATUSES = ["pending", "in_progress", "completed"] as const;
+
+export type PersaiRuntimeTodoWriteStatus = (typeof PERSAI_RUNTIME_TODO_WRITE_STATUSES)[number];
+
+export const PERSAI_RUNTIME_TODO_WRITE_ORIGINS = ["model_authored", "scenario_seeded"] as const;
+
+export type PersaiRuntimeTodoWriteOrigin = (typeof PERSAI_RUNTIME_TODO_WRITE_ORIGINS)[number];
+
+/** ADR-125 — hard upper bound on items rendered in the volatile plan block and the post-mutation response window. */
+export const RUNTIME_CHAT_PLAN_WINDOW_MAX = 12;
+
+export interface RuntimeTodoItem {
+  id: string;
+  parentId: string | null;
+  content: string;
+  status: PersaiRuntimeTodoWriteStatus;
+  origin: PersaiRuntimeTodoWriteOrigin;
+  seedSkillLabel: string | null;
+}
+
+export interface RuntimeTodoWriteToolResult {
+  toolCode: "todo_write";
+  executionMode: "inline";
+  action: "applied" | "skipped";
+  reason: string | null;
+  warning: string | null;
+  /** Post-mutation visible window matching the reinjection window selection. */
+  todos: RuntimeTodoItem[];
+  /** True when the chat plan exceeds the window cap so the model knows the list was truncated. */
+  windowed: boolean;
+}
+
 export interface RuntimeMemoryWriteToolResult {
   toolCode: "memory_write";
   executionMode: "inline";
@@ -3101,12 +3151,14 @@ export interface ProviderGatewayTextMessage {
    * `<persai_active_scenario>` wrapper. "system_reminder" (ADR-119 Slice 5) → the
    * `<system-reminder>` wrapper; used by `BuildSystemReminderBlocksService` to inject
    * mid-conversation reminder messages that reinforce system directives under recency bias.
+   * "chat_plan" (ADR-125 Slice 1) → the `<persai_chat_plan>` wrapper; used by the chat-plan
+   * reinjection block builder to surface the current model-owned todo window.
    * ADR-120 Slice 1 retired the always-on pushed contextual short-memory block, so the
    * `"memory"` / `<persai_memory>` volatile kind no longer exists (cross-chat recall is now
    * pull-only via the `knowledge_search` `memory` source). Ignored when `cacheRole` is not
    * "volatile_context".
    */
-  volatileKind?: "active_scenario" | "system_reminder";
+  volatileKind?: "active_scenario" | "system_reminder" | "chat_plan";
 }
 
 export interface ProviderGatewayTextContentBlock {

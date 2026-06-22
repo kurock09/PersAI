@@ -57,6 +57,8 @@ import { InternalRuntimeTaskRegistryController } from "./interface/http/internal
 import { InternalRuntimeBackgroundTasksController } from "./interface/http/internal-runtime-background-tasks.controller";
 import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
 import { InternalRuntimeSkillStateController } from "./interface/http/internal-runtime-skill-state.controller";
+import { InternalRuntimeChatTodosController } from "./interface/http/internal-runtime-chat-todos.controller";
+import { AssistantChatTodosController } from "./interface/http/assistant-chat-todos.controller";
 import { InternalSmokeReceiptsController } from "./interface/http/internal-smoke-receipts.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
@@ -205,6 +207,7 @@ import { SkillRetrievalStateService } from "./application/skill-retrieval-state.
 import { AutoSkillRoutingStateService } from "./application/auto-skill-routing-state.service";
 import { InternalRuntimeSkillStateService } from "./application/internal-runtime-skill-state.service";
 import { WriteAssistantMemoryService } from "./application/write-assistant-memory.service";
+import { AssistantChatTodosService } from "./application/assistant-chat-todos.service";
 import { HydrateMemoryForTurnService } from "./application/hydrate-memory-for-turn.service";
 import { CloseMostSimilarOpenLoopService } from "./application/close-most-similar-open-loop.service";
 import { CloseAssistantMemoryByRefService } from "./application/close-assistant-memory-by-ref.service";
@@ -455,6 +458,8 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeBackgroundTasksController,
     InternalRuntimeToolQuotaController,
     InternalRuntimeSkillStateController,
+    InternalRuntimeChatTodosController,
+    AssistantChatTodosController,
     InternalSmokeReceiptsController,
     AdminForceReapplyController,
     MediaAttachmentController,
@@ -626,6 +631,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AutoSkillRoutingStateService,
     InternalRuntimeSkillStateService,
     WriteAssistantMemoryService,
+    AssistantChatTodosService,
     HydrateMemoryForTurnService,
     CloseMostSimilarOpenLoopService,
     CloseAssistantMemoryByRefService,

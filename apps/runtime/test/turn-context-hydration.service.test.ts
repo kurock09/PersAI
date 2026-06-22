@@ -14,7 +14,11 @@ import {
   type InternalMarkCrossSessionCarryOverFiredOutcome
 } from "../src/modules/turns/persai-internal-api.client.service";
 import { RuntimeAssistantFileRegistryService } from "../src/modules/turns/runtime-assistant-file-registry.service";
-import { TurnContextHydrationService } from "../src/modules/turns/turn-context-hydration.service";
+import {
+  TurnContextHydrationService,
+  renderChatPlanBlock
+} from "../src/modules/turns/turn-context-hydration.service";
+import type { RuntimeTodoItem } from "@persai/runtime-contract";
 
 const HYDRATED_MEMORY_CONTEXT =
   "[Durable user context retained across conversations]\n" +
@@ -2212,4 +2216,62 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
       "scenario 5: no working files expected when discovery history is empty"
     );
   }
+}
+
+/**
+ * ADR-125 Slice 1 — covers the windowed chat-plan renderer used by the
+ * `<persai_chat_plan>` volatile block. Asserts:
+ *   - empty input → null (block omitted entirely)
+ *   - parent + child rendering keeps the child indented under its parent
+ *   - status badges, seeded skill suffix, and the `+ N more` tail
+ *   - rendering refuses to accept more than the window cap
+ */
+export async function runChatPlanBlockTest(): Promise<void> {
+  assert.equal(renderChatPlanBlock([], 0), null);
+
+  const todos: RuntimeTodoItem[] = [
+    {
+      id: "todo-1",
+      parentId: null,
+      content: "Research pricing tiers",
+      status: "in_progress",
+      origin: "model_authored",
+      seedSkillLabel: null
+    },
+    {
+      id: "todo-2",
+      parentId: "todo-1",
+      content: "Compile sources",
+      status: "pending",
+      origin: "scenario_seeded",
+      seedSkillLabel: "Marketing"
+    },
+    {
+      id: "todo-3",
+      parentId: null,
+      content: "Draft the proposal",
+      status: "completed",
+      origin: "model_authored",
+      seedSkillLabel: null
+    }
+  ];
+  const rendered = renderChatPlanBlock(todos, 4);
+  assert.ok(rendered !== null);
+  const lines = rendered.split("\n");
+  assert.equal(lines.length, 4);
+  assert.match(lines[0] ?? "", /^- \[~\] Research pricing tiers/);
+  assert.match(lines[1] ?? "", /^ {2}- \[ \] Compile sources \(seeded by Marketing\)/);
+  assert.match(lines[2] ?? "", /^- \[x\] Draft the proposal/);
+  assert.match(lines[3] ?? "", /^\+ 4 more$/);
+  assert.match(lines[0] ?? "", /— by id todo-1$/);
+
+  const overSizedInput: RuntimeTodoItem[] = Array.from({ length: 13 }, (_, index) => ({
+    id: `todo-${String(index)}`,
+    parentId: null,
+    content: `Item ${String(index)}`,
+    status: "pending",
+    origin: "model_authored",
+    seedSkillLabel: null
+  }));
+  assert.throws(() => renderChatPlanBlock(overSizedInput, 0), /window cap/);
 }

@@ -75,6 +75,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runRuntimeMemoryWriteToolServiceTest"
   },
   {
+    modulePath: "./runtime-todo-write-tool.service.test.ts",
+    exportName: "runRuntimeTodoWriteToolServiceTest"
+  },
+  {
     modulePath: "./runtime-skill-tool.service.test.ts",
     exportName: "runRuntimeSkillToolServiceTest"
   },
@@ -103,6 +107,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   {
     modulePath: "./turn-context-hydration.service.test.ts",
     exportName: "runTurnContextHydrationServiceTest"
+  },
+  {
+    modulePath: "./turn-context-hydration.service.test.ts",
+    exportName: "runChatPlanBlockTest"
   },
   { modulePath: "./tool-budget-policy.test.ts", exportName: "runToolBudgetPolicyTest" },
   {

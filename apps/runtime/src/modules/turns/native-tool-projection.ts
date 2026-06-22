@@ -29,6 +29,8 @@ import {
   PERSAI_RUNTIME_TTS_NONVERBALS,
   PERSAI_RUNTIME_TTS_PACES,
   PERSAI_RUNTIME_TTS_PAUSE_KINDS,
+  PERSAI_RUNTIME_TODO_WRITE_ACTIONS,
+  PERSAI_RUNTIME_TODO_WRITE_STATUSES,
   PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
   type ProviderGatewayToolDefinition,
   type PersaiRuntimeKnowledgeSource,
@@ -256,6 +258,12 @@ export function projectRuntimeNativeTools(
   const memoryWritePolicy = resolveAllowedModelVisibleToolPolicy(bundle, "memory_write");
   if (memoryWritePolicy !== null) {
     projectedTools.push(createMemoryWriteToolDefinition(memoryWritePolicy));
+  }
+  // ADR-125 Slice 1: todo_write is inline and model-visible whenever the
+  // bundle marked it enabled+allowed (Starter Trial defaults to active).
+  const todoWritePolicy = resolveAllowedModelVisibleToolPolicy(bundle, "todo_write", "inline");
+  if (todoWritePolicy !== null) {
+    projectedTools.push(createTodoWriteToolDefinition(todoWritePolicy));
   }
   const quotaStatusPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "quota_status");
   if (quotaStatusPolicy !== null) {
@@ -532,6 +540,80 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
           type: "string",
           description:
             'Required when action is "close". Opaque open-loop reference shown next to each loop in the cross-session carry-over block as `[ref: ...]`. Pass it back verbatim to close that exact loop.'
+        }
+      }
+    }
+  };
+}
+
+function createTodoWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  return {
+    name: "todo_write",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Manage the orchestrator's structured plan for this chat. Use add/update/complete/remove/clear to keep the plan honest. Open the plan on the first turn you recognise multi-step work; do not wait."
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action"],
+      properties: {
+        action: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_TODO_WRITE_ACTIONS],
+          description:
+            "One operation per call. add (create new items), update (rewrite content, status, or parent of an existing item by id), complete (mark an item done by id; rejected if it has open children), remove (soft-delete an item and its descendants by id), clear (wipe the entire chat plan)."
+        },
+        items: {
+          type: "array",
+          description:
+            "Required for action=add. Each item: { content, parentId?, status? }. Provide concise content (<=240 chars). parentId attaches the item under an existing item id; the server rejects unknown or completed parents. status defaults to pending and cannot be completed on add.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["content"],
+            properties: {
+              content: {
+                type: "string",
+                minLength: 1,
+                maxLength: 240,
+                description: "The task line shown in the plan. Keep it short and actionable."
+              },
+              parentId: {
+                type: "string",
+                description:
+                  "Optional parent todo id to attach this item as a child. Omit for a top-level item."
+              },
+              status: {
+                type: "string",
+                enum: ["pending", "in_progress"],
+                description:
+                  "Optional initial status. Defaults to pending. completed cannot be set on add; only one in_progress per parent scope (extras are coerced to pending with a warning)."
+              }
+            }
+          }
+        },
+        id: {
+          type: "string",
+          description:
+            "Required for action=update | complete | remove. The exact server-minted id of the todo (from a previous todo_write response)."
+        },
+        content: {
+          type: "string",
+          minLength: 1,
+          maxLength: 240,
+          description: "Optional new content for action=update."
+        },
+        status: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_TODO_WRITE_STATUSES],
+          description:
+            "Optional new status for action=update. completed is rejected if the item still has open children; in_progress is rejected if a sibling is already in_progress."
+        },
+        parentId: {
+          type: "string",
+          description:
+            "Optional new parent for action=update. Use the empty string or null to detach to top-level. Reparenting under a completed item or creating a cycle is rejected."
         }
       }
     }

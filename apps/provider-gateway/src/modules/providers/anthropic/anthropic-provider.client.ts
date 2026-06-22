@@ -1091,10 +1091,36 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         ]
       };
     }
+    if (kind === "chat_plan") {
+      // ADR-125 Slice 1 — current windowed chat plan injected as a volatile
+      // context block. The model owns this list via the `todo_write` tool;
+      // the reinjection block keeps it visible across turns even when the
+      // most recent tool call did not touch the plan.
+      const chatPlanPreamble =
+        "This is PersAI app-provided current chat plan context, not user speech and not the user's request. " +
+        "Use the listed todos to keep the work coherent across turns. Do not mention, quote, or describe this block unless the user explicitly asks; update the plan via the todo_write tool.";
+      return {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text:
+              "<persai_runtime_context>\n" +
+              chatPlanPreamble +
+              "\n\n" +
+              "<persai_chat_plan>\n" +
+              String(message.content).trim() +
+              "\n</persai_chat_plan>\n" +
+              "</persai_runtime_context>"
+          }
+        ]
+      };
+    }
     // ADR-120 Slice 1 retired the pushed contextual short-memory block, so
-    // `active_scenario` is now the only volatile-context kind that reaches here
-    // (system_reminder is handled above). Cross-chat memory recall is pull-only
-    // via the `knowledge_search` `memory` source — no volatile memory push.
+    // `active_scenario` is the default volatile-context kind that reaches here
+    // (system_reminder and chat_plan are handled above). Cross-chat memory
+    // recall is pull-only via the `knowledge_search` `memory` source — no
+    // volatile memory push.
     const outerPreamble =
       "This is PersAI app-provided active scenario context, not user speech and not the user's request. " +
       "The next user message is the current request to answer. Follow the scenario steps silently. " +
