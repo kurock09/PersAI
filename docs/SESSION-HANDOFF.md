@@ -3,6 +3,58 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-22 — ADR-125 follow-up: per-turn `<system-reminder>` plan-lifecycle nudge — CHECKPOINT
+
+### State
+
+After the Option A pivot landed, founder asked for the Claude-Code / Cursor-style per-turn nudge that closes the residual gap: "model did the work, but didn't call `todo_write` to mark it done". Their recipe is **not** an extra LLM round-trip — it's a short `<system-reminder>` injected into the same volatile-context rail that already carries the chat-plan and active-scenario blocks (the place where short-term memory used to live before ADR-118 pull-only recall). Zero extra cost, runs every turn while the plan is open, vanishes the moment the plan is finished.
+
+### What changed
+
+- **`apps/runtime/src/modules/turns/build-system-reminder-blocks.service.ts`** — added a fourth reminder class **chat-plan lifecycle** to the existing `BuildSystemReminderBlocksService`. Three branches:
+  - any windowed todo with `status === "in_progress"` → reminder names that row (id + truncated title) and demands `todo_write({action:"complete", id:"<id>"})` BEFORE the assistant text reply, with explicit "do not batch completions" line;
+  - else first `pending` row exists → reminder names the first pending row, includes pending count, and demands `todo_write({action:"update", id:"<id>", status:"in_progress"})` BEFORE substantive work, with explicit one-in_progress-per-parent reminder;
+  - else (every windowed row is `completed`, or no plan) → no reminder emitted. The plan card / `<persai_chat_plan>` block continues to render as before — silence here means "model has nothing to do for the plan this turn".
+  Long titles are truncated to ≤140 chars with an ellipsis so the reminder stays compact and stable across recency-bias evictions.
+- **`apps/runtime/src/modules/turns/turn-context-hydration.service.ts`** — `buildChatPlanBlock` now returns `{ block, todos } | null` instead of just the block. This is the cheapest possible wiring: the chat-plan lookup already loads the windowed rows for rendering, so the reminder can derive its state from the same payload with zero extra round-trips. JSDoc updated.
+- **`apps/runtime/src/modules/turns/turn-execution.service.ts`** — call-site destructures the new shape (`chatPlan` instead of `chatPlanBlock`), pushes `chatPlan.block` into `volatilePrefix`, and passes `chatPlanTodos: chatPlan?.todos ?? null` into `BuildSystemReminderBlocksService.buildBlocks`. No new injections, no new services — the reminder rides the existing per-turn pipeline.
+- **Tests.** `apps/runtime/test/build-system-reminder-blocks.service.test.ts` extends from 11 to 17 cases:
+  - case (8) "stable ordering" upgraded to assert the new order scenario → image → **chat-plan** → budget (alphabetical by tool), with chat-plan todos supplied;
+  - (12) `in_progress` branch — reminder names id + title, contains `todo_write({action:"complete", id:"…"})`, "BEFORE writing your reply" + "Do not batch completions";
+  - (13) only pending — reminder names first pending row + pending count, contains `todo_write({action:"update", id:"…", status:"in_progress"})`, "BEFORE substantive work" + "one in_progress sibling per parent";
+  - (14) every row completed → no reminder;
+  - (15) `null` / `undefined` / `[]` todos → no reminder;
+  - (16) overlong content → title in reminder ≤140 chars, ends with "…";
+  - (17) chat-plan reminder fires even when no scenario is active (the nudge is independent of skill/scenario state).
+
+### Files
+
+`apps/runtime/src/modules/turns/build-system-reminder-blocks.service.ts`, `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`, `apps/runtime/src/modules/turns/turn-execution.service.ts`, `apps/runtime/test/build-system-reminder-blocks.service.test.ts`, this checkpoint + `docs/CHANGELOG.md`.
+
+### Verified
+
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+- `corepack pnpm --filter @persai/runtime run test` — full isolated suite PASS (incl. `runBuildSystemReminderBlocksServiceTest`, `runChatPlanBlockTest`, `runRuntimeSkillToolServiceTest`, all 47+ TurnExecution scenarios)
+
+### Residuals / risks
+
+- **Zero extra LLM cost.** The reminder rides the existing per-turn volatile_context payload. No new round-trip, no new provider call.
+- **Recency bias by design.** The reminder is injected into the volatile tail of the cache prefix exactly so the model sees it last before its own generation — same place where the active-scenario tick and image-reference reminders already live. This is the Claude-Code / Cursor pattern.
+- **No risk of double-prompting** — `<persai_chat_plan>` carries the plan data, the reminder carries the imperative. They are different tags (`<persai_chat_plan>` vs `<system-reminder>`) so the model treats them as separate signals.
+- **No reminder on completed-plan tail** — by design. Stale reminders ("everything is done") would pollute every subsequent turn until the user explicitly clears the plan. Silence is the right behaviour.
+- **Production safety** — provider clients already wrap `volatileKind: "system_reminder"` content with `<system-reminder>…</system-reminder>` for OpenAI / Anthropic / DeepSeek (existing ADR-119 Slice 5 plumbing). No provider-client changes required.
+
+### Next recommended step
+
+Watch the dev image publish job from this commit. After persai-dev repins runtime:
+1. open a chat, `skill engage <marketer / instagram_carousel>` — model adds the plan (Option A), reminder appears in the next turn pointing at the first `in_progress` row.
+2. let the model complete step 1's substantive work but *not* call `todo_write` complete — observe whether the next turn's reminder (because `in_progress` still points at step 1 in the new turn's plan view) successfully nudges the model to close step 1 before continuing. The whole experiment is designed to verify the `in_progress` branch.
+3. once all rows are completed, confirm no `<system-reminder>` for the plan appears in the next turns (silence on a finished plan). Plan card on the web still shows the completed list until the user clicks the trash button.
+
 ## 2026-06-22 — ADR-125 Option A: model-authored scenario intake + plan-card polish — CHECKPOINT
 
 ### State

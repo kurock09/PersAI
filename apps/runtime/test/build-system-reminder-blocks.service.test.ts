@@ -2,10 +2,20 @@ import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   RuntimeBundleSkillScenario,
-  RuntimeSkillDecisionState
+  RuntimeSkillDecisionState,
+  RuntimeTodoItem
 } from "@persai/runtime-contract";
 import { BuildSystemReminderBlocksService } from "../src/modules/turns/build-system-reminder-blocks.service";
 import type { ToolBudgetSnapshot } from "../src/modules/turns/tool-budget-policy";
+
+function makeTodo(overrides: Partial<RuntimeTodoItem> & { id: string }): RuntimeTodoItem {
+  return {
+    id: overrides.id,
+    parentId: overrides.parentId ?? null,
+    content: overrides.content ?? `Task ${overrides.id}`,
+    status: overrides.status ?? "pending"
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Bundle factory
@@ -384,7 +394,7 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
     assert.equal(result.length, 0, "no budget reminders when all tools < 80%");
   }
 
-  // (8) Stable ordering: scenario tick → image → budget reminders (alpha by tool name).
+  // (8) Stable ordering: scenario → image → chat-plan → budget reminders (alpha by tool name).
   {
     const bundle = createBundle([
       { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
@@ -397,17 +407,22 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
       bundle,
       skillDecisionState: ACTIVE_STATE_WITH_SCENARIO,
       currentTurnHasUserAttachedImage: true,
-      toolBudgetSnapshot: snapshot
+      toolBudgetSnapshot: snapshot,
+      chatPlanTodos: [
+        makeTodo({ id: "p1", status: "in_progress", content: "Draft outline" }),
+        makeTodo({ id: "p2", status: "pending", content: "Send draft" })
+      ]
     });
     assert.equal(
       result.length,
-      4,
-      "4 reminders: #1 scenario + #2 image + #3 image_edit + #3 web_search"
+      5,
+      "5 reminders: scenario + image + chat-plan + image_edit + web_search"
     );
     assert.match(String(result[0]!.content), /Active scenario/);
     assert.match(String(result[1]!.content), /Reference image attached/);
-    assert.match(String(result[2]!.content), /image_edit/);
-    assert.match(String(result[3]!.content), /web_search/);
+    assert.match(String(result[2]!.content), /Active plan task \(in_progress\): "Draft outline"/);
+    assert.match(String(result[3]!.content), /image_edit/);
+    assert.match(String(result[4]!.content), /web_search/);
   }
 
   // (9) Every returned message has cacheRole: "volatile_context" and volatileKind: "system_reminder".
@@ -469,6 +484,149 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
       0,
       "no reminder when scenario key not found in bundle (graceful degradation)"
     );
+  }
+
+  // ADR-125 follow-up: chat-plan lifecycle reminder.
+
+  // (12) Chat-plan lifecycle — `in_progress` row present.
+  //
+  // This is the main path: when the windowed plan has an in_progress row, the
+  // reminder names that row (id + truncated title) and demands the model call
+  // `todo_write` complete BEFORE replying to the user, never batching.
+  {
+    const bundle = createBundle([]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: INACTIVE_STATE,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: [
+        makeTodo({ id: "todo-1", status: "completed", content: "Collect brief" }),
+        makeTodo({ id: "todo-2", status: "in_progress", content: "Generate slides" }),
+        makeTodo({ id: "todo-3", status: "pending", content: "Send for review" })
+      ]
+    });
+    assert.equal(result.length, 1, "one chat-plan lifecycle reminder");
+    const msg = result[0]!;
+    assert.equal(msg.cacheRole, "volatile_context");
+    assert.equal(msg.volatileKind, "system_reminder");
+    assert.match(
+      String(msg.content),
+      /Active plan task \(in_progress\): "Generate slides" — id todo-2/,
+      "names the in_progress row by id + title"
+    );
+    assert.match(String(msg.content), /BEFORE writing your reply to the user/);
+    assert.match(String(msg.content), /Do not batch completions/);
+    assert.match(
+      String(msg.content),
+      /todo_write\(\{action:"complete", id:"todo-2"\}\)/,
+      "spells out the exact tool call with the row id"
+    );
+  }
+
+  // (13) Chat-plan lifecycle — only pending rows, none in_progress.
+  //
+  // Branch 2: the model must pick the next pending row and switch it to
+  // `in_progress` BEFORE substantive work.
+  {
+    const bundle = createBundle([]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: INACTIVE_STATE,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: [
+        makeTodo({ id: "todo-a", status: "completed", content: "Done already" }),
+        makeTodo({ id: "todo-b", status: "pending", content: "Next step" }),
+        makeTodo({ id: "todo-c", status: "pending", content: "Then this" })
+      ]
+    });
+    assert.equal(result.length, 1, "one chat-plan reminder when only pending");
+    const msg = result[0]!;
+    assert.match(
+      String(msg.content),
+      /Plan has 2 pending items, none in_progress\. Next is "Next step" — id todo-b/,
+      "names the first pending row + pending count"
+    );
+    assert.match(
+      String(msg.content),
+      /todo_write\(\{action:"update", id:"todo-b", status:"in_progress"\}\)/,
+      "spells out the exact update call with the first pending row id"
+    );
+    assert.match(String(msg.content), /BEFORE substantive work on it/);
+    assert.match(String(msg.content), /Only one in_progress sibling per parent/);
+  }
+
+  // (14) Chat-plan lifecycle — every row already completed → no reminder.
+  //
+  // Silence when the plan is finished. The model should not be nudged about
+  // a plan that is already closed.
+  {
+    const bundle = createBundle([]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: INACTIVE_STATE,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: [
+        makeTodo({ id: "todo-x", status: "completed", content: "First" }),
+        makeTodo({ id: "todo-y", status: "completed", content: "Second" })
+      ]
+    });
+    assert.equal(result.length, 0, "no reminder when every row is completed");
+  }
+
+  // (15) Chat-plan lifecycle — null / undefined / empty todos → no reminder.
+  {
+    const bundle = createBundle([]);
+    const baseParams = {
+      bundle,
+      skillDecisionState: INACTIVE_STATE,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT
+    };
+    assert.equal(svc.buildBlocks({ ...baseParams, chatPlanTodos: null }).length, 0);
+    assert.equal(svc.buildBlocks({ ...baseParams, chatPlanTodos: [] }).length, 0);
+    assert.equal(svc.buildBlocks(baseParams).length, 0, "absent chatPlanTodos → no reminder");
+  }
+
+  // (16) Chat-plan lifecycle — overlong content is truncated for the reminder.
+  {
+    const bundle = createBundle([]);
+    const longContent = "X".repeat(400);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: INACTIVE_STATE,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: [makeTodo({ id: "long-1", status: "in_progress", content: longContent })]
+    });
+    assert.equal(result.length, 1);
+    const msg = result[0]!;
+    const titleMatch = /"([^"]+)" — id long-1/.exec(String(msg.content));
+    assert.ok(titleMatch !== null, "reminder must contain quoted title");
+    const renderedTitle = titleMatch![1]!;
+    assert.ok(
+      renderedTitle.length <= 140,
+      `reminder title must be capped near 140 chars, got ${String(renderedTitle.length)}`
+    );
+    assert.ok(renderedTitle.endsWith("…"), "long content must end with an ellipsis");
+  }
+
+  // (17) Chat-plan lifecycle — works alongside an inactive scenario state.
+  //
+  // The reminder is independent of the skill/scenario state — it fires purely
+  // on the chat plan, even when no skill is engaged.
+  {
+    const bundle = createBundle([]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: INACTIVE_STATE,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: [makeTodo({ id: "free-1", status: "in_progress", content: "Free task" })]
+    });
+    assert.equal(result.length, 1, "chat-plan reminder fires even without active scenario");
   }
 }
 

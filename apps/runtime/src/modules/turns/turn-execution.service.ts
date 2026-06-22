@@ -686,10 +686,16 @@ export class TurnExecutionService {
     });
     // ADR-125 Slice 1: chat plan volatile block. Surfaces the current
     // windowed plan even when the most recent tool call did not touch it.
-    const chatPlanBlock = await this.turnContextHydrationService.buildChatPlanBlock(input);
-    // ADR-119 Slice 5: build system-reminder blocks using an initial empty tool budget snapshot.
-    // The snapshot is empty at turn-prep time (no tools used yet); budget-warning reminders
-    // fire only when the snapshot is non-empty (e.g. across-iteration accumulation in future).
+    // The hydrator returns both the rendered `<persai_chat_plan>` block and
+    // the source `todos` so we can derive the per-turn lifecycle reminder
+    // from the same single round-trip (no second `readChatPlanWindow` call).
+    const chatPlan = await this.turnContextHydrationService.buildChatPlanBlock(input);
+    // ADR-119 Slice 5 + ADR-125 follow-up: build system-reminder blocks using
+    // an initial empty tool budget snapshot. The snapshot is empty at
+    // turn-prep time (no tools used yet); budget-warning reminders fire only
+    // when the snapshot is non-empty (e.g. across-iteration accumulation in
+    // future). The chat-plan lifecycle reminder is derived from the windowed
+    // todos returned above.
     const currentTurnHasUserAttachedImage = input.message.attachments.some((a) =>
       a.mimeType.startsWith("image/")
     );
@@ -698,11 +704,12 @@ export class TurnExecutionService {
       bundle: bundleEntry.parsedBundle,
       skillDecisionState: input.skillStateContext?.decision ?? null,
       currentTurnHasUserAttachedImage,
-      toolBudgetSnapshot: initialBudgetSnapshot
+      toolBudgetSnapshot: initialBudgetSnapshot,
+      chatPlanTodos: chatPlan?.todos ?? null
     });
     const volatilePrefix: ProviderGatewayTextMessage[] = [];
     if (activeScenarioBlock !== null) volatilePrefix.push(activeScenarioBlock);
-    if (chatPlanBlock !== null) volatilePrefix.push(chatPlanBlock);
+    if (chatPlan !== null) volatilePrefix.push(chatPlan.block);
     if (reminderBlocks.length > 0) volatilePrefix.push(...reminderBlocks);
     const hydratedMessages: ProviderGatewayTextMessage[] =
       volatilePrefix.length > 0

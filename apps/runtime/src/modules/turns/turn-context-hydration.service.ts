@@ -1055,7 +1055,10 @@ export class TurnContextHydrationService {
    * `cacheRole: "volatile_context"` and `volatileKind: "chat_plan"` so the
    * provider clients wrap the content with the `<persai_chat_plan>` tag.
    */
-  async buildChatPlanBlock(input: RuntimeTurnRequest): Promise<ProviderGatewayTextMessage | null> {
+  async buildChatPlanBlock(input: RuntimeTurnRequest): Promise<{
+    block: ProviderGatewayTextMessage;
+    todos: readonly RuntimeTodoItem[];
+  } | null> {
     if (!this.persaiInternalApiClient.isConfigured()) {
       return null;
     }
@@ -1082,10 +1085,13 @@ export class TurnContextHydrationService {
         return null;
       }
       return {
-        role: "user",
-        content,
-        cacheRole: "volatile_context",
-        volatileKind: "chat_plan"
+        block: {
+          role: "user",
+          content,
+          cacheRole: "volatile_context",
+          volatileKind: "chat_plan"
+        },
+        todos: outcome.todos
       };
     } catch (error) {
       this.logger.warn(
