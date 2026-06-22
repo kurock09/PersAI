@@ -3,6 +3,42 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-22 — Deferred-job assistant reply: model-owned text, normalization downgraded to fallback — CHECKPOINT
+
+### State
+
+Founder observation (2026-06-22, follow-up after ADR-125 A2 push): every deferred background job — `image_generate`, `image_edit`, `video_generate`, every `document` job — caused the runtime to **overwrite** the model's assistant text with a canonical "Запрос принят. Делаю изображение…" / "Request accepted. I am preparing the document…" line, both in the streaming web path and the sync TG path. This stripped legitimate explanations the model had already streamed (carousel brief, style choice, plan-step continuity), and was reported as "часто модель пишет объяснение а потом всё стирается и заменяется". Founder picked **A — slice now, no new ADR, calibration only**: keep the canonical line strictly as a fallback for the empty-reply case, preserve any non-empty model text verbatim.
+
+### What changed
+
+- **`apps/runtime/src/modules/turns/turn-execution.service.ts`** — `applyDeferredMediaAcknowledgementCorrection` and `applyDeferredDocumentAcknowledgementCorrection` now early-return the normalized model text when it is non-empty; the canonical "Запрос принят / Request accepted" lines apply only when the model produced nothing after the deferred job. The wrapper `applyAssistantTextCorrections` no longer threads `hadRejectedMediaRequest` because the same "non-empty wins" rule now covers the mixed accepted+rejected media case the old ADR-105 branch was guarding. The dead-stub `TurnExecutionState.hadRejectedMediaRequest` field, the write-only `markRejectedMediaRequestIfApplicable(...)` helper, and both call sites in `processToolOutcomeIntoTurnState` are removed cleanly (PersAI rule: "no dead stubs"). The same code path serves stream, sync, and Telegram — one fix, three surfaces.
+- **`apps/runtime/test/deferred-media-acknowledgement.test.ts`** — three legacy tests rewritten and two new ones added: (1) the model's own deferred-media reply is preserved verbatim, (2) the rejection-explanation case still survives (now as the general non-empty branch), (3) empty text → canonical RU acknowledgement fallback, (4) whitespace-only text behaves identically to empty.
+- **`apps/runtime/test/deferred-document-acknowledgement.test.ts`** — the single legacy "replaces false completion claims" test is replaced with three: preserve non-empty text verbatim, fallback canonical line on empty, whitespace-only safety.
+- **`docs/TEST-PLAN.md`** — ADR-105 focused-checks bullet 5 rewritten to describe the model-owned-reply policy, the developer-tail honesty enforcement, and the empty-reply fallback. Removes the now-stale `hadRejectedMediaRequest` reference.
+
+### Verified
+
+- AGENTS gate: lint (5 packages) PASS · `format:check` PASS · api typecheck PASS · web typecheck PASS · runtime typecheck PASS.
+- Full runtime suite: `corepack pnpm --filter @persai/runtime exec node --import tsx --test --test-concurrency=1 test/*.test.ts` — **239/241 PASS**.
+- Both new media tests + both new document tests + the preserved-reply tests are green.
+
+### Residuals / risks
+
+- **2 pre-existing failures on `main` baseline (commit `4d9c2364`), unrelated to this slice:** `deferred-document-acknowledgement.test.ts > blocks files.send while a document from the same turn is pending delivery` and `> blocks files.write_and_send while a document from the same turn is pending delivery` both throw `TypeError: Cannot read properties of undefined (reading 'conversation')` from `TurnExecutionService.executeProjectedToolCall:3119` because their `acceptedTurn` stub does not include `session.conversation`, which a later `listAvailableWorkingFileRefs` call now reads. Reproduced cleanly on `git stash` before any of this slice's edits — surfaced here so a future small slice tightens the fixture (one-off field-level stub, no behavior change). Not blocking this slice per scope discipline.
+- **Honesty risk** if the model claims "вот картинка / документ готов" while the job is async: the developer-tail `buildDeferredMediaFollowUpInstruction` / `buildDeferredDocumentFollowUpInstruction` and the global `DELIVERY_HONESTY_CONTRACT` already forbid this in prose, and the structural UI (pending pill → artifact arrives in a separate message) is the single source of delivery truth. Founder accepted this trade-off explicitly: "нормализация — это фалбэ".
+- No new DB schema, no new tool, no contract change. Single code-path edit on the runtime side.
+
+### Files
+
+- modified: `apps/runtime/src/modules/turns/turn-execution.service.ts`, `apps/runtime/test/deferred-media-acknowledgement.test.ts`, `apps/runtime/test/deferred-document-acknowledgement.test.ts`, `docs/TEST-PLAN.md`, `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`.
+
+### Next recommended step
+
+1. Push → deploy to `persai-dev` → re-test the carousel scenario on `info@general-fly.com`: the model's own pre-tool explanation must survive end-to-end (web stream and TG); the canonical "Запрос принят…" line should appear only when the model returned empty text after the deferred job.
+2. Optional cleanup slice for the 2 pre-existing fixture failures in `deferred-document-acknowledgement.test.ts` (just add `session.conversation` to the bare-service stub).
+
+---
+
 ## 2026-06-22 — ADR-125 Amendment 2: mid-loop volatile-prefix refresh (same-turn intake) — CHECKPOINT
 
 ### State

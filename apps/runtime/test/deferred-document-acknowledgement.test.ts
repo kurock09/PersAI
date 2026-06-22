@@ -125,33 +125,75 @@ describe("deferred document acknowledgement", () => {
     assert.ok(instructions?.includes("final document will arrive separately when ready"));
   });
 
-  test("replaces false deferred-document completion claims with a standard RU acknowledgement", () => {
-    const service = createBareTurnExecutionService() as unknown as {
-      applyAssistantTextCorrections(input: {
-        assistantText: string;
-        artifacts: unknown[];
-        deferredMediaJobs: [];
-        deferredDocumentJobs: Array<{
-          jobId: string;
-          toolCode: "document";
-          descriptorMode: "create_presentation";
-          documentType: "presentation";
-        }>;
-        locale: string | null;
-      }): string;
+  type DocumentCorrectionService = {
+    applyAssistantTextCorrections(input: {
+      assistantText: string;
+      artifacts: unknown[];
+      deferredMediaJobs: [];
+      deferredDocumentJobs: Array<{
+        jobId: string;
+        toolCode: "document";
+        descriptorMode: "create_presentation" | "create_pdf_document";
+        documentType: "presentation" | "pdf_document";
+      }>;
+      locale: string | null;
+    }): string;
+  };
+
+  function pendingPresentationJob(): {
+    jobId: string;
+    toolCode: "document";
+    descriptorMode: "create_presentation";
+    documentType: "presentation";
+  } {
+    return {
+      jobId: "doc-job-1",
+      toolCode: "document",
+      descriptorMode: "create_presentation",
+      documentType: "presentation"
     };
+  }
+
+  // Model-owned-reply policy: any non-empty assistant text alongside a deferred
+  // document job is preserved verbatim. Honesty about pending delivery is
+  // enforced upstream via `buildDeferredDocumentFollowUpInstruction` and the
+  // global DELIVERY_HONESTY_CONTRACT; the runtime no longer overwrites the
+  // model's own explanation with a generic "request accepted" canonical line.
+  test("preserves the model's own deferred-document reply verbatim instead of overwriting it", () => {
+    const service = createBareTurnExecutionService() as unknown as DocumentCorrectionService;
+    const assistantText = "Принято. Готовлю презентацию из 12 слайдов по твоему плану.";
     const corrected = service.applyAssistantTextCorrections({
-      assistantText: "Готово, вот презентация.",
+      assistantText,
       artifacts: [],
       deferredMediaJobs: [],
-      deferredDocumentJobs: [
-        {
-          jobId: "doc-job-1",
-          toolCode: "document",
-          descriptorMode: "create_presentation",
-          documentType: "presentation"
-        }
-      ],
+      deferredDocumentJobs: [pendingPresentationJob()],
+      locale: "ru-RU"
+    });
+    assert.equal(corrected, assistantText);
+  });
+
+  test("falls back to the canonical acknowledgement only when the model produced no text after a deferred document job", () => {
+    const service = createBareTurnExecutionService() as unknown as DocumentCorrectionService;
+    const corrected = service.applyAssistantTextCorrections({
+      assistantText: "",
+      artifacts: [],
+      deferredMediaJobs: [],
+      deferredDocumentJobs: [pendingPresentationJob()],
+      locale: "ru-RU"
+    });
+    assert.equal(
+      corrected,
+      "Запрос принят. Готовлю презентацию и пришлю её отдельно, когда она будет готова."
+    );
+  });
+
+  test("document fallback acknowledgement is whitespace-only-safe (treats blank text as empty)", () => {
+    const service = createBareTurnExecutionService() as unknown as DocumentCorrectionService;
+    const corrected = service.applyAssistantTextCorrections({
+      assistantText: "  \n\t  ",
+      artifacts: [],
+      deferredMediaJobs: [],
+      deferredDocumentJobs: [pendingPresentationJob()],
       locale: "ru-RU"
     });
     assert.equal(

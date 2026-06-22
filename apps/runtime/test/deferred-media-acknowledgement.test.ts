@@ -84,7 +84,6 @@ describe("deferred media acknowledgement", () => {
       assistantText: string;
       artifacts: unknown[];
       deferredMediaJobs: DeferredMediaJobFixture[];
-      hadRejectedMediaRequest: boolean;
       deferredDocumentJobs: [];
       locale: string | null;
     }): string;
@@ -103,36 +102,22 @@ describe("deferred media acknowledgement", () => {
     };
   }
 
-  test("normalizes delivery-claiming deferred-media assistant text to honest pending acknowledgement", () => {
+  // Model-owned-reply policy: any non-empty assistant text alongside a deferred
+  // media job is preserved verbatim. Honesty about pending delivery is enforced
+  // upstream via `buildDeferredMediaFollowUpInstruction` and the global
+  // DELIVERY_HONESTY_CONTRACT; the runtime no longer overwrites the model's
+  // own explanation with a generic "request accepted" canonical line.
+  test("preserves the model's own deferred-media reply verbatim instead of overwriting it", () => {
     const service = createBareTurnExecutionService() as unknown as CorrectionService;
+    const assistantText = "Принято. Делаю карусель в твоей стилистике, скоро пришлю.";
     const corrected = service.applyAssistantTextCorrections({
-      assistantText: "Сделала картинку, держи результат.",
+      assistantText,
       artifacts: [],
       deferredMediaJobs: [pendingImageJob("job-1")],
-      hadRejectedMediaRequest: false,
       deferredDocumentJobs: [],
       locale: "ru-RU"
     });
-    assert.equal(
-      corrected,
-      "Запрос принят. Делаю изображение и пришлю его отдельно, когда оно будет готово."
-    );
-  });
-
-  test("normalizes any non-empty deferred-media text to honest pending acknowledgement", () => {
-    const service = createBareTurnExecutionService() as unknown as CorrectionService;
-    const corrected = service.applyAssistantTextCorrections({
-      assistantText: "Делаю и пришлю отдельно, когда будет готово.",
-      artifacts: [],
-      deferredMediaJobs: [pendingImageJob("job-1")],
-      hadRejectedMediaRequest: false,
-      deferredDocumentJobs: [],
-      locale: "ru-RU"
-    });
-    assert.equal(
-      corrected,
-      "Запрос принят. Делаю изображение и пришлю его отдельно, когда оно будет готово."
-    );
+    assert.equal(corrected, assistantText);
   });
 
   test("preserves the model's rejection explanation when a turn mixes accepted and rejected media", () => {
@@ -143,12 +128,39 @@ describe("deferred media acknowledgement", () => {
       assistantText,
       artifacts: [],
       deferredMediaJobs: [pendingImageJob("job-1")],
-      hadRejectedMediaRequest: true,
       deferredDocumentJobs: [],
       locale: "ru-RU"
     });
-    // The blunt pending acknowledgement must NOT overwrite the explicit
-    // rejection facts; the model's own text is preserved verbatim.
     assert.equal(corrected, assistantText);
+  });
+
+  test("falls back to the canonical acknowledgement only when the model produced no text after a deferred media job", () => {
+    const service = createBareTurnExecutionService() as unknown as CorrectionService;
+    const corrected = service.applyAssistantTextCorrections({
+      assistantText: "",
+      artifacts: [],
+      deferredMediaJobs: [pendingImageJob("job-1")],
+      deferredDocumentJobs: [],
+      locale: "ru-RU"
+    });
+    assert.equal(
+      corrected,
+      "Запрос принят. Делаю изображение и пришлю его отдельно, когда оно будет готово."
+    );
+  });
+
+  test("fallback acknowledgement is whitespace-only-safe (treats blank text as empty)", () => {
+    const service = createBareTurnExecutionService() as unknown as CorrectionService;
+    const corrected = service.applyAssistantTextCorrections({
+      assistantText: "   \n  ",
+      artifacts: [],
+      deferredMediaJobs: [pendingImageJob("job-1")],
+      deferredDocumentJobs: [],
+      locale: "ru-RU"
+    });
+    assert.equal(
+      corrected,
+      "Запрос принят. Делаю изображение и пришлю его отдельно, когда оно будет готово."
+    );
   });
 });

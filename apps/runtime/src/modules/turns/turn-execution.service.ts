@@ -243,14 +243,6 @@ type TurnExecutionState = {
   usageEntries: RuntimeUsageAccountingEntry[];
   toolInvocations: RuntimeTurnToolInvocation[];
   deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
-  /**
-   * ADR-105 — set true when any media tool call in this turn returned a
-   * `skipped` rejection (limit, quota, safety, validation, concurrency). Used
-   * to preserve the model's explicit rejection wording instead of overwriting
-   * the whole reply with a generic "pending delivery" acknowledgement when a
-   * turn mixes accepted (`pending_delivery`) and rejected media outcomes.
-   */
-  hadRejectedMediaRequest: boolean;
   deferredDocumentJobs: RuntimeDeferredDocumentJobSummary[];
   closedOpenLoopRefs: string[];
   /**
@@ -1361,7 +1353,6 @@ export class TurnExecutionService {
                   assistantText: completedProviderResult.text ?? "",
                   artifacts: turnState.artifacts,
                   deferredMediaJobs: turnState.deferredMediaJobs,
-                  hadRejectedMediaRequest: turnState.hadRejectedMediaRequest,
                   deferredDocumentJobs: turnState.deferredDocumentJobs,
                   locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
                 });
@@ -1398,7 +1389,6 @@ export class TurnExecutionService {
                   assistantText: event.result.text ?? "",
                   artifacts: turnState.artifacts,
                   deferredMediaJobs: turnState.deferredMediaJobs,
-                  hadRejectedMediaRequest: turnState.hadRejectedMediaRequest,
                   deferredDocumentJobs: turnState.deferredDocumentJobs,
                   locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
                 });
@@ -2701,7 +2691,6 @@ export class TurnExecutionService {
             assistantText: accumulatedText,
             artifacts: turnState.artifacts,
             deferredMediaJobs: turnState.deferredMediaJobs,
-            hadRejectedMediaRequest: turnState.hadRejectedMediaRequest,
             deferredDocumentJobs: turnState.deferredDocumentJobs,
             locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
           })
@@ -4352,7 +4341,6 @@ export class TurnExecutionService {
     assistantText: string;
     artifacts: RuntimeOutputArtifact[];
     deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
-    hadRejectedMediaRequest: boolean;
     deferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"];
     locale: string | null;
   }): string {
@@ -4361,7 +4349,6 @@ export class TurnExecutionService {
       normalizedText,
       input.artifacts,
       input.deferredMediaJobs,
-      input.hadRejectedMediaRequest,
       input.locale
     );
     return this.applyDeferredDocumentAcknowledgementCorrection(
@@ -4372,23 +4359,30 @@ export class TurnExecutionService {
     );
   }
 
+  /**
+   * Model-owned-reply policy for deferred background jobs (image_generate,
+   * image_edit, video_generate, and every document job): when the model
+   * produced any non-empty text alongside a deferred job we preserve it
+   * verbatim. Honesty about the pending delivery is enforced upstream by the
+   * developer-tail `buildDeferredMediaFollowUpInstruction` /
+   * `buildDeferredDocumentFollowUpInstruction` and by the global
+   * DELIVERY_HONESTY_CONTRACT — both forbid the model from claiming
+   * attachment/upload/delivery in prose. The canonical acknowledgement is
+   * kept strictly as a fallback for the empty-reply case so the user always
+   * sees an explicit "request accepted" line. Web stream, web sync, and
+   * Telegram all share this single code path.
+   */
   private applyDeferredMediaAcknowledgementCorrection(
     assistantText: string,
     artifacts: RuntimeOutputArtifact[],
     deferredMediaJobs: RuntimeDeferredMediaJobSummary[],
-    hadRejectedMediaRequest: boolean,
     locale: string | null
   ): string {
     const normalizedText = this.normalizeOptionalText(assistantText) ?? "";
     if (deferredMediaJobs.length === 0 || artifacts.length > 0) {
       return normalizedText;
     }
-    // ADR-105 — a turn that mixed accepted (pending) and rejected media must not
-    // collapse into one generic pending sentence: blanket-overwriting would
-    // erase the model's explanation of the rejected request. Preserve the
-    // model's text and let the undelivered-attachment correction below catch
-    // any false "I sent the file" claim.
-    if (hadRejectedMediaRequest) {
+    if (normalizedText.length > 0) {
       return normalizedText;
     }
     return this.buildDeferredMediaAcknowledgement(locale, deferredMediaJobs);
@@ -4402,6 +4396,9 @@ export class TurnExecutionService {
   ): string {
     const normalizedText = this.normalizeOptionalText(assistantText) ?? "";
     if (deferredDocumentJobs.length === 0 || artifacts.length > 0) {
+      return normalizedText;
+    }
+    if (normalizedText.length > 0) {
       return normalizedText;
     }
     return this.buildDeferredDocumentAcknowledgement(locale, deferredDocumentJobs);
@@ -4713,7 +4710,6 @@ export class TurnExecutionService {
       usageEntries: [],
       toolInvocations: [],
       deferredMediaJobs: [],
-      hadRejectedMediaRequest: false,
       deferredDocumentJobs: [],
       closedOpenLoopRefs: [],
       discoveredFileRefIdSet: []
@@ -4894,7 +4890,6 @@ export class TurnExecutionService {
       if (deferredMediaJob !== null) {
         turnState.deferredMediaJobs.push(deferredMediaJob);
       }
-      this.markRejectedMediaRequestIfApplicable(turnState, outcome.payload);
       const deferredDocumentJob = this.extractDeferredDocumentJob(outcome.payload);
       if (deferredDocumentJob !== null) {
         turnState.deferredDocumentJobs.push(deferredDocumentJob);
@@ -4905,7 +4900,6 @@ export class TurnExecutionService {
     if (deferredMediaJob !== null) {
       turnState.deferredMediaJobs.push(deferredMediaJob);
     }
-    this.markRejectedMediaRequestIfApplicable(turnState, outcome.payload);
     const deferredDocumentJob = this.extractDeferredDocumentJob(outcome.payload);
     if (deferredDocumentJob !== null) {
       turnState.deferredDocumentJobs.push(deferredDocumentJob);
@@ -4981,31 +4975,6 @@ export class TurnExecutionService {
 
   private shouldDeferMediaToolExecution(input: RuntimeTurnRequest): boolean {
     return !input.conversation.externalThreadKey.startsWith("system:media-job:");
-  }
-
-  /**
-   * ADR-105 — flag a turn that contains a rejected media request (a media tool
-   * returning `action: "skipped"`). When set, the deferred-media text
-   * correction does not blanket-overwrite the assistant reply, so an explicit
-   * rejection explanation (limit hit, quota, safety, validation) survives even
-   * when another media request in the same turn was accepted as pending.
-   */
-  private markRejectedMediaRequestIfApplicable(
-    turnState: TurnExecutionState,
-    payload: ToolExecutionOutcome["payload"]
-  ): void {
-    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-      return;
-    }
-    const row = payload as { action?: unknown; toolCode?: unknown };
-    if (
-      row.action === "skipped" &&
-      (row.toolCode === IMAGE_GENERATE_TOOL_CODE ||
-        row.toolCode === IMAGE_EDIT_TOOL_CODE ||
-        row.toolCode === VIDEO_GENERATE_TOOL_CODE)
-    ) {
-      turnState.hadRejectedMediaRequest = true;
-    }
   }
 
   private extractDeferredMediaJob(
