@@ -272,6 +272,11 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
     assert.equal(result.length, 0, "null skillDecisionState → no reminders");
   }
 
+  // Shared placeholder: a single completed todo silences the intake reminder
+  // without disturbing the chat-plan lifecycle (which is also silent on a
+  // fully-completed plan). Used by tests that focus on reminders 1/2/4/5.
+  const SILENT_PLAN = [makeTodo({ id: "noise", status: "completed", content: "Done" })];
+
   // (2) Reminder #1 — scenario active, uses 'N steps total' variant (activeStepNumber unavailable
   //     in RuntimeSkillDecisionState; step-number variant deferred to a future contract extension).
   {
@@ -282,9 +287,10 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
       bundle,
       skillDecisionState: ACTIVE_STATE_WITH_SCENARIO,
       currentTurnHasUserAttachedImage: false,
-      toolBudgetSnapshot: EMPTY_SNAPSHOT
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: SILENT_PLAN
     });
-    assert.equal(result.length, 1, "one reminder when scenario active");
+    assert.equal(result.length, 1, "one reminder when scenario active + intake suppressed");
     const msg = result[0]!;
     assert.equal(msg.volatileKind, "system_reminder");
     assert.equal(msg.cacheRole, "volatile_context");
@@ -318,7 +324,8 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
       bundle,
       skillDecisionState: twoStepState,
       currentTurnHasUserAttachedImage: false,
-      toolBudgetSnapshot: EMPTY_SNAPSHOT
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: SILENT_PLAN
     });
     assert.equal(result.length, 1);
     assert.match(String(result[0]!.content), /Two-Step Flow, 2 steps total/);
@@ -333,7 +340,8 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
       bundle,
       skillDecisionState: ACTIVE_STATE_WITH_SCENARIO,
       currentTurnHasUserAttachedImage: true,
-      toolBudgetSnapshot: EMPTY_SNAPSHOT
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: SILENT_PLAN
     });
     assert.equal(result.length, 2, "reminder #1 + reminder #2 when scenario + image");
     const imageReminder = result[1]!;
@@ -394,7 +402,8 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
     assert.equal(result.length, 0, "no budget reminders when all tools < 80%");
   }
 
-  // (8) Stable ordering: scenario → image → chat-plan → budget reminders (alpha by tool name).
+  // (8) Stable ordering: scenario → image → scenario-plan-intake (suppressed when plan
+  //     non-empty) → chat-plan lifecycle → budget reminders (alpha by tool name).
   {
     const bundle = createBundle([
       { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
@@ -416,7 +425,7 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
     assert.equal(
       result.length,
       5,
-      "5 reminders: scenario + image + chat-plan + image_edit + web_search"
+      "5 reminders: scenario + image + chat-plan + image_edit + web_search (intake suppressed when plan non-empty)"
     );
     assert.match(String(result[0]!.content), /Active scenario/);
     assert.match(String(result[1]!.content), /Reference image attached/);
@@ -437,7 +446,8 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
       bundle,
       skillDecisionState: ACTIVE_STATE_WITH_SCENARIO,
       currentTurnHasUserAttachedImage: true,
-      toolBudgetSnapshot: snapshot
+      toolBudgetSnapshot: snapshot,
+      chatPlanTodos: SILENT_PLAN
     });
     for (const msg of result) {
       assert.equal(msg.cacheRole, "volatile_context", "cacheRole must be volatile_context");
@@ -457,7 +467,8 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
       bundle,
       skillDecisionState: ACTIVE_STATE_WITH_SCENARIO,
       currentTurnHasUserAttachedImage: false,
-      toolBudgetSnapshot: snapshot
+      toolBudgetSnapshot: snapshot,
+      chatPlanTodos: SILENT_PLAN
     };
     const first = svc.buildBlocks(params);
     const second = svc.buildBlocks(params);
@@ -627,6 +638,265 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
       chatPlanTodos: [makeTodo({ id: "free-1", status: "in_progress", content: "Free task" })]
     });
     assert.equal(result.length, 1, "chat-plan reminder fires even without active scenario");
+  }
+
+  // ADR-125 Option A: scenario plan intake reminder.
+
+  // (18) Scenario plan intake — fires when scenario active + plan empty.
+  //
+  // This is the main motivation for the reminder: after `skill.engage` returns
+  // a scenario, tool-catalog PLAN INTAKE guidance alone wasn't enough — the
+  // per-turn reminder injects an imperative + the full step list so the model
+  // has every input it needs to author the `todo_write({action:"add", …})`
+  // call as its very next move.
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+    ]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: ACTIVE_STATE_WITH_SCENARIO,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: []
+    });
+    assert.equal(
+      result.length,
+      2,
+      "reminder #1 (scenario tick) + reminder #3 (intake) when plan empty + scenario active"
+    );
+    const tick = result[0]!;
+    assert.match(String(tick.content), /Active scenario: Instagram Carousel/);
+    const intake = result[1]!;
+    assert.equal(intake.cacheRole, "volatile_context");
+    assert.equal(intake.volatileKind, "system_reminder");
+    assert.match(
+      String(intake.content),
+      /Scenario "Instagram Carousel" is active but the chat plan is empty/
+    );
+    assert.match(String(intake.content), /VERY NEXT action MUST be a single todo_write/);
+    assert.match(String(intake.content), /action:"add"/);
+    assert.match(String(intake.content), /first item status:"in_progress"/);
+    assert.match(
+      String(intake.content),
+      /BEFORE replying to the user and BEFORE any other tool call/
+    );
+    assert.match(String(intake.content), /The scenario IS the plan/);
+    // All three CAROUSEL_SCENARIO steps must be rendered in order.
+    assert.match(String(intake.content), /1\. Collect brief from user\./);
+    assert.match(String(intake.content), /2\. Generate carousel images\./);
+    assert.match(String(intake.content), /3\. Release scenario\./);
+    // Example shape uses the first step's derived title.
+    assert.match(
+      String(intake.content),
+      /Example shape: todo_write\(\{action:"add", items:\[\{content:"Collect brief from user\.", status:"in_progress"\}/
+    );
+  }
+
+  // (19) Scenario plan intake — null chatPlanTodos is treated as empty.
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+    ]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: ACTIVE_STATE_WITH_SCENARIO,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: null
+    });
+    assert.equal(result.length, 2, "intake reminder fires when chatPlanTodos is null");
+    assert.match(String(result[1]!.content), /chat plan is empty/);
+  }
+
+  // (20) Scenario plan intake — absent chatPlanTodos is treated as empty.
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+    ]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: ACTIVE_STATE_WITH_SCENARIO,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT
+    });
+    assert.equal(result.length, 2, "intake reminder fires when chatPlanTodos is absent");
+  }
+
+  // (21) Scenario plan intake — suppressed when plan already has rows (any status).
+  //
+  // The intake nudge is for the very first move after `skill.engage`. Once a
+  // plan exists (even a single completed row), the chat-plan lifecycle reminder
+  // takes over.
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+    ]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: ACTIVE_STATE_WITH_SCENARIO,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: [
+        makeTodo({ id: "existing-1", status: "in_progress", content: "Already started" })
+      ]
+    });
+    assert.equal(result.length, 2, "scenario tick + chat-plan lifecycle (no intake)");
+    assert.match(String(result[0]!.content), /Active scenario/);
+    assert.match(String(result[1]!.content), /Active plan task \(in_progress\)/);
+    for (const msg of result) {
+      assert.doesNotMatch(
+        String(msg.content),
+        /VERY NEXT action MUST be a single todo_write/,
+        "intake reminder must NOT fire when plan is non-empty"
+      );
+    }
+  }
+
+  // (22) Scenario plan intake — suppressed when scenario is inactive.
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+    ]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: INACTIVE_STATE,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: []
+    });
+    assert.equal(result.length, 0, "no intake reminder when scenario inactive");
+  }
+
+  // (23) Scenario plan intake — suppressed when scenario active but key not found in bundle.
+  //
+  // Mirrors reminder #1's graceful-degradation behavior so we never reference a
+  // scenario the model cannot actually see.
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer" } // no scenarios
+    ]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: ACTIVE_STATE_WITH_SCENARIO,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: []
+    });
+    assert.equal(result.length, 0, "no intake reminder when scenario unresolvable in bundle");
+  }
+
+  // (24) Scenario plan intake — long directives are truncated for the step list.
+  {
+    const longScenario: RuntimeBundleSkillScenario = {
+      key: "long_scenario",
+      displayName: "Long Scenario",
+      description: "Long.",
+      iconEmoji: null,
+      intentExamples: [],
+      steps: [
+        {
+          number: 1,
+          directive: `${"verbose ".repeat(40)}finally`.trim(), // ~320+ chars, no early sentence terminator
+          recommendedToolCall: null,
+          mayBeSkippedIf: null,
+          negativeGuards: []
+        }
+      ],
+      recommendedTools: [],
+      exitCondition: "done"
+    };
+    const longState: RuntimeSkillDecisionState = {
+      ...ACTIVE_STATE_WITH_SCENARIO,
+      activeScenarioKey: "long_scenario",
+      activeScenarioDisplayName: "Long Scenario"
+    };
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [longScenario] }
+    ]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: longState,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: []
+    });
+    assert.equal(result.length, 2);
+    const intake = result[1]!;
+    const titleMatch = /1\. ([^\n]+)/.exec(String(intake.content));
+    assert.ok(titleMatch !== null, "step title must be on its own line");
+    const renderedTitle = titleMatch![1]!;
+    assert.ok(
+      renderedTitle.length <= 80,
+      `step title must be capped near 80 chars, got ${String(renderedTitle.length)}`
+    );
+    assert.ok(renderedTitle.endsWith("…"), "long directive must end with an ellipsis");
+  }
+
+  // (25) Scenario plan intake — many steps get a “…and N more” trailer.
+  {
+    const manyStepScenario: RuntimeBundleSkillScenario = {
+      key: "many_steps",
+      displayName: "Many Steps",
+      description: "Many.",
+      iconEmoji: null,
+      intentExamples: [],
+      steps: Array.from({ length: 15 }, (_, i) => ({
+        number: i + 1,
+        directive: `Step ${String(i + 1)} directive.`,
+        recommendedToolCall: null,
+        mayBeSkippedIf: null,
+        negativeGuards: []
+      })),
+      recommendedTools: [],
+      exitCondition: "done"
+    };
+    const manyState: RuntimeSkillDecisionState = {
+      ...ACTIVE_STATE_WITH_SCENARIO,
+      activeScenarioKey: "many_steps",
+      activeScenarioDisplayName: "Many Steps"
+    };
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [manyStepScenario] }
+    ]);
+    const result = svc.buildBlocks({
+      bundle,
+      skillDecisionState: manyState,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: []
+    });
+    assert.equal(result.length, 2);
+    const intake = result[1]!;
+    assert.match(String(intake.content), /1\. Step 1 directive\./);
+    assert.match(String(intake.content), /12\. Step 12 directive\./);
+    assert.doesNotMatch(String(intake.content), /13\. Step 13/);
+    assert.match(
+      String(intake.content),
+      /…and 3 more — include every step in the add call\./,
+      "trailer must mention the remaining step count"
+    );
+  }
+
+  // (26) Scenario plan intake — byte stability: same input → identical output.
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+    ]);
+    const params = {
+      bundle,
+      skillDecisionState: ACTIVE_STATE_WITH_SCENARIO,
+      currentTurnHasUserAttachedImage: false,
+      toolBudgetSnapshot: EMPTY_SNAPSHOT,
+      chatPlanTodos: []
+    };
+    const first = svc.buildBlocks(params);
+    const second = svc.buildBlocks(params);
+    assert.deepEqual(
+      first.map((m) => m.content),
+      second.map((m) => m.content),
+      "byte stability across invocations"
+    );
   }
 }
 

@@ -3,6 +3,42 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-22 — ADR-125 follow-up: scenario plan-intake `<system-reminder>` (Option A first-move nudge) — CHECKPOINT
+
+### State
+
+After Option A + the chat-plan lifecycle reminder landed earlier today, founder live-validated user `info@general-fly.com` and reported a regression: the model **did not** spontaneously author the plan after `skill.engage` — it ran the scenario and only created todos after the explicit nudge "Почему ты не сделал todo". DB inspection in `persai-dev` confirmed: the bundle has `PLAN INTAKE` (in `skill.modelUsageGuidance`) and `SCENARIO INTAKE` (in `todo_write.modelUsageGuidance`) baked in via the deployed catalog seed, but tool-descriptor guidance alone is too low-priority — it gets reread once and then dwarfed by the rolling user-message context. We need a per-turn nudge focused on this exact moment.
+
+### What changed
+
+- **`apps/runtime/src/modules/turns/build-system-reminder-blocks.service.ts`** — added a **fifth reminder class** "Scenario plan intake" (slotted between reminder #2 image and reminder #3 chat-plan lifecycle). Fires when:
+  - `skillDecisionState` reports an active skill + active scenario, AND
+  - the scenario resolves in the bundle (graceful degradation if the bundle is missing the row), AND
+  - the windowed chat plan is empty (`chatPlanTodos === null || .length === 0`).
+  The reminder names the scenario, embeds the actual `scenario.steps` list (titles derived from each `directive`, truncated to ≤80 chars with sentence-boundary preference, capped to the first 12 steps with a "…and N more — include every step in the add call" trailer if longer), demands `todo_write({action:"add", items:[…]})` as the VERY NEXT action with `first item status:"in_progress", every other item status:"pending"`, and reminds the model that "the scenario IS the plan — do not skip this even if the user has not asked for a plan". Helper `deriveStepTitle` handles the truncation. `resolveScenario` return type tightened from `{displayName; steps: unknown[]}` to `RuntimeBundleSkillScenario | null` so the new code can read step shape safely.
+- **No changes to `turn-execution.service.ts` / `turn-context-hydration.service.ts`.** The new reminder rides the same `chatPlanTodos` payload the lifecycle reminder already consumes — zero new fan-out, zero new round-trip.
+- **Tests.** `apps/runtime/test/build-system-reminder-blocks.service.test.ts` grows from 17 to 26 cases. New cases (18–26): intake fires on empty plan + active scenario, treats `null` / absent `chatPlanTodos` as empty, is suppressed when plan has any row (even a single completed one), suppressed when scenario inactive, suppressed when scenario key unresolvable in bundle, truncates overlong directives, trails many-step scenarios with "…and N more", remains byte-stable across invocations. Existing scenario-active cases (2, 3, 4, 9, 10) updated to pass a single completed `SILENT_PLAN` todo so the intake reminder stays suppressed where the test focuses on reminders 1/2/4/5.
+- **ADR-125 `Amendment 1`** appended: explicitly captures the live regression motivation, the system-reminder design, and the acceptance criteria for both the empty-plan branch (intake) and the populated-plan branches (lifecycle).
+
+### Files
+
+`apps/runtime/src/modules/turns/build-system-reminder-blocks.service.ts`, `apps/runtime/test/build-system-reminder-blocks.service.test.ts`, `docs/ADR/125-in-chat-todo-write-and-scenario-seeded-plan.md`, this checkpoint + `docs/CHANGELOG.md`.
+
+### Verified
+
+- focused: `corepack pnpm --filter @persai/runtime exec tsx test/build-system-reminder-blocks.service.test.ts` PASS (26 cases)
+- related: `tsx test/turn-execution.service.test.ts`, `tsx test/turn-context-hydration.service.test.ts` PASS
+- full AGENTS gate scheduled below (lint × all packages + format:check + typecheck × 4 + repo tests)
+
+### Residuals / risks
+
+- **Recency bias by design.** The intake reminder is injected into the volatile tail of the cache prefix exactly so the model sees it last before its own generation — same envelope as the active-scenario tick / chat-plan lifecycle / budget reminders. Cost: zero extra round-trip.
+- **Suppression is precise.** The moment the model authors even one row, the intake reminder falls silent and the chat-plan lifecycle reminder takes over for the rest of the plan's life.
+- **Graceful degradation.** If a scenario key is in the decision state but the bundle has no matching row (stale apply, deleted scenario), the intake reminder stays silent — same behaviour as the active-scenario tick. We never reference a scenario the model can't see.
+- **Live next.** Push → deploy → re-run the `info@general-fly.com` carousel scenario from a fresh chat and verify the model authors the plan on the very next turn after `skill.engage`. If the model still stalls, the next escalation is a hard tool-choice hint on the engage-turn (force `todo_write` as the next-tool candidate), but that's out of scope for this slice.
+
+---
+
 ## 2026-06-22 — ADR-125 follow-up: per-turn `<system-reminder>` plan-lifecycle nudge — CHECKPOINT
 
 ### State

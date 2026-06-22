@@ -1,6 +1,6 @@
 # ADR-125 — In-chat TodoWrite and scenario-seeded plan
 
-Status: Implemented locally — pending deploy + live validation
+Status: Implemented locally — pending deploy + live validation (Amendment 1: model-authored intake + per-turn `<system-reminder>` intake nudge)
 Date: 2026-06-22
 Baseline SHA: `b29c3873`
 Supersedes: none
@@ -332,3 +332,39 @@ Files:
 - Live-validation: **pending the next dev deploy.** The additive enum + table migration must run; the `Dev Image Publish` workflow will pause on the `persai-dev-migrations` environment per CI policy.
 - ADR-119 byte-golden fixture: **unchanged** by ADR-125 (no `<tool_usage_policy>` template edits).
 - `displayName` note: ADR text in the slice plan above mentions `"Plan / TodoWrite"`. The shipped catalog row uses `"Todo Write"` (Slice 1) to match the existing single-word convention of `Files`, `Grep`, `Glob`, etc. The implementation is the source of truth; the slice-plan note is left for historical context.
+
+## Amendment 1 — Pivot to Option A (model-authored intake) + per-turn system reminder
+
+Date: 2026-06-22
+
+### Why
+
+Live observation showed the **Path C** seeding pattern failing in the wild: the runtime would insert the scenario steps as `scenario_seeded` todos, but the model frequently refused to progress them (no `in_progress` flips, no `complete` calls) until the user explicitly nudged ("отметь шаг", "почему ты не сделал todo"). The model treats todos it did not author as foreign state. Combined with founder direction ("делать как у Cursor / Claude — модель сама ведёт план"), Path C was retired.
+
+### Decision
+
+Option A: **the model authors the entire plan, including the first batch of todos seeded from a scenario.** The runtime no longer creates `scenario_seeded` rows automatically. Instead:
+
+1. The `skill` tool's `modelUsageGuidance` carries a **PLAN INTAKE** clause that instructs the model to follow `action:"engage"` (when the engage result includes a non-empty `scenario.steps`) with a single `todo_write({action:"add", items:[...]})` call mirroring the scenario steps in order — first item `status:"in_progress"`, rest `status:"pending"`.
+2. The `todo_write` tool's `modelUsageGuidance` carries the mirror clause (**SCENARIO INTAKE**), so either entry point (reading either descriptor first) lands the model on the same protocol.
+3. The `AssistantChatTodo` schema is **descoped**: the `origin` column (with enum `AssistantChatTodoOrigin`), `seed_skill_id`, `seed_skill_label`, `seed_scenario_key`, `seed_key`, and the `@@index([chatId, seedKey])` index are dropped. Forward migration `20260622180000_adr125_drop_scenario_seeding`. Every todo row is now model-authored, period.
+4. `seedSkillScenarioTodos` (service method + `POST /v1/internal/runtime/chat-todos/seed-skill-scenario` endpoint + runtime `seedSkillScenarioTodos` client method + `executeEngageWithScenario` hook that called it) is **removed**. `RuntimeTodoItem` loses `origin` and `seedSkillLabel`.
+5. Web `<ChatPlanCard>` drops the `from <skill>` pill and the related `chat.planSeededFrom*` i18n keys. The "completed plan → delete instantly without confirmation" UX is preserved.
+6. Tool-catalog regression (`apps/api/test/tool-catalog-data.test.ts`) is updated to pin `PLAN INTAKE` on `skill` and `SCENARIO INTAKE` + `LIFECYCLE` (model-ownership wording) on `todo_write`.
+
+### Why a system reminder
+
+Tool-catalog guidance alone proved insufficient in live tests — the model would acknowledge the protocol but not act on it spontaneously on the engage-turn. To close that gap without re-introducing server seeding, the volatile-context build path was extended with **per-turn `<system-reminder>` blocks** (matching Claude Code / Cursor's recency-bias pattern):
+
+- **Reminder 3a — Scenario plan intake** (new): fires when a scenario is active, resolvable in the bundle, and the chat plan is empty. The reminder names the active scenario, embeds the actual `scenario.steps` list (titles derived from each `directive`, capped to 12 rendered with a "…and N more" trailer), and demands a `todo_write({action:"add", …})` call as the very next action BEFORE replying to the user and BEFORE any other tool call.
+- **Reminder 3b — Chat-plan lifecycle** (already shipped earlier on 2026-06-22): fires when at least one open row exists. Two branches — `in_progress` row present (demand `complete` BEFORE the reply) or only `pending` rows (demand `update → in_progress` BEFORE substantive work).
+
+Both reminders share the same `volatileKind: "system_reminder"` envelope, ride in the per-turn volatile prefix, and are emitted by `BuildSystemReminderBlocksService` in stable order (scenario tick → image → intake → lifecycle → budget). They cost no extra round-trip; they only re-shape the existing prompt body.
+
+### Acceptance (Amendment)
+
+- DB schema no longer carries the `origin` enum or any `seed_*` columns; existing rows back-fill cleanly (Forward migration drops only data we no longer surface).
+- `skill.engage` with a scenario that has non-empty `steps` no longer inserts rows server-side; the model is solely responsible for `todo_write({action:"add", …})`.
+- Per-turn `<system-reminder>` block carrying the intake imperative appears in the prompt on the engage-turn AND on every subsequent turn while the plan stays empty + a scenario stays active.
+- The lifecycle reminder takes over the moment the model populates the plan, and falls silent the moment every windowed row is completed.
+- `apps/runtime/test/build-system-reminder-blocks.service.test.ts` covers the new branches (cases 18–26): intake fires on empty plan + active scenario, suppressed when plan has any row or scenario is inactive/unresolvable, long directives truncate, many steps get the trailer, byte stability.

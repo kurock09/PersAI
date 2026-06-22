@@ -8020,12 +8020,17 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       );
       assert.equal(
         systemReminderMessages.length,
-        1,
-        "ADR-119 Slice 5: scenario active → 1 system_reminder message in provider request"
+        2,
+        "ADR-119 Slice 5 + ADR-125 Amendment 1: scenario active + empty chat plan → 2 system_reminder messages (scenario tick + scenario-plan intake)"
       );
       assert.match(
         String(systemReminderMessages[0]?.content ?? ""),
         /Active scenario: Instagram Carousel, 2 steps total/
+      );
+      assert.match(
+        String(systemReminderMessages[1]?.content ?? ""),
+        /Scenario "Instagram Carousel" is active but the chat plan is empty/,
+        "ADR-125 Amendment 1: intake reminder demands todo_write add as next move"
       );
 
       // Test 2: scenario active + image attached → 2 system_reminders.
@@ -8072,8 +8077,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       );
       assert.equal(
         systemReminderImageMessages.length,
-        2,
-        "ADR-119 Slice 5: scenario + image → 2 system_reminder messages (scenario tick + image reminder)"
+        3,
+        "ADR-119 Slice 5 + ADR-125 Amendment 1: scenario + image + empty plan → 3 system_reminder messages (scenario tick + image + scenario-plan intake)"
       );
       assert.match(
         String(systemReminderImageMessages[0]?.content ?? ""),
@@ -8082,6 +8087,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       assert.match(
         String(systemReminderImageMessages[1]?.content ?? ""),
         /Reference image attached this turn/
+      );
+      assert.match(
+        String(systemReminderImageMessages[2]?.content ?? ""),
+        /Scenario "Instagram Carousel" is active but the chat plan is empty/
       );
     } finally {
       if (bundleRegistry.entry !== null) {

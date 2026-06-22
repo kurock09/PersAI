@@ -2,19 +2,24 @@ import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayTextMessage,
+  RuntimeBundleSkillScenario,
+  RuntimeBundleSkillScenarioStep,
   RuntimeSkillDecisionState,
   RuntimeTodoItem
 } from "@persai/runtime-contract";
 import type { ToolBudgetSnapshot } from "./tool-budget-policy";
 
 const CHAT_PLAN_REMINDER_CONTENT_MAX = 140;
+const INTAKE_STEP_TITLE_MAX = 80;
+const INTAKE_MAX_STEPS_RENDERED = 12;
 
 /**
  * ADR-119 Slice 5 + ADR-125 follow-up — composes `<system-reminder>` volatile-context blocks
  * for mid-conversation injection.
  *
- * Four reminder classes are supported (emitted in stable order — scenario tick first, then
- * image, then chat-plan lifecycle, then budget reminders alphabetical by tool name):
+ * Five reminder classes are supported (emitted in stable order — scenario tick first, then
+ * image, then scenario plan intake, then chat-plan lifecycle, then budget reminders alphabetical
+ * by tool name):
  *
  *   1. **Active scenario tick** — emitted every turn while a scenario is active and resolvable
  *      from the bundle. Keeps the model oriented to the current step count.
@@ -23,7 +28,15 @@ const CHAT_PLAN_REMINDER_CONTENT_MAX = 140;
  *      AND a scenario is active. Reminds the model to verify its scenario step before any
  *      media tool call.
  *
- *   3. **Chat-plan lifecycle** — emitted when the windowed chat plan has at least one open
+ *   3. **Scenario plan intake** (ADR-125 Option A) — emitted when a scenario is active AND
+ *      resolvable from the bundle AND the chat plan is empty. This is the critical "first
+ *      move" nudge: after `skill.engage` returns scenario steps, the model is expected to
+ *      author a `todo_write({action:"add", items:[...]})` mirroring those steps before any
+ *      other work. Tool-catalog guidance alone proved insufficient — this reminder repeats
+ *      every turn (until the plan exists) and embeds the actual step list so the model has
+ *      the data it needs to compose the `add` call right next to the imperative.
+ *
+ *   4. **Chat-plan lifecycle** — emitted when the windowed chat plan has at least one open
  *      (non-completed) row. This is the Claude-Code / Cursor-style per-turn nudge that closes
  *      the gap between "model did the work" and "model called `todo_write` to mark it done".
  *      Two branches:
@@ -33,7 +46,7 @@ const CHAT_PLAN_REMINDER_CONTENT_MAX = 140;
  *          `in_progress` via `todo_write` BEFORE substantive work.
  *      Suppressed entirely when the plan is empty or every windowed row is already completed.
  *
- *   4. **Tool budget warning** — emitted per tool that has consumed ≥ 80% of its `per_tool_cap`.
+ *   5. **Tool budget warning** — emitted per tool that has consumed ≥ 80% of its `per_tool_cap`.
  *      Each qualifying tool gets its own separate message (keeps recency bias mechanism crisp).
  *      Reminders are ordered alphabetically by tool name.
  *
@@ -59,18 +72,17 @@ export class BuildSystemReminderBlocksService {
       state.activeScenarioKey !== null &&
       state.activeSkillId !== null;
 
+    const resolvedScenario = hasActiveScenario ? resolveScenario(params.bundle, state!) : null;
+
     // Reminder 1 — Active scenario tick.
-    if (hasActiveScenario) {
-      const resolvedScenario = resolveScenario(params.bundle, state!);
-      if (resolvedScenario !== null) {
-        const total = resolvedScenario.steps.length;
-        const displayName = resolvedScenario.displayName;
-        messages.push(
-          makeReminder(
-            `Active scenario: ${displayName}, ${String(total)} steps total. Follow steps in order. Negative guards from each step apply.`
-          )
-        );
-      }
+    if (resolvedScenario !== null) {
+      const total = resolvedScenario.steps.length;
+      const displayName = resolvedScenario.displayName;
+      messages.push(
+        makeReminder(
+          `Active scenario: ${displayName}, ${String(total)} steps total. Follow steps in order. Negative guards from each step apply.`
+        )
+      );
     }
 
     // Reminder 2 — Reference image attached (only when scenario is also active).
@@ -82,13 +94,22 @@ export class BuildSystemReminderBlocksService {
       );
     }
 
-    // Reminder 3 — Chat-plan lifecycle nudge.
+    // Reminder 3 — Scenario plan intake (fires only when scenario active + plan empty).
+    const intakeReminder = buildScenarioPlanIntakeReminder(
+      resolvedScenario,
+      params.chatPlanTodos ?? null
+    );
+    if (intakeReminder !== null) {
+      messages.push(intakeReminder);
+    }
+
+    // Reminder 4 — Chat-plan lifecycle nudge.
     const chatPlanReminder = buildChatPlanLifecycleReminder(params.chatPlanTodos ?? null);
     if (chatPlanReminder !== null) {
       messages.push(chatPlanReminder);
     }
 
-    // Reminder 4 — Tool budget warning (one message per qualifying tool, alpha by name).
+    // Reminder 5 — Tool budget warning (one message per qualifying tool, alpha by name).
     const budgetWarnings = params.toolBudgetSnapshot
       .filter((entry) => entry.perToolCap > 0 && entry.perToolUsed / entry.perToolCap >= 0.8)
       .slice()
@@ -105,6 +126,55 @@ export class BuildSystemReminderBlocksService {
 
     return messages;
   }
+}
+
+function buildScenarioPlanIntakeReminder(
+  resolvedScenario: RuntimeBundleSkillScenario | null,
+  todos: readonly RuntimeTodoItem[] | null
+): ProviderGatewayTextMessage | null {
+  // Only fire when there IS a scenario AND the plan is empty.
+  if (resolvedScenario === null) {
+    return null;
+  }
+  if (todos !== null && todos.length > 0) {
+    return null;
+  }
+  if (resolvedScenario.steps.length === 0) {
+    return null;
+  }
+  const stepsToRender = resolvedScenario.steps.slice(0, INTAKE_MAX_STEPS_RENDERED);
+  const renderedLines = stepsToRender.map((step) => {
+    const title = deriveStepTitle(step);
+    return `  ${String(step.number)}. ${title}`;
+  });
+  const truncatedNote =
+    resolvedScenario.steps.length > INTAKE_MAX_STEPS_RENDERED
+      ? `\n  …and ${String(resolvedScenario.steps.length - INTAKE_MAX_STEPS_RENDERED)} more — include every step in the add call.`
+      : "";
+  const firstStepTitle = deriveStepTitle(stepsToRender[0]!);
+  const secondStepHint =
+    stepsToRender.length > 1 ? `, {content:"${deriveStepTitle(stepsToRender[1]!)}"}` : "";
+  return makeReminder(
+    `Scenario "${resolvedScenario.displayName}" is active but the chat plan is empty. Your VERY NEXT action MUST be a single todo_write({action:"add", items:[…]}) call that mirrors the scenario steps below — one row per step, in order, first item status:"in_progress", every other item status:"pending". Do this BEFORE replying to the user and BEFORE any other tool call. The scenario IS the plan — do not skip this even if the user has not asked for a plan.\nScenario steps:\n${renderedLines.join("\n")}${truncatedNote}\nExample shape: todo_write({action:"add", items:[{content:"${firstStepTitle}", status:"in_progress"}${secondStepHint}, …]}).`
+  );
+}
+
+function deriveStepTitle(step: RuntimeBundleSkillScenarioStep): string {
+  const raw = step.directive.trim().replace(/\s+/g, " ");
+  // Cut at the first sentence boundary if it sits within the limit; otherwise
+  // truncate on a word boundary with an ellipsis.
+  const sentenceEnd = raw.search(/[.!?](\s|$)/);
+  const firstSentence =
+    sentenceEnd > 0 && sentenceEnd + 1 <= INTAKE_STEP_TITLE_MAX
+      ? raw.slice(0, sentenceEnd + 1)
+      : raw;
+  if (firstSentence.length <= INTAKE_STEP_TITLE_MAX) {
+    return firstSentence;
+  }
+  const slice = firstSentence.slice(0, INTAKE_STEP_TITLE_MAX - 1);
+  const lastSpace = slice.lastIndexOf(" ");
+  const trimmed = lastSpace > INTAKE_STEP_TITLE_MAX * 0.5 ? slice.slice(0, lastSpace) : slice;
+  return `${trimmed.trimEnd()}…`;
 }
 
 function buildChatPlanLifecycleReminder(
@@ -144,7 +214,7 @@ function truncateForReminder(content: string): string {
 function resolveScenario(
   bundle: AssistantRuntimeBundle,
   state: RuntimeSkillDecisionState
-): { displayName: string; steps: unknown[] } | null {
+): RuntimeBundleSkillScenario | null {
   const enabledSkills = bundle.skills?.enabled ?? [];
   const skill = enabledSkills.find((s) => s.id === state.activeSkillId) ?? null;
   if (skill === null) {
