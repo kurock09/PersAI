@@ -1,6 +1,6 @@
 # ADR-125 — In-chat TodoWrite and scenario-seeded plan
 
-Status: Implemented locally — pending deploy + live validation (Amendment 1: model-authored intake + per-turn `<system-reminder>` intake nudge)
+Status: Implemented locally — pending deploy + live validation (Amendment 2: mid-loop volatile-prefix refresh after `skill.engage` / `todo_write`)
 Date: 2026-06-22
 Baseline SHA: `b29c3873`
 Supersedes: none
@@ -368,3 +368,37 @@ Both reminders share the same `volatileKind: "system_reminder"` envelope, ride i
 - Per-turn `<system-reminder>` block carrying the intake imperative appears in the prompt on the engage-turn AND on every subsequent turn while the plan stays empty + a scenario stays active.
 - The lifecycle reminder takes over the moment the model populates the plan, and falls silent the moment every windowed row is completed.
 - `apps/runtime/test/build-system-reminder-blocks.service.test.ts` covers the new branches (cases 18–26): intake fires on empty plan + active scenario, suppressed when plan has any row or scenario is inactive/unresolvable, long directives truncate, many steps get the trailer, byte stability.
+
+## Amendment 2 — Mid-loop volatile-prefix refresh
+
+Date: 2026-06-22
+
+### Why
+
+Live trace of chat `web-1782153682653` (assistant `2f8cf38e-…`) showed Amendment 1 firing one turn late: the user typed "давай сделаем инстаграм карусель", the model called `skill.engage(scenarioKey="instagram_carousel")` inside that turn, but did NOT also call `todo_write({action:"add", …})` on the same turn. Only on the NEXT user turn did the intake `<system-reminder>` finally surface in the prompt and the model author the plan.
+
+Root cause: the volatile prefix (`<persai_active_scenario>` + `<persai_chat_plan>` + `<system-reminder>` blocks) was assembled exactly once in `prepareTurnExecution`, from the `skillStateContext` snapshot taken at turn-prep time. Any `skill.engage` / `skill.release` / `todo_write` tool call **inside the loop** mutated the underlying DB state, but the prompt the model saw on the next hop of that same turn still carried the stale prefix. Net effect: the intake imperative arrived a turn late.
+
+### Decision
+
+Refresh the volatile prefix **inside the tool loop** after any iteration whose batch contained a tool that mutates volatile-prefix state (`skill.engage`, `skill.release`, or `todo_write`). Implementation:
+
+1. `PreparedTurnExecution` carries three new fields: `volatilePrefixLength` (count of leading messages in `providerRequest.messages` that are volatile), `currentSkillDecisionState` (mutable per-turn copy of the skill state, seeded from `input.skillStateContext`), and `currentTurnHasUserAttachedImage` (captured once at prep).
+2. A new private helper `refreshVolatilePrefix(execution, input, toolBudgetSnapshot)` rebuilds the prefix from current state (`buildActiveScenarioBlockService` + `turnContextHydrationService.buildChatPlanBlock` + `buildSystemReminderBlocksService`), then swaps it in place: `messages = [...newPrefix, ...messages.slice(oldPrefixLen)]`. The base history is preserved verbatim — no `buildMessages` round-trip.
+3. `maybeApplySkillStateMutationFromTool(execution, outcome)` synthesizes the new `RuntimeSkillDecisionState` directly from a successful `skill.engage` / `skill.release` outcome (the payload already carries `skillId`, `skillDisplayName`, `scenarioKey`, `scenario.displayName`). No extra DB read.
+4. `toolMutatesVolatilePrefix(toolName)` returns `true` for `skill` and `todo_write`. After every tool batch, the loop accumulates a `volatileRefreshNeeded` flag; if set, `refreshVolatilePrefix` runs before the next iteration's `buildToolLoopProviderRequest`.
+5. The durable-compaction refresh path (`refreshProviderRequestMessages`) is extended to also re-prepend the volatile prefix (which it used to drop). Compaction is rare but no longer silently strips the scenario / chat-plan / reminder blocks for the rest of the turn.
+6. Both the sync (`executeProviderToolLoop`) and streaming (`streamAcceptedTurn`) variants of the tool loop apply the same logic.
+
+### Why this is the right cut
+
+- **Cost**: one extra `readChatPlanWindow` call per tool batch that contains `skill.engage` / `skill.release` / `todo_write` (which is a small subset of all batches). Skill state is updated in memory (no DB read). The base history is not re-hydrated.
+- **No re-seeding**: Amendment 1's "model authors the plan" contract is preserved — the runtime never inserts todos.
+- **No new tool**: same tool surface, same prompts; only the volatile prefix is refreshed.
+
+### Acceptance (Amendment 2)
+
+- Turn 0 starts with no active scenario → iteration 0 prompt has no reminders.
+- Iteration 0 returns `skill.engage(scenarioKey)` → iteration 1 prompt carries `<persai_active_scenario>` + scenario tick reminder + scenario-plan intake reminder (covered by new test in `apps/runtime/test/turn-execution.service.test.ts`).
+- Subsequent `todo_write({action:"add", …})` in iteration 1 causes the next iteration's prompt to carry `<persai_chat_plan>` + the lifecycle reminder (no intake any more).
+- Durable compaction no longer silently drops the volatile prefix for the remainder of the turn.

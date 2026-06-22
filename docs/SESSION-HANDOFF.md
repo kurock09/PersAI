@@ -3,6 +3,51 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-22 — ADR-125 Amendment 2: mid-loop volatile-prefix refresh (same-turn intake) — CHECKPOINT
+
+### State
+
+Live trace of chat `web-1782153682653` (assistant `2f8cf38e-…`, founder query "проверь тут есть чат id?") showed Amendment 1 firing one turn late. Sequence:
+
+| Turn | User → Assistant | Observation |
+|---|---|---|
+| 1 | «Привет» → «Ну привет, Лёш…» | no scenario, no plan — OK |
+| 2 | «давай сделаем инстаграм карусель» → text reply | `skill.engage(scenarioKey="instagram_carousel")` ran INSIDE turn, but no `todo_write` — plan NOT created |
+| 3 | «составь сам изучи persai.dev…» → text reply | 5-row plan CREATED at 18:43:25, model now self-tracks |
+
+Root cause: `prepareTurnExecution` builds the volatile prefix (`<persai_active_scenario>` + `<persai_chat_plan>` + `<system-reminder>` blocks) **once** from the `skillStateContext` snapshot taken at turn-prep. Any `skill.engage` / `skill.release` / `todo_write` call inside the tool loop mutated DB state, but the prompt the model saw on the next hop of that same turn still carried the stale prefix. Intake reminder thus arrived a turn late.
+
+Founder picked **Slice now: рефреш `<system-reminder>` внутри turn loop после каждого tool_result**.
+
+### What changed
+
+- **`apps/runtime/src/modules/turns/turn-execution.service.ts`** — extended `PreparedTurnExecution` with three mutable per-turn fields (`volatilePrefixLength`, `currentSkillDecisionState`, `currentTurnHasUserAttachedImage`); new private helpers `refreshVolatilePrefix(execution, input, toolBudgetSnapshot)` (surgical prefix swap, preserves base history verbatim — no `buildMessages` round-trip), `maybeApplySkillStateMutationFromTool(execution, outcome)` (synthesizes new `RuntimeSkillDecisionState` directly from a `skill.engage`/`skill.release` outcome payload — no extra DB read), and `toolMutatesVolatilePrefix(toolName)` (true for `skill`, `todo_write`). Both `executeProviderToolLoop` (sync) and `streamAcceptedTurn` (streaming) now accumulate a `volatileRefreshNeeded` flag during the tool batch and call `refreshVolatilePrefix` before the next iteration's `buildToolLoopProviderRequest`. The durable-compaction refresh path also re-prepends the fresh volatile prefix instead of silently dropping it for the rest of the turn.
+- **`apps/runtime/test/turn-execution.service.test.ts`** — new Test 3 in the ADR-119 Slice 5 reminder block: iteration 0 starts with no scenario → zero reminders; iteration 0 returns `skill.engage(scenarioKey)` → iteration 1's provider request now carries scenario tick + scenario-plan intake reminders (2 system_reminder messages). Required adding `skill` + `todo_write` policy entries to the test bundle's `governance.toolPolicies` (with save/restore around the test block) so the runtime actually projects the tools and dispatches them instead of returning `tool_not_projected`. Extended `FakePersaiInternalApiClientService` with `updateSkillState(...)` and `FakeTurnContextHydrationService.buildChatPlanBlock(...)` with a queued result list.
+- **`docs/ADR/125-in-chat-todo-write-and-scenario-seeded-plan.md`** — status header bumped to "Amendment 2"; new "Amendment 2 — Mid-loop volatile-prefix refresh" section captures the live evidence, the cause analysis, the implementation cuts, and acceptance criteria.
+- **`docs/CHANGELOG.md`** — new bullet under 2026-06-22 (see below).
+
+### Verified
+
+- AGENTS gate: lint (5 packages) PASS · `format:check` PASS · api typecheck PASS · web typecheck PASS · runtime typecheck PASS.
+- `corepack pnpm --filter @persai/runtime run test` — full suite PASS (incl. the new ADR-125 Amendment 2 mid-loop case).
+
+### Files
+
+- modified: `apps/runtime/src/modules/turns/turn-execution.service.ts`, `apps/runtime/test/turn-execution.service.test.ts`, `docs/ADR/125-in-chat-todo-write-and-scenario-seeded-plan.md`, `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`.
+
+### Residuals / risks
+
+- Pending deploy + live re-validation on the same chat / same user: expect the model to now author `todo_write({action:"add", …})` in the same turn as the `skill.engage`, not the next one.
+- No new DB schema, no new tool, no provider-contract change. The refresh is purely an in-memory prefix swap — cost is one `readChatPlanWindow` API call per tool batch that touched `skill` or `todo_write`.
+- `<system-reminder>` ordering inside the loop matches the prep-path ordering (scenario tick → image → intake → lifecycle → budget); the only thing that changes is **when** the prefix is rebuilt.
+
+### Next recommended step
+
+1. Push → deploy to `persai-dev` → re-test "Привет → давай карусель" on `info@general-fly.com`. Acceptance: the plan must appear in the SAME turn where the model engages the scenario, not the next one.
+2. If that passes, close ADR-125 in the next session (move from "Amendment 2: implemented" to "Implemented + live-validated").
+
+---
+
 ## 2026-06-22 — ADR-126 Accepted (doc-only): unified sandbox workspace, bash default, expanded egress — CHECKPOINT
 
 ### State

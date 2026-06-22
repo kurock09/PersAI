@@ -21,6 +21,7 @@ import type {
   RuntimeCompactionResult,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
+  ProviderGatewayTextMessage,
   ProviderGatewayTextStreamEvent,
   ProviderGatewayWebSearchRequest,
   ProviderGatewayWebSearchResult,
@@ -33,6 +34,7 @@ import type {
   RuntimeTurnResult,
   RuntimeTurnStreamEvent,
   RuntimeOutputArtifact,
+  RuntimeTodoItem,
   RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
 import type { RuntimeBundleCacheEntry } from "../src/modules/bundles/bundle.types";
@@ -1131,9 +1133,21 @@ class FakeTurnContextHydrationService {
     return this.openLoopRefsDeveloperBlock;
   }
 
-  async buildChatPlanBlock(..._args: unknown[]): Promise<null> {
+  chatPlanBlockResults: Array<{
+    block: ProviderGatewayTextMessage;
+    todos: readonly RuntimeTodoItem[];
+  } | null> = [];
+
+  async buildChatPlanBlock(..._args: unknown[]): Promise<{
+    block: ProviderGatewayTextMessage;
+    todos: readonly RuntimeTodoItem[];
+  } | null> {
     void _args.length;
-    return null;
+    if (this.chatPlanBlockResults.length === 0) {
+      return null;
+    }
+    const next = this.chatPlanBlockResults.shift();
+    return next ?? null;
   }
 
   pruneClosedOpenLoopRefsDeveloperBlock(
@@ -1521,6 +1535,24 @@ class FakePersaiInternalApiClientService {
   async enqueueBackgroundCompaction(input: Record<string, unknown>): Promise<void> {
     this.eventLog.push("enqueueBackgroundCompaction");
     this.enqueueBackgroundCompactionCalls.push(input);
+  }
+
+  // ADR-118 / ADR-125 — skill engage/release internal call.
+  updateSkillStateCalls: Array<Record<string, unknown>> = [];
+  updateSkillStateOutcome: {
+    skillId: string;
+    skillDisplayName: string;
+    previousSkillId: string | null;
+  } = {
+    skillId: "",
+    skillDisplayName: "",
+    previousSkillId: null
+  };
+  async updateSkillState(
+    input: Record<string, unknown>
+  ): Promise<{ skillId: string; skillDisplayName: string; previousSkillId: string | null }> {
+    this.updateSkillStateCalls.push(input);
+    return this.updateSkillStateOutcome;
   }
 }
 
@@ -7934,7 +7966,40 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   // ADR-119 Slice 5 — system reminder integration: verify reminder messages flow to provider.
   {
     const prevBundleSkillsReminder = bundleRegistry.entry?.parsedBundle.skills;
+    const prevBundleToolPoliciesReminder =
+      bundleRegistry.entry?.parsedBundle.governance.toolPolicies;
     if (bundleRegistry.entry !== null) {
+      // ADR-125 Amendment 2: ensure `skill` and `todo_write` are projected so
+      // the runtime actually dispatches them (instead of returning
+      // tool_not_projected). The test bundle's default policies don't
+      // include these two tools.
+      bundleRegistry.entry.parsedBundle.governance.toolPolicies = [
+        ...bundleRegistry.entry.parsedBundle.governance.toolPolicies,
+        {
+          toolCode: "skill",
+          displayName: "Skill",
+          description: "Engage or release a Skill / Scenario for the current chat.",
+          kind: "system",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: false,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "todo_write",
+          displayName: "Todo Write",
+          description: "Maintain the in-chat plan as a structured todo list.",
+          kind: "system",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: false,
+          dailyCallLimit: null
+        }
+      ];
       bundleRegistry.entry.parsedBundle.skills = {
         enabled: [
           {
@@ -8092,12 +8157,98 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         String(systemReminderImageMessages[2]?.content ?? ""),
         /Scenario "Instagram Carousel" is active but the chat plan is empty/
       );
+
+      // Test 3 (ADR-125 Amendment 2): mid-loop volatile-prefix refresh.
+      // Iteration 0 starts WITHOUT an active scenario. The model calls
+      // `skill.engage(skillId, scenarioKey)`. After the tool batch the
+      // volatile prefix is rebuilt — iteration 1's provider request must now
+      // carry the scenario tick reminder + the scenario-plan intake reminder,
+      // even though the original `skillStateContext.decision` was null.
+      const midLoopRequest = createRuntimeTurnRequest();
+      midLoopRequest.bundle.bundleHash = request.bundle.bundleHash;
+      midLoopRequest.skillStateContext = { decision: null };
+      persaiInternalApiClientService.updateSkillStateOutcome = {
+        skillId: "skill-marketer",
+        skillDisplayName: "Marketer",
+        previousSkillId: null
+      };
+      providerGatewayClient.resultQueue = [
+        {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "",
+          respondedAt: "2026-06-22T19:00:00.000Z",
+          usage: null,
+          stopReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "tool-call-skill-engage-1",
+              name: "skill",
+              arguments: {
+                action: "engage",
+                skillId: "skill-marketer",
+                scenarioKey: "instagram_carousel"
+              }
+            }
+          ]
+        },
+        {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "reply after skill engage",
+          respondedAt: "2026-06-22T19:00:01.000Z",
+          usage: null,
+          stopReason: "completed",
+          toolCalls: []
+        }
+      ];
+      turnAcceptanceService.result = createAcceptedTurn();
+      (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+        midLoopRequest.bundle.bundleHash;
+      const midLoopCallOffset = providerGatewayClient.calls.length;
+      const midLoopResult = await service.createTurn(midLoopRequest);
+      assert.equal(midLoopResult.assistantText, "reply after skill engage");
+
+      // Iteration 0 — no scenario state yet → no reminders.
+      const iter0Messages = providerGatewayClient.calls[midLoopCallOffset]?.messages ?? [];
+      const iter0Reminders = iter0Messages.filter(
+        (m) => m.cacheRole === "volatile_context" && m.volatileKind === "system_reminder"
+      );
+      assert.equal(
+        iter0Reminders.length,
+        0,
+        "ADR-125 Amendment 2: iteration 0 has no active scenario → 0 system_reminder messages"
+      );
+
+      // Iteration 1 — after `skill.engage`, volatile prefix was rebuilt.
+      const iter1Messages = providerGatewayClient.calls[midLoopCallOffset + 1]?.messages ?? [];
+      const iter1Reminders = iter1Messages.filter(
+        (m) => m.cacheRole === "volatile_context" && m.volatileKind === "system_reminder"
+      );
+      assert.equal(
+        iter1Reminders.length,
+        2,
+        "ADR-125 Amendment 2: iteration 1 sees the freshly-engaged scenario → 2 system_reminder messages (scenario tick + scenario-plan intake)"
+      );
+      assert.match(
+        String(iter1Reminders[0]?.content ?? ""),
+        /Active scenario: Instagram Carousel, 2 steps total/
+      );
+      assert.match(
+        String(iter1Reminders[1]?.content ?? ""),
+        /Scenario "Instagram Carousel" is active but the chat plan is empty/,
+        "ADR-125 Amendment 2: mid-loop refresh surfaces the scenario-plan intake reminder right after skill.engage"
+      );
     } finally {
       if (bundleRegistry.entry !== null) {
         if (prevBundleSkillsReminder === undefined) {
           delete bundleRegistry.entry.parsedBundle.skills;
         } else {
           bundleRegistry.entry.parsedBundle.skills = prevBundleSkillsReminder;
+        }
+        if (prevBundleToolPoliciesReminder !== undefined) {
+          bundleRegistry.entry.parsedBundle.governance.toolPolicies =
+            prevBundleToolPoliciesReminder;
         }
       }
     }

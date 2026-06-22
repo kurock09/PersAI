@@ -50,6 +50,7 @@ import {
   type RuntimeSandboxToolResult,
   type RuntimeScheduledActionToolResult,
   type RuntimeBackgroundTaskToolResult,
+  type RuntimeSkillDecisionState,
   type RuntimeDeferredMediaJobSummary,
   type RuntimeDeferredDocumentJobSummary,
   type RuntimeSharedCompactionToolResult,
@@ -108,7 +109,7 @@ import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.servi
 import { RuntimeTodoWriteToolService } from "./runtime-todo-write-tool.service";
 import { BuildActiveScenarioBlockService } from "./build-active-scenario-block.service";
 import { BuildSystemReminderBlocksService } from "./build-system-reminder-blocks.service";
-import { RuntimeSkillToolService } from "./runtime-skill-tool.service";
+import { RuntimeSkillToolService, type RuntimeSkillToolResult } from "./runtime-skill-tool.service";
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
 import { RuntimeGrepGlobToolService } from "./runtime-grep-glob-tool.service";
@@ -208,6 +209,16 @@ type PreparedTurnExecution = {
   // template (legacy bundle compiled before T1) or the channel doesn't have
   // a canonical chat row to ground the in-thread baseline.
   presenceBlock: string | null;
+  // ADR-125 Amendment 2 — mid-loop volatile-prefix refresh state. The
+  // volatile prefix (active scenario block + chat-plan block + <system-reminder>
+  // blocks) is built once at turn prep, but any in-loop `skill.engage`,
+  // `skill.release` or `todo_write` tool call mutates the underlying state.
+  // We carry the prefix length + the current skill decision state on the
+  // execution so a surgical refresh after such a tool call can swap the prefix
+  // in place without re-hydrating the entire base history.
+  volatilePrefixLength: number;
+  currentSkillDecisionState: RuntimeSkillDecisionState | null;
+  currentTurnHasUserAttachedImage: boolean;
 };
 
 type TurnKnowledgeSourcePolicy = {
@@ -835,7 +846,10 @@ export class TurnExecutionService {
       routeDecision: executionPlan.routeDecision,
       preludeUsageEntries: executionPlan.usageEntries,
       providerRequest,
-      presenceBlock
+      presenceBlock,
+      volatilePrefixLength: volatilePrefix.length,
+      currentSkillDecisionState: input.skillStateContext?.decision ?? null,
+      currentTurnHasUserAttachedImage
     };
   }
 
@@ -1155,6 +1169,7 @@ export class TurnExecutionService {
                 }
 
                 let durableCompactionExecuted = false;
+                let volatileRefreshNeeded = false;
                 const plannedToolExecutions = this.planToolExecutions(
                   this.reorderToolCallsDocumentFirst(event.result.toolCalls),
                   toolBudgetPolicy,
@@ -1195,6 +1210,10 @@ export class TurnExecutionService {
                           event.result.reasoningContent ?? null;
                         toolHistory.push(result.outcome.exchange);
                         this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
+                        this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
+                        if (this.toolMutatesVolatilePrefix(result.outcome.exchange.toolCall.name)) {
+                          volatileRefreshNeeded = true;
+                        }
                         durableCompactionExecuted =
                           durableCompactionExecuted ||
                           result.outcome.sharedCompaction?.durableStatePersisted === true;
@@ -1256,6 +1275,10 @@ export class TurnExecutionService {
                     outcome.exchange.reasoningContent = event.result.reasoningContent ?? null;
                     toolHistory.push(outcome.exchange);
                     this.applyToolExecutionOutcome(turnState, outcome, iteration);
+                    this.maybeApplySkillStateMutationFromTool(execution, outcome);
+                    if (this.toolMutatesVolatilePrefix(outcome.exchange.toolCall.name)) {
+                      volatileRefreshNeeded = true;
+                    }
                     durableCompactionExecuted =
                       durableCompactionExecuted ||
                       outcome.sharedCompaction?.durableStatePersisted === true;
@@ -1277,6 +1300,15 @@ export class TurnExecutionService {
                     execution,
                     input
                   );
+                  // After a full refresh the volatile prefix was dropped — re-prepend it
+                  // so the next iteration still carries the scenario block, chat plan,
+                  // and `<system-reminder>` blocks with up-to-date state.
+                  execution.volatilePrefixLength = 0;
+                  await this.refreshVolatilePrefix(
+                    execution,
+                    input,
+                    toolBudgetPolicy.getSnapshot()
+                  );
                   const refreshElapsedMs = Date.now() - refreshStartedAtMs;
                   trace?.stage(`iter${String(iteration)}.provider_request_refreshed`);
                   if (traceEnabled) {
@@ -1284,6 +1316,13 @@ export class TurnExecutionService {
                       `[turn-stream-refresh] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} refreshProviderRequestMessagesMs=${String(refreshElapsedMs)} reason=durable_compaction`
                     );
                   }
+                } else if (volatileRefreshNeeded) {
+                  await this.refreshVolatilePrefix(
+                    execution,
+                    input,
+                    toolBudgetPolicy.getSnapshot()
+                  );
+                  trace?.stage(`iter${String(iteration)}.volatile_prefix_refreshed`);
                 }
 
                 previewFollowUpExtraIterations = this.reservePreviewFollowUpIterationIfNeeded({
@@ -2679,6 +2718,7 @@ export class TurnExecutionService {
       forceFinalTextOnly = false;
 
       let durableCompactionExecuted = false;
+      let volatileRefreshNeeded = false;
       const plannedToolExecutions = this.planToolExecutions(
         this.reorderToolCallsDocumentFirst(providerResult.toolCalls),
         toolBudgetPolicy,
@@ -2715,6 +2755,10 @@ export class TurnExecutionService {
               result.outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
               toolHistory.push(result.outcome.exchange);
               this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
+              this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
+              if (this.toolMutatesVolatilePrefix(result.outcome.exchange.toolCall.name)) {
+                volatileRefreshNeeded = true;
+              }
               durableCompactionExecuted =
                 durableCompactionExecuted ||
                 result.outcome.sharedCompaction?.durableStatePersisted === true;
@@ -2751,12 +2795,23 @@ export class TurnExecutionService {
           outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
           toolHistory.push(outcome.exchange);
           this.applyToolExecutionOutcome(turnState, outcome, iteration);
+          this.maybeApplySkillStateMutationFromTool(execution, outcome);
+          if (this.toolMutatesVolatilePrefix(outcome.exchange.toolCall.name)) {
+            volatileRefreshNeeded = true;
+          }
           durableCompactionExecuted =
             durableCompactionExecuted || outcome.sharedCompaction?.durableStatePersisted === true;
         }
       }
       if (durableCompactionExecuted) {
         execution.providerRequest = await this.refreshProviderRequestMessages(execution, input);
+        // After a full refresh the volatile prefix was dropped — re-prepend it
+        // so the next iteration still carries the scenario block, chat plan,
+        // and `<system-reminder>` blocks with up-to-date state.
+        execution.volatilePrefixLength = 0;
+        await this.refreshVolatilePrefix(execution, input, toolBudgetPolicy.getSnapshot());
+      } else if (volatileRefreshNeeded) {
+        await this.refreshVolatilePrefix(execution, input, toolBudgetPolicy.getSnapshot());
       }
       previewFollowUpExtraIterations = this.reservePreviewFollowUpIterationIfNeeded({
         turnState,
@@ -5206,6 +5261,98 @@ export class TurnExecutionService {
         thinkingBudget: refreshThinkingBudget
       })
     };
+  }
+
+  /**
+   * ADR-125 Amendment 2 — surgical volatile-prefix swap.
+   *
+   * Re-renders the volatile prefix (active scenario block + chat-plan block +
+   * `<system-reminder>` blocks) from the current `execution.currentSkillDecisionState`
+   * and a fresh `buildChatPlanBlock` read, then replaces the leading
+   * `execution.volatilePrefixLength` messages of `execution.providerRequest.messages`
+   * with the new prefix. The base history (assistant/user messages) is preserved
+   * verbatim — we do NOT call `buildMessages` here, so this is cheap (one API
+   * read for the chat plan window; the skill state is already in-memory).
+   *
+   * Called from the tool loop after any iteration whose batch contained a
+   * `skill.engage` / `skill.release` / `todo_write` call. The mutation flag is
+   * accumulated in {@link maybeApplyVolatileSideEffectFromTool}.
+   */
+  private async refreshVolatilePrefix(
+    execution: PreparedTurnExecution,
+    input: RuntimeTurnRequest,
+    toolBudgetSnapshot: ToolBudgetSnapshot
+  ): Promise<void> {
+    const activeScenarioBlock = this.buildActiveScenarioBlockService.buildBlock({
+      bundle: execution.bundle,
+      skillDecisionState: execution.currentSkillDecisionState
+    });
+    const chatPlan = await this.turnContextHydrationService.buildChatPlanBlock(input);
+    const reminderBlocks = this.buildSystemReminderBlocksService.buildBlocks({
+      bundle: execution.bundle,
+      skillDecisionState: execution.currentSkillDecisionState,
+      currentTurnHasUserAttachedImage: execution.currentTurnHasUserAttachedImage,
+      toolBudgetSnapshot,
+      chatPlanTodos: chatPlan?.todos ?? null
+    });
+    const newPrefix: ProviderGatewayTextMessage[] = [];
+    if (activeScenarioBlock !== null) newPrefix.push(activeScenarioBlock);
+    if (chatPlan !== null) newPrefix.push(chatPlan.block);
+    if (reminderBlocks.length > 0) newPrefix.push(...reminderBlocks);
+    const base = execution.providerRequest.messages.slice(execution.volatilePrefixLength);
+    execution.providerRequest = {
+      ...execution.providerRequest,
+      messages: [...newPrefix, ...base]
+    };
+    execution.volatilePrefixLength = newPrefix.length;
+  }
+
+  /**
+   * ADR-125 Amendment 2 — synthesize the new `RuntimeSkillDecisionState`
+   * from a successful `skill.engage` / `skill.release` outcome. Returns
+   * `true` when the in-memory state actually changed (so the caller knows
+   * to schedule a {@link refreshVolatilePrefix} after the batch). Errors,
+   * unrelated tools, and `todo_write` (which mutates the chat plan but not
+   * the skill state) are no-ops here — `todo_write` triggers the volatile
+   * refresh via {@link toolMutatesVolatilePrefix} directly.
+   */
+  private maybeApplySkillStateMutationFromTool(
+    execution: PreparedTurnExecution,
+    outcome: ToolExecutionOutcome
+  ): boolean {
+    if (outcome.exchange.toolCall.name !== SKILL_TOOL_CODE) {
+      return false;
+    }
+    if (outcome.exchange.toolResult.isError === true) {
+      return false;
+    }
+    const payload = outcome.payload as RuntimeSkillToolResult;
+    if ("error" in payload) {
+      return false;
+    }
+    if (payload.action === "released") {
+      execution.currentSkillDecisionState = null;
+      return true;
+    }
+    // engaged (with or without a scenario)
+    execution.currentSkillDecisionState = {
+      status: "active",
+      activeSkillId: payload.skillId,
+      activeSkillName: payload.skillDisplayName,
+      activeScenarioKey: payload.scenarioKey,
+      activeScenarioDisplayName: payload.scenario?.displayName ?? null,
+      topicSummary: execution.currentSkillDecisionState?.topicSummary ?? null
+    };
+    return true;
+  }
+
+  /**
+   * ADR-125 Amendment 2 — true when the tool call mutates DB-backed state that
+   * feeds the volatile prefix (skill decision state OR chat plan), and therefore
+   * justifies a mid-loop volatile-prefix refresh on the next iteration.
+   */
+  private toolMutatesVolatilePrefix(toolName: string): boolean {
+    return toolName === SKILL_TOOL_CODE || toolName === TODO_WRITE_TOOL_CODE;
   }
 
   private createTurnProviderRequestMetadata(input: {
