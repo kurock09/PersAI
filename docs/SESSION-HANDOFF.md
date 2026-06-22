@@ -3,6 +3,37 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-22 — ADR-125 plan-route Clerk auth hot-fix — CHECKPOINT
+
+### State
+
+Live regression detected after the ADR-125 deploy of `f05f4191`: `<ChatPlanCard>` never rendered, even though the model successfully called `todo_write` and the database carried 7 rows for the active chat. Root cause: the two new web-facing routes on `AssistantChatTodosController` (`GET` + `DELETE /api/v1/assistant/chats/web/:chatId/plan`) were never added to the `ClerkAuthMiddleware` `forRoutes` allowlist in `IdentityAccessModule`, so every UI fetch landed in the handler with `req.resolvedAppUser === undefined` and was rejected with `401 Authenticated user context is missing.` in ~1 ms (no Clerk verifyToken call). Same regression class as ADR-074 / ADR-076 / ADR-088 / ADR-115 / Slice-3 scenarios — the existing module test already pins those routes, so a matching assertion was added for ADR-125.
+
+### What changed
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts` — appended both ADR-125 plan routes to the `ClerkAuthMiddleware.forRoutes(...)` allowlist, next to `…/messages` and `…/compaction`.
+- `apps/api/test/identity-access.module.test.ts` — locked the regression with explicit `hasRoute` assertions for `GET` + `DELETE /api/v1/assistant/chats/web/:chatId/plan`, including a comment that names this as the "Пока не видно план" regression and refuses to lose it again.
+
+### Files
+
+`apps/api/src/modules/identity-access/identity-access.module.ts`, `apps/api/test/identity-access.module.test.ts`, this checkpoint + `docs/CHANGELOG.md`.
+
+### Verified
+
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts` PASS
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+
+### Residuals
+
+- Re-deploy is required: this hot-fix only ships once the `Dev Image Publish` workflow republishes `api` and the migration-gated pin job updates `infra/helm/values-dev.yaml` to the new SHA. Other services remain at `f05f4191`.
+- After re-pin, repeat the original ADR-125 live checks: model adds/completes todos via tool-loop; the `<persai_chat_plan>` block appears in the next turn's prompt; `skill({action:"engage"})` seeds the scenario steps idempotently; the inline `<ChatPlanCard>` renders above the composer (cursor-style collapse, parent/child indent, `from <skill>` pill).
+
+### Next recommended step
+
+After the new image lands in `persai-dev`, reload the chat that already has 7 rows in `assistant_chat_todos` (DB confirmed at 13:30 UTC), confirm the card appears with two completed strikethroughs + the in-progress parent with one indented child + three trailing `pending` items. Then continue the ADR-125 closeout live checks.
+
 ## 2026-06-22 — ADR-125 in-chat TodoWrite + scenario-seeded plan — CHECKPOINT
 
 ### State

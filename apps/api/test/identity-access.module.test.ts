@@ -440,6 +440,28 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     true,
     "GET /api/v1/assistant/avatar/:hash must be guarded by ClerkAuthMiddleware"
   );
+  // ADR-125 in-chat TodoWrite — both web-facing plan routes ship in
+  // AssistantChatTodosController and must be guarded. Original Slice 1
+  // wired the controller into WorkspaceManagementModule but forgot the
+  // ClerkAuthMiddleware `forRoutes` entries, so live the GET/DELETE
+  // returned 401 (`req.resolvedAppUser === undefined`) and the
+  // <ChatPlanCard> never received data. Lock both shapes here.
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/assistant/chats/web/:chatId/plan",
+      method: RequestMethod.GET
+    }),
+    true,
+    "GET /api/v1/assistant/chats/web/:chatId/plan must be guarded by ClerkAuthMiddleware (ADR-125)"
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/assistant/chats/web/:chatId/plan",
+      method: RequestMethod.DELETE
+    }),
+    true,
+    "DELETE /api/v1/assistant/chats/web/:chatId/plan must be guarded by ClerkAuthMiddleware (ADR-125)"
+  );
 }
 
 void runIdentityAccessModuleTest().catch((error: unknown) => {
