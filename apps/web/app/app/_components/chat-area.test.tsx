@@ -762,9 +762,12 @@ describe("ChatArea", () => {
         />
       );
 
-      expect(screen.getAllByText("activeSkillPrefix").length).toBeGreaterThan(0);
       expect(screen.getByText("Маркетолог")).toBeInTheDocument();
       expect(screen.getByText("Карусель")).toBeInTheDocument();
+      // 2026-06-22 founder feedback: the explicit "СКИЛЛ" label is gone —
+      // the subtitle is just `<skill> · <scenario>` so we don't render the
+      // i18n key any more.
+      expect(screen.queryByText("activeSkillPrefix")).not.toBeInTheDocument();
       expect(screen.queryByText("modeDeepCaption")).not.toBeInTheDocument();
     });
 
@@ -779,13 +782,13 @@ describe("ChatArea", () => {
       expect(screen.getByText("Finance")).toBeInTheDocument();
       // Scenario separator should not render when scenarioDisplayName is null.
       expect(screen.queryByText("·")).not.toBeInTheDocument();
+      expect(screen.queryByText("activeSkillPrefix")).not.toBeInTheDocument();
     });
 
     it("falls back to mode caption when no skill engagement is active", () => {
       render(<ChatArea chat={createChat("Hello", { isStreaming: false })} chatMode="smart" />);
 
       expect(screen.getByText("modeDeepCaption")).toBeInTheDocument();
-      expect(screen.queryByText("activeSkillPrefix")).not.toBeInTheDocument();
     });
 
     it("renders no subtitle when chat is normal mode and no skill is engaged", () => {
@@ -793,7 +796,6 @@ describe("ChatArea", () => {
 
       expect(screen.queryByText("modeDeepCaption")).not.toBeInTheDocument();
       expect(screen.queryByText("modeProjectCaption")).not.toBeInTheDocument();
-      expect(screen.queryByText("activeSkillPrefix")).not.toBeInTheDocument();
     });
 
     it("keeps the mode icon visible alongside the skill chip when a non-normal mode is active", () => {

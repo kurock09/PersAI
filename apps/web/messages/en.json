@@ -416,7 +416,6 @@
     "modeProjectCaption": "deep analysis",
     "modeLimitReachedCaption": "limit reached",
     "modeMenuAria": "Chat mode: {mode}",
-    "activeSkillPrefix": "Skill",
     "knowledgeUploadReady": "Added to knowledge base",
     "knowledgeUploadReadyDetail": "{count, plural, one {# file is now available across chats} other {# files are now available across chats}}",
     "knowledgeUploadPartial": "Knowledge base updated partially",

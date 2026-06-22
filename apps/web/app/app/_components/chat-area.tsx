@@ -1077,12 +1077,15 @@ function chatModeCaption(
  *
  * Replaces the previous always-mode-caption row. Surfaces two pieces of
  * persistent chat-level metadata at most:
- *   1. Active skill / scenario (when the latest committed assistant
- *      message carries `engagementSummary`, i.e. `chat.skillDecisionState`
- *      is `active` server-side). Format: `Skill: <skill> · <scenario>`,
- *      shown on both desktop and mobile because this is the live working
- *      context — the user wants to see it everywhere. The scenario half
- *      is dropped first under truncation so the skill stays readable.
+ *   1. Active skill / scenario (when the chat-level `currentEngagement`
+ *      is populated, i.e. `chat.skillDecisionState` is `active`
+ *      server-side). Format: `<skill> · <scenario>` (no prefix word —
+ *      the row's position under the title + the skill/scenario typography
+ *      already communicate context; the explicit "СКИЛЛ" label was visual
+ *      noise per founder feedback 2026-06-22). Shown on both desktop and
+ *      mobile because this is the live working context — the user wants
+ *      to see it everywhere. The scenario half is dropped first under
+ *      truncation so the skill stays readable.
  *   2. Otherwise, the existing chat-mode caption ("тщательнее, но
  *      дороже" / "глубокий анализ") when `chatMode !== "normal"`. Kept
  *      desktop-only because the mode chip on the right already carries
@@ -1109,8 +1112,8 @@ function ChatHeaderSubtitle({
 
   const fullSkillText = hasSkill
     ? engagement.scenarioDisplayName
-      ? `${t("activeSkillPrefix")}: ${engagement.skillDisplayName} · ${engagement.scenarioDisplayName}`
-      : `${t("activeSkillPrefix")}: ${engagement.skillDisplayName}`
+      ? `${engagement.skillDisplayName} · ${engagement.scenarioDisplayName}`
+      : engagement.skillDisplayName
     : "";
 
   return (
@@ -1143,21 +1146,16 @@ function ChatHeaderSubtitle({
         </>
       )}
       {hasSkill ? (
-        <span className="flex min-w-0 items-baseline gap-1">
-          <span className="shrink-0 uppercase tracking-wider text-text-subtle/70">
-            {t("activeSkillPrefix")}
-          </span>
-          <span className="truncate max-w-[10rem] md:max-w-[22rem]">
-            <span className="font-semibold text-text-muted">{engagement.skillDisplayName}</span>
-            {engagement.scenarioDisplayName ? (
-              <>
-                <span aria-hidden className="px-1 text-text-subtle/50">
-                  ·
-                </span>
-                <span className="text-text-subtle">{engagement.scenarioDisplayName}</span>
-              </>
-            ) : null}
-          </span>
+        <span className="truncate max-w-[10rem] md:max-w-[22rem]">
+          <span className="font-semibold text-text-muted">{engagement.skillDisplayName}</span>
+          {engagement.scenarioDisplayName ? (
+            <>
+              <span aria-hidden className="px-1 text-text-subtle/50">
+                ·
+              </span>
+              <span className="text-text-subtle">{engagement.scenarioDisplayName}</span>
+            </>
+          ) : null}
         </span>
       ) : (
         <span className="truncate">

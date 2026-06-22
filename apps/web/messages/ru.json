@@ -416,7 +416,6 @@
     "modeProjectCaption": "глубокий анализ",
     "modeLimitReachedCaption": "лимит исчерпан",
     "modeMenuAria": "Режим чата: {mode}",
-    "activeSkillPrefix": "Скилл",
     "knowledgeUploadReady": "Добавлено в базу знаний",
     "knowledgeUploadReadyDetail": "{count, plural, one {# файл доступен из любых чатов} few {# файла доступны из любых чатов} other {# файлов доступны из любых чатов}}",
     "knowledgeUploadPartial": "База знаний обновлена частично",

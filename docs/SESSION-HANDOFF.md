@@ -3,6 +3,54 @@
 > Archive: handoff sections from 2026-06-06 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-06-06-and-earlier.md`; 2026-05-19 and earlier remain in `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: only the current active working set and immediate handoff.
 
+## 2026-06-22 — ADR-126 Accepted (doc-only): unified sandbox workspace, bash default, expanded egress — CHECKPOINT
+
+### State
+
+After live validation on `info@general-fly.com` exposed three architectural mismatches with Claude-Code / Cursor agent semantics — (1) `files.write` and `shell` write to disjoint filesystems, (2) `/bin/sh` is dash so brace expansion / `[[ … ]]` / `pipefail` do not work, (3) the egress allowlist is LLM-host-only so `git clone` against public GitHub fails — founder approved opening **ADR-126** to lock the cutover terms BEFORE writing code (per `AGENTS.md`: "every architectural change requires an ADR when it changes long-term system truth"). All five Open Questions in the initial draft were resolved in the same 2026-06-22 founder-review session; the ADR's status is now **Accepted (doc-only)** with hard contracts on each decision. This session still ships only the ADR document; implementation lands in a follow-up program.
+
+Also rolled in a UX micro-change discussed mid-session: the chat-header subtitle drops the explicit "СКИЛЛ" / "Skill" label — `Маркетолог · Карусель` is enough; the row position + typography already communicate the context. The `chat.activeSkillPrefix` i18n key is removed; chat-area tests adjusted; not yet pushed (waiting on this and the ADR to ride together once founder OKs).
+
+### What changed
+
+- **NEW: `docs/ADR/126-unified-sandbox-workspace-files-shell-single-fs-bash-default-and-expanded-egress.md`** (doc-only). Locks the cutover terms for D1–D4 (A+B+C+D the founder picked from the 2026-06-22 thread):
+  - D1 / A — bash as `/bin/sh` for the `shell` tool (`{a,b,c}`, `[[ … ]]`, `pipefail` work natively).
+  - D2 / B — Unified workspace FS: `files.write/read/list/preview` repointed at the assistant-`workspaceId` exec pod's `/workspace` via tiny control-plane primitives (mirrors the existing `grep`/`glob` "runs on the control plane, never spawns a model-visible shell" pattern from ADR-123 Slice 7). `assistant_files` retains a narrow role: chat input uploads (hydrated into `/workspace/input/<filename>` on first turn that needs them) + chat output artifacts (`document`/`image_generate` outputs). No transitional dual write — prod-first cutover per founder direction ("у меня реально комерческих user пока нет можно сделать сразу чисто").
+  - D3 / C — Egress allowlist widens to GitHub + PyPI + npm (HTTPS pull/clone/fetch only). `git push` stays **denied in v1**; the proxy continues to block `POST` to `…/git-receive-pack`. ADR-123 D3 isolation/secret-free posture is preserved.
+  - D4 / D — Exec image preinstalls `node` + `npm` (LTS line picked at sign-off, recommended 22); `pip install --user` and `npm install` ergonomics with session-scoped `/workspace/.local/` and `/workspace/.npm-global/`; tool catalog `modelUsageGuidance` for both `files` and `shell` rewritten to make the new workspace contract explicit to the model.
+- Implementation plan sketched as a **4-slice program** (image / egress allowlist / files-contract rewrite + preview cache rekey / catalog + chat-uploads hydrate + plan-baseline 500 MB bump), each ending on the AGENTS gate, single push at the very end (mirrors ADR-123 program-style).
+- Acceptance criteria list **13** live-`persai-dev` checks (incl. the founder's exact failure case from 2026-06-22: `files.write({path:"hello.txt"}) → shell({command:"cat hello.txt"})` must return the bytes; plus quota-exhaustion classification and preview cache invalidation).
+- All 5 Resolved decisions (founder sign-off 2026-06-22):
+  1. `git push` — denied in v1 (egress proxy blocks `POST` to `/git-receive-pack`); reopen is an explicit follow-up addendum, not a flag.
+  2. Node 22 LTS — installed from NodeSource `setup_22.x`; matches the control-plane image's `node:22-bookworm-slim`.
+  3. Git hosts in v1 — GitHub only; GitLab/Bitbucket deferred.
+  4. Workspace cap stays plan-managed (existing `planCatalogPlan.billingProviderHints.quotaAccounting.workspaceStorageBytesLimit`, resolved into `bundle.governance.quota.workspaceQuotaBytes`); Slice 4 only bumps the per-plan **default** to 500 MB for any plan below that ceiling (data migration), via the same code path that already exists.
+  5. `files.preview` cache repointed to `(assistantId, workspaceId, relPath, content_hash)` for `/workspace` paths; `fileRef`-keyed cache for outbound artifact previews (`document`, `image_generate`) is untouched.
+
+### Files
+
+`docs/ADR/126-unified-sandbox-workspace-files-shell-single-fs-bash-default-and-expanded-egress.md` (new), this checkpoint, `docs/CHANGELOG.md`. Plus the queued (not-yet-pushed) chat-header subtitle micro-change to `apps/web/app/app/_components/chat-area.tsx`, `apps/web/app/app/_components/chat-area.test.tsx`, `apps/web/messages/{ru,en}.json` (founder: "СКИЛЛ вообще удали просто — без него").
+
+### Verified
+
+- ADR-126 is doc-only — no AGENTS gate run required for the ADR itself.
+- For the queued subtitle change: `@persai/web` typecheck PASS · chat-area suite 27/27 PASS.
+
+### Residuals / risks
+
+- **No code change yet for ADR-126.** Implementation is a separate program for a future session — see the 4-slice plan inside the ADR. The model still hits the unified-FS / dash / egress gaps in `persai-dev` between now and that landing.
+- **No remaining Open Questions.** All 5 are resolved (see What changed §5). Any future deviation requires re-opening the corresponding question in a new ADR addendum, not a silent slice-level edit.
+- **`git push` stays denied in v1.** Reopen would require an explicit follow-up addendum + threat-model update, not an implementation tweak.
+- **No live regression introduced.** All sandbox behavior remains as ADR-123 left it; the ADR only enumerates what changes when we cut over.
+
+### Next recommended step
+
+1. Founder dispatches the implementation program (4 slices, single push at end, AGENTS gate per slice) in a separate session.
+2. Slice 1 is "image: bash + Node 22 + path/dotfile defaults" — smallest, lowest risk, validates the bash semantics fix and Node LTS pin in isolation.
+3. The queued chat-header "СКИЛЛ" removal rides on the next push together with the ADR-126 doc landing and anything else that lands in the meantime.
+
+---
+
 ## 2026-06-22 — ADR-125 follow-up: scenario plan-intake `<system-reminder>` (Option A first-move nudge) — CHECKPOINT
 
 ### State
