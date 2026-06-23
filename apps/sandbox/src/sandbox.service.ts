@@ -435,6 +435,26 @@ export class SandboxService {
       request.assistantId,
       request.workspaceId
     );
+
+    if (
+      request.runtimeSessionId !== null &&
+      this.config.SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT >= 1
+    ) {
+      // Fire-and-forget: pre-create the session pod so its provisioning overlaps lease wait.
+      // The subsequent runInSessionPod call is idempotent and will reuse this pod.
+      void this.execPodBridgeService
+        .warmSessionPod({
+          assistantId: request.assistantId,
+          workspaceId: request.workspaceId,
+          policy: request.policy
+        })
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `sandbox_warm_pool_failed assistantId=${request.assistantId} workspaceId=${request.workspaceId} error=${error instanceof Error ? error.message : String(error)}`
+          );
+        });
+    }
+
     let leaseGuard: WorkspaceLeaseGuard | null = null;
     try {
       const leaseHandle = await this.waitForWorkspaceLease({
@@ -1141,7 +1161,7 @@ export class SandboxService {
         workspaceId,
         workspaceRoot,
         absoluteCwd,
-        command: "/bin/sh",
+        command: "/bin/bash",
         args: ["-lc", command],
         policy
       });

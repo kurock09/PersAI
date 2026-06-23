@@ -42,7 +42,11 @@ const baseSandboxConfigSchema = z.object({
   // (using maxProcessRuntimeMs as the pod-ready deadline) made the first command on a
   // cold sandbox pool fail with process_timeout. Default 4 min; with a warm node +
   // pre-pulled image this budget is almost never approached.
-  SANDBOX_EXEC_POD_PROVISION_BUDGET_MS: z.coerce.number().int().positive().default(240_000)
+  SANDBOX_EXEC_POD_PROVISION_BUDGET_MS: z.coerce.number().int().positive().default(240_000),
+  // Per-(assistantId, workspaceId) warm-pool size. v1: 1 = pre-create the session pod
+  // in parallel with lease wait so cold pod-provisioning overlaps lease acquisition.
+  // 0 = disable pre-warm (job's runInPod still creates lazily as before).
+  SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: z.coerce.number().int().min(0).max(1).default(1)
 });
 
 const localSandboxConfigSchema = baseSandboxConfigSchema.extend({

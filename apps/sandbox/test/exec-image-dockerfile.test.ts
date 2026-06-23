@@ -23,14 +23,60 @@ test("exec image keeps root read-only while defaulting pip installs to writable 
   );
   assert.match(
     dockerfile,
-    /export PATH="\/workspace\/\.local\/bin:\/opt\/venv\/bin:\$PATH"/,
-    "login shells must see user-installed console scripts before the immutable venv"
+    /export PATH="\/workspace\/\.npm-global\/bin:\/workspace\/\.local\/bin:\/opt\/venv\/bin:\$PATH"/,
+    "login shells must see npm-global, user-local, and venv bin in PATH before system paths"
   );
   assert.match(
     dockerfile,
     /readOnlyRootFilesystem: true/,
     "the image must preserve the read-only-root filesystem security invariant"
   );
+});
+
+test("exec image declares NPM_CONFIG_PREFIX under writable workspace", async () => {
+  const dockerfile = await readFile(join(process.cwd(), "exec-image", "Dockerfile"), "utf8");
+
+  assert.match(
+    dockerfile,
+    /ENV NPM_CONFIG_PREFIX="\/workspace\/\.npm-global"/,
+    "NPM_CONFIG_PREFIX must be set to /workspace/.npm-global so npm install -g writes to the session workspace"
+  );
+});
+
+test("exec image PATH includes npm-global bin before user-local bin before venv before system", async () => {
+  const dockerfile = await readFile(join(process.cwd(), "exec-image", "Dockerfile"), "utf8");
+
+  assert.match(
+    dockerfile,
+    /ENV PATH="\/workspace\/\.npm-global\/bin:\/workspace\/\.local\/bin:\/opt\/venv\/bin:\$PATH"/,
+    "PATH ENV must start with /workspace/.npm-global/bin then /workspace/.local/bin then /opt/venv/bin"
+  );
+});
+
+test("exec image login shell PATH includes npm-global bin", async () => {
+  const dockerfile = await readFile(join(process.cwd(), "exec-image", "Dockerfile"), "utf8");
+
+  assert.match(
+    dockerfile,
+    /export PATH="\/workspace\/\.npm-global\/bin:\/workspace\/\.local\/bin:\/opt\/venv\/bin:\$PATH"/,
+    "/etc/profile.d/10-venv.sh must export the three-segment PATH for login shells"
+  );
+});
+
+test("exec image self-check verifies bash brace expansion + pipefail + npm", async () => {
+  const dockerfile = await readFile(join(process.cwd(), "exec-image", "Dockerfile"), "utf8");
+
+  assert.match(
+    dockerfile,
+    /bash\s*-c\s*'\[\[ "\$\(echo \{a,b,c\}\)" = "a b c" \]\] && echo bash_brace_ok'/,
+    "self-check must verify bash brace expansion and [[ ]] (the exact 2026-06-22 failure case)"
+  );
+  assert.match(
+    dockerfile,
+    /bash\s*-c\s*'set -o pipefail; true \| true && echo bash_pipefail_ok'/,
+    "self-check must verify bash pipefail is available"
+  );
+  assert.match(dockerfile, /npm --version/, "self-check must verify npm is present");
 });
 
 test("exec image preinstalls curated document/data/image system and python baseline", async () => {

@@ -300,6 +300,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Ensure the session pod exists and is Running. Creates it if absent or in a terminal state.
+   * A 409 Conflict from createExecPod (concurrent caller already created the pod) is treated
+   * as "already created" and falls through to waitForPodRunning without re-throwing.
    */
   private async ensureSessionPodRunning(
     podName: string,
@@ -342,7 +344,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
     if (needsCreate) {
       this.logger.log(`exec_pod_session_create pod=${podName}`);
-      await this.createExecPod(podName, namespace, policy, {
+      await this.createExecPodIdempotent(podName, namespace, policy, {
         [ASSISTANT_ID_ANNOTATION]: assistantId,
         [WORKSPACE_ID_ANNOTATION]: workspaceId
       });
@@ -353,6 +355,61 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       namespace,
       this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
     );
+  }
+
+  /**
+   * Pre-create the session pod for this (assistantId, workspaceId) pair so pod provisioning
+   * overlaps the workspace lease wait (warm-pool entry, ADR-126 D10 / Slice 1).
+   * Safe to call concurrently with runInSessionPod — a 409 from a racing create is treated
+   * as idempotent success. Warm failure is non-fatal; callers log at warn and continue.
+   */
+  async warmSessionPod(input: {
+    assistantId: string;
+    workspaceId: string;
+    policy: RuntimeSandboxPolicy;
+  }): Promise<{ podName: string; alreadyRunning: boolean }> {
+    const { assistantId, workspaceId, policy } = input;
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+    const podName = this.buildSessionPodName(assistantId, workspaceId);
+
+    let alreadyRunning = false;
+    try {
+      const pod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
+      if (pod.status?.phase === "Running") {
+        alreadyRunning = true;
+        this.logger.log(
+          `warm_session_pod pod=${podName} assistant=${assistantId} workspace=${workspaceId} already_running=true`
+        );
+        return { podName, alreadyRunning: true };
+      }
+    } catch (error) {
+      const isNotFound =
+        error !== null &&
+        typeof error === "object" &&
+        ((error as { code?: unknown }).code === 404 ||
+          (error as { statusCode?: unknown }).statusCode === 404 ||
+          (error as { response?: { statusCode?: unknown } }).response?.statusCode === 404);
+      if (!isNotFound) {
+        throw error;
+      }
+      // Pod not found — fall through to create.
+    }
+
+    await this.createExecPodIdempotent(podName, namespace, policy, {
+      [ASSISTANT_ID_ANNOTATION]: assistantId,
+      [WORKSPACE_ID_ANNOTATION]: workspaceId
+    });
+
+    await this.waitForPodRunning(
+      podName,
+      namespace,
+      this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+    );
+
+    this.logger.log(
+      `warm_session_pod pod=${podName} assistant=${assistantId} workspace=${workspaceId} already_running=${String(alreadyRunning)}`
+    );
+    return { podName, alreadyRunning };
   }
 
   /**
@@ -464,6 +521,36 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     return relPart.length > 0 ? `/workspace/${relPart}` : "/workspace";
   }
 
+  /**
+   * Create the exec pod, tolerating a 409 Conflict (another caller beat us to it).
+   * A 409 is treated as idempotent: we log it and fall through so the caller can
+   * proceed to waitForPodRunning. This prevents warm-pool races from surfacing as
+   * process_spawn_failed when warmSessionPod and runInSessionPod race on the same pod.
+   */
+  private async createExecPodIdempotent(
+    podName: string,
+    namespace: string,
+    policy: RuntimeSandboxPolicy,
+    annotations?: Record<string, string>
+  ): Promise<void> {
+    try {
+      await this.createExecPod(podName, namespace, policy, annotations);
+    } catch (error) {
+      const is409 =
+        error !== null &&
+        typeof error === "object" &&
+        ((error as { code?: unknown }).code === 409 ||
+          (error as { statusCode?: unknown }).statusCode === 409 ||
+          (error as { response?: { statusCode?: unknown } }).response?.statusCode === 409);
+      if (!is409) {
+        throw error;
+      }
+      this.logger.log(
+        `exec_pod_create_conflict_409 pod=${podName} — another caller created it concurrently, continuing`
+      );
+    }
+  }
+
   private async createExecPod(
     podName: string,
     namespace: string,
@@ -569,6 +656,16 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         }
       });
     } catch (error) {
+      // Re-throw 409 Conflict as-is so createExecPodIdempotent can detect and handle it.
+      const is409 =
+        error !== null &&
+        typeof error === "object" &&
+        ((error as { code?: unknown }).code === 409 ||
+          (error as { statusCode?: unknown }).statusCode === 409 ||
+          (error as { response?: { statusCode?: unknown } }).response?.statusCode === 409);
+      if (is409) {
+        throw error;
+      }
       throw createBridgeError(
         "process_spawn_failed",
         `Failed to create exec pod: ${error instanceof Error ? error.message : String(error)}`

@@ -120,7 +120,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt \
 # interpreter. /etc/profile sources /etc/profile.d/*.sh AFTER setting PATH, so
 # prepending here re-establishes the venv and user script path across every shell
 # invocation mode.
-RUN printf '%s\n' 'export PATH="/workspace/.local/bin:/opt/venv/bin:$PATH"' > /etc/profile.d/10-venv.sh \
+RUN printf '%s\n' 'export PATH="/workspace/.npm-global/bin:/workspace/.local/bin:/opt/venv/bin:$PATH"' > /etc/profile.d/10-venv.sh \
   && chmod 0644 /etc/profile.d/10-venv.sh
 
 # ── refresh font cache into the image layer ───────────────────────────────────
@@ -144,7 +144,10 @@ RUN mkdir -p /workspace \
 ENV HOME="/workspace"
 ENV PYTHONUSERBASE="/workspace/.local"
 ENV PIP_USER="1"
-ENV PATH="/workspace/.local/bin:/opt/venv/bin:$PATH"
+ENV PATH="/workspace/.npm-global/bin:/workspace/.local/bin:/opt/venv/bin:$PATH"
+# npm global installs write to the session-scoped workspace emptyDir instead of
+# the read-only root FS — mirrors the Python PIP_USER=1 pattern above.
+ENV NPM_CONFIG_PREFIX="/workspace/.npm-global"
 
 # Keep regenerable tool caches OUT of the persisted /workspace snapshot by
 # pointing them at the ephemeral /tmp emptyDir. /workspace is tar'd back to GCS
@@ -170,6 +173,10 @@ RUN rg --version \
   && /bin/sh -lc 'python3 -c "import weasyprint, pandas, pyzbar, pytesseract; print(\"login-shell python stack ok\")"' \
   && /bin/sh -lc 'python3 -c "import site; assert site.ENABLE_USER_SITE and site.getuserbase() == \"/workspace/.local\"; print(\"login-shell python user-site ok\")"' \
   && node --version \
+  && npm --version \
+  && bash --version \
+  && bash -c '[[ "$(echo {a,b,c})" = "a b c" ]] && echo bash_brace_ok' \
+  && bash -c 'set -o pipefail; true | true && echo bash_pipefail_ok' \
   && (chromium --version || chromium-browser --version)
 
 # The exec pod overrides CMD with sleep infinity; this is a safe fallback.

@@ -64,7 +64,8 @@ function createConfig(): SandboxConfig {
     SANDBOX_EXEC_NO_PROXY: "",
     SANDBOX_EXEC_SESSION_IDLE_TTL_MS: 900_000,
     SANDBOX_EXEC_REAPER_INTERVAL_MS: 120_000,
-    SANDBOX_EXEC_POD_PROVISION_BUDGET_MS: 240_000
+    SANDBOX_EXEC_POD_PROVISION_BUDGET_MS: 240_000,
+    SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 1
   };
 }
 
@@ -865,6 +866,126 @@ test("ExecPodBridgeService: reaper does not evict when activity lookup fails", a
   await bridge.runReaperTick();
 
   assert.equal(deletedPods.length, 0, "must not evict when activity cannot be determined");
+});
+
+test("ExecPodBridgeService: warmSessionPod creates session pod when absent and returns alreadyRunning=false", async () => {
+  let readCallCount = 0;
+  const createdPods: string[] = [];
+
+  const mockCoreV1Api = {
+    async createNamespacedPod(params: { namespace: string; body: V1Pod }) {
+      createdPods.push(params.body.metadata?.name ?? "");
+      return params.body as never;
+    },
+    async readNamespacedPod() {
+      readCallCount += 1;
+      if (readCallCount === 1) {
+        // First read: pod not found → triggers create path.
+        const err = Object.assign(new Error("pod not found"), { statusCode: 404 });
+        throw err;
+      }
+      // After create: pod is Running.
+      return { status: { phase: "Running" } } as never;
+    },
+    async deleteNamespacedPod(params: { name: string }) {
+      return params as never;
+    }
+  };
+
+  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
+  (bridge as unknown as { k8sApi: unknown }).k8sApi = mockCoreV1Api;
+
+  const result = await bridge.warmSessionPod({
+    assistantId: "assistant-warm-1",
+    workspaceId: "workspace-warm-1",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+  });
+
+  assert.ok(result.podName.startsWith("ses-"), "warm pod name must start with ses-");
+  assert.equal(result.alreadyRunning, false, "alreadyRunning must be false when pod was created");
+  assert.equal(createdPods.length, 1, "must create exactly one pod");
+  assert.equal(createdPods[0], result.podName);
+});
+
+test("ExecPodBridgeService: warmSessionPod skips create when pod is already Running", async () => {
+  const createdPods: string[] = [];
+
+  const mockCoreV1Api = {
+    async createNamespacedPod(params: { namespace: string; body: V1Pod }) {
+      createdPods.push(params.body.metadata?.name ?? "");
+      return params.body as never;
+    },
+    async readNamespacedPod() {
+      return { status: { phase: "Running" } } as never;
+    },
+    async deleteNamespacedPod(params: { name: string }) {
+      return params as never;
+    }
+  };
+
+  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
+  (bridge as unknown as { k8sApi: unknown }).k8sApi = mockCoreV1Api;
+
+  const result = await bridge.warmSessionPod({
+    assistantId: "assistant-warm-2",
+    workspaceId: "workspace-warm-2",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+  });
+
+  assert.equal(
+    result.alreadyRunning,
+    true,
+    "alreadyRunning must be true when pod was already Running"
+  );
+  assert.equal(
+    createdPods.length,
+    0,
+    "must NOT call createNamespacedPod when pod is already Running"
+  );
+  assert.ok(result.podName.startsWith("ses-"), "pod name must start with ses-");
+});
+
+test("ExecPodBridgeService: warmSessionPod tolerates 409 Conflict from concurrent create", async () => {
+  let readCallCount = 0;
+
+  const mockCoreV1Api = {
+    async createNamespacedPod(params: { namespace: string; body: V1Pod }) {
+      // Simulate 409: another caller already created the pod concurrently.
+      const err = Object.assign(new Error("pod already exists"), { statusCode: 409 });
+      throw err;
+      return params.body as never;
+    },
+    async readNamespacedPod() {
+      readCallCount += 1;
+      if (readCallCount === 1) {
+        // First read: pod not found → triggers create attempt.
+        const err = Object.assign(new Error("pod not found"), { statusCode: 404 });
+        throw err;
+      }
+      // After the 409-tolerant create falls through: pod is Running (the concurrent caller created it).
+      return { status: { phase: "Running" } } as never;
+    },
+    async deleteNamespacedPod(params: { name: string }) {
+      return params as never;
+    }
+  };
+
+  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
+  (bridge as unknown as { k8sApi: unknown }).k8sApi = mockCoreV1Api;
+
+  // Must NOT throw even though createNamespacedPod returns 409.
+  const result = await bridge.warmSessionPod({
+    assistantId: "assistant-warm-3",
+    workspaceId: "workspace-warm-3",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+  });
+
+  assert.equal(
+    result.alreadyRunning,
+    false,
+    "alreadyRunning must be false when create was 409 (another caller created it, not us)"
+  );
+  assert.ok(result.podName.startsWith("ses-"), "pod name must start with ses-");
 });
 
 test("ExecPodBridgeService: createExecPod injects no env vars when proxy URL is empty", async () => {

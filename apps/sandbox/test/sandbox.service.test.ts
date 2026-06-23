@@ -156,6 +156,7 @@ function createSandboxConfig(overrides: Partial<SandboxConfig> = {}): SandboxCon
     SANDBOX_EXEC_SESSION_IDLE_TTL_MS: 900_000,
     SANDBOX_EXEC_REAPER_INTERVAL_MS: 120_000,
     SANDBOX_EXEC_POD_PROVISION_BUDGET_MS: 240_000,
+    SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 1,
     ...overrides
   } as SandboxConfig;
 }
@@ -426,7 +427,14 @@ function createDurableHarness() {
         objectStorageStub as never,
         createSandboxObservabilityService(),
         createSandboxConfig(),
-        {} as never
+        {
+          async runInPod() {
+            throw new Error("runInPod not expected in this harness");
+          },
+          async warmSessionPod() {
+            return { podName: "ses-mock", alreadyRunning: false };
+          }
+        } as never
       );
     }
   };
@@ -2126,6 +2134,217 @@ test("SandboxService: grep caps match count and flags truncation", async () => {
   const parsed = JSON.parse(payload.content!) as { matchCount: number; truncated: boolean };
   assert.equal(parsed.matchCount, 200, "match count must be capped at 200");
   assert.equal(parsed.truncated, true, "truncation must be flagged when matches exceed the cap");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR-126 Slice 1 — shell tool uses /bin/bash, warm-pool fire-and-forget.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("SandboxService: shell tool invokes /bin/bash -lc (not /bin/sh)", async () => {
+  const capturedRunInPodCalls: Array<{ command: string; args: string[] }> = [];
+
+  const service = new SandboxService(
+    {
+      sandboxJob: {
+        async update(input: { where: { id: string }; data: Record<string, unknown> }) {
+          return { id: input.where.id, ...input.data };
+        },
+        async findUnique() {
+          return null;
+        }
+      },
+      assistantFile: {
+        async findMany() {
+          return [];
+        },
+        async create(input: { data: Record<string, unknown> }) {
+          return { id: "f1", ...input.data, createdAt: new Date(), updatedAt: new Date() };
+        },
+        async deleteMany() {
+          return { count: 0 };
+        }
+      },
+      assistantWorkspaceLease: {
+        async create(input: { data: Record<string, unknown> }) {
+          return {
+            id: "lease-shell-1",
+            assistantId: String(input.data.assistantId),
+            workspaceId: String(input.data.workspaceId),
+            sandboxJobId: null,
+            leaseToken: String(input.data.leaseToken),
+            holderId: String(input.data.holderId),
+            expiresAt: input.data.expiresAt as Date
+          };
+        },
+        async updateMany() {
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {
+      buildSandboxObjectKey() {
+        return "obj/key";
+      },
+      buildSessionSnapshotKey() {
+        return "snap/key";
+      },
+      async saveObject(input: { buffer: Buffer }) {
+        return input.buffer.length;
+      },
+      async downloadObject() {
+        return null;
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 0 }),
+    {
+      async runInPod(input: { command: string; args: string[] }) {
+        capturedRunInPodCalls.push({ command: input.command, args: [...input.args] });
+        return { exitCode: 0, stdout: "hi", stderr: "", durationMs: 10, execPodName: "ses-test" };
+      },
+      async warmSessionPod() {
+        return { podName: "ses-test", alreadyRunning: false };
+      }
+    } as never
+  );
+
+  const access = service as unknown as SandboxServiceTestAccess;
+
+  await access.executeQueuedJob("shell-bash-job-1", {
+    assistantId: "assistant-shell-1",
+    workspaceId: "workspace-shell-1",
+    runtimeRequestId: "request-shell-1",
+    runtimeSessionId: null,
+    toolCode: "shell",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+    args: { command: "echo {a,b,c}" }
+  });
+
+  assert.equal(capturedRunInPodCalls.length, 1, "runInPod must be called exactly once for shell");
+  const call = capturedRunInPodCalls[0]!;
+  assert.equal(call.command, "/bin/bash", "shell tool must invoke /bin/bash (not /bin/sh)");
+  assert.deepEqual(call.args, ["-lc", "echo {a,b,c}"], "shell args must be [-lc, <command>]");
+});
+
+test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set and warm pool is enabled", async () => {
+  const warmSessionPodCalls: Array<{ assistantId: string; workspaceId: string }> = [];
+  let warmSessionPodResolveFn: (() => void) | null = null;
+
+  const warmSessionPodPromise = new Promise<void>((resolve) => {
+    warmSessionPodResolveFn = resolve;
+  });
+
+  const service = new SandboxService(
+    {
+      sandboxJob: {
+        async update(input: { where: { id: string }; data: Record<string, unknown> }) {
+          return { id: input.where.id, ...input.data };
+        },
+        async findUnique() {
+          return null;
+        }
+      },
+      assistantFile: {
+        async findMany() {
+          return [];
+        },
+        async create(input: { data: Record<string, unknown> }) {
+          return { id: "f1", ...input.data, createdAt: new Date(), updatedAt: new Date() };
+        },
+        async deleteMany() {
+          return { count: 0 };
+        }
+      },
+      assistantWorkspaceLease: {
+        async create(input: { data: Record<string, unknown> }) {
+          return {
+            id: "lease-warm-1",
+            assistantId: String(input.data.assistantId),
+            workspaceId: String(input.data.workspaceId),
+            sandboxJobId: null,
+            leaseToken: String(input.data.leaseToken),
+            holderId: String(input.data.holderId),
+            expiresAt: input.data.expiresAt as Date
+          };
+        },
+        async updateMany() {
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {
+      buildSandboxObjectKey() {
+        return "obj/key";
+      },
+      buildSessionSnapshotKey() {
+        return "snap/key";
+      },
+      async saveObject(input: { buffer: Buffer }) {
+        return input.buffer.length;
+      },
+      async downloadObject() {
+        return null;
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 1 }),
+    {
+      async runInPod() {
+        return { exitCode: 0, stdout: "", stderr: "", durationMs: 5, execPodName: "ses-warm-test" };
+      },
+      async warmSessionPod(input: { assistantId: string; workspaceId: string }) {
+        warmSessionPodCalls.push({
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId
+        });
+        warmSessionPodResolveFn?.();
+        return { podName: "ses-warm-test", alreadyRunning: false };
+      }
+    } as never
+  );
+
+  const access = service as unknown as SandboxServiceTestAccess;
+
+  // With runtimeSessionId set and warm pool enabled (size=1), warmSessionPod must be called.
+  await access.executeQueuedJob("warm-job-1", {
+    assistantId: "assistant-warm-svc",
+    workspaceId: "workspace-warm-svc",
+    runtimeRequestId: "request-warm-1",
+    runtimeSessionId: "session-warm-1",
+    toolCode: "files",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+    args: { action: "write", path: "hello.txt", content: "world" }
+  });
+
+  // Allow the fire-and-forget to settle.
+  await warmSessionPodPromise;
+
+  assert.equal(
+    warmSessionPodCalls.length,
+    1,
+    "warmSessionPod must be called once when runtimeSessionId is set and pool size >= 1"
+  );
+  assert.equal(warmSessionPodCalls[0]?.assistantId, "assistant-warm-svc");
+  assert.equal(warmSessionPodCalls[0]?.workspaceId, "workspace-warm-svc");
+
+  // Now verify: with runtimeSessionId=null, warmSessionPod must NOT be called.
+  const warmCallsBeforeNull = warmSessionPodCalls.length;
+  await access.executeQueuedJob("warm-job-null", {
+    assistantId: "assistant-warm-svc",
+    workspaceId: "workspace-warm-svc",
+    runtimeRequestId: "request-warm-null",
+    runtimeSessionId: null,
+    toolCode: "files",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+    args: { action: "write", path: "hello2.txt", content: "world2" }
+  });
+  // Brief settle
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(
+    warmSessionPodCalls.length,
+    warmCallsBeforeNull,
+    "warmSessionPod must NOT be called when runtimeSessionId is null"
+  );
 });
 
 test("SandboxService: glob runs fd via argv array and returns sorted relative paths", async () => {
