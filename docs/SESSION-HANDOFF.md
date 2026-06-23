@@ -1,5 +1,54 @@
 # SESSION-HANDOFF
 
+## 2026-06-23 — ADR-126 v2 (unified sandbox workspace; multi-assistant, manifest, GC, snapshot) — CHECKPOINT (doc-only)
+
+### State
+
+Founder asked to widen ADR-126 from the v1 (D1–D4: bash, unified `/workspace`, expanded egress, image baseline) into a production-grade design that also covers the B2B multi-assistant workspace shape, prompt-economical file manifest, chat-scoped scratch, snapshot/cold-start budget, GC lifecycle, audit/observability, and a migration audit for existing `fileRef`-dependent skill content. ADR-126 was rewritten as v2 (doc-only) with thirteen explicit decisions (D1–D13) and a six-slice implementation program. No code changes accompany this checkpoint.
+
+### What changed
+
+- **D1 unchanged** — bash as default `/bin/sh` for the `shell` tool.
+- **D2 reshaped** — `files.*` retargets two mounts instead of one: per-assistant `/workspace/` (existing) **plus** per-`businessWorkspaceId` `/shared/` (new). `/shared/input/` (user uploads, RO for assistants), `/shared/outbound/<assistant-handle>/` (each assistant's outbound, RO for siblings via `0555`), `/shared/outbound/self` symlink so models never need to remember their own handle. `fileRef` leaves the model-facing API; the model operates on paths exclusively.
+- **D3 unchanged** — egress allowlist expanded for GitHub HTTPS + PyPI + npm; `git push` denied by HTTPS-method filtering on `…/git-receive-pack`.
+- **D4 unchanged** — exec image gains Node 22 LTS + bash default; `/workspace/.npm-global` configured as the npm prefix; tool catalog guidance updated to mention `pip install --user` / `npm install` / `git clone` and the `git push` denial.
+- **D5 new** — `image_generate` / `image_edit` / `document` dual-write the produced bytes into `/shared/outbound/self/<basename>` in addition to the existing `assistant_files` chat delivery, so the producing assistant can post-process its own artefact.
+- **D6 new** — `files.attach({path})` is the explicit publish channel for arbitrary file types from `/workspace/` or `/shared/outbound/self/` into the chat. Implicit auto-attach of `files.write` outputs is rejected — the model decides what to ship.
+- **D7 new** — quota model splits cleanly: existing `workspaceStorageBytesLimit` (per assistant) plus a new `sharedStorageBytesLimit` (per `businessWorkspaceId`); both default to 500 MB after the plan-baseline data migration; exhaustion produces `workspace_quota_exhausted` / `shared_quota_exhausted` from the existing quota guard.
+- **D8 new** — developer prompt embeds a summary header (`{ totals, byKind }`) + current-turn attachments inline only. Older files are reachable through `files.list` / `files.preview`. Cached `shortDescription` is generated once at upload / write via the existing cheap-LLM/OCR pipeline; system noise (`node_modules`, `.venv`, `__pycache__`, `*.pyc`, dotfiles, files > 8 MiB) is excluded from listing and description.
+- **D9 new** — chat-scoped scratch namespace `/workspace/chats/<chatId>/` (default `cwd` for `shell`) + `/workspace/lib/` (reusable scripts). Install layer (`.local/`, `.npm-global/`, `node_modules/`, `.venv/`) stays assistant-scoped, surviving chat boundaries.
+- **D10 new** — snapshot layering separates install layer (content-hashed, reused across cold starts) from scripts/scratch; warm-pool of size 1 per assistant wired through `apps/sandbox` lease scheduler; explicit latency budget — warm `files.write` ≤ 300 ms p95, cold first `files.write` ≤ 8 s p95 — to be verified by the implementation slice.
+- **D11 new** — GC lifecycle made explicit: chat deletion purges `/workspace/chats/<chatId>/` on next lease sweep; assistant deletion marks `/workspace/` snapshot with a 7-day grace and moves `/shared/outbound/<handle>/` to `_archived/` for 30 days; business-workspace deletion marks the whole `/shared/` snapshot with a 30-day grace.
+- **D12 new** — audit events (`workspace_file_written`, `workspace_file_read`, `shared_outbound_published`) and metrics (`workspace_file_write_latency_ms`, `snapshot_cold_pull_latency_ms`, `shared_quota_bytes_used`) emitted by the new control-plane primitives. Egress-proxy log shape extended with `{ tool }` attribution.
+- **D13 new** — one-shot migration audit script scans `tool-catalog-data.ts`, `AssistantSkill` rows, `RuntimeBundleState.materializedSpec`, runtime `files-tool-builder`, and web chat history rendering for active-surface `fileRef` references. The implementation program does **not** push until the active-surface report is empty.
+- **Implementation plan** restructured to six slices: image + warm-pool entry; egress + git-push deny; unified contract + `/shared/` mount + control-plane primitives + upload-hydrate + GC hooks + audit events; artefact dual-write + `files.attach`; tool catalog + manifest + cheap-LLM descriptions + migration audit + plan baseline bump; snapshot layering finalisation (optional, may fold into slice 3).
+- **Acceptance criteria** expanded from 11 to 20 — covers brace expansion, the founder's exact failure case, GitHub clone, pip/npm installs, git push denial, upload visibility across siblings, collision suffix, artefact dual-write + postprocessing, FS-level sibling RO enforcement, write-permission rejections, historical render compatibility, latency budget, quota error classes, content-hash preview cache, manifest economy, GC purge timing, and an empty migration-audit report against live `persai-dev`.
+- **Threat model** expanded with the new sibling-RO row, shared-volume cross-tenant boundary statement, and the migration-audit residual.
+- **Resolved decisions** consolidated into 16 hard contracts spanning the 2026-06-22 and 2026-06-23 founder sign-offs.
+
+### Verified
+
+- ADR-126 rewrite is doc-only; no source, test, schema, helm, or infra change.
+- `corepack pnpm run format:check` — PASS (Prettier covers the markdown surface).
+- No source typecheck or lint is required for this slice (no `.ts` files touched).
+
+### Residuals / risks
+
+- The migration audit (D13) will surface live `fileRef` mentions in founder-active assistants' skill content; the implementation program treats the empty active-surface report as a hard pre-push gate, but the rewrites themselves still need careful per-skill review when slice 5 runs.
+- D10 layered snapshot details (content hash basis, blob reuse) are described at the contract level only; the implementation slice owns the exact GCS object layout and may surface adjustments back into the ADR as a slice-level edit if the chosen layout deviates from the doc.
+- The `files.attach` UI rendering is described as "the existing `assistant_files` SSE/REST projection"; the actual web `chat-message` component will be revisited in slice 4 to confirm no new render branch is needed.
+
+### Files
+
+- modified: `docs/ADR/126-unified-sandbox-workspace-files-shell-single-fs-bash-default-and-expanded-egress.md`, `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`.
+
+### Next recommended step
+
+1. Founder review of the ADR-126 v2 doc; sign-off or callouts on any D-decision before the implementation program is dispatched.
+2. When approved, dispatch the implementation program as a sequence of bounded slices (1 → 5/6), each closing on the AGENTS gate, with the final push gated by the migration-audit empty report.
+
+---
+
 ## 2026-06-23 — Post-turn cleanup parallelization — CHECKPOINT
 
 ### State
