@@ -39,9 +39,8 @@ import { AttachmentObjectAvailabilityService } from "./media/attachment-object-a
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
 import {
-  completeWebTurnReplay,
   finalizePersistedWebTurn,
-  persistWebTurnSkillStateAndQueueBackgroundCheck
+  runWebTurnPostRuntimeCleanup
 } from "./complete-web-post-runtime-turn";
 import { inferAssistantMediaJobFailureLocale } from "./assistant-media-job-failure-copy.service";
 import {
@@ -492,46 +491,48 @@ export class SendWebChatTurnService {
       });
       mediaDeliveryCompleted = true;
 
-      if (request.clientTurnId !== undefined) {
-        await completeWebTurnReplay({
-          bindingRepository: this.bindingRepository,
-          webChatTurnAttemptService: this.webChatTurnAttemptService,
-          assistantId: prepared.assistantId,
-          userId: prepared.userId,
-          surfaceThreadKey: prepared.chat.surfaceThreadKey,
-          clientTurnId: request.clientTurnId,
+      const persistedSkillState = await runWebTurnPostRuntimeCleanup({
+        logger: this.logger,
+        replayInput:
+          request.clientTurnId === undefined
+            ? undefined
+            : {
+                bindingRepository: this.bindingRepository,
+                webChatTurnAttemptService: this.webChatTurnAttemptService,
+                assistantId: prepared.assistantId,
+                userId: prepared.userId,
+                surfaceThreadKey: prepared.chat.surfaceThreadKey,
+                clientTurnId: request.clientTurnId,
+                chatId: prepared.chat.id,
+                userMessageId: prepared.userMessage.id,
+                assistantMessageId: assistantMessage.id,
+                respondedAt: runtimeResponse.respondedAt,
+                degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
+                quotaFallbackReason: prepared.quotaDegradeReason,
+                quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+                followUpAssistantMessageId: postRuntime.followUpAssistantMessageId,
+                ...(runtimeResponse.turnRouting === undefined
+                  ? {}
+                  : { turnRouting: runtimeResponse.turnRouting }),
+                markTraceStage: (stage) => trace.stage(stage)
+              },
+        skillStateInput: {
+          autoSkillRoutingStateService: this.autoSkillRoutingStateService,
           chatId: prepared.chat.id,
-          userMessageId: prepared.userMessage.id,
-          assistantMessageId: assistantMessage.id,
-          respondedAt: runtimeResponse.respondedAt,
-          degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
-          quotaFallbackReason: prepared.quotaDegradeReason,
-          quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
-          followUpAssistantMessageId: postRuntime.followUpAssistantMessageId,
-          ...(runtimeResponse.turnRouting === undefined
-            ? {}
-            : { turnRouting: runtimeResponse.turnRouting }),
-          markTraceStage: (stage) => trace.stage(stage)
-        });
-      }
-      const persistedSkillState = await (async () => {
-        try {
-          return await persistWebTurnSkillStateAndQueueBackgroundCheck({
-            autoSkillRoutingStateService: this.autoSkillRoutingStateService,
-            chatId: prepared.chat.id,
-            turnRouting: runtimeResponse.turnRouting
-          });
-        } catch (error) {
-          this.logger.warn(
-            `[web-turn] Non-blocking skill-state persistence failed for assistant ${prepared.assistantId}: ${
-              error instanceof Error ? error.message : String(error)
-            }`
-          );
-          return {
-            skillDecisionState: prepared.chat.skillDecisionState
-          };
-        }
-      })();
+          turnRouting: runtimeResponse.turnRouting
+        },
+        skillStateFallback: {
+          skillDecisionState: prepared.chat.skillDecisionState
+        },
+        skillStateFailureMessage: (error) =>
+          `[web-turn] Non-blocking skill-state persistence failed for assistant ${prepared.assistantId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        cleanupFailureMessage: (error) =>
+          `[web-turn] Post-runtime cleanup failed for assistant ${prepared.assistantId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+      });
 
       trace.finish({
         status: "completed",

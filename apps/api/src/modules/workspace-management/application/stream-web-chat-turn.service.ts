@@ -45,9 +45,8 @@ import {
   type OverviewLatencyTraceHandle
 } from "./overview-latency-trace.service";
 import {
-  completeWebTurnReplay,
   finalizePersistedWebTurn,
-  persistWebTurnSkillStateAndQueueBackgroundCheck
+  runWebTurnPostRuntimeCleanup
 } from "./complete-web-post-runtime-turn";
 import { inferAssistantMediaJobFailureLocale } from "./assistant-media-job-failure-copy.service";
 import {
@@ -761,41 +760,46 @@ export class StreamWebChatTurnService {
       });
       mediaDeliveryCompleted = true;
 
-      if (prepared.clientTurnId !== undefined) {
-        await completeWebTurnReplay({
-          bindingRepository: this.bindingRepository,
-          webChatTurnAttemptService: this.webChatTurnAttemptService,
-          assistantId: prepared.assistantId,
-          userId: prepared.userId,
-          surfaceThreadKey: prepared.chat.surfaceThreadKey,
-          clientTurnId: prepared.clientTurnId,
+      await runWebTurnPostRuntimeCleanup({
+        logger: this.logger,
+        replayInput:
+          prepared.clientTurnId === undefined
+            ? undefined
+            : {
+                bindingRepository: this.bindingRepository,
+                webChatTurnAttemptService: this.webChatTurnAttemptService,
+                assistantId: prepared.assistantId,
+                userId: prepared.userId,
+                surfaceThreadKey: prepared.chat.surfaceThreadKey,
+                clientTurnId: prepared.clientTurnId,
+                chatId: prepared.chat.id,
+                userMessageId: prepared.userMessage.id,
+                assistantMessageId: assistantMessage.id,
+                respondedAt: respondedAt ?? new Date().toISOString(),
+                degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
+                quotaFallbackReason: prepared.quotaDegradeReason,
+                quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+                followUpAssistantMessageId: postRuntime.followUpAssistantMessageId,
+                ...(turnRouting === undefined ? {} : { turnRouting }),
+                markTraceStage: (stage) => trace.stage(stage)
+              },
+        skillStateInput: {
+          autoSkillRoutingStateService: this.autoSkillRoutingStateService,
           chatId: prepared.chat.id,
-          userMessageId: prepared.userMessage.id,
-          assistantMessageId: assistantMessage.id,
-          respondedAt: respondedAt ?? new Date().toISOString(),
-          degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
-          quotaFallbackReason: prepared.quotaDegradeReason,
-          quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
-          followUpAssistantMessageId: postRuntime.followUpAssistantMessageId,
-          ...(turnRouting === undefined ? {} : { turnRouting }),
-          markTraceStage: (stage) => trace.stage(stage)
-        });
-      }
-      await (async () => {
-        try {
-          await persistWebTurnSkillStateAndQueueBackgroundCheck({
-            autoSkillRoutingStateService: this.autoSkillRoutingStateService,
-            chatId: prepared.chat.id,
-            turnRouting
-          });
-        } catch (error) {
-          this.logger.warn(
-            `[web-turn-stream] Non-blocking skill-state persistence failed for assistant ${prepared.assistantId}: ${
-              error instanceof Error ? error.message : String(error)
-            }`
-          );
-        }
-      })();
+          turnRouting
+        },
+        skillStateFallback: {
+          skillDecisionState: prepared.chat.skillDecisionState
+        },
+        skillStateFailureMessage: (error) =>
+          `[web-turn-stream] Non-blocking skill-state persistence failed for assistant ${prepared.assistantId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        cleanupFailureMessage: (error) =>
+          `[web-turn-stream] Post-runtime cleanup failed for assistant ${prepared.assistantId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+      });
       const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
       if (refreshedChat === null) {
         throw new NotFoundException("Chat does not exist for this assistant.");

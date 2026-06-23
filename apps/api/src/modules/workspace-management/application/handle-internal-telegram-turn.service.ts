@@ -442,39 +442,43 @@ export class HandleInternalTelegramTurnService {
         };
       }
 
-      try {
-        await this.trackWorkspaceQuotaUsageService.recordInboundTurnUsage({
-          assistant: resolved.assistant,
-          userContent: enrichedMessage,
-          assistantContent: assistantMessage,
+      await Promise.all([
+        this.trackWorkspaceQuotaUsageService
+          .recordInboundTurnUsage({
+            assistant: resolved.assistant,
+            userContent: enrichedMessage,
+            assistantContent: assistantMessage,
+            ...(runtimeResponse.usageAccounting === undefined
+              ? {}
+              : { usageAccounting: runtimeResponse.usageAccounting }),
+            source: "telegram_turn_sync"
+          })
+          .then(() => {
+            trace.stage("quota_recorded");
+          })
+          .catch((error: unknown) => {
+            this.logger.error(
+              `[telegram-turn] Non-blocking quota accounting failure after completed runtime turn for ${resolved.assistantId}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              error instanceof Error ? error.stack : undefined
+            );
+          }),
+        this.appendModelCostLedgerEvents({
+          assistantId: resolved.assistantId,
+          workspaceId: resolved.workspaceId,
+          userId: resolved.userId,
+          assistantMessageId,
+          respondedAt: runtimeResponse.respondedAt,
+          traceId: trace.getTraceId(),
           ...(runtimeResponse.usageAccounting === undefined
             ? {}
             : { usageAccounting: runtimeResponse.usageAccounting }),
-          source: "telegram_turn_sync"
-        });
-        trace.stage("quota_recorded");
-      } catch (error) {
-        this.logger.error(
-          `[telegram-turn] Non-blocking quota accounting failure after completed runtime turn for ${resolved.assistantId}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-          error instanceof Error ? error.stack : undefined
-        );
-      }
-      await this.appendModelCostLedgerEvents({
-        assistantId: resolved.assistantId,
-        workspaceId: resolved.workspaceId,
-        userId: resolved.userId,
-        assistantMessageId,
-        respondedAt: runtimeResponse.respondedAt,
-        traceId: trace.getTraceId(),
-        ...(runtimeResponse.usageAccounting === undefined
-          ? {}
-          : { usageAccounting: runtimeResponse.usageAccounting }),
-        ...(runtimeResponse.toolInvocations === undefined
-          ? {}
-          : { toolInvocations: runtimeResponse.toolInvocations })
-      });
+          ...(runtimeResponse.toolInvocations === undefined
+            ? {}
+            : { toolInvocations: runtimeResponse.toolInvocations })
+        })
+      ]);
       const quotaAdvisoryFollowUp =
         (await this.quotaAdvisoryFollowUpService?.maybeCreateFollowUp({
           assistantId: resolved.assistantId,

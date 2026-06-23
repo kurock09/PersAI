@@ -275,25 +275,26 @@ export async function finalizePersistedWebTurn(input: {
   followUpAssistantMessageId: string | null;
   followUpAssistantMessage: AssistantWebChatMessageState | null;
 }> {
-  const activeMediaJobs = await input.assistantMediaJobService.listOpenJobsForWebChat({
-    assistantId: input.assistantId,
-    userId: input.userId,
-    chatId: input.chatId
-  });
-  const activeDocumentJobs = await input.assistantDocumentJobReadService.listOpenJobsForWebChat({
-    assistantId: input.assistantId,
-    userId: input.userId,
-    chatId: input.chatId
-  });
-
-  const delivered = await input.mediaDeliveryService.deliver({
-    artifacts: input.mediaArtifacts,
-    channel: "web",
-    assistantId: input.assistantId,
-    chatId: input.chatId,
-    messageId: input.assistantMessage.id,
-    workspaceId: input.workspaceId
-  });
+  const [activeMediaJobs, activeDocumentJobs, delivered] = await Promise.all([
+    input.assistantMediaJobService.listOpenJobsForWebChat({
+      assistantId: input.assistantId,
+      userId: input.userId,
+      chatId: input.chatId
+    }),
+    input.assistantDocumentJobReadService.listOpenJobsForWebChat({
+      assistantId: input.assistantId,
+      userId: input.userId,
+      chatId: input.chatId
+    }),
+    input.mediaDeliveryService.deliver({
+      artifacts: input.mediaArtifacts,
+      channel: "web",
+      assistantId: input.assistantId,
+      chatId: input.chatId,
+      messageId: input.assistantMessage.id,
+      workspaceId: input.workspaceId
+    })
+  ]);
   input.markTraceStage?.("media_delivered");
 
   const finalAssistantContent = await persistFinalAssistantContentIfNeeded({
@@ -308,19 +309,20 @@ export async function finalizePersistedWebTurn(input: {
     locale: input.locale
   });
 
-  await input.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
-    assistant: input.assistant,
-    userContent: input.userContent,
-    assistantContent: finalAssistantContent,
-    ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting }),
-    source: input.quotaSource
-  });
+  await Promise.all([
+    input.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
+      assistant: input.assistant,
+      userContent: input.userContent,
+      assistantContent: finalAssistantContent,
+      ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting }),
+      source: input.quotaSource
+    }),
+    input.appendModelCostLedgerEvents({
+      assistantMessageId: input.assistantMessage.id,
+      respondedAt: input.respondedAt
+    })
+  ]);
   input.markTraceStage?.("quota_recorded");
-
-  await input.appendModelCostLedgerEvents({
-    assistantMessageId: input.assistantMessage.id,
-    respondedAt: input.respondedAt
-  });
   input.markTraceStage?.("cost_ledger_recorded");
 
   const followUp = await deliverFollowUpAssistantMessage({
@@ -384,24 +386,29 @@ export async function completeWebTurnReplay(input: {
     completedAt: new Date().toISOString()
   };
 
+  const replayWrites: Array<Promise<unknown>> = [];
   if (input.webChatTurnAttemptService) {
-    await input.webChatTurnAttemptService.markCompleted({
-      assistantId: input.assistantId,
-      userId: input.userId,
-      surfaceThreadKey: input.surfaceThreadKey,
-      clientTurnId: input.clientTurnId,
-      assistantMessageId: input.assistantMessageId,
-      respondedAt: input.respondedAt,
-      terminalPayload: replayState
-    });
+    replayWrites.push(
+      input.webChatTurnAttemptService.markCompleted({
+        assistantId: input.assistantId,
+        userId: input.userId,
+        surfaceThreadKey: input.surfaceThreadKey,
+        clientTurnId: input.clientTurnId,
+        assistantMessageId: input.assistantMessageId,
+        respondedAt: input.respondedAt,
+        terminalPayload: replayState
+      })
+    );
   }
-
-  await input.bindingRepository.completeWebTurnProcessing(
-    input.assistantId,
-    "web_internal",
-    "web_chat",
-    replayState
+  replayWrites.push(
+    input.bindingRepository.completeWebTurnProcessing(
+      input.assistantId,
+      "web_internal",
+      "web_chat",
+      replayState
+    )
   );
+  await Promise.all(replayWrites);
   input.markTraceStage?.("replay_completed");
   return replayState;
 }
@@ -415,4 +422,36 @@ export async function persistWebTurnSkillStateAndQueueBackgroundCheck(input: {
     chatId: input.chatId,
     turnRouting: input.turnRouting
   });
+}
+
+export async function runWebTurnPostRuntimeCleanup(input: {
+  logger: { warn(message: string): void };
+  replayInput?: Parameters<typeof completeWebTurnReplay>[0] | undefined;
+  skillStateInput: Parameters<typeof persistWebTurnSkillStateAndQueueBackgroundCheck>[0];
+  skillStateFallback: PersistedSkillState;
+  skillStateFailureMessage: (error: unknown) => string;
+  cleanupFailureMessage: (error: unknown) => string;
+}): Promise<PersistedSkillState> {
+  const cleanupPromises: Array<Promise<unknown>> = [];
+
+  if (input.replayInput !== undefined) {
+    cleanupPromises.push(completeWebTurnReplay(input.replayInput));
+  }
+
+  const skillStatePromise = persistWebTurnSkillStateAndQueueBackgroundCheck(
+    input.skillStateInput
+  ).catch((error: unknown) => {
+    input.logger.warn(input.skillStateFailureMessage(error));
+    return input.skillStateFallback;
+  });
+  cleanupPromises.push(skillStatePromise);
+
+  const results = await Promise.allSettled(cleanupPromises);
+  for (const result of results) {
+    if (result.status === "rejected") {
+      input.logger.warn(input.cleanupFailureMessage(result.reason));
+    }
+  }
+
+  return await skillStatePromise;
 }

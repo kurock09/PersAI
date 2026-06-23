@@ -1,5 +1,43 @@
 # SESSION-HANDOFF
 
+## 2026-06-23 — Post-turn cleanup parallelization — CHECKPOINT
+
+### State
+
+Founder approved an XS performance slice on clean baseline `03fd1b03` after live trace `web-1782200487212` showed roughly 300 ms of fixed serialized overhead between `cost_ledger_recorded` and `replay_completed` on web streaming turns. Scope stayed bounded to post-runtime cleanup parallelization for API web stream/sync paths, the analogous Telegram quota/ledger tail, focused tests, and docs. No runtime, Prisma, migrations, SSE event contracts, or follow-up delivery semantics were changed; no commit/push was made.
+
+### What changed
+
+- **Finalize layer** — `finalizePersistedWebTurn` now starts active media-job read, active document-job read, and web media delivery together, then marks `media_delivered` only after all three resolve. After final delivery-honesty content is persisted, quota usage recording and model-cost ledger append now run together; quota and cost trace stages remain after the awaited writes.
+- **Caller cleanup layer** — stream and sync web callers now use shared `runWebTurnPostRuntimeCleanup`, which runs optional replay completion and skill-state persistence concurrently via `Promise.allSettled`. Skill-state persistence remains non-blocking with the existing warning/fallback behavior, and replay cleanup failures are logged instead of preventing the other cleanup from finishing.
+- **Replay write layer** — `completeWebTurnReplay` now writes the durable turn-attempt terminal payload and surface-binding replay state concurrently, then marks `replay_completed` only after both writes resolve.
+- **Telegram tail** — Telegram has no web replay/skill cleanup equivalent, but its independent post-message quota usage write and cost-ledger append now run concurrently. Quota remains non-blocking; ledger failure remains blocking as before.
+
+### Verified
+
+- Focused: `corepack pnpm --filter @persai/api exec tsx --test test/complete-web-post-runtime-turn.test.ts` — PASS (4/4).
+- Existing stream web: `corepack pnpm --filter @persai/api exec tsx --test test/stream-web-chat-turn.service.test.ts` — PASS (15/15).
+- Existing sync web: `corepack pnpm --filter @persai/api exec tsx --test test/send-web-chat-turn.service.test.ts` — PASS (11/11).
+- Full requested AGENTS gate — PASS: API lint, API typecheck, runtime typecheck, web typecheck, format check, and full API test. API lint/typecheck were rerun after Prettier touched the new focused test.
+
+### Residuals / risks
+
+- `quotaAdvisoryFollowUpService` and `compactionAdvisoryFollowUpService` remain sequential/mutually exclusive by design, and notification delivery remains synchronous so `followUpAssistantMessage` can still be returned in the same web response/SSE done payload.
+- Trace stage timestamps for parallel quota/cost and replay writes now represent "both writes finished" boundaries rather than per-write serialized boundaries, while preserving the same stage labels and ordering.
+- No hidden dependency was found between replay-state writes and skill-state persistence; Telegram did not expose an equivalent web replay cleanup path.
+
+### Files
+
+- modified: `apps/api/src/modules/workspace-management/application/complete-web-post-runtime-turn.ts`, `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`, `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`, `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`, `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`.
+- added: `apps/api/test/complete-web-post-runtime-turn.test.ts`.
+
+### Next recommended step
+
+1. Run the full requested gate in order, then orchestrator review/commit/push.
+2. Deploy API to `persai-dev` and live-validate a representative web streaming turn: expected post-runtime fixed overhead should drop qualitatively from serialized ~300 ms toward the slowest independent branch plus follow-up delivery.
+
+---
+
 ## 2026-06-23 — Slice 6 v2 (one-badge-top + passive + persist toolInvocations) — CHECKPOINT
 
 ### State
