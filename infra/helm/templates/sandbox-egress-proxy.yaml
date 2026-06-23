@@ -10,9 +10,12 @@ metadata:
     app.kubernetes.io/component: sandbox-egress-proxy
 data:
   squid.conf: |
-    # PersAI sandbox egress proxy.
-    # Exec pods route all HTTP(S) traffic here; Squid enforces the domain allowlist at L7.
-    # Only the domains listed below are reachable. Everything else is denied.
+    # PersAI sandbox egress proxy — ADR-126 S2: expanded allowlist + tool attribution.
+    # Exec pods route all HTTP(S) traffic here; Squid enforces the domain allowlist at L7
+    # by SNI (CONNECT host) for HTTPS and Host header for plain HTTP. Only the domains
+    # listed below are reachable. Everything else is denied. No SSL bumping — git push
+    # is intentionally allowed in v1 (matches Claude Code's posture; ADR-126 v2 D3
+    # follow-up 2026-06-23: founder confirmed push should be open).
 
     http_port {{ $proxyPort }}
 
@@ -29,8 +32,12 @@ data:
     # No on-disk cache; the proxy is a policy boundary, not a caching layer.
     cache deny all
 
-    # Log to stdout/stderr so container logs capture access events.
-    access_log stdio:/dev/stdout
+    # Structured egress log: tool=shell is static v1 attribution (exec-pod outbound is
+    # exclusively shell-initiated through HTTP_PROXY env; richer per-tool attribution
+    # for control-plane operations — image_generate, document, files.* — lives in
+    # control-plane logs, not in this proxy log). Per ADR-126 v2 D12.
+    logformat persai_egress %ts.%03tu %>a %Ss/%03>Hs %<st %rm %ru %ssl::>sni tool=shell
+    access_log stdio:/dev/stdout persai_egress
     cache_log stdio:/dev/stderr
     pid_filename none
 ---

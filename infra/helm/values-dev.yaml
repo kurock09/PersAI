@@ -521,6 +521,9 @@ sandbox:
       - .files.pythonhosted.org
       # npm registry: npm/npx install requires registry.npmjs.org.
       - .registry.npmjs.org
+      # npm website + auth endpoints (registry.npmjs.org is the actual install target;
+      # this widens for completeness per ADR-126 D3).
+      - .npmjs.com
       # GitHub: git clone, pip install from VCS, and release/asset downloads.
       # Dotted form covers the apex plus api./codeload. subdomains.
       - .github.com
