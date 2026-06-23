@@ -97,6 +97,95 @@ async function run(): Promise<void> {
     ]);
     assert.equal(ackCalled, false);
   }
+
+  {
+    const createdMessages: Array<Record<string, unknown>> = [];
+    await persistAssistantMessage({
+      chatRepository: {
+        async createMessage(input) {
+          createdMessages.push(input as unknown as Record<string, unknown>);
+          return {
+            id: "assistant-message-3",
+            chatId: input.chatId,
+            assistantId: input.assistantId,
+            author: input.author,
+            content: input.content,
+            metadata: input.metadata ?? null,
+            createdAt: new Date("2026-06-23T00:00:00.000Z")
+          };
+        }
+      },
+      chatId: "chat-3",
+      assistantId: "assistant-3",
+      content: "Found it.",
+      toolInvocations: [{ name: "knowledge_search", iteration: 0, ok: true, toolCallId: "tool-1" }]
+    });
+
+    assert.deepEqual((createdMessages[0]?.metadata as Record<string, unknown>)?.toolInvocations, [
+      { name: "knowledge_search", iteration: 0, ok: true, toolCallId: "tool-1" }
+    ]);
+  }
+
+  {
+    const createdMessages: Array<Record<string, unknown>> = [];
+    await persistAssistantMessage({
+      chatRepository: {
+        async createMessage(input) {
+          createdMessages.push(input as unknown as Record<string, unknown>);
+          return {
+            id: "assistant-message-4",
+            chatId: input.chatId,
+            assistantId: input.assistantId,
+            author: input.author,
+            content: input.content,
+            metadata: input.metadata ?? null,
+            createdAt: new Date("2026-06-23T00:00:01.000Z")
+          };
+        }
+      },
+      chatId: "chat-4",
+      assistantId: "assistant-4",
+      content: "No tools.",
+      toolInvocations: []
+    });
+
+    assert.equal(createdMessages[0]?.metadata, undefined);
+  }
+
+  {
+    const createdMessages: Array<Record<string, unknown>> = [];
+    await persistAssistantMessage({
+      chatRepository: {
+        async createMessage(input) {
+          createdMessages.push(input as unknown as Record<string, unknown>);
+          return {
+            id: "assistant-message-5",
+            chatId: input.chatId,
+            assistantId: input.assistantId,
+            author: input.author,
+            content: input.content,
+            metadata: input.metadata ?? null,
+            createdAt: new Date("2026-06-23T00:00:02.000Z")
+          };
+        }
+      },
+      chatId: "chat-5",
+      assistantId: "assistant-5",
+      content: "Already stripped.",
+      toolInvocations: [
+        {
+          name: "web_search",
+          iteration: 0,
+          ok: true,
+          billingFacts: { provider: "test" }
+        } as never
+      ]
+    });
+
+    assert.deepEqual((createdMessages[0]?.metadata as Record<string, unknown>)?.toolInvocations, [
+      { name: "web_search", iteration: 0, ok: true }
+    ]);
+  }
 }
 
 void run();

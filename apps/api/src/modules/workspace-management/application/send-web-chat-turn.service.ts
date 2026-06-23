@@ -59,6 +59,8 @@ import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
+import { extractToolInvocationsFromMetadata } from "./web-chat-message-state.mapper";
+import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 
@@ -431,7 +433,12 @@ export class SendWebChatTurnService {
         content: runtimeResponse.assistantMessage,
         discoveredFileRefIds: runtimeResponse.discoveredFileRefIds,
         deferredMediaJobCount: runtimeResponse.deferredMediaJobs?.length,
-        sourceUserMessageId: prepared.userMessage.id
+        sourceUserMessageId: prepared.userMessage.id,
+        toolInvocations:
+          runtimeResponse.toolInvocations !== undefined &&
+          runtimeResponse.toolInvocations.length > 0
+            ? stripToolInvocationsForClient(runtimeResponse.toolInvocations)
+            : undefined
       });
       trace.stage("assistant_message_saved");
       const postRuntime = await finalizePersistedWebTurn({
@@ -547,7 +554,11 @@ export class SendWebChatTurnService {
           author: assistantMessage.author,
           content: postRuntime.finalAssistantContent,
           attachments: postRuntime.deliveredAttachments,
-          createdAt: assistantMessage.createdAt.toISOString()
+          createdAt: assistantMessage.createdAt.toISOString(),
+          ...(runtimeResponse.toolInvocations !== undefined &&
+          runtimeResponse.toolInvocations.length > 0
+            ? { toolInvocations: stripToolInvocationsForClient(runtimeResponse.toolInvocations) }
+            : {})
         },
         ...(postRuntime.followUpAssistantMessage === null
           ? {}
@@ -751,7 +762,13 @@ export class SendWebChatTurnService {
         author: assistantMessage.author,
         content: assistantMessage.content,
         attachments: assistantAttachments.map((attachment) => toAttachmentState(attachment)),
-        createdAt: assistantMessage.createdAt.toISOString()
+        createdAt: assistantMessage.createdAt.toISOString(),
+        ...(() => {
+          const replayToolInvocations = extractToolInvocationsFromMetadata(
+            assistantMessage.metadata
+          );
+          return replayToolInvocations.length > 0 ? { toolInvocations: replayToolInvocations } : {};
+        })()
       },
       ...(followUpAssistantMessage === null
         ? {}

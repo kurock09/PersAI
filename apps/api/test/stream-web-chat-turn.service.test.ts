@@ -411,6 +411,15 @@ describe("StreamWebChatTurnService", () => {
             respondedAt: "2026-04-05T12:00:01.000Z",
             finalAnswer: "Готово.",
             workingNotes: ["Сначала проверю файл."],
+            toolInvocations: [
+              {
+                name: "knowledge_search",
+                iteration: 0,
+                ok: true,
+                toolCallId: "tool-1",
+                billingFacts: { provider: "test" }
+              }
+            ],
             turnRouting: {
               mode: "shadow",
               executionMode: "premium",
@@ -508,6 +517,15 @@ describe("StreamWebChatTurnService", () => {
     // Golden test 3: working notes preserved in metadata as an array
     assert.deepEqual((createdMessages[0]?.metadata as Record<string, unknown>)?.workingNotes, [
       "Сначала проверю файл."
+    ]);
+    assert.deepEqual((createdMessages[0]?.metadata as Record<string, unknown>)?.toolInvocations, [
+      { name: "knowledge_search", iteration: 0, ok: true, toolCallId: "tool-1" }
+    ]);
+    const transport = (
+      outcome as { transport: { assistantMessage: { toolInvocations?: unknown[] } } }
+    ).transport.assistantMessage;
+    assert.deepEqual(transport.toolInvocations, [
+      { name: "knowledge_search", iteration: 0, ok: true, toolCallId: "tool-1" }
     ]);
   });
 

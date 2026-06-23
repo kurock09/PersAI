@@ -1,6 +1,10 @@
 import type { AssistantChatMessage } from "../domain/assistant-chat-message.entity";
 import type { AssistantChatRepository } from "../domain/assistant-chat.repository";
 import type { AssistantMediaJobService } from "./assistant-media-job.service";
+import {
+  stripToolInvocationsForClient,
+  type ClientRuntimeTurnToolInvocation
+} from "./strip-tool-invocations-for-client";
 
 type PersistAssistantMessageInput = {
   chatRepository: Pick<AssistantChatRepository, "createMessage">;
@@ -12,6 +16,7 @@ type PersistAssistantMessageInput = {
   deferredMediaJobCount?: number | undefined;
   sourceUserMessageId?: string | null | undefined;
   workingNotes?: string[] | undefined;
+  toolInvocations?: readonly ClientRuntimeTurnToolInvocation[] | undefined;
   /** "partial" when the turn was aborted / stalled before a completed event arrived. */
   partialStatus?: "partial" | undefined;
   /** ADR-122 Slice 3: "truncated" when the provider stopped due to the output-token ceiling. */
@@ -24,13 +29,18 @@ export async function persistAssistantMessage(
   const hasFileRefs =
     input.discoveredFileRefIds !== undefined && input.discoveredFileRefIds.length > 0;
   const hasWorkingNotes = Array.isArray(input.workingNotes) && input.workingNotes.length > 0;
+  const hasToolInvocations =
+    Array.isArray(input.toolInvocations) && input.toolInvocations.length > 0;
   const resolvedStatus = input.truncatedStatus ?? input.partialStatus;
   const hasStatus = resolvedStatus !== undefined;
   const metadata: Record<string, unknown> | undefined =
-    hasFileRefs || hasWorkingNotes || hasStatus
+    hasFileRefs || hasWorkingNotes || hasToolInvocations || hasStatus
       ? {
           ...(hasFileRefs ? { discoveredFileRefIds: input.discoveredFileRefIds } : {}),
           ...(hasWorkingNotes ? { workingNotes: input.workingNotes } : {}),
+          ...(hasToolInvocations
+            ? { toolInvocations: stripToolInvocationsForClient(input.toolInvocations ?? []) }
+            : {}),
           ...(hasStatus ? { status: resolvedStatus } : {})
         }
       : undefined;

@@ -612,10 +612,17 @@
     "lightboxPrevious": "Previous image",
     "lightboxNext": "Next image",
     "processBadge": {
-      "worked": "Worked · {steps, plural, one {# step} other {# steps}}",
-      "exploredSearches": "Searched · {n, plural, one {# source} other {# sources}}",
-      "generatedImages": "Generated · {n} images",
-      "readPages": "Read · {n, plural, one {# page} other {# pages}}"
+      "worked": "Done · {steps, plural, one {# step} other {# steps}}",
+      "exploredSearches": "Found · {n, plural, one {# source} other {# sources}}",
+      "knowledgeFetches": "Read · {n, plural, one {# card} other {# cards}}",
+      "readPages": "Read · {n, plural, one {# page} other {# pages}}",
+      "generatedImages": "Generated · {n, plural, one {# image} other {# images}}",
+      "editedImages": "Edited · {n, plural, one {# image} other {# images}}",
+      "generatedVideos": "Generated · {n, plural, one {# video} other {# videos}}",
+      "preparedDocuments": "Prepared · {n, plural, one {# document} other {# documents}}",
+      "wroteFiles": "Wrote · {n, plural, one {# file} other {# files}}",
+      "readFiles": "Read · {n, plural, one {# file} other {# files}}",
+      "ranCommands": "Ran · {n, plural, one {# command} other {# commands}}"
     },
     "defaultAssistant": "Your assistant",
     "greeting1": "Hey! What's on your mind?",

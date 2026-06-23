@@ -73,7 +73,11 @@ import { BackgroundCompactionQueueService } from "./background-compaction-queue.
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
-import { extractWorkingNotesFromMetadata } from "./web-chat-message-state.mapper";
+import {
+  extractToolInvocationsFromMetadata,
+  extractWorkingNotesFromMetadata
+} from "./web-chat-message-state.mapper";
+import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -703,6 +707,10 @@ export class StreamWebChatTurnService {
         deferredMediaJobCount: deferredMediaJobs?.length,
         sourceUserMessageId: prepared.userMessage.id,
         workingNotes: runtimeWorkingNotes.length > 0 ? runtimeWorkingNotes : undefined,
+        toolInvocations:
+          toolInvocations !== undefined && toolInvocations.length > 0
+            ? stripToolInvocationsForClient(toolInvocations)
+            : undefined,
         partialStatus: isCompletedNormally ? undefined : "partial",
         truncatedStatus: isCompletedNormally && runtimeTruncated ? "truncated" : undefined
       });
@@ -848,7 +856,10 @@ export class StreamWebChatTurnService {
             createdAt: assistantMessage.createdAt.toISOString(),
             // Symptom 1 fix: carry the working notes on the live completed
             // transport so the "Done" block appears without reopening the chat.
-            ...(runtimeWorkingNotes.length > 0 ? { workingNotes: runtimeWorkingNotes } : {})
+            ...(runtimeWorkingNotes.length > 0 ? { workingNotes: runtimeWorkingNotes } : {}),
+            ...(toolInvocations !== undefined && toolInvocations.length > 0
+              ? { toolInvocations: stripToolInvocationsForClient(toolInvocations) }
+              : {})
           },
           ...(postRuntime.followUpAssistantMessage === null
             ? {}
@@ -1668,7 +1679,13 @@ export class StreamWebChatTurnService {
         createdAt: assistantMessage.createdAt.toISOString(),
         ...(() => {
           const replayWorkingNotes = extractWorkingNotesFromMetadata(assistantMessage.metadata);
-          return replayWorkingNotes.length > 0 ? { workingNotes: replayWorkingNotes } : {};
+          const replayToolInvocations = extractToolInvocationsFromMetadata(
+            assistantMessage.metadata
+          );
+          return {
+            ...(replayWorkingNotes.length > 0 ? { workingNotes: replayWorkingNotes } : {}),
+            ...(replayToolInvocations.length > 0 ? { toolInvocations: replayToolInvocations } : {})
+          };
         })()
       },
       ...(followUpAssistantMessage === null

@@ -797,18 +797,11 @@ function isContentBlock(text: string): boolean {
 
 function buildIterationBlocks(
   workingNotes: string[],
-  toolInvocations: RuntimeTurnToolInvocation[]
+  toolInvocations: RuntimeTurnToolInvocation[],
+  options: { committed: boolean }
 ): IterationBlock[] {
-  const blocks: IterationBlock[] = [];
-  let currentProcess: IterationProcessPiece[] | null = null;
-
-  const flushProcess = () => {
-    if (currentProcess && currentProcess.length > 0) {
-      blocks.push({ kind: "process", pieces: currentProcess });
-    }
-    currentProcess = null;
-  };
-
+  const allPieces: IterationProcessPiece[] = [];
+  const contentBlocks: Array<{ insertAfterPieceIndex: number; markdown: string }> = [];
   const iterations = Math.max(
     workingNotes.length,
     ...toolInvocations.map((tool) => tool.iteration + 1),
@@ -819,21 +812,51 @@ function buildIterationBlocks(
     const text = (workingNotes[i] ?? "").trim();
     if (text.length > 0) {
       if (isContentBlock(text)) {
-        flushProcess();
-        blocks.push({ kind: "content", markdown: text });
+        contentBlocks.push({ insertAfterPieceIndex: allPieces.length, markdown: text });
       } else {
-        currentProcess = currentProcess ?? [];
-        currentProcess.push({ kind: "text", markdown: text });
+        allPieces.push({ kind: "text", markdown: text });
       }
     }
 
     const toolsAtIteration = toolInvocations.filter((tool) => tool.iteration === i);
     for (const tool of toolsAtIteration) {
-      currentProcess = currentProcess ?? [];
-      currentProcess.push({ kind: "tool", tool });
+      allPieces.push({ kind: "tool", tool });
     }
   }
 
+  if (options.committed) {
+    const blocks: IterationBlock[] = [];
+    if (allPieces.length > 0) {
+      blocks.push({ kind: "process", pieces: allPieces });
+    }
+    for (const contentBlock of contentBlocks) {
+      blocks.push({ kind: "content", markdown: contentBlock.markdown });
+    }
+    return blocks;
+  }
+
+  const blocks: IterationBlock[] = [];
+  let currentProcess: IterationProcessPiece[] | null = null;
+  const flushProcess = () => {
+    if (currentProcess && currentProcess.length > 0) {
+      blocks.push({ kind: "process", pieces: currentProcess });
+    }
+    currentProcess = null;
+  };
+  const contentMap = new Map<number, string>();
+  for (const contentBlock of contentBlocks) {
+    contentMap.set(contentBlock.insertAfterPieceIndex, contentBlock.markdown);
+  }
+  for (let i = 0; i <= allPieces.length; i += 1) {
+    if (contentMap.has(i)) {
+      flushProcess();
+      blocks.push({ kind: "content", markdown: contentMap.get(i)! });
+    }
+    if (i < allPieces.length) {
+      currentProcess = currentProcess ?? [];
+      currentProcess.push(allPieces[i]!);
+    }
+  }
   flushProcess();
   return blocks;
 }
@@ -876,14 +899,32 @@ function resolveProcessBadgeLabel(
     toolPieces.every((piece) => piece.tool.name === firstToolName);
 
   if (hasSingleToolName) {
-    if (firstToolName === "web_search") {
-      return t("processBadge.exploredSearches", { n: toolPieces.length });
-    }
-    if (firstToolName === "image_generate") {
-      return t("processBadge.generatedImages", { n: toolPieces.length });
-    }
-    if (firstToolName === "web_fetch") {
-      return t("processBadge.readPages", { n: toolPieces.length });
+    switch (firstToolName) {
+      case "web_search":
+      case "knowledge_search":
+        return t("processBadge.exploredSearches", { n: toolPieces.length });
+      case "knowledge_fetch":
+        return t("processBadge.knowledgeFetches", { n: toolPieces.length });
+      case "web_fetch":
+        return t("processBadge.readPages", { n: toolPieces.length });
+      case "image_generate":
+        return t("processBadge.generatedImages", { n: toolPieces.length });
+      case "image_edit":
+        return t("processBadge.editedImages", { n: toolPieces.length });
+      case "video_generate":
+        return t("processBadge.generatedVideos", { n: toolPieces.length });
+      case "document":
+        return t("processBadge.preparedDocuments", { n: toolPieces.length });
+      case "files_write":
+      case "files.write":
+        return t("processBadge.wroteFiles", { n: toolPieces.length });
+      case "files_read":
+      case "files.read":
+      case "files_list":
+      case "files_preview":
+        return t("processBadge.readFiles", { n: toolPieces.length });
+      case "shell":
+        return t("processBadge.ranCommands", { n: toolPieces.length });
     }
   }
 
@@ -1762,10 +1803,18 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       : [];
     const toolInvocations = Array.isArray(message.toolInvocations) ? message.toolInvocations : [];
     return {
-      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations),
+      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations, {
+        committed: message.status === "committed"
+      }),
       answerText: message.content
     };
-  }, [message.content, message.role, message.toolInvocations, message.workingNotes]);
+  }, [
+    message.content,
+    message.role,
+    message.status,
+    message.toolInvocations,
+    message.workingNotes
+  ]);
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const isStreamingTextActive = message.streamingTextActive === true;
   const showInlineStreamingStatus =

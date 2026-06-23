@@ -1,5 +1,43 @@
 # SESSION-HANDOFF
 
+## 2026-06-23 — Slice 6 v2 (one-badge-top + passive + persist toolInvocations) — CHECKPOINT
+
+### State
+
+Slice 6 live validation on baseline `d852af7f` exposed three shipped gaps: committed assistant bubbles could show a process badge between long content blocks, RU process labels used gendered active verbs despite female assistant settings, and backend web/TG persistence never carried runtime `toolInvocations`, so the UI could not show specialized badge labels from history or completed transports. Scope stayed bounded to Slice 6 v2: web badge rendering/i18n/tests, API assistant-message metadata/SSE/history plumbing, and docs. No runtime implementation, Prisma schema, queues, budgets, completion-turn, `<system-reminder>`, or ADR-125 work was touched.
+
+### What changed
+
+- **Web badge copy + labels** — `chat.processBadge.*` now uses passive/gender-neutral RU labels (`Выполнено`, `Найдено`, `Сгенерировано`, `Прочитано`, etc.) and matching EN labels. `resolveProcessBadgeLabel` now recognizes search/fetch/media/document/files/shell tool groups, falling back to `Done/Выполнено` for mixed process pieces.
+- **One committed badge at bubble top** — `buildIterationBlocks` now has committed vs streaming modes. Committed assistant messages collapse every short process/tool piece into one top process badge and render structural content blocks after it; streaming messages preserve live per-content-boundary ordering.
+- **API tool invocation transport/persistence** — added a shared `stripToolInvocationsForClient` helper that removes `billingFacts`. Stream completed/replay payloads, sync web responses/replay, and web/TG `persistAssistantMessage` calls now carry stripped `toolInvocations` when present.
+- **History projection** — `web-chat-message-state.mapper` reads `metadata.toolInvocations` into `AssistantWebChatMessageState`, so web history can reconstruct specialized process badges after refresh.
+
+### Verified
+
+- Focused web: `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx --config vitest.config.ts` — PASS (55/55).
+- Focused API: `corepack pnpm --filter @persai/api exec tsx --test test/persist-assistant-message.test.ts` — PASS.
+- Focused API: `corepack pnpm --filter @persai/api exec tsx --test test/manage-web-chat-list.service.test.ts` — PASS (17/17).
+- Focused API: `corepack pnpm --filter @persai/api exec tsx --test test/stream-web-chat-turn.service.test.ts` — PASS (15/15).
+- Full requested AGENTS gate — PASS after applying Prettier to the changed files and rerunning `format:check`.
+
+### Residuals / risks
+
+- Existing historical messages without persisted `metadata.toolInvocations` still degrade to generic/text-only process rendering; the new specialized labels apply to new messages and any replay/history rows that carry the new metadata key.
+- `billingFacts` remains available for internal ledger paths before persistence, but is intentionally stripped from assistant message metadata and client transports.
+
+### Files
+
+- modified: `apps/web/app/app/_components/chat-message.tsx`, `apps/web/app/app/_components/chat-message.test.tsx`, `apps/web/messages/ru.json`, `apps/web/messages/en.json`, `apps/api/src/modules/workspace-management/application/persist-assistant-message.ts`, `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`, `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`, `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`, `apps/api/src/modules/workspace-management/application/web-chat-message-state.mapper.ts`, `apps/api/src/modules/workspace-management/application/web-chat.types.ts`, `apps/api/test/persist-assistant-message.test.ts`, `apps/api/test/stream-web-chat-turn.service.test.ts`, `apps/api/test/manage-web-chat-list.service.test.ts`, `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`.
+- added: `apps/api/src/modules/workspace-management/application/strip-tool-invocations-for-client.ts`.
+
+### Next recommended step
+
+1. Run the full requested AGENTS gate in order, then orchestrator review/commit/push.
+2. Deploy API + web to `persai-dev` and live-validate: committed long content + process badge placement, female-assistant RU passive labels, and specialized `Найдено · N источников` labels after refresh/history replay.
+
+---
+
 ## 2026-06-23 — Deferred-tail continuation + assistant working-content inline UI — CHECKPOINT
 
 ### State

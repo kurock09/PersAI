@@ -17,20 +17,41 @@ vi.mock("next-intl", () => ({
     if (key === "processBadge.worked") {
       const steps = values?.steps ?? 0;
       const suffix = steps === 1 ? "шаг" : steps >= 2 && steps <= 4 ? "шага" : "шагов";
-      return `Сделал · ${String(steps)} ${suffix}`;
+      return `Выполнено · ${String(steps)} ${suffix}`;
     }
     if (key === "processBadge.exploredSearches") {
       const n = values?.n ?? 0;
       const suffix = n === 1 ? "источник" : n >= 2 && n <= 4 ? "источника" : "источников";
-      return `Поискал · ${String(n)} ${suffix}`;
+      return `Найдено · ${String(n)} ${suffix}`;
+    }
+    if (key === "processBadge.knowledgeFetches") {
+      return `Прочитано · ${String(values?.n ?? 0)} карточка`;
     }
     if (key === "processBadge.generatedImages") {
-      return `Сгенерировал · ${String(values?.n ?? 0)} изобр.`;
+      return `Сгенерировано · ${String(values?.n ?? 0)} изобр.`;
+    }
+    if (key === "processBadge.editedImages") {
+      return `Отредактировано · ${String(values?.n ?? 0)} изобр.`;
+    }
+    if (key === "processBadge.generatedVideos") {
+      return `Сгенерировано · ${String(values?.n ?? 0)} видео`;
+    }
+    if (key === "processBadge.preparedDocuments") {
+      return `Подготовлено · ${String(values?.n ?? 0)} документ`;
+    }
+    if (key === "processBadge.wroteFiles") {
+      return `Записано · ${String(values?.n ?? 0)} файл`;
+    }
+    if (key === "processBadge.readFiles") {
+      return `Прочитано · ${String(values?.n ?? 0)} файл`;
+    }
+    if (key === "processBadge.ranCommands") {
+      return `Запущено · ${String(values?.n ?? 0)} команда`;
     }
     if (key === "processBadge.readPages") {
       const n = values?.n ?? 0;
       const suffix = n === 1 ? "страница" : n >= 2 && n <= 4 ? "страницы" : "страниц";
-      return `Прочитал · ${String(n)} ${suffix}`;
+      return `Прочитано · ${String(n)} ${suffix}`;
     }
     return key;
   }
@@ -959,7 +980,7 @@ describe("ChatMessageBubble — pre-response status", () => {
 
     expect(screen.getByText(/Текст 1/)).toBeInTheDocument();
     expect(screen.getByText(/\| col \| col \|/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Сделал|Поискал|Прочитал/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Выполнено|Найдено|Прочитано/ })).toBeNull();
     expect(screen.getByText("Финал.")).toBeInTheDocument();
   });
 
@@ -977,7 +998,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByText(/1\. step/)).toBeInTheDocument();
     expect(screen.getByText(/2\. step/)).toBeInTheDocument();
     expect(screen.getByText(/3\. step/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Сделал/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Выполнено/ })).toBeNull();
   });
 
   it("renders heading working notes inline as content", () => {
@@ -993,7 +1014,7 @@ describe("ChatMessageBubble — pre-response status", () => {
 
     expect(screen.getByText("Title")).toBeInTheDocument();
     expect(screen.getByText("body")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Сделал/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Выполнено/ })).toBeNull();
   });
 
   it("groups only short connective working notes into one process badge", () => {
@@ -1007,7 +1028,7 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "Сделал · 3 шага" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Выполнено · 3 шага" })).toHaveAttribute(
       "aria-expanded",
       "false"
     );
@@ -1029,7 +1050,7 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "Поискал · 2 источника" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Найдено · 2 источника" })).toHaveAttribute(
       "aria-expanded",
       "false"
     );
@@ -1047,16 +1068,13 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    const firstBadge = screen.getByRole("button", { name: "Сделал · 1 шаг" });
+    const badge = screen.getByRole("button", { name: "Выполнено · 3 шага" });
     const contentTitle = screen.getByText("Content Title");
-    const secondBadge = screen.getByRole("button", { name: "Сделал · 2 шага" });
 
     expect(
-      firstBadge.compareDocumentPosition(contentTitle) & Node.DOCUMENT_POSITION_FOLLOWING
+      badge.compareDocumentPosition(contentTitle) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
-    expect(
-      contentTitle.compareDocumentPosition(secondBadge) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Выполнено ·/ })).toHaveLength(1);
     expect(container).toHaveTextContent("Итог.");
   });
 
@@ -1075,8 +1093,8 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "Прочитал · 2 страницы" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Сделал/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Прочитано · 2 страницы" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Выполнено/ })).toBeNull();
   });
 
   it("always renders the final answer text inline even when it is short", () => {
@@ -1090,7 +1108,7 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "Сделал · 1 шаг" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Выполнено · 1 шаг" })).toBeInTheDocument();
     expect(screen.getByText("ок")).toBeInTheDocument();
   });
 
@@ -1106,7 +1124,7 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    const badge = screen.getByRole("button", { name: "Сделал · 2 шага" });
+    const badge = screen.getByRole("button", { name: "Выполнено · 2 шага" });
     expect(screen.queryByText("сейчас")).not.toBeInTheDocument();
     expect(screen.queryByText(/web fetch/)).not.toBeInTheDocument();
 
@@ -1128,7 +1146,159 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.getByText("Только ответ.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Сделал|Поискал|Прочитал/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Выполнено|Найдено|Прочитано/ })).toBeNull();
+  });
+
+  it("streaming mode preserves per-iter ordering", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "Итог.",
+          workingNotes: ["связка1", "## Content Title\nbody", "связка2"],
+          toolInvocations: [{ name: "web_fetch", iteration: 2, ok: true }]
+        })}
+      />
+    );
+
+    const firstBadge = screen.getByRole("button", { name: "Выполнено · 1 шаг" });
+    const contentTitle = screen.getByText("Content Title");
+    const secondBadge = screen.getByRole("button", { name: "Выполнено · 2 шага" });
+
+    expect(
+      firstBadge.compareDocumentPosition(contentTitle) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      contentTitle.compareDocumentPosition(secondBadge) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("committed mode collapses all process pieces into one top badge", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Итог.",
+          workingNotes: ["связка1", "## Content Title\nbody", "связка2"],
+          toolInvocations: [{ name: "web_fetch", iteration: 2, ok: true }]
+        })}
+      />
+    );
+
+    const badge = screen.getByRole("button", { name: "Выполнено · 3 шага" });
+    const contentTitle = screen.getByText("Content Title");
+    expect(screen.getAllByRole("button", { name: /Выполнено ·/ })).toHaveLength(1);
+    expect(
+      badge.compareDocumentPosition(contentTitle) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("committed badge label adapts to single tool type", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          toolInvocations: [
+            { name: "knowledge_search", iteration: 0, ok: true },
+            { name: "knowledge_search", iteration: 1, ok: true }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Найдено · 2 источника" })).toBeInTheDocument();
+  });
+
+  it("committed badge label falls back to worked when mixed tools", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          toolInvocations: [
+            { name: "web_search", iteration: 0, ok: true },
+            { name: "image_generate", iteration: 1, ok: true }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Выполнено · 2 шага" })).toBeInTheDocument();
+  });
+
+  it("image_edit gets editedImages label", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          toolInvocations: [{ name: "image_edit", iteration: 0, ok: true }]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Отредактировано · 1 изобр." })).toBeInTheDocument();
+  });
+
+  it("document gets preparedDocuments label", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          toolInvocations: [
+            { name: "document", iteration: 0, ok: true },
+            { name: "document", iteration: 1, ok: true }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Подготовлено · 2 документ" })).toBeInTheDocument();
+  });
+
+  it("shell gets ranCommands label", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          toolInvocations: [{ name: "shell", iteration: 0, ok: true }]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Запущено · 1 команда" })).toBeInTheDocument();
+  });
+
+  it("expand committed badge shows all pieces in chronological order", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          workingNotes: ["alpha", "beta"],
+          toolInvocations: [
+            { name: "web_fetch", iteration: 0, ok: true },
+            { name: "image_generate", iteration: 1, ok: true }
+          ]
+        })}
+      />
+    );
+
+    const badge = screen.getByRole("button", { name: "Выполнено · 4 шага" });
+    fireEvent.click(badge);
+
+    const alpha = screen.getByText("alpha");
+    const webFetch = screen.getByText(/web fetch/);
+    const beta = screen.getByText("beta");
+    const imageGenerate = screen.getByText(/image generate/);
+    expect(alpha.compareDocumentPosition(webFetch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(webFetch.compareDocumentPosition(beta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      beta.compareDocumentPosition(imageGenerate) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   // ADR-125 follow-up: per-message engagement annotation moved to the chat

@@ -612,10 +612,17 @@
     "lightboxPrevious": "Предыдущее изображение",
     "lightboxNext": "Следующее изображение",
     "processBadge": {
-      "worked": "Сделал · {steps, plural, one {# шаг} few {# шага} other {# шагов}}",
-      "exploredSearches": "Поискал · {n, plural, one {# источник} few {# источника} other {# источников}}",
-      "generatedImages": "Сгенерировал · {n, plural, one {# изобр.} other {# изобр.}}",
-      "readPages": "Прочитал · {n, plural, one {# страница} few {# страницы} other {# страниц}}"
+      "worked": "Выполнено · {steps, plural, one {# шаг} few {# шага} other {# шагов}}",
+      "exploredSearches": "Найдено · {n, plural, one {# источник} few {# источника} other {# источников}}",
+      "knowledgeFetches": "Прочитано · {n, plural, one {# карточка} few {# карточки} other {# карточек}}",
+      "readPages": "Прочитано · {n, plural, one {# страница} few {# страницы} other {# страниц}}",
+      "generatedImages": "Сгенерировано · {n, plural, one {# изобр.} other {# изобр.}}",
+      "editedImages": "Отредактировано · {n, plural, one {# изобр.} other {# изобр.}}",
+      "generatedVideos": "Сгенерировано · {n, plural, one {# видео} other {# видео}}",
+      "preparedDocuments": "Подготовлено · {n, plural, one {# документ} few {# документа} other {# документов}}",
+      "wroteFiles": "Записано · {n, plural, one {# файл} few {# файла} other {# файлов}}",
+      "readFiles": "Прочитано · {n, plural, one {# файл} few {# файла} other {# файлов}}",
+      "ranCommands": "Запущено · {n, plural, one {# команда} few {# команды} other {# команд}}"
     },
     "defaultAssistant": "Твой ассистент",
     "greeting1": "Привет! Что у тебя на уме?",

@@ -1,3 +1,5 @@
+import type { ClientRuntimeTurnToolInvocation } from "./strip-tool-invocations-for-client";
+
 export type AssistantChatSurfaceState = "web" | "telegram";
 export type AssistantChatModeState = "normal" | "smart" | "project";
 
@@ -70,6 +72,8 @@ export interface AssistantWebChatMessageState {
   platformNotice?: AssistantWebChatPlatformNoticeState;
   /** The texts the model wrote before each tool call across the tool loop. Absent/empty when no tools ran. */
   workingNotes?: string[];
+  /** Tool-call summaries for process badges. Heavy billing facts are stripped before persistence/client transport. */
+  toolInvocations?: ClientRuntimeTurnToolInvocation[];
 }
 
 export interface AssistantWebChatTurnRoutingState {

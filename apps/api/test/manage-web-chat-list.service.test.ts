@@ -61,6 +61,7 @@ function createMessages(messageCount = 24, assistantMessageCount = 12) {
     assistantId: "assistant-1",
     author: index < assistantMessageCount ? ("assistant" as const) : ("user" as const),
     content: `message-${index + 1}`,
+    metadata: null,
     createdAt: new Date("2026-03-31T00:00:00.000Z")
   }));
 }
@@ -244,6 +245,7 @@ function createService(overrides?: {
     assistantId: string;
     author: "user" | "assistant";
     content: string;
+    metadata?: Record<string, unknown> | null;
     createdAt: Date;
   }>;
   mediaJobs?: Array<{
@@ -629,6 +631,37 @@ describe("ManageWebChatListService", () => {
     assert.equal(attachment?.fileRef, "file-chat-local-1");
     assert.equal(attachment?.thumbnailFileRef, "thumbnail-file-ref-1");
     assert.equal(attachment?.derivativesStatus, "ready");
+  });
+
+  test("returns tool invocations from assistant message metadata", async () => {
+    const { service } = createService({
+      messages: [
+        {
+          id: "msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "Found it.",
+          metadata: {
+            workingNotes: ["Проверяю источник."],
+            toolInvocations: [
+              { name: "knowledge_search", iteration: 0, ok: true, toolCallId: "tool-1" }
+            ]
+          },
+          createdAt: new Date("2026-06-23T00:00:00.000Z")
+        }
+      ]
+    });
+
+    const result = await service.listChatMessages("user-1", "chat-1", {
+      cursor: null,
+      limit: 20
+    });
+
+    assert.deepEqual(result.messages[0]?.workingNotes, ["Проверяю источник."]);
+    assert.deepEqual(result.messages[0]?.toolInvocations, [
+      { name: "knowledge_search", iteration: 0, ok: true, toolCallId: "tool-1" }
+    ]);
   });
 
   test("hard-deletes a chat after removing runtime/media state", async () => {

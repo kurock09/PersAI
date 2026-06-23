@@ -41,6 +41,7 @@ import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service
 import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
 import { AssistantUploadMicroDescriptionJobService } from "./assistant-upload-micro-description-job.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
+import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
@@ -403,7 +404,12 @@ export class HandleInternalTelegramTurnService {
           content: assistantMessage,
           discoveredFileRefIds: runtimeResponse.discoveredFileRefIds,
           deferredMediaJobCount: runtimeResponse.deferredMediaJobs?.length,
-          sourceUserMessageId: userMessage.id
+          sourceUserMessageId: userMessage.id,
+          toolInvocations:
+            runtimeResponse.toolInvocations !== undefined &&
+            runtimeResponse.toolInvocations.length > 0
+              ? stripToolInvocationsForClient(runtimeResponse.toolInvocations)
+              : undefined
         });
         assistantMessageId = assistantChatMessage.id;
         trace.stage("assistant_message_saved");
