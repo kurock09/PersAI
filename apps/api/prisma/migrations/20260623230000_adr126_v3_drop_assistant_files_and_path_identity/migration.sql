@@ -1,13 +1,12 @@
 -- ADR-126 v3 Wave 1 — drop assistant_files identity; path-based attachments + workspace_file_metadata.
+--
+-- The 'unavailable' enum value is added in the prior migration
+-- (20260623225000_adr126_v3_add_unavailable_enum) so that this migration can
+-- safely UPDATE rows to it. Postgres 55P04 forbids using a freshly-added enum
+-- label inside the same transaction it was added in.
 
 -- --------------------------------------------------------------------------
--- 1. Extend attachment_processing_status for legacy assistant-media rows.
--- --------------------------------------------------------------------------
-
-ALTER TYPE "attachment_processing_status" ADD VALUE IF NOT EXISTS 'unavailable';
-
--- --------------------------------------------------------------------------
--- 2. Drop assistant_files satellite tables (FK order).
+-- 1. Drop assistant_files satellite tables (FK order).
 -- --------------------------------------------------------------------------
 
 DROP TABLE IF EXISTS "assistant_upload_micro_description_jobs" CASCADE;
@@ -15,7 +14,7 @@ DROP TABLE IF EXISTS "assistant_document_delivered_files" CASCADE;
 DROP TABLE IF EXISTS "assistant_file_media_derivatives" CASCADE;
 
 -- --------------------------------------------------------------------------
--- 3. Repurpose assistant_chat_message_attachments.storage_path for FS paths.
+-- 2. Repurpose assistant_chat_message_attachments.storage_path for FS paths.
 -- --------------------------------------------------------------------------
 
 ALTER TABLE "assistant_chat_message_attachments" DROP COLUMN IF EXISTS "assistant_file_id";
@@ -28,7 +27,7 @@ SET "storage_path" = NULL,
 WHERE "storage_path" LIKE 'assistant-media/%';
 
 -- --------------------------------------------------------------------------
--- 4. Drop assistant_files registry and retired enums.
+-- 3. Drop assistant_files registry and retired enums.
 -- --------------------------------------------------------------------------
 
 DROP TABLE IF EXISTS "assistant_files" CASCADE;
@@ -37,7 +36,7 @@ DROP TYPE IF EXISTS "sandbox_file_origin";
 DROP TYPE IF EXISTS "AssistantUploadMicroDescriptionJobStatus";
 
 -- --------------------------------------------------------------------------
--- 5. workspace_file_metadata — path-keyed manifest cache (ADR-126 v3 D11).
+-- 4. workspace_file_metadata — path-keyed manifest cache (ADR-126 v3 D11).
 -- --------------------------------------------------------------------------
 
 CREATE TABLE "workspace_file_metadata" (
