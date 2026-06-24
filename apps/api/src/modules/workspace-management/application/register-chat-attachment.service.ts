@@ -243,28 +243,12 @@ export class RegisterChatAttachmentService {
 
   private async resolveRuntimeMessageId(
     input: RegisterChatAttachmentFromRuntimeInput,
-    chatId: string
+    _chatId: string
   ): Promise<string> {
     if (input.messageId !== null && input.messageId !== undefined) {
       return input.messageId;
     }
-    const runningAttempt = await this.prisma.assistantWebChatTurnAttempt.findFirst({
-      where: {
-        assistantId: input.assistantId,
-        chatId,
-        status: { in: ["accepted", "running"] }
-      },
-      orderBy: { createdAt: "desc" },
-      select: { userMessageId: true }
-    });
-    if (
-      runningAttempt?.userMessageId === null ||
-      runningAttempt?.userMessageId === undefined ||
-      runningAttempt.userMessageId.trim().length === 0
-    ) {
-      throw new NotFoundException("chat_message_not_found");
-    }
-    return runningAttempt.userMessageId;
+    throw new NotFoundException("chat_message_not_found");
   }
 
   private requiredString(value: unknown, field: string): string {

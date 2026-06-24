@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { RegisterChatAttachmentService } from "../src/modules/workspace-management/application/register-chat-attachment.service";
 
 describe("register-chat-attachment.service", () => {
@@ -128,5 +128,42 @@ describe("register-chat-attachment.service", () => {
 
     assert.equal(createdInput?.thumbnailStoragePath, "/shared/input/photo.jpg.thumb.webp");
     assert.equal(createdInput?.posterStoragePath, "/shared/input/clip.mp4.poster.jpg");
+  });
+  test("runtime attachment with null messageId does not fall back to running attempt userMessageId", async () => {
+    const service = new RegisterChatAttachmentService(
+      {
+        assistantChat: {
+          findFirst: async () => ({ id: "chat-1" })
+        },
+        assistantWebChatTurnAttempt: {
+          findFirst: async () => ({ userMessageId: "user-message-1" })
+        }
+      } as never,
+      {
+        create: async () => {
+          throw new Error("should not create");
+        }
+      } as never,
+      { upsert: async () => {} } as never
+    );
+
+    await assert.rejects(
+      () =>
+        service.executeFromRuntime({
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          channel: "web",
+          externalThreadKey: "web-thread-1",
+          messageId: null,
+          storagePath: "/shared/outbound/self/report.csv",
+          attachmentType: "document",
+          mimeType: "text/csv",
+          sizeBytes: 12,
+          originalFilename: "report.csv",
+          kind: "files.attach"
+        }),
+      (error: unknown) =>
+        error instanceof NotFoundException && error.message === "chat_message_not_found"
+    );
   });
 });

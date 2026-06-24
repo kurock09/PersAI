@@ -16,7 +16,9 @@ const baseSandboxConfigSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3013),
   LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
   PERSAI_MEDIA_BUCKET_NAME: optionalNonEmptyString,
-  PERSAI_MEDIA_OBJECT_PREFIX: optionalNonEmptyString,
+  // See note in runtime-config.ts: same default keeps the namespace addressable
+  // even if the helm env block forgets the variable. Live regression 2026-06-25.
+  PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("assistant-media"),
   PERSAI_INTERNAL_API_TOKEN: optionalNonEmptyString,
   SANDBOX_MAX_PENDING_JOBS: z.coerce.number().int().positive().default(16),
   SANDBOX_MAX_PENDING_JOBS_PER_WORKSPACE: z.coerce.number().int().positive().default(4),

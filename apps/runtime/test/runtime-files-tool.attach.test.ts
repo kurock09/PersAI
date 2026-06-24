@@ -49,12 +49,6 @@ function createService(input: {
     async consumeToolDailyLimit() {
       return { allowed: true, code: null, message: null };
     },
-    async registerChatAttachment() {
-      return {
-        attachmentId: "attachment-1",
-        storagePath: "/shared/outbound/self/report.csv"
-      };
-    },
     ...input.apiClient
   };
   return new RuntimeFilesToolService(
@@ -72,9 +66,8 @@ const attachToolCallParams = {
   messageId: "message-1"
 };
 
-test("files.attach happy path workspace source creates API row and hides attachment identity", async () => {
+test("files.attach happy path workspace source emits assistant artifact", async () => {
   let apiCalled = false;
-  let apiInput: Record<string, unknown> | undefined;
   const service = createService({
     sandboxJob: {
       status: "completed",
@@ -93,13 +86,9 @@ test("files.attach happy path workspace source creates API row and hides attachm
       })
     },
     apiClient: {
-      async registerChatAttachment(input: Record<string, unknown>) {
+      async registerChatAttachment() {
         apiCalled = true;
-        apiInput = input as Record<string, unknown>;
-        return {
-          attachmentId: "attachment-1",
-          storagePath: "/shared/outbound/self/report.csv"
-        };
+        throw new Error("files.attach should not register mid-turn");
       }
     }
   });
@@ -114,21 +103,28 @@ test("files.attach happy path workspace source creates API row and hides attachm
     ...attachToolCallParams
   });
 
-  assert.equal(apiCalled, true);
-  assert.equal(apiInput?.channel, "web");
-  assert.equal(apiInput?.externalThreadKey, "web-1782153682653");
-  assert.equal(apiInput?.chatId, undefined);
+  assert.equal(apiCalled, false);
   assert.equal(result.isError, false);
   assert.equal(result.payload.action, "attached");
   assert.equal(result.payload.path, "/shared/outbound/self/report.csv");
   assert.equal(result.payload.sizeBytes, 12);
-  assert.equal(result.discoveredFileHandles?.[0]?.storagePath, "/shared/outbound/self/report.csv");
+  assert.equal(result.discoveredFileHandles, undefined);
+  assert.equal(result.artifacts?.length, 1);
+  const artifact = result.artifacts?.[0];
+  assert.equal(artifact?.storagePath, "/shared/outbound/self/report.csv");
+  assert.equal(artifact?.mimeType, "text/csv");
+  assert.equal(artifact?.sizeBytes, 12);
+  assert.equal(artifact?.kind, "file");
+  assert.equal(artifact?.filename, "report.csv");
+  assert.equal(artifact?.sourceToolCode, undefined);
+  assert.equal(artifact?.voiceNote, false);
+  assert.match(artifact?.artifactId ?? "", /^[0-9a-f-]{36}$/);
   const modelJson = stringifyToolResultPayloadForModel(result.payload);
-  assert.ok(!modelJson.includes("attachment-1"));
   assert.ok(!modelJson.includes('"attachmentId"'));
+  assert.ok(!modelJson.includes("/workspace/report.csv"));
 });
 
-test("files.attach happy path shared_outbound_self still calls API", async () => {
+test("files.attach happy path shared_outbound_self emits assistant artifact", async () => {
   let apiCalled = false;
   const service = createService({
     sandboxJob: {
@@ -141,18 +137,15 @@ test("files.attach happy path shared_outbound_self still calls API", async () =>
           workspaceRelPath: "/shared/outbound/self/report.csv",
           sourcePath: "/shared/outbound/self/report.csv",
           sizeBytes: 12,
-          mimeType: "text/csv",
-          displayName: "report.csv"
+          mimeType: "image/png",
+          displayName: "report.png"
         }
       })
     },
     apiClient: {
-      async registerChatAttachment(input: Record<string, unknown>) {
+      async registerChatAttachment() {
         apiCalled = true;
-        assert.equal(input.channel, "web");
-        assert.equal(input.externalThreadKey, "web-1782153682653");
-        assert.equal(input.chatId, undefined);
-        return { attachmentId: "attachment-2", storagePath: "/shared/outbound/self/report.csv" };
+        throw new Error("files.attach should not register mid-turn");
       }
     }
   });
@@ -167,8 +160,11 @@ test("files.attach happy path shared_outbound_self still calls API", async () =>
     ...attachToolCallParams
   });
 
-  assert.equal(apiCalled, true);
+  assert.equal(apiCalled, false);
   assert.equal(result.payload.action, "attached");
+  assert.equal(result.artifacts?.[0]?.kind, "image");
+  assert.equal(result.artifacts?.[0]?.filename, "report.png");
+  assert.equal(result.artifacts?.[0]?.sourceToolCode, undefined);
 });
 
 test("files.attach sandbox path_not_attachable does not call API", async () => {
@@ -204,27 +200,14 @@ test("files.attach sandbox path_not_attachable does not call API", async () => {
   assert.equal(result.payload.reason, "path_not_attachable");
 });
 
-test("files.attach API failure returns files_attach_failed", async () => {
+test("files.attach sandbox failed job returns files_failed", async () => {
   const service = createService({
     sandboxJob: {
-      status: "completed",
+      status: "failed",
       reason: null,
-      warning: null,
+      warning: "sandbox attach failed",
       violationMessage: null,
-      content: JSON.stringify({
-        attachment: {
-          workspaceRelPath: "/shared/outbound/self/report.csv",
-          sourcePath: "/workspace/report.csv",
-          sizeBytes: 12,
-          mimeType: "text/csv",
-          displayName: "report.csv"
-        }
-      })
-    },
-    apiClient: {
-      async registerChatAttachment() {
-        throw new Error("api down");
-      }
+      content: null
     }
   });
 
@@ -239,5 +222,6 @@ test("files.attach API failure returns files_attach_failed", async () => {
   });
 
   assert.equal(result.isError, true);
-  assert.equal(result.payload.reason, "files_attach_failed");
+  assert.equal(result.payload.reason, "files_failed");
+  assert.equal(result.payload.warning, "sandbox attach failed");
 });

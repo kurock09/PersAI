@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   type ProviderGatewayToolCall,
   type RuntimeFileHandle,
+  type RuntimeOutputArtifact,
   type RuntimeFilesToolAction,
   type RuntimeFilesToolItem,
   type RuntimeFilesToolResult,
@@ -64,6 +66,7 @@ export interface RuntimeFilesToolExecutionResult {
   payload: RuntimeFilesToolResult;
   isError: boolean;
   discoveredFileHandles?: RuntimeFileHandle[];
+  artifacts?: RuntimeOutputArtifact[];
 }
 
 const BINARY_PREVIEW_MIME_TYPES = new Set([
@@ -524,82 +527,31 @@ export class RuntimeFilesToolService {
         isError: true
       };
     }
-    const externalThreadKey = params.externalThreadKey;
-    if (externalThreadKey === null || externalThreadKey.trim().length === 0) {
-      return {
-        payload: {
-          toolCode: "files",
-          executionMode: "inline",
-          requestedAction: "attach",
-          action: "skipped",
-          reason: "files_attach_failed",
-          warning: "External thread key is unavailable for files.attach delivery.",
-          path: request.path
-        },
-        isError: true
-      };
-    }
-    try {
-      const attachmentType = this.resolveAttachmentTypeForMime(attachOutcome.mimeType);
-      const registration = await this.persaiInternalApiClientService.registerChatAttachment({
-        assistantId: params.bundle.metadata.assistantId,
-        workspaceId: params.bundle.metadata.workspaceId,
-        channel: params.channel,
-        externalThreadKey,
-        messageId: params.messageId,
-        storagePath: attachOutcome.workspaceRelPath,
-        attachmentType,
+    const outputArtifact: RuntimeOutputArtifact = {
+      artifactId: randomUUID(),
+      storagePath: attachOutcome.workspaceRelPath,
+      kind: this.resolveOutputArtifactKindForMime(attachOutcome.mimeType),
+      mimeType: attachOutcome.mimeType,
+      filename: attachOutcome.displayName,
+      sizeBytes: attachOutcome.sizeBytes,
+      voiceNote: false
+    };
+    return {
+      payload: {
+        toolCode: "files",
+        executionMode: "inline",
+        requestedAction: "attach",
+        action: "attached",
+        reason: null,
+        warning: job.warning,
+        path: attachOutcome.workspaceRelPath,
         mimeType: attachOutcome.mimeType,
-        sizeBytes: attachOutcome.sizeBytes,
-        originalFilename: attachOutcome.displayName,
-        kind: "files.attach"
-      });
-      const discoveredHandle: RuntimeFileHandle = {
-        storagePath: registration.storagePath,
-        mimeType: attachOutcome.mimeType,
-        sizeBytes: attachOutcome.sizeBytes,
         displayName: attachOutcome.displayName,
-        workspaceId: params.bundle.metadata.workspaceId,
-        authorLabel: "user"
-      };
-      return {
-        payload: {
-          toolCode: "files",
-          executionMode: "inline",
-          requestedAction: "attach",
-          action: "attached",
-          reason: null,
-          warning: job.warning,
-          path: attachOutcome.workspaceRelPath,
-          mimeType: attachOutcome.mimeType,
-          displayName: attachOutcome.displayName,
-          sizeBytes: attachOutcome.sizeBytes,
-          attachment: {
-            attachmentId: registration.attachmentId,
-            storagePath: registration.storagePath,
-            sourcePath: attachOutcome.sourcePath,
-            displayName: attachOutcome.displayName,
-            sizeBytes: attachOutcome.sizeBytes,
-            mimeType: attachOutcome.mimeType
-          }
-        },
-        discoveredFileHandles: [discoveredHandle],
-        isError: false
-      };
-    } catch (error) {
-      return {
-        payload: {
-          toolCode: "files",
-          executionMode: "inline",
-          requestedAction: "attach",
-          action: "skipped",
-          reason: "files_attach_failed",
-          warning: error instanceof Error ? error.message : "files.attach API call failed.",
-          path: request.path
-        },
-        isError: true
-      };
-    }
+        sizeBytes: attachOutcome.sizeBytes
+      },
+      artifacts: [outputArtifact],
+      isError: false
+    };
   }
 
   private async runSandboxJob(
@@ -768,6 +720,11 @@ export class RuntimeFilesToolService {
       },
       isError: true
     };
+  }
+
+  private resolveOutputArtifactKindForMime(mimeType: string): RuntimeOutputArtifact["kind"] {
+    const attachmentType = this.resolveAttachmentTypeForMime(mimeType);
+    return attachmentType === "document" || attachmentType === "voice" ? "file" : attachmentType;
   }
 
   private resolveAttachmentTypeForMime(

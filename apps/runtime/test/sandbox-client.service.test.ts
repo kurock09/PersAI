@@ -21,7 +21,8 @@ function createConfig(): RuntimeConfig {
     RUNTIME_SANDBOX_BASE_URL: "http://sandbox.local",
     RUNTIME_SANDBOX_TIMEOUT_MS: 30_000,
     RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS: 240_000,
-    PERSAI_INTERNAL_API_TOKEN: "sandbox-token"
+    PERSAI_INTERNAL_API_TOKEN: "sandbox-token",
+    PERSAI_MEDIA_OBJECT_PREFIX: "assistant-media"
   };
 }
 

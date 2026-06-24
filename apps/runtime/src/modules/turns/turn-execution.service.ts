@@ -3142,14 +3142,14 @@ export class TurnExecutionService {
           channel: acceptedTurn.session.conversation.channel,
           chatId: null,
           externalThreadKey: this.resolveSurfaceThreadKey(acceptedTurn.session.conversation),
-          messageId: currentUserMessageId
+          messageId: null
         });
         return this.createToolExecutionOutcome(
           toolCall,
           result.payload,
           result.isError,
           undefined,
-          undefined,
+          result.artifacts,
           result.discoveredFileHandles
         );
       }

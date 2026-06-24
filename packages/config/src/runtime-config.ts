@@ -33,7 +33,15 @@ const baseRuntimeConfigSchema = z.object({
   PERSAI_INTERNAL_API_TOKEN: optionalNonEmptyString,
   RUNTIME_PROVIDER_GATEWAY_BASE_URL: optionalUrl,
   PERSAI_MEDIA_BUCKET_NAME: optionalNonEmptyString,
-  PERSAI_MEDIA_OBJECT_PREFIX: optionalNonEmptyString,
+  // Operational GCS bucket prefix for workspace media objects (ADR-126 v3
+  // Amendment 2026-06-24). Must be in sync with the api-side default so the
+  // runtime + api address the same key namespace even when the helm env block
+  // forgets to enumerate the variable. Live regression 2026-06-25: runtime
+  // helm env had no PERSAI_MEDIA_OBJECT_PREFIX entry, this schema had no
+  // default, getObjectPrefix() threw, and every chat turn carrying an image
+  // attachment failed with "Chat runtime is temporarily unreachable" because
+  // TurnContextHydrationService.downloadDirectInputAttachmentBytes blew up.
+  PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("assistant-media"),
   RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   RUNTIME_SANDBOX_BASE_URL: optionalUrl,

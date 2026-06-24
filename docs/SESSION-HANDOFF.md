@@ -1,5 +1,36 @@
 # SESSION-HANDOFF
 
+## 2026-06-25 - ADR-126 v3 `files.attach` assistant-message binding fix - CHECKPOINT
+
+### Scope / root cause
+
+Live dev bug: model-called `files.attach({ path })` showed the attachment chip on the user bubble because runtime called `registerChatAttachment` mid-turn with the current user message id. Other artifact tools already route through `RuntimeOutputArtifact` and are delivered at end-of-turn against the assistant message.
+
+Baseline SHA: `56fc902336f1da07ea1a4320e67bc8fbd535128e`.
+
+### What changed
+
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`: `files.attach` still runs the sandbox attach job, then emits a `RuntimeOutputArtifact` using the existing `/shared/.../outbound/self/...` storage path. It no longer calls mid-turn `registerChatAttachment`, no longer returns a user-authored discovered handle, and does not expose `/workspace/...` source paths in the payload.
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`: the files tool passes `result.artifacts` into `createToolExecutionOutcome`, allowing normal assistant-message artifact delivery.
+- `apps/api/src/modules/workspace-management/application/register-chat-attachment.service.ts`: `resolveRuntimeMessageId` now throws `NotFoundException("chat_message_not_found")` when runtime input has `messageId: null`; it no longer falls back to the running attempt `userMessageId`.
+- Targeted runtime/API tests now assert artifact emission and the removed fallback.
+- `docs/CHANGELOG.md` records the post-closure ADR-126 v3 bug fix.
+
+### Gate
+
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-files-tool.attach.test.ts` PASS
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/files-attach-after-image-generate.test.ts` PASS
+- `corepack pnpm --filter @persai/api exec tsx --test test/register-chat-attachment.service.test.ts` PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime run lint` PASS
+- `corepack pnpm --filter @persai/api run lint` PASS
+- `corepack pnpm run format:check` PASS
+
+### Follow-up
+
+No commit or push was made per user instruction. Next recommended step: review the diff, then commit and deploy/live-validate that `files.attach` chips now render on assistant bubbles.
+
 ## 2026-06-24 (late) — ADR-126 v3 round-2 Opus-4.8 audit closure (post-closure polish) — CHECKPOINT
 
 After the v3 closure was claimed clean (see immediately-following 2026-06-24 entry), the user dispatched an independent adversarial Opus-4.8 audit on the finalized tree. Round-1 audit (run as part of closure) had flagged 4 blockers (B1–B4) + 3 nits (N1–N3); round-2 re-audit verified 6 of 7 closed and flagged one **PARTIAL** (B3 residual — model still saw "Five actions" in the `<category name="files">` block while the tool definition advertised six) plus four new nits (NEW: stale catalog source-of-truth; NEW: stale `native-tool-projection.test.ts` mock + assertion; NEW: B4 unmetered artefact-write seam at `sandbox.service.writeSharedOutbound` where `workspaceQuotaBytes` / `sharedQuotaBytes` were hardcoded `null`; NEW: N1 label vocabulary mismatch between ADR D12 (`install | scratch | shared`) and code (`session | shared`)).
@@ -193,7 +224,7 @@ The earlier (now-replaced) handoff entry under-stated the actual contract change
 - **`apps/sandbox/test/workspace-file-bridge.service.test.ts`** (new) — 15 cases covering write success + create_only collision + sibling/input write_denied + self-outbound GCS mirror; read success + missing + truncated; list success + missing-dir; stat file + missing; delete success + delete_denied; path traversal raises `WorkspacePathError`.
 - **`apps/sandbox/test/workspace-gc.service.test.ts`** (new) — 8 cases covering all three lease kinds (past-due processing per kind + future-dated skip), assistant-pod filtering, malformed metadata → `recordGcPurgeFailed` without `purged_at`, single-lease exception isolation, already-purged lease filter.
 - **`apps/sandbox/test/sandbox.service.test.ts`** — rewritten to the new contract: 6-arg constructors with handle + sibling, `mountFileRefs` moved inside `args`, every literal `RuntimeSandboxJobRequest` carries `assistantHandle` + `siblingHandles`, legacy `executeFilesEditAction` / lease-reclaim / hydrate test block removed (no dead stubs), grep/glob legacy assertions removed since the methods no longer exist.
-- **`apps/runtime/test/**`** — 17 test files updated to add `assistantHandle: "a-test"` + `siblingAssistantHandles: []` to every `AssistantRuntimeBundleMetadata` literal. `runtime-files-tool.service.test.ts` (legacy 11-action surface) deleted cleanly — the action surface no longer exists. `sandbox-client.service.test.ts` lost the stale `mountedFileRefs` field.
+- **`apps/runtime/test/**`** — 17 test files updated to add `assistantHandle: "a-test"`+`siblingAssistantHandles: []`to every`AssistantRuntimeBundleMetadata`literal.`runtime-files-tool.service.test.ts`(legacy 11-action surface) deleted cleanly — the action surface no longer exists.`sandbox-client.service.test.ts`lost the stale`mountedFileRefs` field.
 
 #### Config (already landed; preserved)
 
@@ -514,11 +545,11 @@ Founder observation (2026-06-22, follow-up after ADR-125 A2 push): every deferre
 
 Live trace of chat `web-1782153682653` (assistant `2f8cf38e-…`, founder query "проверь тут есть чат id?") showed Amendment 1 firing one turn late. Sequence:
 
-| Turn | User → Assistant | Observation |
-|---|---|---|
-| 1 | «Привет» → «Ну привет, Лёш…» | no scenario, no plan — OK |
-| 2 | «давай сделаем инстаграм карусель» → text reply | `skill.engage(scenarioKey="instagram_carousel")` ran INSIDE turn, but no `todo_write` — plan NOT created |
-| 3 | «составь сам изучи persai.dev…» → text reply | 5-row plan CREATED at 18:43:25, model now self-tracks |
+| Turn | User → Assistant                                | Observation                                                                                              |
+| ---- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 1    | «Привет» → «Ну привет, Лёш…»                    | no scenario, no plan — OK                                                                                |
+| 2    | «давай сделаем инстаграм карусель» → text reply | `skill.engage(scenarioKey="instagram_carousel")` ran INSIDE turn, but no `todo_write` — plan NOT created |
+| 3    | «составь сам изучи persai.dev…» → text reply    | 5-row plan CREATED at 18:43:25, model now self-tracks                                                    |
 
 Root cause: `prepareTurnExecution` builds the volatile prefix (`<persai_active_scenario>` + `<persai_chat_plan>` + `<system-reminder>` blocks) **once** from the `skillStateContext` snapshot taken at turn-prep. Any `skill.engage` / `skill.release` / `todo_write` call inside the tool loop mutated DB state, but the prompt the model saw on the next hop of that same turn still carried the stale prefix. Intake reminder thus arrived a turn late.
 
@@ -613,7 +644,7 @@ After Option A + the chat-plan lifecycle reminder landed earlier today, founder 
   - `skillDecisionState` reports an active skill + active scenario, AND
   - the scenario resolves in the bundle (graceful degradation if the bundle is missing the row), AND
   - the windowed chat plan is empty (`chatPlanTodos === null || .length === 0`).
-  The reminder names the scenario, embeds the actual `scenario.steps` list (titles derived from each `directive`, truncated to ≤80 chars with sentence-boundary preference, capped to the first 12 steps with a "…and N more — include every step in the add call" trailer if longer), demands `todo_write({action:"add", items:[…]})` as the VERY NEXT action with `first item status:"in_progress", every other item status:"pending"`, and reminds the model that "the scenario IS the plan — do not skip this even if the user has not asked for a plan". Helper `deriveStepTitle` handles the truncation. `resolveScenario` return type tightened from `{displayName; steps: unknown[]}` to `RuntimeBundleSkillScenario | null` so the new code can read step shape safely.
+    The reminder names the scenario, embeds the actual `scenario.steps` list (titles derived from each `directive`, truncated to ≤80 chars with sentence-boundary preference, capped to the first 12 steps with a "…and N more — include every step in the add call" trailer if longer), demands `todo_write({action:"add", items:[…]})` as the VERY NEXT action with `first item status:"in_progress", every other item status:"pending"`, and reminds the model that "the scenario IS the plan — do not skip this even if the user has not asked for a plan". Helper `deriveStepTitle` handles the truncation. `resolveScenario` return type tightened from `{displayName; steps: unknown[]}` to `RuntimeBundleSkillScenario | null` so the new code can read step shape safely.
 - **No changes to `turn-execution.service.ts` / `turn-context-hydration.service.ts`.** The new reminder rides the same `chatPlanTodos` payload the lifecycle reminder already consumes — zero new fan-out, zero new round-trip.
 - **Tests.** `apps/runtime/test/build-system-reminder-blocks.service.test.ts` grows from 17 to 26 cases. New cases (18–26): intake fires on empty plan + active scenario, treats `null` / absent `chatPlanTodos` as empty, is suppressed when plan has any row (even a single completed one), suppressed when scenario inactive, suppressed when scenario key unresolvable in bundle, truncates overlong directives, trails many-step scenarios with "…and N more", remains byte-stable across invocations. Existing scenario-active cases (2, 3, 4, 9, 10) updated to pass a single completed `SILENT_PLAN` todo so the intake reminder stays suppressed where the test focuses on reminders 1/2/4/5.
 - **ADR-125 `Amendment 1`** appended: explicitly captures the live regression motivation, the system-reminder design, and the acceptance criteria for both the empty-plan branch (intake) and the populated-plan branches (lifecycle).
@@ -649,7 +680,7 @@ After the Option A pivot landed, founder asked for the Claude-Code / Cursor-styl
   - any windowed todo with `status === "in_progress"` → reminder names that row (id + truncated title) and demands `todo_write({action:"complete", id:"<id>"})` BEFORE the assistant text reply, with explicit "do not batch completions" line;
   - else first `pending` row exists → reminder names the first pending row, includes pending count, and demands `todo_write({action:"update", id:"<id>", status:"in_progress"})` BEFORE substantive work, with explicit one-in_progress-per-parent reminder;
   - else (every windowed row is `completed`, or no plan) → no reminder emitted. The plan card / `<persai_chat_plan>` block continues to render as before — silence here means "model has nothing to do for the plan this turn".
-  Long titles are truncated to ≤140 chars with an ellipsis so the reminder stays compact and stable across recency-bias evictions.
+    Long titles are truncated to ≤140 chars with an ellipsis so the reminder stays compact and stable across recency-bias evictions.
 - **`apps/runtime/src/modules/turns/turn-context-hydration.service.ts`** — `buildChatPlanBlock` now returns `{ block, todos } | null` instead of just the block. This is the cheapest possible wiring: the chat-plan lookup already loads the windowed rows for rendering, so the reminder can derive its state from the same payload with zero extra round-trips. JSDoc updated.
 - **`apps/runtime/src/modules/turns/turn-execution.service.ts`** — call-site destructures the new shape (`chatPlan` instead of `chatPlanBlock`), pushes `chatPlan.block` into `volatilePrefix`, and passes `chatPlanTodos: chatPlan?.todos ?? null` into `BuildSystemReminderBlocksService.buildBlocks`. No new injections, no new services — the reminder rides the existing per-turn pipeline.
 - **Tests.** `apps/runtime/test/build-system-reminder-blocks.service.test.ts` extends from 11 to 17 cases:
@@ -685,8 +716,9 @@ After the Option A pivot landed, founder asked for the Claude-Code / Cursor-styl
 ### Next recommended step
 
 Watch the dev image publish job from this commit. After persai-dev repins runtime:
+
 1. open a chat, `skill engage <marketer / instagram_carousel>` — model adds the plan (Option A), reminder appears in the next turn pointing at the first `in_progress` row.
-2. let the model complete step 1's substantive work but *not* call `todo_write` complete — observe whether the next turn's reminder (because `in_progress` still points at step 1 in the new turn's plan view) successfully nudges the model to close step 1 before continuing. The whole experiment is designed to verify the `in_progress` branch.
+2. let the model complete step 1's substantive work but _not_ call `todo_write` complete — observe whether the next turn's reminder (because `in_progress` still points at step 1 in the new turn's plan view) successfully nudges the model to close step 1 before continuing. The whole experiment is designed to verify the `in_progress` branch.
 3. once all rows are completed, confirm no `<system-reminder>` for the plan appears in the next turns (silence on a finished plan). Plan card on the web still shows the completed list until the user clicks the trash button.
 
 ## 2026-06-22 — ADR-125 Option A: model-authored scenario intake + plan-card polish — CHECKPOINT
@@ -696,6 +728,7 @@ Watch the dev image publish job from this commit. After persai-dev repins runtim
 After live validation of the scenario-seeded plan path, the model kept "narrating" scenario steps instead of progressing them: it read the seeded rows in `<persai_chat_plan>`, walked the user through them in chat, but never called `todo_write({action:"update", status:"in_progress"})` / `action:"complete"` on the seeded ids — even with the explicit `SCENARIO_SEEDED LIFECYCLE` clause in the tool guidance. The failure mode is a known self-attribution issue: assistants reliably progress todos they themselves authored and routinely ignore externally-seeded ones. Founder approved a clean pivot to **Option A** — the server no longer materialises scenario steps as todos; instead, `skill.engage` returns the scenario's steps verbatim and the model is instructed to call `todo_write({action:"add", items:[...]})` itself as its very next turn. The plan becomes model-authored from the first move, which is the regime Claude/Cursor-style agents naturally progress.
 
 Three additional follow-ups landed in the same slice:
+
 - the disappearing "Маркетолог · Карусель" chat-header subtitle (caused by message-reconstruction dropping per-message `engagementSummary` on history reload) is now backed by a chat-level `currentEngagement` field on the history endpoint, so the chip reads truth on every reload;
 - the redundant per-message `engagementSummary` chip inside the working-notes toggle row was removed (the header subtitle is now the canonical place);
 - the plan card got the requested polish: trash button on a fully-completed plan deletes without confirmation, desktop banner width matches the chat zone (`max-w-[50rem]`), mobile is flush-to-edges with a hairline divider, desktop carries a quieter `color-mix()` background with no shadow.
@@ -760,6 +793,7 @@ Three additional follow-ups landed in the same slice:
 ### Next recommended step
 
 Watch the `Dev Image Publish` job that this commit triggers. After the migration is approved and `persai-dev` repins:
+
 1. open a chat, `skill engage <marketer / instagram_carousel>` — confirm the model's next assistant turn opens with a `todo_write` adding the scenario's steps; the plan card should populate with the model's titles, first row `in_progress`, the rest `pending`.
 2. walk through 2–3 scenario steps — confirm the model flips each row to `in_progress` before working and to `completed` before moving on, without manual prompting.
 3. reload the chat history mid-engagement — confirm the chat-header subtitle (`Скилл · Маркетолог · Карусель`) survives the reload (this is the regression `currentEngagement` was added to fix).
@@ -801,6 +835,7 @@ Founder feedback after the ADR-125 plan-card redesign: the previously-existing "
 ### Next recommended step
 
 Watch the `Dev Image Publish` run for the SHA produced by this commit. After persai-dev pins web:
+
 1. open a chat, `skill engage <marketer / instagram_carousel>` — confirm a small `Скилл · Маркетолог · Карусель` line shows right under the chat title on both desktop and mobile.
 2. switch the chat to Smart mode — confirm the `Sparkles` icon stays visible on the desktop subtitle alongside the skill chip.
 3. ask the model to release the skill — confirm the subtitle row disappears the moment the release-turn is committed.
@@ -846,6 +881,7 @@ Two live regressions surfaced during the second ADR-125 chat-plan validation pas
 ### Next recommended step
 
 Watch the `Dev Image Publish` run for the SHA produced by this commit. After persai-dev pins both api and web:
+
 1. open a fresh chat and `skill engage` a scenario with ≥3 steps — confirm the assistant marks step 1 in_progress before working on it, completes step 1 before opening step 2, and so on (look at the chat plan card live as the model speaks);
 2. let the model run the scenario to "all done" — the card must read `5/5` (not `2/5 +3 more`) with every row visibly checked off in the expanded body;
 3. confirm `<persai_chat_plan>` in the prompt cache logs carries the `// Rows tagged (seeded by …)…` lead line only while at least one scenario_seeded row is still open.

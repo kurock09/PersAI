@@ -89,15 +89,14 @@ test("AC11: read shared-outbound artefact then attach workspace edit", async () 
     }
   };
 
+  let apiCalled = false;
   const persaiInternalApiClientService = {
     async consumeToolDailyLimit() {
       return { allowed: true, code: null, message: null };
     },
     async registerChatAttachment() {
-      return {
-        storagePath: "/shared/workspace-1/outbound/self/edited.png",
-        attachmentId: "attachment-2"
-      };
+      apiCalled = true;
+      throw new Error("files.attach should not register mid-turn");
     }
   };
 
@@ -143,8 +142,13 @@ test("AC11: read shared-outbound artefact then attach workspace edit", async () 
   assert.equal(attachResult.isError, false);
   assert.equal(attachResult.payload.action, "attached");
   assert.equal(sandboxCalls[1]?.args.action, "attach");
-  assert.equal(
-    attachResult.discoveredFileHandles?.[0]?.storagePath,
-    "/shared/workspace-1/outbound/self/edited.png"
-  );
+  assert.equal(apiCalled, false);
+  assert.equal(attachResult.discoveredFileHandles, undefined);
+  assert.equal(attachResult.artifacts?.[0]?.storagePath, artefactPath);
+  assert.equal(attachResult.artifacts?.[0]?.mimeType, "image/png");
+  assert.equal(attachResult.artifacts?.[0]?.sizeBytes, 8);
+  assert.equal(attachResult.artifacts?.[0]?.kind, "image");
+  assert.equal(attachResult.artifacts?.[0]?.filename, "edited.png");
+  assert.equal(attachResult.artifacts?.[0]?.sourceToolCode, undefined);
+  assert.equal(attachResult.artifacts?.[0]?.voiceNote, false);
 });
