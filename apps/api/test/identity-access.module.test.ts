@@ -275,6 +275,21 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
       path: "api/v1/assistant/chats/web/:chatId/files/preview",
       method: RequestMethod.GET
     },
+    // ADR-126 v3 W5 — tile gallery + delete routes. The W2 controller added
+    // these two endpoints but the matching ClerkAuthMiddleware allowlist
+    // entries were missing, so live web requests landed in the handler with
+    // req.resolvedAppUser === undefined and the controller returned
+    // 401 "Authenticated user context is missing." (same regression class as
+    // ADR-074 / ADR-088 / ADR-115 / ADR-118 / ADR-125). Pin both routes so
+    // any future audit catches a similar gap before merge.
+    {
+      path: "api/v1/assistant/chats/web/:chatId/workspace-files",
+      method: RequestMethod.GET
+    },
+    {
+      path: "api/v1/assistant/chats/web/:chatId/files",
+      method: RequestMethod.DELETE
+    },
     {
       path: "api/v1/assistant/documents/:docId/prepare-pptx",
       method: RequestMethod.POST

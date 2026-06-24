@@ -72,6 +72,21 @@ export class IdentityAccessModule implements NestModule {
         path: "api/v1/assistant/chats/web/:chatId/files/preview",
         method: RequestMethod.GET
       },
+      // ADR-126 v3 W5 — new web tile-gallery + delete surfaces. Without
+      // explicit ClerkAuthMiddleware registration the controller receives
+      // req.resolvedAppUser === undefined and the resolveRequestUserId guard
+      // returns 401 "Authenticated user context is missing." Same regression
+      // class as ADR-074 / ADR-088 / ADR-115 / ADR-118 / ADR-125 — pin both
+      // routes here AND in identity-access.module.test.ts so a future audit
+      // surfaces any miss.
+      {
+        path: "api/v1/assistant/chats/web/:chatId/workspace-files",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/assistant/chats/web/:chatId/files",
+        method: RequestMethod.DELETE
+      },
       {
         path: "api/v1/assistant/documents/:docId/prepare-pptx",
         method: RequestMethod.POST
