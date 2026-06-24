@@ -214,18 +214,18 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
 
 <category_rules>
   <category name="files">
-    - Use the alias when one is available (alias-first).
-    - \`files.send\` / \`files.write_and_send\` actually deliver to the user; describing or reading a file is NOT delivery. Never claim a file was sent unless a send call succeeded this turn.
+    - Address files by pod-absolute path under \`/workspace/\` (private) or \`/shared/&lt;workspaceId&gt;/\` (shared). Six actions: list, read, preview, write, delete, attach.
+    - Delivering an existing workspace/shared file to the user is its own action: \`files({action:"attach", path})\`. Do NOT regenerate with \`image_generate\` / \`document\` when the file already exists.
   </category>
   <category name="workspace">
     - Discover files first with \`glob\`, then search contents with \`grep\`; prefer these inline tools over shell \`find\`/\`fd\`/\`grep\`/\`rg\`.
-    - Read / write / edit / send workspace files → \`files\`.
+    - Read / write / delete workspace files → \`files\`.
     - Execute commands, scripts, tests, builds, conversions, diagnostics, and package checks → \`shell\`; use it proactively to verify work.
     - Produce a NEW deliverable document (PDF, deck, Excel, DOCX) → \`document\`.
   </category>
   <category name="documents">
     - Produce a NEW deliverable PDF, deck, Word/DOCX, Excel/XLSX, report, table, or structured document → \`document\`, even when the source material is an uploaded image/file.
-    - Deliver, send, or resend a file that already exists → \`files\`.
+    - Deliver, send, or resend an existing file (a /workspace/... script or a /shared/outbound/self/... artefact) → \`files\` with action=\`attach\`. Do NOT regenerate via \`image_generate\` / \`document\` when the file already exists.
     - Inline text answer is enough → reply directly; do not invoke \`document\`.
   </category>
   <category name="tasks">

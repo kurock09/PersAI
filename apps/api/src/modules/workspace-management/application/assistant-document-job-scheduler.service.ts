@@ -887,11 +887,11 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
       const row = entry as Record<string, unknown>;
       const attachmentId = typeof row.attachmentId === "string" ? row.attachmentId : null;
       const kind = row.kind;
-      const objectKey = typeof row.objectKey === "string" ? row.objectKey : null;
+      const storagePath = typeof row.storagePath === "string" ? row.storagePath : null;
       const mimeType = typeof row.mimeType === "string" ? row.mimeType : null;
       if (
         attachmentId === null ||
-        objectKey === null ||
+        storagePath === null ||
         mimeType === null ||
         (kind !== "image" && kind !== "audio" && kind !== "video" && kind !== "file")
       ) {
@@ -902,15 +902,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         typeof sizeBytesRaw === "number" && Number.isFinite(sizeBytesRaw) && sizeBytesRaw >= 0
           ? sizeBytesRaw
           : 0;
-      const filename = typeof row.filename === "string" ? row.filename : null;
-      const fileRef =
-        row.fileRef === undefined
-          ? undefined
-          : row.fileRef === null
-            ? null
-            : typeof row.fileRef === "string"
-              ? row.fileRef
-              : null;
+      const displayName = typeof row.displayName === "string" ? row.displayName : null;
       const aliases =
         row.aliases === undefined
           ? undefined
@@ -924,11 +916,10 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
       refs.push({
         attachmentId,
         kind,
-        objectKey,
+        storagePath,
         mimeType,
-        filename,
+        displayName,
         sizeBytes,
-        ...(fileRef === undefined ? {} : { fileRef }),
         ...(aliases === undefined ? {} : { aliases })
       });
     }

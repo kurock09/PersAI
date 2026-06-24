@@ -590,7 +590,9 @@ describe("useChat", () => {
         attachments: [
           {
             id: "att-old-image",
-            fileRef: "file-old",
+            path: "/shared/input/source-collage.png",
+            thumbnailStoragePath: "/shared/input/source-collage.thumb.png",
+            posterStoragePath: null,
             attachmentType: "image",
             originalFilename: "source-collage.png",
             mimeType: "image/png",
@@ -629,7 +631,9 @@ describe("useChat", () => {
           attachments: [
             {
               id: "att-old-image",
-              fileRef: "file-old",
+              path: "/shared/input/source-collage.png",
+              thumbnailStoragePath: "/shared/input/source-collage.thumb.png",
+              posterStoragePath: null,
               attachmentType: "image",
               originalFilename: "source-collage.png",
               mimeType: "image/png",
@@ -652,7 +656,9 @@ describe("useChat", () => {
           attachments: [
             {
               id: "att-old-image",
-              fileRef: "file-old",
+              path: "/shared/input/source-collage.png",
+              thumbnailStoragePath: "/shared/input/source-collage.thumb.png",
+              posterStoragePath: null,
               attachmentType: "image",
               originalFilename: "source-collage.png",
               mimeType: "image/png",

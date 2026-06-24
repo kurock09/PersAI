@@ -4,18 +4,28 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { StageAttachmentAttachmentDocumentLink } from "./stageAttachmentAttachmentDocumentLink";
 
 export interface StageAttachmentAttachment {
   id: string;
   /** @nullable */
-  fileRef?: string | null;
+  path: string | null;
+  /** @nullable */
+  thumbnailStoragePath: string | null;
+  /** @nullable */
+  posterStoragePath: string | null;
   messageId: string;
   chatId: string;
   attachmentType: string;
   /** @nullable */
-  originalFilename?: string | null;
+  originalFilename: string | null;
   mimeType: string;
   sizeBytes: number;
   processingStatus: string;
+  unavailable?: boolean;
+  /** @nullable */
+  externalDownloadUrl?: string | null;
+  /** @nullable */
+  documentLink?: StageAttachmentAttachmentDocumentLink;
   createdAt: string;
 }

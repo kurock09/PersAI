@@ -37,7 +37,7 @@ import type {
   AssistantWebChatMessageState
 } from "./web-chat.types";
 import { deriveEngagementSummary } from "./web-chat.types";
-import { AssistantMediaJobService } from "./assistant-media-job.service";
+import { AssistantMediaJobService } from "./workspace-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
@@ -49,13 +49,8 @@ import {
 } from "./compaction-advisory-state";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
-import {
-  getAttachmentDerivativeRefs,
-  toAssistantWebChatMessageAttachmentState
-} from "./media/media.types";
+import { toAssistantWebChatMessageAttachmentState } from "./media/media.types";
 import { mapAssistantChatMessageToWebState } from "./web-chat-message-state.mapper";
-
-type AttachmentDerivativeRefs = ReturnType<typeof getAttachmentDerivativeRefs>;
 
 export interface UpdateWebChatRequest {
   title?: string | null;
@@ -351,38 +346,27 @@ export class ManageWebChatListService {
     const allMessages = await this.assistantChatRepository.listMessagesByChatId(chatId);
     const messageIds = allMessages.map((m) => m.id);
     const allAttachments = await this.attachmentRepository.listByMessageIds(messageIds);
-    const fileDerivativeMetadataById =
-      await this.loadAssistantFileDerivativeMetadata(allAttachments);
     const attachmentsByMessageId = new Map<string, AssistantWebChatMessageAttachmentState[]>();
     for (const att of allAttachments) {
       const list = attachmentsByMessageId.get(att.messageId) ?? [];
-      const documentLink = readPersistedDocumentLinkMetadata(att.metadata);
-      const derivativeRefs = this.resolveDerivativeRefs(
-        att.metadata,
-        att.assistantFileId !== null
-          ? (fileDerivativeMetadataById.get(att.assistantFileId) ?? null)
-          : null
-      );
+      const metadata =
+        att.metadata !== null && typeof att.metadata === "object" && !Array.isArray(att.metadata)
+          ? (att.metadata as Record<string, unknown>)
+          : null;
       list.push(
         toAssistantWebChatMessageAttachmentState({
           id: att.id,
-          assistantFileId: att.assistantFileId,
+          storagePath: att.storagePath,
+          thumbnailStoragePath: att.thumbnailStoragePath,
+          posterStoragePath: att.posterStoragePath,
           attachmentType: att.attachmentType,
           originalFilename: att.originalFilename,
           mimeType: att.mimeType,
           sizeBytes: att.sizeBytes,
           processingStatus: att.processingStatus,
-          metadata:
-            att.metadata !== null &&
-            typeof att.metadata === "object" &&
-            !Array.isArray(att.metadata)
-              ? (att.metadata as Record<string, unknown>)
-              : null,
+          metadata,
           createdAt: att.createdAt,
-          documentLink,
-          thumbnailFileRef: derivativeRefs.thumbnailFileRef,
-          posterFileRef: derivativeRefs.posterFileRef,
-          derivativesStatus: derivativeRefs.derivativesStatus
+          documentLink: readPersistedDocumentLinkMetadata(metadata)
         })
       );
       attachmentsByMessageId.set(att.messageId, list);
@@ -452,49 +436,6 @@ export class ManageWebChatListService {
       currentActivity: activeTurn.currentActivity,
       pendingUserMessageId: activeTurn.pendingUserMessageId,
       assistantMessageId: activeTurn.assistantMessageId
-    };
-  }
-
-  private async loadAssistantFileDerivativeMetadata(
-    attachments: Array<{
-      assistantFileId: string | null;
-    }>
-  ): Promise<Map<string, Record<string, unknown> | null>> {
-    const fileIds = Array.from(
-      new Set(
-        attachments
-          .map((attachment) => attachment.assistantFileId)
-          .filter((fileId): fileId is string => typeof fileId === "string" && fileId.length > 0)
-      )
-    );
-    if (fileIds.length === 0) {
-      return new Map();
-    }
-
-    const rows = await this.prisma.assistantFile.findMany({
-      where: { id: { in: fileIds } },
-      select: { id: true, metadata: true }
-    });
-    return new Map(
-      rows.map((row) => [
-        row.id,
-        row.metadata !== null && typeof row.metadata === "object" && !Array.isArray(row.metadata)
-          ? (row.metadata as Record<string, unknown>)
-          : null
-      ])
-    );
-  }
-
-  private resolveDerivativeRefs(
-    attachmentMetadata: Record<string, unknown> | null,
-    assistantFileMetadata: Record<string, unknown> | null
-  ): AttachmentDerivativeRefs {
-    const attachmentRefs = getAttachmentDerivativeRefs(attachmentMetadata);
-    const fileRefs = getAttachmentDerivativeRefs(assistantFileMetadata);
-    return {
-      thumbnailFileRef: attachmentRefs.thumbnailFileRef ?? fileRefs.thumbnailFileRef,
-      posterFileRef: attachmentRefs.posterFileRef ?? fileRefs.posterFileRef,
-      derivativesStatus: attachmentRefs.derivativesStatus ?? fileRefs.derivativesStatus
     };
   }
 
@@ -613,14 +554,6 @@ export class ManageWebChatListService {
       (sum, attachment) => sum + attachment.sizeBytes,
       BigInt(0)
     );
-    const assistantFileIdsToDelete = await this.resolveChatLocalAssistantFileIds({
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId,
-      chatId: chat.id,
-      fileIds: attachments
-        .map((attachment) => attachment.assistantFileId)
-        .filter((fileId): fileId is string => typeof fileId === "string")
-    });
     await this.mediaObjectStorage.deletePrefix(
       this.mediaObjectStorage.buildChatPrefix({
         assistantId: assistant.id,
@@ -635,15 +568,17 @@ export class ManageWebChatListService {
       metadata: { chatId: chat.id }
     });
 
-    const deleted = await this.assistantChatRepository.hardDeleteChat(chatId, assistant.id);
+    const deleted = await this.assistantChatRepository.hardDeleteChat(chatId, assistant.id, {
+      workspaceId: assistant.workspaceId
+    });
     if (!deleted) {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
-    await this.deleteChatLocalAssistantFiles({
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId,
-      fileIds: assistantFileIdsToDelete
-    });
+    // ADR-126 Slice 3 — the chat_scratch lease persisted inside
+    // `hardDeleteChat` is `scheduledAt = now()` so the very next sandbox
+    // reaper tick will purge the warm-pod scratch and GCS snapshot subtree
+    // for this chat. We do not call across the API → sandbox process
+    // boundary here; the reaper tick is the single execution path.
     const activeWebChatsCurrent =
       await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
         assistant.id,
@@ -654,75 +589,6 @@ export class ManageWebChatListService {
       activeWebChatsCurrent,
       source: "web_chat_hard_delete"
     });
-  }
-
-  private async resolveChatLocalAssistantFileIds(input: {
-    assistantId: string;
-    workspaceId: string;
-    chatId: string;
-    fileIds: string[];
-  }): Promise<string[]> {
-    const uniqueFileIds = [...new Set(input.fileIds)];
-    if (uniqueFileIds.length === 0) {
-      return [];
-    }
-    const externalRefs = await this.prisma.assistantChatMessageAttachment.findMany({
-      where: {
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        assistantFileId: { in: uniqueFileIds },
-        chatId: { not: input.chatId }
-      },
-      select: {
-        assistantFileId: true
-      }
-    });
-    const sharedFileIds = new Set(
-      externalRefs
-        .map((ref) => ref.assistantFileId)
-        .filter((fileId): fileId is string => typeof fileId === "string")
-    );
-    return uniqueFileIds.filter((fileId) => !sharedFileIds.has(fileId));
-  }
-
-  private async deleteChatLocalAssistantFiles(input: {
-    assistantId: string;
-    workspaceId: string;
-    fileIds: string[];
-  }): Promise<void> {
-    if (input.fileIds.length === 0) {
-      return;
-    }
-    const files = await this.prisma.assistantFile.findMany({
-      where: {
-        id: { in: input.fileIds },
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId
-      },
-      select: {
-        id: true,
-        objectKey: true
-      }
-    });
-    if (files.length === 0) {
-      return;
-    }
-    const fileIds = files.map((file) => file.id);
-    const deleted = await this.prisma.assistantFile.deleteMany({
-      where: {
-        id: { in: fileIds },
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        chatAttachments: { none: {} },
-        documentDeliveredFiles: { none: {} }
-      }
-    });
-    if (deleted.count !== files.length) {
-      return;
-    }
-    await Promise.all(
-      files.map((file) => this.mediaObjectStorage.deleteObject(file.objectKey).catch(() => {}))
-    );
   }
 
   private async ensureElevatedChatModesResetForPaidLightMode(assistant: Assistant): Promise<void> {

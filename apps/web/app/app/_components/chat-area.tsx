@@ -652,6 +652,7 @@ export function ChatArea({
               return entry.kind === "message" ? (
                 <ChatMessageBubble
                   key={entry.message.id}
+                  chatId={chat.chatId}
                   message={entry.message}
                   preResponseStatus={preResponseStatus}
                   showShadowRoutingLabel={showShadowRoutingBadge}

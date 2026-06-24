@@ -23,9 +23,10 @@ export class PrismaAssistantChatMessageAttachmentRepository implements Assistant
         chatId: input.chatId,
         assistantId: input.assistantId,
         workspaceId: input.workspaceId,
-        assistantFileId: input.assistantFileId ?? null,
         attachmentType: input.attachmentType,
         storagePath: input.storagePath,
+        thumbnailStoragePath: input.thumbnailStoragePath ?? null,
+        posterStoragePath: input.posterStoragePath ?? null,
         originalFilename: input.originalFilename,
         mimeType: input.mimeType,
         sizeBytes: input.sizeBytes,
@@ -49,6 +50,20 @@ export class PrismaAssistantChatMessageAttachmentRepository implements Assistant
   async findById(id: string): Promise<AssistantChatMessageAttachment | null> {
     const record = await this.prisma.assistantChatMessageAttachment.findUnique({
       where: { id }
+    });
+    return record ? this.mapToDomain(record) : null;
+  }
+
+  async findByChatIdAndStoragePath(input: {
+    chatId: string;
+    storagePath: string;
+  }): Promise<AssistantChatMessageAttachment | null> {
+    const record = await this.prisma.assistantChatMessageAttachment.findFirst({
+      where: {
+        chatId: input.chatId,
+        storagePath: input.storagePath
+      },
+      orderBy: { createdAt: "desc" }
     });
     return record ? this.mapToDomain(record) : null;
   }
@@ -134,9 +149,10 @@ export class PrismaAssistantChatMessageAttachmentRepository implements Assistant
       chatId: record.chatId,
       assistantId: record.assistantId,
       workspaceId: record.workspaceId,
-      assistantFileId: record.assistantFileId,
       attachmentType: record.attachmentType as AttachmentType,
       storagePath: record.storagePath,
+      thumbnailStoragePath: record.thumbnailStoragePath,
+      posterStoragePath: record.posterStoragePath,
       originalFilename: record.originalFilename,
       mimeType: record.mimeType,
       sizeBytes: record.sizeBytes,

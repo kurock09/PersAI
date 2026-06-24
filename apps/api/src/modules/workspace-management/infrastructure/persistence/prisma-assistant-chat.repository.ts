@@ -326,16 +326,43 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     return this.mapChatToDomain(chat);
   }
 
-  async hardDeleteChat(chatId: string, assistantId: string): Promise<boolean> {
+  async hardDeleteChat(
+    chatId: string,
+    assistantId: string,
+    options?: { workspaceId?: string }
+  ): Promise<boolean> {
     const existingChat = await this.prisma.assistantChat.findUnique({
       where: { id: chatId },
-      select: { id: true, assistantId: true, surface: true, surfaceThreadKey: true }
+      select: {
+        id: true,
+        assistantId: true,
+        workspaceId: true,
+        surface: true,
+        surfaceThreadKey: true
+      }
     });
     if (existingChat === null || existingChat.assistantId !== assistantId) {
       return false;
     }
+    const workspaceId = options?.workspaceId ?? existingChat.workspaceId;
 
     await this.prisma.$transaction(async (tx) => {
+      // ADR-126 Slice 3 — schedule a chat-scratch GC lease BEFORE the chat row
+      // disappears so the warm-pod and GCS-snapshot purge survives the
+      // hard-delete. `scheduledAt = now()` so the reaper (and the in-process
+      // eager call from `ManageWebChatListService.hardDeleteChat`) can run
+      // the purge immediately on the next tick.
+      await tx.sandboxWorkspaceGcLease.create({
+        data: {
+          kind: "chat_scratch",
+          targetId: chatId,
+          scheduledAt: new Date(),
+          metadata: {
+            workspaceId,
+            assistantId
+          }
+        }
+      });
       const runtimeSessions =
         existingChat.surface === "web"
           ? await tx.runtimeSession.findMany({

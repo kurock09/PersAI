@@ -382,6 +382,7 @@ function createInput(order: "alpha" | "beta") {
       quota: {
         planCode: "starter_trial",
         workspaceQuotaBytes: 524288000,
+        sharedQuotaBytes: 524288000,
         quotaHook: null
       },
       auditHook: null
@@ -525,6 +526,12 @@ async function run(): Promise<void> {
     defaultProviderId: "browserless",
     actions: ["snapshot", "act"],
     confirmationRequiredActions: ["act"]
+  });
+  assert.deepEqual(alpha.bundle.governance.quota, {
+    planCode: "starter_trial",
+    workspaceQuotaBytes: 524288000,
+    sharedQuotaBytes: 524288000,
+    quotaHook: null
   });
   assert.deepEqual(alpha.bundle.governance.toolCredentialRefs.browser, {
     refKey: "persai:persai-runtime:tool/browser/api-key",

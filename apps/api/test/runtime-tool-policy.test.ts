@@ -259,17 +259,26 @@ async function run(): Promise<void> {
   const cronPolicy = toolPolicies.find((tool) => tool.toolCode === "cron");
   assert.equal(cronPolicy?.perTurnCap, null, "hidden-internal policies have null perTurnCap");
   const filesPolicy = toolPolicies.find((tool) => tool.toolCode === "files");
-  assert.match(filesPolicy?.description ?? "", /write-and-send/);
-  assert.match(filesPolicy?.description ?? "", /preview/);
-  // ADR-119 cleanup slice — files override is now in canonical ACI 4-section form.
+  assert.match(filesPolicy?.description ?? "", /pod-absolute path/);
+  // ADR-126 v3 D6 — files surface is six actions: list, read, preview, write, delete, attach.
+  // The previous "Five actions" wording predates the v3 cutover; see ADR-126 v3 Amendment block.
+  assert.match(filesPolicy?.description ?? "", /six actions|Six actions/i);
+  assert.match(filesPolicy?.description ?? "", /attach/);
+  assert.doesNotMatch(filesPolicy?.description ?? "", /write-and-send|files\.send|files\.search/);
+  assert.doesNotMatch(filesPolicy?.description ?? "", /coming soon/i);
   assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN TO USE:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN NOT TO USE:/m);
+  assert.match(filesPolicy?.usageGuidance ?? "", /^PATHS:/m);
+  assert.match(filesPolicy?.usageGuidance ?? "", /^SIX ACTIONS:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^EXAMPLES:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^GOTCHAS:/m);
-  assert.match(filesPolicy?.usageGuidance ?? "", /files\.write_and_send/);
-  assert.match(filesPolicy?.usageGuidance ?? "", /`filename` is only a delivery-name override/);
-  assert.match(filesPolicy?.usageGuidance ?? "", /Never claim a file was sent unless/);
-  assert.match(filesPolicy?.usageGuidance ?? "", /files\.inspect/);
+  assert.match(filesPolicy?.usageGuidance ?? "", /pod-absolute path/);
+  assert.match(filesPolicy?.usageGuidance ?? "", /action:"attach"/);
+  assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /coming soon/i);
+  assert.doesNotMatch(
+    filesPolicy?.usageGuidance ?? "",
+    /files\.write_and_send|files\.inspect|files\.send/
+  );
   assert.equal(filesPolicy?.maxFilePreviewBytes, 1_048_576);
   assert.equal(filesPolicy?.maxFilePreviewEdgePx, 1024);
   assert.equal(

@@ -210,7 +210,6 @@ export interface RuntimeNativeToolProjection {
 
 const WEB_FETCH_MAX_CHARS_CAP = 50_000;
 const WEB_SEARCH_MAX_COUNT = 20;
-const FILES_LIST_MAX_LIMIT = 200;
 const KNOWLEDGE_SEARCH_MAX_RESULTS = 8;
 const MEMORY_WRITE_MAX_CHARS = 500;
 const REMINDER_CONTEXT_MESSAGES_MAX = 10;
@@ -1311,7 +1310,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
       policy,
       [
         "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
-        "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to modify an existing PDF (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. Follow the Working Files document-role guidance: prefer DOC_CURRENT_SOURCE for a newly attached source file the user wants turned into a PDF, and use DOC_LAST_DELIVERED_PDF only when the user explicitly wants to modify an already generated PDF. revise_document with no docId or fileRef auto-resolves to the latest matching PDF in the current chat. Use fileRef when the PDF you want to revise was produced by the assistant in this or any earlier chat (its AssistantFile id is visible via files.search, the Working Files developer block, or files.read results). Use docId only when you already have the exact UUID for the current chat's existing document. docId is not a Working Files alias. Do not pass both fileRef and docId.",
+        "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to modify an existing PDF (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. Follow the Working Files document-role guidance: prefer DOC_CURRENT_SOURCE for a newly attached source file the user wants turned into a PDF, and use DOC_LAST_DELIVERED_PDF only when the user explicitly wants to modify an already generated PDF. revise_document with no docId or storagePath auto-resolves to the latest matching PDF in the current chat. Reference an existing chat document from another chat by its workspace storagePath (visible in the Working Files block). Use docId only when you already have the exact UUID for the current chat's existing document. Do not pass both storagePath and docId.",
         "Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
         "When the user has attached a source file (txt, md, csv, json, html, xml, pdf, docx) and asks to rebuild, convert, restyle, translate, or summarize it, the backend worker will AUTOMATICALLY inline that file's text content into document generation; you do not need to pre-read it. Call create_pdf_document with transferMode=verbatim when the user wants the source text copied without rewriting. Call transferMode=transform when the user wants restyling or layout/color changes — the worker keeps the full extracted source text and applies presentation styling; it does NOT summarize or drop sections.",
         "You SHOULD also set contentIntent explicitly. Use contentIntent=preserve_content when the user wants the original document content preserved and only the formatting, visual style, layout, or output format should change. Use contentIntent=rewrite_content only when the user explicitly wants the document text/content rewritten. If contentIntent is omitted, the runtime defaults to preserving content.",
@@ -1324,7 +1323,8 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         buildPendingDeliveryHint({
           subject: "the document is being prepared",
           quotaToolCode: "document",
-          extra: "Do not call files.send for it this turn."
+          extra:
+            "Do not duplicate the delivery this turn; the document is already routed to the user once it finishes."
         })
       ].join(" ")
     ),
@@ -1363,12 +1363,12 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         docId: {
           type: "string",
           description:
-            "docId MUST be the exact document UUID for revise_document (current chat) and export_or_redeliver. docId is not a Working Files alias. Use fileRef instead of docId when the PDF was produced in a different chat."
+            "docId MUST be the exact document UUID for revise_document (current chat) and export_or_redeliver. docId is not a Working Files alias. Use storagePath instead of docId when the PDF was produced in a different chat."
         },
-        fileRef: {
+        storagePath: {
           type: "string",
           description:
-            'fileRef MUST be a UUID — the exact `fileRef` value returned by `files.search` or `files.read` response items. Example valid value: `"abc12345-0000-4000-8000-deadbeef1234"`. Sticky aliases such as `"file #1"` or `"image #1"` are not valid fileRef values; pass them through alias-based fields or selection flows instead. Mutually exclusive with `docId`; do not pass both.'
+            'Workspace storage path for cross-chat revise_document (pod-absolute path under /shared/... or /workspace/... visible in Working Files). Example: "/shared/<workspaceId>/outbound/<handle>/report.pdf". Mutually exclusive with `docId`; do not pass both.'
         },
         requestedName: {
           type: "string",
@@ -1611,7 +1611,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "files",
     description: resolveToolDefinitionDescription(
       policy,
-      "List, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files through one alias-first surface. This includes user uploads, generated outputs, and sandbox-created files. Keep shell and exec separate for real process execution."
+      "Path-driven workspace operations on `/workspace/...` and `/shared/<workspaceId>/...`. Six actions: list, read, preview, write, delete, attach. Address files by pod-absolute path; there is no UUID identity and no alias. Use attach({path}) to publish a file from /workspace/ or /shared/outbound/self/ to the current chat as a user-visible attachment."
     ),
     inputSchema: {
       type: "object",
@@ -1622,66 +1622,37 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
           description:
-            'One files action: "list", "search", "inspect", "get", "read", "preview", "write", "write_and_send", "edit", "delete", or "send". Prefer "inspect" over legacy "get".'
-        },
-        query: {
-          type: "string",
-          description:
-            'Non-empty search text for action="search", or a selector for action="inspect", "get", "read", "preview", "edit", "delete", or "send" when no working-file alias or exact path is available. Search spans the assistant Files registry, including uploaded chat files, generated outputs, and sandbox files. If the user asks to send or resend a discovered file, discovering it is not enough: call action="send" with the resolved target in the same turn.'
-        },
-        limit: {
-          type: "integer",
-          minimum: 1,
-          maximum: FILES_LIST_MAX_LIMIT,
-          description:
-            'Optional result cap for action="search" or action="list". Search is capped tighter than list at execution time.'
+            'One files action: "list", "read", "preview", "write", "delete", or "attach". Address every file by pod-absolute path. attach delivers a /workspace/... or /shared/<workspaceId>/outbound/self/... file to the current chat as a user-visible attachment.'
         },
         path: {
           type: "string",
           description:
-            'Assistant file path for action="list", "inspect", "get", "read", "preview", "write", "write_and_send", "edit", or "delete". For action="write" and "write_and_send", this is the canonical save location. For action="list", leave unset or use "." for the root.'
+            'Pod-absolute path under `/workspace/` (assistant private) or `/shared/<workspaceId>/input/...`, `/shared/<workspaceId>/outbound/self/...` (or `/shared/<workspaceId>/outbound/<otherHandle>/...` for read-only sibling outputs). Required for read, preview, write, and delete; required as the directory for list (use "dir" as an alias).'
         },
-        alias: {
+        dir: {
           type: "string",
-          description:
-            'Human-readable sticky working-file alias for action="inspect", "get", "read", "preview", "edit", "delete", or "send", for example "file #1" or "image #1". Prefer this for reusable chat files when available.'
+          description: 'Synonym for "path" on action="list" — provide either dir or path, not both.'
         },
         content: {
           type: "string",
-          description: 'Full UTF-8 text content for action="write" or action="write_and_send".'
+          description: 'Full UTF-8 text content for action="write".'
         },
-        oldText: {
-          type: "string",
-          description: 'Exact existing text to replace for action="edit".'
-        },
-        newText: {
-          type: "string",
-          description: 'Replacement text for action="edit".'
-        },
-        recursive: {
-          type: "boolean",
-          description:
-            'Optional recursion flag for action="list". For action="delete", set true when deleting a directory tree.'
-        },
-        aliases: {
-          type: "array",
-          items: { type: "string" },
-          description:
-            'Human-readable working-file aliases to deliver for action="send". You may also combine these with one resolved selector.'
-        },
-        caption: {
-          type: "string",
-          description: 'Optional caption for action="send" or action="write_and_send".'
-        },
-        filename: {
+        mode: {
           type: "string",
           description:
-            'Optional filename override for action="send" or action="write_and_send" when exactly one file is selected. This does not replace path as the canonical save location.'
+            'Optional write mode: "overwrite" (default) or "create_only" (fail if path already exists).'
         },
-        instruction: {
-          type: "string",
+        maxBytes: {
+          type: "integer",
+          minimum: 1,
           description:
-            'Optional focus hint for action="preview" (for example "read the nutrition label" or "compare with the previous photo").'
+            'Optional byte cap for action="read" or action="preview". Capped server-side.'
+        },
+        maxDepth: {
+          type: "integer",
+          minimum: 1,
+          description:
+            'Optional recursion depth for action="list". 1 lists direct children only; capped server-side.'
         }
       }
     }

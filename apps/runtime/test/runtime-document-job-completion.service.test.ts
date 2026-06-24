@@ -138,7 +138,7 @@ describe("RuntimeDocumentJobCompletionService", () => {
       ],
       workerResult: {
         assistantText: "Your document is ready.",
-        artifacts: [{ type: "file", filename: "brief.pdf", fileRef: "file-ref-1" }]
+        artifacts: [{ type: "file", filename: "brief.pdf", storagePath: "file-ref-1" }]
       }
     } satisfies RuntimeDocumentJobCompletionRequest);
 

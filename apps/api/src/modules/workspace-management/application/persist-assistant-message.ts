@@ -1,6 +1,6 @@
 import type { AssistantChatMessage } from "../domain/assistant-chat-message.entity";
 import type { AssistantChatRepository } from "../domain/assistant-chat.repository";
-import type { AssistantMediaJobService } from "./assistant-media-job.service";
+import type { AssistantMediaJobService } from "./workspace-media-job.service";
 import {
   stripToolInvocationsForClient,
   type ClientRuntimeTurnToolInvocation
@@ -12,7 +12,7 @@ type PersistAssistantMessageInput = {
   chatId: string;
   assistantId: string;
   content: string;
-  discoveredFileRefIds?: string[] | undefined;
+  discoveredFilePaths?: string[] | undefined;
   deferredMediaJobCount?: number | undefined;
   sourceUserMessageId?: string | null | undefined;
   workingNotes?: string[] | undefined;
@@ -27,7 +27,7 @@ export async function persistAssistantMessage(
   input: PersistAssistantMessageInput
 ): Promise<AssistantChatMessage> {
   const hasFileRefs =
-    input.discoveredFileRefIds !== undefined && input.discoveredFileRefIds.length > 0;
+    input.discoveredFilePaths !== undefined && input.discoveredFilePaths.length > 0;
   const hasWorkingNotes = Array.isArray(input.workingNotes) && input.workingNotes.length > 0;
   const hasToolInvocations =
     Array.isArray(input.toolInvocations) && input.toolInvocations.length > 0;
@@ -36,7 +36,7 @@ export async function persistAssistantMessage(
   const metadata: Record<string, unknown> | undefined =
     hasFileRefs || hasWorkingNotes || hasToolInvocations || hasStatus
       ? {
-          ...(hasFileRefs ? { discoveredFileRefIds: input.discoveredFileRefIds } : {}),
+          ...(hasFileRefs ? { discoveredFilePaths: input.discoveredFilePaths } : {}),
           ...(hasWorkingNotes ? { workingNotes: input.workingNotes } : {}),
           ...(hasToolInvocations
             ? { toolInvocations: stripToolInvocationsForClient(input.toolInvocations ?? []) }

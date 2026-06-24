@@ -11,11 +11,11 @@ import type {
 } from "@persai/runtime-contract";
 import { projectRuntimeNativeTools } from "../src/modules/turns/native-tool-projection";
 import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.service";
+import { createFakeSandboxClientForOutboundWrite } from "./helpers/runtime-outbound-test-doubles";
 import type {
   ConsumeToolDailyLimitOutcome,
   PersaiInternalApiClientService
 } from "../src/modules/turns/persai-internal-api.client.service";
-import type { PersaiMediaObjectStorageService } from "../src/modules/turns/persai-media-object-storage.service";
 import type { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
 
 const KNOWLEDGE_ACCESS_CONFIG = {
@@ -63,6 +63,8 @@ function createBundle(options?: {
   return compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
+      assistantHandle: "a-test",
+      siblingAssistantHandles: [],
       workspaceId: "workspace-1",
       publishedVersionId: "version-1",
       publishedVersion: 1,
@@ -202,6 +204,7 @@ function createBundle(options?: {
       quota: {
         planCode: "paid",
         workspaceQuotaBytes: 1024,
+        sharedQuotaBytes: 1024,
         quotaHook: null
       },
       auditHook: null
@@ -312,72 +315,16 @@ class FakePersaiInternalApiClientService {
   }
 }
 
-class FakePersaiMediaObjectStorageService {
-  savedObjects: Array<{ objectKey: string; mimeType: string; sizeBytes: number }> = [];
-
-  buildRuntimeOutputObjectKey(input: { artifactId: string; extension: string }): string {
-    return `runtime/${input.artifactId}.${input.extension}`;
-  }
-
-  async saveObject(input: {
-    objectKey: string;
-    buffer: Buffer;
-    mimeType: string;
-  }): Promise<{ objectKey: string; mimeType: string; sizeBytes: number }> {
-    const stored = {
-      objectKey: input.objectKey,
-      mimeType: input.mimeType,
-      sizeBytes: input.buffer.length
-    };
-    this.savedObjects.push(stored);
-    return stored;
-  }
-}
-
-const fakeRuntimeAssistantFileRegistryService = {
-  async ensureAttachmentBackedFile(input: {
-    referenceId: string;
-    objectKey: string;
-    filename: string | null;
-    mimeType: string;
-    sizeBytes: number;
-  }) {
-    return {
-      fileRef: `file-${input.referenceId}`,
-      origin: "runtime_output",
-      sourceToolCode: null,
-      objectKey: input.objectKey,
-      relativePath: `artifacts/${input.referenceId}/${input.filename ?? "file"}`,
-      displayName: input.filename,
-      mimeType: input.mimeType,
-      sizeBytes: input.sizeBytes,
-      logicalSizeBytes: input.sizeBytes
-    };
-  },
-  toRuntimeFileRef(record: {
-    fileRef: string;
-    origin: "runtime_output";
-    sourceToolCode: null;
-    objectKey: string;
-    relativePath: string;
-    displayName: string | null;
-    mimeType: string;
-    sizeBytes: number;
-    logicalSizeBytes: number;
-  }) {
-    return record;
-  }
-};
-
 export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   const providerGatewayClientService = new FakeProviderGatewayClientService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
-  const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
+  const sandboxClient = createFakeSandboxClientForOutboundWrite(
+    "/shared/outbound/self/speech-openai.mp3"
+  );
   const service = new RuntimeTtsToolService(
     providerGatewayClientService as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as unknown as PersaiMediaObjectStorageService,
-    fakeRuntimeAssistantFileRegistryService as never
+    sandboxClient as never
   );
 
   const bundle = createBundle();
@@ -434,8 +381,8 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   assert.equal(providerGatewayClientService.speechCalls.length, 1);
   assert.equal(providerGatewayClientService.speechCalls[0]?.credential.providerId, "openai");
   assert.equal(providerGatewayClientService.speechCalls[0]?.credential.modelKey, "gpt-4o-mini-tts");
-  assert.equal(mediaObjectStorage.savedObjects.length, 1);
-  assert.equal(mediaObjectStorage.savedObjects[0]?.mimeType, "audio/ogg");
+  assert.equal(result.artifacts[0]?.storagePath, "/shared/outbound/self/speech-openai.mp3");
+  assert.equal(result.artifacts[0]?.mimeType, "audio/ogg");
   assert.deepEqual(persaiInternalApiClientService.quotaCalls, [
     {
       assistantId: "assistant-1",

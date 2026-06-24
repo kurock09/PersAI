@@ -83,22 +83,15 @@ export function inferAttachmentTypeFromMime(mime: string): AttachmentType {
 export function toRuntimeAttachmentRef(
   attachment: Pick<
     AssistantChatMessageAttachment,
-    | "id"
-    | "assistantFileId"
-    | "attachmentType"
-    | "storagePath"
-    | "mimeType"
-    | "originalFilename"
-    | "sizeBytes"
+    "id" | "attachmentType" | "storagePath" | "mimeType" | "originalFilename" | "sizeBytes"
   >
 ): RuntimeAttachmentRef {
   return {
     attachmentId: attachment.id,
-    fileRef: attachment.assistantFileId,
     kind: toRuntimeAttachmentKind(attachment.attachmentType),
-    objectKey: attachment.storagePath,
+    storagePath: attachment.storagePath ?? "",
     mimeType: attachment.mimeType,
-    filename: attachment.originalFilename,
+    displayName: attachment.originalFilename,
     sizeBytes: Number(attachment.sizeBytes)
   };
 }
@@ -129,7 +122,7 @@ export function inferMimeFromUrlAndType(url: string, type: MediaArtifact["type"]
     svg: "image/svg+xml",
     mp3: "audio/mpeg",
     ogg: "audio/ogg",
-    opus: "audio/opus",
+    opus: "audio/ogg",
     wav: "audio/wav",
     mp4: "video/mp4",
     webm: type === "audio" ? "audio/webm" : "video/webm",
@@ -150,130 +143,6 @@ export const ATTACHMENT_SEMANTIC_SUMMARY_SOURCES = [
 
 export type AttachmentSemanticSummarySource = (typeof ATTACHMENT_SEMANTIC_SUMMARY_SOURCES)[number];
 
-export const ASSISTANT_FILE_MEDIA_DERIVATIVES_SCHEMA = "persai.mediaDerivatives.v1";
-
-export type AssistantFileMediaDerivativeKind = "thumbnail" | "poster";
-export type AssistantFileMediaDerivativesStatus = "pending" | "ready" | "failed";
-
-export type AssistantFileMediaDerivativeDescriptor = {
-  fileRef: string;
-  objectKey: string;
-  mimeType: string;
-  width: number | null;
-  height: number | null;
-  sizeBytes: number;
-};
-
-export type AssistantFileMediaDerivativesMetadata = {
-  schemaVersion: typeof ASSISTANT_FILE_MEDIA_DERIVATIVES_SCHEMA;
-  status: AssistantFileMediaDerivativesStatus;
-  thumbnail: AssistantFileMediaDerivativeDescriptor | null;
-  poster: AssistantFileMediaDerivativeDescriptor | null;
-  lastError: string | null;
-  updatedAt: string | null;
-};
-
-function asMetadataObject(
-  metadata: Record<string, unknown> | null | undefined
-): Record<string, unknown> | null {
-  return metadata !== null &&
-    metadata !== undefined &&
-    typeof metadata === "object" &&
-    !Array.isArray(metadata)
-    ? metadata
-    : null;
-}
-
-function readDerivativeDescriptor(value: unknown): AssistantFileMediaDerivativeDescriptor | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const row = value as Record<string, unknown>;
-  if (
-    typeof row.fileRef !== "string" ||
-    typeof row.objectKey !== "string" ||
-    typeof row.mimeType !== "string" ||
-    typeof row.sizeBytes !== "number"
-  ) {
-    return null;
-  }
-  return {
-    fileRef: row.fileRef,
-    objectKey: row.objectKey,
-    mimeType: row.mimeType,
-    width: typeof row.width === "number" ? row.width : null,
-    height: typeof row.height === "number" ? row.height : null,
-    sizeBytes: row.sizeBytes
-  };
-}
-
-export function readAssistantFileMediaDerivatives(
-  metadata: Record<string, unknown> | null | undefined
-): AssistantFileMediaDerivativesMetadata | null {
-  const base = asMetadataObject(metadata);
-  const raw = base?.mediaDerivatives;
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
-  }
-  const row = raw as Record<string, unknown>;
-  if (
-    row.schemaVersion !== ASSISTANT_FILE_MEDIA_DERIVATIVES_SCHEMA ||
-    (row.status !== "pending" && row.status !== "ready" && row.status !== "failed")
-  ) {
-    return null;
-  }
-  return {
-    schemaVersion: ASSISTANT_FILE_MEDIA_DERIVATIVES_SCHEMA,
-    status: row.status,
-    thumbnail: row.thumbnail === undefined ? null : readDerivativeDescriptor(row.thumbnail),
-    poster: row.poster === undefined ? null : readDerivativeDescriptor(row.poster),
-    lastError: typeof row.lastError === "string" ? row.lastError : null,
-    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : null
-  };
-}
-
-export function withAssistantFileMediaDerivatives(input: {
-  metadata: Record<string, unknown> | null | undefined;
-  derivatives: AssistantFileMediaDerivativesMetadata | null;
-}): Record<string, unknown> | null {
-  const base = asMetadataObject(input.metadata) ?? {};
-  if (input.derivatives === null) {
-    const { mediaDerivatives: _removed, ...rest } = base;
-    return Object.keys(rest).length > 0 ? rest : null;
-  }
-  return {
-    ...base,
-    mediaDerivatives: input.derivatives
-  };
-}
-
-export function getAttachmentDerivativeRefs(metadata: Record<string, unknown> | null | undefined): {
-  thumbnailFileRef: string | null;
-  posterFileRef: string | null;
-  derivativesStatus: AssistantFileMediaDerivativesStatus | null;
-} {
-  const derivatives = readAssistantFileMediaDerivatives(metadata);
-  const flatThumbnailFileRef =
-    typeof metadata?.thumbnailFileRef === "string" && metadata.thumbnailFileRef.trim().length > 0
-      ? metadata.thumbnailFileRef.trim()
-      : null;
-  const flatPosterFileRef =
-    typeof metadata?.posterFileRef === "string" && metadata.posterFileRef.trim().length > 0
-      ? metadata.posterFileRef.trim()
-      : null;
-  const flatStatus =
-    metadata?.derivativesStatus === "pending" ||
-    metadata?.derivativesStatus === "ready" ||
-    metadata?.derivativesStatus === "failed"
-      ? metadata.derivativesStatus
-      : null;
-  return {
-    thumbnailFileRef: derivatives?.thumbnail?.fileRef ?? flatThumbnailFileRef,
-    posterFileRef: derivatives?.poster?.fileRef ?? flatPosterFileRef,
-    derivativesStatus: derivatives?.status ?? flatStatus
-  };
-}
-
 export const EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX = "external-download/" as const;
 
 export function readExternalDownloadUrl(
@@ -285,7 +154,9 @@ export function readExternalDownloadUrl(
 
 export function toAssistantWebChatMessageAttachmentState(input: {
   id: string;
-  assistantFileId: string | null;
+  storagePath: string | null;
+  thumbnailStoragePath?: string | null;
+  posterStoragePath?: string | null;
   attachmentType: string;
   originalFilename: string | null;
   mimeType: string;
@@ -294,47 +165,31 @@ export function toAssistantWebChatMessageAttachmentState(input: {
   metadata: Record<string, unknown> | null | undefined;
   createdAt: Date | string;
   documentLink?: AssistantWebChatMessageAttachmentState["documentLink"];
-  thumbnailFileRef?: string | null;
-  posterFileRef?: string | null;
-  derivativesStatus?: AssistantWebChatMessageAttachmentState["derivativesStatus"];
 }): AssistantWebChatMessageAttachmentState {
   const metadata =
     input.metadata !== null && typeof input.metadata === "object" && !Array.isArray(input.metadata)
       ? input.metadata
       : null;
-  const derivativeRefs =
-    input.thumbnailFileRef !== undefined ||
-    input.posterFileRef !== undefined ||
-    input.derivativesStatus !== undefined
-      ? {
-          thumbnailFileRef: input.thumbnailFileRef ?? null,
-          posterFileRef: input.posterFileRef ?? null,
-          derivativesStatus: input.derivativesStatus ?? null
-        }
-      : getAttachmentDerivativeRefs(metadata);
   const externalDownloadUrl = readExternalDownloadUrl(metadata);
   const documentLink =
     input.documentLink === undefined
       ? readPersistedDocumentLinkMetadata(metadata)
       : input.documentLink;
+  const unavailable =
+    input.processingStatus === "unavailable" ||
+    input.storagePath === null ||
+    input.storagePath.trim().length === 0;
   return {
     id: input.id,
-    fileRef: input.assistantFileId,
-    ...(derivativeRefs.thumbnailFileRef !== null
-      ? { thumbnailFileRef: derivativeRefs.thumbnailFileRef }
-      : {}),
-    ...(derivativeRefs.posterFileRef !== null
-      ? { posterFileRef: derivativeRefs.posterFileRef }
-      : {}),
-    ...(derivativeRefs.derivativesStatus !== null
-      ? { derivativesStatus: derivativeRefs.derivativesStatus }
-      : {}),
+    path: input.storagePath,
+    thumbnailStoragePath: input.thumbnailStoragePath ?? null,
+    posterStoragePath: input.posterStoragePath ?? null,
     attachmentType: input.attachmentType,
     originalFilename: input.originalFilename,
     mimeType: input.mimeType,
     sizeBytes: Number(input.sizeBytes),
     processingStatus: input.processingStatus,
-    ...(metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
+    ...(unavailable ? { unavailable: true } : {}),
     ...(externalDownloadUrl !== null ? { externalDownloadUrl } : {}),
     ...(documentLink === null ? {} : { documentLink }),
     createdAt: typeof input.createdAt === "string" ? input.createdAt : input.createdAt.toISOString()

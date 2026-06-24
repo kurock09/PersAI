@@ -177,10 +177,10 @@ export class WebRuntimeTurnClientService {
         ? {}
         : { autoCompaction: response.body.autoCompaction }),
       ...(response.body.trace === undefined ? {} : { runtimeTrace: response.body.trace }),
-      ...(response.body.discoveredFileRefIds === undefined ||
-      response.body.discoveredFileRefIds.length === 0
+      ...(response.body.discoveredFilePaths === undefined ||
+      response.body.discoveredFilePaths.length === 0
         ? {}
-        : { discoveredFileRefIds: response.body.discoveredFileRefIds })
+        : { discoveredFilePaths: response.body.discoveredFilePaths })
     };
   }
 

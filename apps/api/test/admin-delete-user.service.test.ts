@@ -28,6 +28,7 @@ async function run(): Promise<void> {
     id: "assistant-1",
     userId: "user-1",
     workspaceId: "ws-1",
+    handle: "test-handle",
     draftDisplayName: null,
     draftInstructions: null,
     draftTraits: null,
@@ -48,7 +49,14 @@ async function run(): Promise<void> {
     updatedAt: new Date()
   };
 
+  const sandboxGcLeaseCreates: Array<unknown> = [];
   const tx = {
+    sandboxWorkspaceGcLease: {
+      create: async (args: unknown) => {
+        sandboxGcLeaseCreates.push(args);
+        deleted.push("sandboxWorkspaceGcLease.create");
+      }
+    },
     assistantPlatformRolloutItem: {
       deleteMany: recordDelete("assistantPlatformRolloutItem")
     },
@@ -301,9 +309,6 @@ async function run(): Promise<void> {
     )
   );
   assert.ok(
-    normalizedRawSql.includes('DELETE FROM "assistant_files" WHERE "assistant_id" = $1::uuid')
-  );
-  assert.ok(
     normalizedRawSql.includes(
       'DELETE FROM "assistant_web_chat_turn_attempts" WHERE "assistant_id" = $1::uuid'
     )
@@ -316,6 +321,18 @@ async function run(): Promise<void> {
   assert.ok(deleted.includes("appUser"));
   assert.deepEqual(releasedBytes, [BigInt(7)]);
   assert.deepEqual(releasedKnowledgeBytes, [BigInt(11)]);
+
+  assert.equal(sandboxGcLeaseCreates.length, 1, "expected one assistant_outbound GC lease");
+  const lease = sandboxGcLeaseCreates[0] as {
+    data: { kind: string; targetId: string; metadata: { handle: string } };
+  };
+  assert.equal(lease.data.kind, "assistant_outbound");
+  assert.equal(lease.data.targetId, "assistant-1");
+  assert.equal(lease.data.metadata.handle, "test-handle");
+  assert.ok(
+    deleted.indexOf("sandboxWorkspaceGcLease.create") < deleted.indexOf("assistant"),
+    "GC lease must be written before assistant row is deleted"
+  );
 }
 
 void run();

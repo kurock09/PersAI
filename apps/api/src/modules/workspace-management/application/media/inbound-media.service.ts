@@ -11,14 +11,15 @@ import {
   inferAttachmentTypeFromMime,
   readStoredAttachmentContentPreview,
   readStoredAttachmentSemanticSummary,
-  readStoredAttachmentSemanticSummarySource,
   type InboundMediaResolveParams,
   type ResolvedInboundMedia
 } from "./media.types";
 import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media-security-policy";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
-import { AssistantFileRegistryService } from "../assistant-file-registry.service";
+import { RegisterChatAttachmentService } from "../register-chat-attachment.service";
+import { WorkspaceFileMetadataService } from "../workspace-file-metadata.service";
+import { resolveUniqueSharedInputStoragePath } from "../resolve-shared-input-storage-path";
 
 class MediaStorageQuotaExceededError extends Error {
   constructor(
@@ -43,7 +44,8 @@ export class InboundMediaService {
     private readonly preprocessor: MediaPreprocessorService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly assistantFileRegistryService: AssistantFileRegistryService,
+    private readonly registerChatAttachmentService: RegisterChatAttachmentService,
+    private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {}
 
@@ -72,11 +74,16 @@ export class InboundMediaService {
           raw.originalFilename
         );
 
-        const objectKey = this.mediaObjectStorage.buildChatMessageObjectKey({
-          assistantId: params.assistantId,
-          chatId: params.chatId,
-          messageId: params.messageId,
-          extension: processed.normalizedExtension
+        const storagePath = await resolveUniqueSharedInputStoragePath({
+          workspaceId: params.workspaceId,
+          filename: raw.originalFilename,
+          mimeType: processed.normalizedMime,
+          referenceId: params.messageId,
+          workspaceFileMetadataService: this.workspaceFileMetadataService
+        });
+        const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+          workspaceId: params.workspaceId,
+          workspaceRelPath: storagePath
         });
         const uploadResult = await this.mediaObjectStorage.saveObject({
           objectKey,
@@ -118,60 +125,68 @@ export class InboundMediaService {
           throw new MediaStorageQuotaExceededError(usedMb, limitMb);
         }
 
-        const attachmentType = inferAttachmentTypeFromMime(processed.normalizedMime);
+        let thumbnailStoragePath: string | null = null;
+        let posterStoragePath: string | null = null;
+        const normalizedMime = processed.normalizedMime;
+        if (
+          normalizedMime.startsWith("image/") &&
+          normalizedMime !== "image/svg+xml" &&
+          normalizedMime !== "image/gif"
+        ) {
+          const thumb = await this.preprocessor.createImageThumbnail(processed.normalizedBuffer);
+          if (thumb !== null) {
+            thumbnailStoragePath = `${storagePath}.thumb.webp`;
+            await this.mediaObjectStorage.saveObject({
+              objectKey: this.mediaObjectStorage.buildSharedObjectKey({
+                workspaceId: params.workspaceId,
+                workspaceRelPath: thumbnailStoragePath
+              }),
+              buffer: thumb.buffer,
+              mimeType: thumb.mimeType
+            });
+          }
+        } else if (normalizedMime.startsWith("video/")) {
+          const poster = await this.preprocessor.createVideoPoster(processed.normalizedBuffer);
+          if (poster !== null) {
+            posterStoragePath = `${storagePath}.poster.jpg`;
+            await this.mediaObjectStorage.saveObject({
+              objectKey: this.mediaObjectStorage.buildSharedObjectKey({
+                workspaceId: params.workspaceId,
+                workspaceRelPath: posterStoragePath
+              }),
+              buffer: poster.buffer,
+              mimeType: poster.mimeType
+            });
+          }
+        }
 
-        const attachment = await this.attachmentRepository.create({
-          messageId: params.messageId,
-          chatId: params.chatId,
+        const attachmentType = inferAttachmentTypeFromMime(processed.normalizedMime);
+        const metadata = buildStoredAttachmentMetadata({
+          source: raw.source,
+          textExtract: processed.textExtract,
+          transcription: processed.transcription
+        });
+        const registered = await this.registerChatAttachmentService.execute({
           assistantId: params.assistantId,
           workspaceId: params.workspaceId,
+          chatId: params.chatId,
+          messageId: params.messageId,
+          storagePath,
           attachmentType,
-          storagePath: uploadResult.objectKey,
-          originalFilename: raw.originalFilename || null,
           mimeType: processed.normalizedMime,
-          sizeBytes: BigInt(uploadResult.sizeBytes),
+          sizeBytes: uploadResult.sizeBytes,
+          originalFilename: raw.originalFilename || "upload",
+          kind: "user_upload",
           durationMs: processed.durationMs,
           width: processed.width,
           height: processed.height,
-          processingStatus: "ready",
           transcription: processed.transcription,
-          metadata: buildStoredAttachmentMetadata({
-            source: raw.source,
-            textExtract: processed.textExtract,
-            transcription: processed.transcription
-          })
+          metadata,
+          shortDescription: readStoredAttachmentSemanticSummary(metadata),
+          thumbnailStoragePath,
+          posterStoragePath
         });
-        const attachmentMetadata =
-          attachment.metadata !== null &&
-          typeof attachment.metadata === "object" &&
-          !Array.isArray(attachment.metadata)
-            ? (attachment.metadata as Record<string, unknown>)
-            : null;
-        attachment.assistantFileId = (
-          await this.assistantFileRegistryService.ensureAttachmentFile({
-            assistantId: params.assistantId,
-            workspaceId: params.workspaceId,
-            origin: "uploaded_attachment",
-            sourceAttachmentId: attachment.id,
-            sourceMessageId: attachment.messageId,
-            sourceChatId: attachment.chatId,
-            objectKey: uploadResult.objectKey,
-            filename: attachment.originalFilename,
-            mimeType: attachment.mimeType,
-            sizeBytes: attachment.sizeBytes,
-            contentBuffer: processed.normalizedBuffer,
-            source: raw.source,
-            semanticSummary: readStoredAttachmentSemanticSummary(attachmentMetadata),
-            semanticSummarySource: readStoredAttachmentSemanticSummarySource(attachmentMetadata)
-          })
-        ).fileRef;
-        if (attachment.assistantFileId !== null) {
-          await this.assistantFileRegistryService.ensureMediaDerivativeTracking({
-            assistantId: params.assistantId,
-            workspaceId: params.workspaceId,
-            fileRef: attachment.assistantFileId
-          });
-        }
+        const attachment = (await this.attachmentRepository.findById(registered.attachmentId))!;
 
         attachments.push(attachment);
 
@@ -226,7 +241,7 @@ export class InboundMediaService {
 
       const seen = new Set<string>();
       const deduped = ready.filter((a) => {
-        if (seen.has(a.storagePath)) return false;
+        if (a.storagePath === null || seen.has(a.storagePath)) return false;
         seen.add(a.storagePath);
         return true;
       });

@@ -122,11 +122,12 @@ GOTCHAS:
     modelDescription:
       "Create or revise user-ready business documents, reports, proposals, and slide decks through the unified document tool.",
     modelUsageGuidance: `WHEN TO USE: User explicitly asks for a generated PDF, presentation, deck, proposal, report, a structured data document (spreadsheet/Excel, Word/DOCX, multi-page data tables), or a revision to an existing PersAI document. Use this even when source material is an uploaded image/file.
-WHEN NOT TO USE: User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (use files.send).
+WHEN NOT TO USE: User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (chat delivery is a separate explicit action — do not regenerate a document just to resend it).
 EXAMPLES:
 - document({descriptorMode:"create_pdf_document", prompt:"…"}) — produce a prose/editorial PDF (HTML→PDF).
 - document({descriptorMode:"create_data_document", outputFormat:"xlsx", prompt:"…"}) — produce a native spreadsheet, Word doc (outputFormat:"docx"), or data-driven PDF (outputFormat:"pdf") for tables/spreadsheets/structured data. Defaults to xlsx.
-- document({descriptorMode:"revise_document", docId:"…", prompt:"…"}) — apply revisions to an existing PDF document.
+- document({descriptorMode:"revise_document", docId:"…", prompt:"…"}) — apply revisions to an existing PDF document in the current chat.
+- document({descriptorMode:"revise_document", storagePath:"/shared/<workspaceId>/outbound/self/report.pdf", prompt:"…"}) — revise a file from Working Files or a prior chat via workspace path.
 GOTCHAS:
 - Data documents (create_data_document): use for spreadsheets, structured tables, and large data exports where exact tabular/native-Office output matters; size is not limited by the reply length.
 - Presentations: PDF-first unless the user explicitly wants editable PPTX/PowerPoint.
@@ -302,25 +303,28 @@ GOTCHAS:
     code: "files",
     displayName: "Files",
     description:
-      "Unified assistant file tool for search, metadata lookup, reads, writes, edits, and channel delivery.",
+      "Path-driven workspace file operations: list, read, preview, write, delete, attach.",
     modelDescription:
-      "List, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files through one canonical file surface.",
+      "Path-driven workspace file operations. Six actions: list, read, preview, write, delete, attach. Address files by pod-absolute path under /workspace/ (assistant-private) or /shared/<workspaceId>/ (shared space).",
     // policy-overridden: the real model-facing text is supplied by
     // runtime-tool-policy.ts resolveRuntimeToolUsageGuidance and always
     // supersedes this catalog value. Edit the hardcoded override there, not here.
-    modelUsageGuidance: `WHEN TO USE: Any file-system work in the assistant's managed workspace — list, search, inspect, read, preview, write, write-and-send, edit, delete, or send.
-WHEN NOT TO USE: Real process execution (use exec or shell). Producing a NEW deliverable PDF, deck, or structured document (use document).
+    modelUsageGuidance: `WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace/shared file to chat.
+WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a NEW structured document (use document).
 EXAMPLES:
-- files({action:"write_and_send", relativePath:"…", contents:"…"}) — save and immediately deliver in chat.
-- files({action:"write", relativePath:"…", contents:"…"}) — save only.
-- files({action:"send", workingFileAlias:"…"}) — deliver an existing file the user already references.
-- files({action:"list"}) — inventory by workspace / uploads / artifacts.
-- files({action:"search", query:"…"}) — discover by name.
+- files({action:"list", path:"/workspace/"}) — enumerate the assistant-private root.
+- files({action:"read", path:"/shared/<workspaceId>/input/report.csv"}) — read a user upload from the read-only input mount.
+- files({action:"preview", path:"/workspace/notes.md", maxBytes:4096}) — peek at the head of a large file.
+- files({action:"write", path:"/workspace/draft.txt", content:"hello"}) — write or overwrite a pod-private file.
+- files({action:"write", path:"/shared/<workspaceId>/outbound/self/result.json", content:"{}"}) — publish an artefact to your own outbound share.
+- files({action:"delete", path:"/workspace/tmp.bin"}) — remove an unneeded file.
+- files({action:"attach", path:"/workspace/draft.txt"}) — deliver an existing pod-private file to the user.
+- files({action:"attach", path:"/shared/<workspaceId>/outbound/self/result.json"}) — deliver an already-published artefact to the user.
 GOTCHAS:
-- Alias-first: when a working-file alias is available, use that alias; otherwise use \`relativePath\`; fall back to \`query\` only when discovery is needed.
-- For writes, prefer a non-empty relativePath as the canonical save target; \`filename\` is only a delivery-name override, not the canonical save path.
-- Delivery honesty: never claim a file was sent unless \`files.send\` or \`files.write_and_send\` succeeded THIS turn. Discovering, reading, or describing a file is NOT delivery.
-- Inventories: summarize by workspace / uploads / artifacts and hide raw service paths or UUID folders by default; only enumerate every raw relativePath when the user explicitly asks for the raw list.`,
+- Six actions only: list, read, preview, write, delete, attach. There is no fileRef, no alias, no search/send/edit.
+- Paths must be pod-absolute. /workspace/ is assistant-private read/write. /shared/<workspaceId>/input/ is user uploads (read-only). /shared/<workspaceId>/outbound/self/ is your published artefacts (read/write). /shared/<workspaceId>/outbound/<sibling>/ is a peer assistant's outbound (read-only).
+- For list supply the directory path; for read/preview/write/delete/attach supply the file path.
+- attach delivers an EXISTING file; it does not regenerate. If the file is not yet written, write it first.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -351,15 +355,21 @@ GOTCHAS:
     displayName: "Shell",
     description: "Run a bounded shell command inside the isolated sandbox workspace.",
     modelDescription: "Run a bounded shell command inside the assistant sandbox workspace.",
-    modelUsageGuidance: `WHEN TO USE: Use shell proactively for multi-step autonomous work — pipelines, shell builtins, process composition, running scripts, build commands, transformations, and any multi-command sequencing inside the sandbox. Shell is the primary autonomous execution surface; do not wait to be asked.
+    modelUsageGuidance: `WHEN TO USE: Use shell proactively for multi-step autonomous work — pipelines, shell builtins, process composition, running scripts, build commands, transformations, runtime package installs, Git operations, and any multi-command sequencing inside the sandbox. Shell is the primary autonomous execution surface; do not wait to be asked.
 WHEN NOT TO USE: Content search in the workspace (use grep instead of shell grep/rg). Filename discovery (use glob instead of shell find/fd). Plain file IO (use files). Producing a document, image, or web result (use the dedicated tool).
+SHELL ENVIRONMENT: /bin/bash with brace expansion, [[ … ]], <(…), set -o pipefail. Python 3 with system packages, plus session-scoped pip user-site at /workspace/.local (pip install <pkg> writes there; survives across turns within the session). Node 22 LTS with npm; npm install -g lands in /workspace/.npm-global, npm install (no -g) lands in /workspace/node_modules. Egress over HTTPS is allowlisted for github.com, *.github.com, *.githubusercontent.com, pypi.org, files.pythonhosted.org, registry.npmjs.org, *.npmjs.com — other hosts are denied.
 EXAMPLES:
+- shell({command:"pip install --quiet rich && python3 -c 'import rich; rich.print({\\"ok\\": True})'"}) — install a Python package (session-scoped) and use it.
+- shell({command:"npm install left-pad && node -e 'console.log(require(\\"left-pad\\")(\\"42\\", 5, \\"0\\"))'"}) — install a Node package locally.
+- shell({command:"git clone --depth 1 https://github.com/sindresorhus/awesome.git"}) — public HTTPS clone.
+- shell({command:"git push https://<user>:<pat>@github.com/<owner>/<repo>.git main"}) — push to GitHub when you supply your own credentials in the URL (no PersAI token is injected; without auth GitHub returns 401).
 - shell({command:"npm install && npm run build"}) — multi-step build pipeline.
-- shell({command:"ls -la artifacts/ | head -20"}) — composed shell pipeline.
 - shell({command:"python3 script.py --input data.csv --output result.json"}) — run a script with arguments.
-- shell({command:"git log --oneline -20"}) — inspect repository state.
 GOTCHAS:
-- Refer to workspace files by relative path; absolute paths outside the sandbox are rejected.
+- Refer to workspace files by pod-absolute path (/workspace/..., /shared/...) or run with cwd set to your chat-scoped /workspace/chats/<chatId>/.
+- pip install / npm install land under /workspace/ (session-scoped); they do not leak across assistants or workspaces.
+- git push: PersAI never injects a GitHub token. Either bake credentials into the URL or write your own ~/.gitconfig — without auth GitHub returns 401.
+- Non-allowlisted hosts (gitlab.com, bitbucket.org, custom CDNs) are denied at the egress proxy by SNI — a 1-line allowlist follow-up is the only path to expand.
 - Stay within sandbox CPU / memory / time limits.
 - For content search use grep; for filename find use glob. Shell is for genuine execution, not search shortcuts.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,

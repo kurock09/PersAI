@@ -446,9 +446,6 @@ async function run(): Promise<void> {
                 workspaceBytes: 1024,
                 fileCount: 1,
                 directoryCount: 1
-              },
-              _count: {
-                assistantFiles: 1
               }
             },
             {
@@ -473,9 +470,6 @@ async function run(): Promise<void> {
                 workspaceBytes: 2048,
                 fileCount: 2,
                 directoryCount: 1
-              },
-              _count: {
-                assistantFiles: 2
               }
             }
           ];
@@ -768,7 +762,7 @@ async function run(): Promise<void> {
       violationMessage: "CPU usage exceeded the configured limit.",
       resultReason: "process_cpu_limit_exceeded",
       resultWarning: "CPU usage exceeded the configured limit.",
-      persistedFileCount: 1,
+      persistedFileCount: 0,
       resourceUsage: {
         workspaceBytes: 1024,
         fileCount: 1,

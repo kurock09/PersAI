@@ -102,21 +102,18 @@ export interface RuntimeBundleRef extends AssistantScope {
 export interface RuntimeAttachmentRef {
   attachmentId: string;
   kind: PersaiRuntimeAttachmentKind;
-  objectKey: string;
+  storagePath: string;
   mimeType: string;
-  filename: string | null;
+  displayName: string | null;
   sizeBytes: number;
-  fileRef?: string | null;
   aliases?: string[] | null;
 }
 
 export interface RuntimeOutputArtifact {
   artifactId: string;
-  fileRef: string;
-  file: RuntimeFileRef;
+  storagePath: string;
   kind: PersaiRuntimeAttachmentKind;
   sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | "document" | null;
-  objectKey: string;
   mimeType: string;
   filename: string | null;
   sizeBytes: number | null;
@@ -148,31 +145,17 @@ export interface RuntimeDocumentSourceFile {
   } | null;
 }
 
-export const PERSAI_SANDBOX_FILE_ORIGINS = [
-  "sandbox_output",
-  "runtime_output",
-  "uploaded_attachment"
-] as const;
-
-export type PersaiSandboxFileOrigin = (typeof PERSAI_SANDBOX_FILE_ORIGINS)[number];
-
-export interface RuntimeFileRef {
-  fileRef: string;
-  origin: PersaiSandboxFileOrigin;
-  sourceToolCode: string | null;
-  objectKey: string;
-  relativePath: string;
-  displayName: string | null;
+export interface RuntimeFileHandle {
+  storagePath: string;
   mimeType: string;
   sizeBytes: number;
-  logicalSizeBytes: number | null;
+  displayName: string | null;
+  workspaceId: string;
   aliases?: string[] | null;
-  /** Canonical file creation timestamp from AssistantFile.createdAt. */
   createdAt?: IsoTimestamp;
-  /** Stable author label derived from origin; never inferred from user text. */
   authorLabel?: "user" | "model" | "sandbox";
-  /** Token-safe hint derived from durable file metadata; never a full content preview. */
   semanticSummaryHint?: string | null;
+  sourceToolCode?: string | null;
 }
 
 export interface RuntimeSandboxPolicy {
@@ -237,7 +220,7 @@ export interface RuntimeSandboxProducedFile {
   mimeType: string;
   sizeBytes: number;
   logicalSizeBytes: number | null;
-  fileRef: RuntimeFileRef;
+  storagePath: string;
 }
 
 export interface RuntimeSandboxJobResult {
@@ -257,13 +240,26 @@ export interface RuntimeSandboxJobResult {
 
 export interface RuntimeSandboxJobRequest {
   assistantId: string;
+  /**
+   * Workspace-unique handle that names this assistant's outbound directory
+   * inside session pods (`/shared/<workspaceId>/outbound/<handle>/`) and
+   * the corresponding GCS prefix.
+   */
+  assistantHandle: string;
+  /**
+   * Sibling assistant handles that share this workspace, so the sandbox can
+   * rematerialise `outbound/<otherHandle>/` directories on session-pod
+   * start. Empty array means no siblings.
+   */
+  siblingHandles: readonly string[];
   workspaceId: string;
   runtimeRequestId: string | null;
   runtimeSessionId: string | null;
   toolCode: string;
   policy: RuntimeSandboxPolicy;
+  workspaceQuotaBytes?: number | null;
+  sharedQuotaBytes?: number | null;
   args: Record<string, unknown>;
-  mountedFileRefs?: string[];
 }
 
 export interface RuntimeSandboxToolResult {
@@ -273,21 +269,22 @@ export interface RuntimeSandboxToolResult {
   reason: string | null;
   warning: string | null;
   job: RuntimeSandboxJobResult | null;
-  fileRefs: string[];
+  paths: string[];
 }
 
+/**
+ * Model-facing `files.*` actions — the canonical, path-driven surface. The
+ * model addresses files exclusively by pod-absolute path; `fileRef` does not
+ * appear on this contract. Chat delivery is a separate explicit action and
+ * does not piggyback on `files.write`.
+ */
 export const PERSAI_RUNTIME_FILES_TOOL_ACTIONS = [
   "list",
-  "search",
-  "inspect",
-  "get",
   "read",
   "preview",
   "write",
-  "write_and_send",
-  "edit",
   "delete",
-  "send"
+  "attach"
 ] as const;
 
 export type RuntimeFilesToolAction = (typeof PERSAI_RUNTIME_FILES_TOOL_ACTIONS)[number];
@@ -296,18 +293,25 @@ export const PERSAI_RUNTIME_FILE_CAPABILITIES = ["text", "visual"] as const;
 
 export type RuntimeFileCapability = (typeof PERSAI_RUNTIME_FILE_CAPABILITIES)[number];
 
+/**
+ * The single model-visible item shape returned by `files.list`, `files.read`,
+ * `files.preview`, `files.write`, and `files.delete`. There is no `fileRef`
+ * field — addressing is by pod-absolute `path` only.
+ */
 export interface RuntimeFilesToolItem {
-  fileRef: string;
-  origin: PersaiSandboxFileOrigin;
-  sourceToolCode: string | null;
-  relativePath: string;
-  displayName: string | null;
-  mimeType: string;
+  /** Pod-absolute path: `/workspace/...` or `/shared/<workspaceId>/...`. */
+  path: string;
+  type: "file" | "directory";
+  role: "workspace" | "shared_input" | "shared_outbound_self" | "shared_outbound_other";
   sizeBytes: number;
-  logicalSizeBytes: number | null;
-  aliases?: string[] | null;
-  /** Token-safe hint derived from durable file metadata; never a full content preview. */
-  semanticSummaryHint?: string | null;
+  mimeType: string | null;
+  modifiedAt: string | null;
+  /**
+   * Cached short description joined from `workspace_file_metadata.shortDescription`
+   * (path-keyed by `(workspaceId, path)`) by the runtime after a sandbox list/read.
+   * Always `null` until the upload pipeline populates it.
+   */
+  shortDescription?: string | null;
 }
 
 /** ADR-116 — model-visible document extraction quality on `files.read`. */
@@ -318,41 +322,43 @@ export type RuntimeFilesReadExtractionQuality = {
   textChars: number;
 };
 
+/**
+ * Single result shape returned by every `files.*` action. The `action`
+ * discriminant matches the requested action verbatim (one of the five
+ * canonical values); `skipped` is the sole error/blocked outcome.
+ */
 export interface RuntimeFilesToolResult {
   toolCode: "files";
   executionMode: "inline";
   requestedAction: RuntimeFilesToolAction | null;
-  action:
-    | "listed"
-    | "results"
-    | "inspected"
-    | "fetched"
-    | "read"
-    | "previewed"
-    | "written"
-    | "written_and_queued"
-    | "edited"
-    | "deleted"
-    | "queued"
-    | "skipped";
+  action: "listed" | "read" | "previewed" | "written" | "deleted" | "attached" | "skipped";
   reason: string | null;
   warning: string | null;
-  item: RuntimeFilesToolItem | null;
-  items: RuntimeFilesToolItem[];
-  content: string | null;
-  job: RuntimeSandboxJobResult | null;
-  fileRefs: string[];
-  queuedArtifacts: number;
-  /** ADR-116 — full text length before model-context sanitization. */
-  charCount?: number | null;
-  /** ADR-116 — set true when sanitizer clips `content` to the model cap. */
+  path: string | null;
+  item?: RuntimeFilesToolItem | null;
+  items?: RuntimeFilesToolItem[];
+  content?: string | null;
+  sizeBytes?: number | null;
+  sha256?: string | null;
   truncated?: boolean;
-  /** ADR-116 — document extraction quality when `files.read` used extract API. */
+  charCount?: number | null;
+  contentTruncated?: boolean;
   extractionQuality?: RuntimeFilesReadExtractionQuality | null;
-  /** ADR-116 — extraction-side note distinct from operational `warning`. */
-  readNote?: string | null;
-  /** ADR-116 — true when text came from `assistant_files.metadata` extraction cache. */
-  extractionCached?: boolean;
+  /** Model-visible delivery metadata for `files.attach` (no internal `fileRef`). */
+  displayName?: string | null;
+  mimeType?: string | null;
+  /**
+   * Runtime/API-only attach identity — never surfaced to the model. Populated
+   * after the control-plane row is created; stripped by model-facing sanitizers.
+   */
+  attachment?: {
+    attachmentId: string;
+    storagePath: string;
+    sourcePath: string;
+    displayName: string;
+    sizeBytes: number;
+    mimeType: string;
+  } | null;
 }
 
 /** ADR-123 Slice 7 — single match entry returned by the inline `grep` tool. */
@@ -2733,17 +2739,15 @@ export interface RuntimeDocumentJobRunRequest {
       outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
       docId?: string | null;
       /**
-       * ADR-097 Slice 4 — cross-chat revise via AssistantFile id.
+       * ADR-126 v3 — cross-chat revise via workspace path identity.
        *
-       * fileRef is an AssistantFile.id (resolved via files.search/files.read or
-       * Working Files aliases) and identifies a PDF document the assistant has
-       * produced before, possibly in another chat. Mutually exclusive with docId.
-       * When present, the API resolves it to the canonical AssistantDocument and
-       * feeds its latest version into the active revise path. The new revision is
-       * written to the current chat with parentVersionId pointing to the
-       * cross-chat ancestor version.
+       * Canonical chat-delivery identity for an existing chat attachment via its
+       * `storagePath` (workspace path under `/shared/<wsid>/` or
+       * `/workspace/<aid>/<wsid>/`). Mutually exclusive with `docId`. When present,
+       * the API resolves to the latest `AssistantDocumentVersion` whose attachment
+       * row has a matching `storagePath` for the assistant's workspace.
        */
-      fileRef?: string | null;
+      storagePath?: string | null;
       requestedName?: string | null;
       visualStyle?: PersaiRuntimePresentationVisualStyle | null;
       imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
@@ -2844,7 +2848,7 @@ export interface RuntimeDocumentJobCompletionRequest {
     artifacts: Array<{
       type: RuntimeOutputArtifact["kind"];
       filename: string | null;
-      fileRef: string | null;
+      storagePath: string | null;
     }>;
   };
   failure?: {
@@ -2888,8 +2892,7 @@ export interface RuntimeMediaJobCompletionRequest {
     artifacts: Array<{
       type: RuntimeOutputArtifact["kind"];
       filename: string | null;
-      fileRef: string | null;
-      objectKey: string | null;
+      storagePath: string | null;
       mimeType?: string | null;
       role?: "output" | "source_reference";
     }>;
@@ -3075,14 +3078,14 @@ export interface RuntimeTurnResult {
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
   deferredDocumentJobs?: RuntimeDeferredDocumentJobSummary[];
   /**
-   * ADR-100 Piece 1 — canonical AssistantFile ids discovered via
-   * `files.list / search / get / read` during this turn's tool loop.
+   * ADR-100 Piece 1 / ADR-126 v3 — workspace storage paths discovered via
+   * `files.list / read / preview` during this turn's tool loop.
    * Capped at 20, insertion order. API persists this on the assistant
    * message metadata so future turn hydration can surface them with
    * the stable Working Files aliases (`file #N` / `image #N`) assigned
    * in that chat.
    */
-  discoveredFileRefIds?: string[];
+  discoveredFilePaths?: string[];
   /**
    * ADR-122 Slice 3: true when the final provider call ended due to the
    * output-token ceiling. Propagated from ProviderGatewayTextGenerateResult.
@@ -3871,7 +3874,7 @@ export interface RuntimeInterruptedEvent {
   sessionId: string;
   assistantText: string;
   artifacts?: RuntimeOutputArtifact[];
-  fileRefs?: RuntimeFileRef[];
+  fileHandles?: RuntimeFileHandle[];
   respondedAt: IsoTimestamp | null;
   trace?: RuntimeTrace;
 }
@@ -3884,7 +3887,7 @@ export interface RuntimeFailedEvent {
   message: string;
   willRetry: boolean;
   artifacts?: RuntimeOutputArtifact[];
-  fileRefs?: RuntimeFileRef[];
+  fileHandles?: RuntimeFileHandle[];
   trace?: RuntimeTrace;
 }
 

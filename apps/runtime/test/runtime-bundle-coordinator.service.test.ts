@@ -202,6 +202,8 @@ function createWarmInput() {
   const artifact = compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
+      assistantHandle: "a-test",
+      siblingAssistantHandles: [],
       workspaceId: "workspace-1",
       publishedVersionId: "version-1",
       publishedVersion: 1,
@@ -291,6 +293,7 @@ function createWarmInput() {
       quota: {
         planCode: "free",
         workspaceQuotaBytes: 1024,
+        sharedQuotaBytes: 1024,
         quotaHook: null
       },
       auditHook: null

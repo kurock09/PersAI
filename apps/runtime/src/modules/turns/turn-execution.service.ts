@@ -46,7 +46,7 @@ import {
   type RuntimeGlobToolResult,
   type RuntimeImageEditToolResult,
   type RuntimeImageGenerateToolResult,
-  type RuntimeFileRef,
+  type RuntimeFileHandle,
   type RuntimeOutputArtifact,
   type RuntimeSandboxToolResult,
   type RuntimeScheduledActionToolResult,
@@ -181,7 +181,6 @@ const MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS = 4;
 const MAX_JOB_DELIVERY_UPDATE_ITEMS = 6;
 const MAX_MODEL_VISIBLE_WORKING_FILES = 20;
 const MAX_WORKING_FILE_MICRO_DESCRIPTION_CHARS = 120;
-const WORKING_FILE_REF_SUFFIX_HEX_LENGTH = 8;
 const POST_FINAL_SELF_CHECK_MAX_HOPS = 2;
 const POST_FINAL_SELF_CHECK_MAX_OPEN_ROWS_RENDERED = 6;
 const POST_FINAL_SELF_CHECK_TODO_TITLE_MAX = 80;
@@ -203,7 +202,7 @@ type PreparedTurnExecution = {
   providerRequest: ProviderGatewayTextGenerateRequest;
   developerInstructionSections: DeveloperInstructionSection[];
   currentMessageAttachments: RuntimeTurnRequest["message"]["attachments"];
-  availableWorkingFileRefs: RuntimeFileRef[];
+  availableWorkingFileHandles: RuntimeFileHandle[];
   deepModeEnabled: boolean;
   selectedModelRole: PersaiRuntimeModelRole;
   routeDecision: TurnRouteDecision;
@@ -244,20 +243,20 @@ type TurnExecutionState = {
     durableStatePersisted: boolean;
   };
   artifacts: RuntimeOutputArtifact[];
-  fileRefs: RuntimeFileRef[];
+  fileHandles: RuntimeFileHandle[];
   usageEntries: RuntimeUsageAccountingEntry[];
   toolInvocations: RuntimeTurnToolInvocation[];
   deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
   deferredDocumentJobs: RuntimeDeferredDocumentJobSummary[];
   closedOpenLoopRefs: string[];
   /**
-   * ADR-100 Piece 1 — ordered set of canonical AssistantFile ids (fileRef
-   * strings) discovered via `files.list / search / get / read` during this
-   * turn's tool loop. Capped at 20 (insertion order, deduplicated). Surfaced
-   * on the turn result so the API can persist them on the assistant message's
-   * metadata for next-turn hydration.
+   * ADR-100 Piece 1 / ADR-126 v3 — ordered set of workspace storage paths
+   * discovered via `files.list / read / preview` during this turn's tool loop.
+   * Capped at 20 (insertion order, deduplicated). Surfaced on the turn result
+   * so the API can persist them on the assistant message metadata for
+   * next-turn hydration.
    */
-  discoveredFileRefIdSet: string[];
+  discoveredFilePathSet: string[];
   /**
    * ADR-116 — ephemeral multimodal blocks from `files.preview` for the next
    * tool-loop provider call only.
@@ -292,13 +291,13 @@ type ToolExecutionOutcome = {
   artifacts?: RuntimeOutputArtifact[];
   /**
    * Files-tool registry-resolved refs that the model just discovered through
-   * `files.search` / `files.list` / `files.get` / `files.read`. The runtime
-   * caller merges these into `turnState.fileRefs` so the next provider
+   * `files.list` / `files.read` / `files.preview`. The runtime
+   * caller merges these into `turnState.fileHandles` so the next provider
    * iteration's Working Files developer block carries the same sticky
    * `file #N` / `image #N` labels as the rest of the turn instead of
    * recomputing recency-based ordinals.
    */
-  discoveredFileRefs?: RuntimeFileRef[];
+  discoveredFileHandles?: RuntimeFileHandle[];
   sharedCompaction?: {
     toolCode: PersaiRuntimeSharedCompactionToolCode;
     durableStatePersisted: boolean;
@@ -765,15 +764,15 @@ export class TurnExecutionService {
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     });
     options?.trace?.stage("prepare.provider_selected");
-    const availableWorkingFileRefs =
-      await this.turnContextHydrationService.listAvailableWorkingFileRefs({
+    const availableWorkingFileHandles =
+      await this.turnContextHydrationService.listAvailableWorkingFileHandles({
         conversation: input.conversation,
         currentAttachments: input.message.attachments
       });
     const developerInstructionSections = this.buildBaseDeveloperInstructionSections({
       request: input,
       projectedTools,
-      availableWorkingFileRefs,
+      availableWorkingFileHandles,
       deepModeEnabled: input.deepMode === true,
       routeDecision: executionPlan.routeDecision,
       openLoopRefsBlock,
@@ -837,7 +836,7 @@ export class TurnExecutionService {
       promptMode,
       currentMessageAttachments: input.message.attachments,
       developerInstructionSections,
-      availableWorkingFileRefs,
+      availableWorkingFileHandles,
       deepModeEnabled: input.deepMode === true,
       selectedModelRole: executionPlan.modelRole,
       routeDecision: executionPlan.routeDecision,
@@ -1012,7 +1011,7 @@ export class TurnExecutionService {
             baseDeveloperInstructionSections: execution.developerInstructionSections,
             toolHistory,
             availableToolNames: execution.projectedTools.tools.map((tool) => tool.name),
-            availableWorkingFileRefs: execution.availableWorkingFileRefs,
+            availableWorkingFileHandles: execution.availableWorkingFileHandles,
             closedOpenLoopRefs: turnState.closedOpenLoopRefs,
             forceFinalTextOnly,
             deferredMediaJobs: turnState.deferredMediaJobs,
@@ -1192,7 +1191,7 @@ export class TurnExecutionService {
                       acceptedTurn,
                       input,
                       turnState,
-                      availableWorkingFileRefs: execution.availableWorkingFileRefs,
+                      availableWorkingFileHandles: execution.availableWorkingFileHandles,
                       trace,
                       iteration
                     });
@@ -1256,9 +1255,8 @@ export class TurnExecutionService {
                           toolCall,
                           input.idempotencyKey,
                           turnState.artifacts,
-                          turnState.fileRefs,
-                          execution.availableWorkingFileRefs,
-                          turnState.deferredDocumentJobs
+                          turnState.fileHandles,
+                          execution.availableWorkingFileHandles
                         );
                       } catch (error) {
                         yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
@@ -1774,9 +1772,9 @@ export class TurnExecutionService {
       ...(turnState.deferredDocumentJobs.length === 0
         ? {}
         : { deferredDocumentJobs: [...turnState.deferredDocumentJobs] }),
-      ...(turnState.discoveredFileRefIdSet.length === 0
+      ...(turnState.discoveredFilePathSet.length === 0
         ? {}
-        : { discoveredFileRefIds: [...turnState.discoveredFileRefIdSet] }),
+        : { discoveredFilePaths: [...turnState.discoveredFilePathSet] }),
       ...(providerResult.truncated === true ? { truncated: true } : {})
     };
     if (trace !== undefined) {
@@ -1974,7 +1972,7 @@ export class TurnExecutionService {
   private buildBaseDeveloperInstructionSections(input: {
     request?: RuntimeTurnRequest;
     projectedTools: RuntimeNativeToolProjection | undefined;
-    availableWorkingFileRefs: RuntimeFileRef[];
+    availableWorkingFileHandles: RuntimeFileHandle[];
     deepModeEnabled: boolean;
     routeDecision: TurnRouteDecision | undefined;
     openLoopRefsBlock: string | null;
@@ -1989,7 +1987,7 @@ export class TurnExecutionService {
       input.deepModeEnabled
     );
     const workingFilesSection = this.buildWorkingFilesDeveloperSection(
-      input.availableWorkingFileRefs
+      input.availableWorkingFileHandles
     );
     const openLoopRefsSection = this.normalizeOptionalText(input.openLoopRefsBlock);
     const openMediaJobsSection = this.buildOpenMediaJobsDeveloperSection(input.openMediaJobs);
@@ -2070,32 +2068,43 @@ export class TurnExecutionService {
   }
 
   private buildWorkingFilesDeveloperSection(
-    availableWorkingFileRefs: RuntimeFileRef[]
+    availableWorkingFileHandles: RuntimeFileHandle[]
   ): string | null {
-    const modelVisibleWorkingFiles = this.limitModelVisibleWorkingFiles(availableWorkingFileRefs);
+    const modelVisibleWorkingFiles = this.limitModelVisibleWorkingFiles(
+      availableWorkingFileHandles
+    );
     if (modelVisibleWorkingFiles.length === 0) {
       return null;
     }
 
     const lines = ["## Working Files"];
-    const documentPriorityNote =
-      this.buildWorkingFileDocumentPriorityNote(availableWorkingFileRefs);
+    const documentPriorityNote = this.buildWorkingFileDocumentPriorityNote(
+      availableWorkingFileHandles
+    );
     if (documentPriorityNote !== null) {
       lines.push("", ...documentPriorityNote);
     }
 
     const duplicateDisplayNames = this.collectDuplicateWorkingFileNames(modelVisibleWorkingFiles);
-    lines.push("", ...this.buildWorkingFileGeneralFileNote(availableWorkingFileRefs), "");
+    const collisionCounters = new Map<string, number>();
+    lines.push("", ...this.buildWorkingFileGeneralFileNote(availableWorkingFileHandles), "");
     for (const file of modelVisibleWorkingFiles) {
-      lines.push(this.formatWorkingFileHistoryLine(file, duplicateDisplayNames));
+      const displayNameKey = this.resolveWorkingFileDisplayName(file).toLowerCase();
+      let collisionIndex: number | null = null;
+      if (duplicateDisplayNames.has(displayNameKey)) {
+        const next = (collisionCounters.get(displayNameKey) ?? 0) + 1;
+        collisionCounters.set(displayNameKey, next);
+        collisionIndex = next;
+      }
+      lines.push(this.formatWorkingFileHistoryLine(file, duplicateDisplayNames, collisionIndex));
     }
 
     lines.push(
       "",
-      'Use sticky aliases first (`file #N`, `image #N`). For image/video tools, prefer image aliases such as "image #1".'
+      "Address files by their pod-absolute path under `/workspace/` or `/shared/<workspaceId>/`."
     );
     lines.push(
-      "If the needed file is absent or ambiguous, use `files.list`/`files.search`; do not answer from this block alone."
+      "Recover a forgotten path with `files.list` or `files.read`; use `files.preview` for sampled content. Do not answer from this block alone."
     );
     lines.push(
       "Do not send files or claim delivery/preparation unless the user explicitly asks and the current turn returns the matching tool result."
@@ -2103,20 +2112,18 @@ export class TurnExecutionService {
     return lines.join("\n");
   }
 
-  private isCurrentSourceWorkingFile(file: RuntimeFileRef): boolean {
-    return (
-      file.origin === "uploaded_attachment" && this.isDocumentSourceWorkingFileMime(file.mimeType)
-    );
+  private isCurrentSourceWorkingFile(file: RuntimeFileHandle): boolean {
+    return file.authorLabel === "user" && this.isDocumentSourceWorkingFileMime(file.mimeType);
   }
 
-  private isLastDeliveredDocumentResultWorkingFile(file: RuntimeFileRef): boolean {
+  private isLastDeliveredDocumentResultWorkingFile(file: RuntimeFileHandle): boolean {
     return (
       this.isAssistantGeneratedWorkingFile(file) &&
       (this.isPdfWorkingFileMime(file.mimeType) || file.sourceToolCode === DOCUMENT_TOOL_CODE)
     );
   }
 
-  private isDocumentRelatedWorkingFile(file: RuntimeFileRef): boolean {
+  private isDocumentRelatedWorkingFile(file: RuntimeFileHandle): boolean {
     return (
       this.isDocumentSourceWorkingFileMime(file.mimeType) ||
       this.isPdfWorkingFileMime(file.mimeType) ||
@@ -2144,8 +2151,8 @@ export class TurnExecutionService {
     return normalized === "application/pdf" || normalized === "application/x-pdf";
   }
 
-  private isAssistantGeneratedWorkingFile(file: RuntimeFileRef): boolean {
-    return file.origin !== "uploaded_attachment";
+  private isAssistantGeneratedWorkingFile(file: RuntimeFileHandle): boolean {
+    return (file.authorLabel ?? "model") !== "user";
   }
 
   private buildOpenMediaJobsDeveloperSection(
@@ -2610,9 +2617,9 @@ export class TurnExecutionService {
       );
     }
     for (const attachment of input.message.attachments) {
-      if (attachment.objectKey.trim().length === 0) {
+      if (attachment.storagePath.trim().length === 0) {
         throw new BadRequestException(
-          `message.attachments[].objectKey must be non-empty for native ${operation} execution.`
+          `message.attachments[].storagePath must be non-empty for native ${operation} execution.`
         );
       }
     }
@@ -2639,14 +2646,14 @@ export class TurnExecutionService {
       iteration += 1
     ) {
       let providerResult: ProviderGatewayTextGenerateResult;
-      let availableWorkingFileRefs = execution.availableWorkingFileRefs;
+      let availableWorkingFileHandles = execution.availableWorkingFileHandles;
       let pendingFilePreviewBlocks: ProviderGatewayMessageContentBlock[] | undefined;
       try {
-        availableWorkingFileRefs =
-          await this.turnContextHydrationService.listAvailableWorkingFileRefs({
+        availableWorkingFileHandles =
+          await this.turnContextHydrationService.listAvailableWorkingFileHandles({
             conversation: acceptedTurn.session.conversation,
             currentAttachments: execution.currentMessageAttachments,
-            currentFileRefs: turnState.fileRefs,
+            currentFileHandles: turnState.fileHandles,
             currentArtifacts: turnState.artifacts
           });
         pendingFilePreviewBlocks = await this.sanitizePreviewBlocksMultimodalForTextOnlyProvider(
@@ -2660,7 +2667,7 @@ export class TurnExecutionService {
           baseDeveloperInstructionSections: execution.developerInstructionSections,
           toolHistory,
           availableToolNames: execution.projectedTools.tools.map((tool) => tool.name),
-          availableWorkingFileRefs,
+          availableWorkingFileHandles,
           closedOpenLoopRefs: turnState.closedOpenLoopRefs,
           forceFinalTextOnly,
           deferredMediaJobs: turnState.deferredMediaJobs,
@@ -2766,7 +2773,7 @@ export class TurnExecutionService {
             acceptedTurn,
             input,
             turnState,
-            availableWorkingFileRefs,
+            availableWorkingFileHandles,
             trace: undefined,
             iteration
           });
@@ -2813,9 +2820,8 @@ export class TurnExecutionService {
                 entry.toolCall,
                 input.idempotencyKey,
                 turnState.artifacts,
-                turnState.fileRefs,
-                availableWorkingFileRefs,
-                turnState.deferredDocumentJobs
+                turnState.fileHandles,
+                availableWorkingFileHandles
               );
           this.maybeRefundToolRequestRejectionReservation(toolBudgetPolicy, entry, outcome);
           outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
@@ -2959,12 +2965,12 @@ export class TurnExecutionService {
     acceptedTurn: AcceptedRuntimeTurn;
     input: RuntimeTurnRequest;
     turnState: TurnExecutionState;
-    availableWorkingFileRefs: RuntimeFileRef[];
+    availableWorkingFileHandles: RuntimeFileHandle[];
     trace: RuntimeStreamTraceCollector | undefined;
     iteration: number;
   }): Promise<ExecutedToolCallResult[]> {
     const currentArtifacts = [...params.turnState.artifacts];
-    const currentFileRefs = [...params.turnState.fileRefs];
+    const currentFileHandles = [...params.turnState.fileHandles];
     return Promise.all(
       params.plannedToolExecutions.map(async (entry) => {
         if (entry.reservation.exhausted) {
@@ -2989,9 +2995,8 @@ export class TurnExecutionService {
               entry.toolCall,
               params.input.idempotencyKey,
               currentArtifacts,
-              currentFileRefs,
-              params.availableWorkingFileRefs,
-              params.turnState.deferredDocumentJobs
+              currentFileHandles,
+              params.availableWorkingFileHandles
             )
           } satisfies ExecutedToolCallResult;
         } catch (error) {
@@ -3011,9 +3016,8 @@ export class TurnExecutionService {
     toolCall: ProviderGatewayToolCall,
     currentUserMessageId: string | null,
     currentArtifacts: RuntimeOutputArtifact[],
-    currentFileRefs: RuntimeFileRef[],
-    availableWorkingFileRefs: RuntimeFileRef[],
-    currentDeferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"] = []
+    currentFileHandles: RuntimeFileHandle[],
+    availableWorkingFileHandles: RuntimeFileHandle[]
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
@@ -3130,52 +3134,23 @@ export class TurnExecutionService {
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
       case FILES_TOOL_CODE: {
-        const requestedFilesAction = this.readFilesRequestedAction(toolCall.arguments);
-        if (
-          currentDeferredDocumentJobs.length > 0 &&
-          (requestedFilesAction === "send" || requestedFilesAction === "write_and_send")
-        ) {
-          return this.createToolExecutionOutcome(toolCall, {
-            toolCode: "files",
-            executionMode: "inline",
-            requestedAction: requestedFilesAction,
-            action: "skipped",
-            reason: "document_pending_delivery",
-            warning:
-              "A document job from this turn is still pending delivery. Do not send an older file as the new document result.",
-            item: null,
-            items: [],
-            content: null,
-            job: null,
-            fileRefs: [],
-            queuedArtifacts: 0
-          });
-        }
-        const availableWorkingFileRefs =
-          await this.turnContextHydrationService.listAvailableWorkingFileRefs({
-            conversation: acceptedTurn.session.conversation,
-            currentAttachments: execution.currentMessageAttachments,
-            currentFileRefs,
-            currentArtifacts
-          });
         const result = await this.runtimeFilesToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
-          currentArtifacts,
-          currentFileRefs,
-          availableWorkingFileRefs,
-          channel: acceptedTurn.session.conversation.channel
+          channel: acceptedTurn.session.conversation.channel,
+          chatId: null,
+          externalThreadKey: this.resolveSurfaceThreadKey(acceptedTurn.session.conversation),
+          messageId: currentUserMessageId
         });
         return this.createToolExecutionOutcome(
           toolCall,
           result.payload,
           result.isError,
           undefined,
-          result.artifacts,
-          result.discoveredFileRefs,
-          result.pendingFilePreviewBlocks
+          undefined,
+          result.discoveredFileHandles
         );
       }
       case EXEC_TOOL_CODE:
@@ -3184,8 +3159,7 @@ export class TurnExecutionService {
           bundle: execution.bundle,
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
-          requestId: acceptedTurn.receipt.requestId,
-          currentFileRefs
+          requestId: acceptedTurn.receipt.requestId
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
@@ -3194,8 +3168,7 @@ export class TurnExecutionService {
           bundle: execution.bundle,
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
-          requestId: acceptedTurn.receipt.requestId,
-          currentFileRefs
+          requestId: acceptedTurn.receipt.requestId
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
@@ -3204,8 +3177,7 @@ export class TurnExecutionService {
           bundle: execution.bundle,
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
-          requestId: acceptedTurn.receipt.requestId,
-          currentFileRefs
+          requestId: acceptedTurn.receipt.requestId
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
@@ -3225,7 +3197,7 @@ export class TurnExecutionService {
           execution.currentMessageAttachments
             .filter((attachment) => this.isDocumentSourceWorkingFileMime(attachment.mimeType))
             .map((attachment) => ({ ...attachment, aliases: attachment.aliases ?? null })),
-          availableWorkingFileRefs
+          availableWorkingFileHandles
         );
         const result = await this.runtimeDocumentToolService.executeToolCall({
           bundle: execution.bundle,
@@ -3248,9 +3220,9 @@ export class TurnExecutionService {
       case IMAGE_EDIT_TOOL_CODE: {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
           execution.currentMessageAttachments,
-          availableWorkingFileRefs,
+          availableWorkingFileHandles,
           currentArtifacts,
-          currentFileRefs
+          currentFileHandles
         );
         const result = await this.runtimeImageEditToolService.executeToolCall({
           bundle: execution.bundle,
@@ -3278,9 +3250,9 @@ export class TurnExecutionService {
       case IMAGE_GENERATE_TOOL_CODE: {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
           execution.currentMessageAttachments,
-          availableWorkingFileRefs,
+          availableWorkingFileHandles,
           currentArtifacts,
-          currentFileRefs
+          currentFileHandles
         );
         const result = await this.runtimeImageGenerateToolService.executeToolCall({
           bundle: execution.bundle,
@@ -3308,9 +3280,9 @@ export class TurnExecutionService {
       case VIDEO_GENERATE_TOOL_CODE: {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
           execution.currentMessageAttachments,
-          availableWorkingFileRefs,
+          availableWorkingFileHandles,
           currentArtifacts,
-          currentFileRefs
+          currentFileHandles
         );
         const result = await this.runtimeVideoGenerateToolService.executeToolCall({
           bundle: execution.bundle,
@@ -3395,28 +3367,21 @@ export class TurnExecutionService {
 
   private resolveAvailableImageToolAttachments(
     currentMessageAttachments: RuntimeAttachmentRef[],
-    availableWorkingFileRefs: RuntimeFileRef[],
+    availableWorkingFileHandles: RuntimeFileHandle[],
     currentArtifacts: RuntimeOutputArtifact[],
-    currentFileRefs: RuntimeFileRef[]
+    currentFileHandles: RuntimeFileHandle[]
   ): Promise<RuntimeAttachmentRef[]> {
-    const aliasByFileRef = new Map<string, string[]>();
-    const aliasByObjectKey = new Map<string, string[]>();
-    for (const fileRef of [...availableWorkingFileRefs, ...currentFileRefs]) {
-      if ((fileRef.aliases ?? []).length === 0) {
+    const aliasByStoragePath = new Map<string, string[]>();
+    for (const fileHandle of [...availableWorkingFileHandles, ...currentFileHandles]) {
+      if ((fileHandle.aliases ?? []).length === 0) {
         continue;
       }
-      aliasByFileRef.set(fileRef.fileRef, fileRef.aliases ?? []);
-      aliasByObjectKey.set(fileRef.objectKey, fileRef.aliases ?? []);
+      aliasByStoragePath.set(fileHandle.storagePath, fileHandle.aliases ?? []);
     }
     const withWorkingFileAliases = (
       attachment: RuntimeAttachmentRef
     ): RuntimeAttachmentRef | null => {
-      const workingFileAliases =
-        (typeof attachment.fileRef === "string"
-          ? aliasByFileRef.get(attachment.fileRef)
-          : undefined) ??
-        aliasByObjectKey.get(attachment.objectKey) ??
-        null;
+      const workingFileAliases = aliasByStoragePath.get(attachment.storagePath) ?? null;
       if (workingFileAliases === null) {
         return null;
       }
@@ -3434,26 +3399,24 @@ export class TurnExecutionService {
       .map((artifact) => ({
         attachmentId: artifact.artifactId,
         kind: "image" as const,
-        objectKey: artifact.objectKey,
+        storagePath: artifact.storagePath,
         mimeType: artifact.mimeType,
-        filename: artifact.filename,
+        displayName: artifact.filename,
         sizeBytes: artifact.sizeBytes ?? 0,
-        fileRef: artifact.fileRef,
         aliases: null
       }))
       .map(withWorkingFileAliases)
       .filter((attachment): attachment is RuntimeAttachmentRef => attachment !== null);
-    const workingFileImageAttachments = [...availableWorkingFileRefs, ...currentFileRefs]
-      .filter((fileRef) => fileRef.mimeType.startsWith("image/"))
-      .map((fileRef) => ({
-        attachmentId: `file:${fileRef.fileRef}`,
+    const workingFileImageAttachments = [...availableWorkingFileHandles, ...currentFileHandles]
+      .filter((fileHandle) => fileHandle.mimeType.startsWith("image/"))
+      .map((fileHandle) => ({
+        attachmentId: `file:${fileHandle.storagePath}`,
         kind: "image" as const,
-        objectKey: fileRef.objectKey,
-        mimeType: fileRef.mimeType,
-        filename: fileRef.displayName ?? null,
-        sizeBytes: fileRef.logicalSizeBytes ?? fileRef.sizeBytes ?? 0,
-        fileRef: fileRef.fileRef,
-        aliases: fileRef.aliases ?? null
+        storagePath: fileHandle.storagePath,
+        mimeType: fileHandle.mimeType,
+        displayName: fileHandle.displayName ?? null,
+        sizeBytes: fileHandle.sizeBytes ?? 0,
+        aliases: fileHandle.aliases ?? null
       }));
     return Promise.resolve(
       this.dedupeRuntimeAttachmentsByStorage([
@@ -3466,7 +3429,7 @@ export class TurnExecutionService {
 
   private mergeWorkingFileDocumentSourceAttachments(
     attachments: RuntimeAttachmentRef[],
-    availableWorkingFileRefs: RuntimeFileRef[]
+    availableWorkingFileHandles: RuntimeFileHandle[]
   ): RuntimeAttachmentRef[] {
     const merged = new Map<string, RuntimeAttachmentRef>();
     const upsert = (attachment: RuntimeAttachmentRef): void => {
@@ -3484,28 +3447,25 @@ export class TurnExecutionService {
     for (const attachment of attachments) {
       upsert(attachment);
     }
-    for (const fileRef of availableWorkingFileRefs) {
-      if (!this.isDocumentSourceWorkingFileMime(fileRef.mimeType)) {
+    for (const fileHandle of availableWorkingFileHandles) {
+      if (!this.isDocumentSourceWorkingFileMime(fileHandle.mimeType)) {
         continue;
       }
       upsert({
-        attachmentId: `file:${fileRef.fileRef}`,
+        attachmentId: `file:${fileHandle.storagePath}`,
         kind: "file",
-        objectKey: fileRef.objectKey,
-        mimeType: fileRef.mimeType,
-        filename: fileRef.displayName ?? null,
-        sizeBytes: fileRef.logicalSizeBytes ?? fileRef.sizeBytes ?? 0,
-        fileRef: fileRef.fileRef,
-        aliases: fileRef.aliases ?? null
+        storagePath: fileHandle.storagePath,
+        mimeType: fileHandle.mimeType,
+        displayName: fileHandle.displayName ?? null,
+        sizeBytes: fileHandle.sizeBytes ?? 0,
+        aliases: fileHandle.aliases ?? null
       });
     }
     return [...merged.values()];
   }
 
   private buildRuntimeAttachmentDedupeKey(attachment: RuntimeAttachmentRef): string {
-    return typeof attachment.fileRef === "string" && attachment.fileRef.trim().length > 0
-      ? `file:${attachment.fileRef}`
-      : `object:${attachment.objectKey}`;
+    return `storage:${attachment.storagePath}`;
   }
 
   private dedupeRuntimeAttachmentsByStorage(
@@ -3815,7 +3775,7 @@ export class TurnExecutionService {
     isError = false,
     sharedCompaction?: ToolExecutionOutcome["sharedCompaction"],
     artifacts?: RuntimeOutputArtifact[],
-    discoveredFileRefs?: RuntimeFileRef[],
+    discoveredFileHandles?: RuntimeFileHandle[],
     pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[]
   ): ToolExecutionOutcome {
     return {
@@ -3838,9 +3798,9 @@ export class TurnExecutionService {
       },
       payload,
       ...(artifacts === undefined ? {} : { artifacts }),
-      ...(discoveredFileRefs === undefined || discoveredFileRefs.length === 0
+      ...(discoveredFileHandles === undefined || discoveredFileHandles.length === 0
         ? {}
-        : { discoveredFileRefs }),
+        : { discoveredFileHandles }),
       ...(sharedCompaction === undefined ? {} : { sharedCompaction }),
       ...(pendingFilePreviewBlocks === undefined || pendingFilePreviewBlocks.length === 0
         ? {}
@@ -3855,7 +3815,7 @@ export class TurnExecutionService {
       baseDeveloperInstructionSections: DeveloperInstructionSection[];
       toolHistory: ProviderGatewayToolExchange[];
       availableToolNames: string[];
-      availableWorkingFileRefs: RuntimeFileRef[];
+      availableWorkingFileHandles: RuntimeFileHandle[];
       closedOpenLoopRefs: string[];
       forceFinalTextOnly?: boolean;
       deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
@@ -3867,7 +3827,7 @@ export class TurnExecutionService {
     const assistantText = this.normalizeOptionalText(input.assistantText);
     const developerInstructions = this.buildToolLoopDeveloperInstructions(
       input.baseDeveloperInstructionSections,
-      input.availableWorkingFileRefs,
+      input.availableWorkingFileHandles,
       input.closedOpenLoopRefs,
       input.toolHistory.length > 0,
       input.toolHistory,
@@ -3919,7 +3879,7 @@ export class TurnExecutionService {
 
   private buildToolLoopDeveloperInstructions(
     baseSections: DeveloperInstructionSection[],
-    availableWorkingFileRefs: RuntimeFileRef[],
+    availableWorkingFileHandles: RuntimeFileHandle[],
     closedOpenLoopRefs: string[],
     hasToolHistory: boolean,
     toolHistory: ProviderGatewayToolExchange[],
@@ -3931,7 +3891,7 @@ export class TurnExecutionService {
     let sections = this.replaceDeveloperInstructionSection(
       baseSections,
       "working_files",
-      this.buildWorkingFilesDeveloperSection(availableWorkingFileRefs)
+      this.buildWorkingFilesDeveloperSection(availableWorkingFileHandles)
     );
     sections = this.replaceDeveloperInstructionSection(
       sections,
@@ -4078,19 +4038,20 @@ export class TurnExecutionService {
   }
 
   private formatWorkingFileHistoryLine(
-    file: RuntimeFileRef,
-    duplicateDisplayNames: Set<string>
+    file: RuntimeFileHandle,
+    duplicateDisplayNames: Set<string>,
+    collisionIndex: number | null = null
   ): string {
     const createdAt = this.formatWorkingFileCreatedAt(file.createdAt);
-    const author = file.authorLabel ?? this.resolveWorkingFileAuthorLabel(file.origin);
+    const author = file.authorLabel ?? "model";
     const alias = this.describeWorkingFileStickyLabel(file);
-    const filename = this.formatWorkingFileDisplayName(file, duplicateDisplayNames);
+    const filename = this.formatWorkingFileDisplayName(file, duplicateDisplayNames, collisionIndex);
     const markers = this.formatWorkingFileMarkers(file);
     const microDescription = this.formatWorkingFileMicroDescription(file.semanticSummaryHint);
     return `- ${createdAt} | ${author} | ${alias} | ${filename} | ${markers} | ${microDescription}`;
   }
 
-  private buildWorkingFileDocumentPriorityNote(files: RuntimeFileRef[]): string[] | null {
+  private buildWorkingFileDocumentPriorityNote(files: RuntimeFileHandle[]): string[] | null {
     const { currentSource, lastDelivered } = this.selectWorkingFileDocumentPriorityAnchors(files);
     const hasDocumentContext =
       currentSource !== null ||
@@ -4108,7 +4069,7 @@ export class TurnExecutionService {
     ];
   }
 
-  private buildWorkingFileGeneralFileNote(files: RuntimeFileRef[]): string[] {
+  private buildWorkingFileGeneralFileNote(files: RuntimeFileHandle[]): string[] {
     const lastDeliveredFile = this.selectLastDeliveredWorkingFile(files);
     return [
       "Chat files visible to tools (documents, media, and attachments):",
@@ -4116,11 +4077,11 @@ export class TurnExecutionService {
     ];
   }
 
-  private selectLastDeliveredWorkingFile(files: RuntimeFileRef[]): RuntimeFileRef | null {
+  private selectLastDeliveredWorkingFile(files: RuntimeFileHandle[]): RuntimeFileHandle | null {
     return this.sortWorkingFilesByCreatedAt(files)[0] ?? null;
   }
 
-  private describeWorkingFilePriorityAnchor(file: RuntimeFileRef | null): string {
+  private describeWorkingFilePriorityAnchor(file: RuntimeFileHandle | null): string {
     if (file === null) {
       return "none";
     }
@@ -4130,7 +4091,7 @@ export class TurnExecutionService {
     )}`;
   }
 
-  private collectDuplicateWorkingFileNames(files: RuntimeFileRef[]): Set<string> {
+  private collectDuplicateWorkingFileNames(files: RuntimeFileHandle[]): Set<string> {
     const counts = new Map<string, number>();
     for (const file of files) {
       const displayName = this.resolveWorkingFileDisplayName(file).toLowerCase();
@@ -4141,7 +4102,7 @@ export class TurnExecutionService {
     );
   }
 
-  private resolvePrimaryWorkingFileAlias(file: RuntimeFileRef): string {
+  private resolvePrimaryWorkingFileAlias(file: RuntimeFileHandle): string {
     const aliases = (file.aliases ?? [])
       .map((alias) => alias.trim())
       .filter((alias) => alias.length > 0);
@@ -4159,15 +4120,15 @@ export class TurnExecutionService {
     return aliases[0] ?? "unaliased file";
   }
 
-  private resolveStickyFileAlias(file: RuntimeFileRef): string | null {
+  private resolveStickyFileAlias(file: RuntimeFileHandle): string | null {
     return (file.aliases ?? []).find((alias) => /^file #\d+$/i.test(alias.trim()))?.trim() ?? null;
   }
 
-  private resolveStickyImageAlias(file: RuntimeFileRef): string | null {
+  private resolveStickyImageAlias(file: RuntimeFileHandle): string | null {
     return (file.aliases ?? []).find((alias) => /^image #\d+$/i.test(alias.trim()))?.trim() ?? null;
   }
 
-  private describeWorkingFileStickyLabel(file: RuntimeFileRef): string {
+  private describeWorkingFileStickyLabel(file: RuntimeFileHandle): string {
     const imageAlias = this.resolveStickyImageAlias(file);
     const fileAlias = this.resolveStickyFileAlias(file);
     if (imageAlias !== null && fileAlias !== null) {
@@ -4176,7 +4137,7 @@ export class TurnExecutionService {
     return imageAlias ?? fileAlias ?? this.resolvePrimaryWorkingFileAlias(file);
   }
 
-  private formatWorkingFileMarkers(file: RuntimeFileRef): string {
+  private formatWorkingFileMarkers(file: RuntimeFileHandle): string {
     const markers: string[] = [];
     if (this.isCurrentSourceWorkingFile(file)) {
       markers.push("current source");
@@ -4190,7 +4151,7 @@ export class TurnExecutionService {
     return markers.length === 0 ? "-" : markers.join(", ");
   }
 
-  private isRecentWorkingFile(file: RuntimeFileRef): boolean {
+  private isRecentWorkingFile(file: RuntimeFileHandle): boolean {
     const createdAtMs = this.parseWorkingFileCreatedAtMs(file.createdAt);
     if (createdAtMs === 0) {
       return false;
@@ -4198,19 +4159,20 @@ export class TurnExecutionService {
     return Date.now() - createdAtMs <= 1000 * 60 * 60 * 24 * 7;
   }
 
-  private resolveWorkingFileDisplayName(file: RuntimeFileRef): string {
-    return file.displayName ?? file.relativePath.split("/").pop() ?? "file";
+  private resolveWorkingFileDisplayName(file: RuntimeFileHandle): string {
+    return file.displayName ?? file.storagePath.split("/").pop() ?? "file";
   }
 
   private formatWorkingFileDisplayName(
-    file: RuntimeFileRef,
-    duplicateDisplayNames: Set<string>
+    file: RuntimeFileHandle,
+    duplicateDisplayNames: Set<string>,
+    collisionIndex: number | null = null
   ): string {
     const displayName = this.resolveWorkingFileDisplayName(file);
-    if (!duplicateDisplayNames.has(displayName.toLowerCase())) {
+    if (!duplicateDisplayNames.has(displayName.toLowerCase()) || collisionIndex === null) {
       return displayName;
     }
-    return `${displayName} [${file.fileRef.slice(-WORKING_FILE_REF_SUFFIX_HEX_LENGTH)}]`;
+    return `${displayName} [#${collisionIndex}]`;
   }
 
   private formatWorkingFileMicroDescription(summary: string | null | undefined): string {
@@ -4222,16 +4184,9 @@ export class TurnExecutionService {
   }
 
   private resolveWorkingFileAuthorLabel(
-    origin: RuntimeFileRef["origin"]
-  ): NonNullable<RuntimeFileRef["authorLabel"]> {
-    switch (origin) {
-      case "uploaded_attachment":
-        return "user";
-      case "sandbox_output":
-        return "sandbox";
-      default:
-        return "model";
-    }
+    authorLabel: RuntimeFileHandle["authorLabel"]
+  ): NonNullable<RuntimeFileHandle["authorLabel"]> {
+    return authorLabel ?? "model";
   }
 
   private formatWorkingFileCreatedAt(createdAt: string | undefined): string {
@@ -4251,31 +4206,31 @@ export class TurnExecutionService {
   }
 
   private limitModelVisibleWorkingFiles(
-    availableWorkingFileRefs: RuntimeFileRef[]
-  ): RuntimeFileRef[] {
-    const sorted = this.sortWorkingFilesByCreatedAt(availableWorkingFileRefs);
+    availableWorkingFileHandles: RuntimeFileHandle[]
+  ): RuntimeFileHandle[] {
+    const sorted = this.sortWorkingFilesByCreatedAt(availableWorkingFileHandles);
     if (sorted.length <= MAX_MODEL_VISIBLE_WORKING_FILES) {
       return sorted;
     }
     const { currentSource, lastDelivered } = this.selectWorkingFileDocumentPriorityAnchors(sorted);
     const requiredFileRefs = new Set(
       [currentSource, lastDelivered]
-        .filter((file): file is RuntimeFileRef => file !== null)
-        .map((file) => file.fileRef)
+        .filter((file): file is RuntimeFileHandle => file !== null)
+        .map((file) => file.storagePath)
     );
     const visible = [...sorted.slice(0, MAX_MODEL_VISIBLE_WORKING_FILES)];
-    const visibleFileRefs = new Set(visible.map((file) => file.fileRef));
+    const visibleFileRefs = new Set(visible.map((file) => file.storagePath));
     for (const file of [currentSource, lastDelivered]) {
-      if (file !== null && !visibleFileRefs.has(file.fileRef)) {
+      if (file !== null && !visibleFileRefs.has(file.storagePath)) {
         visible.push(file);
-        visibleFileRefs.add(file.fileRef);
+        visibleFileRefs.add(file.storagePath);
       }
     }
     const ordered = this.sortWorkingFilesByCreatedAt(visible);
     while (ordered.length > MAX_MODEL_VISIBLE_WORKING_FILES) {
       const removableIndex = [...ordered]
         .reverse()
-        .findIndex((file) => !requiredFileRefs.has(file.fileRef));
+        .findIndex((file) => !requiredFileRefs.has(file.storagePath));
       if (removableIndex === -1) {
         break;
       }
@@ -4293,7 +4248,7 @@ export class TurnExecutionService {
     return Number.isNaN(parsed) ? 0 : parsed;
   }
 
-  private sortWorkingFilesByCreatedAt(files: RuntimeFileRef[]): RuntimeFileRef[] {
+  private sortWorkingFilesByCreatedAt(files: RuntimeFileHandle[]): RuntimeFileHandle[] {
     return [...files].sort((left, right) => {
       const createdAtDiff =
         this.parseWorkingFileCreatedAtMs(right.createdAt) -
@@ -4301,13 +4256,13 @@ export class TurnExecutionService {
       if (createdAtDiff !== 0) {
         return createdAtDiff;
       }
-      return right.fileRef.localeCompare(left.fileRef);
+      return right.storagePath.localeCompare(left.storagePath);
     });
   }
 
-  private selectWorkingFileDocumentPriorityAnchors(files: RuntimeFileRef[]): {
-    currentSource: RuntimeFileRef | null;
-    lastDelivered: RuntimeFileRef | null;
+  private selectWorkingFileDocumentPriorityAnchors(files: RuntimeFileHandle[]): {
+    currentSource: RuntimeFileHandle | null;
+    lastDelivered: RuntimeFileHandle | null;
   } {
     const sorted = this.sortWorkingFilesByCreatedAt(files);
     return {
@@ -4550,7 +4505,7 @@ export class TurnExecutionService {
       `${subject} from this same turn was accepted for async background processing.`,
       "The document tool result is pending_delivery with canSendFileNow=false until backend delivery completes.",
       "Do not describe the final document as already generated, ready, visible in chat, attached, uploaded, or sent.",
-      "Do not call files.send for this document or any older document file in this turn.",
+      "Do not attempt to deliver this document or any file from this turn via the files tool.",
       "Acknowledge in your reply that the request is in progress and the final document will arrive separately when ready.",
       "You may continue with other independent work in the same turn — call other tools, advance other plan steps, or queue additional document jobs. Do not stop just to wait for user confirmation between independent background jobs.",
       "Do not print raw tool JSON, job ids, filenames, or imagined result details."
@@ -4745,13 +4700,13 @@ export class TurnExecutionService {
         durableStatePersisted: false
       },
       artifacts: [],
-      fileRefs: [],
+      fileHandles: [],
       usageEntries: [],
       toolInvocations: [],
       deferredMediaJobs: [],
       deferredDocumentJobs: [],
       closedOpenLoopRefs: [],
-      discoveredFileRefIdSet: []
+      discoveredFilePathSet: []
     };
   }
 
@@ -4860,58 +4815,67 @@ export class TurnExecutionService {
         } else {
           turnState.artifacts.push(artifact);
         }
-        const existingFileIndex = turnState.fileRefs.findIndex(
-          (existingFileRef) => existingFileRef.fileRef === artifact.file.fileRef
+        const fileHandle: RuntimeFileHandle = {
+          storagePath: artifact.storagePath,
+          mimeType: artifact.mimeType,
+          sizeBytes: artifact.sizeBytes ?? 0,
+          displayName: artifact.filename,
+          workspaceId: "",
+          sourceToolCode: artifact.sourceToolCode ?? null,
+          authorLabel: "model"
+        };
+        const existingFileIndex = turnState.fileHandles.findIndex(
+          (existingFileRef) => existingFileRef.storagePath === fileHandle.storagePath
         );
         if (existingFileIndex >= 0) {
-          turnState.fileRefs[existingFileIndex] = artifact.file;
+          turnState.fileHandles[existingFileIndex] = fileHandle;
         } else {
-          turnState.fileRefs.push(artifact.file);
+          turnState.fileHandles.push(fileHandle);
         }
       }
     }
 
-    const producedFileRefs = this.extractProducedFileRefs(outcome.payload);
-    if (producedFileRefs.length > 0) {
-      for (const fileRef of producedFileRefs) {
-        const existingIndex = turnState.fileRefs.findIndex(
-          (existingFileRef) => existingFileRef.fileRef === fileRef.fileRef
+    const producedFileHandles = this.extractProducedFileHandles(outcome.payload);
+    if (producedFileHandles.length > 0) {
+      for (const fileHandle of producedFileHandles) {
+        const existingIndex = turnState.fileHandles.findIndex(
+          (existingFileHandle) => existingFileHandle.storagePath === fileHandle.storagePath
         );
         if (existingIndex >= 0) {
-          turnState.fileRefs[existingIndex] = fileRef;
+          turnState.fileHandles[existingIndex] = fileHandle;
         } else {
-          turnState.fileRefs.push(fileRef);
+          turnState.fileHandles.push(fileHandle);
         }
       }
     }
-    // ADR-100 follow-up — files-tool discovery refs (search/list/get/read)
-    // surface as a parallel signal: they don't replace any existing entry
-    // for `fileRef.fileRef`, but they merge the sticky Working Files aliases
-    // onto whichever entry already exists so the next provider iteration can
-    // address it through `files.send` / `image_edit` without recomputing
+    // ADR-100 follow-up — files-tool discovery refs surface as a parallel
+    // signal: they don't replace any existing entry for the same storagePath,
+    // but they merge the sticky Working Files aliases onto whichever entry
+    // already exists so the next provider iteration can address it by
+    // absolute pod path (or via `image_edit`) without recomputing
     // recency-based ordinals.
-    if (outcome.discoveredFileRefs !== undefined && outcome.discoveredFileRefs.length > 0) {
-      for (const discoveredRef of outcome.discoveredFileRefs) {
-        const existingIndex = turnState.fileRefs.findIndex(
-          (existingFileRef) => existingFileRef.fileRef === discoveredRef.fileRef
+    if (outcome.discoveredFileHandles !== undefined && outcome.discoveredFileHandles.length > 0) {
+      for (const discoveredRef of outcome.discoveredFileHandles) {
+        const existingIndex = turnState.fileHandles.findIndex(
+          (existingFileHandle) => existingFileHandle.storagePath === discoveredRef.storagePath
         );
         if (existingIndex >= 0) {
-          const existing = turnState.fileRefs[existingIndex]!;
-          turnState.fileRefs[existingIndex] = {
+          const existing = turnState.fileHandles[existingIndex]!;
+          turnState.fileHandles[existingIndex] = {
             ...existing,
             aliases: this.mergeFileRefAliases(existing.aliases, discoveredRef.aliases)
           };
         } else {
-          turnState.fileRefs.push(discoveredRef);
+          turnState.fileHandles.push(discoveredRef);
         }
         // ADR-100 Piece 1 — also track the canonical id for durable persistence
         // so the API can write it to assistant message metadata and future
         // hydration can preserve the same sticky Working Files handle.
         if (
-          turnState.discoveredFileRefIdSet.length < 20 &&
-          !turnState.discoveredFileRefIdSet.includes(discoveredRef.fileRef)
+          turnState.discoveredFilePathSet.length < 20 &&
+          !turnState.discoveredFilePathSet.includes(discoveredRef.storagePath)
         ) {
-          turnState.discoveredFileRefIdSet.push(discoveredRef.fileRef);
+          turnState.discoveredFilePathSet.push(discoveredRef.storagePath);
         }
       }
     }
@@ -5097,9 +5061,8 @@ export class TurnExecutionService {
           toolCall,
           input.input.idempotencyKey,
           input.turnState.artifacts,
-          input.turnState.fileRefs,
-          input.execution.availableWorkingFileRefs,
-          input.turnState.deferredDocumentJobs
+          input.turnState.fileHandles,
+          input.execution.availableWorkingFileHandles
         );
         outcome.exchange.reasoningContent = firstResult.reasoningContent ?? null;
         toolHistory.push(outcome.exchange);
@@ -5115,7 +5078,7 @@ export class TurnExecutionService {
         baseDeveloperInstructionSections: input.execution.developerInstructionSections,
         toolHistory,
         availableToolNames: input.execution.projectedTools.tools.map((tool) => tool.name),
-        availableWorkingFileRefs: input.execution.availableWorkingFileRefs,
+        availableWorkingFileHandles: input.execution.availableWorkingFileHandles,
         closedOpenLoopRefs: input.turnState.closedOpenLoopRefs,
         forceFinalTextOnly: true,
         deferredMediaJobs: input.turnState.deferredMediaJobs,
@@ -5312,16 +5275,11 @@ export class TurnExecutionService {
     }
     const action = (value as { action?: unknown }).action;
     return action === "list" ||
-      action === "search" ||
-      action === "inspect" ||
-      action === "get" ||
       action === "read" ||
       action === "preview" ||
       action === "write" ||
-      action === "write_and_send" ||
-      action === "edit" ||
       action === "delete" ||
-      action === "send"
+      action === "attach"
       ? action
       : null;
   }
@@ -5330,7 +5288,7 @@ export class TurnExecutionService {
    * Case-insensitive alias merge that mirrors
    * `TurnContextHydrationService.mergeAliases` (which is private to that
    * service). Used when merging files-tool discovery refs into
-   * `turnState.fileRefs` so the discovered file's sticky Working Files labels
+   * `turnState.fileHandles` so the discovered file's sticky Working Files labels
    * are appended to whatever aliases the existing turnState ref already
    * carried, instead of duplicating or silently shadowing them.
    */
@@ -5351,12 +5309,30 @@ export class TurnExecutionService {
     return merged;
   }
 
-  private extractProducedFileRefs(payload: ToolExecutionOutcome["payload"]): RuntimeFileRef[] {
+  private resolveSurfaceThreadKey(conversation: RuntimeTurnRequest["conversation"]): string | null {
+    const key = conversation.externalThreadKey;
+    if (typeof key !== "string") {
+      return null;
+    }
+    const trimmed = key.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  }
+
+  private extractProducedFileHandles(
+    payload: ToolExecutionOutcome["payload"]
+  ): RuntimeFileHandle[] {
     const job = this.resolveProducedFileJob(payload);
     if (job === null || job.files.length === 0) {
       return [];
     }
-    return job.files.map((file) => file.fileRef);
+    return job.files.map((file) => ({
+      storagePath: file.storagePath,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+      displayName: file.displayName,
+      workspaceId: "",
+      authorLabel: "sandbox" as const
+    }));
   }
 
   private isSandboxToolPayload(
@@ -5383,11 +5359,8 @@ export class TurnExecutionService {
 
   private resolveProducedFileJob(
     payload: ToolExecutionOutcome["payload"]
-  ): RuntimeSandboxToolResult["job"] | RuntimeFilesToolResult["job"] {
+  ): RuntimeSandboxToolResult["job"] | null {
     if (this.isSandboxToolPayload(payload)) {
-      return payload.job;
-    }
-    if (this.isFilesToolPayload(payload)) {
       return payload.job;
     }
     return null;
@@ -5431,7 +5404,7 @@ export class TurnExecutionService {
     const developerInstructionSections = this.buildBaseDeveloperInstructionSections({
       request: input,
       projectedTools: execution.projectedTools,
-      availableWorkingFileRefs: execution.availableWorkingFileRefs,
+      availableWorkingFileHandles: execution.availableWorkingFileHandles,
       deepModeEnabled: execution.deepModeEnabled,
       routeDecision: execution.routeDecision,
       openLoopRefsBlock,
@@ -6227,9 +6200,9 @@ export class TurnExecutionService {
       ...(turnState === undefined || turnState.artifacts.length === 0
         ? {}
         : { artifacts: [...turnState.artifacts] }),
-      ...(turnState === undefined || turnState.fileRefs.length === 0
+      ...(turnState === undefined || turnState.fileHandles.length === 0
         ? {}
-        : { fileRefs: [...turnState.fileRefs] }),
+        : { fileHandles: [...turnState.fileHandles] }),
       respondedAt,
       ...(trace === undefined ? {} : { trace })
     };
@@ -6315,7 +6288,7 @@ export class TurnExecutionService {
     return {
       ...event,
       ...(turnState.artifacts.length === 0 ? {} : { artifacts: [...turnState.artifacts] }),
-      ...(turnState.fileRefs.length === 0 ? {} : { fileRefs: [...turnState.fileRefs] })
+      ...(turnState.fileHandles.length === 0 ? {} : { fileHandles: [...turnState.fileHandles] })
     };
   }
 

@@ -233,7 +233,7 @@ export class RuntimeMediaJobCompletionService {
         artifacts: input.workerResult.artifacts.map((artifact) => ({
           type: artifact.type,
           filename: artifact.filename,
-          fileRef: artifact.fileRef,
+          storagePath: artifact.storagePath,
           role: artifact.role ?? "output"
         }))
       };
@@ -256,6 +256,7 @@ export class RuntimeMediaJobCompletionService {
     if (framingMode === "image_vision" && input.workerResult !== undefined) {
       const visionArtifacts = this.collectVisionArtifactRefs(input);
       const visionBlocks = await hydrateMediaJobCompletionVisionContent({
+        workspaceId: input.workspaceId,
         mediaObjectStorage: this.mediaObjectStorage,
         artifacts: visionArtifacts
       });
@@ -335,8 +336,8 @@ export class RuntimeMediaJobCompletionService {
   ): MediaJobCompletionVisionArtifactRef[] {
     if (
       artifact.type !== "image" ||
-      typeof artifact.objectKey !== "string" ||
-      artifact.objectKey.trim().length === 0
+      typeof artifact.storagePath !== "string" ||
+      artifact.storagePath.trim().length === 0
     ) {
       return [];
     }
@@ -349,7 +350,7 @@ export class RuntimeMediaJobCompletionService {
     }
     return [
       {
-        objectKey: artifact.objectKey.trim(),
+        storagePath: artifact.storagePath.trim(),
         mimeType,
         filename: artifact.filename,
         role
@@ -593,8 +594,8 @@ export class RuntimeMediaJobCompletionService {
           mode: isFailure ? "failure" : "success",
           toolCode: input.job.toolCode ?? null,
           workerText: input.workerResult?.assistantText ?? null,
-          artifactObjectKeys: (input.workerResult?.artifacts ?? []).map((artifact) => ({
-            objectKey: artifact.objectKey,
+          artifactStoragePaths: (input.workerResult?.artifacts ?? []).map((artifact) => ({
+            storagePath: artifact.storagePath,
             role: artifact.role ?? "output"
           })),
           failure: input.failure ?? null,

@@ -15,6 +15,7 @@ export type WorkspaceQuotaLimitsInput = {
   mediaStorageBytesLimit: bigint | null;
   knowledgeStorageBytesLimit: bigint | null;
   workspaceStorageBytesLimit: bigint | null;
+  sharedStorageBytesLimit: bigint | null;
 };
 
 export type WorkspaceMonthlyToolQuotaToolCode =

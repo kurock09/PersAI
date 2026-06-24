@@ -17,3 +17,6 @@ scripts/smoke/artifacts/
 tmp-*
 !tmp-*.example
 tmp/
+*-test-output.txt
+*-test-output.log
+.commit-msg-tmp.txt

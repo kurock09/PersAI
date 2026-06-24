@@ -1346,9 +1346,9 @@ describe("SendWebChatTurnService", () => {
     assert.equal(compactionWaitCalls, 2);
   });
 
-  // ADR-100 Piece 1 — when the runtime turn result contains discoveredFileRefIds,
-  // the persistence call must include them as metadata.discoveredFileRefIds.
-  test("persists discoveredFileRefIds as message metadata when runtime returns file discoveries", async () => {
+  // ADR-126 v3 — when the runtime turn result contains discoveredFilePaths,
+  // the persistence call must include them as metadata.discoveredFilePaths.
+  test("persists discoveredFilePaths as message metadata when runtime returns file discoveries", async () => {
     let capturedCreateMessageInput: Record<string, unknown> | null = null;
 
     const service = new SendWebChatTurnService(
@@ -1377,7 +1377,10 @@ describe("SendWebChatTurnService", () => {
           assistantMessage: "reply with discovered files",
           respondedAt: "2026-04-05T12:00:01.000Z",
           media: [],
-          discoveredFileRefIds: ["file-adr100-1", "file-adr100-2"]
+          discoveredFilePaths: [
+            "/shared/workspace-1/outbound/self/report-a.pdf",
+            "/shared/workspace-1/outbound/self/report-b.pdf"
+          ]
         })
       } as never,
       {
@@ -1450,8 +1453,13 @@ describe("SendWebChatTurnService", () => {
     assert.ok(capturedCreateMessageInput !== null, "createMessage must have been called");
     assert.deepEqual(
       (capturedCreateMessageInput as Record<string, unknown>).metadata,
-      { discoveredFileRefIds: ["file-adr100-1", "file-adr100-2"] },
-      "metadata.discoveredFileRefIds must match the runtime return value in insertion order"
+      {
+        discoveredFilePaths: [
+          "/shared/workspace-1/outbound/self/report-a.pdf",
+          "/shared/workspace-1/outbound/self/report-b.pdf"
+        ]
+      },
+      "metadata.discoveredFilePaths must match the runtime return value in insertion order"
     );
   });
 });

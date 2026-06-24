@@ -14,9 +14,10 @@ export type CreateAttachmentInput = {
   chatId: string;
   assistantId: string;
   workspaceId: string;
-  assistantFileId?: string | null;
   attachmentType: AttachmentType;
-  storagePath: string;
+  storagePath: string | null;
+  thumbnailStoragePath?: string | null;
+  posterStoragePath?: string | null;
   originalFilename: string | null;
   mimeType: string;
   sizeBytes: bigint;
@@ -42,6 +43,10 @@ export interface AssistantChatMessageAttachmentRepository {
   listByMessageId(messageId: string): Promise<AssistantChatMessageAttachment[]>;
   listByMessageIds(messageIds: string[]): Promise<AssistantChatMessageAttachment[]>;
   listByChatId(chatId: string): Promise<AssistantChatMessageAttachment[]>;
+  findByChatIdAndStoragePath(input: {
+    chatId: string;
+    storagePath: string;
+  }): Promise<AssistantChatMessageAttachment | null>;
   sumSizeBytesByAssistantId(assistantId: string): Promise<bigint>;
   deleteByAssistantId(assistantId: string): Promise<number>;
   deleteByChatId(chatId: string): Promise<number>;

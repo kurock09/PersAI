@@ -13,7 +13,6 @@ import {
   type InternalMarkCrossSessionCarryOverFiredInput,
   type InternalMarkCrossSessionCarryOverFiredOutcome
 } from "../src/modules/turns/persai-internal-api.client.service";
-import { RuntimeAssistantFileRegistryService } from "../src/modules/turns/runtime-assistant-file-registry.service";
 import {
   TurnContextHydrationService,
   renderChatPlanBlock
@@ -49,6 +48,7 @@ class FakePersaiInternalApiClientService {
   markFiredInputs: InternalMarkCrossSessionCarryOverFiredInput[] = [];
   markFiredFailure: Error | null = null;
   markFiredOutcome: InternalMarkCrossSessionCarryOverFiredOutcome = { outcome: "advanced" };
+  shortDescriptionsByPath = new Map<string, string | null>();
   outcome: InternalHydrateMemoryForTurnOutcome = {
     core: [
       {
@@ -106,6 +106,18 @@ class FakePersaiInternalApiClientService {
     }
     return this.markFiredOutcome;
   }
+
+  async listWorkspaceFileShortDescriptions(input: {
+    workspaceId: string;
+    paths: readonly string[];
+  }): Promise<Array<{ path: string; shortDescription: string | null }>> {
+    return input.paths
+      .filter((path) => this.shortDescriptionsByPath.has(path))
+      .map((path) => ({
+        path,
+        shortDescription: this.shortDescriptionsByPath.get(path) ?? null
+      }));
+  }
 }
 
 function createRuntimeBundle(
@@ -127,7 +139,7 @@ function createRuntimeBundle(
         ...overrides
       }
     }
-  } as AssistantRuntimeBundle;
+  } as unknown as AssistantRuntimeBundle;
 }
 
 function createRuntimeTurnRequest(): RuntimeTurnRequest {
@@ -157,19 +169,19 @@ function createRuntimeTurnRequest(): RuntimeTurnRequest {
         {
           attachmentId: "runtime-attachment-1",
           kind: "file",
-          objectKey:
+          storagePath:
             "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-small.pdf",
           mimeType: "application/pdf",
-          filename: "runtime-fallback.pdf",
+          displayName: "runtime-fallback.pdf",
           sizeBytes: 123
         },
         {
           attachmentId: "runtime-attachment-2",
           kind: "file",
-          objectKey:
+          storagePath:
             "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-large.pdf",
           mimeType: "application/pdf",
-          filename: "runtime-large.pdf",
+          displayName: "runtime-large.pdf",
           sizeBytes: 20_000_000
         }
       ],
@@ -200,7 +212,7 @@ class FakeRuntimeStatePrismaService {
     author: "user" | "assistant" | "system";
     content: string;
     createdAt?: Date | null;
-    /** ADR-100 Piece 2 — optional message-level metadata, may carry discoveredFileRefIds. */
+    /** ADR-100 Piece 2 — optional message-level metadata, may carry discoveredFilePaths. */
     metadata?: Record<string, unknown> | null;
     attachments: Array<{
       id: string;
@@ -241,7 +253,7 @@ class FakeRuntimeStatePrismaService {
       sandboxJobId: null;
       origin: "uploaded_attachment" | "runtime_output";
       sourceToolCode: null;
-      objectKey: string;
+      storagePath: string;
       relativePath: string;
       displayName: string | null;
       mimeType: string;
@@ -348,7 +360,7 @@ class FakeRuntimeStatePrismaService {
           assistantId: string;
           workspaceId: string;
           origin: "uploaded_attachment" | "runtime_output";
-          objectKey: string;
+          storagePath: string;
         };
       };
       update: {
@@ -366,7 +378,7 @@ class FakeRuntimeStatePrismaService {
         sandboxJobId: null;
         origin: "uploaded_attachment" | "runtime_output";
         sourceToolCode: null;
-        objectKey: string;
+        storagePath: string;
         relativePath: string;
         displayName: string | null;
         mimeType: string;
@@ -381,7 +393,7 @@ class FakeRuntimeStatePrismaService {
           entry.assistantId === args.where.assistantId_workspaceId_origin_objectKey.assistantId &&
           entry.workspaceId === args.where.assistantId_workspaceId_origin_objectKey.workspaceId &&
           entry.origin === args.where.assistantId_workspaceId_origin_objectKey.origin &&
-          entry.objectKey === args.where.assistantId_workspaceId_origin_objectKey.objectKey
+          entry.storagePath === args.where.assistantId_workspaceId_origin_objectKey.storagePath
       );
       if (existing !== undefined) {
         const updated = {
@@ -403,12 +415,12 @@ class FakeRuntimeStatePrismaService {
         sandboxJobId: args.create.sandboxJobId,
         origin: args.create.origin,
         sourceToolCode: args.create.sourceToolCode,
-        objectKey: args.create.objectKey,
+        storagePath: args.create.storagePath,
         relativePath: args.create.relativePath,
         displayName: args.create.displayName,
         mimeType: args.create.mimeType,
         sizeBytes: args.create.sizeBytes,
-        logicalSizeBytes: args.create.logicalSizeBytes,
+        logicalSizeBytes: args.create.sizeBytes,
         sha256: args.create.sha256,
         metadata: args.create.metadata,
         createdAt: new Date("2026-04-19T12:00:00.000Z")
@@ -444,33 +456,33 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   const runtimeStateKeyspace = new FakeRuntimeStateKeyspaceService();
   const downloadedObjectKeys: string[] = [];
   const mediaObjectStorage = {
-    async downloadObject(objectKey: string) {
-      downloadedObjectKeys.push(objectKey);
-      if (objectKey.includes("notes.txt")) {
+    async downloadObject(storagePath: string) {
+      downloadedObjectKeys.push(storagePath);
+      if (storagePath.includes("notes.txt")) {
         return Buffer.from("notes-text-bytes");
       }
-      if (objectKey.includes("reply.png")) {
+      if (storagePath.includes("reply.png")) {
         return Buffer.from("reply-png-bytes");
       }
-      if (objectKey.includes("voice-note-yandex.ogg")) {
+      if (storagePath.includes("voice-note-yandex.ogg")) {
         return Buffer.from("voice-note-bytes");
       }
-      if (objectKey.includes("voice.mp3")) {
+      if (storagePath.includes("voice.mp3")) {
         return Buffer.from("voice-mp3-bytes");
       }
-      if (objectKey.includes("diagram.png")) {
+      if (storagePath.includes("diagram.png")) {
         return Buffer.from("png-bytes");
       }
-      if (objectKey.includes("yard.png")) {
+      if (storagePath.includes("yard.png")) {
         return Buffer.from("yard-png-bytes");
       }
-      if (objectKey.includes("car.png")) {
+      if (storagePath.includes("car.png")) {
         return Buffer.from("car-png-bytes");
       }
-      if (objectKey.includes("manual.pdf") || objectKey.includes("file-small.pdf")) {
+      if (storagePath.includes("manual.pdf") || storagePath.includes("file-small.pdf")) {
         return Buffer.from("pdf-bytes");
       }
-      if (objectKey.includes("file-large.pdf")) {
+      if (storagePath.includes("file-large.pdf")) {
         return Buffer.from("large-pdf-bytes");
       }
       return null;
@@ -482,10 +494,6 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     runtimeStatePostgres as never,
     runtimeStateKeyspace as never,
     mediaObjectStorage as never,
-    new RuntimeAssistantFileRegistryService(
-      prisma as unknown as RuntimeStatePrismaService,
-      mediaObjectStorage as never
-    ),
     persaiInternalApiClient as unknown as PersaiInternalApiClientService
   );
   const request = createRuntimeTurnRequest();
@@ -728,7 +736,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     [...prisma.assistantFiles.values()].every((file) => typeof file.sha256 === "string"),
     "attachment-backed assistant files should store a sha256 for durable workspace diffing"
   );
-  const availableWorkingFileRefs = await service.listAvailableWorkingFileRefs({
+  const availableWorkingFileRefs = await service.listAvailableWorkingFileHandles({
     conversation: request.conversation,
     currentAttachments: []
   });
@@ -780,19 +788,19 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
         {
           attachmentId: "runtime-image-1",
           kind: "image",
-          objectKey:
+          storagePath:
             "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/yard.png",
           mimeType: "image/png",
-          filename: "yard.png",
+          displayName: "yard.png",
           sizeBytes: 32
         },
         {
           attachmentId: "runtime-image-2",
           kind: "image",
-          objectKey:
+          storagePath:
             "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/car.png",
           mimeType: "image/png",
-          filename: "car.png",
+          displayName: "car.png",
           sizeBytes: 32
         }
       ]
@@ -1100,10 +1108,6 @@ async function runOpenLoopRefsDeveloperBlockAcceptance(): Promise<void> {
     runtimeStatePostgres as never,
     runtimeStateKeyspace as never,
     mediaObjectStorage as never,
-    new RuntimeAssistantFileRegistryService(
-      prisma as unknown as RuntimeStatePrismaService,
-      mediaObjectStorage as never
-    ),
     persaiInternalApiClient as unknown as PersaiInternalApiClientService
   );
   const request = createRuntimeTurnRequest();
@@ -1211,10 +1215,6 @@ async function runCrossSessionCarryOverM3Acceptance(): Promise<void> {
       runtimeStatePostgres as never,
       runtimeStateKeyspace as never,
       mediaObjectStorage as never,
-      new RuntimeAssistantFileRegistryService(
-        prisma as unknown as RuntimeStatePrismaService,
-        mediaObjectStorage as never
-      ),
       persaiInternalApiClient as unknown as PersaiInternalApiClientService
     );
     return { service, prisma, runtimeStatePostgres, persaiInternalApiClient };
@@ -1444,10 +1444,6 @@ async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
       runtimeStatePostgres as never,
       runtimeStateKeyspace as never,
       mediaObjectStorage as never,
-      new RuntimeAssistantFileRegistryService(
-        prisma as unknown as RuntimeStatePrismaService,
-        mediaObjectStorage as never
-      ),
       persaiInternalApiClient as unknown as PersaiInternalApiClientService
     );
     return { service, prisma, persaiInternalApiClient };
@@ -1780,10 +1776,6 @@ async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
         runtimeStatePostgres as never,
         runtimeStateKeyspace as never,
         mediaObjectStorage as never,
-        new RuntimeAssistantFileRegistryService(
-          prisma as unknown as RuntimeStatePrismaService,
-          mediaObjectStorage as never
-        ),
         persaiInternalApiClient as unknown as PersaiInternalApiClientService
       );
       prisma.chat = { id: "chat-truncation-test" };
@@ -1949,10 +1941,11 @@ async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
 }
 
 // ADR-100 Piece 2 — recent discovered file refs hydration acceptance tests.
-export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> {
+export async function runRecentdiscoveredFileHandlesHydrationTest(): Promise<void> {
   function buildHarness(): {
     service: TurnContextHydrationService;
     prisma: FakeRuntimeStatePrismaService;
+    persaiInternalApiClient: FakePersaiInternalApiClientService;
   } {
     const prisma = new FakeRuntimeStatePrismaService();
     const runtimeStatePostgres = new FakeRuntimeStatePostgresService();
@@ -1968,13 +1961,9 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
       runtimeStatePostgres as never,
       runtimeStateKeyspace as never,
       mediaObjectStorage as never,
-      new RuntimeAssistantFileRegistryService(
-        prisma as unknown as RuntimeStatePrismaService,
-        mediaObjectStorage as never
-      ),
       persaiInternalApiClient as unknown as PersaiInternalApiClientService
     );
-    return { service, prisma };
+    return { service, prisma, persaiInternalApiClient };
   }
 
   function buildConversation(): RuntimeTurnRequest["conversation"] {
@@ -1988,47 +1977,26 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
     };
   }
 
-  function makeFileRow(
-    id: string,
-    relativePath: string,
-    semanticSummary?: string
-  ): FakeRuntimeStatePrismaService["assistantFiles"] extends Map<string, infer V> ? V : never {
-    return {
-      id,
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      sandboxJobId: null,
-      origin: "runtime_output",
-      sourceToolCode: null,
-      objectKey: `assistant-media/${relativePath}`,
-      relativePath,
-      displayName: relativePath.split("/").pop() ?? null,
-      mimeType: "image/png",
-      sizeBytes: BigInt(1024),
-      logicalSizeBytes: BigInt(1024),
-      sha256: null,
-      metadata: semanticSummary !== undefined ? { semanticSummary } : {},
-      createdAt: new Date("2026-05-01T12:00:00.000Z")
-    };
+  function registerPath(
+    persaiInternalApiClient: FakePersaiInternalApiClientService,
+    storagePath: string,
+    shortDescription?: string
+  ): void {
+    persaiInternalApiClient.shortDescriptionsByPath.set(storagePath, shortDescription ?? null);
   }
 
-  // Scenario 1 — last 5 assistant messages contain 3 distinct discovered ids.
+  const pathA = "/shared/workspace-1/outbound/self/discoveries/viking.png";
+  const pathB = "/shared/workspace-1/outbound/self/discoveries/revenue.xlsx";
+  const pathC = "/shared/workspace-1/outbound/self/discoveries/logo.svg";
+
+  // Scenario 1 — last 5 assistant messages contain 3 distinct discovered paths.
   // All 3 appear in Working Files with sticky `file #N` labels and semanticSummaryHint.
   {
-    const { service, prisma } = buildHarness();
+    const { service, prisma, persaiInternalApiClient } = buildHarness();
     prisma.chat = { id: "chat-recent-1" };
-    prisma.assistantFiles.set(
-      "file-a",
-      makeFileRow("file-a", "discoveries/viking.png", "A photo of a viking")
-    );
-    prisma.assistantFiles.set(
-      "file-b",
-      makeFileRow("file-b", "discoveries/revenue.xlsx", "Q2 revenue spreadsheet")
-    );
-    prisma.assistantFiles.set(
-      "file-c",
-      makeFileRow("file-c", "discoveries/logo.svg", "Company logo design")
-    );
+    registerPath(persaiInternalApiClient, pathA, "A photo of a viking");
+    registerPath(persaiInternalApiClient, pathB, "Q2 revenue spreadsheet");
+    registerPath(persaiInternalApiClient, pathC, "Company logo design");
     prisma.messages = [
       { id: "u-1", author: "user", content: "user turn 1", attachments: [] },
       {
@@ -2036,7 +2004,7 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
         author: "assistant",
         content: "assistant turn 1",
         attachments: [],
-        metadata: { discoveredFileRefIds: ["file-a", "file-b"] }
+        metadata: { discoveredFilePaths: [pathA, pathB] }
       },
       { id: "u-2", author: "user", content: "user turn 2", attachments: [] },
       {
@@ -2044,10 +2012,10 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
         author: "assistant",
         content: "assistant turn 2",
         attachments: [],
-        metadata: { discoveredFileRefIds: ["file-c"] }
+        metadata: { discoveredFilePaths: [pathC] }
       }
     ];
-    const refs = await service.listAvailableWorkingFileRefs({
+    const refs = await service.listAvailableWorkingFileHandles({
       conversation: buildConversation(),
       currentAttachments: []
     });
@@ -2064,68 +2032,64 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
     }
   }
 
-  // Scenario 2 — 7 distinct ids across the window → only top 6 most-recent appear; 7th dropped.
+  // Scenario 2 — 7 distinct paths across the window → only top 6 most-recent appear; 7th dropped.
   {
-    const { service, prisma } = buildHarness();
+    const { service, prisma, persaiInternalApiClient } = buildHarness();
     prisma.chat = { id: "chat-recent-2" };
-    for (let i = 1; i <= 7; i += 1) {
-      prisma.assistantFiles.set(
-        `file-${String(i)}`,
-        makeFileRow(`file-${String(i)}`, `f${String(i)}.png`)
-      );
+    const paths = Array.from(
+      { length: 7 },
+      (_, index) => `/shared/workspace-1/outbound/self/f${String(index + 1)}.png`
+    );
+    for (const storagePath of paths) {
+      registerPath(persaiInternalApiClient, storagePath);
     }
-    // Most-recent assistant message lists file-1..file-4, older one lists file-5..file-7.
-    // After scanning in reverse order: candidateIds = [file-1, file-2, file-3, file-4, file-5, file-6, file-7]
-    // Cap at 6 → file-7 is dropped.
     prisma.messages = [
       {
         id: "a-old",
         author: "assistant",
         content: "older",
         attachments: [],
-        metadata: { discoveredFileRefIds: ["file-5", "file-6", "file-7"] }
+        metadata: { discoveredFilePaths: [paths[4]!, paths[5]!, paths[6]!] }
       },
       {
         id: "a-new",
         author: "assistant",
         content: "newer",
         attachments: [],
-        metadata: { discoveredFileRefIds: ["file-1", "file-2", "file-3", "file-4"] }
+        metadata: { discoveredFilePaths: [paths[0]!, paths[1]!, paths[2]!, paths[3]!] }
       }
     ];
-    const refs = await service.listAvailableWorkingFileRefs({
+    const refs = await service.listAvailableWorkingFileHandles({
       conversation: buildConversation(),
       currentAttachments: []
     });
     assert.equal(refs.length, 6, "scenario 2: exactly 6 discovered files expected");
     assert.ok(
-      !refs.some((r) => r.fileRef === "file-7"),
-      "scenario 2: file-7 must be dropped (7th distinct id over cap)"
+      !refs.some((r) => r.storagePath === paths[6]),
+      "scenario 2: 7th path must be dropped over cap"
     );
   }
 
-  // Scenario 3 — one discovered id refers to an AssistantFile row that has since been deleted.
-  // Silently dropped; no error; other refs still appear.
+  // Scenario 3 — one discovered path has no workspace_file_metadata row (deleted).
+  // Silently dropped; no error; other paths still appear.
   {
-    const { service, prisma } = buildHarness();
+    const { service, prisma, persaiInternalApiClient } = buildHarness();
     prisma.chat = { id: "chat-recent-3" };
-    prisma.assistantFiles.set(
-      "file-alive",
-      makeFileRow("file-alive", "alive.png", "Surviving file")
-    );
-    // "file-deleted" is intentionally NOT in the map — simulates a deleted row.
+    const alivePath = "/shared/workspace-1/outbound/self/alive.png";
+    const deletedPath = "/shared/workspace-1/outbound/self/deleted.png";
+    registerPath(persaiInternalApiClient, alivePath, "Surviving file");
     prisma.messages = [
       {
         id: "a-1",
         author: "assistant",
         content: "assistant",
         attachments: [],
-        metadata: { discoveredFileRefIds: ["file-deleted", "file-alive"] }
+        metadata: { discoveredFilePaths: [deletedPath, alivePath] }
       }
     ];
-    let refs: Awaited<ReturnType<typeof service.listAvailableWorkingFileRefs>>;
+    let refs: Awaited<ReturnType<typeof service.listAvailableWorkingFileHandles>>;
     try {
-      refs = await service.listAvailableWorkingFileRefs({
+      refs = await service.listAvailableWorkingFileHandles({
         conversation: buildConversation(),
         currentAttachments: []
       });
@@ -2133,59 +2097,57 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
       assert.fail(`scenario 3: must not throw; got: ${String(error)}`);
     }
     assert.equal(refs.length, 1, "scenario 3: only the alive file must appear");
-    assert.equal(refs[0]?.fileRef, "file-alive", "scenario 3: alive file must be file-alive");
+    assert.equal(refs[0]?.storagePath, alivePath, "scenario 3: alive path must remain");
     assert.ok((refs[0]?.aliases ?? []).includes("file #1"));
   }
 
-  // Scenario 4 — one discovered id is also in current attachments.
+  // Scenario 4 — one discovered path is also in current attachments.
   // The standard sticky alias wins; no legacy discovery alias is added.
   {
-    const { service, prisma } = buildHarness();
+    const { service, prisma, persaiInternalApiClient } = buildHarness();
     prisma.chat = { id: "chat-recent-4" };
-    prisma.assistantFiles.set(
-      "file-ref-att-1",
-      makeFileRow("file-ref-att-1", "shared/photo.png", "The shared photo")
-    );
-    prisma.assistantFiles.set("file-other", makeFileRow("file-other", "other.png", "Other file"));
+    const sharedPhotoPath = "/shared/workspace-1/input/photo.png";
+    const otherPath = "/shared/workspace-1/outbound/self/other.png";
+    registerPath(persaiInternalApiClient, sharedPhotoPath, "The shared photo");
+    registerPath(persaiInternalApiClient, otherPath, "Other file");
     prisma.messages = [
       {
         id: "a-1",
         author: "assistant",
         content: "assistant",
         attachments: [],
-        metadata: { discoveredFileRefIds: ["file-ref-att-1", "file-other"] }
+        metadata: { discoveredFilePaths: [sharedPhotoPath, otherPath] }
       }
     ];
-    const refs = await service.listAvailableWorkingFileRefs({
+    const refs = await service.listAvailableWorkingFileHandles({
       conversation: buildConversation(),
       currentAttachments: [
         {
           attachmentId: "att-1",
           kind: "image",
-          objectKey: "assistant-media/shared/photo.png",
+          storagePath: sharedPhotoPath,
           mimeType: "image/png",
-          filename: "photo.png",
-          sizeBytes: 1024,
-          fileRef: "file-ref-att-1"
+          displayName: "photo.png",
+          sizeBytes: 1024
         }
       ]
     });
-    const attachedRef = refs.find((r) => r.fileRef === "file-ref-att-1");
-    assert.ok(attachedRef !== undefined, "scenario 4: file-ref-att-1 must be present");
+    const attachedRef = refs.find((r) => r.storagePath === sharedPhotoPath);
+    assert.ok(attachedRef !== undefined, "scenario 4: shared photo path must be present");
     const attachedAliases = attachedRef?.aliases ?? [];
     const hasStickyImageAlias = attachedAliases.some((a) => /^image #/.test(a));
     const hasStickyFileAlias = attachedAliases.some((a) => /^file #/.test(a));
     assert.ok(
       hasStickyImageAlias && hasStickyFileAlias,
-      "scenario 4: file-ref-att-1 must have sticky image and file aliases"
+      "scenario 4: shared photo must have sticky image and file aliases"
     );
     assert.ok(
       !attachedAliases.some((a) => /^recent file #/i.test(a)),
-      "scenario 4: file-ref-att-1 must NOT carry a legacy recent alias"
+      "scenario 4: shared photo must NOT carry a legacy recent alias"
     );
     // The other file not in current attachments still gets a sticky file alias.
-    const otherRef = refs.find((r) => r.fileRef === "file-other");
-    assert.ok(otherRef !== undefined, "scenario 4: file-other must be present");
+    const otherRef = refs.find((r) => r.storagePath === otherPath);
+    assert.ok(otherRef !== undefined, "scenario 4: other path must be present");
     assert.ok(
       (otherRef?.aliases ?? []).some((a) => /^file #/i.test(a)),
       "scenario 4: file-other must have a sticky file alias"
@@ -2203,10 +2165,10 @@ export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> 
         author: "assistant",
         content: "hi",
         attachments: []
-        // no metadata / no discoveredFileRefIds
+        // no metadata / no discoveredFilePaths
       }
     ];
-    const refs = await service.listAvailableWorkingFileRefs({
+    const refs = await service.listAvailableWorkingFileHandles({
       conversation: buildConversation(),
       currentAttachments: []
     });

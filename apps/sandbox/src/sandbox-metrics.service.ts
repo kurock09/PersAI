@@ -20,6 +20,8 @@ export class SandboxMetricsService {
     ]);
     const counters = this.sandboxObservabilityService.getCounters();
     const longPollHistogram = this.sandboxObservabilityService.getLongPollHistogram();
+    const workspaceFileLatency = this.sandboxObservabilityService.getWorkspaceFileLatency();
+    const workspaceQuotaUsage = this.sandboxObservabilityService.getWorkspaceQuotaUsage();
     const lines = [
       "# HELP sandbox_service_up Sandbox service process up status",
       "# TYPE sandbox_service_up gauge",
@@ -77,6 +79,69 @@ export class SandboxMetricsService {
       `sandbox_job_status_long_poll_wait_ms_sum ${longPollHistogram.durationMsTotal.toFixed(2)}`,
       `sandbox_job_status_long_poll_wait_ms_count ${longPollHistogram.count}`
     ];
+
+    // ADR-126 Slice 3 — per-op pod-exec latency histograms.
+    for (const op of ["write", "read", "list", "stat", "delete"] as const) {
+      const histogram = workspaceFileLatency[op];
+      const metricName = `sandbox_workspace_file_${op}_latency_ms`;
+      const opPascal = `${op.charAt(0).toUpperCase()}${op.slice(1)}`;
+      lines.push(
+        `# HELP ${metricName} Latency of WorkspaceFileBridgeService.workspaceFile${opPascal} in milliseconds`,
+        `# TYPE ${metricName} histogram`,
+        ...histogram.buckets.map(
+          (bucket) => `${metricName}_bucket{le="${bucket.le}"} ${bucket.value}`
+        ),
+        `${metricName}_bucket{le="+Inf"} ${histogram.count}`,
+        `${metricName}_sum ${histogram.durationMsTotal.toFixed(2)}`,
+        `${metricName}_count ${histogram.count}`
+      );
+    }
+
+    for (const attachSeries of this.sandboxObservabilityService.getWorkspaceFileAttachLatency()) {
+      const metricName = "sandbox_workspace_file_attach_latency_ms";
+      const histogram = attachSeries.histogram;
+      lines.push(
+        `# HELP ${metricName} Latency of workspace file attach (pod cp + shared GCS mirror) in milliseconds`,
+        `# TYPE ${metricName} histogram`,
+        ...histogram.buckets.map(
+          (bucket) =>
+            `${metricName}_bucket{result="${attachSeries.result}",layer="${attachSeries.layer}",le="${bucket.le}"} ${bucket.value}`
+        ),
+        `${metricName}_bucket{result="${attachSeries.result}",layer="${attachSeries.layer}",le="+Inf"} ${histogram.count}`,
+        `${metricName}_sum{result="${attachSeries.result}",layer="${attachSeries.layer}"} ${histogram.durationMsTotal.toFixed(2)}`,
+        `${metricName}_count{result="${attachSeries.result}",layer="${attachSeries.layer}"} ${histogram.count}`
+      );
+    }
+
+    lines.push(
+      "# HELP sandbox_workspace_quota_bytes_used Approximate bytes resident under /workspace/ per assistant (last observed by the bridge).",
+      "# TYPE sandbox_workspace_quota_bytes_used gauge",
+      `sandbox_workspace_quota_bytes_used ${workspaceQuotaUsage.workspace}`,
+      "# HELP sandbox_shared_quota_bytes_used Approximate bytes resident under /shared/<workspaceId>/ (last observed by the bridge).",
+      "# TYPE sandbox_shared_quota_bytes_used gauge",
+      `sandbox_shared_quota_bytes_used ${workspaceQuotaUsage.shared}`
+    );
+
+    // ADR-126 v3 D12 — snapshot_cold_pull_latency_ms labelled {layer} (session = workspace.tar
+    // restore on pod recreate; shared = per-blob hydrate from the shared GCS prefix).
+    const snapshotColdPull = this.sandboxObservabilityService.getSnapshotColdPullLatency();
+    const metricName = "snapshot_cold_pull_latency_ms";
+    lines.push(
+      `# HELP ${metricName} Latency of cold tar / blob pull from GCS into a freshly recreated pod in milliseconds, labelled by layer.`,
+      `# TYPE ${metricName} histogram`
+    );
+    for (const layer of ["session", "shared"] as const) {
+      const histogram = snapshotColdPull[layer];
+      lines.push(
+        ...histogram.buckets.map(
+          (bucket) => `${metricName}_bucket{layer="${layer}",le="${bucket.le}"} ${bucket.value}`
+        ),
+        `${metricName}_bucket{layer="${layer}",le="+Inf"} ${histogram.count}`,
+        `${metricName}_sum{layer="${layer}"} ${histogram.durationMsTotal.toFixed(2)}`,
+        `${metricName}_count{layer="${layer}"} ${histogram.count}`
+      );
+    }
+
     return `${lines.join("\n")}\n`;
   }
 }

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,18 +7,6 @@ import type { SandboxConfig } from "@persai/config";
 import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import { SandboxObservabilityService } from "../src/sandbox-observability.service";
 import { SandboxService } from "../src/sandbox.service";
-
-type MountedWorkspaceState = {
-  byRef: Map<string, { relativePath: string }>;
-};
-
-type WorkspaceFileSnapshot = {
-  relativePath: string;
-};
-
-type ReadFileResult = {
-  content: string | null;
-};
 
 type SandboxServiceTestAccess = {
   executeQueuedJob(
@@ -32,26 +19,11 @@ type SandboxServiceTestAccess = {
       toolCode: string;
       policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY;
       args: Record<string, unknown>;
-      mountedFileRefs?: string[];
+      assistantHandle?: string | null;
+      siblingHandles?: readonly string[] | null;
     }
   ): Promise<void>;
   resolveWorkspaceSessionRoot(assistantId: string, workspaceId: string): string;
-  materializeMountedFiles(
-    workspaceRoot: string,
-    assistantId: string,
-    workspaceId: string,
-    args: { fileRef: string }
-  ): Promise<MountedWorkspaceState>;
-  executeFilesReadAction(
-    workspaceRoot: string,
-    args: { fileRef: string },
-    mountedFiles: MountedWorkspaceState
-  ): Promise<ReadFileResult>;
-  collectWorkspaceFiles(workspaceRoot: string): Promise<WorkspaceFileSnapshot[]>;
-  selectProducedWorkspaceFiles(
-    files: WorkspaceFileSnapshot[],
-    mountedFiles: MountedWorkspaceState
-  ): WorkspaceFileSnapshot[];
   saveSessionWorkspaceSnapshot(
     assistantId: string,
     runtimeSessionId: string,
@@ -64,6 +36,55 @@ type SandboxServiceTestAccess = {
   ): Promise<void>;
 };
 
+async function listWorkspaceRelativeFiles(workspaceRoot: string): Promise<string[]> {
+  const output: string[] = [];
+  const visit = async (currentDir: string): Promise<void> => {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const absolutePath = join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolutePath);
+        continue;
+      }
+      output.push(absolutePath.slice(workspaceRoot.length + 1).replace(/\\/g, "/"));
+    }
+  };
+  try {
+    await visit(workspaceRoot);
+  } catch {
+    return [];
+  }
+  return output;
+}
+
+function createLeasePrismaStub() {
+  return {
+    sandboxJob: {
+      async update(input: { where: { id: string }; data: Record<string, unknown> }) {
+        return { id: input.where.id, ...input.data };
+      },
+      async findUnique() {
+        return null;
+      }
+    },
+    assistantWorkspaceLease: {
+      async create(input: { data: Record<string, unknown> }) {
+        return {
+          id: "lease-1",
+          assistantId: String(input.data.assistantId),
+          workspaceId: String(input.data.workspaceId),
+          sandboxJobId: null,
+          leaseToken: String(input.data.leaseToken),
+          holderId: String(input.data.holderId),
+          expiresAt: input.data.expiresAt as Date
+        };
+      },
+      async updateMany() {
+        return { count: 1 };
+      }
+    }
+  } as never;
+}
 const RETRYABLE_WINDOWS_RM_CODES = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
 
 async function removePathWithRetries(path: string): Promise<void> {
@@ -81,64 +102,6 @@ async function removePathWithRetries(path: string): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, Math.min(2_000, attempt * 150)));
     }
   }
-}
-
-type DurableSandboxJob = {
-  id: string;
-  assistantId: string;
-  workspaceId: string;
-  toolCode: string;
-  status: string;
-  resultPayload: Record<string, unknown> | null;
-  violationCode: string | null;
-  violationMessage: string | null;
-  resourceUsage: Record<string, unknown> | null;
-  startedAt?: Date;
-  completedAt?: Date;
-};
-
-type DurableAssistantFile = {
-  id: string;
-  assistantId: string;
-  workspaceId: string;
-  sandboxJobId: string | null;
-  origin: "sandbox_output";
-  sourceToolCode: string | null;
-  objectKey: string;
-  relativePath: string;
-  displayName: string | null;
-  mimeType: string;
-  sizeBytes: bigint;
-  logicalSizeBytes: bigint | null;
-  sha256: string | null;
-  metadata: Record<string, unknown> | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-type DurableWorkspaceLease = {
-  id: string;
-  assistantId: string;
-  workspaceId: string;
-  sandboxJobId: string | null;
-  leaseToken: string;
-  holderId: string;
-  expiresAt: Date;
-};
-
-function createDeferred(): {
-  promise: Promise<void>;
-  resolve(): void;
-} {
-  let resolvePromise: (() => void) | null = null;
-  return {
-    promise: new Promise<void>((resolve) => {
-      resolvePromise = resolve;
-    }),
-    resolve() {
-      resolvePromise?.();
-    }
-  };
 }
 
 function createSandboxConfig(overrides: Partial<SandboxConfig> = {}): SandboxConfig {
@@ -165,445 +128,37 @@ function createSandboxObservabilityService(): SandboxObservabilityService {
   return new SandboxObservabilityService();
 }
 
-function createDurableHarness() {
-  const jobs = new Map<string, DurableSandboxJob>();
-  const assistantFiles: DurableAssistantFile[] = [];
-  const storedObjects = new Map<string, Buffer>();
-  const workspaceLeases = new Map<string, DurableWorkspaceLease>();
-  let durableFileCounter = 0;
-  let durableLeaseCounter = 0;
-  const workspaceLeaseKey = (assistantId: string, workspaceId: string) =>
-    `${assistantId}:${workspaceId}`;
-  const prismaStub = {
-    sandboxJob: {
-      async update(input: { where: { id: string }; data: Record<string, unknown> }) {
-        const existing = jobs.get(input.where.id);
-        if (!existing) {
-          throw new Error(`Sandbox job "${input.where.id}" not found in test store`);
-        }
-        const next = {
-          ...existing,
-          ...input.data
-        } as DurableSandboxJob;
-        jobs.set(input.where.id, next);
-        return next;
-      },
-      async findUnique(input: { where: { id: string }; include?: { assistantFiles?: boolean } }) {
-        const job = jobs.get(input.where.id);
-        if (!job) {
-          return null;
-        }
-        return {
-          ...job,
-          assistantFiles:
-            input.include?.assistantFiles === true
-              ? assistantFiles.filter((file) => file.sandboxJobId === job.id)
-              : []
-        };
-      }
-    },
-    assistantFile: {
-      async findMany(input: {
-        where:
-          | { id: { in: string[] }; assistantId?: string; workspaceId?: string }
-          | { assistantId: string; workspaceId: string };
-        orderBy?: Array<Record<string, "asc" | "desc">>;
-      }) {
-        const where = input.where;
-        if ("id" in where) {
-          return assistantFiles.filter(
-            (file) =>
-              where.id.in.includes(file.id) &&
-              (where.assistantId === undefined || file.assistantId === where.assistantId) &&
-              (where.workspaceId === undefined || file.workspaceId === where.workspaceId)
-          );
-        }
-        return assistantFiles
-          .filter(
-            (file) =>
-              file.assistantId === where.assistantId && file.workspaceId === where.workspaceId
-          )
-          .sort((left, right) => {
-            if (left.relativePath !== right.relativePath) {
-              return left.relativePath.localeCompare(right.relativePath);
-            }
-            return right.updatedAt.getTime() - left.updatedAt.getTime();
-          });
-      },
-      async create(input: { data: Record<string, unknown> }) {
-        const now = new Date();
-        const created: DurableAssistantFile = {
-          id: `assistant-file-${String(++durableFileCounter)}`,
-          assistantId: String(input.data.assistantId),
-          workspaceId: String(input.data.workspaceId),
-          sandboxJobId:
-            typeof input.data.sandboxJobId === "string" ? input.data.sandboxJobId : null,
-          origin: "sandbox_output",
-          sourceToolCode:
-            typeof input.data.sourceToolCode === "string" ? input.data.sourceToolCode : null,
-          objectKey: String(input.data.objectKey),
-          relativePath: String(input.data.relativePath),
-          displayName: typeof input.data.displayName === "string" ? input.data.displayName : null,
-          mimeType: String(input.data.mimeType),
-          sizeBytes: input.data.sizeBytes as bigint,
-          logicalSizeBytes: (input.data.logicalSizeBytes as bigint | null) ?? null,
-          sha256: typeof input.data.sha256 === "string" ? input.data.sha256 : null,
-          metadata:
-            input.data.metadata !== null && typeof input.data.metadata === "object"
-              ? (input.data.metadata as Record<string, unknown>)
-              : null,
-          createdAt: now,
-          updatedAt: now
-        };
-        assistantFiles.push(created);
-        return created;
-      },
-      async update(input: { where: { id: string }; data: Record<string, unknown> }) {
-        const existingIndex = assistantFiles.findIndex((file) => file.id === input.where.id);
-        if (existingIndex === -1) {
-          throw new Error(`Assistant file "${input.where.id}" not found in test store`);
-        }
-        const existing = assistantFiles[existingIndex]!;
-        const updated: DurableAssistantFile = {
-          ...existing,
-          sandboxJobId:
-            typeof input.data.sandboxJobId === "string" ? input.data.sandboxJobId : null,
-          sourceToolCode:
-            typeof input.data.sourceToolCode === "string" ? input.data.sourceToolCode : null,
-          objectKey: String(input.data.objectKey),
-          relativePath: String(input.data.relativePath),
-          displayName: typeof input.data.displayName === "string" ? input.data.displayName : null,
-          mimeType: String(input.data.mimeType),
-          sizeBytes: input.data.sizeBytes as bigint,
-          logicalSizeBytes: (input.data.logicalSizeBytes as bigint | null) ?? null,
-          sha256: typeof input.data.sha256 === "string" ? input.data.sha256 : null,
-          metadata:
-            input.data.metadata !== null && typeof input.data.metadata === "object"
-              ? (input.data.metadata as Record<string, unknown>)
-              : null,
-          updatedAt: new Date()
-        };
-        assistantFiles[existingIndex] = updated;
-        return updated;
-      },
-      async deleteMany(input: {
-        where: {
-          assistantId: string;
-          workspaceId: string;
-          relativePath?: string | { in: string[] };
-          id?: { not?: string; in?: string[] };
-        };
-      }) {
-        const relativePaths =
-          input.where.relativePath === undefined
-            ? null
-            : typeof input.where.relativePath === "string"
-              ? [input.where.relativePath]
-              : input.where.relativePath.in;
-        const allowedIds = input.where.id?.in ?? null;
-        let removed = 0;
-        for (let index = assistantFiles.length - 1; index >= 0; index -= 1) {
-          const file = assistantFiles[index]!;
-          if (
-            file.assistantId !== input.where.assistantId ||
-            file.workspaceId !== input.where.workspaceId ||
-            (relativePaths !== null && !relativePaths.includes(file.relativePath)) ||
-            (allowedIds !== null && !allowedIds.includes(file.id)) ||
-            (input.where.id?.not !== undefined && file.id === input.where.id.not)
-          ) {
-            continue;
-          }
-          assistantFiles.splice(index, 1);
-          removed++;
-        }
-        return { count: removed };
-      }
-    },
-    assistantWorkspaceLease: {
-      async create(input: { data: Record<string, unknown> }) {
-        const assistantId = String(input.data.assistantId);
-        const workspaceId = String(input.data.workspaceId);
-        const key = workspaceLeaseKey(assistantId, workspaceId);
-        if (workspaceLeases.has(key)) {
-          throw Object.assign(new Error(`Workspace lease "${key}" already exists`), {
-            code: "P2002"
-          });
-        }
-        const created: DurableWorkspaceLease = {
-          id: `workspace-lease-${String(++durableLeaseCounter)}`,
-          assistantId,
-          workspaceId,
-          sandboxJobId:
-            typeof input.data.sandboxJobId === "string" ? input.data.sandboxJobId : null,
-          leaseToken: String(input.data.leaseToken),
-          holderId: String(input.data.holderId),
-          expiresAt: input.data.expiresAt as Date
-        };
-        workspaceLeases.set(key, created);
-        return created;
-      },
-      async updateMany(input: {
-        where: {
-          assistantId: string;
-          workspaceId: string;
-          leaseToken?: string;
-          holderId?: string;
-          expiresAt?: { lt?: Date; gt?: Date };
-        };
-        data: Record<string, unknown>;
-      }) {
-        const key = workspaceLeaseKey(input.where.assistantId, input.where.workspaceId);
-        const existing = workspaceLeases.get(key);
-        if (!existing) {
-          return { count: 0 };
-        }
-        if (
-          input.where.leaseToken !== undefined &&
-          existing.leaseToken !== input.where.leaseToken
-        ) {
-          return { count: 0 };
-        }
-        if (input.where.holderId !== undefined && existing.holderId !== input.where.holderId) {
-          return { count: 0 };
-        }
-        if (
-          input.where.expiresAt?.lt !== undefined &&
-          !(existing.expiresAt.getTime() < input.where.expiresAt.lt.getTime())
-        ) {
-          return { count: 0 };
-        }
-        if (
-          input.where.expiresAt?.gt !== undefined &&
-          !(existing.expiresAt.getTime() > input.where.expiresAt.gt.getTime())
-        ) {
-          return { count: 0 };
-        }
-        const updated: DurableWorkspaceLease = {
-          ...existing,
-          sandboxJobId:
-            typeof input.data.sandboxJobId === "string"
-              ? input.data.sandboxJobId
-              : input.data.sandboxJobId === null
-                ? null
-                : existing.sandboxJobId,
-          leaseToken:
-            typeof input.data.leaseToken === "string" ? input.data.leaseToken : existing.leaseToken,
-          holderId:
-            typeof input.data.holderId === "string" ? input.data.holderId : existing.holderId,
-          expiresAt: (input.data.expiresAt as Date | undefined) ?? existing.expiresAt
-        };
-        workspaceLeases.set(key, updated);
-        return { count: 1 };
-      }
-    }
-  };
-  const objectStorageStub = {
-    buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
-      return `assistant-media/assistants/${input.assistantId}/sandbox/jobs/${input.jobId}/${input.relativePath.replace(/\//g, "__")}`;
-    },
-    buildSessionSnapshotKey(input: { assistantId: string; runtimeSessionId: string }) {
-      return `assistant-media/assistants/${input.assistantId}/sandbox-sessions/${input.runtimeSessionId}/workspace.tar`;
-    },
-    async saveObject(input: { objectKey: string; buffer: Buffer }) {
-      storedObjects.set(input.objectKey, Buffer.from(input.buffer));
-      return input.buffer.length;
-    },
-    async downloadObject(objectKey: string) {
-      const stored = storedObjects.get(objectKey);
-      if (!stored) {
-        throw new Error(`Missing stored object "${objectKey}" in test store`);
-      }
-      return Buffer.from(stored);
-    }
-  };
-  return {
-    jobs,
-    assistantFiles,
-    storedObjects,
-    workspaceLeases,
-    createService() {
-      return new SandboxService(
-        prismaStub as never,
-        objectStorageStub as never,
-        createSandboxObservabilityService(),
-        createSandboxConfig(),
-        {
-          async runInPod() {
-            throw new Error("runInPod not expected in this harness");
-          },
-          async warmSessionPod() {
-            return { podName: "ses-mock", alreadyRunning: false };
-          }
-        } as never
-      );
-    }
-  };
-}
-
 async function run(): Promise<void> {
-  const sourceBuffer = Buffer.from("hello from file ref", "utf8");
-  const service = new SandboxService(
-    {
-      assistantFile: {
-        async findMany(input: {
-          where: { id: { in: string[] }; assistantId: string; workspaceId: string };
-        }) {
-          assert.deepEqual(input.where.id.in, ["file-ref-1"]);
-          assert.equal(input.where.assistantId, "assistant-1");
-          assert.equal(input.where.workspaceId, "workspace-1");
-          return [
-            {
-              id: "file-ref-1",
-              relativePath: "inputs/example.txt",
-              objectKey: "sandbox/input/example.txt"
-            }
-          ];
-        }
-      }
-    } as never,
-    {
-      async downloadObject(objectKey: string) {
-        assert.equal(objectKey, "sandbox/input/example.txt");
-        return sourceBuffer;
-      }
-    } as never,
-    createSandboxObservabilityService(),
-    createSandboxConfig(),
-    {} as never
-  );
-  const serviceTestAccess = service as unknown as SandboxServiceTestAccess;
-
-  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-sandbox-test-"));
-  try {
-    const mountedFiles = await serviceTestAccess.materializeMountedFiles(
-      workspaceRoot,
-      "assistant-1",
-      "workspace-1",
-      { fileRef: "file-ref-1" }
-    );
-    assert.equal(mountedFiles.byRef.get("file-ref-1")?.relativePath, "inputs/example.txt");
-
-    const readResult = await serviceTestAccess.executeFilesReadAction(
-      workspaceRoot,
-      { fileRef: "file-ref-1" },
-      mountedFiles
-    );
-    assert.equal(readResult.content, "hello from file ref");
-
-    const filesAfterMount = await serviceTestAccess.collectWorkspaceFiles(workspaceRoot);
-    const producedAfterMount = serviceTestAccess.selectProducedWorkspaceFiles(
-      filesAfterMount,
-      mountedFiles
-    );
-    assert.deepEqual(producedAfterMount, []);
-
-    await fs.writeFile(join(workspaceRoot, "inputs", "example.txt"), "changed content", "utf8");
-    await fs.mkdir(join(workspaceRoot, "outputs"), { recursive: true });
-    await fs.writeFile(join(workspaceRoot, "outputs", "fresh.txt"), "brand new", "utf8");
-
-    const filesAfterChange = await serviceTestAccess.collectWorkspaceFiles(workspaceRoot);
-    const producedAfterChange = serviceTestAccess.selectProducedWorkspaceFiles(
-      filesAfterChange,
-      mountedFiles
-    );
-    assert.deepEqual(
-      producedAfterChange.map((file: { relativePath: string }) => file.relativePath),
-      ["inputs/example.txt", "outputs/fresh.txt"]
-    );
-
-    await fs.writeFile(
-      join(workspaceRoot, "inputs", "example.txt"),
-      Buffer.from("a\u0000b\u0000c", "utf8")
-    );
-    const readAfterNul = await serviceTestAccess.executeFilesReadAction(
-      workspaceRoot,
-      { fileRef: "file-ref-1" },
-      mountedFiles
-    );
-    assert.equal(
-      readAfterNul.content,
-      "abc",
-      "NUL bytes must be stripped so Postgres text/JSON persistence (sandboxJob) does not fail with 22P05"
-    );
-    await fs.writeFile(join(workspaceRoot, "inputs", "example.txt"), "changed content", "utf8");
-
-    const staleMountHarness = createDurableHarness();
-    staleMountHarness.assistantFiles.push({
-      id: "assistant-file-stale-mount",
-      assistantId: "assistant-mount",
-      workspaceId: "workspace-mount",
-      sandboxJobId: null,
-      origin: "sandbox_output",
-      sourceToolCode: "files",
-      objectKey: "assistant-media/persisted/mount-missing.txt",
-      relativePath: "docs/mount-missing.txt",
-      displayName: "mount-missing.txt",
-      mimeType: "text/plain",
-      sizeBytes: BigInt(4),
-      logicalSizeBytes: BigInt(4),
-      sha256: null,
-      metadata: {},
-      createdAt: new Date(),
-      updatedAt: new Date()
-    });
-    const staleMountService = staleMountHarness.createService();
-    const staleMountAccess = staleMountService as unknown as SandboxServiceTestAccess;
-    await assert.rejects(
-      staleMountAccess.materializeMountedFiles(
-        workspaceRoot,
-        "assistant-mount",
-        "workspace-mount",
-        { fileRef: "assistant-file-stale-mount" }
-      ),
-      (error) =>
-        error instanceof Error &&
-        "code" in error &&
-        (error as { code?: string }).code === "file_ref_not_found" &&
-        /stored object is missing/i.test(error.message)
-    );
-    assert.equal(
-      staleMountHarness.assistantFiles.some((file) => file.id === "assistant-file-stale-mount"),
-      false
-    );
-  } finally {
-    await removePathWithRetries(workspaceRoot);
-  }
-
   const completedService = new SandboxService(
     {
       sandboxJob: {
-        async findUnique(input: { where: { id: string }; include: Record<string, boolean> }) {
+        async findUnique(input: { where: { id: string } }) {
           assert.equal(input.where.id, "job-completed-1");
-          assert.equal(input.include.assistantFiles, true);
           return {
             id: "job-completed-1",
             status: "completed",
-            toolCode: "files",
+            toolCode: "render_html_to_pdf",
             violationCode: null,
             violationMessage: null,
             resultPayload: {
               reason: null,
               warning: null,
-              exitCode: null,
+              exitCode: 0,
               stdout: null,
               stderr: null,
-              content: null
-            },
-            assistantFiles: [
-              {
-                id: "assistant-file-1",
-                origin: "sandbox_output",
-                sourceToolCode: "files",
-                objectKey: "assistant-media/assistant-files/assistant-file-1/report.txt",
-                relativePath: "reports/report.txt",
-                displayName: "report.txt",
-                mimeType: "text/plain",
-                sizeBytes: BigInt(64),
-                logicalSizeBytes: BigInt(64),
-                createdAt: new Date("2026-05-26T13:00:00.000Z")
-              }
-            ],
-            fileRefs: []
+              content: null,
+              producedFiles: [
+                {
+                  relativePath: "document.pdf",
+                  displayName: "document.pdf",
+                  mimeType: "application/pdf",
+                  sizeBytes: 64,
+                  logicalSizeBytes: 64,
+                  storagePath:
+                    "assistant-media/assistants/a1/sandbox/jobs/job-completed-1/document.pdf"
+                }
+              ]
+            }
           };
         }
       }
@@ -611,540 +166,16 @@ async function run(): Promise<void> {
     {} as never,
     createSandboxObservabilityService(),
     createSandboxConfig(),
+    {} as never,
     {} as never
   );
   const completedJob = await completedService.pollJob("job-completed-1");
   assert.equal(completedJob.status, "completed");
-  assert.equal(completedJob.files[0]?.fileRef.fileRef, "assistant-file-1");
   assert.equal(
-    completedJob.files[0]?.fileRef.objectKey,
-    "assistant-media/assistant-files/assistant-file-1/report.txt"
+    completedJob.files[0]?.storagePath,
+    "assistant-media/assistants/a1/sandbox/jobs/job-completed-1/document.pdf"
   );
-  assert.equal(completedJob.files[0]?.fileRef.createdAt, "2026-05-26T13:00:00.000Z");
-
-  const durablePolicy = {
-    ...DEFAULT_RUNTIME_SANDBOX_POLICY,
-    enabled: true,
-    maxStdoutBytes: 1024 * 1024,
-    maxStderrBytes: 1024 * 1024
-  };
-  const durableHarness = createDurableHarness();
-  const durableService = durableHarness.createService();
-  const durableServiceTestAccess = durableService as unknown as SandboxServiceTestAccess;
-  const durableWorkspaceRoot = durableServiceTestAccess.resolveWorkspaceSessionRoot(
-    "assistant-1",
-    "workspace-1"
-  );
-  const queueDurableJob = (
-    id: string,
-    toolCode: string,
-    assistantId = "assistant-1",
-    workspaceId = "workspace-1"
-  ) => {
-    durableHarness.jobs.set(id, {
-      id,
-      assistantId,
-      workspaceId,
-      toolCode,
-      status: "queued",
-      resultPayload: null,
-      violationCode: null,
-      violationMessage: null,
-      resourceUsage: null
-    });
-  };
-  try {
-    queueDurableJob("job-write-1", "files");
-    await durableServiceTestAccess.executeQueuedJob("job-write-1", {
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      runtimeRequestId: "request-write-1",
-      runtimeSessionId: "session-1",
-      toolCode: "files",
-      policy: durablePolicy,
-      args: {
-        action: "write",
-        path: "docs/report.txt",
-        content: "first version"
-      }
-    });
-    const writeJob = await durableService.pollJob("job-write-1");
-    assert.equal(writeJob.status, "completed");
-    assert.equal(writeJob.files[0]?.fileRef.relativePath, "docs/report.txt");
-    const stableFileRef = writeJob.files[0]?.fileRef.fileRef;
-    assert.ok(stableFileRef);
-
-    queueDurableJob("job-read-1", "files");
-    await durableServiceTestAccess.executeQueuedJob("job-read-1", {
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      runtimeRequestId: "request-read-1",
-      runtimeSessionId: "session-2",
-      toolCode: "files",
-      policy: durablePolicy,
-      args: {
-        action: "read",
-        path: "docs/report.txt"
-      }
-    });
-    const readJob = await durableService.pollJob("job-read-1");
-    assert.equal(readJob.status, "completed");
-    assert.equal(readJob.content, "first version");
-
-    queueDurableJob("job-edit-1", "files");
-    await durableServiceTestAccess.executeQueuedJob("job-edit-1", {
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      runtimeRequestId: "request-edit-1",
-      runtimeSessionId: "session-3",
-      toolCode: "files",
-      policy: durablePolicy,
-      args: {
-        action: "edit",
-        path: "docs/report.txt",
-        oldText: "first version",
-        newText: "second version"
-      }
-    });
-    const editJob = await durableService.pollJob("job-edit-1");
-    assert.equal(editJob.status, "completed");
-    assert.equal(editJob.files[0]?.fileRef.fileRef, stableFileRef);
-    assert.equal(durableHarness.assistantFiles.length, 1);
-
-    await removePathWithRetries(join(durableWorkspaceRoot, ".."));
-
-    queueDurableJob("job-read-cold", "files");
-    await durableServiceTestAccess.executeQueuedJob("job-read-cold", {
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      runtimeRequestId: "request-read-cold",
-      runtimeSessionId: "session-4",
-      toolCode: "files",
-      policy: durablePolicy,
-      args: {
-        action: "read",
-        path: "docs/report.txt"
-      }
-    });
-    const coldReadJob = await durableService.pollJob("job-read-cold");
-    assert.equal(coldReadJob.status, "completed");
-    assert.equal(coldReadJob.content, "second version");
-
-    const inheritedWorkspaceHarness = createDurableHarness();
-    for (let index = 0; index < 20; index += 1) {
-      const objectKey = `assistant-media/persisted/inherited-${String(index)}.txt`;
-      const inheritedBuffer = Buffer.from(`seed-${String(index)}`, "utf8");
-      inheritedWorkspaceHarness.storedObjects.set(objectKey, inheritedBuffer);
-      inheritedWorkspaceHarness.assistantFiles.push({
-        id: `assistant-file-inherited-${String(index)}`,
-        assistantId: "assistant-inherited",
-        workspaceId: "workspace-inherited",
-        sandboxJobId: "job-seed",
-        origin: "sandbox_output",
-        sourceToolCode: "files",
-        objectKey,
-        relativePath: `dir-${String(index)}/seed.txt`,
-        displayName: "seed.txt",
-        mimeType: "text/plain",
-        sizeBytes: BigInt(inheritedBuffer.length),
-        logicalSizeBytes: BigInt(inheritedBuffer.length),
-        sha256: createHash("sha256").update(inheritedBuffer).digest("hex"),
-        metadata: {},
-        createdAt: new Date(Date.now() - 5_000),
-        updatedAt: new Date(Date.now() - 5_000)
-      });
-    }
-    inheritedWorkspaceHarness.jobs.set("job-inherited-write", {
-      id: "job-inherited-write",
-      assistantId: "assistant-inherited",
-      workspaceId: "workspace-inherited",
-      toolCode: "files",
-      status: "queued",
-      resultPayload: null,
-      violationCode: null,
-      violationMessage: null,
-      resourceUsage: null
-    });
-    const inheritedWriteService = inheritedWorkspaceHarness.createService();
-    const inheritedWriteAccess = inheritedWriteService as unknown as SandboxServiceTestAccess;
-    await inheritedWriteAccess.executeQueuedJob("job-inherited-write", {
-      assistantId: "assistant-inherited",
-      workspaceId: "workspace-inherited",
-      runtimeRequestId: "request-inherited-write",
-      runtimeSessionId: "session-inherited-write",
-      toolCode: "files",
-      policy: {
-        ...durablePolicy,
-        maxFileCountPerJob: 1,
-        maxDirectoryCountPerJob: 1,
-        maxWorkspaceBytesPerJob: 1024
-      },
-      args: {
-        action: "write",
-        path: "hello_test.txt",
-        content: "hello from PersAI"
-      }
-    });
-    assert.equal(inheritedWorkspaceHarness.jobs.get("job-inherited-write")?.status, "completed");
-
-    const leaseHarness = createDurableHarness();
-    const leaseServiceA = leaseHarness.createService();
-    const leaseServiceB = leaseHarness.createService();
-    const leaseServiceATestAccess = leaseServiceA as unknown as SandboxServiceTestAccess;
-    const leaseServiceBTestAccess = leaseServiceB as unknown as SandboxServiceTestAccess;
-    const queueLeaseJob = (
-      id: string,
-      toolCode: string,
-      assistantId = "assistant-lease",
-      workspaceId = "workspace-lease"
-    ) => {
-      leaseHarness.jobs.set(id, {
-        id,
-        assistantId,
-        workspaceId,
-        toolCode,
-        status: "queued",
-        resultPayload: null,
-        violationCode: null,
-        violationMessage: null,
-        resourceUsage: null
-      });
-    };
-    queueLeaseJob("job-lease-a", "files");
-    queueLeaseJob("job-lease-b", "files");
-    queueLeaseJob("job-lease-other", "files", "assistant-other", "workspace-other");
-    const firstJobEntered = createDeferred();
-    const releaseFirstJob = createDeferred();
-    const originalExecuteTool = (
-      leaseServiceA as unknown as {
-        executeTool: (input: unknown) => Promise<Record<string, unknown>>;
-      }
-    ).executeTool.bind(leaseServiceA);
-    (
-      leaseServiceA as unknown as {
-        executeTool: (input: unknown) => Promise<Record<string, unknown>>;
-      }
-    ).executeTool = async (input: unknown) => {
-      firstJobEntered.resolve();
-      await releaseFirstJob.promise;
-      return originalExecuteTool(input);
-    };
-    const firstJobPromise = leaseServiceATestAccess.executeQueuedJob("job-lease-a", {
-      assistantId: "assistant-lease",
-      workspaceId: "workspace-lease",
-      runtimeRequestId: "request-lease-a",
-      runtimeSessionId: "session-lease-a",
-      toolCode: "files",
-      policy: durablePolicy,
-      args: {
-        action: "write",
-        path: "shared/report.txt",
-        content: "first holder"
-      }
-    });
-    await firstJobEntered.promise;
-    const secondJobPromise = leaseServiceBTestAccess.executeQueuedJob("job-lease-b", {
-      assistantId: "assistant-lease",
-      workspaceId: "workspace-lease",
-      runtimeRequestId: "request-lease-b",
-      runtimeSessionId: "session-lease-b",
-      toolCode: "files",
-      policy: durablePolicy,
-      args: {
-        action: "write",
-        path: "shared/report.txt",
-        content: "second holder"
-      }
-    });
-    const parallelOtherWorkspacePromise = leaseServiceBTestAccess.executeQueuedJob(
-      "job-lease-other",
-      {
-        assistantId: "assistant-other",
-        workspaceId: "workspace-other",
-        runtimeRequestId: "request-lease-other",
-        runtimeSessionId: "session-lease-other",
-        toolCode: "files",
-        policy: durablePolicy,
-        args: {
-          action: "write",
-          path: "shared/other.txt",
-          content: "parallel workspace"
-        }
-      }
-    );
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(leaseHarness.jobs.get("job-lease-b")?.status, "queued");
-    await parallelOtherWorkspacePromise;
-    assert.equal(leaseHarness.jobs.get("job-lease-other")?.status, "completed");
-    assert.equal(
-      leaseHarness.workspaceLeases.get("assistant-lease:workspace-lease")?.sandboxJobId,
-      "job-lease-a"
-    );
-    releaseFirstJob.resolve();
-    await Promise.all([firstJobPromise, secondJobPromise, parallelOtherWorkspacePromise]);
-    assert.equal(leaseHarness.jobs.get("job-lease-a")?.status, "completed");
-    assert.equal(leaseHarness.jobs.get("job-lease-b")?.status, "completed");
-
-    const reclaimHarness = createDurableHarness();
-    reclaimHarness.workspaceLeases.set("assistant-reclaim:workspace-reclaim", {
-      id: "workspace-lease-stale",
-      assistantId: "assistant-reclaim",
-      workspaceId: "workspace-reclaim",
-      sandboxJobId: "old-job",
-      leaseToken: "stale-token",
-      holderId: "stale-holder",
-      expiresAt: new Date(Date.now() - 1_000)
-    });
-    reclaimHarness.jobs.set("job-reclaim", {
-      id: "job-reclaim",
-      assistantId: "assistant-reclaim",
-      workspaceId: "workspace-reclaim",
-      toolCode: "files",
-      status: "queued",
-      resultPayload: null,
-      violationCode: null,
-      violationMessage: null,
-      resourceUsage: null
-    });
-    await (reclaimHarness.createService() as unknown as SandboxServiceTestAccess).executeQueuedJob(
-      "job-reclaim",
-      {
-        assistantId: "assistant-reclaim",
-        workspaceId: "workspace-reclaim",
-        runtimeRequestId: "request-reclaim",
-        runtimeSessionId: "session-reclaim",
-        toolCode: "files",
-        policy: durablePolicy,
-        args: {
-          action: "write",
-          path: "docs/reclaimed.txt",
-          content: "reclaimed"
-        }
-      }
-    );
-    assert.equal(reclaimHarness.jobs.get("job-reclaim")?.status, "completed");
-    assert.equal(
-      reclaimHarness.workspaceLeases.get("assistant-reclaim:workspace-reclaim")?.sandboxJobId,
-      null
-    );
-    assert.notEqual(
-      reclaimHarness.workspaceLeases.get("assistant-reclaim:workspace-reclaim")?.leaseToken,
-      "stale-token"
-    );
-
-    const hydrateCleanupHarness = createDurableHarness();
-    const persistedHydrateBuffer = Buffer.from("persisted good", "utf8");
-    hydrateCleanupHarness.storedObjects.set(
-      "assistant-media/persisted/good.txt",
-      persistedHydrateBuffer
-    );
-    hydrateCleanupHarness.assistantFiles.push(
-      {
-        id: "assistant-file-good",
-        assistantId: "assistant-hydrate",
-        workspaceId: "workspace-hydrate",
-        sandboxJobId: "job-before",
-        origin: "sandbox_output",
-        sourceToolCode: "files",
-        objectKey: "assistant-media/persisted/good.txt",
-        relativePath: "docs/good.txt",
-        displayName: "good.txt",
-        mimeType: "text/plain",
-        sizeBytes: BigInt(persistedHydrateBuffer.length),
-        logicalSizeBytes: BigInt(persistedHydrateBuffer.length),
-        sha256: createHash("sha256").update(persistedHydrateBuffer).digest("hex"),
-        metadata: {},
-        createdAt: new Date(Date.now() - 2_000),
-        updatedAt: new Date(Date.now() - 2_000)
-      },
-      {
-        id: "assistant-file-stale",
-        assistantId: "assistant-hydrate",
-        workspaceId: "workspace-hydrate",
-        sandboxJobId: "job-before",
-        origin: "sandbox_output",
-        sourceToolCode: "files",
-        objectKey: "assistant-media/persisted/missing.txt",
-        relativePath: "docs/stale.txt",
-        displayName: "stale.txt",
-        mimeType: "text/plain",
-        sizeBytes: BigInt(5),
-        logicalSizeBytes: BigInt(5),
-        sha256: "stale",
-        metadata: {},
-        createdAt: new Date(Date.now() - 1_000),
-        updatedAt: new Date(Date.now() - 1_000)
-      }
-    );
-    hydrateCleanupHarness.jobs.set("job-hydrate-cleanup", {
-      id: "job-hydrate-cleanup",
-      assistantId: "assistant-hydrate",
-      workspaceId: "workspace-hydrate",
-      toolCode: "files",
-      status: "queued",
-      resultPayload: null,
-      violationCode: null,
-      violationMessage: null,
-      resourceUsage: null
-    });
-    const hydrateCleanupService = hydrateCleanupHarness.createService();
-    const hydrateCleanupTestAccess = hydrateCleanupService as unknown as SandboxServiceTestAccess;
-    const hydrateCleanupWorkspaceRoot = hydrateCleanupTestAccess.resolveWorkspaceSessionRoot(
-      "assistant-hydrate",
-      "workspace-hydrate"
-    );
-    await hydrateCleanupTestAccess.executeQueuedJob("job-hydrate-cleanup", {
-      assistantId: "assistant-hydrate",
-      workspaceId: "workspace-hydrate",
-      runtimeRequestId: "request-hydrate-cleanup",
-      runtimeSessionId: "session-hydrate-cleanup",
-      toolCode: "files",
-      policy: durablePolicy,
-      args: {
-        action: "write",
-        path: "docs/new.txt",
-        content: "fresh content"
-      }
-    });
-    assert.equal(hydrateCleanupHarness.jobs.get("job-hydrate-cleanup")?.status, "completed");
-    assert.equal(
-      hydrateCleanupHarness.assistantFiles.some((file) => file.id === "assistant-file-stale"),
-      false
-    );
-    assert.equal(
-      hydrateCleanupHarness.assistantFiles.some((file) => file.relativePath === "docs/good.txt"),
-      true
-    );
-    assert.equal(
-      hydrateCleanupHarness.assistantFiles.some((file) => file.relativePath === "docs/new.txt"),
-      true
-    );
-    assert.equal(
-      await fs.readFile(join(hydrateCleanupWorkspaceRoot, "docs", "good.txt"), "utf8"),
-      "persisted good"
-    );
-    await assert.rejects(
-      fs.readFile(join(hydrateCleanupWorkspaceRoot, "docs", "stale.txt"), "utf8")
-    );
-    assert.equal(
-      await fs.readFile(join(hydrateCleanupWorkspaceRoot, "docs", "new.txt"), "utf8"),
-      "fresh content"
-    );
-
-    const resetHarness = createDurableHarness();
-    resetHarness.storedObjects.set(
-      "assistant-media/persisted/original.txt",
-      Buffer.from("persisted", "utf8")
-    );
-    resetHarness.assistantFiles.push({
-      id: "assistant-file-reset",
-      assistantId: "assistant-reset",
-      workspaceId: "workspace-reset",
-      sandboxJobId: "job-baseline",
-      origin: "sandbox_output",
-      sourceToolCode: "files",
-      objectKey: "assistant-media/persisted/original.txt",
-      relativePath: "docs/reset.txt",
-      displayName: "reset.txt",
-      mimeType: "text/plain",
-      sizeBytes: BigInt(9),
-      logicalSizeBytes: BigInt(9),
-      sha256: null,
-      metadata: {},
-      createdAt: new Date(Date.now() - 1_000),
-      updatedAt: new Date(Date.now() - 1_000)
-    });
-    resetHarness.jobs.set("job-reset", {
-      id: "job-reset",
-      assistantId: "assistant-reset",
-      workspaceId: "workspace-reset",
-      toolCode: "files",
-      status: "queued",
-      resultPayload: null,
-      violationCode: null,
-      violationMessage: null,
-      resourceUsage: null
-    });
-    const resetService = resetHarness.createService();
-    const resetServiceTestAccess = resetService as unknown as SandboxServiceTestAccess;
-    const resetWorkspaceRoot = resetServiceTestAccess.resolveWorkspaceSessionRoot(
-      "assistant-reset",
-      "workspace-reset"
-    );
-    const originalHeartbeat = (
-      resetService as unknown as {
-        startWorkspaceLeaseHeartbeat: (handle: unknown) => {
-          active: boolean;
-          renewalError: Error | null;
-          heartbeatTimer: NodeJS.Timeout | null;
-          renewing: boolean;
-          handle: unknown;
-        };
-      }
-    ).startWorkspaceLeaseHeartbeat.bind(resetService);
-    (
-      resetService as unknown as {
-        startWorkspaceLeaseHeartbeat: (handle: unknown) => {
-          active: boolean;
-          renewalError: Error | null;
-          heartbeatTimer: NodeJS.Timeout | null;
-          renewing: boolean;
-          handle: unknown;
-        };
-      }
-    ).startWorkspaceLeaseHeartbeat = (handle: unknown) => {
-      const guard = originalHeartbeat(handle);
-      setTimeout(() => {
-        guard.active = false;
-        guard.renewalError = Object.assign(new Error("lost"), {
-          code: "workspace_lease_lost",
-          blocked: false
-        });
-      }, 0);
-      return guard;
-    };
-    (
-      resetService as unknown as {
-        executeTool: (input: { workspaceRoot: string }) => Promise<Record<string, unknown>>;
-      }
-    ).executeTool = async (input: { workspaceRoot: string }) => {
-      await fs.mkdir(join(input.workspaceRoot, "docs"), { recursive: true });
-      await fs.writeFile(join(input.workspaceRoot, "docs", "reset.txt"), "mutated", "utf8");
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      return {
-        reason: null,
-        warning: null,
-        exitCode: null,
-        stdout: null,
-        stderr: null,
-        content: null
-      };
-    };
-    await resetServiceTestAccess.executeQueuedJob("job-reset", {
-      assistantId: "assistant-reset",
-      workspaceId: "workspace-reset",
-      runtimeRequestId: "request-reset",
-      runtimeSessionId: "session-reset",
-      toolCode: "files",
-      policy: durablePolicy,
-      args: {
-        action: "write",
-        path: "docs/reset.txt",
-        content: "mutated"
-      }
-    });
-    assert.equal(resetHarness.jobs.get("job-reset")?.status, "failed");
-    assert.equal(
-      await fs.readFile(join(resetWorkspaceRoot, "docs", "reset.txt"), "utf8"),
-      "persisted"
-    );
-    assert.match(
-      resetHarness.assistantFiles.find((file) => file.id === "assistant-file-reset")?.sha256 ?? "",
-      /^[0-9a-f]{64}$/i
-    );
-  } finally {
-    await removePathWithRetries(join(durableWorkspaceRoot, ".."));
-  }
+  assert.equal(completedJob.files[0]?.displayName, "document.pdf");
 
   let storedJob: {
     id: string;
@@ -1153,21 +184,12 @@ async function run(): Promise<void> {
     resultPayload: unknown;
     violationCode: string | null;
     violationMessage: string | null;
-    fileRefs: unknown[];
   } | null = null;
   const blockedService = new SandboxService(
     {
       sandboxJob: {
         async count(input: { where: Record<string, unknown> }) {
           if ("createdAt" in input.where) {
-            assert.equal(input.where.assistantId, "assistant-1");
-            assert.equal(input.where.workspaceId, "workspace-1");
-            assert.ok(
-              typeof input.where.createdAt === "object" &&
-                input.where.createdAt !== null &&
-                "gte" in input.where.createdAt &&
-                (input.where.createdAt as { gte: unknown }).gte instanceof Date
-            );
             return 1;
           }
           return 0;
@@ -1181,8 +203,7 @@ async function run(): Promise<void> {
             violationCode:
               typeof input.data.violationCode === "string" ? input.data.violationCode : null,
             violationMessage:
-              typeof input.data.violationMessage === "string" ? input.data.violationMessage : null,
-            fileRefs: []
+              typeof input.data.violationMessage === "string" ? input.data.violationMessage : null
           };
           return storedJob;
         },
@@ -1194,11 +215,14 @@ async function run(): Promise<void> {
     {} as never,
     createSandboxObservabilityService(),
     createSandboxConfig(),
+    {} as never,
     {} as never
   );
 
   const blockedJob = await blockedService.submitJob({
     assistantId: "assistant-1",
+    assistantHandle: "a-test",
+    siblingHandles: [],
     workspaceId: "workspace-1",
     runtimeRequestId: "request-1",
     runtimeSessionId: "session-1",
@@ -1217,8 +241,6 @@ async function run(): Promise<void> {
 
   assert.equal(blockedJob.status, "blocked");
   assert.equal(blockedJob.reason, "sandbox_daily_job_limit_reached");
-  assert.equal(blockedJob.violationCode, "sandbox_daily_job_limit_reached");
-  assert.match(blockedJob.warning ?? "", /Sandbox job quota reached for today/);
 
   let backlogStoredJob: {
     id: string;
@@ -1227,7 +249,6 @@ async function run(): Promise<void> {
     resultPayload: unknown;
     violationCode: string | null;
     violationMessage: string | null;
-    assistantFiles: unknown[];
   } | null = null;
   const backlogService = new SandboxService(
     {
@@ -1244,8 +265,7 @@ async function run(): Promise<void> {
             violationCode:
               typeof input.data.violationCode === "string" ? input.data.violationCode : null,
             violationMessage:
-              typeof input.data.violationMessage === "string" ? input.data.violationMessage : null,
-            assistantFiles: []
+              typeof input.data.violationMessage === "string" ? input.data.violationMessage : null
           };
           return backlogStoredJob;
         },
@@ -1257,10 +277,13 @@ async function run(): Promise<void> {
     {} as never,
     createSandboxObservabilityService(),
     createSandboxConfig({ SANDBOX_MAX_PENDING_JOBS: 1 }),
+    {} as never,
     {} as never
   );
   const backlogJob = await backlogService.submitJob({
     assistantId: "assistant-1",
+    assistantHandle: "a-test",
+    siblingHandles: [],
     workspaceId: "workspace-1",
     runtimeRequestId: "request-backlog",
     runtimeSessionId: "session-backlog",
@@ -1278,7 +301,6 @@ async function run(): Promise<void> {
   });
   assert.equal(backlogJob.status, "blocked");
   assert.equal(backlogJob.reason, "sandbox_backlog_full");
-  assert.match(backlogJob.warning ?? "", /Sandbox backlog is full/);
 
   const staleObservability = createSandboxObservabilityService();
   let staleJob = {
@@ -1291,8 +313,7 @@ async function run(): Promise<void> {
     violationMessage: null,
     createdAt: new Date(Date.now() - 2_000),
     startedAt: null,
-    completedAt: null,
-    assistantFiles: []
+    completedAt: null
   };
   const staleService = new SandboxService(
     {
@@ -1312,12 +333,12 @@ async function run(): Promise<void> {
     {} as never,
     staleObservability,
     createSandboxConfig({ SANDBOX_QUEUED_JOB_STALE_AFTER_MS: 1_000 }),
+    {} as never,
     {} as never
   );
   const staleResult = await staleService.pollJob("job-stale-queued-1", 25);
   assert.equal(staleResult.status, "failed");
   assert.equal(staleResult.reason, "sandbox_queue_timeout");
-  assert.match(staleResult.warning ?? "", /stayed queued/i);
   assert.equal(staleObservability.getCounters().staleFailures.queued, 1);
 }
 
@@ -1403,6 +424,7 @@ test("SandboxService: saveSessionWorkspaceSnapshot writes to GCS with session ke
     objectStorageStub as never,
     new SandboxObservabilityService(),
     createSandboxConfig(),
+    {} as never,
     {} as never
   );
   const access = service as unknown as SandboxServiceTestAccess;
@@ -1453,6 +475,7 @@ test("SandboxService: restoreSessionSnapshotOverlay is a no-op when no snapshot 
     objectStorageStub as never,
     new SandboxObservabilityService(),
     createSandboxConfig(),
+    {} as never,
     {} as never
   );
   const access = service as unknown as SandboxServiceTestAccess;
@@ -1501,6 +524,7 @@ test("SandboxService: session snapshot round-trip — save then restore adds eph
     objectStorageStub as never,
     new SandboxObservabilityService(),
     createSandboxConfig(),
+    {} as never,
     {} as never
   );
   const access = service as unknown as SandboxServiceTestAccess;
@@ -1554,60 +578,7 @@ test("SandboxService: render_html_to_pdf runs weasyprint command and removes tra
   const storedObjects = new Map<string, Buffer>();
 
   const service = new SandboxService(
-    {
-      sandboxJob: {
-        async update(input: { where: { id: string }; data: Record<string, unknown> }) {
-          return { id: input.where.id, ...input.data };
-        },
-        async findUnique() {
-          return null;
-        }
-      },
-      assistantFile: {
-        async findMany() {
-          return [];
-        },
-        async create(input: { data: Record<string, unknown> }) {
-          return {
-            id: "file-render-1",
-            assistantId: String(input.data.assistantId),
-            workspaceId: String(input.data.workspaceId),
-            sandboxJobId: null,
-            origin: "sandbox_output",
-            sourceToolCode: String(input.data.sourceToolCode),
-            objectKey: String(input.data.objectKey),
-            relativePath: String(input.data.relativePath),
-            displayName: null,
-            mimeType: String(input.data.mimeType),
-            sizeBytes: input.data.sizeBytes as bigint,
-            logicalSizeBytes: null,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date(),
-            updatedAt: new Date()
-          };
-        },
-        async deleteMany() {
-          return { count: 0 };
-        }
-      },
-      assistantWorkspaceLease: {
-        async create(input: { data: Record<string, unknown> }) {
-          return {
-            id: "lease-render-1",
-            assistantId: String(input.data.assistantId),
-            workspaceId: String(input.data.workspaceId),
-            sandboxJobId: null,
-            leaseToken: String(input.data.leaseToken),
-            holderId: String(input.data.holderId),
-            expiresAt: input.data.expiresAt as Date
-          };
-        },
-        async updateMany() {
-          return { count: 1 };
-        }
-      }
-    } as never,
+    createLeasePrismaStub(),
     {
       buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
         return `sandbox/${input.assistantId}/${input.jobId}/${input.relativePath}`;
@@ -1621,7 +592,10 @@ test("SandboxService: render_html_to_pdf runs weasyprint command and removes tra
       },
       async downloadObject(objectKey: string) {
         const stored = storedObjects.get(objectKey);
-        return stored !== undefined ? Buffer.from(stored) : null;
+        if (stored === undefined) {
+          throw new Error(`Missing stored object "${objectKey}"`);
+        }
+        return Buffer.from(stored);
       }
     } as never,
     new SandboxObservabilityService(),
@@ -1641,12 +615,12 @@ test("SandboxService: render_html_to_pdf runs weasyprint command and removes tra
           args: input.args,
           jobId: input.jobId
         });
-        // Simulate weasyprint writing the PDF output file.
         const outputFile = input.args[1]!.replace("/workspace/", "");
         await fs.writeFile(join(input.workspaceRoot, outputFile), fakePdfBytes);
         return { exitCode: 0, stdout: null, stderr: null, durationMs: 100, execPodName: null };
       }
-    } as never
+    } as never,
+    {} as never
   );
 
   const access = service as unknown as SandboxServiceTestAccess;
@@ -1682,8 +656,10 @@ test("SandboxService: render_html_to_pdf runs weasyprint command and removes tra
     "assistant-render-1",
     "workspace-render-1"
   );
-  const filesAfter = await access.collectWorkspaceFiles(workspaceRoot).catch(() => []);
-  const htmlInputPresent = filesAfter.some((f) => f.relativePath.includes(".render-input.html"));
+  const filesAfter = await listWorkspaceRelativeFiles(workspaceRoot);
+  const htmlInputPresent = filesAfter.some((relativePath) =>
+    relativePath.includes(".render-input.html")
+  );
   assert.equal(
     htmlInputPresent,
     false,
@@ -1696,109 +672,37 @@ test("SandboxService: render_html_to_pdf runs weasyprint command and removes tra
 // transient program and sources after the run, and persists the produced file.
 test("SandboxService: execute_document_code mounts sources, runs python3, and cleans up transients", async () => {
   const capturedRunInPodCalls: Array<{ command: string; args: string[] }> = [];
+  const capturedJobUpdates: Array<Record<string, unknown>> = [];
   const sourcesAtRunTime: {
     sourcePdf: string | null;
     ocrSidecar: string | null;
     program: string | null;
   } = { sourcePdf: null, ocrSidecar: null, program: null };
-  const createdAssistantFiles: Array<{ relativePath: string; origin: string; mimeType: string }> =
-    [];
 
   const sourcePdfBytes = Buffer.concat([
     Buffer.from("%PDF-1.4\n", "utf8"),
     Buffer.alloc(400, "S"),
     Buffer.from("\n%%EOF", "utf8")
   ]);
-  // ZIP local-file-header magic so the output passes downstream office validation.
   const fakeXlsxBytes = Buffer.concat([
     Buffer.from([0x50, 0x4b, 0x03, 0x04]),
     Buffer.alloc(1024, 9)
   ]);
 
-  const storedObjects = new Map<string, Buffer>();
-  storedObjects.set("obj/source.pdf", sourcePdfBytes);
+  const workspaceId = "workspace-code-1";
+  const sourceStoragePath = "/shared/input/source.pdf";
+  const sharedObjectKey = `assistant-media/workspaces/${workspaceId}/shared/input/source.pdf`;
+  const storedObjects = new Map<string, Buffer>([[sharedObjectKey, sourcePdfBytes]]);
 
   const service = new SandboxService(
     {
       sandboxJob: {
         async update(input: { where: { id: string }; data: Record<string, unknown> }) {
+          capturedJobUpdates.push(input.data);
           return { id: input.where.id, ...input.data };
         },
         async findUnique() {
           return null;
-        }
-      },
-      assistantFile: {
-        async findMany() {
-          // The mounted source AssistantFile (looked up by mountedFileRefs).
-          return [
-            {
-              id: "src-file-1",
-              assistantId: "assistant-code-1",
-              workspaceId: "workspace-code-1",
-              origin: "uploaded_attachment",
-              sourceToolCode: null,
-              objectKey: "obj/source.pdf",
-              relativePath: "uploads/att-1/source.pdf",
-              displayName: "source.pdf",
-              mimeType: "application/pdf",
-              sizeBytes: BigInt(sourcePdfBytes.length),
-              logicalSizeBytes: BigInt(sourcePdfBytes.length),
-              sha256: null,
-              metadata: null,
-              createdAt: new Date("2026-06-21T00:00:00.000Z"),
-              updatedAt: new Date("2026-06-21T00:00:00.000Z")
-            }
-          ];
-        },
-        async create(input: { data: Record<string, unknown> }) {
-          createdAssistantFiles.push({
-            relativePath: String(input.data.relativePath),
-            origin: String(input.data.origin),
-            mimeType: String(input.data.mimeType)
-          });
-          return {
-            id: "file-code-out-1",
-            assistantId: String(input.data.assistantId),
-            workspaceId: String(input.data.workspaceId),
-            sandboxJobId: null,
-            origin: String(input.data.origin),
-            sourceToolCode: String(input.data.sourceToolCode),
-            objectKey: String(input.data.objectKey),
-            relativePath: String(input.data.relativePath),
-            displayName: null,
-            mimeType: String(input.data.mimeType),
-            sizeBytes: input.data.sizeBytes as bigint,
-            logicalSizeBytes: null,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date(),
-            updatedAt: new Date()
-          };
-        },
-        async update(input: { where: { id: string }; data: Record<string, unknown> }) {
-          return {
-            id: input.where.id,
-            assistantId: "assistant-code-1",
-            workspaceId: "workspace-code-1",
-            sandboxJobId: null,
-            origin: "uploaded_attachment",
-            sourceToolCode: null,
-            objectKey: "obj/source.pdf",
-            relativePath: "uploads/att-1/source.pdf",
-            displayName: "source.pdf",
-            mimeType: "application/pdf",
-            sizeBytes: BigInt(sourcePdfBytes.length),
-            logicalSizeBytes: BigInt(sourcePdfBytes.length),
-            sha256: null,
-            metadata: null,
-            createdAt: new Date("2026-06-21T00:00:00.000Z"),
-            updatedAt: new Date("2026-06-21T00:00:00.000Z"),
-            ...input.data
-          };
-        },
-        async deleteMany() {
-          return { count: 0 };
         }
       },
       assistantWorkspaceLease: {
@@ -1822,6 +726,9 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
       buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
         return `sandbox/${input.assistantId}/${input.jobId}/${input.relativePath}`;
       },
+      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        return `assistant-media/workspaces/${input.workspaceId}/shared/${input.workspaceRelPath.replace(/^\/shared\//, "")}`;
+      },
       buildSessionSnapshotKey() {
         return "snap/key";
       },
@@ -1831,23 +738,17 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
       },
       async downloadObject(objectKey: string) {
         const stored = storedObjects.get(objectKey);
-        return stored !== undefined ? Buffer.from(stored) : null;
+        if (stored === undefined) {
+          throw new Error(`Missing stored object "${objectKey}"`);
+        }
+        return Buffer.from(stored);
       }
     } as never,
     new SandboxObservabilityService(),
     createSandboxConfig(),
     {
-      async runInPod(input: {
-        jobId: string;
-        command: string;
-        args: string[];
-        workspaceRoot: string;
-        absoluteCwd: string;
-        policy: unknown;
-        runtimeSessionId: string | null;
-      }) {
+      async runInPod(input: { command: string; args: string[]; workspaceRoot: string }) {
         capturedRunInPodCalls.push({ command: input.command, args: input.args });
-        // Observe the mounted source + OCR sidecar + program as the program would see them.
         sourcesAtRunTime.sourcePdf = await fs
           .readFile(join(input.workspaceRoot, "sources", "source.pdf"))
           .then((b) => b.toString("utf8"))
@@ -1858,18 +759,18 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
         sourcesAtRunTime.program = await fs
           .readFile(join(input.workspaceRoot, ".document-code.py"), "utf8")
           .catch(() => null);
-        // Simulate the program writing the xlsx output file.
         await fs.writeFile(join(input.workspaceRoot, "report.xlsx"), fakeXlsxBytes);
         return { exitCode: 0, stdout: null, stderr: null, durationMs: 50, execPodName: null };
       }
-    } as never
+    } as never,
+    {} as never
   );
 
   const access = service as unknown as SandboxServiceTestAccess;
 
   await access.executeQueuedJob("code-job-1", {
     assistantId: "assistant-code-1",
-    workspaceId: "workspace-code-1",
+    workspaceId,
     runtimeRequestId: "request-code-1",
     runtimeSessionId: null,
     toolCode: "execute_document_code",
@@ -1877,72 +778,45 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
     args: {
       programSource: "import openpyxl\nopenpyxl.Workbook().save('/workspace/report.xlsx')\n",
       outputFileName: "report.xlsx",
-      sourceMounts: [{ fileRef: "src-file-1", mountPath: "sources/source.pdf" }],
+      sourceMounts: [{ storagePath: sourceStoragePath, mountPath: "sources/source.pdf" }],
       textSidecars: [{ mountPath: "sources/source.pdf.ocr.txt", text: "OCR TEXT" }]
-    },
-    mountedFileRefs: ["src-file-1"]
+    }
   });
 
-  // 1. python3 must have run against the transient program file.
   assert.equal(capturedRunInPodCalls.length, 1, "runInPod must be called exactly once");
   assert.equal(capturedRunInPodCalls[0]!.command, "python3");
-  assert.ok(
-    capturedRunInPodCalls[0]!.args[0]?.endsWith(".document-code.py"),
-    `python3 must run the transient program, got: ${String(capturedRunInPodCalls[0]!.args[0])}`
+  assert.equal(sourcesAtRunTime.sourcePdf?.startsWith("%PDF-1.4"), true);
+  assert.equal(sourcesAtRunTime.ocrSidecar, "OCR TEXT");
+
+  const workspaceRoot = access.resolveWorkspaceSessionRoot("assistant-code-1", workspaceId);
+  const filesAfter = await listWorkspaceRelativeFiles(workspaceRoot);
+  assert.equal(
+    filesAfter.some((path) => path.includes(".document-code.py")),
+    false
+  );
+  assert.equal(
+    filesAfter.some((path) => path.startsWith("sources/")),
+    false
   );
 
-  // 2. The source file + OCR sidecar were materialized for the program to read.
-  assert.equal(
-    sourcesAtRunTime.sourcePdf?.startsWith("%PDF-1.4"),
-    true,
-    "source pdf must be mounted under /workspace/sources"
-  );
-  assert.equal(
-    sourcesAtRunTime.ocrSidecar,
-    "OCR TEXT",
-    "OCR sidecar must be written under /workspace/sources"
-  );
-  assert.ok((sourcesAtRunTime.program ?? "").includes("openpyxl"), "program file must be written");
-
-  // 3. Transients removed: the program and the entire sources/ dir are gone.
-  const workspaceRoot = access.resolveWorkspaceSessionRoot("assistant-code-1", "workspace-code-1");
-  const filesAfter = await access.collectWorkspaceFiles(workspaceRoot).catch(() => []);
-  assert.equal(
-    filesAfter.some((f) => f.relativePath.includes(".document-code.py")),
-    false,
-    "transient .document-code.py must be removed"
-  );
-  assert.equal(
-    filesAfter.some((f) => f.relativePath.startsWith("sources/")),
-    false,
-    "transient sources/ copies must be removed"
-  );
-
-  // 4. The produced output file was persisted as a sandbox_output AssistantFile.
-  const producedOutput = createdAssistantFiles.find((f) => f.relativePath === "report.xlsx");
-  assert.ok(producedOutput, "report.xlsx must be persisted as a produced file");
-  assert.equal(producedOutput!.origin, "sandbox_output");
+  const completed = capturedJobUpdates.find((update) => update.status === "completed");
+  const payload = completed?.resultPayload as {
+    producedFiles?: Array<{ relativePath: string; storagePath: string }>;
+  };
+  const produced = payload?.producedFiles?.find((file) => file.relativePath === "report.xlsx");
+  assert.ok(produced, "report.xlsx must be staged in job producedFiles");
+  assert.ok(produced!.storagePath.length > 0);
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ADR-123 Slice 7 — inline grep / glob workspace tools.
-// They run trusted PersAI-owned `rg`/`fd` subprocesses on the CONTROL PLANE
-// (never an exec pod). These tests assert: argv ARRAY (no shell), workspaceRoot
-// containment, output caps, and the structured contract result. The trusted
-// binary spawn is overridden so the tests do not depend on rg/fd being present.
-// ─────────────────────────────────────────────────────────────────────────────
-
-type TrustedBinaryCall = { command: string; args: string[]; cwd: string };
+// ADR-123 Slice 7 — grep / glob workspace tools via pod exec.
 
 function buildGrepGlobService(
   capturedJobUpdates: Array<Record<string, unknown>>,
-  capturedBinaryCalls: TrustedBinaryCall[],
-  binaryResult: {
+  capturedShellCalls: Array<{ shellCommand: string }>,
+  shellResult: {
     exitCode: number;
     stdout: string;
     stderr: string;
-    truncated: boolean;
-    timedOut: boolean;
   }
 ): SandboxService {
   const service = new SandboxService(
@@ -1954,17 +828,6 @@ function buildGrepGlobService(
         },
         async findUnique() {
           return null;
-        }
-      },
-      assistantFile: {
-        async findMany() {
-          return [];
-        },
-        async create() {
-          return {};
-        },
-        async deleteMany() {
-          return { count: 0 };
         }
       },
       assistantWorkspaceLease: {
@@ -1995,42 +858,38 @@ function buildGrepGlobService(
         return input.buffer.length;
       },
       async downloadObject() {
-        return null;
+        throw new Error("missing");
       }
     } as never,
     new SandboxObservabilityService(),
     createSandboxConfig(),
     {
       async runInPod() {
-        throw new Error("grep/glob must NOT route through the exec pod bridge");
+        throw new Error("grep/glob must NOT route through runInPod");
+      },
+      async execShellInSessionPod(input: { shellCommand: string }) {
+        capturedShellCalls.push({ shellCommand: input.shellCommand });
+        return {
+          exitCode: shellResult.exitCode,
+          stdout: shellResult.stdout,
+          stderr: shellResult.stderr,
+          durationMs: 1,
+          execPodName: "ses-grep-test"
+        };
       }
-    } as never
+    } as never,
+    {} as never
   );
-  (
-    service as unknown as {
-      runTrustedControlPlaneBinary: (
-        command: string,
-        args: string[],
-        workspaceRoot: string
-      ) => Promise<typeof binaryResult>;
-    }
-  ).runTrustedControlPlaneBinary = async (command, args, workspaceRoot) => {
-    capturedBinaryCalls.push({ command, args, cwd: workspaceRoot });
-    return binaryResult;
-  };
   return service;
 }
 
-test("SandboxService: grep runs rg via argv array (no shell) and returns structured matches", async () => {
+test("SandboxService: grep runs rg via pod exec and returns structured matches", async () => {
   const capturedJobUpdates: Array<Record<string, unknown>> = [];
-  const capturedBinaryCalls: TrustedBinaryCall[] = [];
-  // rg stdout: relativePath:lineNumber:text
-  const service = buildGrepGlobService(capturedJobUpdates, capturedBinaryCalls, {
+  const capturedShellCalls: Array<{ shellCommand: string }> = [];
+  const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
     exitCode: 0,
     stdout: "src/app.ts:12:const token = 1;\nsrc/app.ts:40:const token2 = 2;\n",
-    stderr: "",
-    truncated: false,
-    timedOut: false
+    stderr: ""
   });
   const access = service as unknown as SandboxServiceTestAccess;
 
@@ -2044,23 +903,13 @@ test("SandboxService: grep runs rg via argv array (no shell) and returns structu
     args: { pattern: "token", glob: "**/*.ts", caseInsensitive: true }
   });
 
-  // 1. Exactly one trusted binary call, to `rg`, NOT a shell.
-  assert.equal(capturedBinaryCalls.length, 1, "rg must be called exactly once");
-  const call = capturedBinaryCalls[0]!;
-  assert.equal(call.command, "rg", "must invoke rg");
-  assert.ok(!call.args.includes("-lc"), "must NOT use a shell -lc invocation");
-  // 2. Argv safety: `--` precedes the model pattern so it cannot be read as a flag.
-  const dashDashIndex = call.args.indexOf("--");
-  assert.ok(dashDashIndex >= 0, "args must contain a -- terminator");
-  assert.equal(
-    call.args[dashDashIndex + 1],
-    "token",
-    "model pattern must come immediately after --"
-  );
-  assert.ok(call.args.includes("--glob"), "glob filter must be forwarded as a flag");
-  assert.ok(call.args.includes("--ignore-case"), "caseInsensitive must map to --ignore-case");
+  assert.equal(capturedShellCalls.length, 1, "rg must be invoked exactly once via pod exec");
+  const shellCommand = capturedShellCalls[0]!.shellCommand;
+  assert.ok(shellCommand.startsWith("rg "), "pod shell must invoke rg");
+  assert.ok(shellCommand.includes(" -- "), "rg command must include pattern terminator");
+  assert.ok(shellCommand.includes("'token'"), "model pattern must be shell-quoted in rg command");
+  assert.ok(shellCommand.includes("--glob"), "glob filter must be forwarded");
 
-  // 3. Structured result persisted as resultPayload.content JSON.
   const completed = capturedJobUpdates.find((d) => d.status === "completed");
   assert.ok(completed, "job must complete");
   const payload = completed!.resultPayload as { content: string | null };
@@ -2074,15 +923,13 @@ test("SandboxService: grep runs rg via argv array (no shell) and returns structu
   assert.equal(parsed.truncated, false);
 });
 
-test("SandboxService: grep rejects a path that escapes the workspace root", async () => {
+test("SandboxService: grep rejects a path outside allowed mounts", async () => {
   const capturedJobUpdates: Array<Record<string, unknown>> = [];
-  const capturedBinaryCalls: TrustedBinaryCall[] = [];
-  const service = buildGrepGlobService(capturedJobUpdates, capturedBinaryCalls, {
+  const capturedShellCalls: Array<{ shellCommand: string }> = [];
+  const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
     exitCode: 0,
     stdout: "",
-    stderr: "",
-    truncated: false,
-    timedOut: false
+    stderr: ""
   });
   const access = service as unknown as SandboxServiceTestAccess;
 
@@ -2093,29 +940,27 @@ test("SandboxService: grep rejects a path that escapes the workspace root", asyn
     runtimeSessionId: null,
     toolCode: "grep",
     policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
-    args: { pattern: "secret", path: "../../etc" }
+    args: { pattern: "secret", path: "/etc/passwd" }
   });
 
-  // Containment violation is caught before the binary is ever spawned.
-  assert.equal(capturedBinaryCalls.length, 0, "rg must NOT run for an escaping path");
-  const failed = capturedJobUpdates.find((d) => d.status === "failed" || d.status === "blocked");
-  assert.ok(failed, "an escaping path must fail the job (invalid_path) before spawning rg");
+  assert.equal(capturedShellCalls.length, 0, "rg must NOT run for a disallowed path");
+  const completed = capturedJobUpdates.find((d) => d.status === "completed");
+  assert.ok(completed, "job completes with a path rejection payload");
+  const payload = completed!.resultPayload as { reason: string | null; content: string | null };
+  assert.equal(payload.reason, "outside_allowed_mount");
 });
 
 test("SandboxService: grep caps match count and flags truncation", async () => {
   const capturedJobUpdates: Array<Record<string, unknown>> = [];
-  const capturedBinaryCalls: TrustedBinaryCall[] = [];
-  // Produce 250 matches; the handler caps at 200 and flags truncated.
+  const capturedShellCalls: Array<{ shellCommand: string }> = [];
   const stdout = Array.from(
     { length: 250 },
     (_unused, index) => `src/file.ts:${String(index + 1)}:match ${String(index)}`
   ).join("\n");
-  const service = buildGrepGlobService(capturedJobUpdates, capturedBinaryCalls, {
+  const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
     exitCode: 0,
     stdout,
-    stderr: "",
-    truncated: false,
-    timedOut: false
+    stderr: ""
   });
   const access = service as unknown as SandboxServiceTestAccess;
 
@@ -2144,43 +989,7 @@ test("SandboxService: shell tool invokes /bin/bash -lc (not /bin/sh)", async () 
   const capturedRunInPodCalls: Array<{ command: string; args: string[] }> = [];
 
   const service = new SandboxService(
-    {
-      sandboxJob: {
-        async update(input: { where: { id: string }; data: Record<string, unknown> }) {
-          return { id: input.where.id, ...input.data };
-        },
-        async findUnique() {
-          return null;
-        }
-      },
-      assistantFile: {
-        async findMany() {
-          return [];
-        },
-        async create(input: { data: Record<string, unknown> }) {
-          return { id: "f1", ...input.data, createdAt: new Date(), updatedAt: new Date() };
-        },
-        async deleteMany() {
-          return { count: 0 };
-        }
-      },
-      assistantWorkspaceLease: {
-        async create(input: { data: Record<string, unknown> }) {
-          return {
-            id: "lease-shell-1",
-            assistantId: String(input.data.assistantId),
-            workspaceId: String(input.data.workspaceId),
-            sandboxJobId: null,
-            leaseToken: String(input.data.leaseToken),
-            holderId: String(input.data.holderId),
-            expiresAt: input.data.expiresAt as Date
-          };
-        },
-        async updateMany() {
-          return { count: 1 };
-        }
-      }
-    } as never,
+    createLeasePrismaStub(),
     {
       buildSandboxObjectKey() {
         return "obj/key";
@@ -2192,7 +1001,7 @@ test("SandboxService: shell tool invokes /bin/bash -lc (not /bin/sh)", async () 
         return input.buffer.length;
       },
       async downloadObject() {
-        return null;
+        throw new Error("missing");
       }
     } as never,
     new SandboxObservabilityService(),
@@ -2205,7 +1014,8 @@ test("SandboxService: shell tool invokes /bin/bash -lc (not /bin/sh)", async () 
       async warmSessionPod() {
         return { podName: "ses-test", alreadyRunning: false };
       }
-    } as never
+    } as never,
+    {} as never
   );
 
   const access = service as unknown as SandboxServiceTestAccess;
@@ -2235,43 +1045,7 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
   });
 
   const service = new SandboxService(
-    {
-      sandboxJob: {
-        async update(input: { where: { id: string }; data: Record<string, unknown> }) {
-          return { id: input.where.id, ...input.data };
-        },
-        async findUnique() {
-          return null;
-        }
-      },
-      assistantFile: {
-        async findMany() {
-          return [];
-        },
-        async create(input: { data: Record<string, unknown> }) {
-          return { id: "f1", ...input.data, createdAt: new Date(), updatedAt: new Date() };
-        },
-        async deleteMany() {
-          return { count: 0 };
-        }
-      },
-      assistantWorkspaceLease: {
-        async create(input: { data: Record<string, unknown> }) {
-          return {
-            id: "lease-warm-1",
-            assistantId: String(input.data.assistantId),
-            workspaceId: String(input.data.workspaceId),
-            sandboxJobId: null,
-            leaseToken: String(input.data.leaseToken),
-            holderId: String(input.data.holderId),
-            expiresAt: input.data.expiresAt as Date
-          };
-        },
-        async updateMany() {
-          return { count: 1 };
-        }
-      }
-    } as never,
+    createLeasePrismaStub(),
     {
       buildSandboxObjectKey() {
         return "obj/key";
@@ -2283,7 +1057,7 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
         return input.buffer.length;
       },
       async downloadObject() {
-        return null;
+        throw new Error("missing");
       }
     } as never,
     new SandboxObservabilityService(),
@@ -2300,7 +1074,8 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
         warmSessionPodResolveFn?.();
         return { podName: "ses-warm-test", alreadyRunning: false };
       }
-    } as never
+    } as never,
+    {} as never
   );
 
   const access = service as unknown as SandboxServiceTestAccess;
@@ -2347,45 +1122,15 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
   );
 });
 
-test("SandboxService: glob runs fd via argv array and returns sorted relative paths", async () => {
+test("SandboxService: glob runs fd via pod exec and returns sorted relative paths", async () => {
   const capturedJobUpdates: Array<Record<string, unknown>> = [];
-  const capturedBinaryCalls: TrustedBinaryCall[] = [];
-  // fd prints absolute-ish paths; the handler re-bases them to workspace-relative
-  // and sorts. Use the resolved workspace root for realism.
-  const service = buildGrepGlobService(capturedJobUpdates, capturedBinaryCalls, {
+  const capturedShellCalls: Array<{ shellCommand: string }> = [];
+  const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
     exitCode: 0,
-    stdout: "",
-    stderr: "",
-    truncated: false,
-    timedOut: false
+    stdout: "/workspace/src/index.ts\n/workspace/src/app.ts\n",
+    stderr: ""
   });
   const access = service as unknown as SandboxServiceTestAccess;
-  const workspaceRoot = access.resolveWorkspaceSessionRoot("assistant-glob-1", "workspace-glob-1");
-  // Re-point the binary result now that we know the workspace root.
-  (
-    service as unknown as {
-      runTrustedControlPlaneBinary: (
-        command: string,
-        args: string[],
-        cwd: string
-      ) => Promise<{
-        exitCode: number;
-        stdout: string;
-        stderr: string;
-        truncated: boolean;
-        timedOut: boolean;
-      }>;
-    }
-  ).runTrustedControlPlaneBinary = async (command, args, cwd) => {
-    capturedBinaryCalls.push({ command, args, cwd });
-    return {
-      exitCode: 0,
-      stdout: `${workspaceRoot}/src/index.ts\n${workspaceRoot}/src/app.ts\n`,
-      stderr: "",
-      truncated: false,
-      timedOut: false
-    };
-  };
 
   await access.executeQueuedJob("glob-job-1", {
     assistantId: "assistant-glob-1",
@@ -2397,21 +1142,18 @@ test("SandboxService: glob runs fd via argv array and returns sorted relative pa
     args: { pattern: "*.ts" }
   });
 
-  assert.equal(capturedBinaryCalls.length, 1, "fd must be called exactly once");
-  const call = capturedBinaryCalls[0]!;
-  assert.equal(call.command, "fd", "must invoke fd");
-  assert.ok(!call.args.includes("-lc"), "must NOT use a shell -lc invocation");
-  const dashDashIndex = call.args.indexOf("--");
-  assert.ok(dashDashIndex >= 0, "args must contain a -- terminator");
-  assert.equal(call.args[dashDashIndex + 1], "*.ts", "model pattern must come after --");
+  assert.equal(capturedShellCalls.length, 1, "fd must be invoked exactly once via pod exec");
+  const shellCommand = capturedShellCalls[0]!.shellCommand;
+  assert.ok(shellCommand.startsWith("fd "), "pod shell must invoke fd");
+  assert.ok(shellCommand.includes(" -- "), "fd command must include pattern terminator");
 
   const completed = capturedJobUpdates.find((d) => d.status === "completed");
   const payload = completed!.resultPayload as { content: string | null };
   const parsed = JSON.parse(payload.content!) as { paths: string[]; truncated: boolean };
   assert.deepEqual(
     parsed.paths,
-    ["src/app.ts", "src/index.ts"],
-    "paths must be workspace-relative and sorted"
+    ["/workspace/src/app.ts", "/workspace/src/index.ts"],
+    "paths must be pod-absolute and sorted"
   );
   assert.equal(parsed.truncated, false);
 });

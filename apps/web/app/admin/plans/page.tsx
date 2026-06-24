@@ -3604,14 +3604,14 @@ export function PlanForm({
                     {
                       key: "sandboxWebOutboundMb" as const,
                       label: "Web delivery bytes per turn (MB)",
-                      hint: "Total bytes the turn may deliver through `files.send` on web-like channels.",
+                      hint: "Total bytes the turn may deliver through file delivery operations on web-like channels.",
                       value: draft.sandboxWebOutboundMb,
                       patch: (value: string) => onPatch({ sandboxWebOutboundMb: value })
                     },
                     {
                       key: "sandboxTelegramOutboundMb" as const,
                       label: "Telegram delivery bytes per turn (MB)",
-                      hint: "Telegram has its own outbound delivery ceiling for `files.send`.",
+                      hint: "Telegram has its own outbound delivery ceiling for file delivery operations.",
                       value: draft.sandboxTelegramOutboundMb,
                       patch: (value: string) => onPatch({ sandboxTelegramOutboundMb: value })
                     },
@@ -3650,8 +3650,8 @@ export function PlanForm({
                       placeholder="text/plain, application/json, image/png"
                     />
                     <HelpText>
-                      Comma-separated allowlist for files that may be delivered through
-                      `files.send`.
+                      Comma-separated allowlist for files that may be delivered through file
+                      delivery operations.
                     </HelpText>
                   </label>
                 </div>

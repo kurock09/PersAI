@@ -1,28 +1,46 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import type { RuntimeFileHandle } from "@persai/runtime-contract";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 
-type TestWorkingFile = {
-  fileRef: string;
-  origin: "uploaded_attachment" | "runtime_output" | "sandbox_output";
-  sourceToolCode: string | null;
-  objectKey: string;
-  relativePath: string;
+type TestWorkingFile = RuntimeFileHandle;
+
+function workingFile(input: {
+  storagePath: string;
   displayName: string;
   mimeType: string;
-  sizeBytes: number;
-  logicalSizeBytes: number;
+  sizeBytes?: number;
   aliases: string[];
   createdAt?: string;
   authorLabel?: "user" | "model" | "sandbox";
   semanticSummaryHint?: string | null;
-};
+  sourceToolCode?: string | null;
+}): TestWorkingFile {
+  return {
+    storagePath: input.storagePath,
+    displayName: input.displayName,
+    mimeType: input.mimeType,
+    sizeBytes: input.sizeBytes ?? 10,
+    workspaceId: "workspace-1",
+    aliases: input.aliases,
+    ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
+    ...(input.authorLabel === undefined ? {} : { authorLabel: input.authorLabel }),
+    ...(input.semanticSummaryHint === undefined
+      ? {}
+      : { semanticSummaryHint: input.semanticSummaryHint }),
+    ...(input.sourceToolCode === undefined || input.sourceToolCode === null
+      ? {}
+      : { sourceToolCode: input.sourceToolCode })
+  };
+}
 
 function buildSection(files: TestWorkingFile[]): string | null {
   const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
   return (
     service as unknown as {
-      buildWorkingFilesDeveloperSection(availableWorkingFileRefs: TestWorkingFile[]): string | null;
+      buildWorkingFilesDeveloperSection(
+        availableWorkingFileHandles: RuntimeFileHandle[]
+      ): string | null;
     }
   ).buildWorkingFilesDeveloperSection(files);
 }
@@ -78,7 +96,7 @@ describe("TurnExecutionService working files developer section", () => {
       service as unknown as {
         buildToolLoopDeveloperInstructions(
           baseSections: Array<{ key: string; content: string }>,
-          availableWorkingFileRefs: TestWorkingFile[],
+          availableWorkingFileHandles: RuntimeFileHandle[],
           closedOpenLoopRefs: string[],
           hasToolHistory: boolean,
           toolHistory: Array<unknown>,
@@ -91,21 +109,16 @@ describe("TurnExecutionService working files developer section", () => {
     ).buildToolLoopDeveloperInstructions(
       baseSections,
       [
-        {
-          fileRef: "file-ref-1",
-          origin: "uploaded_attachment",
-          sourceToolCode: null,
-          objectKey: "assistant-media/uploads/photo.jpg",
-          relativePath: "uploads/photo.jpg",
+        workingFile({
+          storagePath: "/shared/workspace-1/input/photo.jpg",
           displayName: "photo.jpg",
           mimeType: "image/jpeg",
           sizeBytes: 123,
-          logicalSizeBytes: 123,
           aliases: ["image #1", "file #1"],
           createdAt: "2026-05-26T11:10:00.000Z",
           authorLabel: "user",
           semanticSummaryHint: "Portrait photo for editing."
-        }
+        })
       ],
       [],
       false,
@@ -124,51 +137,35 @@ describe("TurnExecutionService working files developer section", () => {
 
   test("renders working files with sticky labels and marker column", () => {
     const section = buildSection([
-      {
-        fileRef: "file-old",
-        origin: "uploaded_attachment",
-        sourceToolCode: null,
-        objectKey: "uploads/old.txt",
-        relativePath: "uploads/old.txt",
+      workingFile({
+        storagePath: "/shared/workspace-1/input/old.txt",
         displayName: "old.txt",
         mimeType: "text/plain",
-        sizeBytes: 10,
-        logicalSizeBytes: 10,
         aliases: ["file #1"],
         createdAt: "2026-05-24T08:05:00.000Z",
         authorLabel: "user",
         semanticSummaryHint: "Older user draft."
-      },
-      {
-        fileRef: "file-new",
-        origin: "runtime_output",
-        sourceToolCode: "image_edit",
-        objectKey: "generated/portrait.png",
-        relativePath: "generated/portrait.png",
+      }),
+      workingFile({
+        storagePath: "/shared/workspace-1/outbound/self/portrait.png",
         displayName: "portrait.png",
         mimeType: "image/png",
-        sizeBytes: 20,
-        logicalSizeBytes: 20,
         aliases: ["image #1", "file #2"],
         createdAt: "2026-05-26T14:32:00.000Z",
         authorLabel: "model",
+        sourceToolCode: "image_edit",
         semanticSummaryHint: "Makeup strengthened and colors balanced."
-      },
-      {
-        fileRef: "file-sandbox",
-        origin: "sandbox_output",
-        sourceToolCode: "files",
-        objectKey: "sandbox/report.md",
-        relativePath: "outputs/report.md",
+      }),
+      workingFile({
+        storagePath: "/workspace/assistant-1/workspace-1/outputs/report.md",
         displayName: "report.md",
         mimeType: "text/markdown",
-        sizeBytes: 30,
-        logicalSizeBytes: 30,
         aliases: ["file #3"],
         createdAt: "2026-05-25T09:15:00.000Z",
         authorLabel: "sandbox",
+        sourceToolCode: "files",
         semanticSummaryHint: "Sandbox-generated report."
-      }
+      })
     ]);
 
     assert.ok(section);
@@ -201,81 +198,62 @@ describe("TurnExecutionService working files developer section", () => {
       section ?? "",
       /### HISTORY|### OTHER_FILES|current attachment #|last generated image/
     );
-    assert.match(section ?? "", /Use sticky aliases first/);
-    assert.match(section ?? "", /do not answer from this block alone/);
+    assert.match(section ?? "", /Address files by their pod-absolute path/);
+    assert.match(section ?? "", /Do not answer from this block alone/);
   });
 
   test("keeps both same-name files visible and disambiguates them", () => {
     const section = buildSection([
-      {
-        fileRef: "aaaaaaaa-1111-1111-1111-11111111abcd",
-        origin: "runtime_output",
-        sourceToolCode: "image_edit",
-        objectKey: "generated/foo-1.png",
-        relativePath: "generated/foo-1.png",
+      workingFile({
+        storagePath: "/shared/workspace-1/outbound/self/foo-1.png",
         displayName: "foo.png",
         mimeType: "image/png",
-        sizeBytes: 10,
-        logicalSizeBytes: 10,
         aliases: ["image #1", "file #1"],
         createdAt: "2026-05-26T14:32:00.000Z",
         authorLabel: "model",
-        semanticSummaryHint: "Makeup strengthened."
-      },
-      {
-        fileRef: "bbbbbbbb-2222-2222-2222-22222222dcba",
-        origin: "runtime_output",
         sourceToolCode: "image_edit",
-        objectKey: "generated/foo-2.png",
-        relativePath: "generated/foo-2.png",
+        semanticSummaryHint: "Makeup strengthened."
+      }),
+      workingFile({
+        storagePath: "/shared/workspace-1/outbound/self/foo-2.png",
         displayName: "foo.png",
         mimeType: "image/png",
-        sizeBytes: 10,
-        logicalSizeBytes: 10,
         aliases: ["image #2", "file #2"],
         createdAt: "2026-05-26T13:32:00.000Z",
         authorLabel: "model",
+        sourceToolCode: "image_edit",
         semanticSummaryHint: "Hair color corrected."
-      }
+      })
     ]);
 
     assert.ok(section);
-    assert.match(section ?? "", /foo\.png \[1111abcd\] \| - \| Makeup strengthened\./);
-    assert.match(section ?? "", /foo\.png \[2222dcba\] \| - \| Hair color corrected\./);
+    assert.match(section ?? "", /foo\.png \[#1\] \| - \| Makeup strengthened\./);
+    assert.match(section ?? "", /foo\.png \[#2\] \| - \| Hair color corrected\./);
   });
 
   test("document priority note remains without rendering legacy role sections", () => {
     const section = buildSection([
-      {
-        fileRef: "file-current-1",
-        origin: "uploaded_attachment",
-        sourceToolCode: null,
-        objectKey: "uploads/proposal.docx",
-        relativePath: "uploads/proposal.docx",
+      workingFile({
+        storagePath: "/shared/workspace-1/input/proposal.docx",
         displayName: "proposal.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
-        logicalSizeBytes: 512,
         aliases: ["file #1"],
         createdAt: "2026-05-26T14:40:00.000Z",
         authorLabel: "user",
         semanticSummaryHint: "Current source document for the new PDF."
-      },
-      {
-        fileRef: "file-last-1",
-        origin: "runtime_output",
-        sourceToolCode: "document",
-        objectKey: "generated/proposal.pdf",
-        relativePath: "generated/proposal.pdf",
+      }),
+      workingFile({
+        storagePath: "/shared/workspace-1/outbound/self/proposal.pdf",
         displayName: "proposal.pdf",
         mimeType: "application/pdf",
         sizeBytes: 1024,
-        logicalSizeBytes: 1024,
         aliases: ["file #2"],
         createdAt: "2026-05-26T14:20:00.000Z",
         authorLabel: "model",
+        sourceToolCode: "document",
         semanticSummaryHint: "Latest delivered PDF result."
-      }
+      })
     ]);
 
     assert.ok(section);
@@ -298,55 +276,43 @@ describe("TurnExecutionService working files developer section", () => {
   });
 
   test("keeps current source and last delivered anchors visible when older files exceed the cap", () => {
-    const extraFiles = Array.from({ length: 20 }, (_, index) => ({
-      fileRef: `extra-file-${String(index + 1)}`,
-      origin: "runtime_output" as const,
-      sourceToolCode: "image_edit",
-      objectKey: `generated/extra-${String(index + 1)}.png`,
-      relativePath: `generated/extra-${String(index + 1)}.png`,
-      displayName: `extra-${String(index + 1)}.png`,
-      mimeType: "image/png",
-      sizeBytes: 10,
-      logicalSizeBytes: 10,
-      aliases: [`image #${String(index + 1)}`, `file #${String(index + 1 + 2)}`],
-      createdAt: `2026-05-${String(25 - Math.floor(index / 2)).padStart(2, "0")}T${String(
-        23 - (index % 2)
-      ).padStart(2, "0")}:00:00.000Z`,
-      authorLabel: "model" as const,
-      semanticSummaryHint: `Extra image ${String(index + 1)}.`
-    }));
+    const extraFiles = Array.from({ length: 20 }, (_, index) =>
+      workingFile({
+        storagePath: `/shared/workspace-1/outbound/self/extra-${String(index + 1)}.png`,
+        displayName: `extra-${String(index + 1)}.png`,
+        mimeType: "image/png",
+        aliases: [`image #${String(index + 1)}`, `file #${String(index + 1 + 2)}`],
+        createdAt: `2026-05-${String(25 - Math.floor(index / 2)).padStart(2, "0")}T${String(
+          23 - (index % 2)
+        ).padStart(2, "0")}:00:00.000Z`,
+        authorLabel: "model",
+        sourceToolCode: "image_edit",
+        semanticSummaryHint: `Extra image ${String(index + 1)}.`
+      })
+    );
     const section = buildSection([
-      {
-        fileRef: "file-current-1",
-        origin: "uploaded_attachment",
-        sourceToolCode: null,
-        objectKey: "uploads/proposal.docx",
-        relativePath: "uploads/proposal.docx",
+      workingFile({
+        storagePath: "/shared/workspace-1/input/proposal.docx",
         displayName: "proposal.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
-        logicalSizeBytes: 512,
         aliases: ["file #1"],
         createdAt: "2026-05-26T14:40:00.000Z",
         authorLabel: "user",
         semanticSummaryHint: "Current source document for the new PDF."
-      },
+      }),
       ...extraFiles,
-      {
-        fileRef: "file-last-1",
-        origin: "runtime_output",
-        sourceToolCode: "document",
-        objectKey: "generated/proposal.pdf",
-        relativePath: "generated/proposal.pdf",
+      workingFile({
+        storagePath: "/shared/workspace-1/outbound/self/proposal.pdf",
         displayName: "proposal.pdf",
         mimeType: "application/pdf",
         sizeBytes: 1024,
-        logicalSizeBytes: 1024,
         aliases: ["file #2"],
         createdAt: "2026-04-01T10:00:00.000Z",
         authorLabel: "model",
+        sourceToolCode: "document",
         semanticSummaryHint: "Latest delivered PDF result."
-      }
+      })
     ]);
 
     assert.ok(section);
@@ -363,21 +329,16 @@ describe("TurnExecutionService working files developer section", () => {
 
   test("always shows microdescriptions when present and keeps recovery instructions", () => {
     const section = buildSection([
-      {
-        fileRef: "file-1",
-        origin: "uploaded_attachment",
-        sourceToolCode: null,
-        objectKey: "uploads/final-client-brief.docx",
-        relativePath: "uploads/final-client-brief.docx",
+      workingFile({
+        storagePath: "/shared/workspace-1/input/final-client-brief.docx",
         displayName: "final-client-brief.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
-        logicalSizeBytes: 512,
         aliases: ["file #1"],
         createdAt: "2026-05-26T14:50:00.000Z",
         authorLabel: "user",
         semanticSummaryHint: "Current source document for the new branded PDF."
-      }
+      })
     ]);
 
     assert.ok(section);
@@ -385,7 +346,7 @@ describe("TurnExecutionService working files developer section", () => {
       section ?? "",
       /\| final-client-brief\.docx \| current source \| Current source document for the new branded PDF\./
     );
-    assert.match(section ?? "", /use `files\.list`\/`files\.search`/i);
+    assert.match(section ?? "", /Recover a forgotten path with `files\.list` or `files\.read`/i);
     assert.match(section ?? "", /Do not send files or claim delivery\/preparation/i);
     assert.doesNotMatch(section ?? "", /fileRef|objectKey|attachmentId|contentPreview/);
   });
@@ -398,7 +359,7 @@ describe("TurnExecutionService working files developer section", () => {
       }
     ).mergeAssistantTurnText(
       "",
-      'Here you go.\n\nAssistant sent an attachment: document "plan.md", fileRef: "file-ref-1".'
+      'Here you go.\n\nAssistant sent an attachment: document "plan.md", storagePath: "/shared/workspace-1/outbound/self/plan.md".'
     );
 
     assert.equal(merged.trimEnd(), "Here you go.");
@@ -407,83 +368,56 @@ describe("TurnExecutionService working files developer section", () => {
 
   test("adding a newer file does not renumber existing sticky labels", () => {
     const originalSection = buildSection([
-      {
-        fileRef: "older-image",
-        origin: "runtime_output",
-        sourceToolCode: "image_edit",
-        objectKey: "generated/older.png",
-        relativePath: "generated/older.png",
+      workingFile({
+        storagePath: "/shared/workspace-1/outbound/self/older.png",
         displayName: "older.png",
         mimeType: "image/png",
-        sizeBytes: 10,
-        logicalSizeBytes: 10,
         aliases: ["image #1", "file #1"],
         createdAt: "2026-05-20T10:00:00.000Z",
         authorLabel: "model",
+        sourceToolCode: "image_edit",
         semanticSummaryHint: "Older image."
-      },
-      {
-        fileRef: "older-doc",
-        origin: "uploaded_attachment",
-        sourceToolCode: null,
-        objectKey: "uploads/brief.docx",
-        relativePath: "uploads/brief.docx",
+      }),
+      workingFile({
+        storagePath: "/shared/workspace-1/input/brief.docx",
         displayName: "brief.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        sizeBytes: 10,
-        logicalSizeBytes: 10,
         aliases: ["file #2"],
         createdAt: "2026-05-21T10:00:00.000Z",
         authorLabel: "user",
         semanticSummaryHint: "Older document."
-      }
+      })
     ]);
     const expandedSection = buildSection([
-      {
-        fileRef: "older-image",
-        origin: "runtime_output",
-        sourceToolCode: "image_edit",
-        objectKey: "generated/older.png",
-        relativePath: "generated/older.png",
+      workingFile({
+        storagePath: "/shared/workspace-1/outbound/self/older.png",
         displayName: "older.png",
         mimeType: "image/png",
-        sizeBytes: 10,
-        logicalSizeBytes: 10,
         aliases: ["image #1", "file #1"],
         createdAt: "2026-05-20T10:00:00.000Z",
         authorLabel: "model",
+        sourceToolCode: "image_edit",
         semanticSummaryHint: "Older image."
-      },
-      {
-        fileRef: "older-doc",
-        origin: "uploaded_attachment",
-        sourceToolCode: null,
-        objectKey: "uploads/brief.docx",
-        relativePath: "uploads/brief.docx",
+      }),
+      workingFile({
+        storagePath: "/shared/workspace-1/input/brief.docx",
         displayName: "brief.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        sizeBytes: 10,
-        logicalSizeBytes: 10,
         aliases: ["file #2"],
         createdAt: "2026-05-21T10:00:00.000Z",
         authorLabel: "user",
         semanticSummaryHint: "Older document."
-      },
-      {
-        fileRef: "newer-image",
-        origin: "runtime_output",
-        sourceToolCode: "image_edit",
-        objectKey: "generated/newer.png",
-        relativePath: "generated/newer.png",
+      }),
+      workingFile({
+        storagePath: "/shared/workspace-1/outbound/self/newer.png",
         displayName: "newer.png",
         mimeType: "image/png",
-        sizeBytes: 10,
-        logicalSizeBytes: 10,
         aliases: ["image #2", "file #3"],
         createdAt: "2026-05-22T10:00:00.000Z",
         authorLabel: "model",
+        sourceToolCode: "image_edit",
         semanticSummaryHint: "Newer image."
-      }
+      })
     ]);
 
     assert.match(originalSection ?? "", /\| image #1 \(file #1\) \| older\.png \|/);

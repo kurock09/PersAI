@@ -102,7 +102,8 @@ type TerminalExecutionFailureInput = {
 };
 
 type CanonicalDeliveredAttachment = {
-  fileRef: string;
+  attachmentId: string;
+  storagePath: string;
   mimeType: string;
 };
 
@@ -579,10 +580,13 @@ export class AssistantDocumentJobDeliveryService {
     const normalized = delivered.attachments
       .filter(
         (attachment) =>
-          typeof attachment.fileRef === "string" && attachment.fileRef.trim().length > 0
+          typeof attachment.path === "string" &&
+          attachment.path.trim().length > 0 &&
+          attachment.unavailable !== true
       )
       .map((attachment) => ({
-        fileRef: attachment.fileRef as string,
+        attachmentId: attachment.id,
+        storagePath: attachment.path as string,
         mimeType: attachment.mimeType
       }));
     if (normalized.length === 0) {
@@ -744,11 +748,11 @@ export class AssistantDocumentJobDeliveryService {
     return attachments
       .filter(
         (attachment) =>
-          typeof attachment.assistantFileId === "string" &&
-          attachment.assistantFileId.trim().length > 0
+          typeof attachment.storagePath === "string" && attachment.storagePath.trim().length > 0
       )
       .map((attachment) => ({
-        fileRef: attachment.assistantFileId as string,
+        attachmentId: attachment.id,
+        storagePath: attachment.storagePath as string,
         mimeType: attachment.mimeType
       }));
   }
@@ -759,7 +763,6 @@ export class AssistantDocumentJobDeliveryService {
     completionAssistantMessageId: string;
     attachments: CanonicalDeliveredAttachment[];
   }): Promise<boolean> {
-    const deliveredAt = new Date();
     return this.prisma.$transaction(async (tx) => {
       const claimed = await tx.assistantDocumentRenderJob.updateMany({
         where: {
@@ -777,43 +780,6 @@ export class AssistantDocumentJobDeliveryService {
         return false;
       }
 
-      const deliveredMimeTypes = Array.from(
-        new Set(input.attachments.map((attachment) => attachment.mimeType))
-      ).filter((mimeType) => mimeType.trim().length > 0);
-
-      await tx.assistantDocumentDeliveredFile.updateMany({
-        where: {
-          docId: input.job.docId,
-          versionId: input.job.versionId,
-          isCurrentOutput: true,
-          renderJobId: { not: input.job.id },
-          ...(deliveredMimeTypes.length === 0 ? {} : { outputMimeType: { in: deliveredMimeTypes } })
-        },
-        data: {
-          isCurrentOutput: false
-        }
-      });
-
-      const existing = await tx.assistantDocumentDeliveredFile.findMany({
-        where: {
-          renderJobId: input.job.id
-        },
-        select: {
-          id: true,
-          assistantFileId: true
-        }
-      });
-      const existingByFileRef = new Map(existing.map((row) => [row.assistantFileId, row.id]));
-      const attachmentMetadataWriter = (
-        tx as unknown as {
-          assistantChatMessageAttachment?: {
-            updateMany(input: {
-              where: { assistantFileId: string; messageId: string };
-              data: { metadata: unknown };
-            }): Promise<unknown>;
-          };
-        }
-      ).assistantChatMessageAttachment;
       const resolvedDescriptorMode = this.readDescriptorMode(input.payload);
       const resolvedDocumentType = this.inferDocumentType(input.payload);
       const companionOriginalStatus = this.readCompanionOriginalStatus(input.payload);
@@ -825,56 +791,29 @@ export class AssistantDocumentJobDeliveryService {
         } companionOriginalStatus=${companionOriginalStatus} attachmentCount=${input.attachments.length}`
       );
       for (const attachment of input.attachments) {
-        if (attachmentMetadataWriter !== undefined) {
-          this.logger.log(
-            `[document-delivery] attachment fileRef=${attachment.fileRef} mimeType=${
-              attachment.mimeType
-            } messageId=${input.completionAssistantMessageId}`
-          );
-          await attachmentMetadataWriter.updateMany({
-            where: {
-              assistantFileId: attachment.fileRef,
-              messageId: input.completionAssistantMessageId
-            },
-            data: {
-              metadata: {
-                source: "tool_output",
-                documentLink: {
-                  docId: input.job.docId,
-                  versionId: input.job.versionId,
-                  descriptorMode: resolvedDescriptorMode,
-                  documentType: resolvedDocumentType,
-                  renderJobId: input.job.id,
-                  isCurrentOutput: true
-                }
+        this.logger.log(
+          `[document-delivery] attachment path=${attachment.storagePath} mimeType=${
+            attachment.mimeType
+          } messageId=${input.completionAssistantMessageId}`
+        );
+        await tx.assistantChatMessageAttachment.updateMany({
+          where: {
+            id: attachment.attachmentId,
+            messageId: input.completionAssistantMessageId
+          },
+          data: {
+            metadata: {
+              source: "tool_output",
+              kind: "document",
+              documentLink: {
+                docId: input.job.docId,
+                versionId: input.job.versionId,
+                descriptorMode: resolvedDescriptorMode,
+                documentType: resolvedDocumentType,
+                renderJobId: input.job.id,
+                isCurrentOutput: true
               }
             }
-          });
-        }
-        const existingRowId = existingByFileRef.get(attachment.fileRef);
-        if (existingRowId !== undefined) {
-          await tx.assistantDocumentDeliveredFile.update({
-            where: { id: existingRowId },
-            data: {
-              outputMimeType: attachment.mimeType,
-              completionAssistantMessageId: input.completionAssistantMessageId,
-              deliveredAt,
-              isCurrentOutput: true
-            }
-          });
-          continue;
-        }
-        await tx.assistantDocumentDeliveredFile.create({
-          data: {
-            docId: input.job.docId,
-            versionId: input.job.versionId,
-            renderJobId: input.job.id,
-            workspaceId: input.job.workspaceId,
-            assistantFileId: attachment.fileRef,
-            outputMimeType: attachment.mimeType,
-            completionAssistantMessageId: input.completionAssistantMessageId,
-            deliveredAt,
-            isCurrentOutput: true
           }
         });
       }
@@ -953,16 +892,6 @@ export class AssistantDocumentJobDeliveryService {
           },
           data: {
             status: "superseded"
-          }
-        });
-        await tx.assistantDocumentDeliveredFile.updateMany({
-          where: {
-            docId: job.docId,
-            versionId: previousVersionId,
-            isCurrentOutput: true
-          },
-          data: {
-            isCurrentOutput: false
           }
         });
       }

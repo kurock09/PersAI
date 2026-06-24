@@ -166,9 +166,7 @@ import {
   type GetNotificationDeliveriesResponse,
   type GetNotificationDeadLettersResponse,
   type ListNotificationDeliveriesParams,
-  type ListNotificationDeadLettersParams,
-  type AssistantWebChatMessageAttachmentState,
-  type AssistantFilesCleanupSummary
+  type ListNotificationDeadLettersParams
 } from "@persai/contracts";
 import type { RuntimeTurnToolInvocation } from "@persai/runtime-contract";
 import type { RuntimeTodoItem } from "@persai/runtime-contract";
@@ -2418,7 +2416,33 @@ export async function uploadAssistantAvatar(
   return (await res.json()) as { avatarUrl: string };
 }
 
-export type { AssistantWebChatMessageAttachmentState };
+export type AssistantWebChatMessageAttachmentDocumentLink = {
+  docId: string;
+  versionId: string;
+  versionNumber: number | null;
+  descriptorMode: string | null;
+  documentType: string | null;
+  documentStatus: string | null;
+  versionStatus: string | null;
+  isCurrentOutput: boolean;
+};
+
+export type AssistantWebChatMessageAttachmentState = {
+  id: string;
+  path: string | null;
+  thumbnailStoragePath: string | null;
+  posterStoragePath: string | null;
+  attachmentType: string;
+  originalFilename: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  processingStatus: string;
+  unavailable?: boolean;
+  externalDownloadUrl?: string | null;
+  documentLink?: AssistantWebChatMessageAttachmentDocumentLink | null;
+  createdAt: string;
+};
+
 export type ChatHistoryAttachment = AssistantWebChatMessageAttachmentState;
 
 export type ChatHistoryMessage = {
@@ -4316,33 +4340,109 @@ export type ForceReapplyAllSummary = {
   status: string;
 };
 
-export function getAssistantFileDownloadUrl(
-  fileRef: string,
-  options?: { download?: boolean }
-): string {
-  const url = new URL(`/api/assistant-file/${encodeURIComponent(fileRef)}`, "https://persai.local");
-  if (options?.download === true) {
+export function buildChatFileUrl(input: {
+  chatId: string;
+  storagePath: string;
+  download?: boolean;
+}): string {
+  const url = new URL(
+    `/api/v1/assistant/chats/web/${encodeURIComponent(input.chatId)}/files`,
+    "https://persai.local"
+  );
+  url.searchParams.set("path", input.storagePath);
+  if (input.download === true) {
     url.searchParams.set("download", "1");
   }
   return `${url.pathname}${url.search}`;
 }
 
 export function getAssistantAttachmentPreviewUrl(input: {
-  fileRef: string | null;
-  thumbnailFileRef?: string | null | undefined;
-  posterFileRef?: string | null | undefined;
-  attachmentType?: string | null | undefined;
+  chatId: string;
+  path: string | null;
+  thumbnailStoragePath?: string | null;
+  posterStoragePath?: string | null;
+  attachmentType?: string | null;
 }): string | null {
-  if (input.attachmentType === "image" && typeof input.thumbnailFileRef === "string") {
-    return getAssistantFileDownloadUrl(input.thumbnailFileRef);
+  if (input.attachmentType === "image" && typeof input.thumbnailStoragePath === "string") {
+    return buildChatFileUrl({ chatId: input.chatId, storagePath: input.thumbnailStoragePath });
   }
-  if (input.attachmentType === "video" && typeof input.posterFileRef === "string") {
-    return getAssistantFileDownloadUrl(input.posterFileRef);
+  if (input.attachmentType === "video" && typeof input.posterStoragePath === "string") {
+    return buildChatFileUrl({ chatId: input.chatId, storagePath: input.posterStoragePath });
   }
-  if (typeof input.fileRef === "string") {
-    return getAssistantFileDownloadUrl(input.fileRef);
+  if (typeof input.path === "string" && input.path.trim().length > 0) {
+    return buildChatFileUrl({ chatId: input.chatId, storagePath: input.path });
   }
   return null;
+}
+
+export type ChatWorkspaceFileTile = {
+  storagePath: string;
+  thumbnailStoragePath: string | null;
+  posterStoragePath: string | null;
+  originalFilename: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  attachmentType: string;
+  createdAt: string;
+  chatId: string;
+  messageId: string;
+};
+
+export async function listChatWorkspaceFiles(
+  token: string,
+  input: {
+    chatId: string;
+    type?: "all" | "image" | "video" | "document";
+    cursor?: string | null;
+    limit?: number;
+  }
+): Promise<{ files: ChatWorkspaceFileTile[]; nextCursor: string | null }> {
+  const base = getApiBaseUrl();
+  const params = new URLSearchParams();
+  if (input.type && input.type !== "all") {
+    params.set("type", input.type);
+  }
+  if (typeof input.cursor === "string" && input.cursor.trim().length > 0) {
+    params.set("cursor", input.cursor.trim());
+  }
+  if (typeof input.limit === "number") {
+    params.set("limit", String(input.limit));
+  }
+  const qs = params.toString();
+  const res = await fetch(
+    `${base}/assistant/chats/web/${encodeURIComponent(input.chatId)}/workspace-files${qs ? `?${qs}` : ""}`,
+    { headers: getAuthHeaders(token) }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load workspace files."));
+  }
+  const data = (await res.json()) as {
+    files: ChatWorkspaceFileTile[];
+    nextCursor?: string | null;
+  };
+  return {
+    files: data.files,
+    nextCursor: data.nextCursor ?? null
+  };
+}
+
+export async function deleteChatWorkspaceFile(
+  token: string,
+  input: { chatId: string; storagePath: string }
+): Promise<void> {
+  const base = getApiBaseUrl();
+  const params = new URLSearchParams();
+  params.set("path", input.storagePath);
+  const res = await fetch(
+    `${base}/assistant/chats/web/${encodeURIComponent(input.chatId)}/files?${params.toString()}`,
+    {
+      method: "DELETE",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to delete workspace file."));
+  }
 }
 
 export function getAssistantDocumentPptxPrepareUrl(
@@ -4617,40 +4717,6 @@ export type SkillAuthoringDraftProposalState = {
   warnings: string[];
 };
 
-export type AssistantFileState = {
-  fileRef: string;
-  origin: "uploaded_attachment" | "runtime_output" | "sandbox_output";
-  displayName: string | null;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  logicalSizeBytes: number | null;
-  fileBucket: "user_files" | "assistant_created" | "documents" | "media_uploads" | "cache_history";
-  cleanupEligible: boolean;
-  cleanupReason: "voice_upload_cache" | null;
-  documentLink?: AssistantFileDocumentLink | null;
-  createdAt: string;
-};
-
-export type AssistantFileDocumentLink = {
-  docId: string;
-  versionId: string;
-  versionNumber: number | null;
-  descriptorMode: string | null;
-  documentType: string | null;
-  documentStatus: string | null;
-  versionStatus: string | null;
-  isCurrentOutput: boolean;
-};
-
-export type { AssistantFilesCleanupSummary };
-
-export type AssistantFilesCleanupResult = AssistantFilesCleanupSummary & {
-  deletedCount: number;
-  deletedBytes: number;
-  skippedPinnedCount?: number;
-};
-
 export type AdminKnowledgeConnectorState = {
   kind: "google_drive" | "yandex_disk" | "mailru_cloud";
   label: string;
@@ -4732,80 +4798,6 @@ export async function getAssistantWebChatTurnStatus(
   }
   const payload = (await response.json()) as { turn: WebChatTurnStatusState };
   return payload.turn;
-}
-
-export async function getAssistantFiles(
-  token: string,
-  options?: { query?: string | null; limit?: number }
-): Promise<{ files: AssistantFileState[]; cleanup: AssistantFilesCleanupSummary }> {
-  const base = getApiBaseUrl();
-  const params = new URLSearchParams();
-  const query = options?.query?.trim();
-  if (query) {
-    params.set("q", query);
-  }
-  if (typeof options?.limit === "number") {
-    params.set("limit", String(options.limit));
-  }
-  const qs = params.toString();
-  const res = await fetch(`${base}/assistant/files${qs ? `?${qs}` : ""}`, {
-    headers: getAuthHeaders(token)
-  });
-  if (!res.ok) {
-    throw new Error(await readJsonErrorMessage(res, "Failed to load assistant files."));
-  }
-  const data = (await res.json()) as {
-    files: AssistantFileState[];
-    cleanup?: AssistantFilesCleanupSummary;
-  };
-  return {
-    files: data.files,
-    cleanup: data.cleanup ?? { eligibleCount: 0, eligibleBytes: 0 }
-  };
-}
-
-export async function cleanupAssistantFilesCache(
-  token: string
-): Promise<AssistantFilesCleanupResult> {
-  const base = getApiBaseUrl();
-  const res = await fetch(`${base}/assistant/files/cleanup-cache`, {
-    method: "POST",
-    headers: getAuthHeaders(token)
-  });
-  if (!res.ok) {
-    throw new Error(await readJsonErrorMessage(res, "Failed to clean assistant file cache."));
-  }
-  const data = (await res.json()) as { cleanup: AssistantFilesCleanupResult };
-  return data.cleanup;
-}
-
-export async function patchAssistantFileDisplayName(
-  token: string,
-  fileRef: string,
-  displayName: string
-): Promise<AssistantFileState> {
-  const base = getApiBaseUrl();
-  const res = await fetch(`${base}/assistant/files/${encodeURIComponent(fileRef)}`, {
-    method: "PATCH",
-    headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
-    body: JSON.stringify({ displayName })
-  });
-  if (!res.ok) {
-    throw new Error(await readJsonErrorMessage(res, "Failed to rename assistant file."));
-  }
-  const data = (await res.json()) as { file: AssistantFileState };
-  return data.file;
-}
-
-export async function deleteAssistantFile(token: string, fileRef: string): Promise<void> {
-  const base = getApiBaseUrl();
-  const res = await fetch(`${base}/assistant/files/${encodeURIComponent(fileRef)}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(token)
-  });
-  if (!res.ok) {
-    throw new Error(await readJsonErrorMessage(res, "Failed to delete assistant file."));
-  }
 }
 
 export async function uploadAssistantKnowledgeSource(

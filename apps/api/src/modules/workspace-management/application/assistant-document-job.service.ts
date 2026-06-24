@@ -13,8 +13,7 @@ import type {
   PersaiRuntimePresentationVisualDensity,
   PersaiRuntimePresentationVisualStyle,
   RuntimeAttachmentRef,
-  RuntimeOutputArtifact,
-  RuntimeFileRef
+  RuntimeOutputArtifact
 } from "@persai/runtime-contract";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
@@ -82,15 +81,11 @@ export type AssistantDocumentExportOrRedeliverContext = AssistantDocumentRevisio
     | "superseded";
   currentOutputFormat: AssistantDocumentOutputFormat;
   latestDeliveredFile: {
-    fileRef: string;
-    origin: "uploaded_attachment" | "runtime_output" | "sandbox_output";
-    sourceToolCode: string | null;
-    objectKey: string;
-    relativePath: string;
-    displayName: string | null;
+    attachmentId: string;
+    storagePath: string;
     mimeType: string;
     sizeBytes: number;
-    logicalSizeBytes: number | null;
+    originalFilename: string | null;
   } | null;
 };
 
@@ -251,80 +246,101 @@ export class AssistantDocumentJobService {
   }
 
   /**
-   * ADR-097 Slice 4 — resolve an AssistantFile.id (fileRef) to a revision
-   * context for cross-chat PDF revise. Does NOT filter by chatId: the read
-   * crosses chats, but the write stays in the current chat (handled by the
-   * caller). Uses AssistantFile.assistantId for scoping (assistant-level
-   * security, not workspace-level). Returns the LATEST version of the
-   * document (not the version pinned by the delivered file row).
+   * ADR-126 v3 — resolve a workspace storage path to a revision context for
+   * cross-chat PDF revise via the attachment's persisted documentLink metadata.
    */
-  async findRevisionContextByFileRef(input: {
+  async findRevisionContextByStoragePath(input: {
     assistantId: string;
-    fileRef: string;
+    storagePath: string;
   }): Promise<
     | { ok: true; context: AssistantDocumentRevisionContext }
     | { ok: false; reason: "not_found" | "not_pdf_document" }
   > {
-    if (!this.isUuid(input.fileRef)) {
+    const storagePath = input.storagePath.trim();
+    if (storagePath.length === 0) {
       return { ok: false, reason: "not_found" };
     }
-    const deliveredFileRow = await this.prisma.assistantDocumentDeliveredFile.findFirst({
+    const attachment = await this.prisma.assistantChatMessageAttachment.findFirst({
       where: {
-        assistantFileId: input.fileRef,
-        assistantFile: {
-          assistantId: input.assistantId
-        }
+        assistantId: input.assistantId,
+        storagePath
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        metadata: true
+      }
+    });
+    if (attachment === null) {
+      return { ok: false, reason: "not_found" };
+    }
+    const metadata =
+      attachment.metadata !== null &&
+      typeof attachment.metadata === "object" &&
+      !Array.isArray(attachment.metadata)
+        ? (attachment.metadata as Record<string, unknown>)
+        : null;
+    const documentLink = metadata?.documentLink;
+    const docId =
+      documentLink !== null &&
+      documentLink !== undefined &&
+      typeof documentLink === "object" &&
+      !Array.isArray(documentLink) &&
+      typeof (documentLink as Record<string, unknown>).docId === "string"
+        ? ((documentLink as Record<string, unknown>).docId as string)
+        : null;
+    if (docId === null) {
+      return { ok: false, reason: "not_found" };
+    }
+    const document = await this.prisma.assistantDocument.findFirst({
+      where: {
+        id: docId,
+        assistantId: input.assistantId
       },
       select: {
-        document: {
+        id: true,
+        assistantId: true,
+        workspaceId: true,
+        chatId: true,
+        documentType: true,
+        currentVersionId: true,
+        currentVersion: {
           select: {
             id: true,
-            assistantId: true,
-            workspaceId: true,
-            chatId: true,
-            documentType: true,
-            currentVersionId: true,
-            currentVersion: {
-              select: {
-                id: true,
-                versionNumber: true,
-                sourceJson: true,
-                renderedHtml: true,
-                structureJson: true,
-                styleProfileJson: true,
-                editStrategy: true
-              }
-            }
+            versionNumber: true,
+            sourceJson: true,
+            renderedHtml: true,
+            structureJson: true,
+            styleProfileJson: true,
+            editStrategy: true
           }
         }
       }
     });
-    if (deliveredFileRow === null || deliveredFileRow.document === null) {
+    if (document === null) {
       return { ok: false, reason: "not_found" };
     }
-    const doc = deliveredFileRow.document;
-    if (doc.documentType !== "pdf_document") {
+    if (document.documentType !== "pdf_document") {
       return { ok: false, reason: "not_pdf_document" };
     }
     if (
-      doc.currentVersionId === null ||
-      doc.currentVersion === null ||
-      doc.currentVersion.id !== doc.currentVersionId
+      document.currentVersionId === null ||
+      document.currentVersion === null ||
+      document.currentVersion.id !== document.currentVersionId
     ) {
       return { ok: false, reason: "not_found" };
     }
     return {
       ok: true,
       context: {
-        docId: doc.id,
-        assistantId: doc.assistantId,
-        workspaceId: doc.workspaceId,
-        chatId: doc.chatId,
-        documentType: doc.documentType,
-        currentVersionId: doc.currentVersion.id,
-        currentVersionNumber: doc.currentVersion.versionNumber,
-        currentSourceJson: this.normalizeSourcePayload(doc.currentVersion.sourceJson),
-        ...this.mapStructuredVersionFields(doc.currentVersion)
+        docId: document.id,
+        assistantId: document.assistantId,
+        workspaceId: document.workspaceId,
+        chatId: document.chatId,
+        documentType: document.documentType,
+        currentVersionId: document.currentVersion.id,
+        currentVersionNumber: document.currentVersion.versionNumber,
+        currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
+        ...this.mapStructuredVersionFields(document.currentVersion)
       }
     };
   }
@@ -508,28 +524,6 @@ export class AssistantDocumentJobService {
             styleProfileJson: true,
             editStrategy: true
           }
-        },
-        deliveredFiles: {
-          where: {
-            isCurrentOutput: true
-          },
-          orderBy: [{ deliveredAt: "desc" }, { id: "desc" }],
-          take: 1,
-          select: {
-            assistantFile: {
-              select: {
-                id: true,
-                origin: true,
-                sourceToolCode: true,
-                objectKey: true,
-                relativePath: true,
-                displayName: true,
-                mimeType: true,
-                sizeBytes: true,
-                logicalSizeBytes: true
-              }
-            }
-          }
         }
       }
     });
@@ -541,7 +535,11 @@ export class AssistantDocumentJobService {
     ) {
       return null;
     }
-    const latestDeliveredAssistantFile = document.deliveredFiles[0]?.assistantFile ?? null;
+    const latestDeliveredAttachment = await this.findLatestDeliveredDocumentAttachment({
+      assistantId: input.assistantId,
+      chatId: input.chatId,
+      docId: document.id
+    });
     return {
       docId: document.id,
       assistantId: document.assistantId,
@@ -556,26 +554,69 @@ export class AssistantDocumentJobService {
       currentOutputFormat: this.resolveCurrentOutputFormat({
         documentType: document.documentType,
         sourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
-        deliveredMimeType: latestDeliveredAssistantFile?.mimeType ?? null
+        deliveredMimeType: latestDeliveredAttachment?.mimeType ?? null
       }),
       latestDeliveredFile:
-        latestDeliveredAssistantFile === null
+        latestDeliveredAttachment === null
           ? null
           : {
-              fileRef: latestDeliveredAssistantFile.id,
-              origin: latestDeliveredAssistantFile.origin,
-              sourceToolCode: latestDeliveredAssistantFile.sourceToolCode,
-              objectKey: latestDeliveredAssistantFile.objectKey,
-              relativePath: latestDeliveredAssistantFile.relativePath,
-              displayName: latestDeliveredAssistantFile.displayName,
-              mimeType: latestDeliveredAssistantFile.mimeType,
-              sizeBytes: Number(latestDeliveredAssistantFile.sizeBytes),
-              logicalSizeBytes:
-                latestDeliveredAssistantFile.logicalSizeBytes === null
-                  ? null
-                  : Number(latestDeliveredAssistantFile.logicalSizeBytes)
+              attachmentId: latestDeliveredAttachment.id,
+              storagePath: latestDeliveredAttachment.storagePath as string,
+              mimeType: latestDeliveredAttachment.mimeType,
+              sizeBytes: Number(latestDeliveredAttachment.sizeBytes),
+              originalFilename: latestDeliveredAttachment.originalFilename
             }
     };
+  }
+
+  private async findLatestDeliveredDocumentAttachment(input: {
+    assistantId: string;
+    chatId: string;
+    docId: string;
+  }) {
+    const attachments = await this.prisma.assistantChatMessageAttachment.findMany({
+      where: {
+        assistantId: input.assistantId,
+        chatId: input.chatId,
+        storagePath: { not: null }
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 50,
+      select: {
+        id: true,
+        storagePath: true,
+        mimeType: true,
+        sizeBytes: true,
+        originalFilename: true,
+        metadata: true
+      }
+    });
+    for (const attachment of attachments) {
+      const metadata =
+        attachment.metadata !== null &&
+        typeof attachment.metadata === "object" &&
+        !Array.isArray(attachment.metadata)
+          ? (attachment.metadata as Record<string, unknown>)
+          : null;
+      const documentLink = metadata?.documentLink;
+      if (
+        documentLink === null ||
+        documentLink === undefined ||
+        typeof documentLink !== "object" ||
+        Array.isArray(documentLink)
+      ) {
+        continue;
+      }
+      const link = documentLink as Record<string, unknown>;
+      if (link.docId !== input.docId || link.isCurrentOutput !== true) {
+        continue;
+      }
+      if (metadata?.kind !== "document" && metadata?.source !== "tool_output") {
+        continue;
+      }
+      return attachment;
+    }
+    return null;
   }
 
   async findLatestRevisionContextForChat(input: {
@@ -977,26 +1018,13 @@ export class AssistantDocumentJobService {
   private toPersistedRuntimeArtifact(
     file: NonNullable<AssistantDocumentExportOrRedeliverContext["latestDeliveredFile"]>
   ): RuntimeOutputArtifact {
-    const runtimeFileRef: RuntimeFileRef = {
-      fileRef: file.fileRef,
-      origin: file.origin,
-      sourceToolCode: file.sourceToolCode,
-      objectKey: file.objectKey,
-      relativePath: file.relativePath,
-      displayName: file.displayName,
-      mimeType: file.mimeType,
-      sizeBytes: file.sizeBytes,
-      logicalSizeBytes: file.logicalSizeBytes
-    };
     return {
       artifactId: randomUUID(),
-      fileRef: file.fileRef,
-      file: runtimeFileRef,
+      storagePath: file.storagePath,
       kind: "file",
       sourceToolCode: "document",
-      objectKey: file.objectKey,
       mimeType: file.mimeType,
-      filename: file.displayName ?? null,
+      filename: file.originalFilename,
       sizeBytes: file.sizeBytes,
       voiceNote: false
     };

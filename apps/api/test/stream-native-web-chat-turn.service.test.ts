@@ -104,7 +104,7 @@ describe("WebRuntimeStreamClientService", () => {
             artifact: {
               artifactId: "artifact-1",
               kind: "image",
-              objectKey: "assistant-media/assistants/assistant-1/runtime-output/stream.png",
+              storagePath: "/shared/workspace-1/outbound/self/stream.png",
               mimeType: "image/png",
               filename: "stream.png",
               sizeBytes: 64,
@@ -121,7 +121,7 @@ describe("WebRuntimeStreamClientService", () => {
                 {
                   artifactId: "artifact-1",
                   kind: "image",
-                  objectKey: "assistant-media/assistants/assistant-1/runtime-output/stream.png",
+                  storagePath: "/shared/workspace-1/outbound/self/stream.png",
                   mimeType: "image/png",
                   filename: "stream.png",
                   sizeBytes: 64,
@@ -226,8 +226,7 @@ describe("WebRuntimeStreamClientService", () => {
           media: [
             {
               source: "persai_object_storage",
-              objectKey: "assistant-media/assistants/assistant-1/runtime-output/stream.png",
-              fileRef: undefined,
+              objectKey: "/shared/workspace-1/outbound/self/stream.png",
               type: "image",
               mimeType: "image/png",
               filename: "stream.png",
@@ -645,7 +644,7 @@ describe("WebRuntimeStreamClientService", () => {
             artifact: {
               artifactId: "artifact-degraded-1",
               kind: "image",
-              objectKey: "assistant-media/assistants/assistant-1/runtime-output/degraded.png",
+              storagePath: "/shared/workspace-1/outbound/self/degraded.png",
               mimeType: "image/png",
               filename: "degraded.png",
               sizeBytes: 512,
@@ -663,7 +662,7 @@ describe("WebRuntimeStreamClientService", () => {
               {
                 artifactId: "artifact-degraded-1",
                 kind: "image",
-                objectKey: "assistant-media/assistants/assistant-1/runtime-output/degraded.png",
+                storagePath: "/shared/workspace-1/outbound/self/degraded.png",
                 mimeType: "image/png",
                 filename: "degraded.png",
                 sizeBytes: 512,
@@ -706,8 +705,7 @@ describe("WebRuntimeStreamClientService", () => {
           media: [
             {
               source: "persai_object_storage",
-              objectKey: "assistant-media/assistants/assistant-1/runtime-output/degraded.png",
-              fileRef: undefined,
+              objectKey: "/shared/workspace-1/outbound/self/degraded.png",
               type: "image",
               mimeType: "image/png",
               filename: "degraded.png",

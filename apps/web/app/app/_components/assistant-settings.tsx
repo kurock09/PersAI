@@ -125,7 +125,7 @@ import {
   findAssistantAvatarPresetByUrl
 } from "./assistant-avatar-presets";
 import { AssistantKnowledgeManager } from "./assistant-knowledge-manager";
-import { AssistantFilesManager } from "./assistant-files-manager";
+import { WorkspaceFilesGallery } from "./workspace-files-gallery";
 import { AssistantSkillsManager } from "./assistant-skills-manager";
 
 interface AssistantSettingsProps {
@@ -1363,6 +1363,15 @@ export function AssistantSettings({
   const [disableAutoRenewPending, setDisableAutoRenewPending] = useState(false);
   const [disableAutoRenewConfirmOpen, setDisableAutoRenewConfirmOpen] = useState(false);
   const assistant = data.assistant;
+  const galleryChatId =
+    [...data.chats]
+      .map((item) => item.chat)
+      .filter((chat) => chat.surface === "web" && chat.archivedAt === null)
+      .sort((left, right) => {
+        const leftTs = left.lastMessageAt ? Date.parse(left.lastMessageAt) : 0;
+        const rightTs = right.lastMessageAt ? Date.parse(right.lastMessageAt) : 0;
+        return rightTs - leftTs;
+      })[0]?.id ?? null;
   const hasAssistantSwitcher = (data.assistantLimit?.maxAssistants ?? 1) > 1;
   const [assistantSwitcherOpen, setAssistantSwitcherOpen] = useState(false);
   const [assistantSwitchBusyId, setAssistantSwitchBusyId] = useState<string | null>(null);
@@ -4169,7 +4178,7 @@ export function AssistantSettings({
           onToggle={() => setOpenSection((current) => (current === "files" ? null : "files"))}
           className="order-7"
         >
-          <AssistantFilesManager />
+          <WorkspaceFilesGallery chatId={galleryChatId} />
         </Section>
 
         {/* 5. Skills */}

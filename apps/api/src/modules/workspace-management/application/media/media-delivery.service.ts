@@ -1,4 +1,11 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import {
+  BadRequestException,
+  GoneException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException
+} from "@nestjs/common";
 import type { RuntimeBillingFacts } from "@persai/runtime-contract";
 import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
 import {
@@ -26,6 +33,7 @@ import {
   buildStoredAttachmentMetadata,
   EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX,
   inferMimeFromUrlAndType,
+  readExternalDownloadUrl,
   toAssistantWebChatMessageAttachmentState,
   type DeliveredMedia,
   type MediaArtifact,
@@ -34,8 +42,12 @@ import {
 import { MAX_TOOL_OUTPUT_MEDIA_FILE_BYTES, validatePersaiMediaFile } from "./media-security-policy";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { downloadRuntimeMediaUrl } from "./runtime-media-download";
-import { AssistantFileRegistryService } from "../assistant-file-registry.service";
-import { AssistantUploadMicroDescriptionJobService } from "../assistant-upload-micro-description-job.service";
+import {
+  RegisterChatAttachmentService,
+  type RegisterChatAttachmentKind
+} from "../register-chat-attachment.service";
+import { resolveUniqueSharedInputStoragePath } from "../resolve-shared-input-storage-path";
+import { WorkspaceFileMetadataService } from "../workspace-file-metadata.service";
 import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
 import {
   RecordModelCostLedgerService,
@@ -62,8 +74,8 @@ export class MediaDeliveryService {
     @Inject(CHANNEL_MEDIA_ADAPTERS)
     adapters: ChannelMediaAdapter[],
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly assistantFileRegistryService: AssistantFileRegistryService,
-    private readonly assistantUploadMicroDescriptionJobService: AssistantUploadMicroDescriptionJobService,
+    private readonly registerChatAttachmentService: RegisterChatAttachmentService,
+    private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
@@ -335,7 +347,7 @@ export class MediaDeliveryService {
    *     with `vcoin_balance_exhausted`.
    *   - `usdMicros` is computed but not written to the USD COGS ledger
    *     here. The ledger write for `video_generate` already happens in
-   *     `assistant-media-job-scheduler.service.ts::recordPersistedBillingFactsEvent`
+   *     `AssistantMediaJobSchedulerService::recordPersistedBillingFactsEvent`
    *     on job completion (cross-slice invariant 2: ledger writes / shape
    *     unchanged). This local `usdMicros` is logged on debit so admins
    *     can spot drift between the two paths.
@@ -439,6 +451,149 @@ export class MediaDeliveryService {
     }
   }
 
+  async downloadChatFileByPath(input: {
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    path: string;
+  }): Promise<{
+    buffer: Buffer;
+    contentType: string;
+    mimeType: string;
+    originalFilename: string | null;
+  }> {
+    const attachment = await this.attachmentRepository.findByChatIdAndStoragePath({
+      chatId: input.chatId,
+      storagePath: input.path
+    });
+    if (
+      attachment === null ||
+      attachment.assistantId !== input.assistantId ||
+      attachment.workspaceId !== input.workspaceId
+    ) {
+      throw new NotFoundException("File not found.");
+    }
+    if (attachment.storagePath === null || attachment.processingStatus === "unavailable") {
+      throw new GoneException("(file no longer available)");
+    }
+    const externalUrl = readExternalDownloadUrl(
+      attachment.metadata !== null &&
+        typeof attachment.metadata === "object" &&
+        !Array.isArray(attachment.metadata)
+        ? (attachment.metadata as Record<string, unknown>)
+        : null
+    );
+    if (externalUrl !== null) {
+      const downloaded = await downloadRuntimeMediaUrl(externalUrl);
+      if (downloaded === null) {
+        throw new GoneException("(file no longer available)");
+      }
+      return {
+        buffer: downloaded.buffer,
+        contentType: downloaded.contentType,
+        mimeType: attachment.mimeType,
+        originalFilename: attachment.originalFilename
+      };
+    }
+    const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+      workspaceId: input.workspaceId,
+      workspaceRelPath: attachment.storagePath
+    });
+    const downloaded = await this.mediaObjectStorage.downloadObject(objectKey);
+    if (downloaded === null) {
+      throw new GoneException("(file no longer available)");
+    }
+    return {
+      buffer: downloaded.buffer,
+      contentType: downloaded.contentType,
+      mimeType: attachment.mimeType,
+      originalFilename: attachment.originalFilename
+    };
+  }
+
+  async previewChatFileByPath(input: {
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    path: string;
+  }): Promise<{
+    buffer: Buffer;
+    contentType: string;
+    mimeType: string;
+    originalFilename: string | null;
+  }> {
+    return this.downloadChatFileByPath(input);
+  }
+
+  private resolveRegisterKind(artifact: MediaArtifact): RegisterChatAttachmentKind {
+    switch (artifact.sourceToolCode) {
+      case "image_generate":
+        return "image_generate";
+      case "image_edit":
+        return "image_edit";
+      case "document":
+        return "document";
+      case "tts":
+        return "tts";
+      case "video_generate":
+        return "video_generate";
+      default:
+        return "files.attach";
+    }
+  }
+
+  private isWorkspaceStoragePath(value: string): boolean {
+    const normalized = value.trim();
+    return normalized.startsWith("/shared/") || normalized.startsWith("/workspace/");
+  }
+
+  private resolvePersistedStoragePath(input: {
+    artifact: MediaArtifact;
+    workspaceId: string;
+    messageId: string;
+    filename: string;
+    mimeType: string;
+  }): Promise<string> {
+    if (
+      input.artifact.source === "persai_object_storage" &&
+      this.isWorkspaceStoragePath(input.artifact.objectKey)
+    ) {
+      return Promise.resolve(input.artifact.objectKey);
+    }
+    return resolveUniqueSharedInputStoragePath({
+      workspaceId: input.workspaceId,
+      filename: input.filename,
+      mimeType: input.mimeType,
+      referenceId: input.messageId,
+      workspaceFileMetadataService: this.workspaceFileMetadataService
+    });
+  }
+
+  private async ensureBytesAtStoragePath(input: {
+    workspaceId: string;
+    storagePath: string;
+    buffer: Buffer;
+    mimeType: string;
+    artifact: MediaArtifact;
+  }): Promise<void> {
+    if (
+      input.artifact.source === "persai_object_storage" &&
+      this.isWorkspaceStoragePath(input.artifact.objectKey) &&
+      input.artifact.objectKey === input.storagePath
+    ) {
+      return;
+    }
+    const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+      workspaceId: input.workspaceId,
+      workspaceRelPath: input.storagePath
+    });
+    await this.mediaObjectStorage.saveObject({
+      objectKey,
+      buffer: input.buffer,
+      mimeType: input.mimeType
+    });
+  }
+
   private async persistArtifact(
     artifact: MediaArtifact,
     params: OutboundMediaDeliverParams
@@ -458,7 +613,16 @@ export class MediaDeliveryService {
         };
       }
   > {
-    const downloadResult = await this.downloadArtifactSource(artifact);
+    if (
+      artifact.source === "persai_object_storage" &&
+      !this.isWorkspaceStoragePath(artifact.objectKey)
+    ) {
+      throw new BadRequestException(
+        "runtime artefact pipeline requires path-aware objectKey (W3 required); legacy assistant-media/ keys not accepted"
+      );
+    }
+
+    const downloadResult = await this.downloadArtifactSource(artifact, params.workspaceId);
     if (!downloadResult) {
       throw new Error(`Media file not found on storage: ${describeRuntimeMediaArtifact(artifact)}`);
     }
@@ -500,7 +664,7 @@ export class MediaDeliveryService {
       return {
         state: toAssistantWebChatMessageAttachmentState({
           id: attachment.id,
-          assistantFileId: attachment.assistantFileId,
+          storagePath: attachment.storagePath,
           attachmentType: attachment.attachmentType,
           originalFilename: attachment.originalFilename,
           mimeType: attachment.mimeType,
@@ -539,50 +703,45 @@ export class MediaDeliveryService {
       originalFilename: sourceFilename,
       surface: "tool_output_persist"
     });
-    const uploadResult =
-      artifact.source === "persai_object_storage" && typeof artifact.fileRef === "string"
-        ? {
-            objectKey: artifact.objectKey,
-            sizeBytes: downloadResult.buffer.length,
-            mimeType: validated.effectiveMimeType
-          }
-        : await this.mediaObjectStorage.saveObject({
-            objectKey: this.mediaObjectStorage.buildChatMessageObjectKey({
-              assistantId: params.assistantId,
-              chatId: params.chatId,
-              messageId: params.messageId,
-              extension: validated.normalizedExtension
-            }),
-            buffer: downloadResult.buffer,
-            mimeType: validated.effectiveMimeType
-          });
-
     const attachmentType = artifact.audioAsVoice ? "voice" : artifact.type;
     const filename = validated.originalFilename ?? sourceFilename;
     const persistedBillingFacts =
       artifact.sourceToolCode === "tts" ? (artifact.billingFacts ?? null) : null;
 
-    const attachment = await this.attachmentRepository.create({
+    const storagePath = await this.resolvePersistedStoragePath({
+      artifact,
+      workspaceId: params.workspaceId,
       messageId: params.messageId,
-      chatId: params.chatId,
+      filename,
+      mimeType: validated.effectiveMimeType
+    });
+    await this.ensureBytesAtStoragePath({
+      workspaceId: params.workspaceId,
+      storagePath,
+      buffer: downloadResult.buffer,
+      mimeType: validated.effectiveMimeType,
+      artifact
+    });
+
+    const registered = await this.registerChatAttachmentService.execute({
       assistantId: params.assistantId,
       workspaceId: params.workspaceId,
+      chatId: params.chatId,
+      messageId: params.messageId,
+      storagePath,
       attachmentType,
-      storagePath: uploadResult.objectKey,
-      originalFilename: filename,
       mimeType: validated.effectiveMimeType,
-      sizeBytes: BigInt(uploadResult.sizeBytes),
-      durationMs: null,
-      width: null,
-      height: null,
-      processingStatus: "ready",
-      transcription: null,
+      sizeBytes: downloadResult.buffer.length,
+      originalFilename: filename,
+      kind: this.resolveRegisterKind(artifact),
       billingFacts: persistedBillingFacts,
       metadata: buildStoredAttachmentMetadata({
         source: "tool_output",
         ...(artifact.source === "runtime_url" ? { originalUrl: artifact.url } : {})
       })
     });
+    const attachment = (await this.attachmentRepository.findById(registered.attachmentId))!;
+
     if (persistedBillingFacts !== null) {
       const ledgerSurface = this.resolveLedgerSurface(params.channel);
       if (ledgerSurface !== null) {
@@ -607,60 +766,10 @@ export class MediaDeliveryService {
       }
     }
 
-    if (artifact.source === "persai_object_storage" && typeof artifact.fileRef === "string") {
-      await this.assistantFileRegistryService.linkAttachmentToExistingFile({
-        assistantId: attachment.assistantId,
-        workspaceId: attachment.workspaceId,
-        sourceAttachmentId: attachment.id,
-        fileRef: artifact.fileRef
-      });
-      attachment.assistantFileId = artifact.fileRef;
-    } else {
-      attachment.assistantFileId = (
-        await this.assistantFileRegistryService.ensureAttachmentFile({
-          assistantId: attachment.assistantId,
-          workspaceId: attachment.workspaceId,
-          origin: "runtime_output",
-          sourceAttachmentId: attachment.id,
-          sourceMessageId: attachment.messageId,
-          sourceChatId: attachment.chatId,
-          objectKey: uploadResult.objectKey,
-          filename: attachment.originalFilename,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-          contentBuffer: downloadResult.buffer,
-          source: "tool_output"
-        })
-      ).fileRef;
-    }
-    if (attachment.assistantFileId !== null) {
-      await this.assistantFileRegistryService.ensureMediaDerivativeTracking({
-        assistantId: attachment.assistantId,
-        workspaceId: attachment.workspaceId,
-        fileRef: attachment.assistantFileId
-      });
-    }
-    if (
-      artifact.source === "persai_object_storage" &&
-      typeof artifact.fileRef !== "string" &&
-      artifact.objectKey !== uploadResult.objectKey &&
-      this.isEphemeralRuntimeOutputObjectKey(artifact.objectKey)
-    ) {
-      await this.mediaObjectStorage.deleteObject(artifact.objectKey);
-    }
-    if (artifact.source === "persai_object_storage") {
-      await this.assistantUploadMicroDescriptionJobService.enqueueGeneratedFileIfNeeded({
-        assistantId: attachment.assistantId,
-        workspaceId: attachment.workspaceId,
-        assistantFileId: attachment.assistantFileId,
-        attachmentId: attachment.id
-      });
-    }
-
     return {
       state: toAssistantWebChatMessageAttachmentState({
         id: attachment.id,
-        assistantFileId: attachment.assistantFileId,
+        storagePath: attachment.storagePath,
         attachmentType: attachment.attachmentType,
         originalFilename: attachment.originalFilename,
         mimeType: attachment.mimeType,
@@ -694,10 +803,15 @@ export class MediaDeliveryService {
   }
 
   private async downloadArtifactSource(
-    artifact: MediaArtifact
+    artifact: MediaArtifact,
+    workspaceId: string
   ): Promise<{ buffer: Buffer; contentType: string } | null> {
     if (artifact.source === "persai_object_storage") {
-      return this.mediaObjectStorage.downloadObject(artifact.objectKey);
+      const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+        workspaceId,
+        workspaceRelPath: artifact.objectKey
+      });
+      return this.mediaObjectStorage.downloadObject(objectKey);
     }
     return (
       (await downloadRuntimeMediaUrl(artifact.url)) ??
@@ -734,18 +848,5 @@ export class MediaDeliveryService {
         await adapter.sendDocument(target, buffer, filename, artifact.caption);
         break;
     }
-  }
-
-  private isEphemeralRuntimeOutputObjectKey(objectKey: string): boolean {
-    const normalized = objectKey.trim();
-    if (normalized.length === 0) {
-      return false;
-    }
-
-    return (
-      normalized.startsWith("runtime-output/") ||
-      normalized.startsWith("assistant-media/runtime-output/") ||
-      normalized.includes("/runtime-output/")
-    );
   }
 }

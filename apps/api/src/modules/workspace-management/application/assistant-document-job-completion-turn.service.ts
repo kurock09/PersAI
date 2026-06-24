@@ -121,7 +121,9 @@ export class AssistantDocumentJobCompletionTurnService {
         artifacts: input.artifacts.map((artifact) => ({
           type: artifact.kind,
           filename: artifact.filename ?? null,
-          fileRef: artifact.fileRef ?? null
+          storagePath: artifact.storagePath,
+          mimeType: artifact.mimeType,
+          role: "output" as const
         }))
       }
     });

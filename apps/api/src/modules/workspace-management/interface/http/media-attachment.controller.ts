@@ -2,13 +2,12 @@ import {
   BadRequestException,
   Body,
   ConflictException,
-  Delete,
   Controller,
+  Delete,
   Get,
   HttpCode,
   NotFoundException,
   Param,
-  Patch,
   Post,
   Query,
   Req,
@@ -23,22 +22,23 @@ import {
   ResponseWithPlatformContext
 } from "../../../platform-core/interface/http/request-http.types";
 import { ManageChatMediaService } from "../../application/manage-chat-media.service";
-import {
-  AssistantFileRegistryService,
-  type AssistantFileRegistryRecord
-} from "../../application/assistant-file-registry.service";
+import { MediaDeliveryService } from "../../application/media/media-delivery.service";
 import { PrepareAssistantDocumentPptxService } from "../../application/prepare-assistant-document-pptx.service";
 import { ResolveActiveAssistantService } from "../../application/resolve-active-assistant.service";
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
-import { getAttachmentDerivativeRefs } from "../../application/media/media.types";
+import { toAssistantWebChatMessageAttachmentState } from "../../application/media/media.types";
+import { ListChatWorkspaceFilesService } from "../../application/list-chat-workspace-files.service";
+import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
 @Controller("api/v1")
 export class MediaAttachmentController {
   constructor(
     private readonly manageChatMediaService: ManageChatMediaService,
+    private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
-    private readonly assistantFileRegistryService: AssistantFileRegistryService,
-    private readonly prepareAssistantDocumentPptxService: PrepareAssistantDocumentPptxService
+    private readonly prepareAssistantDocumentPptxService: PrepareAssistantDocumentPptxService,
+    private readonly listChatWorkspaceFilesService: ListChatWorkspaceFilesService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   @Post("assistant/chat/web/stage-attachment")
@@ -72,38 +72,33 @@ export class MediaAttachmentController {
           : null,
       file
     });
-    const stagedDerivativeRefs = getAttachmentDerivativeRefs(
-      result.attachment.metadata !== null &&
+    const attachmentState = toAssistantWebChatMessageAttachmentState({
+      id: result.attachment.id,
+      storagePath: result.attachment.storagePath,
+      thumbnailStoragePath: result.attachment.thumbnailStoragePath,
+      posterStoragePath: result.attachment.posterStoragePath,
+      attachmentType: result.attachment.attachmentType,
+      originalFilename: result.attachment.originalFilename,
+      mimeType: result.attachment.mimeType,
+      sizeBytes: result.attachment.sizeBytes,
+      processingStatus: result.attachment.processingStatus,
+      metadata:
+        result.attachment.metadata !== null &&
         typeof result.attachment.metadata === "object" &&
         !Array.isArray(result.attachment.metadata)
-        ? (result.attachment.metadata as Record<string, unknown>)
-        : null
-    );
+          ? (result.attachment.metadata as Record<string, unknown>)
+          : null,
+      createdAt: result.attachment.createdAt
+    });
 
     return {
       requestId: req.requestId ?? null,
       chatId: result.chatId,
       messageId: result.messageId,
       attachment: {
-        id: result.attachment.id,
-        fileRef: result.attachment.assistantFileId,
-        ...(stagedDerivativeRefs.thumbnailFileRef !== null
-          ? { thumbnailFileRef: stagedDerivativeRefs.thumbnailFileRef }
-          : {}),
-        ...(stagedDerivativeRefs.posterFileRef !== null
-          ? { posterFileRef: stagedDerivativeRefs.posterFileRef }
-          : {}),
-        ...(stagedDerivativeRefs.derivativesStatus !== null
-          ? { derivativesStatus: stagedDerivativeRefs.derivativesStatus }
-          : {}),
+        ...attachmentState,
         messageId: result.attachment.messageId,
-        chatId: result.attachment.chatId,
-        attachmentType: result.attachment.attachmentType,
-        originalFilename: result.attachment.originalFilename,
-        mimeType: result.attachment.mimeType,
-        sizeBytes: Number(result.attachment.sizeBytes),
-        processingStatus: result.attachment.processingStatus,
-        createdAt: result.attachment.createdAt.toISOString()
+        chatId: result.attachment.chatId
       }
     };
   }
@@ -127,36 +122,31 @@ export class MediaAttachmentController {
       messageId,
       file
     });
-    const attachmentDerivativeRefs = getAttachmentDerivativeRefs(
-      attachment.metadata !== null &&
+    const attachmentState = toAssistantWebChatMessageAttachmentState({
+      id: attachment.id,
+      storagePath: attachment.storagePath,
+      thumbnailStoragePath: attachment.thumbnailStoragePath,
+      posterStoragePath: attachment.posterStoragePath,
+      attachmentType: attachment.attachmentType,
+      originalFilename: attachment.originalFilename,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      processingStatus: attachment.processingStatus,
+      metadata:
+        attachment.metadata !== null &&
         typeof attachment.metadata === "object" &&
         !Array.isArray(attachment.metadata)
-        ? (attachment.metadata as Record<string, unknown>)
-        : null
-    );
+          ? (attachment.metadata as Record<string, unknown>)
+          : null,
+      createdAt: attachment.createdAt
+    });
 
     return {
       requestId: req.requestId ?? null,
       attachment: {
-        id: attachment.id,
-        fileRef: attachment.assistantFileId,
-        ...(attachmentDerivativeRefs.thumbnailFileRef !== null
-          ? { thumbnailFileRef: attachmentDerivativeRefs.thumbnailFileRef }
-          : {}),
-        ...(attachmentDerivativeRefs.posterFileRef !== null
-          ? { posterFileRef: attachmentDerivativeRefs.posterFileRef }
-          : {}),
-        ...(attachmentDerivativeRefs.derivativesStatus !== null
-          ? { derivativesStatus: attachmentDerivativeRefs.derivativesStatus }
-          : {}),
+        ...attachmentState,
         messageId: attachment.messageId,
-        chatId: attachment.chatId,
-        attachmentType: attachment.attachmentType,
-        originalFilename: attachment.originalFilename,
-        mimeType: attachment.mimeType,
-        sizeBytes: Number(attachment.sizeBytes),
-        processingStatus: attachment.processingStatus,
-        createdAt: attachment.createdAt.toISOString()
+        chatId: attachment.chatId
       }
     };
   }
@@ -183,83 +173,84 @@ export class MediaAttachmentController {
     };
   }
 
-  @Get("assistant/files")
-  async listAssistantFiles(
+  @Get("assistant/chats/web/:chatId/workspace-files")
+  async listWorkspaceFiles(
     @Req() req: RequestWithPlatformContext,
-    @Query("q") query?: string,
+    @Param("chatId") chatId: string,
+    @Query("type") type?: string,
+    @Query("cursor") cursor?: string,
     @Query("limit") limit?: string
   ) {
-    const assistant = await this.resolveRequestAssistant(req);
-    const files = await this.assistantFileRegistryService.listAssistantFiles({
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId,
-      query: typeof query === "string" ? query : null,
-      limit: this.parseLimit(limit)
+    const userId = this.resolveRequestUserId(req);
+    const parsedLimit = typeof limit === "string" && limit.trim().length > 0 ? Number(limit) : null;
+    const result = await this.listChatWorkspaceFilesService.execute({
+      userId,
+      chatId,
+      type: type ?? null,
+      cursor: cursor ?? null,
+      ...(parsedLimit !== null && Number.isFinite(parsedLimit) ? { limit: parsedLimit } : {})
     });
     return {
       requestId: req.requestId ?? null,
-      files: files.map((file) => this.toFileState(file)),
-      cleanup: await this.assistantFileRegistryService.summarizeDeletableCleanupFromFiles(files)
+      files: result.files,
+      nextCursor: result.nextCursor
     };
   }
 
-  @Post("assistant/files/cleanup-cache")
-  async cleanupAssistantFileCache(@Req() req: RequestWithPlatformContext) {
-    const assistant = await this.resolveRequestAssistant(req);
-    const cleanup = await this.assistantFileRegistryService.cleanupAssistantFileCache({
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId
-    });
-    return {
-      requestId: req.requestId ?? null,
-      cleanup
-    };
-  }
-
-  @Get("assistant/files/:fileRef")
-  async getAssistantFile(
+  @Delete("assistant/chats/web/:chatId/files")
+  @HttpCode(204)
+  async deleteChatFile(
     @Req() req: RequestWithPlatformContext,
-    @Param("fileRef") fileRef: string
-  ) {
-    const assistant = await this.resolveRequestAssistant(req);
-    const file = await this.assistantFileRegistryService.findAssistantFile({
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId,
-      fileRef
-    });
-    if (file === null) {
-      throw new NotFoundException("File not found.");
+    @Param("chatId") chatId: string,
+    @Query("path") path: string | undefined
+  ): Promise<void> {
+    const userId = this.resolveRequestUserId(req);
+    const storagePath = typeof path === "string" ? path.trim() : "";
+    if (storagePath.length === 0) {
+      throw new BadRequestException("path query parameter is required.");
     }
-    return {
-      requestId: req.requestId ?? null,
-      file: this.toFileState(file)
-    };
+    await this.manageChatMediaService.deleteChatWorkspaceFile({
+      userId,
+      chatId,
+      storagePath
+    });
   }
 
-  @Get("assistant/files/:fileRef/download")
-  async downloadAssistantFile(
+  @Get("assistant/chats/web/:chatId/files")
+  async downloadChatFile(
     @Req() req: RequestWithPlatformContext,
     @Res() res: ResponseWithPlatformContext,
-    @Param("fileRef") fileRef: string,
+    @Param("chatId") chatId: string,
+    @Query("path") path: string | undefined,
     @Query("download") download?: string
   ): Promise<void> {
     const assistant = await this.resolveRequestAssistant(req);
-    const result = await this.assistantFileRegistryService.downloadAssistantFile({
+    const storagePath = typeof path === "string" ? path.trim() : "";
+    if (storagePath.length === 0) {
+      throw new BadRequestException("path query parameter is required.");
+    }
+    await this.assertOwnedWebChat(assistant.id, chatId);
+
+    const result = await this.mediaDeliveryService.downloadChatFileByPath({
       assistantId: assistant.id,
       workspaceId: assistant.workspaceId,
-      fileRef
+      chatId,
+      path: storagePath
     });
 
     const payload = this.prepareDownloadPayload({
       buffer: result.buffer,
-      contentType: this.resolveDownloadContentType(result.contentType, result.file.mimeType),
+      contentType: this.resolveDownloadContentType(result.contentType, result.mimeType),
       forceDownload: download === "1"
     });
 
     res.setHeader("Content-Type", payload.contentType);
     res.setHeader("Cache-Control", "private, max-age=3600");
     res.setHeader("Accept-Ranges", "bytes");
-    const resolvedDownloadFilename = this.resolveDownloadFilename(result.file);
+    const resolvedDownloadFilename = this.resolveDownloadFilename(
+      result.originalFilename,
+      result.mimeType
+    );
     if (resolvedDownloadFilename !== null) {
       res.setHeader(
         "Content-Disposition",
@@ -270,10 +261,6 @@ export class MediaAttachmentController {
       );
     }
 
-    // Honour Range requests so HTML5 `<video>` playback works in Capacitor
-    // Android WebView. Without a real 206 reply to the initial
-    // `Range: bytes=0-` probe the WebView shows a grey poster and never
-    // starts playing. The buffer is already in memory so we just slice it.
     const totalSize = payload.buffer.length;
     const rangeHeader = typeof req.headers?.range === "string" ? req.headers.range : undefined;
     const parsedRange = rangeHeader ? this.parseSingleByteRange(rangeHeader, totalSize) : null;
@@ -299,6 +286,37 @@ export class MediaAttachmentController {
     res.end(payload.buffer);
   }
 
+  @Get("assistant/chats/web/:chatId/files/preview")
+  async previewChatFile(
+    @Req() req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext,
+    @Param("chatId") chatId: string,
+    @Query("path") path: string | undefined
+  ): Promise<void> {
+    const assistant = await this.resolveRequestAssistant(req);
+    const storagePath = typeof path === "string" ? path.trim() : "";
+    if (storagePath.length === 0) {
+      throw new BadRequestException("path query parameter is required.");
+    }
+    await this.assertOwnedWebChat(assistant.id, chatId);
+
+    const result = await this.mediaDeliveryService.previewChatFileByPath({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      chatId,
+      path: storagePath
+    });
+
+    res.setHeader(
+      "Content-Type",
+      this.resolveDownloadContentType(result.contentType, result.mimeType)
+    );
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.statusCode = 200;
+    res.setHeader("Content-Length", String(result.buffer.length));
+    res.end(result.buffer);
+  }
+
   @HttpCode(202)
   @Post("assistant/documents/:docId/prepare-pptx")
   async preparePresentationPptx(
@@ -322,8 +340,6 @@ export class MediaAttachmentController {
     };
   }
 
-  // RFC 7233 single-range parser. Returns null for unsupported / malformed /
-  // unsatisfiable ranges so the caller can return 416 or fall back to 200.
   private parseSingleByteRange(
     rangeHeader: string,
     totalSize: number
@@ -365,46 +381,6 @@ export class MediaAttachmentController {
     return { start, end };
   }
 
-  @Patch("assistant/files/:fileRef")
-  async updateAssistantFile(
-    @Req() req: RequestWithPlatformContext,
-    @Param("fileRef") fileRef: string,
-    @Body() body: { displayName?: unknown }
-  ) {
-    const assistant = await this.resolveRequestAssistant(req);
-    const displayName =
-      typeof body.displayName === "string" && body.displayName.trim().length > 0
-        ? body.displayName.trim()
-        : null;
-    const file = await this.assistantFileRegistryService.updateAssistantFileMetadata({
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId,
-      fileRef,
-      displayName
-    });
-    return {
-      requestId: req.requestId ?? null,
-      file: this.toFileState(file)
-    };
-  }
-
-  @Delete("assistant/files/:fileRef")
-  async deleteAssistantFile(
-    @Req() req: RequestWithPlatformContext,
-    @Param("fileRef") fileRef: string
-  ) {
-    const assistant = await this.resolveRequestAssistant(req);
-    await this.assistantFileRegistryService.deleteAssistantFile({
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId,
-      fileRef
-    });
-    return {
-      requestId: req.requestId ?? null,
-      deleted: true
-    };
-  }
-
   private buildContentDisposition(filename: string, mode: "attachment" | "inline"): string {
     const sanitizedFilename = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\r\n]/g, "_");
     const encodedFilename = encodeURIComponent(filename);
@@ -412,17 +388,14 @@ export class MediaAttachmentController {
   }
 
   private resolveDownloadFilename(
-    file: Pick<AssistantFileRegistryRecord, "displayName" | "relativePath" | "mimeType">
+    originalFilename: string | null,
+    mimeType: string
   ): string | null {
-    const preferred = file.displayName?.trim();
+    const preferred = originalFilename?.trim();
     if (preferred && preferred.length > 0) {
       return preferred;
     }
-    const basename = this.basename(file.relativePath).trim();
-    if (basename.length > 0) {
-      return basename;
-    }
-    return this.defaultFilenameForMimeType(file.mimeType);
+    return this.defaultFilenameForMimeType(mimeType);
   }
 
   private defaultFilenameForMimeType(mimeType: string): string {
@@ -523,33 +496,13 @@ export class MediaAttachmentController {
     return (await this.resolveActiveAssistantService.execute({ userId })).assistant;
   }
 
-  private parseLimit(value: string | undefined): number {
-    const parsed = typeof value === "string" ? Number.parseInt(value, 10) : 50;
-    if (!Number.isFinite(parsed)) {
-      return 50;
+  private async assertOwnedWebChat(assistantId: string, chatId: string): Promise<void> {
+    const chat = await this.prisma.assistantChat.findFirst({
+      where: { id: chatId, assistantId, surface: "web" },
+      select: { id: true }
+    });
+    if (chat === null) {
+      throw new NotFoundException("Web chat does not exist for this assistant.");
     }
-    return Math.min(Math.max(parsed, 1), 100);
-  }
-
-  private toFileState(file: AssistantFileRegistryRecord) {
-    return {
-      fileRef: file.fileRef,
-      origin: file.origin,
-      displayName: file.displayName,
-      filename: this.basename(file.relativePath),
-      mimeType: file.mimeType,
-      sizeBytes: file.sizeBytes,
-      logicalSizeBytes: file.logicalSizeBytes,
-      fileBucket: file.fileBucket,
-      cleanupEligible: file.cleanupEligible,
-      cleanupReason: file.cleanupReason,
-      documentLink: file.documentLink,
-      createdAt: file.createdAt.toISOString()
-    };
-  }
-
-  private basename(relativePath: string): string {
-    const parts = relativePath.split("/").filter((part) => part.length > 0);
-    return parts.at(-1) ?? relativePath;
   }
 }

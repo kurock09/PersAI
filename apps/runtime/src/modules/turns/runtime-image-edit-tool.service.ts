@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import type {
   AssistantRuntimeBundle,
@@ -32,14 +31,13 @@ import {
   ProviderGatewayClientService,
   ProviderGatewaySafetyRejectedError
 } from "./provider-gateway.client.service";
-import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
+import { SandboxClientService } from "./sandbox-client.service";
+import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
 import {
   buildImageSafetyRetryFailureWarning,
   rewritePromptAfterProviderSafetyReject
 } from "./image-provider-safety-rewrite";
 import { selectMediaModelForRequest } from "./media-model-routing";
-import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
-
 const IMAGE_EDIT_TOOL_CODE = "image_edit" as const;
 const DEFAULT_IMAGE_EDIT_TIMEOUT_MS = 300_000;
 const SUPPORTED_IMAGE_EDIT_INPUT_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -105,7 +103,7 @@ export class RuntimeImageEditToolService {
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService
+    private readonly sandboxClient: SandboxClientService
   ) {}
 
   async executeToolCall(params: {
@@ -264,7 +262,11 @@ export class RuntimeImageEditToolService {
       };
     }
 
-    const selection = await this.resolveImageSelection(params.availableAttachments, request);
+    const selection = await this.resolveImageSelection(
+      params.bundle.metadata.workspaceId,
+      params.availableAttachments,
+      request
+    );
     if (!selection.ok) {
       this.logger.warn(
         `[image-edit] requestId=${params.requestId} skipped reason=${selection.reason}: ${selection.warning}`
@@ -562,8 +564,10 @@ export class RuntimeImageEditToolService {
             this.persistEditedArtifact({
               assistantId: params.bundle.metadata.assistantId,
               workspaceId: params.bundle.metadata.workspaceId,
-              sessionId: params.sessionId,
-              requestId: params.requestId,
+              handle: params.bundle.metadata.assistantHandle,
+              siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+              workspaceQuotaBytes: params.bundle.governance.quota?.workspaceQuotaBytes ?? null,
+              sharedQuotaBytes: params.bundle.governance.quota?.sharedQuotaBytes ?? null,
               filenameHint: request.filename,
               requestPrompt: providerResult.effectivePrompt,
               sourceFilename: selection.sourceFilename,
@@ -620,8 +624,10 @@ export class RuntimeImageEditToolService {
               this.persistEditedArtifact({
                 assistantId: params.bundle.metadata.assistantId,
                 workspaceId: params.bundle.metadata.workspaceId,
-                sessionId: params.sessionId,
-                requestId: `${params.requestId}:series:${String(index + 1)}`,
+                handle: params.bundle.metadata.assistantHandle,
+                siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+                workspaceQuotaBytes: params.bundle.governance.quota?.workspaceQuotaBytes ?? null,
+                sharedQuotaBytes: params.bundle.governance.quota?.sharedQuotaBytes ?? null,
                 filenameHint: request.filename,
                 requestPrompt: itemPrompt,
                 sourceFilename: selection.sourceFilename,
@@ -920,6 +926,7 @@ export class RuntimeImageEditToolService {
   }
 
   private async resolveImageSelection(
+    workspaceId: string,
     attachments: RuntimeAttachmentRef[],
     request: RuntimeImageEditRequest
   ): Promise<ResolvedImageEditSelection> {
@@ -991,14 +998,18 @@ export class RuntimeImageEditToolService {
       referenceAttachments.push(referenceAttachment);
     }
 
-    const loadedSource = await this.loadSelectedImage(sourceAttachment, "source");
+    const loadedSource = await this.loadSelectedImage(workspaceId, sourceAttachment, "source");
     if (!loadedSource.ok) {
       return loadedSource;
     }
 
     const loadedReferences: LoadedImageEditImage[] = [];
     for (const referenceAttachment of referenceAttachments) {
-      const loadedReference = await this.loadSelectedImage(referenceAttachment, "reference");
+      const loadedReference = await this.loadSelectedImage(
+        workspaceId,
+        referenceAttachment,
+        "reference"
+      );
       if (!loadedReference.ok) {
         return loadedReference;
       }
@@ -1009,7 +1020,7 @@ export class RuntimeImageEditToolService {
       this.resolvePrimaryAttachmentAlias(attachment)
     );
     const resolvedReferenceFilenames = referenceAttachments.map(
-      (attachment) => attachment.filename ?? null
+      (attachment) => attachment.displayName ?? null
     );
 
     return {
@@ -1019,13 +1030,14 @@ export class RuntimeImageEditToolService {
       sourceImageAlias: this.resolvePrimaryAttachmentAlias(sourceAttachment),
       referenceImageAliases:
         resolvedReferenceAliases.length === 0 ? null : resolvedReferenceAliases,
-      sourceFilename: sourceAttachment.filename,
+      sourceFilename: sourceAttachment.displayName,
       referenceFilenames:
         resolvedReferenceFilenames.length === 0 ? null : resolvedReferenceFilenames
     };
   }
 
   private async loadSelectedImage(
+    workspaceId: string,
     attachment: RuntimeAttachmentRef,
     role: "source" | "reference"
   ): Promise<
@@ -1054,7 +1066,10 @@ export class RuntimeImageEditToolService {
       };
     }
 
-    const buffer = await this.mediaObjectStorage.downloadObject(attachment.objectKey);
+    const buffer = await this.mediaObjectStorage.downloadByWorkspacePath({
+      workspaceId,
+      storagePath: attachment.storagePath
+    });
     if (buffer === null || buffer.length === 0) {
       return {
         ok: false,
@@ -1071,7 +1086,7 @@ export class RuntimeImageEditToolService {
       image: {
         bytesBase64: buffer.toString("base64"),
         mimeType,
-        filename: attachment.filename
+        filename: attachment.displayName
       }
     };
   }
@@ -1079,8 +1094,10 @@ export class RuntimeImageEditToolService {
   private async persistEditedArtifact(input: {
     assistantId: string;
     workspaceId: string;
-    sessionId: string;
-    requestId: string;
+    handle: string;
+    siblingHandles: readonly string[];
+    workspaceQuotaBytes: number | null;
+    sharedQuotaBytes: number | null;
     filenameHint: string | null;
     requestPrompt: string;
     sourceFilename: string | null;
@@ -1099,58 +1116,31 @@ export class RuntimeImageEditToolService {
     if (buffer.length === 0) {
       throw new Error("Image provider returned an empty image payload.");
     }
-    const artifactId = randomUUID();
     const extension = this.extensionFromMimeType(input.image.mimeType);
-    const objectKey = this.mediaObjectStorage.buildRuntimeOutputObjectKey({
-      assistantId: input.assistantId,
-      sessionId: input.sessionId,
-      requestId: input.requestId,
-      artifactId,
-      extension
-    });
-    const stored = await this.mediaObjectStorage.saveObject({
-      objectKey,
-      buffer,
-      mimeType: input.image.mimeType
-    });
     const filename = this.resolveFilename(
       input.filenameHint,
       input.sourceFilename,
       input.index,
       extension
     );
-    const semanticSummary = buildGeneratedFileSemanticSummary({
-      preferredText: input.image.revisedPrompt,
-      requestText: input.requestPrompt,
-      allowWeakRequestFallback: true
-    });
-    const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
+    const slugSourceText =
+      input.image.revisedPrompt?.trim() || input.requestPrompt.trim() || filename || "edited-image";
+    return writeRuntimeOutboundArtifact({
+      sandboxClient: this.sandboxClient,
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      origin: "runtime_output",
-      referenceId: artifactId,
-      objectKey: stored.objectKey,
-      filename,
-      mimeType: stored.mimeType,
-      sizeBytes: stored.sizeBytes,
-      semanticSummary,
-      semanticSummarySource: semanticSummary === null ? null : "generation_request"
-    });
-    const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(file);
-
-    return {
-      artifactId,
-      fileRef: runtimeFileRef.fileRef,
-      file: runtimeFileRef,
+      handle: input.handle,
+      siblingHandles: input.siblingHandles,
+      workspaceQuotaBytes: input.workspaceQuotaBytes,
+      sharedQuotaBytes: input.sharedQuotaBytes,
+      buffer,
+      mimeType: input.image.mimeType,
+      slugSourceText,
+      filenameHint: filename,
       kind: "image",
-      sourceToolCode: IMAGE_EDIT_TOOL_CODE,
-      objectKey: stored.objectKey,
-      mimeType: stored.mimeType,
-      filename,
-      sizeBytes: stored.sizeBytes,
-      voiceNote: false,
-      billingFacts: input.billingFacts ?? null
-    };
+      sourceToolCode: "image_edit",
+      billingFacts: input.billingFacts
+    });
   }
 
   private resolveAllowedWorkerToolPolicy(
@@ -1347,7 +1337,7 @@ export class RuntimeImageEditToolService {
     if (stickyFileAlias !== undefined) {
       return stickyFileAlias;
     }
-    return aliases[0] ?? attachment.filename ?? "selected image";
+    return aliases[0] ?? attachment.displayName ?? "selected image";
   }
 
   private normalizeAlias(value: string): string {

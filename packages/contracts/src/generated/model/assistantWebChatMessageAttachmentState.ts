@@ -4,28 +4,25 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantWebChatMessageAttachmentStateDerivativesStatus } from "./assistantWebChatMessageAttachmentStateDerivativesStatus";
 import type { AssistantWebChatMessageAttachmentStateDocumentLink } from "./assistantWebChatMessageAttachmentStateDocumentLink";
 
 export interface AssistantWebChatMessageAttachmentState {
   id: string;
   /** @nullable */
-  fileRef: string | null;
+  path: string | null;
   /** @nullable */
-  thumbnailFileRef?: string | null;
+  thumbnailStoragePath: string | null;
   /** @nullable */
-  posterFileRef?: string | null;
-  /** @nullable */
-  derivativesStatus?: AssistantWebChatMessageAttachmentStateDerivativesStatus;
+  posterStoragePath: string | null;
   attachmentType: string;
   /** @nullable */
   originalFilename: string | null;
   mimeType: string;
   sizeBytes: number;
   processingStatus: string;
-  fileDeleted?: boolean;
+  unavailable?: boolean;
   /**
-   * Provider-hosted download URL when the video is too large to persist inline in PersAI storage.
+   * Provider-hosted download URL when the file is too large to persist inline in PersAI storage.
    * @nullable
    */
   externalDownloadUrl?: string | null;

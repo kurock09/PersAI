@@ -8,7 +8,7 @@ function createBundle(): AssistantRuntimeBundle {
     metadata: {
       assistantId: "assistant-1"
     }
-  } as AssistantRuntimeBundle;
+  } as unknown as AssistantRuntimeBundle;
 }
 
 describe("RuntimeDocumentToolService", () => {
@@ -83,9 +83,9 @@ describe("RuntimeDocumentToolService", () => {
           {
             attachmentId: "att-previous-pdf",
             kind: "file",
-            objectKey: "assistant-media/source.pdf",
+            storagePath: "assistant-media/source.pdf",
             mimeType: "application/pdf",
-            filename: "source.pdf",
+            displayName: "source.pdf",
             sizeBytes: 1024,
             aliases: ["file #1"]
           }
@@ -98,9 +98,9 @@ describe("RuntimeDocumentToolService", () => {
     assert.deepEqual(attachments[0], {
       attachmentId: "att-previous-pdf",
       kind: "file",
-      objectKey: "assistant-media/source.pdf",
+      storagePath: "assistant-media/source.pdf",
       mimeType: "application/pdf",
-      filename: "source.pdf",
+      displayName: "source.pdf",
       sizeBytes: 1024,
       aliases: ["file #1"]
     });
@@ -138,9 +138,9 @@ describe("RuntimeDocumentToolService", () => {
           {
             attachmentId: "att-previous-pdf",
             kind: "file",
-            objectKey: "assistant-media/source.pdf",
+            storagePath: "assistant-media/source.pdf",
             mimeType: "application/pdf",
-            filename: "source.pdf",
+            displayName: "source.pdf",
             sizeBytes: 1024,
             aliases: ["file #1"]
           }
@@ -192,9 +192,9 @@ describe("RuntimeDocumentToolService", () => {
           {
             attachmentId: "att-current-pdf",
             kind: "file",
-            objectKey: "assistant-media/current.pdf",
+            storagePath: "assistant-media/current.pdf",
             mimeType: "application/pdf",
-            filename: "current.pdf",
+            displayName: "current.pdf",
             sizeBytes: 2048,
             aliases: ["file #1"]
           }
@@ -502,8 +502,8 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(capturedInputs[2]!.directToolExecution.request.targetSlideCount, null);
   });
 
-  // ADR-097 Slice 5 — [document-tool] fileRef-not-uuid log line guard
-  test("logs [document-tool] fileRef-not-uuid when model passes an alias string as fileRef", async () => {
+  // ADR-126 v3 — [document-tool] storagePath-invalid log line guard
+  test("logs [document-tool] storagePath-invalid when model passes an alias string as storagePath", async () => {
     const loggedMessages: string[] = [];
     const service = new RuntimeDocumentToolService({
       async enqueueDeferredDocumentJob() {
@@ -537,7 +537,7 @@ describe("RuntimeDocumentToolService", () => {
         arguments: {
           descriptorMode: "revise_document",
           prompt: "Make it shorter",
-          fileRef: "last generated file" // alias, not a UUID
+          storagePath: "last generated file" // alias, not a canonical path
         }
       },
       deferToAsyncDocumentJob: {
@@ -549,8 +549,8 @@ describe("RuntimeDocumentToolService", () => {
     });
 
     assert.ok(
-      loggedMessages.some((msg) => msg.includes("[document-tool] fileRef-not-uuid")),
-      "must log [document-tool] fileRef-not-uuid when fileRef is a non-UUID alias"
+      loggedMessages.some((msg) => msg.includes("[document-tool] storagePath-invalid")),
+      "must log [document-tool] storagePath-invalid when storagePath is a non-canonical alias"
     );
   });
 

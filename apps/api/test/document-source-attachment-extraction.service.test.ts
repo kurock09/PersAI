@@ -11,6 +11,13 @@ async function extractsSupportedSourcesThroughSharedDocumentExtraction(): Promis
   const extractionCalls: unknown[] = [];
   const service = new DocumentSourceAttachmentExtractionService(
     {
+      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        const relative = input.workspaceRelPath
+          .replace(/^\/shared\//, "")
+          .replace(/^\/+/, "")
+          .replace(/\\/g, "/");
+        return `media/workspaces/${input.workspaceId}/shared/${relative}`;
+      },
       async downloadObject(objectKey: string) {
         downloadCalls.push(objectKey);
         return {
@@ -49,15 +56,17 @@ async function extractsSupportedSourcesThroughSharedDocumentExtraction(): Promis
       {
         attachmentId: "att-1",
         kind: "file",
-        objectKey: "obj/source.md",
+        storagePath: "/shared/workspace-1/outbound/self/source.md",
         mimeType: "text/markdown",
-        filename: "source.md",
+        displayName: "source.md",
         sizeBytes: 128
       }
     ]
   });
 
-  assert.deepEqual(downloadCalls, ["obj/source.md"]);
+  assert.deepEqual(downloadCalls, [
+    "media/workspaces/workspace-1/shared/workspace-1/outbound/self/source.md"
+  ]);
   assert.equal(extractionCalls.length, 1);
   assert.equal(result.length, 1);
   assert.equal(result[0]!.text, "Real extracted text");
@@ -71,6 +80,13 @@ async function skipsUnsupportedBinaryAttachments(): Promise<void> {
   let extractionCalled = false;
   const service = new DocumentSourceAttachmentExtractionService(
     {
+      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        const relative = input.workspaceRelPath
+          .replace(/^\/shared\//, "")
+          .replace(/^\/+/, "")
+          .replace(/\\/g, "/");
+        return `media/workspaces/${input.workspaceId}/shared/${relative}`;
+      },
       async downloadObject() {
         downloadCalled = true;
         return null;
@@ -92,9 +108,9 @@ async function skipsUnsupportedBinaryAttachments(): Promise<void> {
       {
         attachmentId: "att-image",
         kind: "image",
-        objectKey: "obj/photo.png",
+        storagePath: "/shared/workspace-1/outbound/self/photo.png",
         mimeType: "image/png",
-        filename: "photo.png",
+        displayName: "photo.png",
         sizeBytes: 1024
       }
     ]

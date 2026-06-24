@@ -10,12 +10,18 @@ import type {
 } from "@persai/runtime-contract";
 import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-edit-tool.service";
 import { ProviderGatewaySafetyRejectedError } from "../src/modules/turns/provider-gateway.client.service";
+import {
+  createFakeMediaObjectStorageForRead,
+  createFakeSandboxClientForOutboundWrite
+} from "./helpers/runtime-outbound-test-doubles";
 
 function createBundle(): AssistantRuntimeBundle {
   return {
     metadata: {
       assistantId: "assistant-1",
-      workspaceId: "workspace-1"
+      workspaceId: "workspace-1",
+      assistantHandle: "test-assistant",
+      siblingAssistantHandles: []
     },
     governance: {
       toolPolicies: [
@@ -58,7 +64,7 @@ function createBundle(): AssistantRuntimeBundle {
         }
       }
     }
-  } as unknown as AssistantRuntimeBundle;
+  } as unknown as unknown as AssistantRuntimeBundle;
 }
 
 describe("RuntimeImageEditToolService", () => {
@@ -125,47 +131,17 @@ describe("RuntimeImageEditToolService", () => {
     const service = new RuntimeImageEditToolService(
       providerGatewayClient as never,
       {} as never,
-      {
-        buildRuntimeOutputObjectKey() {
-          return "runtime/image-edit-1.png";
-        },
-        async saveObject() {
-          return {
-            objectKey: "runtime/image-edit-1.png",
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        },
-        async downloadObject() {
-          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
-        }
-      } as never,
-      {
-        async ensureAttachmentBackedFile() {
-          return {
-            id: "file-1",
-            filename: "portrait-edited.png",
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        },
-        toRuntimeFileRef() {
-          return {
-            fileRef: "file-1",
-            displayName: "portrait-edited.png",
-            mimeType: "image/png"
-          };
-        }
-      } as never
+      createFakeMediaObjectStorageForRead() as never,
+      createFakeSandboxClientForOutboundWrite("/shared/outbound/self/image-edit-1.png") as never
     );
 
     const attachments = [
       {
         attachmentId: "attachment-1",
         kind: "image",
-        objectKey: "uploads/source.png",
+        storagePath: "uploads/source.png",
         mimeType: "image/png",
-        filename: "source.png",
+        displayName: "source.png",
         sizeBytes: 9,
         aliases: ["current image #1", "image #1", "file #1"]
       }
@@ -235,11 +211,7 @@ describe("RuntimeImageEditToolService", () => {
         }
       } as never,
       {} as never,
-      {
-        async downloadObject() {
-          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
-        }
-      } as never,
+      createFakeMediaObjectStorageForRead() as never,
       {} as never
     );
 
@@ -257,9 +229,9 @@ describe("RuntimeImageEditToolService", () => {
         {
           attachmentId: "attachment-1",
           kind: "image",
-          objectKey: "uploads/source.png",
+          storagePath: "uploads/source.png",
           mimeType: "image/png",
-          filename: "source.png",
+          displayName: "source.png",
           sizeBytes: 9,
           aliases: ["image #1"]
         }
@@ -308,48 +280,26 @@ describe("RuntimeImageEditToolService", () => {
         }
       } as never,
       {} as never,
-      {
-        buildRuntimeOutputObjectKey() {
-          return "runtime/image-edit-ref.png";
-        },
-        async saveObject() {
-          return { objectKey: "runtime/image-edit-ref.png", mimeType: "image/png", sizeBytes: 9 };
-        },
-        async downloadObject() {
-          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
-        }
-      } as never,
-      {
-        async ensureAttachmentBackedFile() {
-          return {
-            id: "file-ref-1",
-            filename: "source-edited.png",
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        },
-        toRuntimeFileRef() {
-          return { fileRef: "file-ref-1", displayName: "source-edited.png", mimeType: "image/png" };
-        }
-      } as never
+      createFakeMediaObjectStorageForRead() as never,
+      createFakeSandboxClientForOutboundWrite("/shared/outbound/self/image-edit-ref.png") as never
     );
 
     const attachments = [
       {
         attachmentId: "attachment-1",
         kind: "image",
-        objectKey: "uploads/source.png",
+        storagePath: "uploads/source.png",
         mimeType: "image/png",
-        filename: "source.png",
+        displayName: "source.png",
         sizeBytes: 9,
         aliases: ["image #1"]
       },
       {
         attachmentId: "attachment-2",
         kind: "image",
-        objectKey: "uploads/reference.png",
+        storagePath: "uploads/reference.png",
         mimeType: "image/png",
-        filename: "reference.png",
+        displayName: "reference.png",
         sizeBytes: 9,
         aliases: ["current image #2", "image #2", "file #2"]
       }
@@ -386,11 +336,7 @@ describe("RuntimeImageEditToolService", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      {
-        async downloadObject() {
-          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
-        }
-      } as never,
+      createFakeMediaObjectStorageForRead() as never,
       {} as never
     );
 
@@ -398,18 +344,18 @@ describe("RuntimeImageEditToolService", () => {
       {
         attachmentId: "attachment-1",
         kind: "image",
-        objectKey: "uploads/a.png",
+        storagePath: "uploads/a.png",
         mimeType: "image/png",
-        filename: "a.png",
+        displayName: "a.png",
         sizeBytes: 9,
         aliases: ["image #1"]
       },
       {
         attachmentId: "attachment-2",
         kind: "image",
-        objectKey: "uploads/b.png",
+        storagePath: "uploads/b.png",
         mimeType: "image/png",
-        filename: "b.png",
+        displayName: "b.png",
         sizeBytes: 9,
         aliases: ["image #2"]
       }
@@ -446,11 +392,7 @@ describe("RuntimeImageEditToolService", () => {
           return { accepted: true, jobId: "media-job-7", kind: "image" };
         }
       } as never,
-      {
-        async downloadObject() {
-          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
-        }
-      } as never,
+      createFakeMediaObjectStorageForRead() as never,
       {} as never
     );
 
@@ -458,9 +400,9 @@ describe("RuntimeImageEditToolService", () => {
       {
         attachmentId: "attachment-1",
         kind: "image",
-        objectKey: "uploads/source.png",
+        storagePath: "uploads/source.png",
         mimeType: "image/png",
-        filename: "source.png",
+        displayName: "source.png",
         sizeBytes: 9,
         aliases: ["image #1"]
       }
@@ -536,43 +478,17 @@ describe("RuntimeImageEditToolService", () => {
         }
       } as never,
       {} as never,
-      {
-        buildRuntimeOutputObjectKey() {
-          return `runtime/edit-series-${String(editCalls.length)}.png`;
-        },
-        async saveObject() {
-          return {
-            objectKey: `runtime/edit-series-${String(editCalls.length)}.png`,
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        },
-        async downloadObject() {
-          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
-        }
-      } as never,
-      {
-        async ensureAttachmentBackedFile() {
-          return {
-            id: `file-series-${String(editCalls.length)}`,
-            filename: `series-${String(editCalls.length)}.png`,
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        },
-        toRuntimeFileRef(file: { id: string; filename: string; mimeType: string }) {
-          return { fileRef: file.id, displayName: file.filename, mimeType: file.mimeType };
-        }
-      } as never
+      createFakeMediaObjectStorageForRead() as never,
+      createFakeSandboxClientForOutboundWrite("/shared/outbound/self/edit-series.png") as never
     );
 
     const attachments = [
       {
         attachmentId: "attachment-1",
         kind: "image",
-        objectKey: "uploads/source.png",
+        storagePath: "uploads/source.png",
         mimeType: "image/png",
-        filename: "source.png",
+        displayName: "source.png",
         sizeBytes: 9,
         aliases: ["image #1"]
       }
@@ -657,40 +573,14 @@ describe("RuntimeImageEditToolService", () => {
         }
       } as never,
       {} as never,
+      createFakeMediaObjectStorageForRead() as never,
       {
-        buildRuntimeOutputObjectKey(input: {
-          assistantId: string;
-          sessionId: string;
-          requestId: string;
-          artifactId?: string;
-          extension: string | null;
-        }) {
-          const extension = input.extension ?? "png";
-          return `assistant-media/assistants/${input.assistantId}/runtime-output/sessions/${input.sessionId}/requests/${input.requestId}/${input.artifactId ?? "artifact"}.${extension}`;
-        },
-        async saveObject() {
+        async writeSharedOutbound(input: { contentBase64: string }) {
           savedArtifacts += 1;
           return {
-            objectKey: `runtime/edit-partial-${String(savedArtifacts)}.png`,
-            mimeType: "image/png",
-            sizeBytes: 9
+            workspaceRelPath: `/shared/outbound/self/edit-partial-${String(savedArtifacts)}.png`,
+            sizeBytes: Buffer.from(input.contentBase64, "base64").length
           };
-        },
-        async downloadObject() {
-          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
-        }
-      } as never,
-      {
-        async ensureAttachmentBackedFile() {
-          return {
-            id: `file-partial-${String(savedArtifacts)}`,
-            filename: `partial-${String(savedArtifacts)}.png`,
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        },
-        toRuntimeFileRef(file: { id: string; filename: string; mimeType: string }) {
-          return { fileRef: file.id, displayName: file.filename, mimeType: file.mimeType };
         }
       } as never
     );
@@ -699,9 +589,9 @@ describe("RuntimeImageEditToolService", () => {
       {
         attachmentId: "attachment-1",
         kind: "image",
-        objectKey: "uploads/source.png",
+        storagePath: "uploads/source.png",
         mimeType: "image/png",
-        filename: "source.png",
+        displayName: "source.png",
         sizeBytes: 9,
         aliases: ["image #1"]
       }

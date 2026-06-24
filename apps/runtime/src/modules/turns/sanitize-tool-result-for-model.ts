@@ -33,63 +33,21 @@
  *
  * Fields kept for the model: `kind`, `mimeType`, `voiceNote`, `caption`.
  * Fields stripped from the model-visible JSON: `artifactId`, `objectKey`,
- * `filename`, `sizeBytes`, `fileRef`. `caption` is kept because if the runtime ever
+ * `filename`, `sizeBytes`, `storagePath`. `caption` is kept because if the runtime ever
  * synthesizes a caption (e.g., a tool says "cropped to focus on subject"),
  * that caption is meaningful for the next reasoning step and not a
  * presentation-only token.
  */
 
 const MODEL_VISIBLE_ARTIFACT_FIELDS = new Set(["kind", "mimeType", "voiceNote", "caption"]);
-const MODEL_VISIBLE_FILES_ITEM_FIELDS = new Set([
-  "origin",
-  "relativePath",
-  "displayName",
-  "mimeType",
-  "sizeBytes",
-  "logicalSizeBytes",
-  "aliases",
-  "semanticSummaryHint"
-]);
 export const MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS = 16_000;
-
-function isSuccessfulFilesDeliveryResult(value: Record<string, unknown>): boolean {
-  if (value.toolCode !== "files" || value.executionMode !== "inline") {
-    return false;
-  }
-  if (value.requestedAction !== "send" && value.requestedAction !== "write_and_send") {
-    return false;
-  }
-  if (value.action !== "queued" && value.action !== "written_and_queued") {
-    return false;
-  }
-  return typeof value.queuedArtifacts === "number" && value.queuedArtifacts > 0;
-}
 
 function isRuntimeOutputArtifactShape(value: Record<string, unknown>): boolean {
   return typeof value.artifactId === "string" && typeof value.kind === "string";
 }
 
-function isRuntimeFilesToolItemShape(value: Record<string, unknown>): boolean {
-  return (
-    typeof value.fileRef === "string" &&
-    typeof value.origin === "string" &&
-    typeof value.relativePath === "string" &&
-    typeof value.mimeType === "string"
-  );
-}
-
 function isRuntimeFilesToolResultShape(value: Record<string, unknown>): boolean {
   return value.toolCode === "files" && value.executionMode === "inline";
-}
-
-function sanitizeFilesToolItemForModel(value: Record<string, unknown>): Record<string, unknown> {
-  const sanitized: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value)) {
-    if (MODEL_VISIBLE_FILES_ITEM_FIELDS.has(k)) {
-      sanitized[k] = v;
-    }
-  }
-  return sanitized;
 }
 
 function isLikelyBinaryContent(value: string): boolean {
@@ -149,35 +107,8 @@ function sanitizeFilesContentForModel(
 }
 
 function sanitizeFilesToolResultForModel(value: Record<string, unknown>): Record<string, unknown> {
-  if (isSuccessfulFilesDeliveryResult(value)) {
-    return {
-      toolCode: "files",
-      requestedAction: value.requestedAction,
-      action: value.action,
-      delivered: true,
-      queuedAttachments: value.queuedArtifacts,
-      instruction:
-        "The file delivery succeeded and will be shown as an attachment card. Do not print raw selectors, raw tool output, or attachment metadata. Briefly tell the user the file was sent."
-    };
-  }
-
-  const item =
-    typeof value.item === "object" &&
-    value.item !== null &&
-    !Array.isArray(value.item) &&
-    isRuntimeFilesToolItemShape(value.item as Record<string, unknown>)
-      ? sanitizeFilesToolItemForModel(value.item as Record<string, unknown>)
-      : value.item;
-  const items = Array.isArray(value.items)
-    ? value.items.map((entry) =>
-        typeof entry === "object" &&
-        entry !== null &&
-        !Array.isArray(entry) &&
-        isRuntimeFilesToolItemShape(entry as Record<string, unknown>)
-          ? sanitizeFilesToolItemForModel(entry as Record<string, unknown>)
-          : entry
-      )
-    : [];
+  const item = value.item ?? null;
+  const items = Array.isArray(value.items) ? value.items : [];
 
   const existingCharCount =
     typeof value.charCount === "number" && Number.isFinite(value.charCount)
@@ -206,6 +137,10 @@ function sanitizeFilesToolResultForModel(value: Record<string, unknown>): Record
     content: sanitizedContent.content,
     charCount: sanitizedContent.charCount,
     truncated: sanitizedContent.truncated,
+    ...(typeof value.path === "string" ? { path: value.path } : {}),
+    ...(typeof value.sizeBytes === "number" ? { sizeBytes: value.sizeBytes } : {}),
+    ...(typeof value.mimeType === "string" ? { mimeType: value.mimeType } : {}),
+    ...(typeof value.displayName === "string" ? { displayName: value.displayName } : {}),
     ...(readNote !== undefined ? { note: readNote } : {}),
     ...(extractionQuality !== undefined ? { extractionQuality } : {}),
     ...(extractionCached === true ? { extractionCached: true } : {}),
@@ -221,9 +156,6 @@ function modelFacingReplacer(_key: string, value: unknown): unknown {
   const candidate = value as Record<string, unknown>;
   if (isRuntimeFilesToolResultShape(candidate)) {
     return sanitizeFilesToolResultForModel(candidate);
-  }
-  if (isRuntimeFilesToolItemShape(candidate)) {
-    return sanitizeFilesToolItemForModel(candidate);
   }
   if (!isRuntimeOutputArtifactShape(candidate)) {
     return value;

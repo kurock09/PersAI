@@ -90,9 +90,8 @@ function buildAttachment(
     chatId: "chat-1",
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    assistantFileId: null,
     attachmentType: "video",
-    storagePath: "assistant-media/runtime-output/clip.mp4",
+    storagePath: "/shared/outbound/self/clip.mp4",
     originalFilename: "clip.mp4",
     mimeType: "video/mp4",
     sizeBytes: BigInt(64),
@@ -148,6 +147,9 @@ function buildVideoSettleService(opts?: {
   const attachmentRepo = {
     async create() {
       return buildAttachment();
+    },
+    async findById(id: string) {
+      return buildAttachment({ id });
     }
   } as never;
 
@@ -156,14 +158,17 @@ function buildVideoSettleService(opts?: {
       return {
         id: assistantId,
         workspaceId: "workspace-1",
-        ownerUserId: "user-1"
+        userId: "user-1"
       };
     }
   } as never;
 
   const objectStorage = {
+    buildSharedObjectKey(scope: { workspaceId: string; workspaceRelPath: string }) {
+      return `workspaces/${scope.workspaceId}${scope.workspaceRelPath}`;
+    },
     buildChatMessageObjectKey() {
-      return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/clip.mp4";
+      return "workspaces/workspace-1/shared/outbound/self/clip.mp4";
     },
     async downloadObject() {
       return {
@@ -173,7 +178,7 @@ function buildVideoSettleService(opts?: {
     },
     async saveObject() {
       return {
-        objectKey: "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/clip.mp4",
+        objectKey: "workspaces/workspace-1/shared/outbound/self/clip.mp4",
         sizeBytes: 8,
         mimeType: "video/mp4"
       };
@@ -181,21 +186,15 @@ function buildVideoSettleService(opts?: {
     async deleteObject() {}
   } as never;
 
-  const fileRegistry = {
-    async ensureAttachmentFile() {
-      return { fileRef: "file-att-vid-1" };
-    },
-    async linkAttachmentToExistingFile() {
-      return undefined;
-    },
-    async ensureMediaDerivativeTracking() {
-      return undefined;
+  const registerChatAttachment = {
+    async execute() {
+      return { attachmentId: "att-vid-1", storagePath: "/shared/outbound/self/clip.mp4" };
     }
   } as never;
 
-  const uploadDescriptionJobs = {
-    async enqueueGeneratedFileIfNeeded() {
-      return { accepted: true, reason: "queued" };
+  const workspaceFileMetadata = {
+    async get() {
+      return null;
     }
   } as never;
 
@@ -276,8 +275,8 @@ function buildVideoSettleService(opts?: {
     assistantRepo,
     [],
     objectStorage,
-    fileRegistry,
-    uploadDescriptionJobs,
+    registerChatAttachment,
+    workspaceFileMetadata,
     trackQuotaService,
     httpMetrics,
     ledgerService,
@@ -314,7 +313,7 @@ async function runVideoGenerateSettleDebitsInTx(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/clip.mp4",
+        objectKey: "/shared/outbound/clip.mp4",
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -357,7 +356,7 @@ async function runKlingVideoSettleDebitsCorrectly(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/kling.mp4",
+        objectKey: "/shared/outbound/kling.mp4",
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -399,7 +398,7 @@ async function runOpenAIVideoSettleDebitsCorrectly(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/sora.mp4",
+        objectKey: "/shared/outbound/sora.mp4",
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -434,7 +433,7 @@ async function runImageGenerateDoesNotConsultVcoin(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/render.png",
+        objectKey: "/shared/outbound/render.png",
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -473,7 +472,7 @@ async function runVideoSettleFailureRollsBackWithoutLegacyReconciliation(): Prom
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/clip.mp4",
+        objectKey: "/shared/outbound/clip.mp4",
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -523,7 +522,7 @@ async function runVideoSettleMissingBillingFactsSkipsLegacyReconciliation(): Pro
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/clip.mp4",
+        objectKey: "/shared/outbound/clip.mp4",
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",

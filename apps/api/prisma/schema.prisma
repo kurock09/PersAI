@@ -450,6 +450,7 @@ enum AttachmentProcessingStatus {
   pending
   ready
   failed
+  unavailable
 
   @@map("attachment_processing_status")
 }
@@ -463,14 +464,6 @@ enum SandboxJobStatus {
   cancelled
 
   @@map("sandbox_job_status")
-}
-
-enum SandboxFileOrigin {
-  sandbox_output
-  runtime_output
-  uploaded_attachment
-
-  @@map("sandbox_file_origin")
 }
 
 enum AssistantIntegrationProviderKey {
@@ -765,7 +758,7 @@ model Workspace {
   runtimeTurnReceipts               RuntimeTurnReceipt[]
   sandboxJobs                       SandboxJob[]
   assistantWorkspaceLeases          AssistantWorkspaceLease[]
-  assistantFiles                    AssistantFile[]
+  workspaceFileMetadata             WorkspaceFileMetadata[]
   assistantBackgroundCompactionJobs AssistantBackgroundCompactionJob[]
   assistantBackgroundTasks          AssistantBackgroundTask[]
   assistantBackgroundTaskRuns       AssistantBackgroundTaskRun[]
@@ -774,13 +767,11 @@ model Workspace {
   subscriptionBillingEvents         WorkspaceSubscriptionBillingEvent[]
   paymentIntents                    WorkspacePaymentIntent[]
   mediaJobs                         AssistantMediaJob[]
-  uploadMicroDescriptionJobs        AssistantUploadMicroDescriptionJob[]
   voiceTranscriptionEvents          AssistantVoiceTranscriptionEvent[]
   documents                         AssistantDocument[]
   documentVersions                  AssistantDocumentVersion[]
   documentRenderJobs                AssistantDocumentRenderJob[]
   documentProviderMappings          AssistantDocumentProviderMapping[]
-  documentDeliveredFiles            AssistantDocumentDeliveredFile[]
   documentRevisionLogs              AssistantDocumentRevisionLog[]
   notificationIntents               NotificationIntent[]                  @relation("NotificationIntentWorkspace")
   materializationRollouts           MaterializationRollout[]
@@ -826,6 +817,16 @@ model Assistant {
   id                                   String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId                               String                                @map("user_id") @db.Uuid
   workspaceId                          String                                @map("workspace_id") @db.Uuid
+  /// ADR-126 Slice 3 — stable, URL/path-safe identifier for this assistant
+  /// inside its workspace. Used as the directory name under
+  /// `/shared/<workspaceId>/outbound/<handle>/` inside session pods and the
+  /// corresponding GCS prefix `workspaces/<workspaceId>/shared/outbound/<handle>/`.
+  /// Generated from `draft_display_name` via
+  /// `generateAssistantHandle(displayName)` and de-duplicated via
+  /// `ensureHandleUnique(prisma, workspaceId, base)`. Unique per workspace;
+  /// duplicates across workspaces are fine. Must remain stable across
+  /// `draft_display_name` updates (re-naming an assistant does NOT re-slug).
+  handle                               String                                @db.VarChar(64)
   preferredNotificationChannel         AssistantPreferredNotificationChannel @default(web) @map("preferred_notification_channel")
   /// ADR-074 Slice T2 D-marker. NULL = the user has never explicitly picked a
   /// notification channel; the value is still on the `web` default. Set to the
@@ -892,12 +893,10 @@ model Assistant {
   runtimeTurnReceipts                  RuntimeTurnReceipt[]
   sandboxJobs                          SandboxJob[]
   assistantWorkspaceLeases             AssistantWorkspaceLease[]
-  assistantFiles                       AssistantFile[]
   backgroundCompactionJobs             AssistantBackgroundCompactionJob[]
   supportTickets                       SupportTicket[]
   webChatTurnAttempts                  AssistantWebChatTurnAttempt[]
   mediaJobs                            AssistantMediaJob[]
-  uploadMicroDescriptionJobs           AssistantUploadMicroDescriptionJob[]
   voiceTranscriptionEvents             AssistantVoiceTranscriptionEvent[]
   telegramAlbumCollectors              AssistantTelegramAlbumCollector[]
   documents                            AssistantDocument[]
@@ -908,6 +907,7 @@ model Assistant {
 
   @@unique([id, userId])
   @@unique([id, workspaceId])
+  @@unique([workspaceId, handle])
   @@index([userId])
   @@index([workspaceId])
   @@index([workspaceId, userId])
@@ -2032,7 +2032,6 @@ model SandboxJob {
   assistant         Assistant                 @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspace         Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspaceLeases   AssistantWorkspaceLease[]
-  assistantFiles    AssistantFile[]
 
   @@index([assistantId, createdAt(sort: Desc)])
   @@index([workspaceId, createdAt(sort: Desc)])
@@ -2060,36 +2059,67 @@ model AssistantWorkspaceLease {
   @@map("assistant_workspace_leases")
 }
 
-model AssistantFile {
-  id                         String                               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId                String                               @map("assistant_id") @db.Uuid
-  workspaceId                String                               @map("workspace_id") @db.Uuid
-  sandboxJobId               String?                              @map("sandbox_job_id") @db.Uuid
-  origin                     SandboxFileOrigin                    @default(sandbox_output)
-  sourceToolCode             String?                              @map("source_tool_code") @db.VarChar(64)
-  objectKey                  String                               @map("object_key") @db.VarChar(512)
-  relativePath               String                               @map("relative_path") @db.VarChar(1024)
-  displayName                String?                              @map("display_name") @db.VarChar(255)
-  mimeType                   String                               @map("mime_type") @db.VarChar(255)
-  sizeBytes                  BigInt                               @map("size_bytes")
-  logicalSizeBytes           BigInt?                              @map("logical_size_bytes")
-  sha256                     String?                              @db.VarChar(128)
-  metadata                   Json?                                @db.JsonB
-  createdAt                  DateTime                             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                  DateTime                             @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant                  Assistant                            @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace                  Workspace                            @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  sandboxJob                 SandboxJob?                          @relation(fields: [sandboxJobId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  chatAttachments            AssistantChatMessageAttachment[]
-  documentDeliveredFiles     AssistantDocumentDeliveredFile[]
-  uploadMicroDescriptionJobs AssistantUploadMicroDescriptionJob[]
+/// ADR-126 Slice 3 — deferred garbage-collection schedule for sandbox workspace
+/// content (warm-pod scratch and the GCS snapshot subtree). Path-based file
+/// identity (`workspace_file_metadata`, `assistant_chat_message_attachment.storagePath`)
+/// is purged by the reaper from GCS prefixes and warm pods; the lease is
+/// **deliberately independent** of the source rows (`Assistant`, `Workspace`, chat)
+/// so the chat / assistant / workspace hard-delete transactions can continue to
+/// remove their source rows atomically while the deferred purge of out-of-line
+/// state (GCS prefixes, warm pods) survives the disappearance of the source row.
+/// The producing service
+/// writes the lease inside the same Prisma transaction that performs the
+/// hard-delete, so atomicity is: lease exists ↔ source row gone.
+///
+/// `kind` selects the purge routine and metadata schema:
+///   - `chat_scratch`:        `targetId = chatId`,
+///                            `metadata = {workspaceId, assistantId}`,
+///                            `scheduledAt = now()`.
+///   - `assistant_outbound`:  `targetId = assistantId`,
+///                            `metadata = {workspaceId, handle}`,
+///                            `scheduledAt = now() + 7 days`.
+///   - `workspace_shared`:    `targetId = workspaceId`,
+///                            `metadata = {}`,
+///                            `scheduledAt = now() + 30 days`.
+///
+/// The reaper (apps/sandbox/src/workspace-gc.service.ts) polls due rows where
+/// `purged_at IS NULL AND scheduled_at <= now()`, validates `metadata` against a
+/// kind-specific Zod schema, runs the purge, then sets `purged_at = now()` on
+/// success. Failed purges leave the row open and are retried on the next tick.
+model SandboxWorkspaceGcLease {
+  id          String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind        SandboxWorkspaceGcLeaseKind
+  targetId    String                      @map("target_id") @db.Uuid
+  scheduledAt DateTime                    @map("scheduled_at") @db.Timestamptz(6)
+  purgedAt    DateTime?                   @map("purged_at") @db.Timestamptz(6)
+  metadata    Json                        @db.JsonB
+  createdAt   DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  @@unique([assistantId, workspaceId, origin, objectKey])
-  @@index([assistantId, createdAt(sort: Desc)])
+  @@index([kind, scheduledAt, purgedAt])
+  @@index([targetId, kind])
+  @@map("sandbox_workspace_gc_lease")
+}
+
+enum SandboxWorkspaceGcLeaseKind {
+  chat_scratch
+  assistant_outbound
+  workspace_shared
+}
+
+model WorkspaceFileMetadata {
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  path             String    @db.VarChar(1024)
+  mimeType         String    @map("mime_type") @db.VarChar(255)
+  sizeBytes        BigInt    @map("size_bytes")
+  contentHash      String?   @map("content_hash") @db.VarChar(128)
+  shortDescription String?   @map("short_description") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([workspaceId, path])
   @@index([workspaceId, createdAt(sort: Desc)])
-  @@index([assistantId, relativePath, createdAt(sort: Desc)])
-  @@index([sandboxJobId])
-  @@map("assistant_files")
+  @@map("workspace_file_metadata")
 }
 
 model AssistantChat {
@@ -2179,10 +2209,11 @@ model AssistantChatMessageAttachment {
   chatId             String                     @map("chat_id") @db.Uuid
   assistantId        String                     @map("assistant_id") @db.Uuid
   workspaceId        String                     @map("workspace_id") @db.Uuid
-  assistantFileId    String?                    @map("assistant_file_id") @db.Uuid
   attachmentType     AttachmentType             @map("attachment_type")
-  storagePath        String                     @map("storage_path") @db.VarChar(512)
-  originalFilename   String?                    @map("original_filename") @db.VarChar(255)
+  storagePath          String?                    @map("storage_path") @db.VarChar(512)
+  thumbnailStoragePath String?                    @map("thumbnail_storage_path") @db.VarChar(1024)
+  posterStoragePath    String?                    @map("poster_storage_path") @db.VarChar(1024)
+  originalFilename     String?                    @map("original_filename") @db.VarChar(255)
   mimeType           String                     @map("mime_type") @db.VarChar(128)
   sizeBytes          BigInt                     @map("size_bytes")
   durationMs         Int?                       @map("duration_ms")
@@ -2199,14 +2230,12 @@ model AssistantChatMessageAttachment {
   chat               AssistantChat              @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   assistant          Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspace          Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  assistantFile      AssistantFile?             @relation(fields: [assistantFileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@unique([assistantId, chatId, clientAttachmentId])
   @@index([messageId])
   @@index([chatId])
   @@index([chatId, clientTurnId])
   @@index([assistantId])
-  @@index([assistantFileId])
   @@index([workspaceId, createdAt(sort: Desc)])
   @@map("assistant_chat_message_attachments")
 }
@@ -2289,38 +2318,6 @@ model AssistantMediaJob {
   @@map("assistant_media_jobs")
 }
 
-model AssistantUploadMicroDescriptionJob {
-  id                      String                                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId             String                                   @map("assistant_id") @db.Uuid
-  workspaceId             String                                   @map("workspace_id") @db.Uuid
-  assistantFileId         String                                   @unique @map("assistant_file_id") @db.Uuid
-  sourceAttachmentId      String?                                  @map("source_attachment_id") @db.Uuid
-  status                  AssistantUploadMicroDescriptionJobStatus @default(queued)
-  attemptCount            Int                                      @default(0) @map("attempt_count")
-  maxAttempts             Int                                      @default(3) @map("max_attempts")
-  nextRetryAt             DateTime?                                @map("next_retry_at") @db.Timestamptz(6)
-  schedulerClaimToken     String?                                  @map("scheduler_claim_token") @db.VarChar(64)
-  schedulerClaimedAt      DateTime?                                @map("scheduler_claimed_at") @db.Timestamptz(6)
-  schedulerClaimExpiresAt DateTime?                                @map("scheduler_claim_expires_at") @db.Timestamptz(6)
-  startedAt               DateTime?                                @map("started_at") @db.Timestamptz(6)
-  usageJson               Json?                                    @map("usage_json") @db.JsonB
-  usageOccurredAt         DateTime?                                @map("usage_occurred_at") @db.Timestamptz(6)
-  completedAt             DateTime?                                @map("completed_at") @db.Timestamptz(6)
-  failedAt                DateTime?                                @map("failed_at") @db.Timestamptz(6)
-  lastErrorMessage        String?                                  @map("last_error_message") @db.Text
-  createdAt               DateTime                                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime                                 @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant               Assistant                                @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace               Workspace                                @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  assistantFile           AssistantFile                            @relation(fields: [assistantFileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@index([assistantId, status, updatedAt])
-  @@index([workspaceId, status, updatedAt])
-  @@index([status, updatedAt])
-  @@index([status, nextRetryAt, createdAt])
-  @@map("assistant_upload_micro_description_jobs")
-}
-
 model AssistantTelegramAlbumCollector {
   id                      String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   assistantId             String        @map("assistant_id") @db.Uuid
@@ -2366,7 +2363,6 @@ model AssistantDocument {
   versions         AssistantDocumentVersion[]
   renderJobs       AssistantDocumentRenderJob[]
   providerMappings AssistantDocumentProviderMapping[]
-  deliveredFiles   AssistantDocumentDeliveredFile[]
   revisionLogs     AssistantDocumentRevisionLog[]
 
   @@index([assistantId, status, updatedAt])
@@ -2403,7 +2399,6 @@ model AssistantDocumentVersion {
   workspace            Workspace                          @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   renderJobs           AssistantDocumentRenderJob[]
   providerMappings     AssistantDocumentProviderMapping[]
-  deliveredFiles       AssistantDocumentDeliveredFile[]
   previousRevisionLogs AssistantDocumentRevisionLog[]     @relation("AssistantDocumentRevisionLogPreviousVersion")
   newRevisionLogs      AssistantDocumentRevisionLog[]     @relation("AssistantDocumentRevisionLogNewVersion")
 
@@ -2449,7 +2444,6 @@ model AssistantDocumentRenderJob {
   assistant               Assistant                        @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspace               Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   chat                    AssistantChat                    @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  deliveredFiles          AssistantDocumentDeliveredFile[]
 
   @@index([assistantId, status, updatedAt])
   @@index([chatId, status, updatedAt])
@@ -2479,32 +2473,6 @@ model AssistantDocumentProviderMapping {
   @@index([versionId, provider])
   @@index([workspaceId, provider, updatedAt])
   @@map("assistant_document_provider_mappings")
-}
-
-model AssistantDocumentDeliveredFile {
-  id                           String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  docId                        String                     @map("doc_id") @db.Uuid
-  versionId                    String                     @map("version_id") @db.Uuid
-  renderJobId                  String                     @map("render_job_id") @db.Uuid
-  workspaceId                  String                     @map("workspace_id") @db.Uuid
-  assistantFileId              String                     @map("assistant_file_id") @db.Uuid
-  outputMimeType               String                     @map("output_mime_type") @db.VarChar(255)
-  completionAssistantMessageId String?                    @map("completion_assistant_message_id") @db.Uuid
-  deliveredAt                  DateTime                   @map("delivered_at") @db.Timestamptz(6)
-  isCurrentOutput              Boolean                    @default(true) @map("is_current_output")
-  createdAt                    DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                    DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  document                     AssistantDocument          @relation(fields: [docId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  version                      AssistantDocumentVersion   @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  renderJob                    AssistantDocumentRenderJob @relation(fields: [renderJobId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  workspace                    Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  assistantFile                AssistantFile              @relation(fields: [assistantFileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@index([docId, deliveredAt(sort: Desc)])
-  @@index([versionId, deliveredAt(sort: Desc)])
-  @@index([assistantFileId])
-  @@index([workspaceId, deliveredAt(sort: Desc)])
-  @@map("assistant_document_delivered_files")
 }
 
 model AssistantDocumentRevisionLog {
@@ -3293,13 +3261,6 @@ model AssistantBackgroundCompactionJob {
 enum AssistantBackgroundCompactionJobStatus {
   pending
   in_progress
-  completed
-  failed
-}
-
-enum AssistantUploadMicroDescriptionJobStatus {
-  queued
-  running
   completed
   failed
 }

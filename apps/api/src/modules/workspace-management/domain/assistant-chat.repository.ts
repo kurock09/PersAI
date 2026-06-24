@@ -72,7 +72,11 @@ export interface AssistantChatRepository {
   getChatListMetadata(chatId: string): Promise<AssistantChatListMetadata>;
   updateChat(chatId: string, input: UpdateAssistantChatInput): Promise<AssistantChat | null>;
   archiveChat(chatId: string): Promise<AssistantChat | null>;
-  hardDeleteChat(chatId: string, assistantId: string): Promise<boolean>;
+  hardDeleteChat(
+    chatId: string,
+    assistantId: string,
+    options?: { workspaceId?: string }
+  ): Promise<boolean>;
   createMessage(input: CreateAssistantChatMessageInput): Promise<AssistantChatMessage>;
   updateMessageContent(
     messageId: string,

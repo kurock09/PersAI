@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { Assistant as PrismaAssistant } from "@prisma/client";
@@ -8,6 +9,7 @@ import type {
   UpdateAssistantDraftInput
 } from "../../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
+import { buildAssistantHandle } from "../../application/assistant-handle";
 
 @Injectable()
 export class PrismaAssistantRepository implements AssistantRepository {
@@ -21,11 +23,25 @@ export class PrismaAssistantRepository implements AssistantRepository {
   }
 
   async create(userId: string, workspaceId: string): Promise<Assistant> {
-    const assistant = await this.prisma.assistant.create({
-      data: {
-        userId,
-        workspaceId
-      }
+    // ADR-126 Slice 3: every assistant ships with a workspace-unique `handle`.
+    // We mint the id client-side so the slug fallback (`a-<first 8 hex of id>`)
+    // is stable for the row across a retry, and so we can build the handle
+    // inside the same transaction that performs the insert (the unique
+    // `(workspace_id, handle)` index is the ultimate guard against races).
+    const newId = randomUUID();
+    const assistant = await this.prisma.$transaction(async (tx) => {
+      // `draft_display_name` is null at first creation today; the slugifier
+      // falls back to `a-<hex>` deterministically. Future entry points that
+      // create assistants with a chosen name go through this same helper.
+      const handle = await buildAssistantHandle(tx, workspaceId, null, newId);
+      return tx.assistant.create({
+        data: {
+          id: newId,
+          userId,
+          workspaceId,
+          handle
+        }
+      });
     });
 
     return this.mapToDomain(assistant);
@@ -168,6 +184,7 @@ export class PrismaAssistantRepository implements AssistantRepository {
       id: assistant.id,
       userId: assistant.userId,
       workspaceId: assistant.workspaceId,
+      handle: assistant.handle,
       draftDisplayName: assistant.draftDisplayName,
       draftInstructions: assistant.draftInstructions,
       draftTraits: assistant.draftTraits as Record<string, number> | null,

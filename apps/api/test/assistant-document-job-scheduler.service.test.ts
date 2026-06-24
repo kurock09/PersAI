@@ -672,22 +672,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-1",
-                  fileRef: "file-1",
-                  file: {
-                    fileRef: "file-1",
-                    origin: "runtime_output",
-                    sourceToolCode: "document",
-                    objectKey: "assistant-media/test.pptx",
-                    relativePath: "artifacts/test.pptx",
-                    displayName: "deck-v2.pptx",
-                    mimeType:
-                      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    sizeBytes: 123,
-                    logicalSizeBytes: 123
-                  },
+                  storagePath: "/shared/workspace-1/outbound/self/deck-v2.pptx",
                   kind: "file",
                   sourceToolCode: "document",
-                  objectKey: "assistant-media/test.pptx",
                   mimeType:
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                   filename: "deck-v2.pptx",
@@ -867,20 +854,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-html-1",
-                  fileRef: "file-html-1",
-                  file: {
-                    fileRef: "file-html-1",
-                    origin: "runtime_output",
-                    sourceToolCode: "document",
-                    objectKey: "key/doc.pdf",
-                    relativePath: "doc.pdf",
-                    displayName: "doc.pdf",
-                    mimeType: "application/pdf",
-                    sizeBytes: 1500
-                  },
+                  storagePath: "/shared/workspace-1/outbound/self/doc.pdf",
                   kind: "file",
                   sourceToolCode: "document",
-                  objectKey: "key/doc.pdf",
                   mimeType: "application/pdf",
                   filename: "doc.pdf",
                   sizeBytes: 1500,
@@ -1067,20 +1043,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-struct-1",
-                  fileRef: "file-struct-1",
-                  file: {
-                    fileRef: "file-struct-1",
-                    origin: "runtime_output",
-                    sourceToolCode: "document",
-                    objectKey: "key/large-doc.pdf",
-                    relativePath: "large-doc.pdf",
-                    displayName: "large-doc.pdf",
-                    mimeType: "application/pdf",
-                    sizeBytes: 1500
-                  },
+                  storagePath: "/shared/workspace-1/outbound/self/large-doc.pdf",
                   kind: "file",
                   sourceToolCode: "document",
-                  objectKey: "key/large-doc.pdf",
                   mimeType: "application/pdf",
                   filename: "large-doc.pdf",
                   sizeBytes: 1500,
@@ -1245,20 +1210,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-revise-1",
-                  fileRef: "file-revise-1",
-                  file: {
-                    fileRef: "file-revise-1",
-                    origin: "runtime_output",
-                    sourceToolCode: "document",
-                    objectKey: "key/revised.pdf",
-                    relativePath: "revised.pdf",
-                    displayName: "revised.pdf",
-                    mimeType: "application/pdf",
-                    sizeBytes: 2000
-                  },
+                  storagePath: "/shared/workspace-1/outbound/self/revised.pdf",
                   kind: "file",
                   sourceToolCode: "document",
-                  objectKey: "key/revised.pdf",
                   mimeType: "application/pdf",
                   filename: "revised.pdf",
                   sizeBytes: 2000,
@@ -1479,20 +1433,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-ledger-1",
-                  fileRef: "file-ledger-1",
-                  file: {
-                    fileRef: "file-ledger-1",
-                    origin: "runtime_output",
-                    sourceToolCode: "document",
-                    objectKey: "key/ledger-doc.pdf",
-                    relativePath: "ledger-doc.pdf",
-                    displayName: "ledger-doc.pdf",
-                    mimeType: "application/pdf",
-                    sizeBytes: 1500
-                  },
+                  storagePath: "/shared/workspace-1/outbound/self/ledger-doc.pdf",
                   kind: "file",
                   sourceToolCode: "document",
-                  objectKey: "key/ledger-doc.pdf",
                   mimeType: "application/pdf",
                   filename: "ledger-doc.pdf",
                   sizeBytes: 1500,
@@ -1654,20 +1597,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-null-usage-1",
-                  fileRef: "file-null-usage-1",
-                  file: {
-                    fileRef: "file-null-usage-1",
-                    origin: "runtime_output",
-                    sourceToolCode: "document",
-                    objectKey: "key/null-usage.pdf",
-                    relativePath: "null-usage.pdf",
-                    displayName: "null-usage.pdf",
-                    mimeType: "application/pdf",
-                    sizeBytes: 1500
-                  },
+                  storagePath: "/shared/workspace-1/outbound/self/null-usage.pdf",
                   kind: "file",
                   sourceToolCode: "document",
-                  objectKey: "key/null-usage.pdf",
                   mimeType: "application/pdf",
                   filename: "null-usage.pdf",
                   sizeBytes: 1500,

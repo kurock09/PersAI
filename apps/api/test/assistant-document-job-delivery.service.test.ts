@@ -31,13 +31,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 0 };
               }
             },
-            assistantDocumentDeliveredFile: {
-              updateMany: async () => ({ count: 0 }),
-              findMany: async () => [],
-              update: async () => undefined,
-              create: async (input: Record<string, unknown>) => {
-                deliveredFileCreates.push(input);
-              }
+            assistantChatMessageAttachment: {
+              updateMany: async () => ({ count: 1 })
             },
             assistantDocumentVersion: {
               update: async () => undefined
@@ -95,7 +90,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-1",
-              fileRef: "file-1",
+              path: "/shared/out/file-1.pdf",
               mimeType: "application/pdf",
               originalFilename: "brief.pdf"
             }
@@ -165,12 +160,6 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 1 };
               }
             },
-            assistantDocumentDeliveredFile: {
-              updateMany: async () => ({ count: 0 }),
-              findMany: async () => [],
-              update: async () => undefined,
-              create: async () => undefined
-            },
             assistantDocumentVersion: {
               update: async () => undefined
             },
@@ -224,7 +213,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-presentation-1",
-              fileRef: "file-presentation-1",
+              path: "/shared/out/file-presentation-1.pdf",
               mimeType: "application/pdf",
               originalFilename: "board-deck.pdf"
             }
@@ -301,12 +290,6 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 1 };
               }
             },
-            assistantDocumentDeliveredFile: {
-              updateMany: async () => ({ count: 0 }),
-              findMany: async () => [],
-              update: async () => undefined,
-              create: async () => undefined
-            },
             assistantDocumentVersion: {
               update: async () => undefined
             },
@@ -360,7 +343,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-presentation-2",
-              fileRef: "file-presentation-2",
+              path: "/shared/out/file-presentation-2.pdf",
               mimeType: "application/pdf",
               originalFilename: "school-deck.pdf"
             }
@@ -443,19 +426,10 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 1 };
               }
             },
-            assistantDocumentDeliveredFile: {
-              updateMany: async () => ({ count: 0 }),
-              findMany: async () => [
-                {
-                  id: "delivered-file-1",
-                  assistantFileId: "file-existing-1"
-                }
-              ],
-              update: async (input: Record<string, unknown>) => {
+            assistantChatMessageAttachment: {
+              updateMany: async (input: Record<string, unknown>) => {
                 deliveredFileUpdates.push(input);
-              },
-              create: async (input: Record<string, unknown>) => {
-                deliveredFileCreates.push(input);
+                return { count: 1 };
               }
             },
             assistantDocumentVersion: {
@@ -474,7 +448,6 @@ describe("AssistantDocumentJobDeliveryService", () => {
             chatId: "chat-1",
             assistantId: "assistant-1",
             workspaceId: "workspace-1",
-            assistantFileId: "file-existing-1",
             attachmentType: "document",
             storagePath: "chat/brief.pdf",
             originalFilename: "brief.pdf",
@@ -599,19 +572,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 1 };
               }
             },
-            assistantDocumentDeliveredFile: {
+            assistantChatMessageAttachment: {
               updateMany: async (input: Record<string, unknown>) => {
                 deliveredFileUpdateManyCalls.push(input);
                 return { count: 1 };
-              },
-              findMany: async () => [
-                {
-                  id: "delivered-file-2",
-                  assistantFileId: "file-revision-1"
-                }
-              ],
-              update: async () => undefined,
-              create: async () => undefined
+              }
             },
             assistantDocumentVersion: {
               update: async (input: Record<string, unknown>) => {
@@ -642,7 +607,6 @@ describe("AssistantDocumentJobDeliveryService", () => {
             chatId: "chat-1",
             assistantId: "assistant-1",
             workspaceId: "workspace-1",
-            assistantFileId: "file-revision-1",
             attachmentType: "document",
             storagePath: "chat/deck-v2.pptx",
             originalFilename: "deck-v2.pptx",
@@ -753,7 +717,10 @@ describe("AssistantDocumentJobDeliveryService", () => {
     );
     assert.equal(
       deliveredFileUpdateManyCalls.some(
-        (input) => input.where?.versionId === "version-3" && input.data?.isCurrentOutput === false
+        (input) =>
+          input.where?.id !== undefined &&
+          (input.data as { metadata?: { documentLink?: { isCurrentOutput?: boolean } } })?.metadata
+            ?.documentLink?.isCurrentOutput === true
       ),
       true
     );
@@ -892,11 +859,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 1 };
               }
             },
-            assistantDocumentDeliveredFile: {
-              updateMany: async () => ({ count: 0 }),
-              findMany: async () => [],
-              update: async () => undefined,
-              create: async () => undefined
+            assistantChatMessageAttachment: {
+              updateMany: async () => ({ count: 1 })
             },
             assistantDocumentVersion: {
               update: async () => undefined
@@ -981,7 +945,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         artifacts: [
           {
             kind: "file",
-            fileRef: "file-1",
+            path: "/shared/out/file-1.pdf",
             mimeType: "application/pdf",
             filename: "report.pdf"
           }
@@ -1031,11 +995,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 1 };
               }
             },
-            assistantDocumentDeliveredFile: {
-              updateMany: async () => ({ count: 0 }),
-              findMany: async () => [],
-              update: async () => undefined,
-              create: async () => undefined
+            assistantChatMessageAttachment: {
+              updateMany: async () => ({ count: 1 })
             },
             assistantDocumentVersion: {
               update: async () => undefined
@@ -1056,7 +1017,6 @@ describe("AssistantDocumentJobDeliveryService", () => {
             chatId: "chat-1",
             assistantId: "assistant-1",
             workspaceId: "workspace-1",
-            assistantFileId: "file-existing-early-1",
             attachmentType: "document",
             storagePath: "chat/brief.pdf",
             originalFilename: "brief.pdf",
@@ -1168,11 +1128,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 1 };
               }
             },
-            assistantDocumentDeliveredFile: {
-              updateMany: async () => ({ count: 0 }),
-              findMany: async () => [],
-              update: async () => undefined,
-              create: async () => undefined
+            assistantChatMessageAttachment: {
+              updateMany: async () => ({ count: 1 })
             },
             assistantDocumentVersion: {
               update: async () => undefined
@@ -1193,7 +1150,6 @@ describe("AssistantDocumentJobDeliveryService", () => {
             chatId: "chat-1",
             assistantId: "assistant-1",
             workspaceId: "workspace-1",
-            assistantFileId: "file-partial-1",
             attachmentType: "document",
             storagePath: "chat/brief-1.pdf",
             originalFilename: "brief-1.pdf",
@@ -1290,6 +1246,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
   test("does not retry quota consumption after quota settlement becomes ambiguous", async () => {
     const renderJobUpdates: Array<Record<string, unknown>> = [];
+    const deliveredFileUpdates: Array<Record<string, unknown>> = [];
     const messageUpdates: Array<Record<string, unknown>> = [];
     let quotaConsumeCalls = 0;
 
@@ -1309,16 +1266,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 1 };
               }
             },
-            assistantDocumentDeliveredFile: {
-              updateMany: async () => ({ count: 0 }),
-              findMany: async () => [
-                {
-                  id: "delivered-file-1",
-                  assistantFileId: "file-existing-1"
-                }
-              ],
-              update: async () => undefined,
-              create: async () => undefined
+            assistantChatMessageAttachment: {
+              updateMany: async (input: Record<string, unknown>) => {
+                deliveredFileUpdates.push(input);
+                return { count: 1 };
+              }
             },
             assistantDocumentVersion: {
               update: async () => undefined
@@ -1336,7 +1288,6 @@ describe("AssistantDocumentJobDeliveryService", () => {
             chatId: "chat-1",
             assistantId: "assistant-1",
             workspaceId: "workspace-1",
-            assistantFileId: "file-existing-1",
             attachmentType: "document",
             storagePath: "chat/brief.pdf",
             originalFilename: "brief.pdf",
@@ -1457,11 +1408,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 1 };
               }
             },
-            assistantDocumentDeliveredFile: {
-              updateMany: async () => ({ count: 0 }),
-              findMany: async () => [],
-              update: async () => undefined,
-              create: async () => undefined
+            assistantChatMessageAttachment: {
+              updateMany: async () => ({ count: 1 })
             },
             assistantDocumentVersion: {
               update: async () => undefined
@@ -1519,7 +1467,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-llm-1",
-              fileRef: "file-llm-1",
+              path: "/shared/out/file-llm-1.pdf",
               mimeType: "application/pdf",
               originalFilename: "brief.pdf"
             }
@@ -1562,7 +1510,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         artifacts: [
           {
             kind: "file",
-            fileRef: "file-llm-1",
+            objectKey: "/shared/out/file-llm-1.pdf",
             mimeType: "application/pdf",
             filename: "brief.pdf"
           }
@@ -1588,6 +1536,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
   test("skips provider framing call when payload already carries a cached completionAssistantText (defer-retry safe)", async () => {
     const renderJobUpdates: Array<Record<string, unknown>> = [];
+    const deliveredFileUpdates: Array<Record<string, unknown>> = [];
     const messageUpdates: Array<Record<string, unknown>> = [];
     let maybeFrameCalls = 0;
 
@@ -1607,13 +1556,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 1 };
               }
             },
-            assistantDocumentDeliveredFile: {
-              updateMany: async () => ({ count: 0 }),
-              findMany: async () => [
-                { id: "delivered-file-cache-1", assistantFileId: "file-cache-1" }
-              ],
-              update: async () => undefined,
-              create: async () => undefined
+            assistantChatMessageAttachment: {
+              updateMany: async (input: Record<string, unknown>) => {
+                deliveredFileUpdates.push(input);
+                return { count: 1 };
+              }
             },
             assistantDocumentVersion: {
               update: async () => undefined
@@ -1628,7 +1575,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         listByMessageId: async () => [
           {
             id: "attachment-cache-1",
-            assistantFileId: "file-cache-1",
+            storagePath: "/shared/out/file-cache-1.pdf",
             mimeType: "application/pdf"
           }
         ]
@@ -1748,11 +1695,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
                 return { count: 1 };
               }
             },
-            assistantDocumentDeliveredFile: {
-              updateMany: async () => ({ count: 0 }),
-              findMany: async () => [],
-              update: async () => undefined,
-              create: async () => undefined
+            assistantChatMessageAttachment: {
+              updateMany: async () => ({ count: 1 })
             },
             assistantDocumentVersion: {
               update: async () => undefined
@@ -1805,7 +1749,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-cache-2",
-              fileRef: "file-cache-2",
+              path: "/shared/out/file-cache-2.pdf",
               mimeType: "application/pdf",
               originalFilename: "brief.pdf"
             }

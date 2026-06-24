@@ -16,6 +16,7 @@ export class AttachmentObjectAvailabilityService {
 
   async assertRuntimeReadable(input: {
     assistantId: string;
+    workspaceId: string;
     chatId: string;
     messageId: string;
     channel: "telegram" | "web";
@@ -31,7 +32,16 @@ export class AttachmentObjectAvailabilityService {
         unavailable.push(attachment);
         continue;
       }
-      const exists = await this.mediaObjectStorage.existsObject(attachment.storagePath);
+      const storagePath = attachment.storagePath;
+      if (storagePath === null || storagePath.trim().length === 0) {
+        unavailable.push(attachment);
+        continue;
+      }
+      const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+        workspaceId: input.workspaceId,
+        workspaceRelPath: storagePath
+      });
+      const exists = await this.mediaObjectStorage.existsObject(objectKey);
       if (!exists) {
         unavailable.push(attachment);
       }

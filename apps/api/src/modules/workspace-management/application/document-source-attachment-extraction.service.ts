@@ -46,7 +46,7 @@ export class DocumentSourceAttachmentExtractionService {
       if (!isSupportedSourceMime(mime)) {
         results.push({
           attachmentId: attachment.attachmentId,
-          filename: attachment.filename,
+          filename: attachment.displayName,
           mimeType: attachment.mimeType,
           sizeBytes: attachment.sizeBytes,
           text: null,
@@ -59,11 +59,15 @@ export class DocumentSourceAttachmentExtractionService {
       }
 
       try {
-        const downloaded = await this.mediaObjectStorage.downloadObject(attachment.objectKey);
+        const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+          workspaceId: input.workspaceId,
+          workspaceRelPath: attachment.storagePath
+        });
+        const downloaded = await this.mediaObjectStorage.downloadObject(objectKey);
         if (downloaded === null) {
           results.push({
             attachmentId: attachment.attachmentId,
-            filename: attachment.filename,
+            filename: attachment.displayName,
             mimeType: attachment.mimeType,
             sizeBytes: attachment.sizeBytes,
             text: null,
@@ -88,7 +92,7 @@ export class DocumentSourceAttachmentExtractionService {
         const text = extraction.normalizedText.trim();
         results.push({
           attachmentId: attachment.attachmentId,
-          filename: attachment.filename,
+          filename: attachment.displayName,
           mimeType: attachment.mimeType,
           sizeBytes: attachment.sizeBytes,
           text: text.length > 0 ? text : null,
@@ -107,7 +111,7 @@ export class DocumentSourceAttachmentExtractionService {
         );
         results.push({
           attachmentId: attachment.attachmentId,
-          filename: attachment.filename,
+          filename: attachment.displayName,
           mimeType: attachment.mimeType,
           sizeBytes: attachment.sizeBytes,
           text: null,
@@ -139,13 +143,12 @@ export class DocumentSourceAttachmentExtractionService {
         skillId: null,
         provenance: {
           originKind: "uploaded_file",
-          originalFilename: input.attachment.filename,
+          originalFilename: input.attachment.displayName,
           mimeType: input.attachment.mimeType,
-          storagePath: input.attachment.objectKey,
+          storagePath: input.attachment.storagePath,
           metadata: {
             transientDocumentGenerationSource: true,
             attachmentId: input.attachment.attachmentId,
-            fileRef: input.attachment.fileRef ?? null,
             aliases: input.attachment.aliases ?? null
           }
         },
@@ -157,7 +160,7 @@ export class DocumentSourceAttachmentExtractionService {
         kind: "bytes",
         buffer: input.buffer,
         mimeType: input.mime,
-        originalFilename: input.attachment.filename ?? input.attachment.attachmentId,
+        originalFilename: input.attachment.displayName ?? input.attachment.attachmentId,
         sizeBytes: input.buffer.length
       }
     };

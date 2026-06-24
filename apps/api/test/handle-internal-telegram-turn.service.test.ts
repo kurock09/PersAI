@@ -613,7 +613,6 @@ async function run(): Promise<void> {
   });
   assert.match(runtimeUserMessage, /Attachment processing notes/);
 
-  const telegramUploadMicroDescriptionEnqueues: Array<Record<string, unknown>> = [];
   let telegramUploadRuntimeAttachmentCount = 0;
   const telegramUploadSummaryService = new HandleInternalTelegramTurnService(
     {
@@ -681,18 +680,16 @@ async function run(): Promise<void> {
           attachments: [
             {
               id: "telegram-upload-att-1",
-              assistantFileId: "telegram-file-1",
               attachmentType: "image",
-              storagePath: "assistant-media/telegram/image-1.png",
+              storagePath: "/shared/in/image-1.png",
               mimeType: "image/png",
               originalFilename: "image-1.png",
               sizeBytes: BigInt(10)
             },
             {
               id: "telegram-upload-att-2",
-              assistantFileId: "telegram-file-2",
               attachmentType: "document",
-              storagePath: "assistant-media/telegram/brief.pdf",
+              storagePath: "/shared/in/brief.pdf",
               mimeType: "application/pdf",
               originalFilename: "brief.pdf",
               sizeBytes: BigInt(20)
@@ -727,16 +724,7 @@ async function run(): Promise<void> {
     } as never,
     noopAssistantDocumentJobReadService,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService,
-    undefined,
-    undefined,
-    undefined,
-    {
-      async enqueueIfNeeded(input: Record<string, unknown>) {
-        telegramUploadMicroDescriptionEnqueues.push(input);
-        return { accepted: true, reason: "queued" };
-      }
-    } as never
+    noopRecordToolPathLedgerFromToolInvocationsService
   );
 
   await telegramUploadSummaryService.execute({
@@ -763,22 +751,6 @@ async function run(): Promise<void> {
     ]
   });
   assert.equal(telegramUploadRuntimeAttachmentCount, 2);
-  assert.deepEqual(telegramUploadMicroDescriptionEnqueues, [
-    {
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      chatMode: "normal",
-      attachmentId: "telegram-upload-att-1",
-      assistantFileId: "telegram-file-1"
-    },
-    {
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      chatMode: "normal",
-      attachmentId: "telegram-upload-att-2",
-      assistantFileId: "telegram-file-2"
-    }
-  ]);
 
   const persistenceFailureBindingRepository = createBindingRepository();
   let persistenceFailureUsageCalls = 0;

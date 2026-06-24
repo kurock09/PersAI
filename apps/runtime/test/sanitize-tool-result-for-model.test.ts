@@ -13,7 +13,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
         {
           artifactId: "11111111-2222-3333-4444-555555555555",
           kind: "image",
-          objectKey: "assistant-media/runtime-output/sessions/s/requests/r/0.png",
+          storagePath: "assistant-media/runtime-output/sessions/s/requests/r/0.png",
           mimeType: "image/png",
           filename: "interesting_scene.png",
           sizeBytes: 12345,
@@ -37,7 +37,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     assert.equal(artifact.mimeType, "image/png");
     assert.equal(artifact.voiceNote, false);
     assert.equal(artifact.artifactId, undefined);
-    assert.equal(artifact.objectKey, undefined);
+    assert.equal(artifact.storagePath, undefined);
     assert.equal(artifact.filename, undefined);
     assert.equal(artifact.sizeBytes, undefined);
   }
@@ -50,7 +50,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       artifact: {
         artifactId: "video-1",
         kind: "video",
-        objectKey: "assistant-media/runtime-output/sessions/s/requests/r/clip.mp4",
+        storagePath: "assistant-media/runtime-output/sessions/s/requests/r/clip.mp4",
         mimeType: "video/mp4",
         filename: "sunrise-clip.mp4",
         sizeBytes: 999999,
@@ -64,7 +64,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     assert.equal(parsed.artifact.kind, "video");
     assert.equal(parsed.artifact.mimeType, "video/mp4");
     assert.equal(parsed.artifact.filename, undefined);
-    assert.equal(parsed.artifact.objectKey, undefined);
+    assert.equal(parsed.artifact.storagePath, undefined);
     assert.equal(parsed.artifact.artifactId, undefined);
     assert.equal(parsed.artifact.sizeBytes, undefined);
   }
@@ -80,7 +80,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
           artifactId: "art-1",
           kind: "image",
           mimeType: "image/png",
-          filename: "out.png",
+          displayName: "out.png",
           sizeBytes: 100,
           voiceNote: false,
           caption: "Cropped to focus on the subject"
@@ -103,9 +103,9 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
         {
           attachmentId: "attachment-1",
           kind: "image",
-          objectKey: "assistant-media/uploads/photo.png",
+          storagePath: "assistant-media/uploads/photo.png",
           mimeType: "image/png",
-          filename: "photo.png",
+          displayName: "photo.png",
           sizeBytes: 4096
         }
       ]
@@ -114,8 +114,8 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       attachments: Array<Record<string, unknown>>;
     };
     assert.equal(parsed.attachments[0]!.attachmentId, "attachment-1");
-    assert.equal(parsed.attachments[0]!.filename, "photo.png");
-    assert.equal(parsed.attachments[0]!.objectKey, "assistant-media/uploads/photo.png");
+    assert.equal(parsed.attachments[0]!.displayName, "photo.png");
+    assert.equal(parsed.attachments[0]!.storagePath, "assistant-media/uploads/photo.png");
     assert.equal(parsed.attachments[0]!.sizeBytes, 4096);
   }
 
@@ -132,45 +132,8 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     assert.equal(json, JSON.stringify(payload));
   }
 
-  // Successful files.send / files.write_and_send results are deliberately
-  // reduced for the model. The full internal payload still drives attachment
-  // delivery, but the model should not see raw selectors/attachment metadata and
-  // copy it into the final user-visible answer.
-  {
-    const payload = {
-      toolCode: "files" as const,
-      executionMode: "inline" as const,
-      requestedAction: "send" as const,
-      action: "queued" as const,
-      reason: null,
-      warning: null,
-      item: null,
-      items: [],
-      content: null,
-      job: null,
-      fileRefs: ["file-ref-1"],
-      queuedArtifacts: 1
-    };
-    const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
-      toolCode: string;
-      requestedAction: string;
-      action: string;
-      delivered: boolean;
-      queuedAttachments: number;
-      fileRefs?: string[];
-      instruction?: string;
-    };
-    assert.equal(parsed.toolCode, "files");
-    assert.equal(parsed.requestedAction, "send");
-    assert.equal(parsed.action, "queued");
-    assert.equal(parsed.delivered, true);
-    assert.equal(parsed.queuedAttachments, 1);
-    assert.equal(parsed.fileRefs, undefined);
-    assert.match(parsed.instruction ?? "", /Do not print raw selectors/);
-  }
-
-  // Non-delivery files results still keep user-meaningful metadata, but raw
-  // file selectors and sandbox job internals stay hidden from the model.
+  // files.read results pass through item/items with the new path-based shape;
+  // sandbox job internals (job field) and internal selectors (fileRefs) are hidden from the model.
   {
     const payload = {
       toolCode: "files" as const,
@@ -180,35 +143,29 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       reason: null,
       warning: null,
       item: {
-        fileRef: "file-ref-1",
-        origin: "uploaded_attachment",
-        relativePath: "uploads/report.txt",
-        displayName: "report.txt",
-        mimeType: "text/plain",
+        path: "/workspace/uploads/report.txt",
+        type: "file",
+        role: "workspace",
         sizeBytes: 42,
-        logicalSizeBytes: 42,
-        aliases: ["previous attachment #1"],
-        semanticSummaryHint: "Quarterly revenue report for the EMEA region."
+        mimeType: "text/plain",
+        modifiedAt: null,
+        shortDescription: "Quarterly revenue report for the EMEA region."
       },
       items: [
         {
-          fileRef: "file-ref-1",
-          origin: "uploaded_attachment",
-          relativePath: "uploads/report.txt",
-          displayName: "report.txt",
-          mimeType: "text/plain",
+          path: "/workspace/uploads/report.txt",
+          type: "file",
+          role: "workspace",
           sizeBytes: 42,
-          logicalSizeBytes: 42,
-          aliases: ["previous attachment #1"],
-          semanticSummaryHint: "Quarterly revenue report for the EMEA region."
+          mimeType: "text/plain",
+          modifiedAt: null
         }
       ],
       content: "hello",
       job: {
         status: "completed",
-        files: [{ fileRef: "file-ref-1", path: "uploads/report.txt" }]
+        files: []
       },
-      fileRefs: ["file-ref-1"],
       queuedArtifacts: 0
     };
     const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
@@ -218,14 +175,10 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       job: unknown;
       fileRefs?: string[];
     };
-    assert.equal(parsed.item.fileRef, undefined);
-    assert.deepEqual(parsed.item.aliases, ["previous attachment #1"]);
-    assert.equal(parsed.item.semanticSummaryHint, "Quarterly revenue report for the EMEA region.");
-    assert.equal(parsed.items[0]?.fileRef, undefined);
-    assert.equal(
-      parsed.items[0]?.semanticSummaryHint,
-      "Quarterly revenue report for the EMEA region."
-    );
+    assert.equal(parsed.item.path, "/workspace/uploads/report.txt");
+    assert.equal(parsed.item.role, "workspace");
+    assert.equal(parsed.item.shortDescription, "Quarterly revenue report for the EMEA region.");
+    assert.equal(parsed.items[0]?.path, "/workspace/uploads/report.txt");
     assert.equal(parsed.content, "hello");
     assert.equal(parsed.job, null);
     assert.equal(parsed.fileRefs, undefined);
@@ -244,7 +197,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
           artifactId: "art-1",
           kind: "image",
           mimeType: "image/png",
-          filename: "tool-generated.png",
+          displayName: "tool-generated.png",
           sizeBytes: 100,
           voiceNote: false
         }
@@ -275,7 +228,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       items: [],
       content: "%PDF-1.4\n\u0000\u0001\u0002binary-data",
       job: null,
-      fileRefs: [],
+      fileHandles: [],
       queuedArtifacts: 0
     };
     const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
@@ -298,7 +251,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       items: [],
       content: "a".repeat(20_000),
       job: null,
-      fileRefs: [],
+      fileHandles: [],
       queuedArtifacts: 0
     };
     const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
@@ -336,7 +289,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       },
       extractionCached: true,
       job: null,
-      fileRefs: [],
+      fileHandles: [],
       queuedArtifacts: 0
     };
     const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {

@@ -1,193 +1,84 @@
-import { randomUUID } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
-  DEFAULT_RUNTIME_SANDBOX_POLICY,
-  type ProviderGatewayMessageContentBlock,
   type ProviderGatewayToolCall,
-  type RuntimeFileRef,
+  type RuntimeFileHandle,
   type RuntimeFilesToolAction,
   type RuntimeFilesToolItem,
   type RuntimeFilesToolResult,
-  type RuntimeOutputArtifact,
   type RuntimeSandboxJobRequest,
   type RuntimeSandboxJobResult,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
-import {
-  buildFilesInspectContent,
-  readFilesToolEffectivePreviewLimits
-} from "./runtime-file-capabilities";
-import {
-  buildFilePreviewBlocks,
-  resolveFilePreviewCapSource
-} from "./runtime-file-preview-hydration";
-import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
-import { buildDocumentReadMetadata, buildTextReadMetadata } from "./runtime-files-read-metadata";
-import {
-  RuntimeAssistantFileRegistryService,
-  type RuntimeAssistantFileRecord
-} from "./runtime-assistant-file-registry.service";
 import { SandboxClientService } from "./sandbox-client.service";
 
-const DEFAULT_FILES_SEARCH_LIMIT = 8;
-const MAX_FILES_SEARCH_LIMIT = 20;
-const DEFAULT_FILES_LIST_LIMIT = 100;
-const MAX_FILES_LIST_LIMIT = 200;
-const FILE_LIST_SECTION_ORDER = ["workspace", "uploads", "artifacts"] as const;
-const TEXT_READABLE_MIME_TYPES = new Set([
-  "application/json",
-  "application/ld+json",
-  "application/xml",
-  "application/x-ndjson",
-  "application/yaml",
-  "application/yml",
-  "text/csv",
-  "text/markdown",
-  "text/plain",
-  "text/tab-separated-values",
-  "text/xml"
-]);
-const DOCUMENT_EXTRACTABLE_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/x-pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-]);
-
-type FilesListSection = (typeof FILE_LIST_SECTION_ORDER)[number];
+const DEFAULT_READ_MAX_BYTES = 1_048_576;
+const DEFAULT_PREVIEW_MAX_BYTES = 256 * 1024;
+const DEFAULT_LIST_MAX_DEPTH = 1;
 
 type FilesListRequest = {
   action: "list";
-  path: string | null;
-  recursive: boolean;
-  limit: number;
+  path: string;
+  maxDepth: number;
 };
 
-type FilesSearchRequest = {
-  action: "search";
-  query: string;
-  limit: number;
-};
-
-type FilesLookupTarget = {
-  alias: string | null;
-  path: string | null;
-  query: string | null;
-};
-
-type FilesGetRequest = FilesLookupTarget & {
-  action: "get";
-};
-
-type FilesInspectRequest = FilesLookupTarget & {
-  action: "inspect";
-};
-
-type FilesPreviewRequest = FilesLookupTarget & {
-  action: "preview";
-  instruction: string | null;
-};
-
-type FilesReadRequest = FilesLookupTarget & {
+type FilesReadRequest = {
   action: "read";
+  path: string;
+  maxBytes: number;
+};
+
+type FilesPreviewRequest = {
+  action: "preview";
+  path: string;
+  maxBytes: number;
 };
 
 type FilesWriteRequest = {
   action: "write";
   path: string;
   content: string;
+  mode: "overwrite" | "create_only";
 };
 
-type FilesWriteAndSendRequest = {
-  action: "write_and_send";
-  path: string;
-  content: string;
-  caption: string | null;
-  filename: string | null;
-};
-
-type FilesEditRequest = {
-  action: "edit";
-  alias: string | null;
-  path: string | null;
-  query: string | null;
-  oldText: string;
-  newText: string;
-};
-
-type FilesDeleteRequest = FilesLookupTarget & {
+type FilesDeleteRequest = {
   action: "delete";
-  recursive: boolean;
+  path: string;
 };
 
-type FilesSendRequest = {
-  action: "send";
-  alias: string | null;
-  path: string | null;
-  query: string | null;
-  aliases: string[];
-  caption: string | null;
-  filename: string | null;
+type FilesAttachRequest = {
+  action: "attach";
+  path: string;
 };
 
 type ParsedFilesToolRequest =
   | FilesListRequest
-  | FilesSearchRequest
-  | FilesInspectRequest
-  | FilesGetRequest
-  | FilesPreviewRequest
   | FilesReadRequest
+  | FilesPreviewRequest
   | FilesWriteRequest
-  | FilesWriteAndSendRequest
-  | FilesEditRequest
   | FilesDeleteRequest
-  | FilesSendRequest;
-
-type ResolvedFilesToolTarget =
-  | { item: RuntimeFilesToolItem; runtimeFileRef: RuntimeFileRef; warning: string | null }
-  | { item: null; reason: string; warning: string | null; items?: RuntimeFilesToolItem[] };
-
-type SandboxFilesAction = "read" | "write" | "edit" | "delete";
-type RuntimeResolvedQueuedArtifacts = {
-  artifacts: RuntimeOutputArtifact[];
-  queuedArtifacts: number;
-  reason: string | null;
-  warning: string | null;
-  isError: boolean;
-};
+  | FilesAttachRequest;
 
 export interface RuntimeFilesToolExecutionResult {
   payload: RuntimeFilesToolResult;
-  artifacts: RuntimeOutputArtifact[];
   isError: boolean;
-  /**
-   * Files registry-resolved refs that the model just discovered through
-   * `files.search` / `files.list` / `files.get` / `files.read`. The runtime
-   * caller merges these into `turnState.fileRefs` so the next iteration's
-   * Working Files developer block carries sticky `file #N` / `image #N`
-   * handles for the discovered rows.
-   * This is runtime-internal state only; the public model-visible
-   * `RuntimeFilesToolResult` schema is unchanged beyond populating the
-   * already-optional `aliases` field on `items[]` / `item`.
-   */
-  discoveredFileRefs?: RuntimeFileRef[];
-  /**
-   * ADR-116 — ephemeral provider multimodal blocks for the next tool-loop provider
-   * call after `files.preview`. Never serialized into tool-result JSON.
-   */
-  pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
+  discoveredFileHandles?: RuntimeFileHandle[];
 }
+
+const BINARY_PREVIEW_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/x-pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+]);
 
 @Injectable()
 export class RuntimeFilesToolService {
   private readonly logger = new Logger(RuntimeFilesToolService.name);
 
   constructor(
-    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService,
     private readonly sandboxClientService: SandboxClientService,
-    private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
+    private readonly persaiInternalApiClientService: PersaiInternalApiClientService
   ) {}
 
   async executeToolCall(params: {
@@ -195,184 +86,111 @@ export class RuntimeFilesToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentArtifacts: RuntimeOutputArtifact[];
-    currentFileRefs: RuntimeFileRef[];
-    availableWorkingFileRefs?: RuntimeFileRef[];
     channel: "web" | "telegram" | "max_ru";
+    chatId: string | null;
+    externalThreadKey: string | null;
+    messageId: string | null;
   }): Promise<RuntimeFilesToolExecutionResult> {
     const policy = this.resolveAllowedToolPolicy(params.bundle);
     if (policy === null) {
-      return {
-        payload: this.createSkippedResult({
-          reason: "tool_unavailable",
-          requestedAction: this.readRequestedAction(params.toolCall.arguments),
-          warning: null
-        }),
-        artifacts: [],
-        isError: false
-      };
+      return this.skipped({
+        requestedAction: this.readRequestedAction(params.toolCall.arguments),
+        reason: "tool_unavailable",
+        warning: null,
+        path: this.readPathFromArguments(params.toolCall.arguments)
+      });
     }
 
     if (!this.sandboxClientService.isConfigured()) {
-      return {
-        payload: this.createSkippedResult({
-          reason: "sandbox_unconfigured",
-          requestedAction: this.readRequestedAction(params.toolCall.arguments),
-          warning: "Sandbox service is not configured."
-        }),
-        artifacts: [],
-        isError: true
-      };
+      return this.skipped({
+        requestedAction: this.readRequestedAction(params.toolCall.arguments),
+        reason: "sandbox_unconfigured",
+        warning: "Sandbox service is not configured.",
+        path: this.readPathFromArguments(params.toolCall.arguments)
+      });
     }
 
-    const request = this.parseArguments(params.toolCall.arguments);
-    if (request instanceof Error) {
-      return {
-        payload: this.createSkippedResult({
-          reason: "invalid_arguments",
-          requestedAction: this.readRequestedAction(params.toolCall.arguments),
-          warning: request.message
-        }),
-        artifacts: [],
-        isError: true
-      };
+    const parsed = this.parseArguments(params.toolCall.arguments);
+    if (parsed instanceof Error) {
+      return this.skipped({
+        requestedAction: this.readRequestedAction(params.toolCall.arguments),
+        reason: "invalid_arguments",
+        warning: parsed.message,
+        path: this.readPathFromArguments(params.toolCall.arguments)
+      });
     }
 
     try {
-      // ADR-074 L1.1 — always count for observability.
       const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
         assistantId: params.bundle.metadata.assistantId,
         toolCode: "files",
         dailyCallLimit: policy.dailyCallLimit
       });
       if (!quotaOutcome.allowed) {
-        return {
-          payload: this.createSkippedResult({
-            reason: quotaOutcome.code,
-            requestedAction: request.action,
-            warning: quotaOutcome.message
-          }),
-          artifacts: [],
-          isError: false
-        };
+        return this.skipped({
+          requestedAction: parsed.action,
+          reason: quotaOutcome.code,
+          warning: quotaOutcome.message,
+          path: parsed.path
+        });
       }
 
-      switch (request.action) {
+      switch (parsed.action) {
         case "list":
-          return await this.executeListAction(
-            params.bundle,
-            params.currentFileRefs,
-            params.availableWorkingFileRefs ?? [],
-            request
-          );
-        case "search":
-          return await this.executeSearchAction(
-            params.bundle,
-            params.currentFileRefs,
-            params.availableWorkingFileRefs ?? [],
-            request
-          );
-        case "inspect":
-          return await this.executeInspectAction(
-            params.bundle,
-            request,
-            params.currentFileRefs,
-            params.availableWorkingFileRefs ?? []
-          );
-        case "get":
-          return await this.executeGetAction(
-            params.bundle,
-            request,
-            params.currentFileRefs,
-            params.availableWorkingFileRefs ?? []
-          );
-        case "preview":
-          return await this.executePreviewAction(
-            params.bundle,
-            request,
-            params.currentFileRefs,
-            params.availableWorkingFileRefs ?? []
-          );
+          return await this.executeListAction(params, parsed);
         case "read":
-          return await this.executeReadAction(params, request);
+          return await this.executeReadAction(params, parsed);
+        case "preview":
+          return await this.executePreviewAction(params, parsed);
         case "write":
-          return await this.executeWriteAction(params, request);
-        case "write_and_send":
-          return await this.executeWriteAndSendAction(params, request);
-        case "edit":
-          return await this.executeEditAction(params, request);
+          return await this.executeWriteAction(params, parsed);
         case "delete":
-          return await this.executeDeleteAction(params, request);
-        case "send":
-          return await this.executeSendAction(params, request);
+          return await this.executeDeleteAction(params, parsed);
+        case "attach":
+          return await this.executeAttachAction(params, parsed);
       }
     } catch (error) {
-      return {
-        payload: this.createSkippedResult({
-          reason: "files_failed",
-          requestedAction: request.action,
-          warning: error instanceof Error ? error.message : "Files tool execution failed."
-        }),
-        artifacts: [],
-        isError: true
-      };
+      return this.skipped({
+        requestedAction: parsed.action,
+        reason: "files_failed",
+        warning: error instanceof Error ? error.message : "Files tool execution failed.",
+        path: parsed.path
+      });
     }
   }
 
-  private async executeSearchAction(
-    bundle: AssistantRuntimeBundle,
-    currentFileRefs: RuntimeFileRef[],
-    availableWorkingFileRefs: RuntimeFileRef[],
-    request: FilesSearchRequest
-  ): Promise<RuntimeFilesToolExecutionResult> {
-    const records = await this.runtimeAssistantFileRegistryService.search({
-      assistantId: bundle.metadata.assistantId,
-      workspaceId: bundle.metadata.workspaceId,
-      query: request.query,
-      limit: request.limit
-    });
-    const { items, discoveredFileRefs } = this.buildDiscoveredFromRecords(records, [
-      ...currentFileRefs,
-      ...availableWorkingFileRefs
-    ]);
-    return {
-      payload: {
-        toolCode: "files",
-        executionMode: "inline",
-        requestedAction: "search",
-        action: "results",
-        reason: null,
-        warning: null,
-        item: items[0] ?? null,
-        items,
-        content: null,
-        job: null,
-        fileRefs: items.map((item) => item.fileRef),
-        queuedArtifacts: 0
-      },
-      artifacts: [],
-      isError: false,
-      discoveredFileRefs
-    };
-  }
-
   private async executeListAction(
-    bundle: AssistantRuntimeBundle,
-    currentFileRefs: RuntimeFileRef[],
-    availableWorkingFileRefs: RuntimeFileRef[],
+    params: {
+      bundle: AssistantRuntimeBundle;
+      sessionId: string;
+      requestId: string;
+    },
     request: FilesListRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const listing = await this.runtimeAssistantFileRegistryService.listDirectory({
-      assistantId: bundle.metadata.assistantId,
-      workspaceId: bundle.metadata.workspaceId,
-      directoryPath: request.path,
-      recursive: request.recursive,
-      limit: request.limit
+    const job = await this.runSandboxJob(params, {
+      action: "list",
+      path: request.path,
+      maxDepth: request.maxDepth
     });
-    const { items, discoveredFileRefs } = this.buildDiscoveredFromRecords(listing.files, [
-      ...currentFileRefs,
-      ...availableWorkingFileRefs
-    ]);
+    if (job.status !== "completed") {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "list",
+          action: "skipped",
+          reason: job.reason ?? "files_failed",
+          warning: job.warning ?? job.violationMessage,
+          path: request.path
+        },
+        isError: true
+      };
+    }
+    const parsedItems = this.parseListContent(job.content);
+    const enrichedItems = await this.enrichListWithShortDescriptions(
+      params.bundle.metadata.workspaceId,
+      parsedItems
+    );
     return {
       payload: {
         toolCode: "files",
@@ -380,215 +198,12 @@ export class RuntimeFilesToolService {
         requestedAction: "list",
         action: "listed",
         reason: null,
-        warning: null,
-        item: items[0] ?? null,
-        items,
-        content: this.renderDirectoryListing({
-          path: request.path,
-          recursive: request.recursive,
-          directories: listing.directories,
-          items,
-          totalFiles: listing.totalFiles,
-          truncated: listing.truncated
-        }),
-        job: null,
-        fileRefs: items.map((item) => item.fileRef),
-        queuedArtifacts: 0
+        warning: job.warning,
+        path: request.path,
+        items: enrichedItems,
+        item: enrichedItems[0] ?? null
       },
-      artifacts: [],
-      isError: false,
-      discoveredFileRefs
-    };
-  }
-
-  private async executeGetAction(
-    bundle: AssistantRuntimeBundle,
-    request: FilesGetRequest,
-    currentFileRefs: RuntimeFileRef[],
-    availableWorkingFileRefs: RuntimeFileRef[]
-  ): Promise<RuntimeFilesToolExecutionResult> {
-    return this.executeInspectAction(bundle, request, currentFileRefs, availableWorkingFileRefs, {
-      requestedAction: "get",
-      resultAction: "fetched"
-    });
-  }
-
-  private async executeInspectAction(
-    bundle: AssistantRuntimeBundle,
-    request: FilesInspectRequest | FilesGetRequest,
-    currentFileRefs: RuntimeFileRef[],
-    availableWorkingFileRefs: RuntimeFileRef[],
-    options: {
-      requestedAction: "inspect" | "get";
-      resultAction: "inspected" | "fetched";
-    } = {
-      requestedAction: "inspect",
-      resultAction: "inspected"
-    }
-  ): Promise<RuntimeFilesToolExecutionResult> {
-    const resolved = await this.resolveTarget({
-      assistantId: bundle.metadata.assistantId,
-      workspaceId: bundle.metadata.workspaceId,
-      currentFileRefs,
-      availableWorkingFileRefs,
-      alias: request.alias,
-      path: request.path,
-      query: request.query
-    });
-    if (resolved.item === null) {
-      return {
-        payload: {
-          ...this.createSkippedResult({
-            reason: resolved.reason,
-            requestedAction: options.requestedAction,
-            warning: resolved.warning
-          }),
-          items: resolved.items ?? []
-        },
-        artifacts: [],
-        isError: true
-      };
-    }
-    const stickyRef =
-      this.assignStickyAliasesToRuntimeFileRefs(
-        [resolved.runtimeFileRef],
-        [...currentFileRefs, ...availableWorkingFileRefs]
-      )[0] ?? resolved.runtimeFileRef;
-    const itemWithAliases = this.toItemFromRuntimeFileRef(stickyRef);
-    const discoveredFileRefs = [
-      {
-        ...stickyRef
-      }
-    ];
-    const filesPolicy =
-      bundle.governance.toolPolicies.find((policy) => policy.toolCode === "files") ?? null;
-    const record = await this.runtimeAssistantFileRegistryService.findByFileRef({
-      assistantId: bundle.metadata.assistantId,
-      workspaceId: bundle.metadata.workspaceId,
-      fileRef: itemWithAliases.fileRef
-    });
-    return {
-      payload: {
-        toolCode: "files",
-        executionMode: "inline",
-        requestedAction: options.requestedAction,
-        action: options.resultAction,
-        reason: null,
-        warning: resolved.warning,
-        item: itemWithAliases,
-        items: [itemWithAliases],
-        content: buildFilesInspectContent({
-          mimeType: itemWithAliases.mimeType,
-          sizeBytes: itemWithAliases.sizeBytes,
-          policy: filesPolicy,
-          metadata: record?.metadata ?? null
-        }),
-        job: null,
-        fileRefs: [itemWithAliases.fileRef],
-        queuedArtifacts: 0
-      },
-      artifacts: [],
-      isError: false,
-      discoveredFileRefs
-    };
-  }
-
-  private async executePreviewAction(
-    bundle: AssistantRuntimeBundle,
-    request: FilesPreviewRequest,
-    currentFileRefs: RuntimeFileRef[],
-    availableWorkingFileRefs: RuntimeFileRef[]
-  ): Promise<RuntimeFilesToolExecutionResult> {
-    const resolved = await this.resolveTarget({
-      assistantId: bundle.metadata.assistantId,
-      workspaceId: bundle.metadata.workspaceId,
-      currentFileRefs,
-      availableWorkingFileRefs,
-      alias: request.alias,
-      path: request.path,
-      query: request.query
-    });
-    if (resolved.item === null) {
-      return {
-        payload: {
-          ...this.createSkippedResult({
-            reason: resolved.reason,
-            requestedAction: "preview",
-            warning: resolved.warning
-          }),
-          items: resolved.items ?? []
-        },
-        artifacts: [],
-        isError: true
-      };
-    }
-
-    const filesPolicy =
-      bundle.governance.toolPolicies.find((policy) => policy.toolCode === "files") ?? null;
-    const limits = readFilesToolEffectivePreviewLimits(filesPolicy);
-    const stickyRef =
-      this.assignStickyAliasesToRuntimeFileRefs(
-        [resolved.runtimeFileRef],
-        [...currentFileRefs, ...availableWorkingFileRefs]
-      )[0] ?? resolved.runtimeFileRef;
-    const itemWithAliases = this.toItemFromRuntimeFileRef(stickyRef);
-    const previewAlias = request.alias ?? itemWithAliases.aliases?.[0] ?? null;
-    const hydration = await buildFilePreviewBlocks({
-      mediaObjectStorage: this.mediaObjectStorage,
-      objectKey: stickyRef.objectKey,
-      mimeType: itemWithAliases.mimeType,
-      filename: itemWithAliases.displayName,
-      sizeBytes: itemWithAliases.sizeBytes,
-      effectiveMaxPreviewBytes: limits.effectiveMaxPreviewBytes,
-      effectiveMaxPreviewEdgePx: limits.effectiveMaxPreviewEdgePx,
-      alias: previewAlias,
-      instruction: request.instruction
-    });
-    if (!hydration.ok) {
-      return {
-        payload: this.createSkippedResult({
-          reason: hydration.reason,
-          requestedAction: "preview",
-          warning:
-            hydration.reason === "preview_size_limit"
-              ? `File exceeds the effective preview byte limit (${String(limits.effectiveMaxPreviewBytes)}). Use files.read for text when supported.`
-              : hydration.reason === "preview_unsupported"
-                ? "Visual preview is only available for images and native PDF files under the preview byte limit."
-                : "Failed to download the file for visual preview."
-        }),
-        artifacts: [],
-        isError: true
-      };
-    }
-
-    this.logger.log(
-      `file_preview assistantId=${bundle.metadata.assistantId} fileRef=${itemWithAliases.fileRef} mimeType=${itemWithAliases.mimeType} bytes=${String(hydration.bytes)} effectiveMaxPreviewBytes=${String(limits.effectiveMaxPreviewBytes)} capSource=${resolveFilePreviewCapSource(filesPolicy?.maxFilePreviewBytes ?? null)}`
-    );
-
-    return {
-      payload: {
-        toolCode: "files",
-        executionMode: "inline",
-        requestedAction: "preview",
-        action: "previewed",
-        reason: null,
-        warning: resolved.warning,
-        item: itemWithAliases,
-        items: [itemWithAliases],
-        content: JSON.stringify({
-          alias: previewAlias,
-          mimeType: itemWithAliases.mimeType,
-          visualKind: hydration.visualKind,
-          instruction: request.instruction
-        }),
-        job: null,
-        fileRefs: [itemWithAliases.fileRef],
-        queuedArtifacts: 0
-      },
-      artifacts: [],
-      isError: false,
-      discoveredFileRefs: [{ ...stickyRef }],
-      pendingFilePreviewBlocks: hydration.blocks
+      isError: false
     };
   }
 
@@ -597,158 +212,159 @@ export class RuntimeFilesToolService {
       bundle: AssistantRuntimeBundle;
       sessionId: string;
       requestId: string;
-      currentArtifacts: RuntimeOutputArtifact[];
-      currentFileRefs: RuntimeFileRef[];
-      availableWorkingFileRefs?: RuntimeFileRef[];
-      channel: "web" | "telegram" | "max_ru";
     },
     request: FilesReadRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const resolved = await this.resolveTarget({
-      assistantId: params.bundle.metadata.assistantId,
-      workspaceId: params.bundle.metadata.workspaceId,
-      currentFileRefs: params.currentFileRefs,
-      availableWorkingFileRefs: params.availableWorkingFileRefs ?? [],
-      alias: request.alias,
+    const job = await this.runSandboxJob(params, {
+      action: "read",
       path: request.path,
-      query: request.query
+      maxBytes: request.maxBytes
     });
-    if (resolved.item === null) {
-      return {
-        payload: {
-          ...this.createSkippedResult({
-            reason: resolved.reason,
-            requestedAction: "read",
-            warning: resolved.warning
-          }),
-          items: resolved.items ?? []
-        },
-        artifacts: [],
-        isError: true
-      };
-    }
-
-    const stickyRef =
-      this.assignStickyAliasesToRuntimeFileRefs(
-        [resolved.runtimeFileRef],
-        [...params.currentFileRefs, ...(params.availableWorkingFileRefs ?? [])]
-      )[0] ?? resolved.runtimeFileRef;
-    const itemWithAliases = this.toItemFromRuntimeFileRef(stickyRef);
-    const discoveredFileRefs = [
-      {
-        ...stickyRef
-      }
-    ];
-
-    if (!this.isTextReadableFile(itemWithAliases)) {
-      if (this.isDocumentExtractableFile(itemWithAliases)) {
-        const extraction = await this.persaiInternalApiClientService.extractAssistantFileText({
-          assistantId: params.bundle.metadata.assistantId,
-          workspaceId: params.bundle.metadata.workspaceId,
-          fileRef: itemWithAliases.fileRef
-        });
-        if (extraction.extracted) {
-          const readMetadata = buildDocumentReadMetadata(extraction);
-          return {
-            payload: {
-              toolCode: "files",
-              executionMode: "inline",
-              requestedAction: "read",
-              action: "read",
-              reason: null,
-              warning:
-                extraction.text.trim().length > 0
-                  ? `Extracted text from "${itemWithAliases.displayName ?? itemWithAliases.relativePath}" through PersAI document extraction.`
-                  : null,
-              item: itemWithAliases,
-              items: [itemWithAliases],
-              content: extraction.text,
-              job: null,
-              fileRefs: [itemWithAliases.fileRef],
-              queuedArtifacts: 0,
-              ...readMetadata
-            },
-            artifacts: [],
-            isError: false,
-            discoveredFileRefs
-          };
-        }
-        return {
-          payload: {
-            toolCode: "files",
-            executionMode: "inline",
-            requestedAction: "read",
-            action: "skipped",
-            reason: "document_text_extraction_failed",
-            warning: null,
-            item: itemWithAliases,
-            items: [itemWithAliases],
-            content: null,
-            job: null,
-            fileRefs: [itemWithAliases.fileRef],
-            queuedArtifacts: 0,
-            readNote: extraction.note
-          },
-          artifacts: [],
-          isError: true,
-          discoveredFileRefs
-        };
-      }
+    if (job.status !== "completed") {
       return {
         payload: {
           toolCode: "files",
           executionMode: "inline",
           requestedAction: "read",
           action: "skipped",
-          reason: "binary_file_read_unsupported",
-          warning: `Direct files.read is only for text files. "${itemWithAliases.displayName ?? itemWithAliases.relativePath}" is ${itemWithAliases.mimeType}; do not read or quote raw binary bytes. Use a document extraction flow for PDFs/DOCX, or ask the user for a text source.`,
-          item: itemWithAliases,
-          items: [itemWithAliases],
-          content: null,
-          job: null,
-          fileRefs: [itemWithAliases.fileRef],
-          queuedArtifacts: 0
+          reason: job.reason ?? "files_failed",
+          warning: job.warning ?? job.violationMessage,
+          path: request.path
         },
-        artifacts: [],
-        isError: true,
-        discoveredFileRefs
+        isError: true
       };
     }
-
-    const job = await this.executeSandboxJob({
-      bundle: params.bundle,
-      sessionId: params.sessionId,
-      requestId: params.requestId,
-      action: "read",
-      args: {
-        action: "read",
-        fileRef: itemWithAliases.fileRef,
-        path: itemWithAliases.relativePath
-      },
-      mountedFileRefs: [itemWithAliases.fileRef]
-    });
-
-    const textReadMetadata = buildTextReadMetadata(job.content);
-
+    const parsedRead = this.parseReadContent(job.content);
     return {
       payload: {
         toolCode: "files",
         executionMode: "inline",
         requestedAction: "read",
-        action: job.status === "completed" ? "read" : "skipped",
-        reason: job.reason,
-        warning: job.warning ?? job.violationMessage,
-        item: itemWithAliases,
-        items: [itemWithAliases],
-        content: job.content,
-        job,
-        fileRefs: [itemWithAliases.fileRef],
-        queuedArtifacts: 0,
-        ...textReadMetadata
+        action: "read",
+        reason: null,
+        warning: job.warning,
+        path: request.path,
+        content: parsedRead.content,
+        sizeBytes: parsedRead.sizeBytes,
+        sha256: parsedRead.sha256,
+        truncated: parsedRead.truncated,
+        charCount: parsedRead.content === null ? null : Array.from(parsedRead.content).length,
+        contentTruncated: parsedRead.truncated
       },
-      artifacts: [],
-      isError: job.status !== "completed",
-      discoveredFileRefs
+      isError: false
+    };
+  }
+
+  private async executePreviewAction(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      sessionId: string;
+      requestId: string;
+    },
+    request: FilesPreviewRequest
+  ): Promise<RuntimeFilesToolExecutionResult> {
+    // Stat the file via the sandbox to classify text vs binary. Text-like MIME
+    // types return inline preview content from stat; binary types fall back to
+    // sandbox `read` with the caller's bounded `maxBytes`.
+    const statJob = await this.runSandboxJob(params, {
+      action: "stat",
+      path: request.path
+    });
+    if (statJob.status !== "completed") {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "preview",
+          action: "skipped",
+          reason: statJob.reason ?? "files_failed",
+          warning: statJob.warning ?? statJob.violationMessage,
+          path: request.path
+        },
+        isError: true
+      };
+    }
+    const stat = this.parseStatContent(statJob.content);
+    const mimeType = stat?.mimeType ?? null;
+    if (mimeType !== null && this.isBinaryPreviewMime(mimeType)) {
+      const readJob = await this.runSandboxJob(params, {
+        action: "read",
+        path: request.path,
+        maxBytes: request.maxBytes
+      });
+      if (readJob.status !== "completed") {
+        return {
+          payload: {
+            toolCode: "files",
+            executionMode: "inline",
+            requestedAction: "preview",
+            action: "skipped",
+            reason: readJob.reason ?? "files_failed",
+            warning: readJob.warning ?? readJob.violationMessage,
+            path: request.path
+          },
+          isError: true
+        };
+      }
+      const previewRead = this.parseReadContent(readJob.content);
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "preview",
+          action: "previewed",
+          reason: null,
+          warning: readJob.warning,
+          path: request.path,
+          content: previewRead.content,
+          mimeType,
+          sizeBytes: previewRead.sizeBytes ?? stat?.sizeBytes ?? null,
+          sha256: previewRead.sha256,
+          truncated: previewRead.truncated,
+          charCount: previewRead.content === null ? null : Array.from(previewRead.content).length,
+          contentTruncated: previewRead.truncated
+        },
+        isError: false
+      };
+    }
+    // Text/unknown: do a bounded sandbox read.
+    const readJob = await this.runSandboxJob(params, {
+      action: "read",
+      path: request.path,
+      maxBytes: request.maxBytes
+    });
+    if (readJob.status !== "completed") {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "preview",
+          action: "skipped",
+          reason: readJob.reason ?? "files_failed",
+          warning: readJob.warning ?? readJob.violationMessage,
+          path: request.path
+        },
+        isError: true
+      };
+    }
+    const previewRead = this.parseReadContent(readJob.content);
+    return {
+      payload: {
+        toolCode: "files",
+        executionMode: "inline",
+        requestedAction: "preview",
+        action: "previewed",
+        reason: null,
+        warning: readJob.warning,
+        path: request.path,
+        content: previewRead.content,
+        sizeBytes: previewRead.sizeBytes ?? stat?.sizeBytes ?? null,
+        sha256: previewRead.sha256,
+        truncated: previewRead.truncated,
+        charCount: previewRead.content === null ? null : Array.from(previewRead.content).length,
+        contentTruncated: previewRead.truncated
+      },
+      isError: false
     };
   }
 
@@ -757,173 +373,56 @@ export class RuntimeFilesToolService {
       bundle: AssistantRuntimeBundle;
       sessionId: string;
       requestId: string;
-      currentArtifacts: RuntimeOutputArtifact[];
-      currentFileRefs: RuntimeFileRef[];
-      availableWorkingFileRefs?: RuntimeFileRef[];
-      channel: "web" | "telegram" | "max_ru";
     },
     request: FilesWriteRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const job = await this.executeSandboxJob({
-      bundle: params.bundle,
-      sessionId: params.sessionId,
-      requestId: params.requestId,
+    const job = await this.runSandboxJob(params, {
       action: "write",
-      args: {
-        action: "write",
-        path: request.path,
-        content: request.content
-      },
-      mountedFileRefs: []
+      path: request.path,
+      content: request.content,
+      mode: request.mode
     });
-    const items = this.toItemsFromJob(job);
+    if (job.status !== "completed") {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "write",
+          action: "skipped",
+          reason: job.reason ?? "files_failed",
+          warning: job.warning ?? job.violationMessage,
+          path: request.path
+        },
+        isError: true
+      };
+    }
+    if (typeof job.reason === "string" && job.reason.length > 0) {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "write",
+          action: "skipped",
+          reason: job.reason,
+          warning: job.warning,
+          path: request.path
+        },
+        isError: true
+      };
+    }
+    const writeOutcome = this.parseWriteContent(job.content);
     return {
       payload: {
         toolCode: "files",
         executionMode: "inline",
         requestedAction: "write",
-        action: job.status === "completed" ? "written" : "skipped",
-        reason: job.reason,
-        warning: job.warning ?? job.violationMessage,
-        item: items[0] ?? null,
-        items,
-        content: null,
-        job,
-        fileRefs: items.map((item) => item.fileRef),
-        queuedArtifacts: 0
+        action: "written",
+        reason: null,
+        warning: job.warning,
+        path: request.path,
+        sizeBytes: writeOutcome.sizeBytes
       },
-      artifacts: [],
-      isError: job.status !== "completed"
-    };
-  }
-
-  private async executeWriteAndSendAction(
-    params: {
-      bundle: AssistantRuntimeBundle;
-      sessionId: string;
-      requestId: string;
-      currentArtifacts: RuntimeOutputArtifact[];
-      currentFileRefs: RuntimeFileRef[];
-      availableWorkingFileRefs?: RuntimeFileRef[];
-      channel: "web" | "telegram" | "max_ru";
-    },
-    request: FilesWriteAndSendRequest
-  ): Promise<RuntimeFilesToolExecutionResult> {
-    const written = await this.executeWriteAction(params, {
-      action: "write",
-      path: request.path,
-      content: request.content
-    });
-    if (written.isError) {
-      return {
-        ...written,
-        payload: {
-          ...written.payload,
-          requestedAction: "write_and_send"
-        }
-      };
-    }
-
-    const dedupedFileRefs = [...new Set(written.payload.fileRefs)];
-    const queued = await this.queueResolvedSelection({
-      bundle: params.bundle,
-      currentArtifacts: params.currentArtifacts,
-      channel: params.channel,
-      selection: {
-        fileRefs: dedupedFileRefs,
-        caption: request.caption,
-        filename: request.filename
-      }
-    });
-
-    return {
-      payload: {
-        toolCode: "files",
-        executionMode: "inline",
-        requestedAction: "write_and_send",
-        action: queued.isError ? "skipped" : "written_and_queued",
-        reason: queued.reason,
-        warning: queued.warning ?? written.payload.warning,
-        item: written.payload.item,
-        items: written.payload.items,
-        content: null,
-        job: written.payload.job,
-        fileRefs: dedupedFileRefs,
-        queuedArtifacts: queued.queuedArtifacts
-      },
-      artifacts: queued.artifacts,
-      isError: queued.isError
-    };
-  }
-
-  private async executeEditAction(
-    params: {
-      bundle: AssistantRuntimeBundle;
-      sessionId: string;
-      requestId: string;
-      currentArtifacts: RuntimeOutputArtifact[];
-      currentFileRefs: RuntimeFileRef[];
-      availableWorkingFileRefs?: RuntimeFileRef[];
-      channel: "web" | "telegram" | "max_ru";
-    },
-    request: FilesEditRequest
-  ): Promise<RuntimeFilesToolExecutionResult> {
-    const resolved = await this.resolveTarget({
-      assistantId: params.bundle.metadata.assistantId,
-      workspaceId: params.bundle.metadata.workspaceId,
-      currentFileRefs: params.currentFileRefs,
-      availableWorkingFileRefs: params.availableWorkingFileRefs ?? [],
-      alias: request.alias,
-      path: request.path,
-      query: request.query
-    });
-    if (resolved.item === null) {
-      return {
-        payload: {
-          ...this.createSkippedResult({
-            reason: resolved.reason,
-            requestedAction: "edit",
-            warning: resolved.warning
-          }),
-          items: resolved.items ?? []
-        },
-        artifacts: [],
-        isError: true
-      };
-    }
-
-    const job = await this.executeSandboxJob({
-      bundle: params.bundle,
-      sessionId: params.sessionId,
-      requestId: params.requestId,
-      action: "edit",
-      args: {
-        action: "edit",
-        fileRef: resolved.item.fileRef,
-        path: resolved.item.relativePath,
-        oldText: request.oldText,
-        newText: request.newText
-      },
-      mountedFileRefs: [resolved.item.fileRef]
-    });
-    const items = this.toItemsFromJob(job);
-    return {
-      payload: {
-        toolCode: "files",
-        executionMode: "inline",
-        requestedAction: "edit",
-        action: job.status === "completed" ? "edited" : "skipped",
-        reason: job.reason,
-        warning: job.warning ?? job.violationMessage ?? resolved.warning,
-        item: items[0] ?? resolved.item,
-        items,
-        content: null,
-        job,
-        fileRefs: items.map((item) => item.fileRef),
-        queuedArtifacts: 0
-      },
-      artifacts: [],
-      isError: job.status !== "completed"
+      isError: false
     };
   }
 
@@ -932,191 +431,307 @@ export class RuntimeFilesToolService {
       bundle: AssistantRuntimeBundle;
       sessionId: string;
       requestId: string;
-      currentArtifacts: RuntimeOutputArtifact[];
-      currentFileRefs: RuntimeFileRef[];
-      availableWorkingFileRefs?: RuntimeFileRef[];
-      channel: "web" | "telegram" | "max_ru";
     },
     request: FilesDeleteRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    let deletedItem: RuntimeFilesToolItem | null = null;
-    let warning: string | null = null;
-    let targetPath = request.path;
-    let targetFileRef: string | null = null;
-
-    if (request.alias !== null || request.query !== null) {
-      const resolved = await this.resolveTarget({
-        assistantId: params.bundle.metadata.assistantId,
-        workspaceId: params.bundle.metadata.workspaceId,
-        currentFileRefs: params.currentFileRefs,
-        availableWorkingFileRefs: params.availableWorkingFileRefs ?? [],
-        alias: request.alias,
-        path: null,
-        query: request.query
-      });
-      if (resolved.item === null) {
-        return {
-          payload: {
-            ...this.createSkippedResult({
-              reason: resolved.reason,
-              requestedAction: "delete",
-              warning: resolved.warning
-            }),
-            items: resolved.items ?? []
-          },
-          artifacts: [],
-          isError: true
-        };
-      }
-      deletedItem = resolved.item;
-      warning = resolved.warning;
-      targetPath = resolved.item.relativePath;
-      targetFileRef = resolved.item.fileRef;
-    }
-
-    if (targetPath === null) {
+    const job = await this.runSandboxJob(params, {
+      action: "delete",
+      path: request.path
+    });
+    if (job.status !== "completed") {
       return {
-        payload: this.createSkippedResult({
-          reason: "path_required",
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
           requestedAction: "delete",
-          warning: "files.delete requires a target path."
-        }),
-        artifacts: [],
+          action: "skipped",
+          reason: job.reason ?? "files_failed",
+          warning: job.warning ?? job.violationMessage,
+          path: request.path
+        },
         isError: true
       };
     }
-
-    const job = await this.executeSandboxJob({
-      bundle: params.bundle,
-      sessionId: params.sessionId,
-      requestId: params.requestId,
-      action: "delete",
-      args: {
-        action: "delete",
-        ...(targetFileRef === null ? {} : { fileRef: targetFileRef }),
-        path: targetPath,
-        recursive: request.recursive
-      },
-      mountedFileRefs: targetFileRef === null ? [] : [targetFileRef]
-    });
     return {
       payload: {
         toolCode: "files",
         executionMode: "inline",
         requestedAction: "delete",
-        action: job.status === "completed" ? "deleted" : "skipped",
-        reason: job.reason,
-        warning: job.warning ?? job.violationMessage ?? warning,
-        item: deletedItem,
-        items: deletedItem === null ? [] : [deletedItem],
-        content: null,
-        job,
-        fileRefs: [],
-        queuedArtifacts: 0
+        action: "deleted",
+        reason: null,
+        warning: job.warning,
+        path: request.path
       },
-      artifacts: [],
-      isError: job.status !== "completed"
+      isError: false
     };
   }
 
-  private async executeSendAction(
+  private async executeAttachAction(
     params: {
       bundle: AssistantRuntimeBundle;
       sessionId: string;
       requestId: string;
-      currentArtifacts: RuntimeOutputArtifact[];
-      currentFileRefs: RuntimeFileRef[];
-      availableWorkingFileRefs?: RuntimeFileRef[];
       channel: "web" | "telegram" | "max_ru";
+      externalThreadKey: string | null;
+      messageId: string | null;
     },
-    request: FilesSendRequest
+    request: FilesAttachRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const pluralAliasSelection = this.resolveSelectedFileRefsFromAliases(
-      params.availableWorkingFileRefs ?? [],
-      request.aliases
-    );
-    if (pluralAliasSelection.missingAliases.length > 0) {
+    const job = await this.runSandboxJob(params, {
+      action: "attach",
+      path: request.path
+    });
+    if (job.status !== "completed") {
       return {
-        payload: this.createSkippedResult({
-          reason: "file_alias_not_found",
-          requestedAction: "send",
-          warning: `Unknown working-file alias${pluralAliasSelection.missingAliases.length === 1 ? "" : "es"}: ${pluralAliasSelection.missingAliases.join(", ")}.`
-        }),
-        artifacts: [],
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "attach",
+          action: "skipped",
+          reason: job.reason ?? "files_failed",
+          warning: job.warning ?? job.violationMessage,
+          path: request.path
+        },
         isError: true
       };
     }
-    const selectedFileRefs = [...pluralAliasSelection.fileRefs];
-    let selectorWarning: string | null = null;
-    if (request.alias !== null || request.path !== null || request.query !== null) {
-      const resolved = await this.resolveSendTarget({
+    if (typeof job.reason === "string" && job.reason.length > 0) {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "attach",
+          action: "skipped",
+          reason: job.reason,
+          warning: job.warning,
+          path: request.path
+        },
+        isError: true
+      };
+    }
+    const attachOutcome = this.parseAttachContent(job.content);
+    if (attachOutcome === null) {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "attach",
+          action: "skipped",
+          reason: "files_attach_failed",
+          warning: "Sandbox attach completed without attachment payload.",
+          path: request.path
+        },
+        isError: true
+      };
+    }
+    const externalThreadKey = params.externalThreadKey;
+    if (externalThreadKey === null || externalThreadKey.trim().length === 0) {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "attach",
+          action: "skipped",
+          reason: "files_attach_failed",
+          warning: "External thread key is unavailable for files.attach delivery.",
+          path: request.path
+        },
+        isError: true
+      };
+    }
+    try {
+      const attachmentType = this.resolveAttachmentTypeForMime(attachOutcome.mimeType);
+      const registration = await this.persaiInternalApiClientService.registerChatAttachment({
         assistantId: params.bundle.metadata.assistantId,
         workspaceId: params.bundle.metadata.workspaceId,
-        currentFileRefs: params.currentFileRefs,
-        availableWorkingFileRefs: params.availableWorkingFileRefs ?? [],
-        alias: request.alias,
-        path: request.path,
-        query: request.query
+        channel: params.channel,
+        externalThreadKey,
+        messageId: params.messageId,
+        storagePath: attachOutcome.workspaceRelPath,
+        attachmentType,
+        mimeType: attachOutcome.mimeType,
+        sizeBytes: attachOutcome.sizeBytes,
+        originalFilename: attachOutcome.displayName,
+        kind: "files.attach"
       });
-      if (resolved.item === null) {
-        return {
-          payload: {
-            ...this.createSkippedResult({
-              reason: resolved.reason,
-              requestedAction: "send",
-              warning: resolved.warning
-            }),
-            items: resolved.items ?? []
-          },
-          artifacts: [],
-          isError: true
-        };
-      }
-      selectorWarning = resolved.warning;
-      selectedFileRefs.push(resolved.item.fileRef);
-    }
-
-    const dedupedFileRefs = [...new Set(selectedFileRefs)];
-    if (dedupedFileRefs.length === 0) {
+      const discoveredHandle: RuntimeFileHandle = {
+        storagePath: registration.storagePath,
+        mimeType: attachOutcome.mimeType,
+        sizeBytes: attachOutcome.sizeBytes,
+        displayName: attachOutcome.displayName,
+        workspaceId: params.bundle.metadata.workspaceId,
+        authorLabel: "user"
+      };
       return {
-        payload: this.createSkippedResult({
-          reason: "file_selector_required",
-          requestedAction: "send",
-          warning: "files.send needs at least one valid working-file alias, path, or query."
-        }),
-        artifacts: [],
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "attach",
+          action: "attached",
+          reason: null,
+          warning: job.warning,
+          path: attachOutcome.workspaceRelPath,
+          mimeType: attachOutcome.mimeType,
+          displayName: attachOutcome.displayName,
+          sizeBytes: attachOutcome.sizeBytes,
+          attachment: {
+            attachmentId: registration.attachmentId,
+            storagePath: registration.storagePath,
+            sourcePath: attachOutcome.sourcePath,
+            displayName: attachOutcome.displayName,
+            sizeBytes: attachOutcome.sizeBytes,
+            mimeType: attachOutcome.mimeType
+          }
+        },
+        discoveredFileHandles: [discoveredHandle],
+        isError: false
+      };
+    } catch (error) {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "attach",
+          action: "skipped",
+          reason: "files_attach_failed",
+          warning: error instanceof Error ? error.message : "files.attach API call failed.",
+          path: request.path
+        },
         isError: true
       };
     }
-    const queued = await this.queueResolvedSelection({
-      bundle: params.bundle,
-      currentArtifacts: params.currentArtifacts,
-      channel: params.channel,
-      selection: {
-        fileRefs: dedupedFileRefs,
-        caption: request.caption,
-        filename: request.filename
-      }
-    });
+  }
 
-    return {
-      payload: {
-        toolCode: "files",
-        executionMode: "inline",
-        requestedAction: "send",
-        action: queued.isError ? "skipped" : "queued",
-        reason: queued.reason,
-        warning: queued.warning ?? selectorWarning,
-        item: null,
-        items: [],
-        content: null,
-        job: null,
-        fileRefs: dedupedFileRefs,
-        queuedArtifacts: queued.queuedArtifacts
-      },
-      artifacts: queued.artifacts,
-      isError: queued.isError
-    };
+  private async runSandboxJob(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      sessionId: string;
+      requestId: string;
+    },
+    args: Record<string, unknown>
+  ): Promise<RuntimeSandboxJobResult> {
+    const policy = params.bundle.runtime.sandbox;
+    if (policy === undefined) {
+      throw new Error("Sandbox policy is unavailable for files tool execution.");
+    }
+    const assistantHandle = params.bundle.metadata.assistantHandle ?? "";
+    if (assistantHandle.length === 0) {
+      throw new Error("Assistant handle is missing from the runtime bundle.");
+    }
+    const siblingHandles: readonly string[] = params.bundle.metadata.siblingAssistantHandles ?? [];
+    const quota = params.bundle.governance.quota;
+    return await this.sandboxClientService.waitForCompletion({
+      assistantId: params.bundle.metadata.assistantId,
+      assistantHandle,
+      siblingHandles,
+      workspaceId: params.bundle.metadata.workspaceId,
+      runtimeRequestId: params.requestId,
+      runtimeSessionId: params.sessionId,
+      toolCode: "files",
+      policy,
+      workspaceQuotaBytes: quota.workspaceQuotaBytes ?? null,
+      sharedQuotaBytes: quota.sharedQuotaBytes ?? null,
+      args
+    } satisfies RuntimeSandboxJobRequest);
+  }
+
+  private async enrichListWithShortDescriptions(
+    workspaceId: string,
+    items: RuntimeFilesToolItem[]
+  ): Promise<RuntimeFilesToolItem[]> {
+    if (items.length === 0) {
+      return items;
+    }
+    try {
+      const lookups = await this.persaiInternalApiClientService.listWorkspaceFileShortDescriptions({
+        workspaceId,
+        paths: items.map((item) => item.path)
+      });
+      const byPath = new Map(lookups.map((row) => [row.path, row.shortDescription] as const));
+      return items.map((item) => {
+        const descriptor = byPath.get(item.path);
+        return {
+          ...item,
+          shortDescription: descriptor === undefined ? null : descriptor
+        };
+      });
+    } catch (error) {
+      this.logger.warn(
+        `files_list_short_description_enrich_failed workspaceId=${workspaceId} reason=${error instanceof Error ? error.message : String(error)}`
+      );
+      return items.map((item) => ({ ...item, shortDescription: null }));
+    }
+  }
+
+  private parseArguments(value: unknown): ParsedFilesToolRequest | Error {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return new Error("files arguments must be an object.");
+    }
+    const row = value as Record<string, unknown>;
+    const action = this.readRequestedAction(row);
+    if (action === null) {
+      return new Error(
+        'files.action must be one of "list", "read", "preview", "write", "delete", or "attach".'
+      );
+    }
+    switch (action) {
+      case "list": {
+        const path = this.readNonEmptyString(row.path) ?? this.readNonEmptyString(row.dir);
+        if (path === null) {
+          return new Error("files.list requires a non-empty path or dir.");
+        }
+        const maxDepth =
+          typeof row.maxDepth === "number" && Number.isInteger(row.maxDepth) && row.maxDepth > 0
+            ? Math.min(row.maxDepth, 4)
+            : DEFAULT_LIST_MAX_DEPTH;
+        return { action: "list", path, maxDepth };
+      }
+      case "read": {
+        const path = this.readNonEmptyString(row.path);
+        if (path === null) {
+          return new Error("files.read requires a non-empty path.");
+        }
+        const maxBytes =
+          typeof row.maxBytes === "number" && Number.isInteger(row.maxBytes) && row.maxBytes > 0
+            ? Math.min(row.maxBytes, DEFAULT_READ_MAX_BYTES)
+            : DEFAULT_READ_MAX_BYTES;
+        return { action: "read", path, maxBytes };
+      }
+      case "preview": {
+        const path = this.readNonEmptyString(row.path);
+        if (path === null) {
+          return new Error("files.preview requires a non-empty path.");
+        }
+        const maxBytes =
+          typeof row.maxBytes === "number" && Number.isInteger(row.maxBytes) && row.maxBytes > 0
+            ? Math.min(row.maxBytes, DEFAULT_PREVIEW_MAX_BYTES)
+            : DEFAULT_PREVIEW_MAX_BYTES;
+        return { action: "preview", path, maxBytes };
+      }
+      case "write": {
+        const path = this.readNonEmptyString(row.path);
+        const content = this.readString(row.content);
+        if (path === null || content === null) {
+          return new Error("files.write requires a non-empty path and string content.");
+        }
+        const mode = row.mode === "create_only" ? "create_only" : "overwrite";
+        return { action: "write", path, content, mode };
+      }
+      case "delete": {
+        const path = this.readNonEmptyString(row.path);
+        if (path === null) {
+          return new Error("files.delete requires a non-empty path.");
+        }
+        return { action: "delete", path };
+      }
+      case "attach": {
+        const path = this.readNonEmptyString(row.path);
+        if (path === null) {
+          return new Error("files.attach requires a non-empty path.");
+        }
+        return { action: "attach", path };
+      }
+    }
   }
 
   private resolveAllowedToolPolicy(bundle: AssistantRuntimeBundle): RuntimeToolPolicy | null {
@@ -1135,825 +750,189 @@ export class RuntimeFilesToolService {
     return policy;
   }
 
-  private async queueResolvedSelection(params: {
-    bundle: AssistantRuntimeBundle;
-    currentArtifacts: RuntimeOutputArtifact[];
-    channel: "web" | "telegram" | "max_ru";
-    selection: {
-      fileRefs: string[];
-      caption: string | null;
-      filename: string | null;
-    };
-  }): Promise<RuntimeResolvedQueuedArtifacts> {
-    const queuedArtifacts = await this.resolveArtifacts({
-      bundle: params.bundle,
-      currentArtifacts: params.currentArtifacts,
-      fileRefs: params.selection.fileRefs,
-      caption: params.selection.caption,
-      filename: params.selection.filename
-    });
-
-    const maxCount =
-      params.bundle.runtime.sandbox?.maxArtifactSendCountPerTurn ??
-      DEFAULT_RUNTIME_SANDBOX_POLICY.maxArtifactSendCountPerTurn;
-    const existingArtifactIds = new Set(
-      params.currentArtifacts.map((artifact) => artifact.artifactId)
-    );
-    const additionalArtifacts = queuedArtifacts.filter(
-      (artifact) => !existingArtifactIds.has(artifact.artifactId)
-    );
-    const finalArtifacts = [...params.currentArtifacts, ...additionalArtifacts];
-    if (params.currentArtifacts.length + additionalArtifacts.length > maxCount) {
-      return {
-        artifacts: [],
-        queuedArtifacts: 0,
-        reason: "artifact_send_limit_exceeded",
-        warning: `Turn would deliver ${String(
-          params.currentArtifacts.length + additionalArtifacts.length
-        )} artifacts, above the per-turn cap of ${String(maxCount)}.`,
-        isError: true
-      };
-    }
-
-    const channelCap =
-      params.channel === "telegram"
-        ? params.bundle.runtime.sandbox?.telegramMaxOutboundBytes
-        : params.bundle.runtime.sandbox?.webMaxOutboundBytes;
-    const totalOutboundBytes = finalArtifacts.reduce((sum, artifact) => {
-      return (
-        sum +
-        (typeof artifact.sizeBytes === "number" && Number.isFinite(artifact.sizeBytes)
-          ? artifact.sizeBytes
-          : 0)
-      );
-    }, 0);
-    if (channelCap !== undefined && totalOutboundBytes > channelCap) {
-      return {
-        artifacts: [],
-        queuedArtifacts: 0,
-        reason: "channel_size_limit_exceeded",
-        warning: `Turn would deliver ${String(totalOutboundBytes)} bytes on ${params.channel}, above the channel cap of ${String(channelCap)} bytes.`,
-        isError: true
-      };
-    }
-
-    return {
-      artifacts: queuedArtifacts,
-      queuedArtifacts: queuedArtifacts.length,
-      reason: null,
-      warning: null,
-      isError: false
-    };
-  }
-
-  private parseArguments(value: unknown): ParsedFilesToolRequest | Error {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) {
-      return new Error("files arguments must be an object.");
-    }
-    const row = value as Record<string, unknown>;
-    const action = this.readRequestedAction(row);
-    if (action === null) {
-      return new Error(
-        "files.action must be one of list, search, inspect, get, read, preview, write, write_and_send, edit, delete, or send."
-      );
-    }
-    switch (action) {
-      case "list": {
-        const limit =
-          typeof row.limit === "number" &&
-          Number.isInteger(row.limit) &&
-          row.limit > 0 &&
-          row.limit <= MAX_FILES_LIST_LIMIT
-            ? row.limit
-            : DEFAULT_FILES_LIST_LIMIT;
-        return {
-          action,
-          path: this.readNonEmptyString(row.path),
-          recursive: row.recursive === true,
-          limit
-        };
-      }
-      case "search": {
-        const query = this.readNonEmptyString(row.query);
-        if (query === null) {
-          return new Error("files.search requires a non-empty query.");
-        }
-        const limit =
-          typeof row.limit === "number" &&
-          Number.isInteger(row.limit) &&
-          row.limit > 0 &&
-          row.limit <= MAX_FILES_SEARCH_LIMIT
-            ? row.limit
-            : DEFAULT_FILES_SEARCH_LIMIT;
-        return { action, query, limit };
-      }
-      case "inspect":
-        return {
-          action: "inspect",
-          alias: this.readNonEmptyString(row.alias),
-          path: this.readNonEmptyString(row.path),
-          query: this.readNonEmptyString(row.query)
-        };
-      case "get":
-        return {
-          action: "get",
-          alias: this.readNonEmptyString(row.alias),
-          path: this.readNonEmptyString(row.path),
-          query: this.readNonEmptyString(row.query)
-        };
-      case "preview":
-        return {
-          action: "preview",
-          alias: this.readNonEmptyString(row.alias),
-          path: this.readNonEmptyString(row.path),
-          query: this.readNonEmptyString(row.query),
-          instruction: this.readNonEmptyString(row.instruction)
-        };
-      case "read":
-        return {
-          action: "read",
-          alias: this.readNonEmptyString(row.alias),
-          path: this.readNonEmptyString(row.path),
-          query: this.readNonEmptyString(row.query)
-        };
-      case "write": {
-        const path = this.readNonEmptyString(row.path) ?? this.readNonEmptyString(row.filename);
-        const content = this.readString(row.content);
-        if (path === null || content === null) {
-          return new Error(
-            "files.write requires a non-empty path (or filename fallback) and string content."
-          );
-        }
-        return { action, path, content };
-      }
-      case "write_and_send": {
-        const filename = this.readNonEmptyString(row.filename);
-        const path = this.readNonEmptyString(row.path) ?? filename;
-        const content = this.readString(row.content);
-        if (path === null || content === null) {
-          return new Error(
-            "files.write_and_send requires a non-empty path (or filename fallback) and string content."
-          );
-        }
-        return {
-          action,
-          path,
-          content,
-          caption: this.readNonEmptyString(row.caption),
-          filename
-        };
-      }
-      case "edit": {
-        const oldText = this.readString(row.oldText);
-        const newText = this.readString(row.newText);
-        if (oldText === null || newText === null) {
-          return new Error("files.edit requires string oldText and newText values.");
-        }
-        return {
-          action,
-          alias: this.readNonEmptyString(row.alias),
-          path: this.readNonEmptyString(row.path),
-          query: this.readNonEmptyString(row.query),
-          oldText,
-          newText
-        };
-      }
-      case "delete": {
-        const alias = this.readNonEmptyString(row.alias);
-        const path = this.readNonEmptyString(row.path);
-        const query = this.readNonEmptyString(row.query);
-        if (alias === null && path === null && query === null) {
-          return new Error("files.delete requires one target selector: alias, path, or query.");
-        }
-        return {
-          action,
-          alias,
-          path,
-          query,
-          recursive: row.recursive === true
-        };
-      }
-      case "send": {
-        const aliases = Array.isArray(row.aliases)
-          ? row.aliases.filter(
-              (item): item is string => typeof item === "string" && item.trim().length > 0
-            )
-          : [];
-        const alias = this.readNonEmptyString(row.alias);
-        const path = this.readNonEmptyString(row.path);
-        const query = this.readNonEmptyString(row.query);
-        if (aliases.length === 0 && alias === null && path === null && query === null) {
-          return new Error(
-            "files.send requires aliases or one target selector: alias, path, or query."
-          );
-        }
-        return {
-          action,
-          alias,
-          path,
-          query,
-          aliases,
-          caption: this.readNonEmptyString(row.caption),
-          filename: this.readNonEmptyString(row.filename)
-        };
-      }
-    }
-  }
-
-  private async resolveTarget(input: {
-    assistantId: string;
-    workspaceId: string;
-    currentFileRefs: RuntimeFileRef[];
-    availableWorkingFileRefs: RuntimeFileRef[];
-    alias: string | null;
+  private skipped(input: {
+    requestedAction: RuntimeFilesToolAction | null;
+    reason: string;
+    warning: string | null;
     path: string | null;
-    query: string | null;
-  }): Promise<ResolvedFilesToolTarget> {
-    if (input.alias !== null) {
-      const normalizedAlias = this.normalizeAlias(input.alias);
-      const current = [...input.currentFileRefs, ...input.availableWorkingFileRefs].find((item) =>
-        (item.aliases ?? []).some((candidate) => this.normalizeAlias(candidate) === normalizedAlias)
-      );
-      if (current !== undefined) {
-        return {
-          item: this.toItemFromRuntimeFileRef(current),
-          runtimeFileRef: current,
-          warning: null
-        };
-      }
-      return {
-        item: null,
-        reason: "file_alias_not_found",
-        warning: "Requested working-file alias is unavailable in the current turn context."
-      };
-    }
-
-    if (input.path !== null) {
-      const current = input.currentFileRefs.find((item) => item.relativePath === input.path);
-      if (current !== undefined) {
-        return {
-          item: this.toItemFromRuntimeFileRef(current),
-          runtimeFileRef: current,
-          warning: null
-        };
-      }
-      const stored = await this.runtimeAssistantFileRegistryService.findLatestByPath({
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        relativePath: input.path
-      });
-      if (stored === null) {
-        return {
-          item: null,
-          reason: "file_not_found",
-          warning: `No file found at "${input.path}".`
-        };
-      }
-      return {
-        item: this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(stored),
-        runtimeFileRef: this.runtimeAssistantFileRegistryService.toRuntimeFileRef(stored),
-        warning: null
-      };
-    }
-
-    if (input.query !== null) {
-      const matchedRecords = await this.runtimeAssistantFileRegistryService.search({
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        query: input.query,
-        limit: 2
-      });
-      const matches = matchedRecords.map((record) => ({
-        item: this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(record),
-        runtimeFileRef: this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record)
-      }));
-      if (matches.length === 0) {
-        return {
-          item: null,
-          reason: "file_not_found",
-          warning: `No assistant file matched "${input.query}".`
-        };
-      }
-      if (matches.length > 1) {
-        return {
-          item: null,
-          reason: "ambiguous_file_query",
-          warning: `Multiple assistant files matched "${input.query}". Refine the query or use a working-file alias.`,
-          items: matches.map((entry) => entry.item)
-        };
-      }
-      return {
-        item: matches[0]!.item,
-        runtimeFileRef: matches[0]!.runtimeFileRef,
-        warning: null
-      };
-    }
-
+  }): RuntimeFilesToolExecutionResult {
     return {
-      item: null,
-      reason: "file_selector_required",
-      warning: "Provide alias, path, or query for this files action."
+      payload: {
+        toolCode: "files",
+        executionMode: "inline",
+        requestedAction: input.requestedAction,
+        action: "skipped",
+        reason: input.reason,
+        warning: input.warning,
+        path: input.path
+      },
+      isError: true
     };
   }
 
-  private async resolveSendTarget(input: {
-    assistantId: string;
-    workspaceId: string;
-    currentFileRefs: RuntimeFileRef[];
-    availableWorkingFileRefs: RuntimeFileRef[];
-    alias: string | null;
-    path: string | null;
-    query: string | null;
-  }): Promise<ResolvedFilesToolTarget> {
-    return this.resolveTarget(input);
-  }
-
-  private allTargetsShareVisibleFileName(
-    items: RuntimeFilesToolItem[],
-    first: RuntimeFilesToolItem
-  ): boolean {
-    const visibleName = this.normalizeVisibleFileName(first);
-    if (visibleName.length === 0) {
-      return false;
-    }
-    return items.every((item) => this.normalizeVisibleFileName(item) === visibleName);
-  }
-
-  private normalizeVisibleFileName(item: RuntimeFilesToolItem): string {
-    const displayName = item.displayName?.trim();
-    const fallbackName = item.relativePath.split("/").pop()?.trim() ?? "";
-    return (displayName && displayName.length > 0 ? displayName : fallbackName).toLowerCase();
-  }
-
-  private renderDirectoryListing(input: {
-    path: string | null;
-    recursive: boolean;
-    directories: string[];
-    items: RuntimeFilesToolItem[];
-    totalFiles: number;
-    truncated: boolean;
-  }): string {
-    const label = input.path === null ? "." : input.path;
-    const lines: string[] = [];
-    if (input.recursive) {
-      lines.push(`Available files in "${label}"`);
-      if (input.totalFiles === 0) {
-        lines.push("(no files)");
-        return lines.join("\n");
-      }
-      lines.push(...this.renderGroupedFileSections(input.items));
-      if (input.truncated) {
-        lines.push(
-          `Showing first ${String(input.items.length)} of ${String(input.totalFiles)} file(s).`
-        );
-      }
-      return lines.join("\n");
-    }
-
-    lines.push(`Available entries in "${label}"`);
-    if (input.directories.length === 0 && input.items.length === 0) {
-      lines.push("(empty)");
-      return lines.join("\n");
-    }
-    if (label === ".") {
-      const workspaceDirectories = input.directories.filter(
-        (directory) => this.classifyDirectoryAtRoot(directory) === "workspace"
-      );
-      const serviceDirectories = input.directories.filter(
-        (directory) => this.classifyDirectoryAtRoot(directory) !== "workspace"
-      );
-      if (workspaceDirectories.length > 0) {
-        lines.push(
-          `Workspace folders: ${workspaceDirectories.map((entry) => `${entry}/`).join(", ")}`
-        );
-      }
-      if (serviceDirectories.length > 0) {
-        lines.push(`Service folders: ${serviceDirectories.map((entry) => `${entry}/`).join(", ")}`);
-      }
-      if (input.items.length > 0) {
-        lines.push(...this.renderGroupedFileSections(input.items));
-      }
-      return lines.join("\n");
-    }
-
-    if (label === "uploads" || label === "artifacts") {
-      if (input.directories.length > 0) {
-        lines.push(
-          `Hidden ${String(input.directories.length)} internal folder(s). Use recursive=true to see actual files.`
-        );
-      }
-      if (input.items.length > 0) {
-        lines.push(...this.renderGroupedFileSections(input.items));
-      }
-    } else {
-      if (input.directories.length > 0) {
-        lines.push(`Folders: ${input.directories.map((entry) => `${entry}/`).join(", ")}`);
-      }
-      if (input.items.length > 0) {
-        lines.push(`Files: ${input.items.map((item) => this.formatFileLabel(item)).join(", ")}`);
-      }
-    }
-    if (input.truncated) {
-      lines.push(
-        `Showing first ${String(input.items.length)} of ${String(input.totalFiles)} file(s).`
-      );
-    }
-    return lines.join("\n");
-  }
-
-  private renderGroupedFileSections(items: RuntimeFilesToolItem[]): string[] {
-    const groups = new Map<FilesListSection, Map<string, number>>();
-    for (const section of FILE_LIST_SECTION_ORDER) {
-      groups.set(section, new Map());
-    }
-    for (const item of items) {
-      const section = this.classifyFileSection(item.relativePath);
-      const label = this.formatFileLabel(item);
-      const sectionEntries = groups.get(section)!;
-      sectionEntries.set(label, (sectionEntries.get(label) ?? 0) + 1);
-    }
-
-    const lines: string[] = [];
-    for (const section of FILE_LIST_SECTION_ORDER) {
-      const entries = groups.get(section);
-      if (entries === undefined || entries.size === 0) {
-        continue;
-      }
-      lines.push(`${this.formatSectionTitle(section)}:`);
-      for (const [label, count] of entries.entries()) {
-        lines.push(count > 1 ? `- ${label} x${String(count)}` : `- ${label}`);
-      }
-    }
-    return lines;
-  }
-
-  private classifyFileSection(relativePath: string): FilesListSection {
-    if (relativePath.startsWith("uploads/")) {
-      return "uploads";
-    }
-    if (relativePath.startsWith("artifacts/")) {
-      return "artifacts";
-    }
-    return "workspace";
-  }
-
-  private classifyDirectoryAtRoot(directory: string): FilesListSection {
-    if (directory === "uploads") {
-      return "uploads";
-    }
-    if (directory === "artifacts") {
-      return "artifacts";
-    }
-    return "workspace";
-  }
-
-  private formatSectionTitle(section: FilesListSection): string {
-    switch (section) {
-      case "workspace":
-        return "Workspace";
-      case "uploads":
-        return "Uploads";
-      case "artifacts":
-        return "Artifacts";
-    }
-  }
-
-  private formatFileLabel(item: RuntimeFilesToolItem): string {
-    const section = this.classifyFileSection(item.relativePath);
-    const trimmed = this.trimTechnicalPrefix(item.relativePath, section);
-    const fallbackName = trimmed.split("/").pop() ?? item.relativePath.split("/").pop() ?? "file";
-    const displayName = item.displayName?.trim() ?? "";
-    if (section === "workspace") {
-      return trimmed;
-    }
-    return displayName.length > 0 ? displayName : fallbackName;
-  }
-
-  private trimTechnicalPrefix(relativePath: string, section: FilesListSection): string {
-    if (section === "uploads" || section === "artifacts") {
-      const parts = relativePath.split("/");
-      if (parts.length >= 3) {
-        return parts.slice(2).join("/");
-      }
-    }
-    return relativePath;
-  }
-
-  private async executeSandboxJob(input: {
-    bundle: AssistantRuntimeBundle;
-    sessionId: string;
-    requestId: string;
-    action: SandboxFilesAction;
-    args: Record<string, unknown>;
-    mountedFileRefs: string[];
-  }): Promise<RuntimeSandboxJobResult> {
-    const policy = input.bundle.runtime.sandbox;
-    if (policy === undefined) {
-      throw new Error("Sandbox policy is unavailable for files tool execution.");
-    }
-    return await this.sandboxClientService.waitForCompletion({
-      assistantId: input.bundle.metadata.assistantId,
-      workspaceId: input.bundle.metadata.workspaceId,
-      runtimeRequestId: input.requestId,
-      runtimeSessionId: input.sessionId,
-      toolCode: "files",
-      policy,
-      mountedFileRefs: input.mountedFileRefs,
-      args: input.args
-    } satisfies RuntimeSandboxJobRequest);
-  }
-
-  private async resolveArtifacts(input: {
-    bundle: AssistantRuntimeBundle;
-    currentArtifacts: RuntimeOutputArtifact[];
-    fileRefs: string[];
-    caption: string | null;
-    filename: string | null;
-  }): Promise<RuntimeOutputArtifact[]> {
-    const allowlist = new Set(
-      (input.bundle.runtime.sandbox?.artifactMimeAllowlist ?? []).map((entry) =>
-        entry.toLowerCase()
-      )
-    );
-    const refs = await this.runtimeAssistantFileRegistryService.listByFileRefs({
-      assistantId: input.bundle.metadata.assistantId,
-      workspaceId: input.bundle.metadata.workspaceId,
-      fileRefs: input.fileRefs
-    });
-    if (refs.length !== input.fileRefs.length) {
-      throw new Error("One or more fileRefs are unavailable for this assistant.");
-    }
-
-    const currentArtifactsByFileRef = new Map(
-      input.currentArtifacts.map((artifact) => [artifact.fileRef, artifact] as const)
-    );
-    const resolvedFileArtifacts = refs.map((ref) => {
-      this.assertMimeAllowed(ref.mimeType, allowlist);
-      const currentArtifact = currentArtifactsByFileRef.get(ref.fileRef);
-      if (currentArtifact !== undefined) {
-        return {
-          ...currentArtifact,
-          ...(input.caption !== null ? { caption: input.caption } : {}),
-          ...(input.filename !== null && input.fileRefs.length === 1
-            ? { filename: input.filename }
-            : {})
-        } satisfies RuntimeOutputArtifact;
-      }
-      return {
-        artifactId: randomUUID(),
-        kind: this.toArtifactKind(ref.mimeType),
-        objectKey: ref.objectKey,
-        mimeType: ref.mimeType,
-        filename:
-          input.filename !== null && input.fileRefs.length === 1
-            ? input.filename
-            : (ref.displayName ?? ref.relativePath.split("/").pop() ?? "file"),
-        sizeBytes: ref.sizeBytes,
-        voiceNote: false,
-        caption: input.caption,
-        fileRef: ref.fileRef,
-        file: this.runtimeAssistantFileRegistryService.toRuntimeFileRef(ref)
-      } satisfies RuntimeOutputArtifact;
-    });
-
-    return resolvedFileArtifacts;
-  }
-
-  private toItemsFromJob(job: RuntimeSandboxJobResult): RuntimeFilesToolItem[] {
-    return job.files.map((file) => ({
-      fileRef: file.fileRef.fileRef,
-      origin: file.fileRef.origin,
-      sourceToolCode: file.fileRef.sourceToolCode,
-      relativePath: file.fileRef.relativePath,
-      displayName: file.fileRef.displayName,
-      mimeType: file.fileRef.mimeType,
-      sizeBytes: file.fileRef.sizeBytes,
-      logicalSizeBytes: file.fileRef.logicalSizeBytes,
-      aliases: file.fileRef.aliases ?? null,
-      semanticSummaryHint: file.fileRef.semanticSummaryHint ?? null
-    }));
-  }
-
-  private buildDiscoveredFromRecords(
-    records: RuntimeAssistantFileRecord[],
-    existingFileRefs: RuntimeFileRef[]
-  ): { items: RuntimeFilesToolItem[]; discoveredFileRefs: RuntimeFileRef[] } {
-    const stickyRefs = this.assignStickyAliasesToRuntimeFileRefs(
-      records.map((record) => this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record)),
-      existingFileRefs
-    );
-    const items = stickyRefs.map((fileRef) => this.toItemFromRuntimeFileRef(fileRef));
-    const discoveredFileRefs = stickyRefs.map((fileRef) => ({ ...fileRef }));
-    return { items, discoveredFileRefs };
-  }
-
-  private mergeAliasList(existing: string[] | null | undefined, next: string[]): string[] {
-    const seen = new Set<string>();
-    const stickyImageAliases: string[] = [];
-    const stickyFileAliases: string[] = [];
-    const otherAliases: string[] = [];
-    for (const alias of [...(existing ?? []), ...next]) {
-      const normalized = alias.trim().toLowerCase();
-      if (
-        normalized.length === 0 ||
-        seen.has(normalized) ||
-        this.isLegacyModelVisibleAlias(alias)
-      ) {
-        continue;
-      }
-      seen.add(normalized);
-      if (/^image #\d+$/i.test(alias)) {
-        stickyImageAliases.push(alias);
-        continue;
-      }
-      if (/^file #\d+$/i.test(alias)) {
-        stickyFileAliases.push(alias);
-        continue;
-      }
-      otherAliases.push(alias);
-    }
-    return [...stickyImageAliases, ...stickyFileAliases, ...otherAliases];
-  }
-
-  private isImageMimeType(mimeType: string): boolean {
-    return mimeType.trim().toLowerCase().startsWith("image/");
-  }
-
-  private assignStickyAliasesToRuntimeFileRefs(
-    files: RuntimeFileRef[],
-    existingFileRefs: RuntimeFileRef[]
-  ): RuntimeFileRef[] {
-    const existingOrdinals = this.collectExistingStickyAliasOrdinals(existingFileRefs);
-    const stickyByFileRef = new Map<string, string[]>();
-    for (const file of existingFileRefs) {
-      stickyByFileRef.set(file.fileRef, this.extractStickyAliases(file.aliases ?? []));
-    }
-
-    let nextFileOrdinal = existingOrdinals.fileOrdinal;
-    let nextImageOrdinal = existingOrdinals.imageOrdinal;
-    return files.map((file) => {
-      const stickyAliases = stickyByFileRef.get(file.fileRef) ?? [];
-      const resolvedAliases = [...stickyAliases];
-      if (!resolvedAliases.some((alias) => /^file #\d+$/i.test(alias))) {
-        resolvedAliases.push(`file #${String(++nextFileOrdinal)}`);
-      }
-      if (
-        this.isImageMimeType(file.mimeType) &&
-        !resolvedAliases.some((alias) => /^image #\d+$/i.test(alias))
-      ) {
-        resolvedAliases.unshift(`image #${String(++nextImageOrdinal)}`);
-      }
-      return {
-        ...file,
-        aliases: this.mergeAliasList(file.aliases ?? null, resolvedAliases)
-      };
-    });
-  }
-
-  private collectExistingStickyAliasOrdinals(existingFileRefs: RuntimeFileRef[]): {
-    fileOrdinal: number;
-    imageOrdinal: number;
-  } {
-    let fileOrdinal = 0;
-    let imageOrdinal = 0;
-    for (const file of existingFileRefs) {
-      for (const alias of file.aliases ?? []) {
-        const parsedFileOrdinal = this.parseStickyAliasOrdinal(alias, "file");
-        if (parsedFileOrdinal !== null) {
-          fileOrdinal = Math.max(fileOrdinal, parsedFileOrdinal);
-        }
-        const parsedImageOrdinal = this.parseStickyAliasOrdinal(alias, "image");
-        if (parsedImageOrdinal !== null) {
-          imageOrdinal = Math.max(imageOrdinal, parsedImageOrdinal);
-        }
-      }
-    }
-    return { fileOrdinal, imageOrdinal };
-  }
-
-  private extractStickyAliases(aliases: string[]): string[] {
-    return aliases.filter((alias) => /^image #\d+$/i.test(alias) || /^file #\d+$/i.test(alias));
-  }
-
-  private parseStickyAliasOrdinal(alias: string, kind: "file" | "image"): number | null {
-    const match = alias
-      .trim()
-      .toLowerCase()
-      .match(new RegExp(`^${kind} #(\\d+)$`, "i"));
-    if (match === null) {
-      return null;
-    }
-    const parsed = Number.parseInt(match[1] ?? "", 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }
-
-  private isLegacyModelVisibleAlias(alias: string): boolean {
-    const normalized = alias.trim().toLowerCase();
-    return (
-      /^(?:current|previous|recent|found|listed|fetched|read)\s+(?:attachment|file|image) #\d+$/i.test(
-        normalized
-      ) || normalized === "last generated image"
-    );
-  }
-
-  private toItemFromRuntimeFileRef(fileRef: RuntimeFileRef): RuntimeFilesToolItem {
-    return {
-      fileRef: fileRef.fileRef,
-      origin: fileRef.origin,
-      sourceToolCode: fileRef.sourceToolCode,
-      relativePath: fileRef.relativePath,
-      displayName: fileRef.displayName,
-      mimeType: fileRef.mimeType,
-      sizeBytes: fileRef.sizeBytes,
-      logicalSizeBytes: fileRef.logicalSizeBytes,
-      aliases: fileRef.aliases ?? null,
-      semanticSummaryHint: fileRef.semanticSummaryHint ?? null
-    };
-  }
-
-  private resolveSelectedFileRefsFromAliases(
-    availableWorkingFileRefs: RuntimeFileRef[],
-    aliases: string[]
-  ): { fileRefs: string[]; missingAliases: string[] } {
-    const fileRefs: string[] = [];
-    const missingAliases: string[] = [];
-    for (const alias of aliases) {
-      const match = availableWorkingFileRefs.find((item) =>
-        (item.aliases ?? []).some(
-          (candidate) => this.normalizeAlias(candidate) === this.normalizeAlias(alias)
-        )
-      );
-      if (match === undefined) {
-        missingAliases.push(alias);
-        continue;
-      }
-      fileRefs.push(match.fileRef);
-    }
-    return { fileRefs, missingAliases };
-  }
-
-  private assertMimeAllowed(mimeType: string, allowlist: Set<string>): void {
-    // Empty allowlist or the "*/*" allow-all sentinel means delivery is open at
-    // this layer; the real ceiling is the persist-time media validation. Any
-    // other non-empty list is an exact-match allowlist.
-    if (allowlist.size === 0 || allowlist.has("*/*") || allowlist.has("*")) {
-      return;
-    }
-    if (!allowlist.has(mimeType.toLowerCase())) {
-      throw new Error(`Mime type "${mimeType}" is blocked by sandbox delivery policy.`);
-    }
-  }
-
-  private toArtifactKind(mimeType: string): RuntimeOutputArtifact["kind"] {
-    if (mimeType.startsWith("image/")) {
+  private resolveAttachmentTypeForMime(
+    mimeType: string
+  ): "image" | "document" | "audio" | "video" | "voice" {
+    const normalized = mimeType.trim().toLowerCase();
+    if (normalized.startsWith("image/")) {
       return "image";
     }
-    if (mimeType.startsWith("audio/")) {
+    if (normalized.startsWith("audio/")) {
       return "audio";
     }
-    if (mimeType.startsWith("video/")) {
+    if (normalized.startsWith("video/")) {
       return "video";
     }
-    return "file";
+    return "document";
   }
 
-  private isTextReadableFile(item: RuntimeFilesToolItem): boolean {
-    const mimeType = item.mimeType.trim().toLowerCase().split(";")[0] ?? "";
-    if (mimeType.startsWith("text/") || TEXT_READABLE_MIME_TYPES.has(mimeType)) {
-      return true;
+  private isBinaryPreviewMime(mimeType: string): boolean {
+    const normalized = mimeType.toLowerCase().trim().split(";")[0] ?? "";
+    return BINARY_PREVIEW_MIME_TYPES.has(normalized) || normalized.startsWith("image/");
+  }
+
+  private parseListContent(content: string | null): RuntimeFilesToolItem[] {
+    if (content === null) {
+      return [];
     }
-    const path = `${item.displayName ?? ""} ${item.relativePath}`.toLowerCase();
-    return /\.(txt|md|markdown|csv|tsv|json|jsonl|ndjson|xml|yaml|yml|log)$/i.test(path);
-  }
-
-  private isDocumentExtractableFile(item: RuntimeFilesToolItem): boolean {
-    const mimeType = item.mimeType.trim().toLowerCase().split(";")[0] ?? "";
-    if (DOCUMENT_EXTRACTABLE_MIME_TYPES.has(mimeType)) {
-      return true;
+    try {
+      const parsed = JSON.parse(content) as { items?: unknown };
+      if (!Array.isArray(parsed.items)) {
+        return [];
+      }
+      const items: RuntimeFilesToolItem[] = [];
+      for (const entry of parsed.items) {
+        if (entry === null || typeof entry !== "object") {
+          continue;
+        }
+        const row = entry as Record<string, unknown>;
+        const path = typeof row.path === "string" ? row.path : null;
+        const type = row.type === "directory" ? "directory" : "file";
+        const role = this.readListRole(row.role);
+        if (path === null || role === null) {
+          continue;
+        }
+        items.push({
+          path,
+          type,
+          role,
+          sizeBytes: typeof row.sizeBytes === "number" ? row.sizeBytes : 0,
+          mimeType: typeof row.mimeType === "string" ? row.mimeType : null,
+          modifiedAt: typeof row.modifiedAt === "string" ? row.modifiedAt : null
+        });
+      }
+      return items;
+    } catch {
+      return [];
     }
-    const path = `${item.displayName ?? ""} ${item.relativePath}`.toLowerCase();
-    return /\.(pdf|docx)$/i.test(path);
   }
 
-  private createSkippedResult(input: {
-    reason: string;
-    requestedAction: RuntimeFilesToolAction | null;
-    warning: string | null;
-  }): RuntimeFilesToolResult {
-    return {
-      toolCode: "files",
-      executionMode: "inline",
-      requestedAction: input.requestedAction,
-      action: "skipped",
-      reason: input.reason,
-      warning: input.warning,
-      item: null,
-      items: [],
-      content: null,
-      job: null,
-      fileRefs: [],
-      queuedArtifacts: 0
-    };
+  private readListRole(value: unknown): RuntimeFilesToolItem["role"] | null {
+    if (
+      value === "workspace" ||
+      value === "shared_input" ||
+      value === "shared_outbound_self" ||
+      value === "shared_outbound_other"
+    ) {
+      return value;
+    }
+    return null;
+  }
+
+  private parseReadContent(content: string | null): {
+    content: string | null;
+    sizeBytes: number | null;
+    sha256: string | null;
+    truncated: boolean;
+  } {
+    if (content === null) {
+      return { content: null, sizeBytes: null, sha256: null, truncated: false };
+    }
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      const body = typeof parsed.content === "string" ? parsed.content : null;
+      return {
+        content: body,
+        sizeBytes: typeof parsed.sizeBytes === "number" ? parsed.sizeBytes : null,
+        sha256: typeof parsed.sha256 === "string" ? parsed.sha256 : null,
+        truncated: parsed.truncated === true
+      };
+    } catch {
+      return { content, sizeBytes: null, sha256: null, truncated: false };
+    }
+  }
+
+  private parseStatContent(content: string | null): {
+    sizeBytes: number | null;
+    mimeType: string | null;
+  } | null {
+    if (content === null) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      return {
+        sizeBytes: typeof parsed.sizeBytes === "number" ? parsed.sizeBytes : null,
+        mimeType: typeof parsed.mimeType === "string" ? parsed.mimeType : null
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private parseWriteContent(content: string | null): { sizeBytes: number | null } {
+    if (content === null) {
+      return { sizeBytes: null };
+    }
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      return {
+        sizeBytes: typeof parsed.sizeBytes === "number" ? parsed.sizeBytes : null
+      };
+    } catch {
+      return { sizeBytes: null };
+    }
+  }
+
+  private parseAttachContent(content: string | null): {
+    workspaceRelPath: string;
+    sourcePath: string;
+    sizeBytes: number;
+    mimeType: string;
+    displayName: string;
+  } | null {
+    if (content === null) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      const attachment =
+        parsed.attachment !== null && typeof parsed.attachment === "object"
+          ? (parsed.attachment as Record<string, unknown>)
+          : null;
+      if (attachment === null) {
+        return null;
+      }
+      const workspaceRelPath =
+        typeof attachment.workspaceRelPath === "string" ? attachment.workspaceRelPath : null;
+      const sourcePath = typeof attachment.sourcePath === "string" ? attachment.sourcePath : null;
+      const sizeBytes = typeof attachment.sizeBytes === "number" ? attachment.sizeBytes : null;
+      const mimeType = typeof attachment.mimeType === "string" ? attachment.mimeType : null;
+      const displayName =
+        typeof attachment.displayName === "string" ? attachment.displayName : null;
+      if (
+        workspaceRelPath === null ||
+        sourcePath === null ||
+        sizeBytes === null ||
+        mimeType === null ||
+        displayName === null
+      ) {
+        return null;
+      }
+      return { workspaceRelPath, sourcePath, sizeBytes, mimeType, displayName };
+    } catch {
+      return null;
+    }
   }
 
   private readRequestedAction(value: unknown): RuntimeFilesToolAction | null {
@@ -1962,18 +941,21 @@ export class RuntimeFilesToolService {
     }
     const action = (value as Record<string, unknown>).action;
     return action === "list" ||
-      action === "search" ||
-      action === "inspect" ||
-      action === "get" ||
       action === "read" ||
       action === "preview" ||
       action === "write" ||
-      action === "write_and_send" ||
-      action === "edit" ||
       action === "delete" ||
-      action === "send"
+      action === "attach"
       ? action
       : null;
+  }
+
+  private readPathFromArguments(value: unknown): string | null {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    return this.readNonEmptyString(row.path) ?? this.readNonEmptyString(row.dir);
   }
 
   private readNonEmptyString(value: unknown): string | null {
@@ -1982,9 +964,5 @@ export class RuntimeFilesToolService {
 
   private readString(value: unknown): string | null {
     return typeof value === "string" ? value : null;
-  }
-
-  private normalizeAlias(value: string): string {
-    return value.trim().toLowerCase();
   }
 }

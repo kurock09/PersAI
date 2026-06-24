@@ -6,13 +6,10 @@ import {
   type PersaiRuntimeAttachmentKind,
   type PersaiRuntimeTier,
   type RuntimeAttachmentRef,
-  type RuntimeImageEditRequest,
-  type RuntimeImageGenerateRequest,
   type RuntimeMediaJobCompletionRequest,
   type RuntimeMediaJobCompletionResult,
   type RuntimeMediaJobRunRequest,
-  type RuntimeMediaJobRunResult,
-  type RuntimeVideoGenerateRequest
+  type RuntimeMediaJobRunResult
 } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../../../runtime-config";
 import { RuntimeMediaJobCompletionService } from "../../runtime-media-job-completion.service";
@@ -273,29 +270,29 @@ export class InternalRuntimeMediaJobsController {
     if (row.toolCode === "image_generate") {
       return {
         toolCode: "image_generate",
-        request: this.objectField(
-          row.request,
-          "directToolExecution.request"
-        ) as unknown as RuntimeImageGenerateRequest
-      };
+        request: this.objectField(row.request, "directToolExecution.request")
+      } as unknown as Extract<
+        NonNullable<RuntimeMediaJobRunRequest["directToolExecution"]>,
+        { toolCode: "image_generate" }
+      >;
     }
     if (row.toolCode === "image_edit") {
       return {
         toolCode: "image_edit",
-        request: this.objectField(
-          row.request,
-          "directToolExecution.request"
-        ) as unknown as RuntimeImageEditRequest
-      };
+        request: this.objectField(row.request, "directToolExecution.request")
+      } as unknown as Extract<
+        NonNullable<RuntimeMediaJobRunRequest["directToolExecution"]>,
+        { toolCode: "image_edit" }
+      >;
     }
     if (row.toolCode === "video_generate") {
       return {
         toolCode: "video_generate",
-        request: this.objectField(
-          row.request,
-          "directToolExecution.request"
-        ) as unknown as RuntimeVideoGenerateRequest
-      };
+        request: this.objectField(row.request, "directToolExecution.request")
+      } as unknown as Extract<
+        NonNullable<RuntimeMediaJobRunRequest["directToolExecution"]>,
+        { toolCode: "video_generate" }
+      >;
     }
     throw new BadRequestException(
       "directToolExecution.toolCode must be one of image_generate, image_edit, or video_generate."
@@ -329,7 +326,9 @@ export class InternalRuntimeMediaJobsController {
       throw new BadRequestException("workerResult.artifacts must be an array.");
     }
     return value.map((entry, index) => {
-      const row = this.objectField(entry, `workerResult.artifacts[${String(index)}]`);
+      const fieldPrefix = `workerResult.artifacts[${String(index)}]`;
+      const row = this.objectField(entry, fieldPrefix);
+      this.rejectLegacyPathFields(row, fieldPrefix);
       const type = row.type;
       if (type !== "image" && type !== "audio" && type !== "video" && type !== "file") {
         throw new BadRequestException(
@@ -345,17 +344,10 @@ export class InternalRuntimeMediaJobsController {
                 row.filename,
                 `workerResult.artifacts[${String(index)}].filename`
               ),
-        fileRef:
-          row.fileRef === null
+        storagePath:
+          row.storagePath === null || row.storagePath === undefined
             ? null
-            : this.requiredString(row.fileRef, `workerResult.artifacts[${String(index)}].fileRef`),
-        objectKey:
-          row.objectKey === null || row.objectKey === undefined
-            ? null
-            : this.requiredString(
-                row.objectKey,
-                `workerResult.artifacts[${String(index)}].objectKey`
-              ),
+            : this.requiredString(row.storagePath, `${fieldPrefix}.storagePath`),
         ...(row.mimeType === undefined
           ? {}
           : {
@@ -388,6 +380,8 @@ export class InternalRuntimeMediaJobsController {
       throw new BadRequestException(`attachments[${String(index)}] must be an object.`);
     }
     const row = value as Record<string, unknown>;
+    const fieldPrefix = `attachments[${String(index)}]`;
+    this.rejectLegacyPathFields(row, fieldPrefix);
     const kind = row.kind;
     if (
       typeof kind !== "string" ||
@@ -405,21 +399,20 @@ export class InternalRuntimeMediaJobsController {
         `attachments[${String(index)}].attachmentId`
       ),
       kind: kind as PersaiRuntimeAttachmentKind,
-      objectKey: this.requiredString(row.objectKey, `attachments[${String(index)}].objectKey`),
-      mimeType: this.requiredString(row.mimeType, `attachments[${String(index)}].mimeType`),
-      filename:
-        row.filename === null
-          ? null
-          : this.requiredString(row.filename, `attachments[${String(index)}].filename`),
+      storagePath: this.requiredString(row.storagePath, `${fieldPrefix}.storagePath`),
+      mimeType: this.requiredString(row.mimeType, `${fieldPrefix}.mimeType`),
+      displayName:
+        row.displayName === null || row.displayName === undefined
+          ? row.filename === null
+            ? null
+            : this.requiredString(row.filename, `attachments[${String(index)}].filename`)
+          : this.requiredString(row.displayName, `attachments[${String(index)}].displayName`),
       sizeBytes,
       ...(row.aliases === undefined
         ? {}
         : {
             aliases: this.stringArray(row.aliases, `attachments[${String(index)}].aliases`)
-          }),
-      ...(row.fileRef === null || row.fileRef === undefined
-        ? {}
-        : { fileRef: this.requiredString(row.fileRef, `attachments[${String(index)}].fileRef`) })
+          })
     };
   }
 
@@ -430,5 +423,14 @@ export class InternalRuntimeMediaJobsController {
     return value.map((entry, index) =>
       this.requiredString(entry, `${fieldName}[${String(index)}]`)
     );
+  }
+
+  private rejectLegacyPathFields(row: Record<string, unknown>, fieldPrefix: string): void {
+    if (row.fileRef !== undefined && row.fileRef !== null) {
+      throw new BadRequestException(`${fieldPrefix}.fileRef is retired; use storagePath.`);
+    }
+    if (row.objectKey !== undefined && row.objectKey !== null) {
+      throw new BadRequestException(`${fieldPrefix}.objectKey is retired; use storagePath.`);
+    }
   }
 }

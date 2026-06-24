@@ -10,12 +10,15 @@ import type {
 } from "@persai/runtime-contract";
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { ProviderGatewaySafetyRejectedError } from "../src/modules/turns/provider-gateway.client.service";
+import { createFakeSandboxClientForOutboundWrite } from "./helpers/runtime-outbound-test-doubles";
 
 function createBundle(): AssistantRuntimeBundle {
   return {
     metadata: {
       assistantId: "assistant-1",
-      workspaceId: "workspace-1"
+      workspaceId: "workspace-1",
+      assistantHandle: "test-assistant",
+      siblingAssistantHandles: []
     },
     governance: {
       toolPolicies: [
@@ -58,7 +61,7 @@ function createBundle(): AssistantRuntimeBundle {
         }
       }
     }
-  } as unknown as AssistantRuntimeBundle;
+  } as unknown as unknown as AssistantRuntimeBundle;
 }
 
 describe("RuntimeImageGenerateToolService", () => {
@@ -76,7 +79,6 @@ describe("RuntimeImageGenerateToolService", () => {
           };
         }
       } as never,
-      {} as never,
       {} as never
     );
 
@@ -119,7 +121,6 @@ describe("RuntimeImageGenerateToolService", () => {
           };
         }
       } as never,
-      {} as never,
       {} as never
     );
 
@@ -214,35 +215,7 @@ describe("RuntimeImageGenerateToolService", () => {
     const service = new RuntimeImageGenerateToolService(
       providerGatewayClient as never,
       {} as never,
-      {
-        buildRuntimeOutputObjectKey() {
-          return "runtime/image-1.png";
-        },
-        async saveObject() {
-          return {
-            objectKey: "runtime/image-1.png",
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        }
-      } as never,
-      {
-        async ensureAttachmentBackedFile() {
-          return {
-            id: "file-1",
-            filename: "image.png",
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        },
-        toRuntimeFileRef() {
-          return {
-            fileRef: "file-1",
-            displayName: "image.png",
-            mimeType: "image/png"
-          };
-        }
-      } as never
+      createFakeSandboxClientForOutboundWrite("/shared/outbound/self/image-1.png") as never
     );
 
     const result = await service.executeToolCall({
@@ -304,7 +277,6 @@ describe("RuntimeImageGenerateToolService", () => {
           };
         }
       } as never,
-      {} as never,
       {} as never,
       {} as never
     );
@@ -371,35 +343,7 @@ describe("RuntimeImageGenerateToolService", () => {
         }
       } as never,
       {} as never,
-      {
-        buildRuntimeOutputObjectKey() {
-          return `runtime/image-${String(imageCalls.length)}.png`;
-        },
-        async saveObject() {
-          return {
-            objectKey: `runtime/image-${String(imageCalls.length)}.png`,
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        }
-      } as never,
-      {
-        async ensureAttachmentBackedFile() {
-          return {
-            id: `file-${String(imageCalls.length)}`,
-            filename: `image-${String(imageCalls.length)}.png`,
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        },
-        toRuntimeFileRef(file: { id: string; filename: string; mimeType: string }) {
-          return {
-            fileRef: file.id,
-            displayName: file.filename,
-            mimeType: file.mimeType
-          };
-        }
-      } as never
+      createFakeSandboxClientForOutboundWrite("/shared/outbound/self/image-series.png") as never
     );
 
     const result = await service.executeToolCall({
@@ -482,42 +426,11 @@ describe("RuntimeImageGenerateToolService", () => {
       } as never,
       {} as never,
       {
-        buildRuntimeOutputObjectKey(input: {
-          assistantId: string;
-          sessionId: string;
-          requestId: string;
-          artifactId?: string;
-          extension: string | null;
-        }) {
-          const extension = input.extension ?? "png";
-          return `assistant-media/assistants/${input.assistantId}/runtime-output/sessions/${input.sessionId}/requests/${input.requestId}/${input.artifactId ?? "artifact"}.${extension}`;
-        },
-        async saveObject() {
+        async writeSharedOutbound(input: { contentBase64: string }) {
           savedArtifacts += 1;
           return {
-            objectKey: `runtime/generate-partial-${String(savedArtifacts)}.png`,
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        },
-        async downloadObject() {
-          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
-        }
-      } as never,
-      {
-        async ensureAttachmentBackedFile() {
-          return {
-            id: `file-partial-${String(savedArtifacts)}`,
-            filename: `partial-${String(savedArtifacts)}.png`,
-            mimeType: "image/png",
-            sizeBytes: 9
-          };
-        },
-        toRuntimeFileRef(file: { id: string; filename: string; mimeType: string }) {
-          return {
-            fileRef: file.id,
-            displayName: file.filename,
-            mimeType: file.mimeType
+            workspaceRelPath: `/shared/outbound/self/generate-partial-${String(savedArtifacts)}.png`,
+            sizeBytes: Buffer.from(input.contentBase64, "base64").length
           };
         }
       } as never
@@ -548,22 +461,16 @@ describe("RuntimeImageGenerateToolService", () => {
   });
 
   test("rejects ref-bound series generate when a reusable source image is already available", async () => {
-    const service = new RuntimeImageGenerateToolService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never
-    );
+    const service = new RuntimeImageGenerateToolService({} as never, {} as never, {} as never);
 
     const attachments = [
       {
         attachmentId: "attachment-1",
         kind: "image",
-        objectKey: "uploads/source.png",
+        storagePath: "uploads/source.png",
         mimeType: "image/png",
-        filename: "source.png",
+        displayName: "source.png",
         sizeBytes: 9,
-        fileRef: "file-1",
         aliases: ["current image #1", "recent file #1"]
       }
     ] as unknown as RuntimeAttachmentRef[];

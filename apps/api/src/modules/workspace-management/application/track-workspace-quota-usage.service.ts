@@ -58,6 +58,7 @@ type PlanQuotaHints = {
   mediaStorageBytesLimit: bigint | null;
   knowledgeStorageBytesLimit: bigint | null;
   workspaceStorageBytesLimit: bigint | null;
+  sharedStorageBytesLimit: bigint | null;
 };
 
 type TokenBudgetUsageCalculation = {
@@ -304,6 +305,10 @@ function parsePlanQuotaHints(
     asPositiveInteger(quotaHints?.workspaceStorageBytesLimit) ??
     readQuotaHintFromLimitsPermissions(limitsPermissions, "workspace_storage_bytes_limit");
 
+  const sharedStorageLimit =
+    asPositiveInteger(quotaHints?.sharedStorageBytesLimit) ??
+    readQuotaHintFromLimitsPermissions(limitsPermissions, "shared_storage_bytes_limit");
+
   return {
     tokenBudgetLimit: tokenBudgetLimit === null ? null : BigInt(tokenBudgetLimit),
     costOrTokenDrivingToolClassUnitsLimit: toolClassLimit,
@@ -316,7 +321,8 @@ function parsePlanQuotaHints(
     knowledgeStorageBytesLimit:
       knowledgeStorageLimit === null ? null : BigInt(knowledgeStorageLimit),
     workspaceStorageBytesLimit:
-      workspaceStorageLimit === null ? null : BigInt(workspaceStorageLimit)
+      workspaceStorageLimit === null ? null : BigInt(workspaceStorageLimit),
+    sharedStorageBytesLimit: sharedStorageLimit === null ? null : BigInt(sharedStorageLimit)
   };
 }
 
@@ -1573,7 +1579,9 @@ export class TrackWorkspaceQuotaUsageService {
         BigInt(config.QUOTA_KNOWLEDGE_STORAGE_BYTES_DEFAULT),
       workspaceStorageBytesLimit:
         planQuotaHints.workspaceStorageBytesLimit ??
-        BigInt(config.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT)
+        BigInt(config.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT),
+      sharedStorageBytesLimit:
+        planQuotaHints.sharedStorageBytesLimit ?? BigInt(config.QUOTA_SHARED_STORAGE_BYTES_DEFAULT)
     };
   }
 

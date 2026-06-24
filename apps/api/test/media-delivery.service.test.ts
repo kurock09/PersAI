@@ -18,9 +18,7 @@ function createAttachment(
     chatId: "chat-1",
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    assistantFileId: null,
-    attachmentType: "document",
-    storagePath: "chat/out.bin",
+    storagePath: "/shared/input/out.bin",
     originalFilename: "out.bin",
     mimeType: "application/octet-stream",
     sizeBytes: BigInt(1),
@@ -36,34 +34,40 @@ function createAttachment(
   };
 }
 
-const fakeAssistantFileRegistry = {
-  async ensureAttachmentFile(input: { sourceAttachmentId: string }) {
-    return { fileRef: `file-${input.sourceAttachmentId}` };
-  },
-  async linkAttachmentToExistingFile() {
-    return undefined;
-  },
-  async ensureMediaDerivativeTracking() {
-    return undefined;
+const registeredAttachments = new Map<string, AssistantChatMessageAttachment>();
+
+const fakeRegisterChatAttachmentService = {
+  async execute(input: {
+    storagePath: string;
+    mimeType: string;
+    originalFilename: string;
+    sizeBytes: number;
+    attachmentType: string;
+  }) {
+    const attachment = createAttachment({
+      storagePath: input.storagePath,
+      mimeType: input.mimeType,
+      originalFilename: input.originalFilename,
+      sizeBytes: BigInt(input.sizeBytes),
+      attachmentType: input.attachmentType as AssistantChatMessageAttachment["attachmentType"]
+    });
+    registeredAttachments.set(attachment.id, attachment);
+    return { attachmentId: attachment.id, storagePath: input.storagePath };
   }
 };
 
-const enqueuedGeneratedSummaryJobs: Array<{
-  assistantId: string;
-  workspaceId: string;
-  assistantFileId: string | null | undefined;
-  attachmentId: string | null | undefined;
-}> = [];
+function attachmentRepositoryWithRegisterLookup() {
+  return {
+    async findById(id: string) {
+      return registeredAttachments.get(id) ?? null;
+    }
+  };
+}
 
-const fakeUploadMicroDescriptionJobService = {
-  async enqueueGeneratedFileIfNeeded(input: {
-    assistantId: string;
-    workspaceId: string;
-    assistantFileId: string | null | undefined;
-    attachmentId: string | null | undefined;
-  }) {
-    enqueuedGeneratedSummaryJobs.push(input);
-    return { accepted: true, reason: "queued" };
+const fakeWorkspaceFileMetadataService = {
+  async upsert() {},
+  async get() {
+    return null;
   }
 };
 
@@ -78,40 +82,64 @@ const noopQuotaUsageService = {
   async markAssistantMonthlyMediaQuotaReconciliationRequired() {}
 };
 
+function fakeMediaObjectStorage(
+  input: {
+    onSaveMime?: (mimeType: string) => void;
+    saveObjectKey?: string;
+    downloadObject?: (objectKey: string) => Promise<{ buffer: Buffer; contentType: string } | null>;
+    onDeleteObject?: (objectKey: string) => void;
+  } = {}
+) {
+  const defaultPngBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+  return {
+    buildSharedObjectKey(scope: { workspaceId: string; workspaceRelPath: string }) {
+      return `workspaces/${scope.workspaceId}${scope.workspaceRelPath}`;
+    },
+    buildChatMessageObjectKey() {
+      return input.saveObjectKey ?? "workspaces/workspace-1/shared/input/file.bin";
+    },
+    async saveObject(saveInput: { mimeType: string; buffer: Buffer }) {
+      input.onSaveMime?.(saveInput.mimeType);
+      return {
+        objectKey: input.saveObjectKey ?? "workspaces/workspace-1/shared/input/file.bin",
+        sizeBytes: saveInput.buffer.length,
+        mimeType: saveInput.mimeType
+      };
+    },
+    async downloadObject(objectKey: string) {
+      if (input.downloadObject) {
+        return input.downloadObject(objectKey);
+      }
+      if (objectKey.endsWith(".mp3") || objectKey.endsWith(".mpeg")) {
+        return { buffer: Buffer.from("audio-output"), contentType: "audio/mpeg" };
+      }
+      return { buffer: defaultPngBuffer, contentType: "image/png" };
+    },
+    async deleteObject(objectKey: string) {
+      input.onDeleteObject?.(objectKey);
+    }
+  };
+}
+
 async function run(): Promise<void> {
   const originalFetch = globalThis.fetch;
-  let uploadCalls = 0;
-  let createCalls = 0;
+  const uploadCalls = 0;
+  const createCalls = 0;
   const blockedMetrics = new PlatformHttpMetricsService();
 
   const blockedService = new MediaDeliveryService(
-    {
-      async create() {
-        createCalls += 1;
-        return createAttachment({});
-      }
-    } as never,
+    attachmentRepositoryWithRegisterLookup() as never,
     noopAssistantRepository as never,
     [],
-    {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/blocked.js";
-      },
-      async saveObject() {
-        uploadCalls += 1;
-        return {
-          objectKey:
-            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/blocked.js",
-          sizeBytes: 19,
-          mimeType: "text/javascript"
-        };
-      }
-    } as never,
-    fakeAssistantFileRegistry as never,
-    fakeUploadMicroDescriptionJobService as never,
+    fakeMediaObjectStorage(),
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     noopQuotaUsageService as never,
     blockedMetrics,
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    {} as never,
+    {} as never,
+    {} as never
   );
 
   globalThis.fetch = async () =>
@@ -151,6 +179,7 @@ async function run(): Promise<void> {
   const safeMetrics = new PlatformHttpMetricsService();
   const safeService = new MediaDeliveryService(
     {
+      ...attachmentRepositoryWithRegisterLookup(),
       async create(input: {
         storagePath: string;
         originalFilename: string | null;
@@ -167,25 +196,19 @@ async function run(): Promise<void> {
     } as never,
     noopAssistantRepository as never,
     [],
-    {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/render.png";
-      },
-      async saveObject(input: { mimeType: string; buffer: Buffer }) {
-        uploadedMime = input.mimeType;
-        return {
-          objectKey:
-            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/render.png",
-          sizeBytes: input.buffer.length,
-          mimeType: input.mimeType
-        };
+    fakeMediaObjectStorage({
+      onSaveMime: (mimeType) => {
+        uploadedMime = mimeType;
       }
-    } as never,
-    fakeAssistantFileRegistry as never,
-    fakeUploadMicroDescriptionJobService as never,
+    }),
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     noopQuotaUsageService as never,
     safeMetrics,
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    {} as never,
+    {} as never,
+    {} as never
   );
 
   globalThis.fetch = async () =>
@@ -210,10 +233,9 @@ async function run(): Promise<void> {
 
   assert.equal(uploadedMime, "image/png");
   assert.equal(delivered.attachments.length, 1);
-  assert.equal(delivered.attachments[0]?.fileRef, "file-att-1");
+  assert.ok((delivered.attachments[0]?.path ?? "").startsWith("/shared/input/"));
   assert.equal(delivered.attachments[0]?.mimeType, "image/png");
   assert.equal(delivered.attachments[0]?.originalFilename, "render.png");
-  assert.equal(enqueuedGeneratedSummaryJobs.length, 0);
   const successSeries = safeMetrics
     .getSnapshot()
     .mediaStageSeries.find(
@@ -224,60 +246,29 @@ async function run(): Promise<void> {
     );
   assert.equal(successSeries?.count, 1);
 
-  let objectDownloadCalls = 0;
-  let deletedObjectKey: string | null = null;
-  const nativeMetrics = new PlatformHttpMetricsService();
-  const nativeService = new MediaDeliveryService(
-    {
-      async create(input: {
-        storagePath: string;
-        originalFilename: string | null;
-        mimeType: string;
-        sizeBytes: bigint;
-      }) {
-        return createAttachment({
-          storagePath: input.storagePath,
-          originalFilename: input.originalFilename,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes
-        });
-      }
-    } as never,
+  let legacyObjectKeyRegisterCalls = 0;
+  const legacyObjectKeyMetrics = new PlatformHttpMetricsService();
+  const legacyObjectKeyService = new MediaDeliveryService(
+    attachmentRepositoryWithRegisterLookup() as never,
     noopAssistantRepository as never,
     [],
+    fakeMediaObjectStorage(),
     {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/generated.png";
-      },
-      async downloadObject(objectKey: string) {
-        objectDownloadCalls += 1;
-        assert.equal(objectKey, "assistant-media/runtime-output/generated.png");
-        return {
-          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
-          contentType: "image/png"
-        };
-      },
-      async saveObject(input: { mimeType: string; buffer: Buffer }) {
-        return {
-          objectKey:
-            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/generated.png",
-          sizeBytes: input.buffer.length,
-          mimeType: input.mimeType
-        };
-      },
-      async deleteObject(objectKey: string) {
-        deletedObjectKey = objectKey;
+      async execute() {
+        legacyObjectKeyRegisterCalls += 1;
+        return { attachmentId: "att-legacy", storagePath: "/shared/input/ignored.png" };
       }
     } as never,
-    fakeAssistantFileRegistry as never,
-    fakeUploadMicroDescriptionJobService as never,
+    fakeWorkspaceFileMetadataService as never,
     noopQuotaUsageService as never,
-    nativeMetrics,
-    noopRecordModelCostLedgerService
+    legacyObjectKeyMetrics,
+    noopRecordModelCostLedgerService,
+    {} as never,
+    {} as never,
+    {} as never
   );
 
-  enqueuedGeneratedSummaryJobs.length = 0;
-  const nativeDelivered = await nativeService.deliver({
+  const legacyObjectKeyDelivered = await legacyObjectKeyService.deliver({
     artifacts: [
       {
         source: "persai_object_storage",
@@ -295,86 +286,62 @@ async function run(): Promise<void> {
     workspaceId: "workspace-1"
   });
 
-  assert.equal(objectDownloadCalls, 1);
-  assert.equal(deletedObjectKey, "assistant-media/runtime-output/generated.png");
-  assert.equal(nativeDelivered.attachments.length, 1);
-  assert.equal(nativeDelivered.attachments[0]?.originalFilename, "generated.png");
-  assert.deepEqual(enqueuedGeneratedSummaryJobs, [
-    {
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      assistantFileId: "file-att-1",
-      attachmentId: "att-1"
-    }
-  ]);
+  assert.equal(legacyObjectKeyRegisterCalls, 0);
+  assert.deepEqual(legacyObjectKeyDelivered.attachments, []);
+  const legacyObjectKeyFailureSeries = legacyObjectKeyMetrics
+    .getSnapshot()
+    .mediaStageSeries.find(
+      (series) =>
+        series.key.stage === "delivery_persist" &&
+        series.key.channel === "web" &&
+        series.key.outcome === "failure"
+    );
+  assert.equal(legacyObjectKeyFailureSeries?.count, 1);
 
   let deliveredImageBillingFacts: unknown = undefined;
   let deliveredTtsBillingFacts: unknown = undefined;
-  const billingFactsService = new MediaDeliveryService(
-    {
-      async create(input: {
-        storagePath: string;
-        originalFilename: string | null;
-        mimeType: string;
-        sizeBytes: bigint;
-        billingFacts?: unknown;
-      }) {
-        if (input.mimeType.startsWith("image/")) {
-          deliveredImageBillingFacts = input.billingFacts;
-        } else if (input.mimeType.startsWith("audio/")) {
-          deliveredTtsBillingFacts = input.billingFacts;
-        }
-        return createAttachment({
-          storagePath: input.storagePath,
-          originalFilename: input.originalFilename,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes,
-          billingFacts:
-            (input.billingFacts as AssistantChatMessageAttachment["billingFacts"]) ?? null
-        });
+  const billingFactsRegister = {
+    async execute(input: {
+      storagePath: string;
+      mimeType: string;
+      originalFilename: string;
+      sizeBytes: number;
+      attachmentType: string;
+      billingFacts?: unknown;
+    }) {
+      if (input.mimeType.startsWith("image/")) {
+        deliveredImageBillingFacts = input.billingFacts;
+      } else if (input.mimeType.startsWith("audio/")) {
+        deliveredTtsBillingFacts = input.billingFacts;
       }
-    } as never,
+      return fakeRegisterChatAttachmentService.execute(input);
+    }
+  };
+  const billingFactsService = new MediaDeliveryService(
+    attachmentRepositoryWithRegisterLookup() as never,
     noopAssistantRepository as never,
     [],
-    {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/generated-output.bin";
-      },
-      async downloadObject(objectKey: string) {
-        if (objectKey.endsWith(".png")) {
-          return {
-            buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
-            contentType: "image/png"
-          };
-        }
-        return {
-          buffer: Buffer.from("audio-output"),
-          contentType: "audio/mpeg"
-        };
-      },
-      async saveObject(input: { mimeType: string; buffer: Buffer }) {
-        return {
-          objectKey: `assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/${
-            input.mimeType.startsWith("image/") ? "generated.png" : "generated.mp3"
-          }`,
-          sizeBytes: input.buffer.length,
-          mimeType: input.mimeType
-        };
-      },
-      async deleteObject() {}
-    } as never,
-    fakeAssistantFileRegistry as never,
-    fakeUploadMicroDescriptionJobService as never,
+    fakeMediaObjectStorage({
+      downloadObject: async () => ({
+        buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+        contentType: "image/png"
+      })
+    }) as never,
+    billingFactsRegister as never,
+    fakeWorkspaceFileMetadataService as never,
     noopQuotaUsageService as never,
     new PlatformHttpMetricsService(),
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    {} as never,
+    {} as never,
+    {} as never
   );
 
   await billingFactsService.deliver({
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/generated.png",
+        objectKey: "/shared/outbound/generated.png",
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -397,7 +364,7 @@ async function run(): Promise<void> {
       },
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/generated.mp3",
+        objectKey: "/shared/outbound/generated.mp3",
         type: "audio",
         sourceToolCode: "tts",
         mimeType: "audio/mpeg",
@@ -434,68 +401,26 @@ async function run(): Promise<void> {
     }
   });
 
-  const existingFileLinks: Array<{ sourceAttachmentId: string; fileRef: string }> = [];
-  const existingFileRefService = new MediaDeliveryService(
-    {
-      async create(input: {
-        storagePath: string;
-        originalFilename: string | null;
-        mimeType: string;
-        sizeBytes: bigint;
-      }) {
-        return createAttachment({
-          storagePath: input.storagePath,
-          originalFilename: input.originalFilename,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes
-        });
-      }
-    } as never,
+  const existingWorkspacePathService = new MediaDeliveryService(
+    attachmentRepositoryWithRegisterLookup() as never,
     noopAssistantRepository as never,
     [],
-    {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/generated-existing.png";
-      },
-      async downloadObject() {
-        return {
-          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
-          contentType: "image/png"
-        };
-      },
-      async saveObject(input: { mimeType: string; buffer: Buffer }) {
-        return {
-          objectKey:
-            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/generated-existing.png",
-          sizeBytes: input.buffer.length,
-          mimeType: input.mimeType
-        };
-      },
-      async deleteObject() {}
-    } as never,
-    {
-      async ensureAttachmentFile() {
-        throw new Error("existing generated fileRef should not create a duplicate file row");
-      },
-      async linkAttachmentToExistingFile(input: { sourceAttachmentId: string; fileRef: string }) {
-        existingFileLinks.push(input);
-      },
-      async ensureMediaDerivativeTracking() {
-        return undefined;
-      }
-    } as never,
-    fakeUploadMicroDescriptionJobService as never,
+    fakeMediaObjectStorage() as never,
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     noopQuotaUsageService as never,
     new PlatformHttpMetricsService(),
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    {} as never,
+    {} as never,
+    {} as never
   );
 
-  const existingFileDelivered = await existingFileRefService.deliver({
+  const existingWorkspacePathDelivered = await existingWorkspacePathService.deliver({
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/generated-existing.png",
-        fileRef: "existing-file-ref-1",
+        objectKey: "/shared/outbound/generated-existing.png",
         type: "image",
         mimeType: "image/png",
         filename: "generated-existing.png",
@@ -509,96 +434,10 @@ async function run(): Promise<void> {
     workspaceId: "workspace-1"
   });
 
-  assert.equal(existingFileDelivered.attachments[0]?.fileRef, "existing-file-ref-1");
-  assert.deepEqual(existingFileLinks, [
-    {
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      sourceAttachmentId: "att-1",
-      fileRef: "existing-file-ref-1"
-    }
-  ]);
-  assert.deepEqual(enqueuedGeneratedSummaryJobs.at(-1), {
-    assistantId: "assistant-1",
-    workspaceId: "workspace-1",
-    assistantFileId: "existing-file-ref-1",
-    attachmentId: "att-1"
-  });
-
-  let persistedAttachmentDeletedObjectKey: string | null = null;
-  const persistedAttachmentService = new MediaDeliveryService(
-    {
-      async create(input: {
-        storagePath: string;
-        originalFilename: string | null;
-        mimeType: string;
-        sizeBytes: bigint;
-      }) {
-        return createAttachment({
-          storagePath: input.storagePath,
-          originalFilename: input.originalFilename,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes
-        });
-      }
-    } as never,
-    noopAssistantRepository as never,
-    [],
-    {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/copied.png";
-      },
-      async downloadObject(objectKey: string) {
-        assert.equal(
-          objectKey,
-          "assistant-media/assistants/assistant-1/chats/chat-older/messages/msg-older/original.png"
-        );
-        return {
-          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
-          contentType: "image/png"
-        };
-      },
-      async saveObject(input: { mimeType: string; buffer: Buffer }) {
-        return {
-          objectKey:
-            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/copied.png",
-          sizeBytes: input.buffer.length,
-          mimeType: input.mimeType
-        };
-      },
-      async deleteObject(objectKey: string) {
-        persistedAttachmentDeletedObjectKey = objectKey;
-      }
-    } as never,
-    fakeAssistantFileRegistry as never,
-    fakeUploadMicroDescriptionJobService as never,
-    noopQuotaUsageService as never,
-    new PlatformHttpMetricsService(),
-    noopRecordModelCostLedgerService
+  assert.equal(
+    existingWorkspacePathDelivered.attachments[0]?.path,
+    "/shared/outbound/generated-existing.png"
   );
-
-  const persistedAttachmentDelivered = await persistedAttachmentService.deliver({
-    artifacts: [
-      {
-        source: "persai_object_storage",
-        objectKey:
-          "assistant-media/assistants/assistant-1/chats/chat-older/messages/msg-older/original.png",
-        type: "image",
-        mimeType: "image/png",
-        filename: "original.png",
-        sizeBytes: 9
-      }
-    ],
-    channel: "web",
-    assistantId: "assistant-1",
-    chatId: "chat-1",
-    messageId: "msg-1",
-    workspaceId: "workspace-1"
-  });
-
-  assert.equal(persistedAttachmentDeletedObjectKey, null);
-  assert.equal(persistedAttachmentDelivered.attachments.length, 1);
-  assert.equal(persistedAttachmentDelivered.attachments[0]?.originalFilename, "original.png");
 
   let adapterTarget: {
     channel: string;
@@ -607,21 +446,7 @@ async function run(): Promise<void> {
   } | null = null;
   let adapterCaption: string | undefined;
   const adapterService = new MediaDeliveryService(
-    {
-      async create(input: {
-        storagePath: string;
-        originalFilename: string | null;
-        mimeType: string;
-        sizeBytes: bigint;
-      }) {
-        return createAttachment({
-          storagePath: input.storagePath,
-          originalFilename: input.originalFilename,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes
-        });
-      }
-    } as never,
+    attachmentRepositoryWithRegisterLookup() as never,
     noopAssistantRepository as never,
     [
       {
@@ -636,39 +461,30 @@ async function run(): Promise<void> {
         async sendVideo() {}
       }
     ],
-    {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/telegram.png";
-      },
-      async downloadObject(objectKey: string) {
-        assert.equal(objectKey, "assistant-media/runtime-output/telegram.png");
+    fakeMediaObjectStorage({
+      downloadObject: async (objectKey: string) => {
+        assert.equal(objectKey, "workspaces/workspace-1/shared/outbound/telegram.png");
         return {
           buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
           contentType: "image/png"
         };
-      },
-      async saveObject(input: { mimeType: string; buffer: Buffer }) {
-        return {
-          objectKey:
-            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/telegram.png",
-          sizeBytes: input.buffer.length,
-          mimeType: input.mimeType
-        };
-      },
-      async deleteObject() {}
-    } as never,
-    fakeAssistantFileRegistry as never,
-    fakeUploadMicroDescriptionJobService as never,
+      }
+    }) as never,
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     noopQuotaUsageService as never,
     new PlatformHttpMetricsService(),
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    {} as never,
+    {} as never,
+    {} as never
   );
 
   await adapterService.deliver({
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/telegram.png",
+        objectKey: "/shared/outbound/telegram.png",
         type: "image",
         mimeType: "image/png",
         filename: "telegram.png",
@@ -730,56 +546,27 @@ async function run(): Promise<void> {
       monthlyQuotaCalls.push({ operation: "reconcile", toolCode: input.toolCode });
     }
   };
-  const settlementAwareObjectStorage = {
-    buildChatMessageObjectKey() {
-      return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/settled.png";
-    },
-    async downloadObject() {
-      return {
-        buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
-        contentType: "image/png"
-      };
-    },
-    async saveObject(input: { mimeType: string; buffer: Buffer }) {
-      return {
-        objectKey: "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/settled.png",
-        sizeBytes: input.buffer.length,
-        mimeType: input.mimeType
-      };
-    },
-    async deleteObject() {}
-  };
-  const settlementAwareAttachmentRepository = {
-    async create(input: {
-      storagePath: string;
-      originalFilename: string | null;
-      mimeType: string;
-      sizeBytes: bigint;
-    }) {
-      return createAttachment({
-        storagePath: input.storagePath,
-        originalFilename: input.originalFilename,
-        mimeType: input.mimeType,
-        sizeBytes: input.sizeBytes
-      });
-    }
-  };
+  const settlementAwareObjectStorage = fakeMediaObjectStorage();
+  const settlementAwareAttachmentRepository = attachmentRepositoryWithRegisterLookup();
   const deliveredSettlementService = new MediaDeliveryService(
     settlementAwareAttachmentRepository as never,
     settlementAwareAssistantRepository as never,
     [],
     settlementAwareObjectStorage as never,
-    fakeAssistantFileRegistry as never,
-    fakeUploadMicroDescriptionJobService as never,
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     settlementAwareQuotaUsageService as never,
     new PlatformHttpMetricsService(),
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    {} as never,
+    {} as never,
+    {} as never
   );
   await deliveredSettlementService.deliver({
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/settled.png",
+        objectKey: "/shared/outbound/settled.png",
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -809,17 +596,20 @@ async function run(): Promise<void> {
       }
     ],
     settlementAwareObjectStorage as never,
-    fakeAssistantFileRegistry as never,
-    fakeUploadMicroDescriptionJobService as never,
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     settlementAwareQuotaUsageService as never,
     new PlatformHttpMetricsService(),
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    {} as never,
+    {} as never,
+    {} as never
   );
   await failedSettlementService.deliver({
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/reconcile.png",
+        objectKey: "/shared/outbound/reconcile.png",
         type: "image",
         sourceToolCode: "image_edit",
         mimeType: "image/png",
@@ -847,7 +637,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/not-delivered.png",
+        objectKey: "/shared/outbound/not-delivered.png",
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -856,7 +646,7 @@ async function run(): Promise<void> {
       },
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/ignored.png",
+        objectKey: "/shared/outbound/ignored.png",
         type: "image",
         mimeType: "image/png",
         filename: "ignored.png",
@@ -879,7 +669,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "assistant-media/runtime-output/user-stopped.png",
+        objectKey: "/shared/outbound/user-stopped.png",
         type: "image",
         sourceToolCode: "video_generate",
         mimeType: "image/png",
@@ -897,6 +687,7 @@ async function run(): Promise<void> {
   let oversizedVideoAttachmentCreates = 0;
   const oversizedVideoService = new MediaDeliveryService(
     {
+      ...attachmentRepositoryWithRegisterLookup(),
       async create(input: {
         attachmentType: string;
         originalFilename: string | null;
@@ -917,24 +708,15 @@ async function run(): Promise<void> {
     } as never,
     noopAssistantRepository as never,
     [],
-    {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/promo.mp4";
-      },
-      async saveObject() {
-        oversizedVideoUploadCalls += 1;
-        return {
-          objectKey: "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/promo.mp4",
-          sizeBytes: 0,
-          mimeType: "video/mp4"
-        };
-      }
-    } as never,
-    fakeAssistantFileRegistry as never,
-    fakeUploadMicroDescriptionJobService as never,
+    fakeMediaObjectStorage() as never,
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     noopQuotaUsageService as never,
     new PlatformHttpMetricsService(),
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    {} as never,
+    {} as never,
+    {} as never
   );
   const oversizedVideoBuffer = Buffer.alloc(51 * 1024 * 1024, 0);
   globalThis.fetch = async () =>

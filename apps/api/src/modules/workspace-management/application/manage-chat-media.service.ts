@@ -21,11 +21,11 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import {
   buildStoredAttachmentMetadata,
-  readStoredAttachmentSemanticSummary,
-  readStoredAttachmentSemanticSummarySource
+  readStoredAttachmentSemanticSummary
 } from "./media/media.types";
-import { AssistantFileRegistryService } from "./assistant-file-registry.service";
-import { AssistantUploadMicroDescriptionJobService } from "./assistant-upload-micro-description-job.service";
+import { RegisterChatAttachmentService } from "./register-chat-attachment.service";
+import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
+import { resolveUniqueSharedInputStoragePath } from "./resolve-shared-input-storage-path";
 import {
   createAssistantInboundConflict,
   createMediaStorageQuotaExceededError
@@ -65,8 +65,8 @@ export class ManageChatMediaService {
     private readonly nativeMediaTranscriptionService: NativeMediaTranscriptionService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly assistantFileRegistryService: AssistantFileRegistryService,
-    private readonly assistantUploadMicroDescriptionJobService: AssistantUploadMicroDescriptionJobService,
+    private readonly registerChatAttachmentService: RegisterChatAttachmentService,
+    private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly prisma: WorkspaceManagementPrismaService
@@ -146,11 +146,16 @@ export class ManageChatMediaService {
     });
     const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
     const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
-    const objectKey = this.mediaObjectStorage.buildChatMessageObjectKey({
-      assistantId: assistant.id,
-      chatId: chat.id,
-      messageId: message.id,
-      extension: processed?.normalizedExtension ?? validated.normalizedExtension
+    const storagePath = await resolveUniqueSharedInputStoragePath({
+      workspaceId: assistant.workspaceId,
+      filename: validated.originalFilename,
+      mimeType,
+      referenceId: message.id,
+      workspaceFileMetadataService: this.workspaceFileMetadataService
+    });
+    const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+      workspaceId: assistant.workspaceId,
+      workspaceRelPath: storagePath
     });
     const uploadResult = await this.mediaObjectStorage.saveObject({
       objectKey,
@@ -165,41 +170,36 @@ export class ManageChatMediaService {
       sizeBytes,
       source: "chat_upload"
     });
-    const attachment = await this.attachmentRepository.create({
-      messageId: message.id,
-      chatId: chat.id,
+    const registered = await this.registerChatAttachmentService.execute({
       assistantId: assistant.id,
       workspaceId: assistant.workspaceId,
+      chatId: chat.id,
+      messageId: message.id,
+      storagePath,
       attachmentType: inferAttachmentType(mimeType),
-      storagePath: uploadResult.objectKey,
-      originalFilename: validated.originalFilename,
       mimeType: uploadResult.mimeType,
-      sizeBytes,
+      sizeBytes: Number(uploadResult.sizeBytes),
+      originalFilename: validated.originalFilename ?? "upload",
+      kind: "user_upload",
       durationMs: processed?.durationMs ?? null,
       width: processed?.width ?? null,
       height: processed?.height ?? null,
-      processingStatus: "ready",
       transcription: processed?.transcription ?? null,
       billingFacts: processed?.billingFacts ?? null,
       metadata: buildStoredAttachmentMetadata({
         source: "chat_upload",
         textExtract: processed?.textExtract ?? null,
         transcription: processed?.transcription ?? null
-      })
+      }),
+      shortDescription: readStoredAttachmentSemanticSummary(
+        buildStoredAttachmentMetadata({
+          source: "chat_upload",
+          textExtract: processed?.textExtract ?? null,
+          transcription: processed?.transcription ?? null
+        })
+      )
     });
-    await this.attachCanonicalFileRef({
-      attachment,
-      objectKey: uploadResult.objectKey,
-      buffer: fileBuffer,
-      source: "chat_upload"
-    });
-    await this.assistantUploadMicroDescriptionJobService.enqueueIfNeeded({
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId,
-      chatMode: chat.chatMode,
-      attachmentId: attachment.id,
-      assistantFileId: attachment.assistantFileId
-    });
+    const attachment = (await this.attachmentRepository.findById(registered.attachmentId))!;
 
     const ledgerSurface = this.resolveLedgerSurface(chat.surface);
     if (ledgerSurface !== null) {
@@ -299,11 +299,16 @@ export class ManageChatMediaService {
 
       const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
       const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
-      const objectKey = this.mediaObjectStorage.buildChatMessageObjectKey({
-        assistantId: assistant.id,
-        chatId: chat.id,
-        messageId: stagingMessage.id,
-        extension: processed?.normalizedExtension ?? validated.normalizedExtension
+      const storagePath = await resolveUniqueSharedInputStoragePath({
+        workspaceId: assistant.workspaceId,
+        filename: validated.originalFilename,
+        mimeType,
+        referenceId: stagingMessage.id,
+        workspaceFileMetadataService: this.workspaceFileMetadataService
+      });
+      const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+        workspaceId: assistant.workspaceId,
+        workspaceRelPath: storagePath
       });
       const uploadResult = await this.mediaObjectStorage.saveObject({
         objectKey,
@@ -330,20 +335,20 @@ export class ManageChatMediaService {
         throw error;
       }
       reservedStorageBytes = sizeBytes;
-      const attachment = await this.attachmentRepository.create({
-        messageId: stagingMessage.id,
-        chatId: chat.id,
+      const registered = await this.registerChatAttachmentService.execute({
         assistantId: assistant.id,
         workspaceId: assistant.workspaceId,
+        chatId: chat.id,
+        messageId: stagingMessage.id,
+        storagePath,
         attachmentType: inferAttachmentType(mimeType),
-        storagePath: uploadResult.objectKey,
-        originalFilename: validated.originalFilename,
         mimeType: uploadResult.mimeType,
-        sizeBytes,
+        sizeBytes: Number(uploadResult.sizeBytes),
+        originalFilename: validated.originalFilename ?? "upload",
+        kind: "user_upload",
         durationMs: processed?.durationMs ?? null,
         width: processed?.width ?? null,
         height: processed?.height ?? null,
-        processingStatus: "ready",
         transcription: processed?.transcription ?? null,
         billingFacts: processed?.billingFacts ?? null,
         metadata: buildStoredAttachmentMetadata({
@@ -352,23 +357,16 @@ export class ManageChatMediaService {
           transcription: processed?.transcription ?? null
         }),
         clientTurnId: params.clientTurnId?.trim() || null,
-        clientAttachmentId: params.clientAttachmentId?.trim() || null
+        clientAttachmentId: params.clientAttachmentId?.trim() || null,
+        shortDescription: readStoredAttachmentSemanticSummary(
+          buildStoredAttachmentMetadata({
+            source: "web_staged_upload",
+            textExtract: processed?.textExtract ?? null,
+            transcription: processed?.transcription ?? null
+          })
+        )
       });
-      await this.attachCanonicalFileRef({
-        attachment,
-        objectKey: uploadResult.objectKey,
-        buffer: fileBuffer,
-        source: "web_staged_upload"
-      });
-      if (chatResult.outcome === "existing" && chat.chatMode === "project") {
-        await this.assistantUploadMicroDescriptionJobService.enqueueIfNeeded({
-          assistantId: assistant.id,
-          workspaceId: assistant.workspaceId,
-          chatMode: chat.chatMode,
-          attachmentId: attachment.id,
-          assistantFileId: attachment.assistantFileId
-        });
-      }
+      const attachment = (await this.attachmentRepository.findById(registered.attachmentId))!;
 
       const ledgerSurface = this.resolveLedgerSurface(chat.surface);
       if (ledgerSurface !== null) {
@@ -541,6 +539,62 @@ export class ManageChatMediaService {
     return `${trimmed}.${extension}`;
   }
 
+  async deleteChatWorkspaceFile(params: {
+    userId: string;
+    chatId: string;
+    storagePath: string;
+  }): Promise<void> {
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId: params.userId }))
+      .assistant;
+    const chat = await this.chatRepository.findChatById(params.chatId);
+    if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
+      throw new NotFoundException("Web chat does not exist for this assistant.");
+    }
+
+    const attachments = await this.prisma.assistantChatMessageAttachment.findMany({
+      where: {
+        assistantId: assistant.id,
+        workspaceId: chat.workspaceId,
+        storagePath: params.storagePath
+      }
+    });
+    if (attachments.length === 0) {
+      throw new NotFoundException("File not found.");
+    }
+
+    const pathsToDelete = new Set<string>([params.storagePath]);
+    for (const attachment of attachments) {
+      if (attachment.thumbnailStoragePath) {
+        pathsToDelete.add(attachment.thumbnailStoragePath);
+      }
+      if (attachment.posterStoragePath) {
+        pathsToDelete.add(attachment.posterStoragePath);
+      }
+    }
+
+    for (const workspaceRelPath of pathsToDelete) {
+      const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+        workspaceId: chat.workspaceId,
+        workspaceRelPath
+      });
+      await this.mediaObjectStorage.deleteObject(objectKey);
+    }
+
+    await this.prisma.assistantChatMessageAttachment.updateMany({
+      where: {
+        assistantId: assistant.id,
+        workspaceId: chat.workspaceId,
+        storagePath: params.storagePath
+      },
+      data: {
+        processingStatus: "unavailable",
+        storagePath: null,
+        thumbnailStoragePath: null,
+        posterStoragePath: null
+      }
+    });
+  }
+
   private async ensureMediaStorageQuotaApplied(params: {
     assistant: Assistant;
     objectKey: string;
@@ -563,40 +617,6 @@ export class ManageChatMediaService {
         released.state.mediaStorageBytesUsed,
         released.state.mediaStorageBytesLimit
       );
-    }
-  }
-
-  private async attachCanonicalFileRef(input: {
-    attachment: AssistantChatMessageAttachment;
-    objectKey: string;
-    buffer: Buffer;
-    source: "chat_upload" | "web_staged_upload";
-  }): Promise<void> {
-    const attachmentMetadata = this.asAttachmentMetadataObject(input.attachment.metadata);
-    input.attachment.assistantFileId = (
-      await this.assistantFileRegistryService.ensureAttachmentFile({
-        assistantId: input.attachment.assistantId,
-        workspaceId: input.attachment.workspaceId,
-        origin: "uploaded_attachment",
-        sourceAttachmentId: input.attachment.id,
-        sourceMessageId: input.attachment.messageId,
-        sourceChatId: input.attachment.chatId,
-        objectKey: input.objectKey,
-        filename: input.attachment.originalFilename,
-        mimeType: input.attachment.mimeType,
-        sizeBytes: input.attachment.sizeBytes,
-        contentBuffer: input.buffer,
-        source: input.source,
-        semanticSummary: readStoredAttachmentSemanticSummary(attachmentMetadata),
-        semanticSummarySource: readStoredAttachmentSemanticSummarySource(attachmentMetadata)
-      })
-    ).fileRef;
-    if (input.attachment.assistantFileId !== null) {
-      await this.assistantFileRegistryService.ensureMediaDerivativeTracking({
-        assistantId: input.attachment.assistantId,
-        workspaceId: input.attachment.workspaceId,
-        fileRef: input.attachment.assistantFileId
-      });
     }
   }
 

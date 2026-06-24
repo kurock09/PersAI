@@ -134,7 +134,12 @@ import { ManageAdminMemoryBackfillService } from "./application/manage-admin-mem
 import { ListKnowledgeIndexingJobsService } from "./application/list-knowledge-indexing-jobs.service";
 import { DocumentExtractionService } from "./application/document-extraction.service";
 import { DocumentSourceAttachmentExtractionService } from "./application/document-source-attachment-extraction.service";
-import { ExtractInternalRuntimeAssistantFileService } from "./application/extract-internal-runtime-assistant-file.service";
+import { ListWorkspaceFileShortDescriptionsService } from "./application/list-workspace-file-short-descriptions.service";
+import { ListChatWorkspaceFilesService } from "./application/list-chat-workspace-files.service";
+import { RegisterChatAttachmentService } from "./application/register-chat-attachment.service";
+import { WorkspaceFileMetadataService } from "./application/workspace-file-metadata.service";
+import { WORKSPACE_FILE_METADATA_REPOSITORY } from "./domain/workspace-file-metadata.repository";
+import { PrismaWorkspaceFileMetadataRepository } from "./infrastructure/persistence/prisma-workspace-file-metadata.repository";
 import { KnowledgeDocumentProcessorService } from "./application/knowledge-document-processor.service";
 import { KnowledgeEmbeddingService } from "./application/knowledge-embedding.service";
 import { KnowledgeIndexingService } from "./application/knowledge-indexing.service";
@@ -235,22 +240,16 @@ import { SendWebChatTurnService } from "./application/send-web-chat-turn.service
 import { WebRuntimeStreamClientService } from "./application/web-runtime-stream-client.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
 import { SwitchActiveAssistantService } from "./application/switch-active-assistant.service";
-import { AssistantMediaJobCompletionTurnService } from "./application/assistant-media-job-completion-turn.service";
-import { AssistantMediaJobCompletionDeliveryService } from "./application/assistant-media-job-completion-delivery.service";
+import { AssistantMediaJobCompletionTurnService } from "./application/workspace-media-job-completion-turn.service";
+import { AssistantMediaJobCompletionDeliveryService } from "./application/workspace-media-job-completion-delivery.service";
 import { AssistantDocumentJobCompletionTurnService } from "./application/assistant-document-job-completion-turn.service";
 import { AssistantDocumentJobDeliveryService } from "./application/assistant-document-job-delivery.service";
 import { PrepareAssistantDocumentPptxService } from "./application/prepare-assistant-document-pptx.service";
 import { AssistantDocumentJobSchedulerService } from "./application/assistant-document-job-scheduler.service";
-import { AssistantMediaJobSchedulerService } from "./application/assistant-media-job-scheduler.service";
-import { AssistantUploadMicroDescriptionJobService } from "./application/assistant-upload-micro-description-job.service";
-import { AssistantUploadMicroDescriptionSchedulerService } from "./application/assistant-upload-micro-description-scheduler.service";
-import { AssistantFileMediaDerivativeSchedulerService } from "./application/assistant-file-media-derivative-scheduler.service";
-import { AssistantFileCleanupReaperService } from "./application/assistant-file-cleanup-reaper.service";
-import { AssistantUploadMicroDescriptionService } from "./application/assistant-upload-micro-description.service";
-import { AssistantFileMediaDerivativeService } from "./application/media/assistant-file-media-derivative.service";
+import { AssistantMediaJobSchedulerService } from "./application/workspace-media-job-scheduler.service";
 import { AssistantDocumentJobService } from "./application/assistant-document-job.service";
 import { AssistantDocumentJobReadService } from "./application/assistant-document-job-read.service";
-import { AssistantMediaJobService } from "./application/assistant-media-job.service";
+import { AssistantMediaJobService } from "./application/workspace-media-job.service";
 import { EnqueueRuntimeDeferredDocumentJobService } from "./application/enqueue-runtime-deferred-document-job.service";
 import { GammaThemeCatalogService } from "./application/gamma/gamma-theme-catalog.service";
 import { GammaThemePickerService } from "./application/gamma/gamma-theme-picker.service";
@@ -373,7 +372,6 @@ import { AdminForceReapplyController } from "./interface/http/admin-force-reappl
 import { MediaAttachmentController } from "./interface/http/media-attachment.controller";
 import { TelegramWebhookController } from "./interface/http/telegram-webhook-proxy.controller";
 import { ManageChatMediaService } from "./application/manage-chat-media.service";
-import { AssistantFileRegistryService } from "./application/assistant-file-registry.service";
 import { MediaPreprocessorService } from "./application/media/media-preprocessor.service";
 import { NativeMediaTranscriptionService } from "./application/media/native-media-transcription.service";
 import { ProviderGatewayPdfTextExtractionService } from "./application/media/provider-gateway-pdf-text-extraction.service";
@@ -549,7 +547,10 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ListKnowledgeIndexingJobsService,
     DocumentExtractionService,
     DocumentSourceAttachmentExtractionService,
-    ExtractInternalRuntimeAssistantFileService,
+    ListWorkspaceFileShortDescriptionsService,
+    ListChatWorkspaceFilesService,
+    RegisterChatAttachmentService,
+    WorkspaceFileMetadataService,
     KnowledgeDocumentProcessorService,
     KnowledgeEmbeddingService,
     KnowledgeIndexingService,
@@ -706,9 +707,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AssistantDocumentJobDeliveryService,
     PrepareAssistantDocumentPptxService,
     AssistantMediaJobSchedulerService,
-    AssistantUploadMicroDescriptionSchedulerService,
-    AssistantFileMediaDerivativeSchedulerService,
-    AssistantFileCleanupReaperService,
     TelegramAlbumCollectorService,
     TelegramAlbumFinalizerSchedulerService,
     AssistantDocumentJobSchedulerService,
@@ -820,11 +818,11 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
       provide: PERSONA_ARCHETYPE_REPOSITORY,
       useClass: PrismaPersonaArchetypeRepository
     },
+    {
+      provide: WORKSPACE_FILE_METADATA_REPOSITORY,
+      useClass: PrismaWorkspaceFileMetadataRepository
+    },
     ManageChatMediaService,
-    AssistantFileRegistryService,
-    AssistantFileMediaDerivativeService,
-    AssistantUploadMicroDescriptionService,
-    AssistantUploadMicroDescriptionJobService,
     MediaPreprocessorService,
     NativeMediaTranscriptionService,
     ProviderGatewayPdfTextExtractionService,

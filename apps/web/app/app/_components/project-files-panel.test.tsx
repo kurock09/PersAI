@@ -1,14 +1,11 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectFilesPanel } from "./project-files-panel";
-import {
-  dispatchProjectModeActivated,
-  resetProjectFilesHintStateForTests
-} from "./project-files-events";
 
 const getTokenMock = vi.fn(async () => "token-1");
-const getChatMessagesMock = vi.fn(async () => ({
-  messages: [],
+const openSettingsMock = vi.fn();
+const listChatWorkspaceFilesMock = vi.fn(async () => ({
+  files: [],
   nextCursor: null
 }));
 
@@ -22,76 +19,36 @@ vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key
 }));
 
-vi.mock("../assistant-api-client", () => ({
-  getChatMessages: () => getChatMessagesMock(),
-  getAssistantFileDownloadUrl: (fileRef: string) => `/api/assistant-file/${fileRef}`,
-  stageWebChatAttachment: vi.fn(),
-  deleteAssistantFile: vi.fn()
+vi.mock("./app-shell", () => ({
+  useShellActions: () => ({
+    openSettings: openSettingsMock
+  })
 }));
 
-describe("ProjectFilesPanel — project mode hint", () => {
+vi.mock("../assistant-api-client", () => ({
+  listChatWorkspaceFiles: () => listChatWorkspaceFilesMock()
+}));
+
+describe("ProjectFilesPanel", () => {
   beforeEach(() => {
-    resetProjectFilesHintStateForTests();
     getTokenMock.mockClear();
-    getChatMessagesMock.mockClear();
-    Object.defineProperty(Element.prototype, "scrollIntoView", {
-      configurable: true,
-      writable: true,
-      value: vi.fn()
-    });
+    openSettingsMock.mockClear();
+    listChatWorkspaceFilesMock.mockClear();
   });
 
   afterEach(() => {
     cleanup();
-    resetProjectFilesHintStateForTests();
   });
 
-  it("applies the hint pulse when project mode activation is signaled", async () => {
-    render(<ProjectFilesPanel chatId="chat-1" threadKey="thread-1" />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("project-files-empty")).toBeInTheDocument();
-    });
-
-    dispatchProjectModeActivated("chat-1");
-
-    await waitFor(() => {
-      expect(screen.getByTestId("project-files-panel")).toHaveClass("project-files-hint");
-    });
+  it("renders collapsed project files affordance", () => {
+    render(<ProjectFilesPanel chatId="chat-1" />);
+    expect(screen.getByTestId("project-files-open-settings")).toBeInTheDocument();
+    expect(screen.getByText("projectFilesTitle")).toBeInTheDocument();
   });
 
-  it("consumes a pending highlight on mount after a delayed panel render", async () => {
-    dispatchProjectModeActivated("chat-1");
-
-    render(<ProjectFilesPanel chatId="chat-1" threadKey="thread-1" />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("project-files-panel")).toHaveClass("project-files-hint");
-    });
-  });
-
-  it("collapses after the hint pulse finishes", async () => {
-    render(<ProjectFilesPanel chatId="chat-1" threadKey="thread-1" />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("project-files-empty")).toBeInTheDocument();
-    });
-
-    dispatchProjectModeActivated("chat-1");
-
-    await waitFor(() => {
-      expect(screen.getByTestId("project-files-toggle")).toHaveAttribute("aria-expanded", "true");
-    });
-
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("project-files-toggle")).toHaveAttribute(
-          "aria-expanded",
-          "false"
-        );
-        expect(screen.getByTestId("project-files-panel")).not.toHaveClass("project-files-hint");
-      },
-      { timeout: 3000 }
-    );
+  it("opens assistant settings on the files tab", () => {
+    render(<ProjectFilesPanel chatId="chat-1" />);
+    fireEvent.click(screen.getByTestId("project-files-open-settings"));
+    expect(openSettingsMock).toHaveBeenCalledWith("files");
   });
 });

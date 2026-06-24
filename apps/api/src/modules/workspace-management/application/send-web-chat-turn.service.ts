@@ -30,7 +30,6 @@ import {
 } from "./assistant-inbound-error";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import {
-  getAttachmentDerivativeRefs,
   toAssistantWebChatMessageAttachmentState,
   toRuntimeAttachmentRef,
   type MediaArtifact
@@ -42,14 +41,14 @@ import {
   finalizePersistedWebTurn,
   runWebTurnPostRuntimeCleanup
 } from "./complete-web-post-runtime-turn";
-import { inferAssistantMediaJobFailureLocale } from "./assistant-media-job-failure-copy.service";
+import { inferAssistantMediaJobFailureLocale } from "./workspace-media-job-failure-copy.service";
 import {
   WebRuntimeTurnClientService,
   type WebRuntimeTurnClientInput
 } from "./web-runtime-turn-client.service";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
-import { AssistantMediaJobService } from "./assistant-media-job.service";
+import { AssistantMediaJobService } from "./workspace-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
@@ -118,7 +117,9 @@ function normalizeOptionalClientTurnId(value: unknown): string | undefined {
 
 function toAttachmentState(attachment: {
   id: string;
-  assistantFileId: string | null;
+  storagePath: string | null;
+  thumbnailStoragePath: string | null;
+  posterStoragePath: string | null;
   attachmentType: string;
   originalFilename: string | null;
   mimeType: string;
@@ -127,10 +128,11 @@ function toAttachmentState(attachment: {
   metadata: Record<string, unknown> | null;
   createdAt: Date;
 }) {
-  const derivativeRefs = getAttachmentDerivativeRefs(attachment.metadata);
   return toAssistantWebChatMessageAttachmentState({
     id: attachment.id,
-    assistantFileId: attachment.assistantFileId,
+    storagePath: attachment.storagePath,
+    thumbnailStoragePath: attachment.thumbnailStoragePath,
+    posterStoragePath: attachment.posterStoragePath,
     attachmentType: attachment.attachmentType,
     originalFilename: attachment.originalFilename,
     mimeType: attachment.mimeType,
@@ -138,10 +140,7 @@ function toAttachmentState(attachment: {
     processingStatus: attachment.processingStatus,
     metadata: attachment.metadata,
     createdAt: attachment.createdAt,
-    documentLink: readPersistedDocumentLinkMetadata(attachment.metadata),
-    thumbnailFileRef: derivativeRefs.thumbnailFileRef,
-    posterFileRef: derivativeRefs.posterFileRef,
-    derivativesStatus: derivativeRefs.derivativesStatus
+    documentLink: readPersistedDocumentLinkMetadata(attachment.metadata)
   });
 }
 
@@ -307,6 +306,7 @@ export class SendWebChatTurnService {
       );
       await this.attachmentObjectAvailabilityService.assertRuntimeReadable({
         assistantId: prepared.assistantId,
+        workspaceId: prepared.workspaceId,
         chatId: prepared.chat.id,
         messageId: prepared.userMessage.id,
         channel: "web",
@@ -430,7 +430,7 @@ export class SendWebChatTurnService {
         chatId: prepared.chat.id,
         assistantId: prepared.assistantId,
         content: runtimeResponse.assistantMessage,
-        discoveredFileRefIds: runtimeResponse.discoveredFileRefIds,
+        discoveredFilePaths: runtimeResponse.discoveredFilePaths,
         deferredMediaJobCount: runtimeResponse.deferredMediaJobs?.length,
         sourceUserMessageId: prepared.userMessage.id,
         toolInvocations:

@@ -2,7 +2,6 @@ import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayToolCall,
-  RuntimeFileRef,
   RuntimeSandboxJobRequest,
   RuntimeSandboxToolResult,
   RuntimeToolPolicy
@@ -27,7 +26,6 @@ export class RuntimeSandboxToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentFileRefs: RuntimeFileRef[];
   }): Promise<RuntimeSandboxToolExecutionResult> {
     const policy = this.resolveAllowedSandboxToolPolicy(params.bundle, params.toolCall.name);
     if (policy === null) {
@@ -39,7 +37,7 @@ export class RuntimeSandboxToolService {
           reason: "tool_unavailable",
           warning: null,
           job: null,
-          fileRefs: []
+          paths: []
         },
         isError: false
       };
@@ -53,7 +51,7 @@ export class RuntimeSandboxToolService {
           reason: "sandbox_unconfigured",
           warning: "Sandbox service is not configured.",
           job: null,
-          fileRefs: []
+          paths: []
         },
         isError: true
       };
@@ -75,7 +73,7 @@ export class RuntimeSandboxToolService {
             reason: quotaOutcome.code,
             warning: quotaOutcome.message,
             job: null,
-            fileRefs: []
+            paths: []
           },
           isError: false
         };
@@ -83,6 +81,8 @@ export class RuntimeSandboxToolService {
 
       const job = await this.sandboxClientService.waitForCompletion({
         assistantId: params.bundle.metadata.assistantId,
+        assistantHandle: params.bundle.metadata.assistantHandle,
+        siblingHandles: params.bundle.metadata.siblingAssistantHandles,
         workspaceId: params.bundle.metadata.workspaceId,
         runtimeRequestId: params.requestId,
         runtimeSessionId: params.sessionId,
@@ -107,7 +107,6 @@ export class RuntimeSandboxToolService {
           sandboxJobsPerDay: null,
           maxArtifactSendCountPerTurn: 0
         },
-        mountedFileRefs: params.currentFileRefs.map((fileRef) => fileRef.fileRef),
         args: this.asObject(params.toolCall.arguments)
       } satisfies RuntimeSandboxJobRequest);
 
@@ -124,7 +123,7 @@ export class RuntimeSandboxToolService {
           reason: job.reason,
           warning: job.warning ?? job.violationMessage,
           job,
-          fileRefs: job.files.map((file) => file.fileRef.fileRef)
+          paths: job.files.map((file) => file.storagePath)
         },
         isError: job.status !== "completed"
       };
@@ -137,7 +136,7 @@ export class RuntimeSandboxToolService {
           reason: "sandbox_failed",
           warning: error instanceof Error ? error.message : "Sandbox tool execution failed.",
           job: null,
-          fileRefs: []
+          paths: []
         },
         isError: true
       };

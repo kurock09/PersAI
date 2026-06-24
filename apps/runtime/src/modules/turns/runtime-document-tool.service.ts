@@ -79,7 +79,7 @@ export class RuntimeDocumentToolService {
       descriptorMode: parsed.descriptorMode,
       outputFormat: parsed.request.outputFormat ?? null,
       docId: parsed.request.docId ?? null,
-      fileRef: parsed.request.fileRef ?? null,
+      storagePath: parsed.request.storagePath ?? null,
       sourceAttachmentCount: sourceAttachments.length
     });
     const normalizedDocId = this.normalizeDocId(parsed.request.docId ?? null);
@@ -123,6 +123,7 @@ export class RuntimeDocumentToolService {
       ...normalizedRequest,
       outputFormat: effectiveOutputFormat
     };
+    const reviseStoragePath = this.normalizeReviseStoragePath(parsed.request.storagePath ?? null);
     try {
       const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredDocumentJob({
         assistantId: params.bundle.metadata.assistantId,
@@ -132,6 +133,7 @@ export class RuntimeDocumentToolService {
         directToolExecution: {
           toolCode: "document",
           descriptorMode: effectiveDescriptorMode,
+          ...(reviseStoragePath !== null ? { path: reviseStoragePath } : {}),
           request: enqueueRequest
         }
       });
@@ -248,8 +250,8 @@ export class RuntimeDocumentToolService {
           instructions?: string | null;
           outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
           docId?: string | null;
-          /** ADR-097 Slice 4 — AssistantFile.id for cross-chat revise. */
-          fileRef?: string | null;
+          /** ADR-126 v3 — workspace storage path for cross-chat revise. */
+          storagePath?: string | null;
           requestedName?: string | null;
           visualStyle?: PersaiRuntimePresentationVisualStyle | null;
           imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
@@ -302,7 +304,7 @@ export class RuntimeDocumentToolService {
         instructions: typeof row.instructions === "string" ? row.instructions : null,
         outputFormat,
         docId: typeof row.docId === "string" ? row.docId : null,
-        fileRef: typeof row.fileRef === "string" ? row.fileRef : null,
+        storagePath: typeof row.storagePath === "string" ? row.storagePath : null,
         requestedName: typeof row.requestedName === "string" ? row.requestedName : null,
         visualStyle:
           row.visualStyle === "professional_modern" ||
@@ -412,8 +414,8 @@ export class RuntimeDocumentToolService {
       | "create_data_document";
     outputFormat: "pdf" | "pptx" | "xlsx" | "docx" | null;
     docId: string | null;
-    /** ADR-097 Slice 4 — treat a valid fileRef as a confirmed revise intent. */
-    fileRef?: string | null;
+    /** ADR-126 v3 — treat a valid workspace storage path as a confirmed revise intent. */
+    storagePath?: string | null;
     sourceAttachmentCount: number;
   }):
     | "create_pdf_document"
@@ -424,22 +426,17 @@ export class RuntimeDocumentToolService {
     if (input.descriptorMode !== "revise_document") {
       return input.descriptorMode;
     }
-    // Valid docId OR fileRef present → proceed as revise_document regardless.
+    // Valid docId OR storagePath present → proceed as revise_document regardless.
     if (input.docId !== null && UUID_REGEX.test(input.docId.trim())) {
       return input.descriptorMode;
     }
-    if (
-      input.fileRef !== null &&
-      input.fileRef !== undefined &&
-      UUID_REGEX.test(input.fileRef.trim())
-    ) {
+    const normalizedPath = this.normalizeReviseStoragePath(input.storagePath ?? null);
+    if (normalizedPath !== null) {
       return input.descriptorMode;
     }
-    // ADR-097 Slice 5: log when fileRef was provided but is not a valid UUID.
-    // This means the model passed an alias string instead of the server-resolved UUID.
-    if (input.fileRef !== null && input.fileRef !== undefined) {
+    if (input.storagePath !== null && input.storagePath !== undefined) {
       this.logger.warn(
-        `[document-tool] fileRef-not-uuid — model passed a non-UUID fileRef value: "${input.fileRef}"`
+        `[document-tool] storagePath-invalid — model passed a non-canonical storagePath value: "${input.storagePath}"`
       );
     }
     // ADR-097 Slice 2: for PDF revise without a valid docId, do NOT silently
@@ -470,7 +467,7 @@ export class RuntimeDocumentToolService {
       instructions?: string | null;
       outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
       docId?: string | null;
-      fileRef?: string | null;
+      storagePath?: string | null;
       requestedName?: string | null;
       visualStyle?: PersaiRuntimePresentationVisualStyle | null;
       imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
@@ -484,7 +481,7 @@ export class RuntimeDocumentToolService {
     instructions?: string | null;
     outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
     docId?: string | null;
-    fileRef?: string | null;
+    storagePath?: string | null;
     requestedName?: string | null;
     visualStyle?: PersaiRuntimePresentationVisualStyle | null;
     imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
@@ -505,6 +502,20 @@ export class RuntimeDocumentToolService {
       ...input.request,
       outputFormat: "pdf"
     };
+  }
+
+  private normalizeReviseStoragePath(value: string | null): string | null {
+    if (value === null) {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+    if (!trimmed.startsWith("/shared/") && !trimmed.startsWith("/workspace/")) {
+      return null;
+    }
+    return trimmed;
   }
 
   private referencesPriorSourceAttachment(prompt: string, sourceUserMessageText: string): boolean {

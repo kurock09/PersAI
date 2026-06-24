@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import type {
   AssistantRuntimeBundle,
@@ -26,11 +25,9 @@ import {
   type RuntimeTtsToolResult
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
-import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
-import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
-import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
-
+import { SandboxClientService } from "./sandbox-client.service";
+import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
 export interface RuntimeTtsToolExecutionResult {
   payload: RuntimeTtsToolResult;
   artifacts: RuntimeOutputArtifact[];
@@ -42,8 +39,7 @@ export class RuntimeTtsToolService {
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService
+    private readonly sandboxClient: SandboxClientService
   ) {}
 
   async executeToolCall(params: {
@@ -181,8 +177,10 @@ export class RuntimeTtsToolService {
         const artifact = await this.persistGeneratedArtifact({
           assistantId: params.bundle.metadata.assistantId,
           workspaceId: params.bundle.metadata.workspaceId,
-          sessionId: params.sessionId,
-          requestId: params.requestId,
+          handle: params.bundle.metadata.assistantHandle,
+          siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+          workspaceQuotaBytes: params.bundle.governance.quota?.workspaceQuotaBytes ?? null,
+          sharedQuotaBytes: params.bundle.governance.quota?.sharedQuotaBytes ?? null,
           requestText: request.text,
           provider: providerResult.provider,
           deliveryKind: providerResult.deliveryKind,
@@ -312,8 +310,10 @@ export class RuntimeTtsToolService {
   private async persistGeneratedArtifact(input: {
     assistantId: string;
     workspaceId: string;
-    sessionId: string;
-    requestId: string;
+    handle: string;
+    siblingHandles: readonly string[];
+    workspaceQuotaBytes: number | null;
+    sharedQuotaBytes: number | null;
     requestText: string;
     provider: PersaiRuntimeTtsProviderId;
     deliveryKind: PersaiRuntimeTtsDeliveryKind;
@@ -329,52 +329,26 @@ export class RuntimeTtsToolService {
       throw new Error("Speech provider returned an empty audio payload.");
     }
 
-    const artifactId = randomUUID();
     const extension = this.extensionFromMimeType(input.mimeType);
-    const objectKey = this.mediaObjectStorage.buildRuntimeOutputObjectKey({
-      assistantId: input.assistantId,
-      sessionId: input.sessionId,
-      requestId: input.requestId,
-      artifactId,
-      extension
-    });
-    const stored = await this.mediaObjectStorage.saveObject({
-      objectKey,
-      buffer,
-      mimeType: input.mimeType
-    });
     const filename = this.resolveFilename(input.deliveryKind, input.provider, extension);
-    const semanticSummary = buildGeneratedFileSemanticSummary({
-      requestText: input.requestText,
-      allowWeakRequestFallback: true
-    });
-    const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
+    const slugSourceText = input.requestText.trim() || filename || "speech";
+    return writeRuntimeOutboundArtifact({
+      sandboxClient: this.sandboxClient,
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      origin: "runtime_output",
-      referenceId: artifactId,
-      objectKey: stored.objectKey,
-      filename,
-      mimeType: stored.mimeType,
-      sizeBytes: stored.sizeBytes,
-      semanticSummary,
-      semanticSummarySource: semanticSummary === null ? null : "generation_request"
-    });
-    const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(file);
-
-    return {
-      artifactId,
-      fileRef: runtimeFileRef.fileRef,
-      file: runtimeFileRef,
+      handle: input.handle,
+      siblingHandles: input.siblingHandles,
+      workspaceQuotaBytes: input.workspaceQuotaBytes,
+      sharedQuotaBytes: input.sharedQuotaBytes,
+      buffer,
+      mimeType: input.mimeType,
+      slugSourceText,
+      filenameHint: filename,
       kind: "audio",
       sourceToolCode: "tts",
-      objectKey: stored.objectKey,
-      mimeType: stored.mimeType,
-      filename,
-      sizeBytes: stored.sizeBytes,
-      voiceNote: input.deliveryKind === "voice_note",
-      billingFacts: input.billingFacts ?? null
-    };
+      billingFacts: input.billingFacts,
+      voiceNote: input.deliveryKind === "voice_note"
+    });
   }
 
   private resolveFilename(

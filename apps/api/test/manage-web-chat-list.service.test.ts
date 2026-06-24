@@ -127,7 +127,6 @@ function createAttachments() {
       chatId: "chat-1",
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      assistantFileId: "file-chat-local-1",
       attachmentType: "image",
       storagePath: "chat-1/msg-1/a.png",
       originalFilename: "a.png",
@@ -147,7 +146,6 @@ function createAttachments() {
       chatId: "chat-1",
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      assistantFileId: "file-shared-1",
       attachmentType: "image",
       storagePath: "chat-1/msg-2/b.png",
       originalFilename: "b.png",
@@ -268,7 +266,6 @@ function createService(overrides?: {
   paidLightModeActive?: boolean;
   chats?: ReturnType<typeof createChat>[];
   onResetElevatedWebChatModes?: () => Promise<number>;
-  assistantFileMetadataById?: Record<string, Record<string, unknown> | null>;
 }) {
   const callOrder: string[] = [];
   const releasedBytes: bigint[] = [];
@@ -349,9 +346,6 @@ function createService(overrides?: {
       },
       async deletePrefix(prefix: string) {
         callOrder.push(`object-storage-delete:${prefix}`);
-      },
-      async deleteObject(objectKey: string) {
-        callOrder.push(`assistant-file-object-delete:${objectKey}`);
       }
     } as never,
     {
@@ -408,21 +402,6 @@ function createService(overrides?: {
       },
       runtimeSessionCompaction: {
         findMany: async () => []
-      },
-      assistantChatMessageAttachment: {
-        findMany: async () => [{ assistantFileId: "file-shared-1" }]
-      },
-      assistantFile: {
-        findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
-          where.id.in.map((id) => ({
-            id,
-            objectKey: `assistant-files/${id}`,
-            metadata: overrides?.assistantFileMetadataById?.[id] ?? null
-          })),
-        deleteMany: async ({ where }: { where: { id: { in: string[] } } }) => {
-          callOrder.push(`assistant-files-delete:${where.id.in.join(",")}`);
-          return { count: where.id.in.length };
-        }
       }
     } as never
   );
@@ -540,10 +519,6 @@ describe("ManageWebChatListService", () => {
         },
         assistantChatMessageAttachment: {
           findMany: async () => []
-        },
-        assistantFile: {
-          findMany: async () => [],
-          deleteMany: async () => ({ count: 0 })
         }
       } as never
     );
@@ -597,28 +572,8 @@ describe("ManageWebChatListService", () => {
     ]);
   });
 
-  test("reads thumbnail refs from canonical file metadata when attachment metadata is stale", async () => {
-    const { service } = createService({
-      assistantFileMetadataById: {
-        "file-chat-local-1": {
-          mediaDerivatives: {
-            schemaVersion: "persai.mediaDerivatives.v1",
-            status: "ready",
-            thumbnail: {
-              fileRef: "thumbnail-file-ref-1",
-              objectKey: "assistant-files/thumbnail-file-ref-1",
-              mimeType: "image/jpeg",
-              width: 256,
-              height: 144,
-              sizeBytes: 1234
-            },
-            poster: null,
-            lastError: null,
-            updatedAt: "2026-06-12T18:00:00.000Z"
-          }
-        }
-      }
-    });
+  test("surfaces attachment storage paths in list messages", async () => {
+    const { service } = createService();
 
     const result = await service.listChatMessages("user-1", "chat-1", {
       cursor: null,
@@ -626,11 +581,9 @@ describe("ManageWebChatListService", () => {
     });
     const attachment = result.messages
       .flatMap((message) => message.attachments)
-      .find((item) => item.fileRef === "file-chat-local-1");
+      .find((item) => item.path === "chat-1/msg-1/a.png");
 
-    assert.equal(attachment?.fileRef, "file-chat-local-1");
-    assert.equal(attachment?.thumbnailFileRef, "thumbnail-file-ref-1");
-    assert.equal(attachment?.derivativesStatus, "ready");
+    assert.equal(attachment?.path, "chat-1/msg-1/a.png");
   });
 
   test("returns tool invocations from assistant message metadata", async () => {
@@ -673,8 +626,6 @@ describe("ManageWebChatListService", () => {
       "object-storage-delete:assistant-media/assistants/assistant-1/chats/chat-1/",
       "attachments-delete",
       "repo-delete",
-      "assistant-files-delete:file-chat-local-1",
-      "assistant-file-object-delete:assistant-files/file-chat-local-1",
       "quota-web_chat_hard_delete-0"
     ]);
     assert.deepEqual(releasedBytes, [BigInt(5)]);

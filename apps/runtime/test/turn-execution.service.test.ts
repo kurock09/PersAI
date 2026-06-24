@@ -29,11 +29,10 @@ import type {
   ProviderGatewayWebFetchResult,
   RuntimeCompactionRequest,
   RuntimeAttachmentRef,
-  RuntimeFileRef,
+  RuntimeFileHandle,
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent,
-  RuntimeOutputArtifact,
   RuntimeTodoItem,
   RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
@@ -219,6 +218,8 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
   const artifact = compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
+      assistantHandle: "a-test",
+      siblingAssistantHandles: [],
       workspaceId: "workspace-1",
       publishedVersionId: "version-1",
       publishedVersion: 1,
@@ -579,6 +580,7 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
       quota: {
         planCode: "paid",
         workspaceQuotaBytes: 1024,
+        sharedQuotaBytes: 1024,
         quotaHook: null
       },
       auditHook: null
@@ -1114,7 +1116,7 @@ class FakeTurnContextHydrationService {
   // mirrors a bundle without a presence template (the legacy path).
   presenceBlock: string | null = null;
   openLoopRefsDeveloperBlock: string | null = null;
-  availableWorkingFileRefsOverride: RuntimeFileRef[] = [];
+  availableWorkingFileRefsOverride: RuntimeFileHandle[] = [];
 
   async buildMessages(
     ..._args: unknown[]
@@ -1177,7 +1179,7 @@ class FakeTurnContextHydrationService {
     return hasRefRows ? nextLines.join("\n") : null;
   }
 
-  async listAvailableWorkingFileRefs(): Promise<RuntimeFileRef[]> {
+  async listAvailableWorkingFileHandles(): Promise<RuntimeFileHandle[]> {
     return [...this.availableWorkingFileRefsOverride];
   }
 }
@@ -1569,7 +1571,7 @@ class FakePersaiInternalApiClientService {
 }
 
 class FakePersaiMediaObjectStorageService {
-  saveCalls: Array<{ objectKey: string; mimeType: string; buffer: Buffer }> = [];
+  saveCalls: Array<{ storagePath: string; mimeType: string; buffer: Buffer }> = [];
   sourceObjects = new Map<string, Buffer>();
 
   buildRuntimeOutputObjectKey(input: {
@@ -1584,57 +1586,29 @@ class FakePersaiMediaObjectStorageService {
   }
 
   async saveObject(input: {
-    objectKey: string;
+    storagePath: string;
     buffer: Buffer;
     mimeType: string;
-  }): Promise<{ objectKey: string; sizeBytes: number; mimeType: string }> {
+  }): Promise<{ storagePath: string; sizeBytes: number; mimeType: string }> {
     this.saveCalls.push(input);
     return {
-      objectKey: input.objectKey,
+      storagePath: input.storagePath,
       sizeBytes: input.buffer.length,
       mimeType: input.mimeType
     };
   }
 
-  async downloadObject(objectKey: string): Promise<Buffer | null> {
-    return this.sourceObjects.get(objectKey) ?? null;
+  async downloadByWorkspacePath(input: {
+    workspaceId: string;
+    storagePath: string;
+  }): Promise<Buffer | null> {
+    return this.sourceObjects.get(input.storagePath) ?? null;
+  }
+
+  async downloadObject(storagePath: string): Promise<Buffer | null> {
+    return this.sourceObjects.get(storagePath) ?? null;
   }
 }
-
-const fakeRuntimeAssistantFileRegistryService = {
-  async ensureAttachmentBackedFile(input: {
-    referenceId: string;
-    objectKey: string;
-    filename: string | null;
-    mimeType: string;
-    sizeBytes: number;
-  }) {
-    return {
-      fileRef: `file-${input.referenceId}`,
-      origin: "runtime_output",
-      sourceToolCode: null,
-      objectKey: input.objectKey,
-      relativePath: `artifacts/${input.referenceId}/${input.filename ?? "file"}`,
-      displayName: input.filename,
-      mimeType: input.mimeType,
-      sizeBytes: input.sizeBytes,
-      logicalSizeBytes: input.sizeBytes
-    };
-  },
-  toRuntimeFileRef(record: {
-    fileRef: string;
-    origin: "runtime_output";
-    sourceToolCode: null;
-    objectKey: string;
-    relativePath: string;
-    displayName: string | null;
-    mimeType: string;
-    sizeBytes: number;
-    logicalSizeBytes: number;
-  }) {
-    return record;
-  }
-};
 
 const TEMPORARY_SUMMARY_TEXT = "Stable facts:\n- Temporary summary text";
 
@@ -1738,7 +1712,6 @@ class FakeRuntimeSandboxToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentFileRefs: Array<{ fileRef: string }>;
   }> = [];
 
   async executeToolCall(input: {
@@ -1746,12 +1719,8 @@ class FakeRuntimeSandboxToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentFileRefs: Array<{ fileRef: string }>;
   }) {
-    this.calls.push({
-      ...input,
-      currentFileRefs: [...input.currentFileRefs]
-    });
+    this.calls.push({ ...input });
     return {
       payload: {
         toolCode: input.toolCall.name,
@@ -1759,7 +1728,7 @@ class FakeRuntimeSandboxToolService {
         action: "completed" as const,
         reason: null,
         warning: null,
-        fileRefs: ["file-ref-1"],
+        fileHandles: ["file-ref-1"],
         job: {
           jobId: "sandbox-job-1",
           status: "completed" as const,
@@ -1774,22 +1743,12 @@ class FakeRuntimeSandboxToolService {
           content: null,
           files: [
             {
-              relativePath: "outputs/report.txt",
+              relativePath: "report.txt",
               displayName: "report.txt",
               mimeType: "text/plain",
               sizeBytes: 64,
               logicalSizeBytes: 64,
-              fileRef: {
-                fileRef: "file-ref-1",
-                origin: "sandbox_output" as const,
-                sourceToolCode: input.toolCall.name,
-                objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
-                relativePath: "outputs/report.txt",
-                displayName: "report.txt",
-                mimeType: "text/plain",
-                sizeBytes: 64,
-                logicalSizeBytes: 64
-              }
+              storagePath: "/shared/workspace-1/outbound/self/report.txt"
             }
           ]
         }
@@ -1805,14 +1764,12 @@ class FakeRuntimeGrepGlobToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentFileRefs: Array<{ fileRef: string }>;
   }> = [];
   globCalls: Array<{
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentFileRefs: Array<{ fileRef: string }>;
   }> = [];
 
   async executeGrepToolCall(input: {
@@ -1820,9 +1777,8 @@ class FakeRuntimeGrepGlobToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentFileRefs: Array<{ fileRef: string }>;
   }) {
-    this.grepCalls.push({ ...input, currentFileRefs: [...input.currentFileRefs] });
+    this.grepCalls.push({ ...input });
     return {
       payload: {
         toolCode: "grep" as const,
@@ -1843,9 +1799,8 @@ class FakeRuntimeGrepGlobToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentFileRefs: Array<{ fileRef: string }>;
   }) {
-    this.globCalls.push({ ...input, currentFileRefs: [...input.currentFileRefs] });
+    this.globCalls.push({ ...input });
     return {
       payload: {
         toolCode: "glob" as const,
@@ -1867,9 +1822,6 @@ class FakeRuntimeFilesToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentArtifacts: RuntimeOutputArtifact[];
-    currentFileRefs: Array<{ fileRef: string }>;
-    availableWorkingFileRefs?: Array<{ fileRef: string; aliases?: string[] | null }>;
     channel: "web" | "telegram" | "max_ru";
   }> = [];
 
@@ -1878,224 +1830,23 @@ class FakeRuntimeFilesToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentArtifacts: RuntimeOutputArtifact[];
-    currentFileRefs: Array<{ fileRef: string }>;
-    availableWorkingFileRefs?: Array<{ fileRef: string; aliases?: string[] | null }>;
     channel: "web" | "telegram" | "max_ru";
   }) {
-    this.calls.push({
-      ...input,
-      currentArtifacts: [...input.currentArtifacts],
-      currentFileRefs: [...input.currentFileRefs],
-      ...(input.availableWorkingFileRefs === undefined
-        ? {}
-        : { availableWorkingFileRefs: [...input.availableWorkingFileRefs] })
-    });
-    const action = input.toolCall.arguments.action;
-    if (action === "write_and_send") {
-      return {
-        payload: {
-          toolCode: "files" as const,
-          executionMode: "inline" as const,
-          requestedAction: "write_and_send" as const,
-          action: "written_and_queued" as const,
-          reason: null,
-          warning: null,
-          content: null,
-          item: {
-            fileRef: "file-ref-1",
-            origin: "sandbox_output" as const,
-            sourceToolCode: "files",
-            relativePath: "outputs/report.txt",
-            displayName: "report.txt",
-            mimeType: "text/plain",
-            sizeBytes: 64,
-            logicalSizeBytes: 64
-          },
-          items: [
-            {
-              fileRef: "file-ref-1",
-              origin: "sandbox_output" as const,
-              sourceToolCode: "files",
-              relativePath: "outputs/report.txt",
-              displayName: "report.txt",
-              mimeType: "text/plain",
-              sizeBytes: 64,
-              logicalSizeBytes: 64
-            }
-          ],
-          job: {
-            jobId: "sandbox-job-1",
-            status: "completed" as const,
-            toolCode: "files",
-            reason: null,
-            warning: null,
-            violationCode: null,
-            violationMessage: null,
-            exitCode: null,
-            stdout: null,
-            stderr: null,
-            content: null,
-            files: [
-              {
-                relativePath: "outputs/report.txt",
-                displayName: "report.txt",
-                mimeType: "text/plain",
-                sizeBytes: 64,
-                logicalSizeBytes: 64,
-                fileRef: {
-                  fileRef: "file-ref-1",
-                  origin: "sandbox_output" as const,
-                  sourceToolCode: "files",
-                  objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
-                  relativePath: "outputs/report.txt",
-                  displayName: "report.txt",
-                  mimeType: "text/plain",
-                  sizeBytes: 64,
-                  logicalSizeBytes: 64
-                }
-              }
-            ]
-          },
-          fileRefs: ["file-ref-1"],
-          queuedArtifacts: 1
-        },
-        artifacts: [
-          {
-            artifactId: "artifact-sent-1",
-            fileRef: "file-ref-1",
-            file: {
-              fileRef: "file-ref-1",
-              origin: "sandbox_output" as const,
-              sourceToolCode: "files",
-              objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
-              relativePath: "outputs/report.txt",
-              displayName: "report.txt",
-              mimeType: "text/plain",
-              sizeBytes: 64,
-              logicalSizeBytes: 64
-            },
-            kind: "file" as const,
-            objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
-            mimeType: "text/plain",
-            filename: "report.txt",
-            sizeBytes: 64,
-            voiceNote: false,
-            caption: "Here is your file"
-          }
-        ],
-        isError: false
-      };
-    }
-    if (action === "send") {
-      return {
-        payload: {
-          toolCode: "files" as const,
-          executionMode: "inline" as const,
-          requestedAction: "send" as const,
-          action: "queued" as const,
-          reason: null,
-          warning: null,
-          item: null,
-          items: [],
-          content: null,
-          job: null,
-          fileRefs: ["file-ref-1"],
-          queuedArtifacts: 1
-        },
-        artifacts: [
-          {
-            artifactId: "artifact-sent-1",
-            fileRef: "file-ref-1",
-            file: {
-              fileRef: "file-ref-1",
-              origin: "sandbox_output" as const,
-              sourceToolCode: "files",
-              objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
-              relativePath: "outputs/report.txt",
-              displayName: "report.txt",
-              mimeType: "text/plain",
-              sizeBytes: 64,
-              logicalSizeBytes: 64
-            },
-            kind: "file" as const,
-            objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
-            mimeType: "text/plain",
-            filename: "report.txt",
-            sizeBytes: 64,
-            voiceNote: false,
-            caption: "Here is your file"
-          }
-        ],
-        isError: false
-      };
-    }
+    this.calls.push({ ...input });
     return {
       payload: {
         toolCode: "files" as const,
         executionMode: "inline" as const,
-        requestedAction: "write" as const,
+        requestedAction: (input.toolCall.arguments.action ?? "write") as
+          | "list"
+          | "read"
+          | "preview"
+          | "write"
+          | "delete",
         action: "written" as const,
         reason: null,
         warning: null,
-        content: null,
-        item: {
-          fileRef: "file-ref-1",
-          origin: "sandbox_output" as const,
-          sourceToolCode: "files",
-          relativePath: "outputs/report.txt",
-          displayName: "report.txt",
-          mimeType: "text/plain",
-          sizeBytes: 64,
-          logicalSizeBytes: 64
-        },
-        items: [
-          {
-            fileRef: "file-ref-1",
-            origin: "sandbox_output" as const,
-            sourceToolCode: "files",
-            relativePath: "outputs/report.txt",
-            displayName: "report.txt",
-            mimeType: "text/plain",
-            sizeBytes: 64,
-            logicalSizeBytes: 64
-          }
-        ],
-        fileRefs: ["file-ref-1"],
-        queuedArtifacts: 0,
-        job: {
-          jobId: "sandbox-job-1",
-          status: "completed" as const,
-          toolCode: "files",
-          reason: null,
-          warning: null,
-          violationCode: null,
-          violationMessage: null,
-          exitCode: null,
-          stdout: null,
-          stderr: null,
-          content: null,
-          files: [
-            {
-              relativePath: "outputs/report.txt",
-              displayName: "report.txt",
-              mimeType: "text/plain",
-              sizeBytes: 64,
-              logicalSizeBytes: 64,
-              fileRef: {
-                fileRef: "file-ref-1",
-                origin: "sandbox_output" as const,
-                sourceToolCode: "files",
-                objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
-                relativePath: "outputs/report.txt",
-                displayName: "report.txt",
-                mimeType: "text/plain",
-                sizeBytes: 64,
-                logicalSizeBytes: 64
-              }
-            }
-          ]
-        }
+        path: "/workspace/outputs/report.txt"
       },
       artifacts: [],
       isError: false
@@ -2218,7 +1969,7 @@ function enableSandboxAndSendMediaTools(entry: RuntimeBundleCacheEntry | null): 
     {
       toolCode: "files",
       displayName: "Files",
-      description: "Search, inspect, read, write, edit, or send assistant-managed files.",
+      description: "Path-driven workspace file operations: list, read, preview, write, delete.",
       executionMode: "inline" as const
     },
     {
@@ -2289,6 +2040,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const sessionCompactionService = new FakeSessionCompactionService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
+  const sandboxClient = {
+    async writeSharedOutbound(input: { contentBase64: string }) {
+      return {
+        workspaceRelPath: "/shared/outbound/self/test-artefact.bin",
+        sizeBytes: Buffer.from(input.contentBase64, "base64").length
+      };
+    }
+  };
   const runtimeBrowserToolService = new RuntimeBrowserToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -2297,13 +2056,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
     mediaObjectStorage as never,
-    fakeRuntimeAssistantFileRegistryService as never
+    sandboxClient as never
   );
   const runtimeImageGenerateToolService = new RuntimeImageGenerateToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as never,
-    fakeRuntimeAssistantFileRegistryService as never
+    sandboxClient as never
   );
   const runtimeDocumentToolService = new RuntimeDocumentToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -2327,7 +2085,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
     mediaObjectStorage as never,
-    fakeRuntimeAssistantFileRegistryService as never
+    sandboxClient as never
   );
   const runtimeScheduledActionToolService = new RuntimeScheduledActionToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -2338,8 +2096,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeTtsToolService = new RuntimeTtsToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as never,
-    fakeRuntimeAssistantFileRegistryService as never
+    sandboxClient as never
   );
   const runtimeFilesToolService = new FakeRuntimeFilesToolService();
   const runtimeSandboxToolService = new FakeRuntimeSandboxToolService();
@@ -3106,9 +2863,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     {
       attachmentId: "voice-attachment-1",
       kind: "audio",
-      objectKey: "assistant-media/telegram/voice.ogg",
+      storagePath: "assistant-media/telegram/voice.ogg",
       mimeType: "audio/ogg",
-      filename: "voice.ogg",
+      displayName: "voice.ogg",
       sizeBytes: 1024
     }
   ];
@@ -3147,15 +2904,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   turnContextHydrationService.openLoopRefsDeveloperBlock = null;
   turnContextHydrationService.availableWorkingFileRefsOverride = [
     {
-      fileRef: "file-ref-alias-1",
-      origin: "uploaded_attachment",
       sourceToolCode: null,
-      objectKey: "assistant-media/uploads/working-image.png",
-      relativePath: "uploads/working-image.png",
+      workspaceId: "workspace-1",
+      storagePath: "/shared/workspace-1/outbound/self/working-image.png",
       displayName: "working-image.png",
       mimeType: "image/png",
       sizeBytes: 64,
-      logicalSizeBytes: 64,
+      authorLabel: "user",
       aliases: ["image #1", "file #1"]
     }
   ];
@@ -3168,7 +2923,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
-    /\| user \| image #1 \(file #1\) \| working-image\.png \|/
+    /- unknown \| user \| image #1 \(file #1\) \| working-image\.png \|/
   );
   assert.doesNotMatch(
     providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
@@ -3636,7 +3391,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     service as unknown as {
       buildToolLoopDeveloperInstructions: (
         baseSections: Array<{ key: string; content: string }>,
-        availableWorkingFileRefs: unknown[],
+        availableWorkingFileHandles: unknown[],
         closedOpenLoopRefs: string[],
         hasToolHistory: boolean,
         toolHistory: Array<{
@@ -4097,8 +3852,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(sessionCompactionService.calls.length, 0);
 
   enableSandboxAndSendMediaTools(bundleRegistry.entry);
-  const sandboxDeliveryRequest = createRuntimeTurnRequest();
-  sandboxDeliveryRequest.bundle.bundleHash = request.bundle.bundleHash;
+  const sandboxWriteRequest = createRuntimeTurnRequest();
+  sandboxWriteRequest.bundle.bundleHash = request.bundle.bundleHash;
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
@@ -4116,7 +3871,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           name: "files",
           arguments: {
             action: "write",
-            path: "outputs/report.txt",
+            path: "/workspace/outputs/report.txt",
             content: "sandbox output"
           }
         }
@@ -4125,127 +3880,32 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     {
       provider: "openai",
       model: "gpt-5.4",
-      text: "",
-      respondedAt: "2026-04-11T12:00:03.700Z",
-      usage: null,
-      stopReason: "tool_calls",
-      toolCalls: [
-        {
-          id: "tool-call-send-media-1",
-          name: "files",
-          arguments: {
-            action: "send",
-            fileRefs: ["file-ref-1"],
-            caption: "Here is your file"
-          }
-        }
-      ]
-    },
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "reply after sandbox delivery",
+      text: "reply after sandbox write",
       respondedAt: "2026-04-11T12:00:03.900Z",
       usage: null,
       stopReason: "completed",
       toolCalls: []
     }
   ];
-  const sandboxDeliveryCompleted = await service.createTurn(sandboxDeliveryRequest);
-  assert.equal(sandboxDeliveryCompleted.assistantText, "reply after sandbox delivery");
-  assert.equal(runtimeFilesToolService.calls.at(-2)?.toolCall.name, "files");
-  assert.equal(runtimeFilesToolService.calls.at(-2)?.toolCall.arguments.action, "write");
-  assert.deepEqual(runtimeFilesToolService.calls.at(-2)?.currentFileRefs, []);
+  const sandboxWriteCompleted = await service.createTurn(sandboxWriteRequest);
+  assert.equal(sandboxWriteCompleted.assistantText, "reply after sandbox write");
   assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.name, "files");
-  assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.arguments.action, "send");
-  assert.deepEqual(runtimeFilesToolService.calls.at(-1)?.currentArtifacts, []);
+  assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.arguments.action, "write");
   assert.equal(runtimeFilesToolService.calls.at(-1)?.channel, "web");
-  assert.equal(sandboxDeliveryCompleted.artifacts.length, 1);
-  assert.equal(sandboxDeliveryCompleted.artifacts[0]?.artifactId, "artifact-sent-1");
+  assert.equal(sandboxWriteCompleted.artifacts.length, 0);
   const sandboxToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
     action?: string;
-    job?: { files?: Array<{ fileRef?: { fileRef?: string } }> };
     requestedAction?: string;
+    job?: unknown;
+    path?: string;
   };
   assert.equal(sandboxToolHistory.action, "written");
   assert.equal(sandboxToolHistory.requestedAction, "write");
-  assert.equal(sandboxToolHistory.job?.files?.[0]?.fileRef?.fileRef, undefined);
-  const sendMediaToolHistory = JSON.parse(
-    providerGatewayClient.calls.at(-1)?.toolHistory?.[1]?.toolResult.content ?? "{}"
-  ) as {
-    action?: string;
-    delivered?: boolean;
-    queuedAttachments?: number;
-    queuedArtifacts?: number;
-    requestedAction?: string;
-  };
-  assert.equal(sendMediaToolHistory.action, "queued");
-  assert.equal(sendMediaToolHistory.requestedAction, "send");
-  assert.equal(sendMediaToolHistory.delivered, true);
-  assert.equal(sendMediaToolHistory.queuedAttachments, 1);
-  assert.equal(sendMediaToolHistory.queuedArtifacts, undefined);
+  assert.equal(sandboxToolHistory.job, null);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
-
-  const atomicSandboxDeliveryRequest = createRuntimeTurnRequest();
-  atomicSandboxDeliveryRequest.bundle.bundleHash = request.bundle.bundleHash;
-  turnAcceptanceService.result = createAcceptedTurn();
-  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
-    request.bundle.bundleHash;
-  providerGatewayClient.resultQueue = [
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "",
-      respondedAt: "2026-04-11T12:00:03.950Z",
-      usage: null,
-      stopReason: "tool_calls",
-      toolCalls: [
-        {
-          id: "tool-call-write-and-send-1",
-          name: "files",
-          arguments: {
-            action: "write_and_send",
-            path: "outputs/report.txt",
-            content: "sandbox output",
-            caption: "Here is your file"
-          }
-        }
-      ]
-    },
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "reply after atomic sandbox delivery",
-      respondedAt: "2026-04-11T12:00:04.000Z",
-      usage: null,
-      stopReason: "completed",
-      toolCalls: []
-    }
-  ];
-  const atomicSandboxDeliveryCompleted = await service.createTurn(atomicSandboxDeliveryRequest);
-  assert.equal(atomicSandboxDeliveryCompleted.assistantText, "reply after atomic sandbox delivery");
-  assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.name, "files");
-  assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.arguments.action, "write_and_send");
-  assert.deepEqual(runtimeFilesToolService.calls.at(-1)?.currentArtifacts, []);
-  assert.equal(atomicSandboxDeliveryCompleted.artifacts.length, 1);
-  assert.equal(atomicSandboxDeliveryCompleted.artifacts[0]?.artifactId, "artifact-sent-1");
-  const atomicWriteAndSendToolHistory = JSON.parse(
-    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
-  ) as {
-    action?: string;
-    delivered?: boolean;
-    queuedAttachments?: number;
-    queuedArtifacts?: number;
-    requestedAction?: string;
-  };
-  assert.equal(atomicWriteAndSendToolHistory.action, "written_and_queued");
-  assert.equal(atomicWriteAndSendToolHistory.requestedAction, "write_and_send");
-  assert.equal(atomicWriteAndSendToolHistory.delivered, true);
-  assert.equal(atomicWriteAndSendToolHistory.queuedAttachments, 1);
-  assert.equal(atomicWriteAndSendToolHistory.queuedArtifacts, undefined);
 
   const sandboxWorkspaceContinuityRequest = createRuntimeTurnRequest();
   sandboxWorkspaceContinuityRequest.bundle.bundleHash = request.bundle.bundleHash;
@@ -4305,7 +3965,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(sandboxWorkspaceContinuityCompleted.assistantText, "workspace continuity reply");
   assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.arguments.action, "write");
   assert.equal(runtimeSandboxToolService.calls.at(-1)?.toolCall.name, "shell");
-  assert.equal(runtimeSandboxToolService.calls.at(-1)?.currentFileRefs[0]?.fileRef, "file-ref-1");
 
   // ADR-123 Slice 7 — grep/glob tool calls dispatch to the inline grep/glob
   // service (control-plane search), NOT the exec-pod sandbox service.
@@ -6695,15 +6354,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   request.message.attachments = [];
   turnContextHydrationService.availableWorkingFileRefsOverride = [
     {
-      fileRef: "file-ref-video-history-1",
-      origin: "runtime_output",
       sourceToolCode: "image_generate",
-      objectKey: "assistant-media/uploads/video-reference.png",
-      relativePath: "generated/video-reference.png",
+      workspaceId: "workspace-1",
+      storagePath: "assistant-media/uploads/video-reference.png",
       displayName: "video-reference.png",
       mimeType: "image/png",
       sizeBytes: videoReferenceBuffer.length,
-      logicalSizeBytes: videoReferenceBuffer.length,
       aliases: ["image #11", "file #12"],
       createdAt: "2026-04-14T11:58:00.000Z",
       authorLabel: "model",
@@ -6779,7 +6435,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     | RuntimeAttachmentRef[]
     | undefined;
   const videoReferenceAttachment = videoEnqueueAttachments?.find(
-    (attachment) => attachment.fileRef === "file-ref-video-history-1"
+    (attachment) => attachment.storagePath === "assistant-media/uploads/video-reference.png"
   );
   assert.deepEqual(videoReferenceAttachment?.aliases, ["image #11", "file #12"]);
   {
@@ -6844,22 +6500,19 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       service as unknown as {
         mergeWorkingFileDocumentSourceAttachments(
           attachments: RuntimeAttachmentRef[],
-          availableWorkingFileRefs: RuntimeFileRef[]
+          availableWorkingFileHandles: RuntimeFileHandle[]
         ): RuntimeAttachmentRef[];
       }
     ).mergeWorkingFileDocumentSourceAttachments(
       [],
       [
         {
-          fileRef: "file-ref-doc-history-1",
-          origin: "uploaded_attachment",
           sourceToolCode: null,
-          objectKey: "assistant-media/uploads/source-brief.docx",
-          relativePath: "uploads/source-brief.docx",
+          workspaceId: "workspace-1",
+          storagePath: "assistant-media/uploads/source-brief.docx",
           displayName: "source-brief.docx",
           mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           sizeBytes: 2048,
-          logicalSizeBytes: 2048,
           aliases: ["file #12"],
           createdAt: "2026-04-14T11:57:00.000Z",
           authorLabel: "user",
@@ -6871,7 +6524,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       documentAttachments.map((attachment) => attachment.aliases),
       [["file #12"]]
     );
-    assert.equal(documentAttachments[0]?.fileRef, "file-ref-doc-history-1");
+    assert.equal(documentAttachments[0]?.storagePath, "assistant-media/uploads/source-brief.docx");
   }
   const videoGenerateToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
@@ -6914,15 +6567,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   request.message.attachments = [];
   turnContextHydrationService.availableWorkingFileRefsOverride = [
     {
-      fileRef: "file-ref-image-edit-history-1",
-      origin: "uploaded_attachment",
       sourceToolCode: null,
-      objectKey: "assistant-media/uploads/reference-image.png",
-      relativePath: "uploads/reference-image.png",
+      workspaceId: "workspace-1",
+      storagePath: "assistant-media/uploads/reference-image.png",
       displayName: "living-room.png",
       mimeType: "image/png",
       sizeBytes: referenceImageBuffer.length,
-      logicalSizeBytes: referenceImageBuffer.length,
       aliases: ["image #1", "file #1"],
       createdAt: "2026-04-13T11:58:00.000Z",
       authorLabel: "user",
@@ -7038,17 +6688,17 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     {
       attachmentId: "attachment-image-yard",
       kind: "image",
-      objectKey: "assistant-media/uploads/yard-image.png",
+      storagePath: "assistant-media/uploads/yard-image.png",
       mimeType: "image/png",
-      filename: "yard.png",
+      displayName: "yard.png",
       sizeBytes: yardImageBuffer.length
     },
     {
       attachmentId: "attachment-image-car",
       kind: "image",
-      objectKey: "assistant-media/uploads/car-image.png",
+      storagePath: "assistant-media/uploads/car-image.png",
       mimeType: "image/png",
-      filename: "car.png",
+      displayName: "car.png",
       sizeBytes: carImageBuffer.length
     }
   ];
@@ -8144,9 +7794,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         {
           attachmentId: "img-1",
           kind: "image",
-          objectKey: "uploads/test.jpg",
+          storagePath: "uploads/test.jpg",
           mimeType: "image/jpeg",
-          filename: "test.jpg",
+          displayName: "test.jpg",
           sizeBytes: 1024
         }
       ];
@@ -8635,7 +8285,7 @@ type DeveloperSectionsAccessor = {
           tools: Array<{ name: string }>;
         }
       | undefined;
-    availableWorkingFileRefs: RuntimeFileRef[];
+    availableWorkingFileHandles: RuntimeFileHandle[];
     deepModeEnabled: boolean;
     routeDecision: undefined;
     openLoopRefsBlock: null;
@@ -8715,30 +8365,24 @@ export async function runRecentPdfsHintTests(): Promise<void> {
     const sections = accessor.buildBaseDeveloperInstructionSections({
       request,
       projectedTools: { tools: [{ name: "document" }] },
-      availableWorkingFileRefs: [
+      availableWorkingFileHandles: [
         {
-          fileRef: "file-ref-current",
-          origin: "uploaded_attachment",
           sourceToolCode: null,
-          objectKey: "assistant-media/uploads/proposal.docx",
-          relativePath: "uploads/proposal.docx",
+          workspaceId: "workspace-1",
+          storagePath: "assistant-media/uploads/proposal.docx",
           displayName: "proposal.docx",
           mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           sizeBytes: 512,
-          logicalSizeBytes: 512,
           aliases: ["file #1"],
           semanticSummaryHint: "Current source document for the new PDF."
         },
         {
-          fileRef: "file-ref-last",
-          origin: "runtime_output",
           sourceToolCode: "document",
-          objectKey: "assistant-media/generated/proposal.pdf",
-          relativePath: "generated/proposal.pdf",
+          workspaceId: "workspace-1",
+          storagePath: "assistant-media/generated/proposal.pdf",
           displayName: "proposal.pdf",
           mimeType: "application/pdf",
           sizeBytes: 1024,
-          logicalSizeBytes: 1024,
           aliases: ["file #2"],
           semanticSummaryHint: "Most recent delivered PDF result."
         }

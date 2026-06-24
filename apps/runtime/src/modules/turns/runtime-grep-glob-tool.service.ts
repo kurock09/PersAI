@@ -2,7 +2,6 @@ import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayToolCall,
-  RuntimeFileRef,
   RuntimeGlobToolResult,
   RuntimeGrepMatch,
   RuntimeGrepToolResult,
@@ -26,11 +25,8 @@ export interface RuntimeGlobToolExecutionResult {
 /**
  * ADR-123 Slice 7 — inline `grep` / `glob` workspace tools.
  *
- * These mirror the `files`-read inline path: even though the model-facing
- * projection is `inline`, the search executes on the sandbox CONTROL PLANE
- * (trusted PersAI-owned `rg`/`fd` subprocesses against the hydrated workspace),
- * reached through the SAME sandbox-job contract that `files` uses. No exec pod
- * is created (see `RuntimeFilesToolService.executeSandboxJob`).
+ * Routes grep/glob tool calls to the sandbox service, which executes `rg`/`fd`
+ * via `kubectl exec` inside the session pod.
  */
 @Injectable()
 export class RuntimeGrepGlobToolService {
@@ -44,7 +40,6 @@ export class RuntimeGrepGlobToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentFileRefs: RuntimeFileRef[];
   }): Promise<RuntimeGrepToolExecutionResult> {
     const policy = this.resolveAllowedToolPolicy(params.bundle, "grep");
     if (policy === null) {
@@ -127,7 +122,6 @@ export class RuntimeGrepGlobToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
-    currentFileRefs: RuntimeFileRef[];
   }): Promise<RuntimeGlobToolExecutionResult> {
     const policy = this.resolveAllowedToolPolicy(params.bundle, "glob");
     if (policy === null) {
@@ -217,12 +211,13 @@ export class RuntimeGrepGlobToolService {
     }
     return await this.sandboxClientService.waitForCompletion({
       assistantId: input.bundle.metadata.assistantId,
+      assistantHandle: input.bundle.metadata.assistantHandle,
+      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
       workspaceId: input.bundle.metadata.workspaceId,
       runtimeRequestId: input.requestId,
       runtimeSessionId: input.sessionId,
       toolCode: input.toolCode,
       policy,
-      mountedFileRefs: [],
       args: input.args
     } satisfies RuntimeSandboxJobRequest);
   }

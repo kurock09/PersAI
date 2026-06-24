@@ -7,7 +7,7 @@ import type {
   ProviderGatewayPdfContentBlock,
   ProviderGatewayTextMessage,
   RuntimeAttachmentRef,
-  RuntimeFileRef,
+  RuntimeFileHandle,
   RuntimeOutputArtifact,
   RuntimeConversationAddress,
   RuntimeTodoItem,
@@ -35,10 +35,6 @@ import {
 } from "./prompt-cache-stable-blocks";
 import { renderCrossSessionCarryOverBlock } from "./cross-session-carry-over-renderer";
 import { renderPresenceBlock } from "./presence-renderer";
-import {
-  RuntimeAssistantFileRegistryService,
-  type RuntimeAssistantFileRecord
-} from "./runtime-assistant-file-registry.service";
 import { parseStoredReusableCompactionState } from "./shared-compaction-state";
 import {
   formatCurrentMessageAttachmentLabel,
@@ -51,8 +47,10 @@ const MIN_HYDRATED_MEMORY_ITEMS = 3;
 const MAX_HYDRATED_MEMORY_ITEMS = 10;
 const MIN_HYDRATED_MEMORY_TOTAL_CHARS = 400;
 const MAX_HYDRATED_MEMORY_TOTAL_CHARS = 1800;
-/** ADR-100 Piece 2 — how many most-recent assistant messages to scan for discovered file ids. */
+/** ADR-100 Piece 2 — how many most-recent assistant messages to scan for discovered paths. */
 const RECENT_FILE_DISCOVERY_MESSAGE_WINDOW = 5;
+/** ADR-100 Piece 2 — max distinct discovered paths surfaced from message metadata. */
+const RECENT_DISCOVERED_FILE_PATH_CAP = 6;
 const MAX_OPEN_LOOP_REFS_DEVELOPER_ITEMS = 5;
 const MAX_OPEN_LOOP_REF_SUMMARY_CHARS = 72;
 const MAX_OPEN_LOOP_REF_SELECTION_TOKENS = 12;
@@ -283,7 +281,7 @@ type CanonicalChatMessageRow = {
   content: string;
   createdAt: Date | null;
   attachments: CanonicalChatAttachmentRow[];
-  /** ADR-100 Piece 2 — optional JSONB metadata from the message row; may contain discoveredFileRefIds. */
+  /** ADR-100 Piece 2 — optional JSONB metadata from the message row; may contain discoveredFilePaths. */
   metadata?: Record<string, unknown> | null;
 };
 
@@ -302,7 +300,6 @@ type AssistantChatRowMeta = {
 
 type CanonicalChatAttachmentRow = {
   id: string;
-  assistantFileId: string | null;
   attachmentType: "image" | "audio" | "voice" | "video" | "document" | "tool_output";
   originalFilename: string | null;
   mimeType: string;
@@ -369,7 +366,6 @@ export class TurnContextHydrationService {
     private readonly runtimeStatePostgresService: RuntimeStatePostgresService,
     private readonly runtimeStateKeyspaceService: RuntimeStateKeyspaceService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService,
     private readonly persaiInternalApiClient: PersaiInternalApiClientService
   ) {}
 
@@ -452,33 +448,33 @@ export class TurnContextHydrationService {
     );
   }
 
-  async listAvailableWorkingFileRefs(input: {
+  async listAvailableWorkingFileHandles(input: {
     conversation: RuntimeConversationAddress;
     currentAttachments: RuntimeAttachmentRef[];
-    currentFileRefs?: RuntimeFileRef[];
+    currentFileHandles?: RuntimeFileHandle[];
     currentArtifacts?: RuntimeOutputArtifact[];
-  }): Promise<RuntimeFileRef[]> {
-    const refs = new Map<string, RuntimeFileRef>();
+  }): Promise<RuntimeFileHandle[]> {
+    const refs = new Map<string, RuntimeFileHandle>();
     const appearanceOrder: string[] = [];
-    const pushAppearance = (fileRef: string): void => {
-      if (!appearanceOrder.includes(fileRef)) {
-        appearanceOrder.push(fileRef);
+    const pushAppearance = (storagePath: string): void => {
+      if (!appearanceOrder.includes(storagePath)) {
+        appearanceOrder.push(storagePath);
       }
     };
 
-    const existingStickyAliases = this.collectExistingStickyAliases(input.currentFileRefs ?? []);
-    const upsertRawWorkingFileRef = (fileRef: RuntimeFileRef): void => {
-      const existing = refs.get(fileRef.fileRef);
+    const existingStickyAliases = this.collectExistingStickyAliases(input.currentFileHandles ?? []);
+    const upsertWorkingFileHandle = (file: RuntimeFileHandle): void => {
+      const existing = refs.get(file.storagePath);
       if (existing === undefined) {
-        refs.set(fileRef.fileRef, {
-          ...fileRef,
-          aliases: fileRef.aliases ?? []
+        refs.set(file.storagePath, {
+          ...file,
+          aliases: file.aliases ?? []
         });
         return;
       }
-      refs.set(fileRef.fileRef, {
+      refs.set(file.storagePath, {
         ...existing,
-        ...fileRef,
+        ...file,
         aliases: existing.aliases ?? []
       });
     };
@@ -490,53 +486,52 @@ export class TurnContextHydrationService {
           if (this.shouldSuppressHistoricalWorkingFileAttachment(attachment)) {
             continue;
           }
-          const record = await this.resolveAttachmentFileRecord(
-            input.conversation.assistantId,
+          const handle = this.canonicalAttachmentToRuntimeFileHandle(
+            attachment,
             input.conversation.workspaceId,
-            {
-              attachmentId: attachment.id,
-              fileRef: attachment.assistantFileId,
-              objectKey: attachment.storagePath,
-              filename: attachment.originalFilename,
-              mimeType: attachment.mimeType,
-              sizeBytes: attachment.sizeBytes
-            },
-            message.author === "assistant" ? "runtime_output" : "uploaded_attachment"
+            message.author === "assistant" ? "model" : "user"
           );
-          if (record === null) {
+          if (handle === null) {
             continue;
           }
-          const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record);
-          upsertRawWorkingFileRef(runtimeFileRef);
-          pushAppearance(runtimeFileRef.fileRef);
+          upsertWorkingFileHandle(handle);
+          pushAppearance(handle.storagePath);
         }
       }
     }
 
     for (const attachment of input.currentAttachments) {
-      const runtimeFileRef = await this.resolveRuntimeFileRefForAttachment(
-        input.conversation.assistantId,
-        input.conversation.workspaceId,
-        attachment
-      );
-      if (runtimeFileRef === null) {
+      const handle = this.runtimeAttachmentToFileHandle(attachment, input.conversation.workspaceId);
+      if (handle === null) {
         continue;
       }
-      upsertRawWorkingFileRef(runtimeFileRef);
-      pushAppearance(runtimeFileRef.fileRef);
+      upsertWorkingFileHandle(handle);
+      pushAppearance(handle.storagePath);
     }
 
     for (const artifact of input.currentArtifacts ?? []) {
-      upsertRawWorkingFileRef(artifact.file);
-      pushAppearance(artifact.file.fileRef);
+      if (typeof artifact.storagePath !== "string" || artifact.storagePath.trim().length === 0) {
+        continue;
+      }
+      const handle: RuntimeFileHandle = {
+        storagePath: artifact.storagePath.trim(),
+        mimeType: artifact.mimeType,
+        sizeBytes: artifact.sizeBytes ?? 0,
+        displayName: artifact.filename,
+        workspaceId: input.conversation.workspaceId,
+        authorLabel: "model",
+        sourceToolCode: artifact.sourceToolCode ?? null
+      };
+      upsertWorkingFileHandle(handle);
+      pushAppearance(handle.storagePath);
     }
 
-    for (const fileRef of input.currentFileRefs ?? []) {
-      upsertRawWorkingFileRef(fileRef);
-      pushAppearance(fileRef.fileRef);
+    for (const fileHandle of input.currentFileHandles ?? []) {
+      upsertWorkingFileHandle(fileHandle);
+      pushAppearance(fileHandle.storagePath);
     }
 
-    await this.injectRecentDiscoveredFileRefs(input.conversation, refs, pushAppearance);
+    await this.injectRecentDiscoveredFilePaths(input.conversation, refs, pushAppearance);
 
     return this.assignStickyAliasesToWorkingFileRefs(
       [...refs.values()],
@@ -556,17 +551,16 @@ export class TurnContextHydrationService {
 
   /**
    * ADR-100 Piece 2 — scans the last RECENT_FILE_DISCOVERY_MESSAGE_WINDOW
-   * assistant messages for `metadata.discoveredFileRefIds`, fetches the
-   * corresponding AssistantFile rows (single bounded query), drops missing
-   * rows silently, dedupes against already-present Working Files entries,
-   * and upserts survivors with stable `file #N` / `image #N` aliases. The
-   * `semanticSummaryHint` is populated from `AssistantFile.metadata.semanticSummary`
-   * via the registry mapper.
+   * assistant messages for `metadata.discoveredFilePaths`, joins
+   * `workspace_file_metadata.shortDescription` for semantic hints, drops paths
+   * with no metadata row silently, dedupes against already-present Working
+   * Files entries, and upserts survivors with stable `file #N` / `image #N`
+   * aliases.
    */
-  private async injectRecentDiscoveredFileRefs(
+  private async injectRecentDiscoveredFilePaths(
     conversation: RuntimeConversationAddress,
-    refs: Map<string, RuntimeFileRef>,
-    pushAppearance: (fileRef: string) => void
+    refs: Map<string, RuntimeFileHandle>,
+    pushAppearance: (storagePath: string) => void
   ): Promise<void> {
     const canonicalSurface = toHydratedCanonicalSurface(conversation.channel);
     if (canonicalSurface === null) {
@@ -578,9 +572,7 @@ export class TurnContextHydrationService {
       return;
     }
 
-    // Collect distinct discovered file ref ids, most-recent-first, across
-    // the last K assistant messages that have non-empty discoveredFileRefIds.
-    const candidateIds: string[] = [];
+    const candidatePaths: string[] = [];
     let assistantMessagesScanned = 0;
     for (const message of [...storedMessages].reverse()) {
       if (message.author !== "assistant") {
@@ -591,42 +583,71 @@ export class TurnContextHydrationService {
       }
       assistantMessagesScanned += 1;
       const meta = message.metadata;
-      const rawIds = meta?.discoveredFileRefIds;
-      if (!Array.isArray(rawIds)) {
+      const rawPaths = meta?.discoveredFilePaths;
+      if (!Array.isArray(rawPaths)) {
         continue;
       }
-      for (const id of rawIds) {
-        if (typeof id === "string" && id.trim().length > 0 && !candidateIds.includes(id)) {
-          candidateIds.push(id);
+      for (const path of rawPaths) {
+        if (
+          typeof path === "string" &&
+          path.trim().length > 0 &&
+          !candidatePaths.includes(path.trim())
+        ) {
+          candidatePaths.push(path.trim());
         }
       }
     }
 
-    if (candidateIds.length === 0) {
+    if (candidatePaths.length === 0) {
       return;
     }
 
-    const newIds = candidateIds.filter((id) => !refs.has(id));
-    if (newIds.length === 0) {
+    const cappedPaths = candidatePaths.slice(0, RECENT_DISCOVERED_FILE_PATH_CAP);
+    const newPaths = cappedPaths.filter((path) => !refs.has(path));
+    if (newPaths.length === 0) {
       return;
     }
 
-    // Fetch corresponding AssistantFile rows (single bounded query). Any id
-    // whose row no longer exists is silently dropped.
-    const records = await this.runtimeAssistantFileRegistryService.listByFileRefs({
-      assistantId: conversation.assistantId,
-      workspaceId: conversation.workspaceId,
-      fileRefs: newIds
-    });
-
-    for (const record of records) {
-      const baseFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record);
-      refs.set(baseFileRef.fileRef, {
-        ...(refs.get(baseFileRef.fileRef) ?? baseFileRef),
-        ...baseFileRef,
-        aliases: refs.get(baseFileRef.fileRef)?.aliases ?? []
+    let descriptions: Array<{ path: string; shortDescription: string | null }> = [];
+    try {
+      descriptions = await this.persaiInternalApiClient.listWorkspaceFileShortDescriptions({
+        workspaceId: conversation.workspaceId,
+        paths: newPaths
       });
-      pushAppearance(baseFileRef.fileRef);
+    } catch (error) {
+      this.logger.warn(
+        `recent_discovered_file_paths_lookup_failed workspaceId=${conversation.workspaceId} reason=${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return;
+    }
+
+    const descriptionByPath = new Map(
+      descriptions.map((row) => [row.path, row.shortDescription] as const)
+    );
+
+    for (const storagePath of newPaths) {
+      if (!descriptionByPath.has(storagePath)) {
+        continue;
+      }
+      const shortDescription = descriptionByPath.get(storagePath) ?? null;
+      const displayName = storagePath.split("/").pop() ?? null;
+      const handle: RuntimeFileHandle = {
+        storagePath,
+        mimeType: "application/octet-stream",
+        sizeBytes: 0,
+        displayName,
+        workspaceId: conversation.workspaceId,
+        authorLabel: "sandbox",
+        semanticSummaryHint: shortDescription
+      };
+      refs.set(storagePath, {
+        ...(refs.get(storagePath) ?? handle),
+        ...handle,
+        aliases: refs.get(storagePath)?.aliases ?? []
+      });
+      pushAppearance(storagePath);
     }
   }
 
@@ -1316,7 +1337,6 @@ export class TurnContextHydrationService {
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
           select: {
             id: true,
-            assistantFileId: true,
             attachmentType: true,
             originalFilename: true,
             mimeType: true,
@@ -1342,11 +1362,10 @@ export class TurnContextHydrationService {
         })
         .map((attachment) => ({
           id: attachment.id,
-          assistantFileId: attachment.assistantFileId,
           attachmentType: attachment.attachmentType,
           originalFilename: attachment.originalFilename,
           mimeType: attachment.mimeType,
-          storagePath: attachment.storagePath,
+          storagePath: attachment.storagePath ?? "",
           sizeBytes: Number(attachment.sizeBytes),
           transcription: attachment.transcription,
           metadata: attachment.metadata as Record<string, unknown> | null
@@ -1674,6 +1693,7 @@ export class TurnContextHydrationService {
       input.directInputPreviewLimits ?? readFilesToolEffectivePreviewLimits(null);
     const directInputSelection = input.allowDirectAttachmentInput
       ? await this.buildDirectInputSelection(
+          input.workspaceId,
           input.attachments,
           input.fallbackAttachments,
           previewLimits
@@ -1713,6 +1733,7 @@ export class TurnContextHydrationService {
   }
 
   private async buildDirectInputSelection(
+    workspaceId: string,
     attachments: CanonicalChatAttachmentRow[],
     fallbackAttachments: RuntimeAttachmentRef[],
     previewLimits: ReturnType<typeof readFilesToolEffectivePreviewLimits>
@@ -1749,7 +1770,10 @@ export class TurnContextHydrationService {
         continue;
       }
 
-      const buffer = await this.mediaObjectStorage.downloadObject(candidate.objectKey);
+      const buffer = await this.downloadDirectInputAttachmentBytes(
+        workspaceId,
+        candidate.objectKey
+      );
       if (buffer === null || buffer.length === 0) {
         continue;
       }
@@ -1785,6 +1809,19 @@ export class TurnContextHydrationService {
     }
 
     return selection;
+  }
+
+  private async downloadDirectInputAttachmentBytes(
+    workspaceId: string,
+    objectKey: string
+  ): Promise<Buffer | null> {
+    if (objectKey.startsWith("/shared/") || objectKey.startsWith("/workspace/")) {
+      return await this.mediaObjectStorage.downloadByWorkspacePath({
+        workspaceId,
+        storagePath: objectKey
+      });
+    }
+    return await this.mediaObjectStorage.downloadObject(objectKey);
   }
 
   private toCanonicalDirectInputCandidate(
@@ -1823,9 +1860,9 @@ export class TurnContextHydrationService {
         source: "runtime",
         referenceKey: attachment.attachmentId,
         kind: "image",
-        objectKey: attachment.objectKey,
+        objectKey: attachment.storagePath,
         mimeType: attachment.mimeType,
-        filename: attachment.filename,
+        filename: attachment.displayName,
         sizeBytes: attachment.sizeBytes
       };
     }
@@ -1834,9 +1871,9 @@ export class TurnContextHydrationService {
         source: "runtime",
         referenceKey: attachment.attachmentId,
         kind: "pdf",
-        objectKey: attachment.objectKey,
+        objectKey: attachment.storagePath,
         mimeType: "application/pdf",
-        filename: attachment.filename,
+        filename: attachment.displayName,
         sizeBytes: attachment.sizeBytes
       };
     }
@@ -1920,18 +1957,41 @@ export class TurnContextHydrationService {
     };
   }
 
-  private async ensureAttachmentFileRef(input: {
-    assistantId: string;
-    workspaceId: string;
-    origin: "uploaded_attachment" | "runtime_output";
-    referenceId: string;
-    objectKey: string;
-    filename: string | null;
-    mimeType: string;
-    sizeBytes: number;
-  }): Promise<string> {
-    const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile(input);
-    return file.fileRef;
+  private canonicalAttachmentToRuntimeFileHandle(
+    attachment: CanonicalChatAttachmentRow,
+    workspaceId: string,
+    authorLabel: "user" | "model"
+  ): RuntimeFileHandle | null {
+    const storagePath = attachment.storagePath.trim();
+    if (storagePath.length === 0) {
+      return null;
+    }
+    return {
+      storagePath,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      displayName: attachment.originalFilename,
+      workspaceId,
+      authorLabel
+    };
+  }
+
+  private runtimeAttachmentToFileHandle(
+    attachment: RuntimeAttachmentRef,
+    workspaceId: string
+  ): RuntimeFileHandle | null {
+    const storagePath = attachment.storagePath.trim();
+    if (storagePath.length === 0) {
+      return null;
+    }
+    return {
+      storagePath,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      displayName: attachment.displayName,
+      workspaceId,
+      authorLabel: "user"
+    };
   }
 
   private readStoredAttachmentContentPreview(
@@ -1947,68 +2007,8 @@ export class TurnContextHydrationService {
       : null;
   }
 
-  private async resolveRuntimeFileRefForAttachment(
-    assistantId: string,
-    workspaceId: string,
-    attachment: RuntimeAttachmentRef
-  ): Promise<RuntimeFileRef | null> {
-    const fileRef =
-      attachment.fileRef ??
-      (await this.ensureAttachmentFileRef({
-        assistantId,
-        workspaceId,
-        origin: "uploaded_attachment",
-        referenceId: attachment.attachmentId,
-        objectKey: attachment.objectKey,
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
-        sizeBytes: attachment.sizeBytes
-      }));
-    const record = await this.runtimeAssistantFileRegistryService.findByFileRef({
-      assistantId,
-      workspaceId,
-      fileRef
-    });
-    if (record === null) {
-      return null;
-    }
-    return this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record);
-  }
-
-  private async resolveAttachmentFileRecord(
-    assistantId: string,
-    workspaceId: string,
-    attachment: {
-      attachmentId: string;
-      fileRef: string | null;
-      objectKey: string;
-      filename: string | null;
-      mimeType: string;
-      sizeBytes: number;
-    },
-    fallbackOrigin: "uploaded_attachment" | "runtime_output"
-  ): Promise<RuntimeAssistantFileRecord | null> {
-    const fileRef =
-      attachment.fileRef ??
-      (await this.ensureAttachmentFileRef({
-        assistantId,
-        workspaceId,
-        origin: fallbackOrigin,
-        referenceId: attachment.attachmentId,
-        objectKey: attachment.objectKey,
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
-        sizeBytes: attachment.sizeBytes
-      }));
-    return this.runtimeAssistantFileRegistryService.findByFileRef({
-      assistantId,
-      workspaceId,
-      fileRef
-    });
-  }
-
-  private isAssistantGeneratedFile(file: Pick<RuntimeFileRef, "origin">): boolean {
-    return file.origin !== "uploaded_attachment";
+  private isAssistantGeneratedFile(file: Pick<RuntimeFileHandle, "authorLabel">): boolean {
+    return file.authorLabel === "model" || file.authorLabel === "sandbox";
   }
 
   private mergeAliases(
@@ -2029,7 +2029,7 @@ export class TurnContextHydrationService {
   }
 
   private assignStickyAliasesToWorkingFileRefs(
-    files: RuntimeFileRef[],
+    files: RuntimeFileHandle[],
     appearanceOrder: string[],
     existingStickyAliases: Map<
       string,
@@ -2040,45 +2040,45 @@ export class TurnContextHydrationService {
         imageOrdinal: number | null;
       }
     >
-  ): RuntimeFileRef[] {
-    const fileById = new Map(files.map((file) => [file.fileRef, file] as const));
+  ): RuntimeFileHandle[] {
+    const fileById = new Map(files.map((file) => [file.storagePath, file] as const));
     const orderedIds: string[] = [];
     const seen = new Set<string>();
-    const pushOrderedId = (fileRef: string): void => {
-      if (seen.has(fileRef) || !fileById.has(fileRef)) {
+    const pushOrderedId = (storagePath: string): void => {
+      if (seen.has(storagePath) || !fileById.has(storagePath)) {
         return;
       }
-      seen.add(fileRef);
-      orderedIds.push(fileRef);
+      seen.add(storagePath);
+      orderedIds.push(storagePath);
     };
 
     const stickyIds = [...existingStickyAliases.entries()]
-      .filter(([fileRef]) => fileById.has(fileRef))
+      .filter(([storagePath]) => fileById.has(storagePath))
       .sort((left, right) => {
         const leftOrdinal = left[1].fileOrdinal ?? Number.MAX_SAFE_INTEGER;
         const rightOrdinal = right[1].fileOrdinal ?? Number.MAX_SAFE_INTEGER;
         return leftOrdinal - rightOrdinal;
       })
-      .map(([fileRef]) => fileRef);
-    for (const fileRef of stickyIds) {
-      pushOrderedId(fileRef);
+      .map(([storagePath]) => storagePath);
+    for (const storagePath of stickyIds) {
+      pushOrderedId(storagePath);
     }
-    for (const fileRef of appearanceOrder) {
-      pushOrderedId(fileRef);
+    for (const storagePath of appearanceOrder) {
+      pushOrderedId(storagePath);
     }
     const remaining = files
-      .filter((file) => !seen.has(file.fileRef))
+      .filter((file) => !seen.has(file.storagePath))
       .sort((left, right) => {
         const createdAtDiff =
-          this.parseRuntimeFileRefCreatedAtMs(left.createdAt) -
-          this.parseRuntimeFileRefCreatedAtMs(right.createdAt);
+          this.parseRuntimeFileHandleCreatedAtMs(left.createdAt) -
+          this.parseRuntimeFileHandleCreatedAtMs(right.createdAt);
         if (createdAtDiff !== 0) {
           return createdAtDiff;
         }
-        return left.fileRef.localeCompare(right.fileRef);
+        return left.storagePath.localeCompare(right.storagePath);
       });
     for (const file of remaining) {
-      pushOrderedId(file.fileRef);
+      pushOrderedId(file.storagePath);
     }
 
     let nextFileOrdinal = Math.max(
@@ -2091,10 +2091,10 @@ export class TurnContextHydrationService {
     );
 
     return orderedIds
-      .map((fileRef) => fileById.get(fileRef))
-      .filter((file): file is RuntimeFileRef => file !== undefined)
+      .map((storagePath) => fileById.get(storagePath))
+      .filter((file): file is RuntimeFileHandle => file !== undefined)
       .map((file) => {
-        const sticky = existingStickyAliases.get(file.fileRef);
+        const sticky = existingStickyAliases.get(file.storagePath);
         const aliases: string[] = [];
         if (file.mimeType.trim().toLowerCase().startsWith("image/")) {
           aliases.push(sticky?.imageAlias ?? `image #${String(++nextImageOrdinal)}`);
@@ -2107,7 +2107,7 @@ export class TurnContextHydrationService {
       });
   }
 
-  private collectExistingStickyAliases(files: RuntimeFileRef[]): Map<
+  private collectExistingStickyAliases(files: RuntimeFileHandle[]): Map<
     string,
     {
       fileAlias: string | null;
@@ -2144,7 +2144,7 @@ export class TurnContextHydrationService {
         }
       }
       if (fileAlias !== null || imageAlias !== null) {
-        entries.set(file.fileRef, {
+        entries.set(file.storagePath, {
           fileAlias,
           imageAlias,
           fileOrdinal,
@@ -2167,7 +2167,7 @@ export class TurnContextHydrationService {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }
 
-  private parseRuntimeFileRefCreatedAtMs(createdAt: string | undefined): number {
+  private parseRuntimeFileHandleCreatedAtMs(createdAt: string | undefined): number {
     if (typeof createdAt !== "string" || createdAt.trim().length === 0) {
       return 0;
     }

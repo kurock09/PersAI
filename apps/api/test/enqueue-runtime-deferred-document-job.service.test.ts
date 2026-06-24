@@ -1492,15 +1492,11 @@ async function runPresentationPdfToPptxExportQueuesPptxRender(): Promise<void> {
           },
           currentOutputFormat: "pdf" as const,
           latestDeliveredFile: {
-            fileRef: "file-pdf-1",
-            origin: "runtime_output" as const,
-            sourceToolCode: "document",
-            objectKey: "objects/deck.pdf",
-            relativePath: "deck.pdf",
-            displayName: "deck.pdf",
+            attachmentId: "attachment-pdf-1",
+            storagePath: "/shared/workspace-1/outbound/self/deck.pdf",
             mimeType: "application/pdf",
             sizeBytes: 1000,
-            logicalSizeBytes: 1000
+            originalFilename: "deck.pdf"
           }
         };
       },

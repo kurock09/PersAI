@@ -74,6 +74,12 @@ async function runRetriesSerializableWebChatCap(): Promise<void> {
 async function runHardDeleteRemovesWebRuntimeState(): Promise<void> {
   const calls: string[] = [];
   const tx = {
+    sandboxWorkspaceGcLease: {
+      create: async (args: { data: Record<string, unknown> }) => {
+        calls.push(`gc-lease:${JSON.stringify(args.data)}`);
+        return {};
+      }
+    },
     runtimeSession: {
       findMany: async () => [{ id: "runtime-session-1" }],
       deleteMany: async (args: Record<string, unknown>) => {
@@ -119,7 +125,20 @@ async function runHardDeleteRemovesWebRuntimeState(): Promise<void> {
   } as never);
 
   assert.equal(await repository.hardDeleteChat("chat-1", "assistant-1"), true);
-  assert.deepEqual(calls, [
+  assert.equal(
+    calls[0]?.startsWith("gc-lease:"),
+    true,
+    "first call must be the chat_scratch GC lease"
+  );
+  const leasePayload = JSON.parse((calls[0] ?? "").slice("gc-lease:".length)) as {
+    kind: string;
+    targetId: string;
+    metadata: { workspaceId: string; assistantId: string };
+  };
+  assert.equal(leasePayload.kind, "chat_scratch");
+  assert.equal(leasePayload.targetId, "chat-1");
+  assert.equal(leasePayload.metadata.assistantId, "assistant-1");
+  assert.deepEqual(calls.slice(1), [
     'runtime-receipt:{"where":{"assistantId":"assistant-1","channel":"web","externalThreadKey":"thread-1"}}',
     'runtime-compaction:{"where":{"runtimeSessionId":{"in":["runtime-session-1"]},"assistantId":"assistant-1"}}',
     'runtime-session:{"where":{"id":{"in":["runtime-session-1"]},"assistantId":"assistant-1","channel":"web","externalThreadKey":"thread-1"}}',

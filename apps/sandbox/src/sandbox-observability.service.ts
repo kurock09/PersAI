@@ -2,8 +2,26 @@ import { Injectable } from "@nestjs/common";
 
 const LONG_POLL_WAIT_BUCKETS_MS = [100, 250, 500, 1_000, 2_000, 5_000] as const;
 const STALE_JOB_STATUSES = ["queued", "running"] as const;
+// ADR-126 Slice 3 — pod-exec primitives on /shared and /workspace tend to land
+// in the single-digit to low-hundreds millisecond range when the pod is warm,
+// and stretch into seconds during cold provisioning. The bucket set is the
+// same across every workspace_file_* op so a single rollup can compare them.
+const WORKSPACE_FILE_LATENCY_BUCKETS_MS = [
+  10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000
+] as const;
+const WORKSPACE_FILE_OPS = ["write", "read", "list", "stat", "delete"] as const;
+// ADR-126 v3 D12 — cold tar pull from GCS into a freshly recreated pod. Tail
+// stretches into seconds for a fresh assistant; the bucket set mirrors
+// WORKSPACE_FILE_LATENCY_BUCKETS_MS but extends to 60 s to capture worst-case
+// session restores.
+const SNAPSHOT_COLD_PULL_BUCKETS_MS = [
+  50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000
+] as const;
+const SNAPSHOT_COLD_PULL_LAYERS = ["session", "shared"] as const;
 
 type StaleJobStatus = (typeof STALE_JOB_STATUSES)[number];
+type WorkspaceFileOp = (typeof WORKSPACE_FILE_OPS)[number];
+type SnapshotColdPullLayer = (typeof SNAPSHOT_COLD_PULL_LAYERS)[number];
 
 type HistogramSnapshot = {
   buckets: Array<{ le: string; value: number }>;
@@ -20,6 +38,14 @@ type CounterSnapshot = {
   staleFailures: Record<StaleJobStatus, number>;
 };
 
+export type WorkspaceFileLatencySnapshot = Record<WorkspaceFileOp, HistogramSnapshot>;
+
+type WorkspaceQuotaScope = "workspace" | "shared";
+
+export type WorkspaceQuotaSnapshot = Record<WorkspaceQuotaScope, number>;
+
+export type SnapshotColdPullLatencySnapshot = Record<SnapshotColdPullLayer, HistogramSnapshot>;
+
 @Injectable()
 export class SandboxObservabilityService {
   private submitted = 0;
@@ -33,6 +59,66 @@ export class SandboxObservabilityService {
   private readonly staleFailures = new Map<StaleJobStatus, number>(
     STALE_JOB_STATUSES.map((status) => [status, 0])
   );
+
+  // ADR-126 Slice 3 — per-op pod-exec latency histograms.
+  private readonly workspaceFileLatency = new Map<
+    WorkspaceFileOp,
+    {
+      count: number;
+      durationMsTotal: number;
+      maxDurationMs: number;
+      bucketCounts: number[];
+    }
+  >(
+    WORKSPACE_FILE_OPS.map((op) => [
+      op,
+      {
+        count: 0,
+        durationMsTotal: 0,
+        maxDurationMs: 0,
+        bucketCounts: WORKSPACE_FILE_LATENCY_BUCKETS_MS.map(() => 0)
+      }
+    ])
+  );
+
+  // ADR-126 Slice 3 — last observed quota usage per scope (set from disk on
+  // every write; published as a gauge from the metrics service).
+  private readonly workspaceQuotaUsage = new Map<WorkspaceQuotaScope, number>([
+    ["workspace", 0],
+    ["shared", 0]
+  ]);
+
+  // ADR-126 v3 D12 — cold tar pull latency per layer (session = workspace.tar
+  // restore, shared = per-blob hydrate from `assistant-media/workspaces/<wsid>/shared/...`).
+  private readonly snapshotColdPullLatency = new Map<
+    SnapshotColdPullLayer,
+    {
+      count: number;
+      durationMsTotal: number;
+      maxDurationMs: number;
+      bucketCounts: number[];
+    }
+  >(
+    SNAPSHOT_COLD_PULL_LAYERS.map((layer) => [
+      layer,
+      {
+        count: 0,
+        durationMsTotal: 0,
+        maxDurationMs: 0,
+        bucketCounts: SNAPSHOT_COLD_PULL_BUCKETS_MS.map(() => 0)
+      }
+    ])
+  );
+
+  private readonly workspaceFileAttachLatency = new Map<
+    string,
+    {
+      count: number;
+      durationMsTotal: number;
+      maxDurationMs: number;
+      bucketCounts: number[];
+    }
+  >();
 
   recordSubmittedJob(): void {
     this.submitted += 1;
@@ -85,6 +171,139 @@ export class SandboxObservabilityService {
       count: this.longPollWaitCount,
       durationMsTotal: this.longPollWaitDurationMsTotal,
       maxDurationMs: this.longPollWaitMaxDurationMs
+    };
+  }
+
+  recordWorkspaceFileLatency(op: WorkspaceFileOp, durationMs: number): void {
+    const entry = this.workspaceFileLatency.get(op);
+    if (entry === undefined) {
+      return;
+    }
+    const clampedDurationMs = Math.max(0, durationMs);
+    entry.count += 1;
+    entry.durationMsTotal += clampedDurationMs;
+    entry.maxDurationMs = Math.max(entry.maxDurationMs, clampedDurationMs);
+    WORKSPACE_FILE_LATENCY_BUCKETS_MS.forEach((bucket, index) => {
+      if (clampedDurationMs <= bucket) {
+        entry.bucketCounts[index] = (entry.bucketCounts[index] ?? 0) + 1;
+      }
+    });
+  }
+
+  recordWorkspaceFileAttachLatency(result: "ok" | "error", durationMs: number): void {
+    const key = `${result}:shared`;
+    let entry = this.workspaceFileAttachLatency.get(key);
+    if (entry === undefined) {
+      entry = {
+        count: 0,
+        durationMsTotal: 0,
+        maxDurationMs: 0,
+        bucketCounts: WORKSPACE_FILE_LATENCY_BUCKETS_MS.map(() => 0)
+      };
+      this.workspaceFileAttachLatency.set(key, entry);
+    }
+    const clampedDurationMs = Math.max(0, durationMs);
+    entry.count += 1;
+    entry.durationMsTotal += clampedDurationMs;
+    entry.maxDurationMs = Math.max(entry.maxDurationMs, clampedDurationMs);
+    WORKSPACE_FILE_LATENCY_BUCKETS_MS.forEach((bucket, index) => {
+      if (clampedDurationMs <= bucket) {
+        entry.bucketCounts[index] = (entry.bucketCounts[index] ?? 0) + 1;
+      }
+    });
+  }
+
+  getWorkspaceFileAttachLatency(): Array<{
+    result: "ok" | "error";
+    layer: "shared";
+    histogram: HistogramSnapshot;
+  }> {
+    const rows: Array<{
+      result: "ok" | "error";
+      layer: "shared";
+      histogram: HistogramSnapshot;
+    }> = [];
+    for (const result of ["ok", "error"] as const) {
+      const key = `${result}:shared`;
+      const entry = this.workspaceFileAttachLatency.get(key);
+      const bucketCounts = entry?.bucketCounts ?? WORKSPACE_FILE_LATENCY_BUCKETS_MS.map(() => 0);
+      rows.push({
+        result,
+        layer: "shared",
+        histogram: {
+          buckets: WORKSPACE_FILE_LATENCY_BUCKETS_MS.map((bucket, index) => ({
+            le: bucket.toString(),
+            value: bucketCounts[index] ?? 0
+          })),
+          count: entry?.count ?? 0,
+          durationMsTotal: entry?.durationMsTotal ?? 0,
+          maxDurationMs: entry?.maxDurationMs ?? 0
+        }
+      });
+    }
+    return rows;
+  }
+
+  recordWorkspaceQuotaUsage(scope: WorkspaceQuotaScope, bytes: number): void {
+    this.workspaceQuotaUsage.set(scope, Math.max(0, bytes));
+  }
+
+  recordSnapshotColdPull(layer: SnapshotColdPullLayer, durationMs: number): void {
+    const entry = this.snapshotColdPullLatency.get(layer);
+    if (entry === undefined) {
+      return;
+    }
+    const clampedDurationMs = Math.max(0, durationMs);
+    entry.count += 1;
+    entry.durationMsTotal += clampedDurationMs;
+    entry.maxDurationMs = Math.max(entry.maxDurationMs, clampedDurationMs);
+    SNAPSHOT_COLD_PULL_BUCKETS_MS.forEach((bucket, index) => {
+      if (clampedDurationMs <= bucket) {
+        entry.bucketCounts[index] = (entry.bucketCounts[index] ?? 0) + 1;
+      }
+    });
+  }
+
+  getSnapshotColdPullLatency(): SnapshotColdPullLatencySnapshot {
+    const snapshot = {} as SnapshotColdPullLatencySnapshot;
+    for (const layer of SNAPSHOT_COLD_PULL_LAYERS) {
+      const entry = this.snapshotColdPullLatency.get(layer);
+      const bucketCounts = entry?.bucketCounts ?? SNAPSHOT_COLD_PULL_BUCKETS_MS.map(() => 0);
+      snapshot[layer] = {
+        buckets: SNAPSHOT_COLD_PULL_BUCKETS_MS.map((bucket, index) => ({
+          le: bucket.toString(),
+          value: bucketCounts[index] ?? 0
+        })),
+        count: entry?.count ?? 0,
+        durationMsTotal: entry?.durationMsTotal ?? 0,
+        maxDurationMs: entry?.maxDurationMs ?? 0
+      };
+    }
+    return snapshot;
+  }
+
+  getWorkspaceFileLatency(): WorkspaceFileLatencySnapshot {
+    const snapshot = {} as WorkspaceFileLatencySnapshot;
+    for (const op of WORKSPACE_FILE_OPS) {
+      const entry = this.workspaceFileLatency.get(op);
+      const bucketCounts = entry?.bucketCounts ?? WORKSPACE_FILE_LATENCY_BUCKETS_MS.map(() => 0);
+      snapshot[op] = {
+        buckets: WORKSPACE_FILE_LATENCY_BUCKETS_MS.map((bucket, index) => ({
+          le: bucket.toString(),
+          value: bucketCounts[index] ?? 0
+        })),
+        count: entry?.count ?? 0,
+        durationMsTotal: entry?.durationMsTotal ?? 0,
+        maxDurationMs: entry?.maxDurationMs ?? 0
+      };
+    }
+    return snapshot;
+  }
+
+  getWorkspaceQuotaUsage(): WorkspaceQuotaSnapshot {
+    return {
+      workspace: this.workspaceQuotaUsage.get("workspace") ?? 0,
+      shared: this.workspaceQuotaUsage.get("shared") ?? 0
     };
   }
 }

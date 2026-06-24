@@ -45,7 +45,7 @@ describe("WebRuntimeTurnClientService", () => {
             {
               artifactId: "artifact-1",
               kind: "image",
-              objectKey: "assistant-media/assistants/assistant-1/runtime-output/one.png",
+              storagePath: "/shared/workspace-1/outbound/self/one.png",
               mimeType: "image/png",
               filename: "one.png",
               sizeBytes: 128,
@@ -159,8 +159,7 @@ describe("WebRuntimeTurnClientService", () => {
       assert.deepEqual(result.media, [
         {
           source: "persai_object_storage",
-          objectKey: "assistant-media/assistants/assistant-1/runtime-output/one.png",
-          fileRef: undefined,
+          objectKey: "/shared/workspace-1/outbound/self/one.png",
           type: "image",
           mimeType: "image/png",
           filename: "one.png",

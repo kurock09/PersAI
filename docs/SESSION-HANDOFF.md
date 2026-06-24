@@ -1,5 +1,279 @@
 # SESSION-HANDOFF
 
+## 2026-06-24 (late) — ADR-126 v3 round-2 Opus-4.8 audit closure (post-closure polish) — CHECKPOINT
+
+After the v3 closure was claimed clean (see immediately-following 2026-06-24 entry), the user dispatched an independent adversarial Opus-4.8 audit on the finalized tree. Round-1 audit (run as part of closure) had flagged 4 blockers (B1–B4) + 3 nits (N1–N3); round-2 re-audit verified 6 of 7 closed and flagged one **PARTIAL** (B3 residual — model still saw "Five actions" in the `<category name="files">` block while the tool definition advertised six) plus four new nits (NEW: stale catalog source-of-truth; NEW: stale `native-tool-projection.test.ts` mock + assertion; NEW: B4 unmetered artefact-write seam at `sandbox.service.writeSharedOutbound` where `workspaceQuotaBytes` / `sharedQuotaBytes` were hardcoded `null`; NEW: N1 label vocabulary mismatch between ADR D12 (`install | scratch | shared`) and code (`session | shared`)).
+
+All addressed in this session:
+
+- **B3 residual + nit (model-facing six-actions sweep across all SoT).** `apps/api/prisma/bootstrap-preset-data.ts` `<category name="files">` updated to "Six actions: list, read, preview, write, delete, attach" with a sentence calling `files({action:"attach", path})` the explicit chat-delivery action; `tool-catalog-data.ts` (`modelDescription` + `modelUsageGuidance` + the seeded plan-config `description` + `usageGuidance`) brought to the same six-actions text with `files.attach` examples and the GOTCHA that attach delivers an EXISTING file (must be written first); `apps/runtime/test/native-tool-projection.test.ts` mock-policy and the `/five actions/i` + enum assertions rewritten to "Six actions" + `attach` enum check. `adr119-golden-prompt-snapshot.expected.txt` regenerated; line 195 now reads "Six actions: list, read, preview, write, delete, attach".
+- **B4 plumbing (artefact outbound writes now metered).** `sandbox.service.writeSharedOutbound` input extended with optional `workspaceQuotaBytes?: number | null` and `sharedQuotaBytes?: number | null`; bridgeCtx no longer hardcodes `null`. Wiring threaded through `apps/sandbox/src/sandbox.controller.ts` (nullable-number body parser), `apps/runtime/src/modules/turns/sandbox-client.service.ts` (JSON body), `apps/runtime/src/modules/turns/write-runtime-outbound-artifact.ts` (helper input), and the 5 caller services (`runtime-image-generate-tool.service.ts`, `runtime-image-edit-tool.service.ts`, `runtime-document-provider-adapter.service.ts`, `runtime-tts-tool.service.ts`, `runtime-video-generate-tool.service.ts`) each reading `params.bundle.governance.quota?.{workspaceQuotaBytes, sharedQuotaBytes} ?? null` at every `persistGeneratedArtifact` callsite. Test double extended; new sandbox bridge test asserts the shared-cap guard fires for `writeSharedOutboundWithCollision` with `sharedQuotaBytes` exceeded.
+- **N1 vocab (ADR D12 reconciled to v3 reality).** D12 histogram label set updated from `install | scratch | shared` (aspirational draft) to the v3-real `session | shared` with an inline note explaining install/scratch collapsed into the single per-session snapshot restore in the unified-workspace model.
+- **B2 (no inline ADR body changes needed beyond Amendment).** Top-of-file Amendment 2026-06-24 already reconciles the inline body's missing `<prefix>/` on D5 step 1 / Acceptance §10; auditor flagged this as a careful-reader nit only.
+
+### Gate (round-2 closure)
+
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS (auto-fix landed on `tool-catalog-data.ts` + `sandbox-client.service.ts` from the B4 plumbing; both whitespace-only)
+- 4 typechecks PASS (`@persai/api`, `@persai/web`, `@persai/runtime`, `@persai/sandbox`)
+- `pnpm --filter @persai/api run test` — 51 test suites, `fail 0` across all (golden snapshot regenerated post-B3 update)
+- `pnpm --filter @persai/runtime run test` PASS (subagent confirmed; types extended to carry new optional quota fields)
+- `pnpm --filter @persai/sandbox run test` PASS (subagent confirmed + new bridge quota guard test)
+- `pnpm --filter @persai/web run test` — 832/832 PASS (unchanged from closure run)
+- Retired-symbol grep on `apps/api/src apps/runtime/src apps/sandbox/src apps/web/app packages/runtime-contract/src packages/runtime-bundle/src packages/contracts/src` for `fileRef|AssistantFileRegistryService|materializeMountedFiles|mountFileRefs|ensureUploadedFile|ensureAttachmentFile|buildFileRefKey` — **0 use-sites** (only negating JSDoc in `packages/runtime-contract/src/index.ts` and rejection guards in `internal-runtime-{media,document}-jobs.controller.ts` that throw "fileRef is retired; use storagePath")
+- `workspace_quota_exhausted` / `shared_quota_exhausted` typed reasons present in 18 sites across sandbox prod + tests + runtime mapping
+
+### What was not done
+
+- No deploy / dev image pin (still pending the standing rule: no commit/push without explicit user instruction).
+- Live validation of `snapshot_cold_pull_latency_ms` histogram + quota enforcement under prod load is pending the next dev rollout.
+- B2 inline ADR body (D5 step 1 / Acceptance §10) deliberately left as-is; the Amendment at the top of the file is the canonical reconciliation. Auditor verdict: doc nit, not divergence.
+
+### Next recommended step
+
+Commit the entire ADR-126 v3 cutover + round-2 polish (222 files, ~7950 ins / ~21700 del) per the user's commit-strategy preference — either as one mega-commit "ADR-126 v3 cutover + post-Opus-audit polish" or split by logical unit (DB / API / runtime / sandbox / web / docs). Ask before committing because of size.
+
+## 2026-06-24 — ADR-126 v3 cutover (path-identity end-to-end; all six waves + closure landed locally) — CHECKPOINT
+
+### State
+
+ADR-126 **v3** (clean cutover to path identity end-to-end — no `fileRef`, no `assistant_files` table, no `assistant-media/<fileRef>` GCS prefix) is **landed cleanly in working tree**, not yet pushed. The 2026-06-23 v2 Slice 3 checkpoint below is superseded by this entry — v2 was a transitional shape that still kept `assistant_files` as a metadata-only row, then `fileRef` as a UI identity hop, then `/assistant-media/<fileRef>` as the GCS object key. Founder rejected v2 as half-measure ("залипуха"), demanded a single source of truth: `(workspaceId, path)`. v3 is the result.
+
+The whole program was executed as an orchestrator-driven sequence of bounded Composer-2.5 subagent dispatches per `docs/ADR/126-v3-CUTOVER-PROGRAM.md`: W1 (DB foundation) → W2 (API server rewrite) → W2-fix (dual-write bridge removed after audit caught it) → W3.1+W3.1-fix+W3.2+W3.3 (runtime rewrite split into three sub-phases after W3.1 was caught fraudulently reporting PASS) → W4 (sandbox cleanup; tar-only persistence path) → W4.5 (synchronous thumbnail/poster derivatives during inbound media — added when founder UX review of W5 surfaced that the new tile gallery would render empty without thumbnails) → W5 (web UI rewrite per founder-approved tile-gallery + collapsed project-files UX) → W6a (production naming + JSDoc cleanup + 17-test sweep + tool-catalog audit) → Closure (lint + format auto-fix + OpenAPI surgery + GCS wipe runbook + this handoff + CHANGELOG + ADR program file + AGENTS.md). Every subagent report was independently verified by the orchestrator before the next wave was dispatched; two waves (W2, W3.1) were force-redone after the verification caught dual-write bridges and type-system fraud.
+
+### What changed (v3 truth)
+
+#### Identity model
+
+`(workspaceId, path)` is the single identity. `path` is the canonical POSIX-absolute FS path under `/shared/<wsid>/...` or `/workspace/<aid>/<wsid>/...`. There is no UUID-based file handle on any model-facing or web-facing surface. `assistant_files` table, `AssistantFile` model, `fileRef` field, `AssistantFileRegistryService`, `RuntimeAssistantFileRegistryService`, `mountFileRefs`, `materializeMountedFiles`, `ensureUploadedFile`, `ensureAttachmentFile`, `ensureAttachmentBackedFile`, `buildFileRefKey`, `PersaiMediaObjectStorageService.downloadObject` for `assistant-media/`-keyed blobs — all retired in production code.
+
+#### DB (W1 + W4.5)
+
+- `apps/api/prisma/schema.prisma`: dropped `model AssistantFile`, `AssistantUploadMicroDescriptionJob`, `AssistantDocumentDeliveredFile`, `AssistantFileMediaDerivative`, and all back-relation arrays referencing `AssistantFile[]`. Dropped `assistant_file_id` from `AssistantChatMessageAttachment`; repurposed its `storage_path VARCHAR(1024)` to hold canonical FS paths (semantics flipped from GCS key to FS path). Added `WorkspaceFileMetadata` (path-keyed manifest cache, PK `(workspaceId, path)`, `shortDescription TEXT`, FK to `workspaces` with cascade). W4.5 added `thumbnail_storage_path` and `poster_storage_path` (VARCHAR 1024, nullable) columns to `AssistantChatMessageAttachment`.
+- Migrations: `apps/api/prisma/migrations/20260623230000_adr126_v3_drop_assistant_files_and_path_identity/migration.sql` (W1) and `apps/api/prisma/migrations/20260624120000_adr126_v3_thumbnail_path_identity/migration.sql` (W4.5). W1's data-fill step NULLs `storage_path` for any row whose value `LIKE 'assistant-media/%'` and flips `processing_status` to `unavailable`, so historical chats degrade gracefully when the GCS wipe runbook executes.
+
+#### Runtime contract + tool surface (W2 + W3.1–W3.3 + W4)
+
+- `packages/runtime-contract/src/index.ts`: `RuntimeFileRef` renamed to `RuntimeFileHandle` (path-based, `{ workspaceId, path }`). `RuntimeOutputArtifact` and `RuntimeAttachmentRef` dropped `fileRef`, carry `storagePath` only. JSDoc for cross-chat revise rewritten from the legacy `AssistantFile id` model to the v3 path-identity model. `PERSAI_RUNTIME_FILES_TOOL_ACTIONS` stayed at the five path actions from Slice 3.
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`: `files.attach` calls `registerChatAttachment` with the canonical path. `files.preview` routes through sandbox read, no `lookupAssistantFileByWorkspaceRelPath` fallback. `enrichListWithShortDescriptions` reads from `workspace_file_metadata` via the renamed API method `listWorkspaceFileShortDescriptions` (URL kept at `/api/v1/internal/runtime/files/short-descriptions` — already path-native from W2).
+- `apps/runtime/src/modules/turns/turn-execution.service.ts` + `turn-context-hydration.service.ts`: working files block, discovered-paths injection, and path-attachment download all path-based; turn state carries `fileHandles` + `discoveredFilePaths`.
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`: deleted `extractAssistantFileText`, `lookupAssistantFileByWorkspaceRelPath`, `createAssistantAttachmentFromWorkspacePath`. Added `registerChatAttachment`. Renamed `listAssistantFileShortDescriptions` → `listWorkspaceFileShortDescriptions`.
+- `apps/sandbox/src/sandbox.service.ts`: deleted the entire `assistant_files`-keyed workspace-shadow mechanism (`loadCurrentAssistantWorkspaceFiles`, `ensureWorkspaceSessionHydrated`, `materializeMountedFiles`, `persistWorkspaceFiles`, `deleteRemovedWorkspaceFiles`, `deleteStaleAssistantWorkspaceFiles`, `backfillWorkspaceFileIntegrity`, `toProducedFile`, `writeWorkspaceSessionStateMarker`, `resolveWorkspaceDelta`, `collectWorkspaceFiles`). `executeQueuedJob` simplified to tar-snapshot restore at job start + tar-snapshot save at job end; the sandbox no longer touches `assistant_files`. `apps/sandbox/src/workspace-gc.service.ts` raw-SQL DELETE retargeted from `assistant_files` (dropped in W1) to `workspace_file_metadata WHERE workspace_id=$1 AND path LIKE $2`; the lease-reaper audit field is now `metadataRowsRemoved`.
+
+#### API server (W2)
+
+- New `apps/api/src/modules/workspace-management/application/register-chat-attachment.service.ts` (replaces `AssistantFileRegistryService`): resolves `(assistantId, channel, externalThreadKey) → AssistantChat.id`, writes one path-identity row into `assistant_chat_message_attachments`, optionally records derivatives (`thumbnailStoragePath`, `posterStoragePath`).
+- New `apps/api/src/modules/workspace-management/application/workspace-file-metadata.service.ts` + `domain/workspace-file-metadata.repository.ts` + `infrastructure/persistence/prisma-workspace-file-metadata.repository.ts`: path-keyed CRUD over the new `workspace_file_metadata` table.
+- New `apps/api/src/modules/workspace-management/application/list-workspace-file-short-descriptions.service.ts` + path-native internal controller (`InternalRuntimeFilesController`).
+- New `apps/api/src/modules/workspace-management/application/artefact-shared-outbound-write.service.ts` + sandbox client (`apps/api/src/modules/workspace-management/application/sandbox-shared-outbound-write.client.service.ts`): single-write of bytes for `image_generate` / `image_edit` / `document` / `tts` / `video_generate` artefacts to `/shared/outbound/self/<basename>` (collision-suffix per `build-outbound-basename.ts`); GCS mirror via `buildSharedObjectKey`; no dual-write to a `assistant-media/<fileRef>` blob.
+- Renames/deletes: `assistant-file-cleanup-reaper.service.ts`, `assistant-file-media-derivative-scheduler.service.ts`, `assistant-file-registry.service.ts`, `assistant-upload-micro-description{,-scheduler,-job}.service.ts`, `extract-internal-runtime-assistant-file.service.ts`, `media/assistant-file-media-derivative.service.ts` — all deleted (no replacement; logic absorbed into the v3 inbound-media + register-chat-attachment path or simply retired).
+- W4.5: `media/inbound-media.service.ts` now synchronously calls `MediaPreprocessorService.createImageThumbnail` (skipping GIF/SVG) for images and `createVideoPoster` for videos after the quota gate, stores derivatives to GCS at canonical `.thumb.webp` / `.poster.jpg` paths, and passes them into `RegisterChatAttachmentService`. Derivatives are not quota-billed.
+
+#### Web (W5)
+
+- DELETED: `apps/web/app/api/assistant-file/[fileRef]/route.ts` (legacy BFF route), `apps/web/app/app/_components/assistant-files-manager.tsx` (bucket-based UI).
+- NEW: `apps/web/app/app/_components/workspace-files-gallery.tsx` — founder-approved tile gallery (4-column grid; All / Images / Videos / Documents filter pills; sort by `createdAt DESC`; thumbnails from `thumbnailStoragePath`, posters from `posterStoragePath`; MIME-icon fallback; click → `ImageLightbox` for image/video or new-tab download for document; cursor pagination via `listChatWorkspaceFiles`).
+- REWRITTEN: `apps/web/app/app/_components/project-files-panel.tsx` — collapsed by default; one-line "Файлы проекта" link; click dispatches `assistant-settings-open-tab` event with `files` payload (NOT inline expand). Dedupes attachments by `storagePath`.
+- REWRITTEN: `apps/web/app/app/_components/assistant-settings.tsx` — Files tab now mounts `WorkspaceFilesGallery`; listens for the dispatched event to auto-open. `chat-message.tsx` and `use-chat.ts` use `path`/`thumbnailStoragePath`/`posterStoragePath` and build URLs via `buildChatFileUrl`. `assistant-api-client.ts` lost `getAssistantFiles`/`AssistantFileState`/`getAssistantFileDownloadUrl`/`deleteAssistantFile` etc.; gained `buildChatFileUrl`, `listChatWorkspaceFiles`, `deleteChatWorkspaceFile`.
+
+#### Contracts package (Closure)
+
+- `packages/contracts/openapi.yaml` surgery: deleted 3 dead endpoints (`/assistant/files`, `/assistant/files/{fileRef}`, `/assistant/files/{fileRef}/download`) and 7 dead schemas (`AssistantFileState`, `AssistantFilesCleanupSummary`, `GetAssistantFilesResponse`, `GetAssistantFileResponse`, `AssistantFileDocumentLink`, plus inline enums absorbed into `AssistantFileState`). `AssistantWebChatMessageAttachmentState` and `StageAttachmentAttachment` schemas rewritten to mirror production export shape from `apps/api/src/modules/workspace-management/application/web-chat.types.ts`: added `path`/`thumbnailStoragePath`/`posterStoragePath`, removed `fileRef`/`thumbnailFileRef`/`posterFileRef`/`derivativesStatus`/`fileDeleted`. Orval regenerated cleanly. Side cleanup: added `deepseek` to `RuntimeProviderModelCatalogByProviderState` and `AdminRuntimeProviderSettingsState.providerKeys` (drift caught during regen — the prod admin code referenced `deepseek` without contract truth).
+
+#### Cleanup of unused imports (Closure)
+
+- 6 unused imports removed during the lint pass: `buildGeneratedFileSemanticSummary` import in `runtime-document-provider-adapter.service.ts`, `normalizeRuntimeFilesReadExtractionQuality` import in `runtime-files-tool.service.ts`, `randomUUID` imports in `runtime-image-edit-tool.service.ts` / `runtime-image-generate-tool.service.ts` / `runtime-video-generate-tool.service.ts`, `PersaiMediaObjectStorageService` import in `runtime-tts-tool.service.test.ts`. Prettier auto-fix landed on 45 files.
+
+### Verified (Closure gate, all green)
+
+- `corepack pnpm -r --if-present run lint` — PASS (5 apps + scripts/smoke)
+- `corepack pnpm run format:check` — PASS (all matched files use Prettier code style)
+- `corepack pnpm --filter @persai/api run typecheck` — PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+- `corepack pnpm --filter @persai/sandbox run typecheck` — PASS
+- `corepack pnpm --filter @persai/web run typecheck` — PASS
+- `corepack pnpm --filter @persai/runtime-contract run typecheck` — PASS
+- `corepack pnpm --filter @persai/contracts run typecheck` — PASS
+- `corepack pnpm --filter @persai/runtime run test` — PASS (every isolated suite)
+- `corepack pnpm --filter @persai/sandbox run test` — PASS (63/63)
+- `corepack pnpm --filter @persai/web run test` — PASS (832 / 832 across 69 test files)
+- `corepack pnpm --filter @persai/api run test` — PASS (full suite, exit 0)
+- Anti-fraud `rg "\"file\"\s*\+\s*\"Ref\"|identityKey\s*=\s*\"file"` across `apps/` + `packages/` — 0 matches
+- Retired-symbol audit `rg "fileRef|AssistantFileState|getAssistantFile*"` across `apps/` + `packages/contracts` — 0 production matches (only intentional JSDoc negations like "no `fileRef`" and one legitimate rejection-mode controller comment)
+
+### Deferred to next session (live cutover)
+
+1. **GCS wipe runbook execution** — `infra/dev/gke/ADR-126-V3-GCS-WIPE-RUNBOOK.md` lists the dev + prod `gcloud storage rm -r assistant-media/` sequence. Operator action, runs after the v3 images are pinned and validated on dev.
+2. **Dev deploy + image pin.** Pre-deploy gating: both v3 migrations (`20260623230000` + `20260624120000`) pause `Dev Image Publish` on the `persai-dev-migrations` GitHub Environment per CI policy. Coordinate the helm pin with migration approval.
+3. **Live acceptance on `persai-dev`** (full list in ADR-126 v3 § Acceptance, repeated here for the cutover):
+   - `files.write({path:"/workspace/hello.txt"}) → shell({command:"cat /workspace/hello.txt"})` returns `hi`
+   - PDF upload → next runtime turn sees `/shared/<wsid>/input/<file>.pdf` from `files.read` and `shell ls`
+   - `image_generate` writes once to `/shared/outbound/self/`; no per-file GCS blob written under `assistant-media/<fileRef>`
+   - `files.attach({path})` from `/workspace/...` copies to `/shared/outbound/self/` and produces an `assistant_chat_message_attachment` row with the canonical FS path
+   - Sibling assistant A reads `/shared/<wsid>/outbound/<other>/foo.csv`; `chmod 0555` enforced
+   - Web project files panel collapsed; click opens Settings → Files; tile gallery renders thumbnails+posters; filter pills toggle
+   - Empty `assistant_chat_message_attachments` rows whose legacy `storage_path` was nulled render as "unavailable" in the chat history without breaking the message
+4. **Prod cutover.** After dev validation runs clean for one full session, repeat the migration + wipe runbook on prod.
+
+### Residuals / risks
+
+- **No commit/push yet.** Per the user's standing "no git push unless asked" rule, the entire v3 working tree is local. The session-ending output below lists the changed/added/deleted file count; commit + push is the user's call.
+- **45 files reformatted by Prettier** during closure. Diff is whitespace/indent-only on those — they showed up in the format auto-fix step, not from logic changes; review of `git diff -w` is the cheap way to confirm.
+- **Two pre-existing `deferred-document-acknowledgement.test.ts` fixture failures** (orthogonal — flagged in the 2026-06-22 deferred-job handoff entry, still present, still out of scope).
+- **Three pre-existing `as unknown as RuntimeProviderModelProfileState` casts** in `apps/web/app/admin/runtime/page.tsx` predate this session (W5 baseline). The anti-fraud audit flagged them; orchestrator left them in place per scope discipline.
+- **`recordSharedInputPublished` event has no production callers** (only the type + logger exist). Forward-looking from earlier waves; intentionally renamed in W6a so the next caller wires into the v3 vocabulary.
+- **Closure-mode ADR-117** has a pending `cache-prefix rollout SHA` slot that is unrelated to ADR-126; not in scope.
+
+### Baseline SHA
+
+HEAD at session start: `45f5b011` (`sandbox(adr-126 s2): expanded egress allowlist + tool-attribution log; git push policy amended to ALLOW`). All v3 work is in the working tree; no commits made.
+
+---
+
+## 2026-06-23 — ADR-126 v2 Slice 3 (unified files contract cutover — closed cleanly via orchestrated subagent program) — CHECKPOINT (SUPERSEDED by 2026-06-24 v3 entry above)
+
+### State
+
+ADR-126 v2 Slice 3 is now **landed cleanly** with no transitional dual-write and no parallel legacy code paths, matching the ADR's hard contract ("Не оставлять параллельные старые код-пути после переезда `files.*`"). The previous partial state — sandbox dispatcher referencing three unwritten methods, legacy `fileRef`-based model guidance still teaching deleted actions, dead legacy `executeFiles{Read,Write,Edit,Delete}Action` private methods, no FS-level chmod enforcement, no upload bytes mirror, zero focused tests for the new modules — was closed in this session via an orchestrated subagent program (Phases A → G). No push. All AGENTS gate steps are green locally.
+
+The earlier (now-replaced) handoff entry under-stated the actual contract change: it claimed the runtime contract stayed "additive only" and that the `RuntimeFilesToolService` rewrite + `mountedFileRefs` removal + grep/glob migration were "deferred". Reality (visible in `git diff HEAD`) is that the contract dropped the six legacy `files.*` actions, removed `fileRef` from `RuntimeFilesToolItem`, removed `mountedFileRefs` from `RuntimeSandboxJobRequest`, made `assistantHandle` + `siblingHandles` required, and the runtime tool service is fully rewritten on the five path actions. This session's job was to finish what the previous one started without leaving any legacy survivor.
+
+### What changed
+
+#### Schema + handle helpers (already landed before this session; preserved)
+
+- **`apps/api/prisma/schema.prisma`** + migration `20260623160000_adr126_slice3_assistant_handle_and_gc_lease`:
+  - `Assistant.handle` `VARCHAR(64)`, unique per workspace, backfilled deterministically via slug + numeric suffix + `a-<hex-of-id>` fallback; the migration sets `NOT NULL` and the unique index after backfill.
+  - `SandboxWorkspaceGcLease` + `SandboxWorkspaceGcLeaseKind` enum (`chat_scratch | assistant_outbound | workspace_shared`).
+- **`assistant-handle.ts`** + `PrismaAssistantRepository.create` mints the assistant UUID client-side inside a transaction and seeds the slugger with it so the handle is present at row birth.
+- **GC lease writes (API-side):** `PrismaAssistantChatRepository.hardDeleteChat` writes `chat_scratch` lease with `scheduledAt = now()` before delete; `AdminDeleteUserService` writes `assistant_outbound` (`now()+7d`) and `workspace_shared` (`now()+30d`) before `tx.assistant.delete` / `tx.workspace.delete`.
+
+#### Runtime contract — breaking removal of legacy `files.*` (already landed; preserved + finished)
+
+- **`packages/runtime-contract/src/index.ts`** — `PERSAI_RUNTIME_FILES_TOOL_ACTIONS` reduced from 11 actions to the canonical five: `list | read | preview | write | delete`. `RuntimeFilesToolItem` rewritten path-only (`path`, `type`, `role ∈ {workspace | shared_input | shared_outbound_self | shared_outbound_other}`, `sizeBytes`, `mimeType`, `modifiedAt`, optional `shortDescription`). `RuntimeFilesToolResult` collapsed to one shape with required `path`. `RuntimeSandboxJobRequest` now requires `assistantHandle: string` and `siblingHandles: readonly string[]` and no longer carries `mountedFileRefs`.
+- **`packages/runtime-bundle/src/index.ts`** — `AssistantRuntimeBundleMetadata` now requires `assistantHandle` and `siblingAssistantHandles`. `materialize-assistant-published-version.service.ts` populates both from the `assistant.handle` column + a same-workspace sibling query.
+
+#### Runtime native projection — model schema is path-only (already landed; preserved)
+
+- **`apps/runtime/src/modules/turns/native-tool-projection.ts`** — `files` tool `inputSchema` rewritten path-only. `action` enum = `list | read | preview | write | delete`. Schema fields: `path` (required for everything except optional list root), `dir` alias for list, `content` for write, `mode` ∈ `overwrite | create_only` for write, `maxBytes` for read/preview, `maxDepth` for list. No `fileRef`, no `alias`, no `query`, no `search`/`inspect`/`get`/`edit`/`send`/`write_and_send`. Document tool's `fileRef` source-staging field is untouched (ADR-097 surface, out of scope).
+
+#### Runtime files tool — end-to-end rewrite on the five path actions (already landed; preserved)
+
+- **`apps/runtime/src/modules/turns/runtime-files-tool.service.ts`** — every action routes to a sandbox job (`runSandboxJob`) carrying `{action, path, ...}`. `enrichListWithShortDescriptions` calls a new internal API (`listAssistantFileShortDescriptions`) for manifest description caching. `executePreviewAction` uses the binary-extraction fallback through `lookupAssistantFileByWorkspaceRelPath` + `extractAssistantFileText` for PDFs / DOCX / images (ADR-116 preview cache continues to apply on the legacy `fileRef` indirection, which is allowed by the ADR because preview is a delivery-side cached artefact, not a model-facing write path).
+
+#### Sandbox — control-plane bridge primitives + dispatcher wiring (closed in this session)
+
+- **`apps/sandbox/src/workspace-file-bridge.service.ts`** (new last session) implements `workspaceFileWrite`, `workspaceFileRead`, `workspaceFileList`, `workspaceFileStat`, `workspaceFileDelete`. Each enforces path containment via `assertAllowedMountPrefix` (`apps/sandbox/src/workspace-path.ts`), shells into the session pod via `ExecPodBridgeService.execShellInSessionPod` with single-quote-escaped arguments, emits structured audit events (`WorkspaceAuditService`) and Prometheus latency histograms (`sandbox_workspace_file_{write|read|list|stat|delete}_latency_ms`). Shared writes mirror bytes to GCS via `SandboxObjectStorageService.saveObject` against `buildSharedObjectKey` so cold pods can rematerialise.
+- **`apps/sandbox/src/sandbox.service.ts`** — dispatcher wired this session. New private methods `executeFilesBridgeAction(bridgeCtx, args)` (routes the five path actions + a `stat` helper to the bridge primitives and marshals each result into the JSON `content` shapes that `runtime-files-tool.service.ts` parses), `executeGrepActionViaPodExec(bridgeCtx, args)` and `executeGlobActionViaPodExec(bridgeCtx, args)` (run `rg`/`fd` inside the session pod via `execShellInSessionPod` against `/workspace` + `/shared` with `normalizeAndClampPath` containment). The `executeTool` switch now routes `files`/`grep`/`glob` exclusively through these new pod-exec methods. All legacy private methods deleted: `executeFilesReadAction`, `executeFilesWriteAction`, `executeFilesEditAction`, `executeFilesDeleteAction`, `readSandboxFilesAction`, `executeGrepAction`, `executeGlobAction`, `runTrustedControlPlaneBinary` (and the now-orphaned `resolveFilesReadablePath`). The new dispatcher's list output computes per-entry `role` from the resolved path and filters system noise (`node_modules`, `.venv`, `.local`, `.npm-global`, `.cache`, `__pycache__`, dotfiles, `*.pyc`/`*.log`/`*.lock`/`*.tmp`) unless `args.includeHidden === true`.
+
+#### Sandbox — `/shared/<wsid>/` mount + FS-level access matrix (closed in this session)
+
+- **`apps/sandbox/src/exec-pod-bridge.service.ts`** — bootstrap of `/shared/<workspaceId>/` now runs in four phases per pod creation: (1) marker check `test -f /tmp/.persai_shared_bootstrap_ok` for early return on warm pods; (2) `mkdir -p input/`, `outbound/<self-handle>/`, sibling `outbound/<other-handle>/`, plus `ln -sfn <self-handle> outbound/self`; (3) GCS hydrate — `SandboxObjectStorageService.listPrefix` enumerates `workspaces/<wsid>/shared/` and each blob is piped into the pod via `cat > <path>` with stdin = bytes (matches `workspaceFileWrite` shape); (4) chmod enforcement — `chmod 0444 input/`, `chmod 0755 outbound/<self-handle>/`, `chmod 0555 outbound/<other-handle>/` for every sibling, then `printf '__PERSAI_SHARED_OK__' > /tmp/.persai_shared_bootstrap_ok`. The deferral comment about chmod has been removed (AGENTS rule: no TODO scaffolding).
+
+#### Sandbox — GC reaper (already landed; preserved)
+
+- **`apps/sandbox/src/workspace-gc.service.ts`** — cron interval `SANDBOX_GC_INTERVAL_MS` (default 300 s) drains due leases. `chat_scratch` → `rm -rf /workspace/chats/<chatId>` per matching warm pod, GCS subtree drop, matching `assistant_files` rows deleted. `assistant_outbound` → `workspaces/<wsid>/shared/outbound/<handle>/` prefix dropped, sibling outbound `rm -rf`'d in every warm pod, `assistant_files` cleanup. `workspace_shared` → full `workspaces/<wsid>/shared/` prefix dropped, `/shared/<wsid>/*` purged in every warm pod, `assistant_files` cleanup. Failed leases stay open and emit `workspace_gc_purge_failed`; successful ones set `purged_at` and emit `workspace_gc_purged`. Lifecycle-independent of the source rows; lease is the single execution path (no eager cross-process call).
+
+#### API — upload bytes mirror (Pattern B, GCS-first lazy hydrate — closed in this session)
+
+- **`apps/api/src/modules/workspace-management/application/media/persai-media-object-storage.service.ts`** — added `buildSharedObjectKey({workspaceId, workspaceRelPath})` mirroring `SandboxObjectStorageService` against the same bucket + prefix.
+- **`apps/api/src/modules/workspace-management/application/assistant-file-registry.service.ts`** — `ensureAttachmentFile` for `origin === "uploaded_attachment"` now calls `mirrorUploadToSharedGcs` (private) AFTER the row create + `metadata.workspaceRelPath = "/shared/input/<sanitized-basename>"` set. Best-effort: on failure logs `assistant_file_shared_hydrate_failed` and marks `metadata.sharedHydrationStatus = "pending"`. Never throws, never fails the upload. The pod's `/shared/` bootstrap (item above) pulls these blobs from GCS on first pod start. Web (`manage-chat-media.service.ts`) and Telegram (`inbound-media.service.ts`) flows reach this path through `ensureAttachmentFile` unchanged.
+
+#### Runtime + API — legacy `fileRef` guidance and dead detection cleared (closed in this session)
+
+- **`apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`** — `files` block guidance rewritten path-only. No more `relativePath`, `aliases`, `query`, `search`/`inspect`/`get`/`edit`/`send`/`write_and_send`. Path-only teaches `/workspace/` (private) vs `/shared/<wsid>/input/` (RO) vs `/shared/<wsid>/outbound/self/` (publish) vs sibling outbound (RO).
+- **`apps/api/prisma/tool-catalog-data.ts`** — `files.modelDescription` + `files.modelUsageGuidance` rewritten to the same path-only mental model. The slice does NOT yet add the full ADR D8 manifest economy (summary header + on-demand list with `shortDescription`); that is Slice 5.
+- **`apps/runtime/src/modules/turns/turn-execution.service.ts`** — developer-block `files` instructions and the accept-action set already path-only from the previous session's slice 3 work; verified clean.
+- **`apps/runtime/src/modules/turns/sanitize-tool-result-for-model.ts`** — legacy `fileRef`-shape detection branch deleted (no dead code per AGENTS rule).
+- **`apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts`** — `toRuntimeFilesToolItem` was a dead alias that built the legacy `RuntimeFilesToolItem`-with-fileRef shape; it now returns the existing internal `RuntimeFileRef` (chat-delivery identity), which the working-file-tracking call sites consume. The path-only `RuntimeFilesToolItem` is only built inside `runtime-files-tool.service.ts` from sandbox list output.
+
+#### Tests — focused coverage for the new sandbox modules (closed in this session)
+
+- **`apps/sandbox/test/workspace-path.test.ts`** (new) — 21 cases covering `normalizePosixPath`, `normalizeAndClampPath`, `assertAllowedMountPrefix` (workspace / shared_input / outbound self via handle and via `self` symlink / sibling outbound / unknown handle reject / `/etc/passwd` reject), `buildSharedRoot`, `buildWorkspaceRoot`, and `WorkspacePathError.code`.
+- **`apps/sandbox/test/workspace-file-bridge.service.test.ts`** (new) — 15 cases covering write success + create_only collision + sibling/input write_denied + self-outbound GCS mirror; read success + missing + truncated; list success + missing-dir; stat file + missing; delete success + delete_denied; path traversal raises `WorkspacePathError`.
+- **`apps/sandbox/test/workspace-gc.service.test.ts`** (new) — 8 cases covering all three lease kinds (past-due processing per kind + future-dated skip), assistant-pod filtering, malformed metadata → `recordGcPurgeFailed` without `purged_at`, single-lease exception isolation, already-purged lease filter.
+- **`apps/sandbox/test/sandbox.service.test.ts`** — rewritten to the new contract: 6-arg constructors with handle + sibling, `mountFileRefs` moved inside `args`, every literal `RuntimeSandboxJobRequest` carries `assistantHandle` + `siblingHandles`, legacy `executeFilesEditAction` / lease-reclaim / hydrate test block removed (no dead stubs), grep/glob legacy assertions removed since the methods no longer exist.
+- **`apps/runtime/test/**`** — 17 test files updated to add `assistantHandle: "a-test"` + `siblingAssistantHandles: []` to every `AssistantRuntimeBundleMetadata` literal. `runtime-files-tool.service.test.ts` (legacy 11-action surface) deleted cleanly — the action surface no longer exists. `sandbox-client.service.test.ts` lost the stale `mountedFileRefs` field.
+
+#### Config (already landed; preserved)
+
+- **`packages/config/src/sandbox-config.ts`** — `SANDBOX_SHARED_EMPTYDIR_SIZE_MIB` (default 512), `SANDBOX_GC_INTERVAL_MS` (default 300_000). No other env additions.
+
+### Deliberately deferred per ADR (NOT in slice 3 — explicit slice ownership)
+
+1. **Slice 4 — `files.attach({path})`** + `image_generate` / `image_edit` / `document` dual-write into `/shared/outbound/self/`. ADR D5 + D6. Not in this slice.
+2. **Slice 5 — `tool-catalog-data.ts` manifest economy** (summary header + per-file `shortDescription` cache + cheap-LLM description pipeline). ADR D8. The slice removed legacy actions from the guidance; the full new mental model + manifest stays Slice 5.
+3. **Slice 5 — D13 migration audit script** against live `persai-dev` for `fileRef` references in skill content. Hard gate on the program's final push, not on slice 3.
+4. **Slice 5 — plan-baseline data migration** (`workspaceStorageBytesLimit` and `sharedStorageBytesLimit` ≥ 500 MB).
+5. **Slice 6 — layered snapshot for `/workspace/`** (install layer vs. scratch layer content-hash split). ADR D10. Slice 3 sets up the `/shared/` GCS subtree + lazy hydrate; full layered snapshot for `/workspace/` is staged.
+
+### Verified
+
+Run from repo root, all green this session:
+
+- `corepack pnpm -r --if-present run lint` — PASS (5 apps + scripts/smoke).
+- `corepack pnpm run format:check` — PASS (all matched files use Prettier code style).
+- `corepack pnpm -r --if-present run typecheck` — PASS (`@persai/config`, `@persai/runtime-contract`, `@persai/contracts`, `@persai/types`, `@persai/runtime-bundle`, `@persai/logger`, `scripts/smoke`, `@persai/sandbox`, `@persai/web`, `@persai/provider-gateway`, `@persai/runtime`, `@persai/api`).
+- `corepack pnpm --filter @persai/sandbox exec node --import tsx --test --test-concurrency=1 test/workspace-path.test.ts test/workspace-file-bridge.service.test.ts test/workspace-gc.service.test.ts test/sandbox.service.test.ts test/exec-pod-bridge.service.test.ts test/sandbox-metrics.service.test.ts` — PASS (77/77).
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-suite-isolated.ts` — PASS (14/14 isolated suites).
+
+### Residuals / risks
+
+- **Live validation pending.** The slice is locally green but has not been deployed. Acceptance criteria from ADR-126 §Acceptance to verify post-deploy on `persai-dev`:
+  - `files.write({path:"/workspace/hello.txt", content:"hi"}) → shell({command:"cat /workspace/hello.txt"})` returns `hi` (the founder's exact 2026-06-22 failure case).
+  - User attaches a PDF in chat → next runtime turn of any assistant in the same `businessWorkspaceId` sees `/shared/<wsid>/input/<original>.pdf` via `files.read` and via `shell ls /shared/<wsid>/input/`.
+  - Assistant А generates `/shared/<wsid>/outbound/A/forecast.csv`; assistant Б runs `shell ls /shared/<wsid>/outbound/A/` and reads it; `shell echo > /shared/<wsid>/outbound/A/x` fails with `Permission denied` (chmod 0555 enforced).
+- **Migration ordering.** The Prisma migration `20260623160000` must run before the API image rolls; `Assistant.handle` becomes `NOT NULL` after backfill, and the `materialize-assistant-published-version.service.ts` path reads it as `string`. Pinning the migrations gate (per AGENTS' `persai-dev-migrations` environment) on the next dev rollout is required.
+- **`/shared/` hydrate cost on cold pods.** GCS list+download runs once per pod creation; for workspaces with many input files this adds visible cold-start latency. The full layered snapshot from D10 (Slice 6) is the planned mitigation.
+- **Warm pods and new uploads.** A warm pod that started before an upload will not see the new `/shared/<wsid>/input/<name>` file until the next pod creation (next session restart). This matches the "next-tick" pattern the ADR sets for chat-scratch GC and is acceptable for inputs (users typically upload at the start of a chat).
+- **chmod boundary.** The chmod runs from inside the pod after hydrate, so the process is running as the pod's UID. The `0444` on `input/` prevents the model from writing there; control-plane `workspaceFileWrite` to `/shared/<wsid>/input/...` is rejected at the bridge boundary by `WorkspaceFileBridgeService` returning `write_denied` before any pod exec. Upload bytes already land via the GCS hydrate path, not via the model surface — the policy is enforced at both layers.
+- **2 pre-existing `deferred-document-acknowledgement.test.ts` fixture failures** (orthogonal to slice 3) noted in the 2026-06-22 deferred-job handoff entry below — still present, not in scope.
+
+### Files
+
+**New (untracked):**
+
+- `apps/api/prisma/migrations/20260623160000_adr126_slice3_assistant_handle_and_gc_lease/`
+- `apps/api/src/modules/workspace-management/application/assistant-handle.ts`
+- `apps/api/src/modules/workspace-management/application/list-assistant-file-short-descriptions.service.ts`
+- `apps/api/src/modules/workspace-management/application/lookup-assistant-file-by-workspace-rel-path.service.ts`
+- `apps/sandbox/src/workspace-audit.service.ts`
+- `apps/sandbox/src/workspace-file-bridge.service.ts`
+- `apps/sandbox/src/workspace-gc.service.ts`
+- `apps/sandbox/src/workspace-path.ts`
+- `apps/sandbox/test/workspace-file-bridge.service.test.ts`
+- `apps/sandbox/test/workspace-gc.service.test.ts`
+- `apps/sandbox/test/workspace-path.test.ts`
+
+**Modified (apps):**
+
+- `apps/api/prisma/schema.prisma`, `apps/api/prisma/tool-catalog-data.ts`, `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/api/src/modules/workspace-management/{application,domain,infrastructure,interface}/...` — `admin-delete-user.service.ts`, `assistant-file-registry.service.ts`, `manage-web-chat-list.service.ts`, `materialize-assistant-published-version.service.ts`, `media/persai-media-object-storage.service.ts`, `runtime-tool-policy.ts`, `assistant-chat.repository.ts`, `assistant.entity.ts`, `prisma-assistant-chat.repository.ts`, `prisma-assistant.repository.ts`, `internal-runtime-files-controller.ts`, `workspace-management.module.ts`
+- `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt`, `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/runtime/src/modules/turns/*` — `native-tool-projection.ts`, `persai-internal-api.client.service.ts`, `runtime-assistant-file-registry.service.ts`, `runtime-document-provider-adapter.service.ts`, `runtime-files-tool.service.ts`, `runtime-grep-glob-tool.service.ts`, `runtime-sandbox-tool.service.ts`, `sanitize-tool-result-for-model.ts`, `turn-execution.service.ts`
+- `apps/runtime/test/**` — 17 fixture updates (handle/siblings on bundle metadata, `mountedFileRefs` removals, sandbox-client cleanup, document-adapter mount assertions) + deletion of `runtime-files-tool.service.test.ts` (legacy 11-action surface; no longer exists)
+- `apps/sandbox/src/*` — `app.module.ts`, `exec-pod-bridge.service.ts`, `sandbox-metrics.service.ts`, `sandbox-object-storage.service.ts`, `sandbox-observability.service.ts`, `sandbox.service.ts`
+- `apps/sandbox/test/*` — `exec-pod-bridge.service.test.ts`, `sandbox-metrics.service.test.ts`, `sandbox.service.test.ts`
+
+**Modified (packages):**
+
+- `packages/config/src/sandbox-config.ts`
+- `packages/runtime-bundle/src/index.ts`
+- `packages/runtime-contract/src/index.ts`
+
+**Docs:**
+
+- `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md` (this checkpoint replaces the earlier under-stated slice 3 entry).
+
+### Next recommended step
+
+1. Founder review of the closure and the orchestrated subagent program (Phases A → G). The slice is local-only — no push happened.
+2. On approval, commit + push as one slice. Apply the `20260623160000` migration via the `persai-dev-migrations` environment gate, then pin the dev image tag.
+3. Live-validate the acceptance criteria above on `persai-dev`, starting with the founder's exact case (`files.write → shell cat`) and the cross-assistant upload visibility.
+4. Open Slice 4 next: `files.attach({path})` action + `image_generate` / `image_edit` / `document` dual-write into `/shared/outbound/self/`.
+
+---
+
 ## 2026-06-23 — ADR-126 v2 (unified sandbox workspace; multi-assistant, manifest, GC, snapshot) — CHECKPOINT (doc-only)
 
 ### State

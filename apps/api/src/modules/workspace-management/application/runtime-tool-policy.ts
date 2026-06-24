@@ -121,7 +121,7 @@ function resolveRuntimeToolDescription(
     return "Migration-only inventory entry. Step 15 does not expose raw path-based workspace attachment to the model.";
   }
   if (runtimeToolCode === "files") {
-    return "List, search, inspect, read, preview, write, write-and-send, edit, delete, or send assistant-managed files through one canonical file surface.";
+    return "Path-driven workspace file operations. Six actions: list, read, preview, write, delete, attach. Address files by pod-absolute path under /workspace/ (assistant-private) or /shared/<workspaceId>/ (shared space). Use attach({path}) to deliver an existing /workspace/ or /shared/outbound/self/ file to the user in the current chat.";
   }
   return tool.modelDescription ?? tool.description;
 }
@@ -134,20 +134,19 @@ function resolveRuntimeToolUsageGuidance(
     return "Keep this helper off the normal model-visible path.";
   }
   if (runtimeToolCode === "files") {
-    return `WHEN TO USE: Any file-system work in the assistant's managed workspace — list, search, inspect, read, preview, write, write-and-send, edit, delete, or send.
-WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a NEW deliverable PDF, deck, or structured document (use document).
+    return `WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview a file's content, write a new or updated file, delete a path, or attach an existing file to the current chat for the user.
+WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a structured document (use document).
+PATHS: All paths are pod-absolute. /workspace/ = assistant-private read/write area. /shared/<workspaceId>/input/ = user uploads (read-only). /shared/<workspaceId>/outbound/self/ = your published artefacts. /shared/<workspaceId>/outbound/<otherHandle>/ = sibling-published outputs (read-only).
+SIX ACTIONS: list (directory listing), read (full content), preview (bounded content, text-extraction for binary), write (create/overwrite), delete (remove path), attach (publish a /workspace/ or /shared/outbound/self/ file to the current chat so the user sees it as a chat attachment).
 EXAMPLES:
-- files.write_and_send({relativePath:"…", contents:"…"}) — save and immediately deliver in chat.
-- files.write({relativePath:"…", contents:"…"}) — save only.
-- files.send({workingFileAlias:"…"}) — deliver an existing file the user already references.
-- files.list({}) — inventory by workspace / uploads / artifacts.
-- files.search({query:"…"}) — discover by name.
-- files.inspect({…}) — see capabilities and size limits before files.read or files.preview.
+- files({action:"list", path:"/shared/<workspaceId>/input/"}) — see user uploads.
+- files({action:"read", path:"/workspace/chats/<chatId>/notes.md"}) — read a chat-scoped file.
+- files({action:"write", path:"/workspace/chats/<chatId>/plan.md", content:"..."}) — create or overwrite.
+- files({action:"attach", path:"/workspace/chats/<chatId>/report.csv"}) — deliver a /workspace/ file to the user (copies once to /shared/outbound/self/, then attaches).
+- files({action:"attach", path:"/shared/outbound/self/forecast.png"}) — deliver an already-shared artefact (no copy).
 GOTCHAS:
-- Alias-first: when a working-file alias is available, use that alias for files.inspect / files.read / files.preview / files.edit / files.delete / files.send; otherwise use relativePath, then query.
-- For files.write and files.write_and_send, always prefer a non-empty relativePath as the canonical save target; \`filename\` is only a delivery-name override, NOT the canonical save path.
-- Delivery honesty: if the user asks you to send, resend, attach, or share an existing file, discovering or reading that file is NOT delivery. Call files.send in the same turn. A working-file alias, relativePath, filename, or markdown link is NOT a substitute for delivery. Never claim a file was sent unless files.send or files.write_and_send succeeded THIS turn.
-- Inventories: by default, present file inventories as a short grouped summary (workspace, uploads, artifacts) and hide raw service paths or UUID folders; only enumerate every raw relativePath when the user explicitly asks for the full raw list.
+- Supply a pod-absolute path for every action. For list use the directory path; for read/preview/write/delete/attach use the file path.
+- attach only accepts /workspace/... or /shared/outbound/self/... — user uploads (/shared/<workspaceId>/input/) and sibling outbound (/shared/<workspaceId>/outbound/<otherHandle>/) are rejected.
 - Keep exec and shell for actual process execution only. Use grep for content search and glob for filename discovery.`;
   }
   return tool.modelUsageGuidance;

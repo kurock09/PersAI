@@ -1,7 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps, ReactNode } from "react";
-import type { AssistantLifecycleState, AssistantMemoryRegistryItemState } from "@persai/contracts";
+import type {
+  AssistantLifecycleState,
+  AssistantMemoryRegistryItemState,
+  AssistantWebChatListItemState
+} from "@persai/contracts";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../messages/en.json";
 import ruMessages from "../../../messages/ru.json";
@@ -56,10 +60,8 @@ const assistantApiMocks = vi.hoisted(() => ({
   postAssistantPublish: vi.fn(),
   postAssistantRollback: vi.fn(),
   postAssistantReset: vi.fn(),
-  getAssistantFiles: vi.fn(),
-  cleanupAssistantFilesCache: vi.fn(),
-  patchAssistantFileDisplayName: vi.fn(),
-  deleteAssistantFile: vi.fn(),
+  listChatWorkspaceFiles: vi.fn(),
+  deleteChatWorkspaceFile: vi.fn(),
   uploadAssistantAvatar: vi.fn(),
   getAssistantBillingSubscription: vi.fn(),
   postAssistantBillingEnableAutoRenew: vi.fn(),
@@ -113,10 +115,8 @@ vi.mock("../assistant-api-client", async () => {
     postAssistantPublish: assistantApiMocks.postAssistantPublish,
     postAssistantRollback: assistantApiMocks.postAssistantRollback,
     postAssistantReset: assistantApiMocks.postAssistantReset,
-    getAssistantFiles: assistantApiMocks.getAssistantFiles,
-    cleanupAssistantFilesCache: assistantApiMocks.cleanupAssistantFilesCache,
-    patchAssistantFileDisplayName: assistantApiMocks.patchAssistantFileDisplayName,
-    deleteAssistantFile: assistantApiMocks.deleteAssistantFile,
+    listChatWorkspaceFiles: assistantApiMocks.listChatWorkspaceFiles,
+    deleteChatWorkspaceFile: assistantApiMocks.deleteChatWorkspaceFile,
     uploadAssistantAvatar: assistantApiMocks.uploadAssistantAvatar,
     getAssistantBillingSubscription: assistantApiMocks.getAssistantBillingSubscription,
     postAssistantBillingEnableAutoRenew: assistantApiMocks.postAssistantBillingEnableAutoRenew,
@@ -434,9 +434,9 @@ beforeEach(() => {
     cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
     warning: null
   });
-  assistantApiMocks.getAssistantFiles.mockResolvedValue({
+  assistantApiMocks.listChatWorkspaceFiles.mockResolvedValue({
     files: [],
-    cleanup: { eligibleCount: 0, eligibleBytes: 0 }
+    nextCursor: null
   });
   assistantApiMocks.getWorkspaceVideoPersonas.mockResolvedValue({
     personas: [],
@@ -650,245 +650,63 @@ describe("AssistantSettingsApkFooter", () => {
 });
 
 describe("AssistantSettings Files", () => {
-  it("renders a compact scrollable Files section with download-first file actions", async () => {
-    assistantApiMocks.getAssistantFiles.mockResolvedValue({
-      files: Array.from({ length: 12 }, (_, index) => ({
-        fileRef: `file-ref-${index}`,
-        origin:
-          index % 3 === 0
-            ? "uploaded_attachment"
-            : index % 3 === 1
-              ? "runtime_output"
-              : "sandbox_output",
-        displayName:
-          index === 1 ? "Image 1.png" : index === 2 ? "Video 2.mp4" : `Spec ${index}.pdf`,
-        filename: index === 1 ? "image-1.png" : index === 2 ? "video-2.mp4" : `file-${index}.pdf`,
-        mimeType: index === 1 ? "image/png" : index === 2 ? "video/mp4" : "application/pdf",
-        sizeBytes: 1024 + index,
-        logicalSizeBytes: 1024 + index,
-        fileBucket:
-          index === 2
-            ? "media_uploads"
-            : index % 4 === 0
-              ? "user_files"
-              : index % 4 === 1
-                ? "assistant_created"
-                : index % 4 === 2
-                  ? "documents"
-                  : "media_uploads",
-        cleanupEligible: false,
-        cleanupReason: null,
-        createdAt: "2026-05-02T00:00:00.000Z"
-      })),
-      cleanup: { eligibleCount: 0, eligibleBytes: 0 }
-    });
-
-    renderSettings(makeAppData(), "files");
-
-    await waitFor(() => {
-      expect(assistantApiMocks.getAssistantFiles).toHaveBeenCalledWith("token-1", {
-        query: "",
-        limit: 100
-      });
-    });
-    expect(screen.getByText("Assistant files")).toBeInTheDocument();
-    const mediaBucket = screen.getByText("Media");
-    const documentsBucket = screen.getByText("Documents");
-    const assistantBucket = screen.getByText("Created by assistant");
-    const userBucket = screen.getByText("User files");
-    expect(
-      mediaBucket.compareDocumentPosition(documentsBucket) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      documentsBucket.compareDocumentPosition(assistantBucket) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      assistantBucket.compareDocumentPosition(userBucket) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(screen.queryByText("Spec 0.pdf")).toBeNull();
-    expect(screen.queryByText("Video 2.mp4")).toBeNull();
-    expect(screen.queryByTitle("Open")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Media/i }));
-    expect(screen.getByText("Video 2.mp4")).toBeInTheDocument();
-    expect(screen.queryByText("Uploaded")).toBeNull();
-    expect(screen.queryByText("Generated")).toBeNull();
-    expect(screen.queryByText("image")).toBeNull();
-    expect(screen.queryByText("video")).toBeNull();
-    expect(screen.getAllByTitle("Download")[0]).toHaveAttribute(
-      "href",
-      "/api/assistant-file/file-ref-2?download=1"
-    );
-    expect(screen.getAllByTitle("Preview")).toHaveLength(1);
-  });
-
-  it("opens image files in an in-app preview instead of a raw open link", async () => {
-    assistantApiMocks.getAssistantFiles.mockResolvedValue({
+  it("renders the workspace tile gallery with content-type filters", async () => {
+    assistantApiMocks.listChatWorkspaceFiles.mockResolvedValue({
       files: [
         {
-          fileRef: "file-image-1",
-          origin: "uploaded_attachment",
-          displayName: "photo.png",
-          filename: "photo.png",
+          storagePath: "/shared/input/photo.png",
+          thumbnailStoragePath: "/shared/input/photo.png.thumb.webp",
+          posterStoragePath: null,
+          originalFilename: "photo.png",
           mimeType: "image/png",
           sizeBytes: 2048,
-          logicalSizeBytes: 2048,
-          fileBucket: "media_uploads",
-          cleanupEligible: false,
-          cleanupReason: null,
-          createdAt: "2026-05-02T00:00:00.000Z"
+          attachmentType: "image",
+          createdAt: "2026-05-02T00:00:00.000Z",
+          chatId: "chat-1",
+          messageId: "msg-1"
         }
       ],
-      cleanup: { eligibleCount: 0, eligibleBytes: 0 }
+      nextCursor: null
     });
 
-    renderSettings(makeAppData(), "files");
-
-    expect(await screen.findByText("Media")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Media/i }));
-    expect(screen.getByText("photo.png")).toBeInTheDocument();
-    fireEvent.click(screen.getByTitle("Preview"));
-
-    expect(screen.getByTestId("files-image-lightbox")).toHaveTextContent("photo.png");
-  });
-
-  it("keeps cache files out of the main groups and cleans only eligible cache files", async () => {
-    assistantApiMocks.getAssistantFiles
-      .mockResolvedValueOnce({
-        files: [
+    renderSettings(
+      makeAppData({
+        chats: [
           {
-            fileRef: "file-user-1",
-            origin: "uploaded_attachment",
-            displayName: "notes.md",
-            filename: "notes.md",
-            mimeType: "text/markdown",
-            sizeBytes: 512,
-            logicalSizeBytes: 512,
-            fileBucket: "user_files",
-            cleanupEligible: false,
-            cleanupReason: null,
-            createdAt: "2026-05-02T00:00:00.000Z"
-          },
-          {
-            fileRef: "file-cache-1",
-            origin: "uploaded_attachment",
-            displayName: "voice-1.webm",
-            filename: "voice-1.webm",
-            mimeType: "audio/webm",
-            sizeBytes: 64,
-            logicalSizeBytes: 64,
-            fileBucket: "cache_history",
-            cleanupEligible: true,
-            cleanupReason: "voice_upload_cache",
-            createdAt: "2026-05-02T00:00:00.000Z"
-          }
-        ],
-        cleanup: { eligibleCount: 1, eligibleBytes: 64 }
-      })
-      .mockResolvedValueOnce({
-        files: [
-          {
-            fileRef: "file-user-1",
-            origin: "uploaded_attachment",
-            displayName: "notes.md",
-            filename: "notes.md",
-            mimeType: "text/markdown",
-            sizeBytes: 512,
-            logicalSizeBytes: 512,
-            fileBucket: "user_files",
-            cleanupEligible: false,
-            cleanupReason: null,
-            createdAt: "2026-05-02T00:00:00.000Z"
-          }
-        ],
-        cleanup: { eligibleCount: 0, eligibleBytes: 0 }
-      });
-    assistantApiMocks.cleanupAssistantFilesCache.mockResolvedValue({
-      eligibleCount: 1,
-      eligibleBytes: 64,
-      deletedCount: 1,
-      deletedBytes: 64
-    });
-
-    renderSettings(makeAppData(), "files");
-
-    expect(await screen.findByRole("button", { name: "Clean cache" })).toBeInTheDocument();
-    expect(screen.queryByText("notes.md")).toBeNull();
-    expect(screen.queryByText("voice-1.webm")).toBeNull();
-    expect(screen.queryByRole("button", { name: /History and cache/i })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Clean cache" }));
-    fireEvent.click(screen.getByRole("button", { name: "Clean" }));
+            chat: {
+              id: "chat-1",
+              assistantId: "assistant-1",
+              surface: "web",
+              surfaceThreadKey: "thread-1",
+              title: "Chat",
+              chatMode: "normal",
+              deepModeEnabled: false,
+              skillDecisionState: null,
+              archivedAt: null,
+              lastMessageAt: "2026-05-02T00:00:00.000Z",
+              createdAt: "2026-05-01T00:00:00.000Z",
+              updatedAt: "2026-05-02T00:00:00.000Z"
+            },
+            messageCount: 1,
+            lastMessagePreview: "hi"
+          } as AssistantWebChatListItemState
+        ]
+      }),
+      "files"
+    );
 
     await waitFor(() => {
-      expect(assistantApiMocks.cleanupAssistantFilesCache).toHaveBeenCalledWith("token-1");
+      expect(assistantApiMocks.listChatWorkspaceFiles).toHaveBeenCalledWith("token-1", {
+        chatId: "chat-1",
+        type: "all",
+        cursor: null,
+        limit: 24
+      });
     });
-    fireEvent.click(screen.getByRole("button", { name: /User files/i }));
-    expect(screen.getByText("notes.md")).toBeInTheDocument();
-    expect(screen.queryByText("voice-1.webm")).toBeNull();
-  }, 10000);
-
-  it("labels current document outputs and hides direct file delete", async () => {
-    assistantApiMocks.getAssistantFiles.mockResolvedValue({
-      files: [
-        {
-          fileRef: "file-doc-v1",
-          origin: "runtime_output",
-          displayName: "Investor deck.pdf",
-          filename: "investor-deck.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 2048,
-          logicalSizeBytes: 2048,
-          fileBucket: "documents",
-          cleanupEligible: false,
-          cleanupReason: null,
-          documentLink: {
-            docId: "doc-1",
-            versionId: "version-1",
-            versionNumber: 1,
-            descriptorMode: "create_pdf_document",
-            documentType: "pdf",
-            documentStatus: "active",
-            versionStatus: "superseded",
-            isCurrentOutput: false
-          },
-          createdAt: "2026-05-01T00:00:00.000Z"
-        },
-        {
-          fileRef: "file-doc-v2",
-          origin: "runtime_output",
-          displayName: "Investor deck.pdf",
-          filename: "investor-deck.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 4096,
-          logicalSizeBytes: 4096,
-          fileBucket: "documents",
-          cleanupEligible: false,
-          cleanupReason: null,
-          documentLink: {
-            docId: "doc-1",
-            versionId: "version-2",
-            versionNumber: 2,
-            descriptorMode: "revise_document",
-            documentType: "pdf",
-            documentStatus: "active",
-            versionStatus: "delivered",
-            isCurrentOutput: true
-          },
-          createdAt: "2026-05-02T00:00:00.000Z"
-        }
-      ],
-      cleanup: { eligibleCount: 0, eligibleBytes: 0 }
-    });
-
-    renderSettings(makeAppData(), "files");
-
-    expect(await screen.findByText("Documents")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Documents/i }));
-
-    expect(screen.getAllByText("Investor deck.pdf")).toHaveLength(1);
-    expect(screen.getByText("v2")).toBeInTheDocument();
-    expect(screen.queryByText("v1")).toBeNull();
-    expect(screen.getByText("Current")).toBeInTheDocument();
-    expect(screen.getByTitle("Delete")).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-files-gallery")).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-files-filters")).toBeInTheDocument();
+    expect(screen.getByText("Images")).toBeInTheDocument();
+    expect(screen.queryByTestId("assistant-files-bucket-filters")).toBeNull();
   });
 });
 

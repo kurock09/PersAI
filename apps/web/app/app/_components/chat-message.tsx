@@ -51,9 +51,9 @@ import { ImageLightbox } from "./image-lightbox";
 import { PresentationPptxPrepareAction } from "./presentation-pptx-prepare-action";
 import { AuthenticatedAttachmentImage } from "./authenticated-attachment-image";
 import {
+  buildChatFileUrl,
   getAssistantDocumentPptxPrepareUrl,
-  getAssistantAttachmentPreviewUrl,
-  getAssistantFileDownloadUrl
+  getAssistantAttachmentPreviewUrl
 } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
 import { isAttachmentsOnlyPlaceholderText } from "./attachments-only-placeholder";
@@ -332,6 +332,7 @@ export function parseAssistantResponseBlocks(content: string): AssistantResponse
 
 interface ChatMessageBubbleProps {
   message: ChatMessage;
+  chatId?: string | null;
   assistantAvatarUrl?: string | undefined;
   assistantAvatarEmoji?: string | undefined;
   preResponseStatus?:
@@ -1450,12 +1451,14 @@ function VideoAttachmentPreview({
 }
 
 function AttachmentStrip({
+  chatId,
   attachments,
   className,
   compactBubble = false,
   variant = "default",
   onDocumentJobAccepted
 }: {
+  chatId?: string | null | undefined;
   attachments: ChatAttachment[];
   className?: string;
   compactBubble?: boolean;
@@ -1463,34 +1466,36 @@ function AttachmentStrip({
   onDocumentJobAccepted?: (() => void) | undefined;
 }) {
   const t = useTranslations("chat");
-  // Lightbox state is keyed by attachment id so we can open/close
-  // independently per image without lifting the state to the message bubble.
   const [openImageId, setOpenImageId] = useState<string | null>(null);
-  const resolveInlinePreviewUrl = useCallback((att: ChatAttachment) => {
-    if (att.fileDeleted === true || att.id.startsWith("local-")) {
-      return null;
-    }
-    return getAssistantAttachmentPreviewUrl({
-      fileRef: att.fileRef,
-      thumbnailFileRef: att.thumbnailFileRef,
-      posterFileRef: att.posterFileRef,
-      attachmentType: att.attachmentType
-    });
-  }, []);
+  const resolveInlinePreviewUrl = useCallback(
+    (att: ChatAttachment) => {
+      if (att.unavailable === true || att.id.startsWith("local-") || !chatId) {
+        return null;
+      }
+      return getAssistantAttachmentPreviewUrl({
+        chatId,
+        path: att.path,
+        thumbnailStoragePath: att.thumbnailStoragePath,
+        posterStoragePath: att.posterStoragePath,
+        attachmentType: att.attachmentType
+      });
+    },
+    [chatId]
+  );
   const galleryImages = useMemo(
     () =>
       attachments
         .filter((att) => att.attachmentType === "image")
         .map((att) => {
-          const isDeleted = att.fileDeleted === true;
+          const isUnavailable = att.unavailable === true;
           const downloadUrl =
-            isDeleted || att.id.startsWith("local-") || !att.fileRef
+            isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
               ? undefined
-              : getAssistantFileDownloadUrl(att.fileRef, { download: true });
+              : buildChatFileUrl({ chatId, storagePath: att.path, download: true });
           const fullUrl =
-            isDeleted || att.id.startsWith("local-") || !att.fileRef
+            isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
               ? att.localPreviewUrl
-              : getAssistantFileDownloadUrl(att.fileRef);
+              : buildChatFileUrl({ chatId, storagePath: att.path });
           return fullUrl
             ? {
                 id: att.id,
@@ -1502,7 +1507,7 @@ function AttachmentStrip({
             : null;
         })
         .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
-    [attachments, resolveInlinePreviewUrl]
+    [attachments, chatId]
   );
   if (attachments.length === 0) return null;
 
@@ -1517,7 +1522,7 @@ function AttachmentStrip({
       {attachments.map((att) => {
         const isPending = att.processingStatus === "pending";
         const isFailed = att.processingStatus === "failed";
-        const isDeleted = att.fileDeleted === true;
+        const isUnavailable = att.unavailable === true;
         const progressLabel =
           isPending && typeof att.uploadProgressPercent === "number"
             ? `${String(att.uploadProgressPercent)}%`
@@ -1529,9 +1534,9 @@ function AttachmentStrip({
             : null;
         const downloadUrl =
           externalDownloadUrl ??
-          (isDeleted || att.id.startsWith("local-") || !att.fileRef
+          (isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
             ? undefined
-            : getAssistantFileDownloadUrl(att.fileRef, { download: true }));
+            : buildChatFileUrl({ chatId, storagePath: att.path, download: true }));
         const previewUrl = att.localPreviewUrl ?? inlineUrl;
         const link = att.documentLink;
         const documentLabel = (() => {
@@ -1541,9 +1546,9 @@ function AttachmentStrip({
 
         if (att.attachmentType === "image") {
           const fullUrl =
-            isDeleted || att.id.startsWith("local-") || !att.fileRef
+            isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
               ? previewUrl
-              : getAssistantFileDownloadUrl(att.fileRef);
+              : buildChatFileUrl({ chatId, storagePath: att.path });
           return (
             <div key={att.id} className="relative">
               {previewUrl ? (
@@ -1644,7 +1649,7 @@ function AttachmentStrip({
         }
 
         if (att.attachmentType === "video") {
-          if (!att.fileRef && externalDownloadUrl) {
+          if (!att.path && externalDownloadUrl) {
             return (
               <a
                 key={att.id}
@@ -1665,9 +1670,9 @@ function AttachmentStrip({
           }
 
           const fullUrl =
-            isDeleted || att.id.startsWith("local-") || !att.fileRef
+            isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
               ? null
-              : getAssistantFileDownloadUrl(att.fileRef);
+              : buildChatFileUrl({ chatId, storagePath: att.path });
           return (
             <VideoAttachmentPreview
               key={att.id}
@@ -1689,14 +1694,14 @@ function AttachmentStrip({
           <>
             {isPending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-text-subtle" />
-            ) : isDeleted ? (
+            ) : isUnavailable ? (
               <FileText className="h-3.5 w-3.5 text-text-subtle" />
             ) : (
               <span className={CHAT_FILE_PILL_BADGE_CLASS}>{attachmentTypeBadge(att)}</span>
             )}
             <span className={CHAT_FILE_PILL_FILENAME_CLASS}>{att.originalFilename ?? "File"}</span>
             <span className={CHAT_FILE_PILL_META_CLASS}>
-              {isDeleted ? t("fileDeleted") : (progressLabel ?? formatBytes(att.sizeBytes))}
+              {isUnavailable ? t("fileDeleted") : (progressLabel ?? formatBytes(att.sizeBytes))}
             </span>
             {documentLabel ? (
               <span className="shrink-0 whitespace-nowrap rounded-full border border-border/70 bg-bg/70 px-1.5 py-0.5 text-[10px] font-medium text-text-subtle">
@@ -1777,6 +1782,7 @@ const SENDING_INDICATOR_DELAY_MS = 250;
 
 export const ChatMessageBubble = memo(function ChatMessageBubble({
   message,
+  chatId,
   assistantAvatarUrl,
   assistantAvatarEmoji,
   onDoNotRemember,
@@ -1910,6 +1916,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                   )}
                 >
                   <AttachmentStrip
+                    chatId={chatId}
                     attachments={message.attachments ?? []}
                     compactBubble
                     variant="user-media"
@@ -1945,6 +1952,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 )}
                 {message.attachments && message.attachments.length > 0 && (
                   <AttachmentStrip
+                    chatId={chatId}
                     attachments={message.attachments}
                     compactBubble
                     className={cn(
@@ -2043,6 +2051,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             )}
             {message.attachments && message.attachments.length > 0 && (
               <AttachmentStrip
+                chatId={chatId}
                 attachments={message.attachments}
                 onDocumentJobAccepted={onDocumentJobAccepted}
               />

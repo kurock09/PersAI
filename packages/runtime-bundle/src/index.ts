@@ -21,6 +21,19 @@ export const PERSAI_RUNTIME_BUNDLE_SCHEMA = "persai.runtime.bundle.v1" as const;
 
 export interface AssistantRuntimeBundleMetadata {
   assistantId: string;
+  /**
+   * Workspace-unique handle assigned at assistant creation. Names the
+   * assistant's outbound directory inside session pods
+   * (`/shared/<workspaceId>/outbound/<handle>/`) and the corresponding GCS
+   * prefix.
+   */
+  assistantHandle: string;
+  /**
+   * Handles of sibling assistants in the same workspace, surfaced to the
+   * sandbox so it can rematerialise `outbound/<otherHandle>/` directories
+   * on session-pod cold start.
+   */
+  siblingAssistantHandles: readonly string[];
   workspaceId: string;
   publishedVersionId: string;
   publishedVersion: number;
@@ -95,6 +108,7 @@ export type AssistantRuntimeBundleToolPolicy = RuntimeToolPolicy;
 export interface AssistantRuntimeBundleQuota {
   planCode: string | null;
   workspaceQuotaBytes: number;
+  sharedQuotaBytes: number | null;
   quotaHook: unknown;
 }
 

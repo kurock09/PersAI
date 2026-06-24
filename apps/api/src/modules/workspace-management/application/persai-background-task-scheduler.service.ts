@@ -450,7 +450,7 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
             artifacts: result.artifacts.map((artifact) => ({
               artifactId: artifact.artifactId,
               kind: artifact.kind,
-              objectKey: artifact.objectKey,
+              storagePath: artifact.storagePath,
               mimeType: artifact.mimeType,
               filename: artifact.filename,
               sizeBytes: artifact.sizeBytes

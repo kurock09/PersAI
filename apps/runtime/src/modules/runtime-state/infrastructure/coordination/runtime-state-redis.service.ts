@@ -5,7 +5,7 @@ import { createClient } from "redis";
 import { RUNTIME_CONFIG } from "../../../../runtime-config";
 import { RuntimeStateKeyspaceService } from "../../runtime-state-keyspace.service";
 
-interface RuntimeRedisClient {
+interface StateRedisClient {
   connect(): Promise<void>;
   quit(): Promise<void>;
   eval(
@@ -32,7 +32,7 @@ interface RuntimeRedisClient {
 
 @Injectable()
 export class RuntimeStateRedisService implements OnModuleDestroy {
-  private clientPromise: Promise<RuntimeRedisClient> | null = null;
+  private clientPromise: Promise<StateRedisClient> | null = null;
 
   constructor(
     @Inject(RUNTIME_CONFIG) private readonly config: RuntimeConfig,
@@ -266,7 +266,7 @@ export class RuntimeStateRedisService implements OnModuleDestroy {
     }
   }
 
-  protected async getClient(): Promise<RuntimeRedisClient> {
+  protected async getClient(): Promise<StateRedisClient> {
     if (this.clientPromise) {
       return this.clientPromise;
     }
@@ -280,7 +280,7 @@ export class RuntimeStateRedisService implements OnModuleDestroy {
 
     this.clientPromise = rawClient
       .connect()
-      .then(() => rawClient as unknown as RuntimeRedisClient)
+      .then(() => rawClient as unknown as StateRedisClient)
       .catch((error: unknown) => {
         this.clientPromise = null;
         throw error;

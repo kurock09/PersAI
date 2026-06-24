@@ -23,14 +23,13 @@ import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistan
 import { MergeStagedWebChatAttachmentsService } from "./merge-staged-web-chat-attachments.service";
 import type { AssistantInboundQuotaDegradeReason } from "./enforce-assistant-capability-and-quota.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
-import { AssistantUploadMicroDescriptionJobService } from "./assistant-upload-micro-description-job.service";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
 } from "../domain/assistant-chat-message-attachment.repository";
 import type { RuntimeTier } from "./runtime-assignment";
 import type { AssistantChatMode } from "../domain/assistant-chat.entity";
-import { getAttachmentDerivativeRefs } from "./media/media.types";
+import { toAssistantWebChatMessageAttachmentState } from "./media/media.types";
 import {
   chatModeToDeepModeEnabled,
   isElevatedAssistantChatMode,
@@ -79,7 +78,6 @@ export class PrepareAssistantInboundTurnService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly mergeStagedWebChatAttachmentsService: MergeStagedWebChatAttachmentsService,
-    private readonly assistantUploadMicroDescriptionJobService: AssistantUploadMicroDescriptionJobService,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository
   ) {}
@@ -206,40 +204,23 @@ export class PrepareAssistantInboundTurnService {
     }
 
     const userAttachments = await this.attachmentRepository.listByMessageId(userMessage.id);
-    await Promise.all(
-      userAttachments.map((attachment) =>
-        this.assistantUploadMicroDescriptionJobService.enqueueIfNeeded({
-          assistantId: assistant.id,
-          workspaceId: assistant.workspaceId,
-          chatMode: chat.chatMode,
-          attachmentId: attachment.id,
-          assistantFileId: attachment.assistantFileId
-        })
-      )
-    );
-    const attachmentStates: AssistantWebChatMessageAttachmentState[] = userAttachments.map((a) => ({
-      ...(() => {
-        const refs = getAttachmentDerivativeRefs(
-          a.metadata !== null && typeof a.metadata === "object" && !Array.isArray(a.metadata)
-            ? (a.metadata as Record<string, unknown>)
-            : null
-        );
-        return {
-          ...(refs.thumbnailFileRef !== null ? { thumbnailFileRef: refs.thumbnailFileRef } : {}),
-          ...(refs.posterFileRef !== null ? { posterFileRef: refs.posterFileRef } : {}),
-          ...(refs.derivativesStatus !== null ? { derivativesStatus: refs.derivativesStatus } : {})
-        };
-      })(),
-      id: a.id,
-      fileRef: a.assistantFileId,
-      attachmentType: a.attachmentType,
-      originalFilename: a.originalFilename,
-      mimeType: a.mimeType,
-      sizeBytes: Number(a.sizeBytes),
-      processingStatus: a.processingStatus,
-      ...(a.metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
-      createdAt: a.createdAt.toISOString()
-    }));
+    const attachmentStates: AssistantWebChatMessageAttachmentState[] = userAttachments.map((a) => {
+      const metadata =
+        a.metadata !== null && typeof a.metadata === "object" && !Array.isArray(a.metadata)
+          ? (a.metadata as Record<string, unknown>)
+          : null;
+      return toAssistantWebChatMessageAttachmentState({
+        id: a.id,
+        storagePath: a.storagePath,
+        attachmentType: a.attachmentType,
+        originalFilename: a.originalFilename,
+        mimeType: a.mimeType,
+        sizeBytes: a.sizeBytes,
+        processingStatus: a.processingStatus,
+        metadata,
+        createdAt: a.createdAt
+      });
+    });
 
     const activeWebChatsCurrent =
       await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(

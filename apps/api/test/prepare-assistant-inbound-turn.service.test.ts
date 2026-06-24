@@ -55,7 +55,6 @@ async function run(): Promise<void> {
 
   const createdMessages: Array<{ chatId: string; content: string }> = [];
   const runtimeDeletes: string[] = [];
-  const enqueueCalls: Array<Record<string, unknown>> = [];
   const service = new PrepareAssistantInboundTurnService(
     {
       async findChatBySurfaceThread() {
@@ -167,12 +166,6 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async enqueueIfNeeded(input: Record<string, unknown>) {
-        enqueueCalls.push(input);
-        return { accepted: true, reason: "queued" };
-      }
-    } as never,
-    {
       async listByMessageId() {
         return [
           {
@@ -181,9 +174,8 @@ async function run(): Promise<void> {
             chatId: "chat-1",
             assistantId: assistant.id,
             workspaceId: assistant.workspaceId,
-            assistantFileId: "file-1",
             attachmentType: "document",
-            storagePath: "storage/file-1",
+            storagePath: "/shared/input/brief.txt",
             originalFilename: "brief.txt",
             mimeType: "text/plain",
             sizeBytes: BigInt(12),
@@ -213,15 +205,8 @@ async function run(): Promise<void> {
   assert.equal(prepared.chat.id, "chat-1");
   assert.equal(createdMessages.length, 1);
   assert.equal(createdMessages[0]?.chatId, "chat-1");
-  assert.deepEqual(enqueueCalls, [
-    {
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      chatMode: "project",
-      attachmentId: "att-1",
-      assistantFileId: "file-1"
-    }
-  ]);
+  assert.equal(prepared.userMessage.attachments.length, 1);
+  assert.equal(prepared.userMessage.attachments[0]?.path, "/shared/input/brief.txt");
   assert.deepEqual(runtimeDeletes, [
     'receipt:{"where":{"assistantId":"assistant-1","channel":"web","externalThreadKey":"thread-1"}}',
     'compaction:{"where":{"runtimeSessionId":{"in":["stale-runtime-session-1"]},"assistantId":"assistant-1"}}',

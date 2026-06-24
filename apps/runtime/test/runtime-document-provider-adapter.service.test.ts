@@ -26,30 +26,54 @@ function makeSandboxSuccessResult(objectKey = "sandbox-output/render.pdf") {
         mimeType: "application/pdf",
         sizeBytes: pdfBytes.length,
         logicalSizeBytes: pdfBytes.length,
-        fileRef: {
-          fileRef: "file-sandbox-1",
-          origin: "sandbox_output" as const,
-          sourceToolCode: "render_html_to_pdf",
-          objectKey,
-          relativePath: "render.pdf",
-          displayName: "render.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: pdfBytes.length,
-          logicalSizeBytes: pdfBytes.length
-        }
+        storagePath: objectKey
       }
     ]
   } as never;
 }
+type SandboxTestClient = {
+  savedObjects: Array<{ storagePath: string; mimeType: string; bytes: Buffer }>;
+  waitForCompletion: () => Promise<unknown>;
+  writeSharedOutbound: (input: {
+    basename: string;
+    contentBase64: string;
+    mimeType: string;
+    workspaceId?: string;
+    assistantId?: string;
+    handle?: string;
+    workspaceQuotaBytes?: number | null;
+    sharedQuotaBytes?: number | null;
+  }) => Promise<{ workspaceRelPath: string; sizeBytes: number }>;
+};
 function makeSandboxMock(overrides?: {
   waitForCompletion?: (...args: unknown[]) => Promise<unknown>;
-}) {
-  return {
+  writeSharedOutbound?: SandboxTestClient["writeSharedOutbound"];
+}): SandboxTestClient {
+  const savedObjects: Array<{ storagePath: string; mimeType: string; bytes: Buffer }> = [];
+  const mock = {
+    savedObjects,
     async waitForCompletion() {
       return makeSandboxSuccessResult();
     },
+    async writeSharedOutbound(input: {
+      basename: string;
+      contentBase64: string;
+      mimeType: string;
+      workspaceId?: string;
+      workspaceQuotaBytes?: number | null;
+      sharedQuotaBytes?: number | null;
+    }) {
+      if (overrides?.writeSharedOutbound) {
+        return overrides.writeSharedOutbound(input);
+      }
+      const bytes = Buffer.from(input.contentBase64, "base64");
+      const storagePath = `/shared/workspace-1/outbound/self/${input.basename}`;
+      savedObjects.push({ storagePath, mimeType: input.mimeType, bytes });
+      return { workspaceRelPath: storagePath, sizeBytes: bytes.length };
+    },
     ...overrides
-  } as never;
+  };
+  return mock;
 }
 function createBundle() {
   return {
@@ -142,7 +166,7 @@ export async function runRuntimeDocumentProviderAdapterServiceTest(): Promise<vo
 describe("RuntimeDocumentProviderAdapterService", () => {
   test("generates and persists a sandbox-rendered document artifact", async () => {
     const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
-    const savedObjects: Array<{ objectKey: string; mimeType: string; bytes: Buffer }> = [];
+    const sandboxClient = makeSandboxMock();
     const service = new RuntimeDocumentProviderAdapterService(
       {
         async generateText(input: { requestMetadata?: { classification?: string } }) {
@@ -198,76 +222,11 @@ describe("RuntimeDocumentProviderAdapterService", () => {
         }
       } as never,
       {
-        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
-          return `assistant-media/${input.artifactId}.${input.extension}`;
-        },
-        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
-          savedObjects.push({
-            objectKey: input.objectKey,
-            mimeType: input.mimeType,
-            bytes: input.buffer
-          });
-          return {
-            objectKey: input.objectKey,
-            sizeBytes: input.buffer.length,
-            mimeType: input.mimeType
-          };
-        },
         async downloadObject() {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      sandboxClient as never
     );
     mockExtractedPdfText(
       service,
@@ -306,8 +265,8 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     });
     // generateDocumentOutcome is no longer called — rendering is now via sandbox WeasyPrint.
     assert.equal(gatewayCalls.length, 0);
-    assert.equal(savedObjects.length, 1);
-    assert.equal(savedObjects[0]!.mimeType, "application/pdf");
+    assert.equal(sandboxClient.savedObjects.length, 1);
+    assert.equal(sandboxClient.savedObjects[0]!.mimeType, "application/pdf");
     assert.equal(result.artifacts.length, 1);
     assert.equal(result.artifacts[0]!.kind, "file");
     assert.equal(result.artifacts[0]!.mimeType, "application/pdf");
@@ -388,57 +347,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     mockExtractedPdfText(
       service,
@@ -545,57 +454,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     mockExtractedPdfText(
       service,
@@ -704,57 +563,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     mockExtractedPdfText(
       service,
@@ -808,21 +617,6 @@ describe("RuntimeDocumentProviderAdapterService", () => {
         }
       } as never,
       {} as never,
-      {
-        toRuntimeFileRef() {
-          return {
-            fileRef: "file-1",
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: "assistant-media/test.pdf",
-            relativePath: "artifacts/test.pdf",
-            displayName: "test.pdf",
-            mimeType: "application/pdf",
-            sizeBytes: 1,
-            logicalSizeBytes: 1
-          };
-        }
-      } as never,
       makeSandboxMock({
         waitForCompletion: async () => ({
           status: "violated",
@@ -833,7 +627,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           stderr: null,
           files: []
         })
-      })
+      }) as never
     );
     const result = await service.run({
       bundle: createBundle(),
@@ -915,57 +709,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           ]);
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     mockExtractedPdfText(
       service,
@@ -1076,57 +820,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     mockExtractedPdfText(service, null, "pdf-parse unavailable");
     const result = await service.run({
@@ -1224,57 +918,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return Buffer.alloc(2048, "Z");
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     mockExtractedPdfText(service, "");
     const result = await service.run({
@@ -1415,57 +1059,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     mockExtractedPdfText(
       service,
@@ -1517,7 +1111,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
   });
   test("generates and persists a Gamma presentation artifact", async () => {
     const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
-    const savedObjects: Array<{ objectKey: string; mimeType: string; bytes: Buffer }> = [];
+    const sandboxClient = makeSandboxMock();
     const generateTextCalls: Array<{ classification: string | null }> = [];
     const service = new RuntimeDocumentProviderAdapterService(
       {
@@ -1570,76 +1164,11 @@ describe("RuntimeDocumentProviderAdapterService", () => {
         }
       } as never,
       {
-        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
-          return `assistant-media/${input.artifactId}.${input.extension}`;
-        },
-        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
-          savedObjects.push({
-            objectKey: input.objectKey,
-            mimeType: input.mimeType,
-            bytes: input.buffer
-          });
-          return {
-            objectKey: input.objectKey,
-            sizeBytes: input.buffer.length,
-            mimeType: input.mimeType
-          };
-        },
         async downloadObject() {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      sandboxClient as never
     );
     const result = await service.run({
       bundle: createBundle(),
@@ -1723,12 +1252,12 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       presentationOptions?.additionalInstructions ?? "",
       /fewer, fuller image-led cards/
     );
-    assert.equal(savedObjects.length, 1);
+    assert.equal(sandboxClient.savedObjects.length, 1);
     assert.equal(
-      savedObjects[0]!.mimeType,
+      sandboxClient.savedObjects[0]!.mimeType,
       "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     );
-    assert.match(savedObjects[0]!.objectKey, /\.pptx$/);
+    assert.match(sandboxClient.savedObjects[0]!.storagePath, /\.pptx$/);
     assert.equal(result.artifacts.length, 1);
     assert.equal(
       result.artifacts[0]!.mimeType,
@@ -1801,57 +1330,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     const result = await service.run({
       bundle: createBundle(),
@@ -1899,7 +1378,6 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     const service = new RuntimeDocumentProviderAdapterService(
       {} as never,
       {} as never,
-      {} as never,
       {} as never
     );
     const result = (
@@ -1933,7 +1411,6 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     const service = new RuntimeDocumentProviderAdapterService(
       {} as never,
       {} as never,
-      {} as never,
       {} as never
     );
     const repair = (
@@ -1960,7 +1437,6 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     const service = new RuntimeDocumentProviderAdapterService(
       {} as never,
       {} as never,
-      {} as never,
       {} as never
     );
     const repair = (
@@ -1985,7 +1461,6 @@ describe("RuntimeDocumentProviderAdapterService", () => {
   });
   test("HTML generation prompt includes pagination guidance for cover-page, keep-together, long-table thead, and no manual page-breaks", () => {
     const service = new RuntimeDocumentProviderAdapterService(
-      {} as never,
       {} as never,
       {} as never,
       {} as never
@@ -2098,57 +1573,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     await service.run({
       bundle: createBundle(),
@@ -2246,57 +1671,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     await service.run({
       bundle: createBundle(),
@@ -2342,7 +1717,6 @@ describe("RuntimeDocumentProviderAdapterService", () => {
   });
   test("buildPdfContentRequest inlines sourceFiles[].text into the user prompt and adds rebuild instructions when at least one source file has text", () => {
     const service = new RuntimeDocumentProviderAdapterService(
-      {} as never,
       {} as never,
       {} as never,
       {} as never
@@ -2478,54 +1852,6 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes
-          };
-        }
-      } as never,
       makeSandboxMock({
         waitForCompletion: async (...args: unknown[]) => {
           const input = args[0] as { args: { htmlContent: string; outputFileName: string } };
@@ -2535,7 +1861,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           });
           return makeSandboxSuccessResult();
         }
-      })
+      }) as never
     );
     mockExtractedPdfText(
       service,
@@ -2644,54 +1970,6 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes
-          };
-        }
-      } as never,
       makeSandboxMock({
         waitForCompletion: async (...args: unknown[]) => {
           const input = args[0] as { args: { htmlContent: string; outputFileName: string } };
@@ -2701,7 +1979,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           });
           return makeSandboxSuccessResult();
         }
-      })
+      }) as never
     );
     mockExtractedPdfText(service, largeSourceText);
     const result = await service.run({
@@ -2846,55 +2124,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     mockExtractedPdfText(
       service,
@@ -3000,55 +2230,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     mockExtractedPdfText(
       service,
@@ -3160,37 +2342,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: { fileRef: string }) {
-          return { fileRef: record.fileRef };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     mockExtractedPdfText(service, largeSourceText);
     const result = await service.run({
@@ -3321,37 +2473,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: { fileRef: string }) {
-          return { fileRef: record.fileRef };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     mockExtractedPdfText(service, largeSourceText);
     const result = await service.run({
@@ -3451,56 +2573,6 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
       makeSandboxMock({
         waitForCompletion: async (...args: unknown[]) => {
           const input = args[0] as { args: { htmlContent: string; outputFileName: string } };
@@ -3511,7 +2583,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           if (options.onSandboxRender) options.onSandboxRender(input.args);
           return makeSandboxSuccessResult();
         }
-      })
+      }) as never
     );
     service["extractPdfText"] = async () => ({
       text: "Enough PDF text to pass validation in the patch-revise sandbox output artifact now.",
@@ -3852,57 +2924,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     service["extractPdfText"] = async () => ({
       text: "Usage test PDF text long enough to pass minimum validation requirements for a generated document.",
@@ -4024,57 +3046,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile(input: {
-          referenceId: string;
-          objectKey: string;
-          filename: string | null;
-          mimeType: string;
-          sizeBytes: number;
-        }) {
-          return {
-            fileRef: `file-${input.referenceId}`,
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: input.objectKey,
-            relativePath: `artifacts/${input.filename}`,
-            displayName: input.filename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            logicalSizeBytes: input.sizeBytes,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: {
-          fileRef: string;
-          origin: "runtime_output";
-          sourceToolCode: string | null;
-          objectKey: string;
-          relativePath: string;
-          displayName: string | null;
-          mimeType: string;
-          sizeBytes: number;
-          logicalSizeBytes: number | null;
-        }) {
-          return {
-            fileRef: record.fileRef,
-            origin: record.origin,
-            sourceToolCode: record.sourceToolCode,
-            objectKey: record.objectKey,
-            relativePath: record.relativePath,
-            displayName: record.displayName,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            logicalSizeBytes: record.logicalSizeBytes
-          };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     const result = await service.run({
       bundle: createBundle(),
@@ -4226,31 +3198,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return makePdfBytes();
         }
       } as never,
-      {
-        async ensureAttachmentBackedFile() {
-          return {
-            fileRef: "file-1",
-            assistantId: "assistant-1",
-            workspaceId: "workspace-1",
-            sandboxJobId: null,
-            origin: "runtime_output",
-            sourceToolCode: "document",
-            objectKey: "k",
-            relativePath: "a.pdf",
-            displayName: "a.pdf",
-            mimeType: "application/pdf",
-            sizeBytes: 1,
-            logicalSizeBytes: 1,
-            sha256: null,
-            metadata: null,
-            createdAt: new Date()
-          };
-        },
-        toRuntimeFileRef(record: { fileRef: string }) {
-          return { fileRef: record.fileRef };
-        }
-      } as never,
-      makeSandboxMock()
+      makeSandboxMock() as never
     );
     service["extractPdfText"] = async () => ({ text: "x".repeat(120), error: null });
     await service.run({
@@ -4311,36 +3259,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
             return makePdfBytes();
           }
         } as never,
-        {
-          async ensureAttachmentBackedFile() {
-            return {
-              fileRef: "file-usage",
-              assistantId: "assistant-1",
-              workspaceId: "workspace-1",
-              sandboxJobId: null,
-              origin: "runtime_output",
-              sourceToolCode: "document",
-              objectKey: "k",
-              relativePath: "doc.pdf",
-              displayName: "doc.pdf",
-              mimeType: "application/pdf",
-              sizeBytes: 1,
-              logicalSizeBytes: 1,
-              sha256: null,
-              metadata: null,
-              createdAt: new Date()
-            };
-          },
-          toRuntimeFileRef(record: { fileRef: string }) {
-            return {
-              fileRef: record.fileRef,
-              filename: "doc.pdf",
-              mimeType: "application/pdf",
-              sizeBytes: 1
-            };
-          }
-        } as never,
-        makeSandboxMock()
+        makeSandboxMock() as never
       );
       mockExtractedPdfText(
         service,
@@ -4453,36 +3372,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
             return makePdfBytes();
           }
         } as never,
-        {
-          async ensureAttachmentBackedFile() {
-            return {
-              fileRef: "file-gamma",
-              assistantId: "assistant-1",
-              workspaceId: "workspace-1",
-              sandboxJobId: null,
-              origin: "runtime_output",
-              sourceToolCode: "document",
-              objectKey: "k",
-              relativePath: "pres.pptx",
-              displayName: "pres.pptx",
-              mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-              sizeBytes: 1,
-              logicalSizeBytes: 1,
-              sha256: null,
-              metadata: null,
-              createdAt: new Date()
-            };
-          },
-          toRuntimeFileRef(record: { fileRef: string }) {
-            return {
-              fileRef: record.fileRef,
-              filename: "pres.pptx",
-              mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-              sizeBytes: 1
-            };
-          }
-        } as never,
-        makeSandboxMock()
+        makeSandboxMock() as never
       );
       const bundle = Object.assign({}, createBundle(), {
         governance: {
@@ -4588,36 +3478,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
             return makePdfBytes();
           }
         } as never,
-        {
-          async ensureAttachmentBackedFile() {
-            return {
-              fileRef: "file-patch-usage",
-              assistantId: "assistant-1",
-              workspaceId: "workspace-1",
-              sandboxJobId: null,
-              origin: "runtime_output",
-              sourceToolCode: "document",
-              objectKey: "k",
-              relativePath: "patched.pdf",
-              displayName: "patched.pdf",
-              mimeType: "application/pdf",
-              sizeBytes: 1,
-              logicalSizeBytes: 1,
-              sha256: null,
-              metadata: null,
-              createdAt: new Date()
-            };
-          },
-          toRuntimeFileRef(record: { fileRef: string }) {
-            return {
-              fileRef: record.fileRef,
-              filename: "patched.pdf",
-              mimeType: "application/pdf",
-              sizeBytes: 1
-            };
-          }
-        } as never,
-        makeSandboxMock()
+        makeSandboxMock() as never
       );
       mockExtractedPdfText(
         service,
@@ -4673,17 +3534,7 @@ function makeSandboxCodeResult(input: {
               mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
               sizeBytes: 2052,
               logicalSizeBytes: 2052,
-              fileRef: {
-                fileRef: "file-sandbox-code-1",
-                origin: "sandbox_output" as const,
-                sourceToolCode: "execute_document_code",
-                objectKey: input.objectKey ?? "sandbox-output/report.xlsx",
-                relativePath,
-                displayName: relativePath,
-                mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                sizeBytes: 2052,
-                logicalSizeBytes: 2052
-              }
+              storagePath: input.objectKey ?? "sandbox-output/report.xlsx"
             }
           ]
         : []
@@ -4698,19 +3549,15 @@ function createModeBService(config: {
   waitForCompletion: (request: {
     toolCode: string;
     args: Record<string, unknown>;
-    mountedFileRefs?: string[];
   }) => Promise<unknown>;
-  downloadObject?: (objectKey: string) => Promise<Buffer | null>;
-  onDelete?: (fileRef: string) => void;
+  downloadObject?: (storagePath: string) => Promise<Buffer | null>;
 }) {
   const generateCalls: Array<{ classification: string; payloadText: string }> = [];
   const sandboxCalls: Array<{
     toolCode: string;
     args: Record<string, unknown>;
-    mountedFileRefs: string[];
   }> = [];
-  const deletedFileRefs: string[] = [];
-  const savedObjects: Array<{ objectKey: string; mimeType: string; bytes: Buffer }> = [];
+  const savedObjects: Array<{ storagePath: string; mimeType: string; bytes: Buffer }> = [];
   const service = new RuntimeDocumentProviderAdapterService(
     {
       async generateText(input: {
@@ -4738,88 +3585,42 @@ function createModeBService(config: {
       }
     } as never,
     {
-      buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
-        return `assistant-media/${input.artifactId}.${input.extension}`;
-      },
-      async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
-        savedObjects.push({
-          objectKey: input.objectKey,
-          mimeType: input.mimeType,
-          bytes: input.buffer
-        });
-        return {
-          objectKey: input.objectKey,
-          sizeBytes: input.buffer.length,
-          mimeType: input.mimeType
-        };
-      },
-      async downloadObject(objectKey: string) {
+      async downloadByWorkspacePath(input: { workspaceId: string; storagePath: string }) {
         if (config.downloadObject) {
-          return config.downloadObject(objectKey);
+          return config.downloadObject(input.storagePath);
+        }
+        return makeXlsxBytes();
+      },
+      async downloadObject(storagePath: string) {
+        if (config.downloadObject) {
+          return config.downloadObject(storagePath);
         }
         return makeXlsxBytes();
       }
     } as never,
     {
-      async ensureAttachmentBackedFile(input: {
-        referenceId: string;
-        objectKey: string;
-        filename: string | null;
-        mimeType: string;
-        sizeBytes: number;
-      }) {
-        return {
-          fileRef: `file-${input.referenceId}`,
-          assistantId: "assistant-1",
-          workspaceId: "workspace-1",
-          sandboxJobId: null,
-          origin: "runtime_output",
-          sourceToolCode: "document",
-          objectKey: input.objectKey,
-          relativePath: `artifacts/${input.filename}`,
-          displayName: input.filename,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes,
-          logicalSizeBytes: input.sizeBytes,
-          sha256: null,
-          metadata: null,
-          createdAt: new Date()
-        };
-      },
-      toRuntimeFileRef(record: { fileRef: string }) {
-        return {
-          fileRef: record.fileRef,
-          origin: "runtime_output",
-          sourceToolCode: "document",
-          objectKey: "k",
-          relativePath: "r",
-          displayName: "d",
-          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          sizeBytes: 1,
-          logicalSizeBytes: 1
-        };
-      },
-      async deleteById(fileRef: string) {
-        deletedFileRefs.push(fileRef);
-        config.onDelete?.(fileRef);
-      }
-    } as never,
-    {
-      async waitForCompletion(request: {
-        toolCode: string;
-        args: Record<string, unknown>;
-        mountedFileRefs?: string[];
-      }) {
+      async waitForCompletion(request: { toolCode: string; args: Record<string, unknown> }) {
         sandboxCalls.push({
           toolCode: request.toolCode,
-          args: request.args,
-          mountedFileRefs: request.mountedFileRefs ?? []
+          args: request.args
         });
         return config.waitForCompletion(request);
+      },
+      async writeSharedOutbound(input: {
+        basename: string;
+        contentBase64: string;
+        mimeType: string;
+        workspaceQuotaBytes?: number | null;
+        sharedQuotaBytes?: number | null;
+      }) {
+        const bytes = Buffer.from(input.contentBase64, "base64");
+        const storagePath = `/shared/workspace-1/outbound/self/${input.basename}`;
+        savedObjects.push({ storagePath, mimeType: input.mimeType, bytes });
+        return { workspaceRelPath: storagePath, sizeBytes: bytes.length };
       }
     } as never
   );
-  return { service, generateCalls, sandboxCalls, deletedFileRefs, savedObjects };
+  return { service, generateCalls, sandboxCalls, savedObjects };
 }
 function makeModeBRequest(overrides?: {
   outputFormat?: "xlsx" | "docx" | "pdf";
@@ -4878,7 +3679,6 @@ describe("RuntimeDocumentProviderAdapterService — ADR-123 Slice 6 mode B", () 
     assert.equal(result.artifacts.length, 1);
     assert.equal(result.providerStatus?.state, "success");
     assert.equal(result.renderedHtml ?? null, null);
-    assert.deepEqual(harness.deletedFileRefs, ["file-sandbox-code-1"]);
     assert.equal(harness.savedObjects.length, 1);
   });
 
@@ -4978,11 +3778,10 @@ describe("RuntimeDocumentProviderAdapterService — ADR-123 Slice 6 mode B", () 
           {
             attachmentId: "att-1",
             kind: "document",
-            objectKey: "uploads/att-1/source.pdf",
+            storagePath: "uploads/att-1/source.pdf",
             mimeType: "application/pdf",
-            filename: "source.pdf",
-            sizeBytes: 4096,
-            fileRef: "assistant-file-att-1"
+            displayName: "source.pdf",
+            sizeBytes: 4096
           }
         ],
         sourceFiles: [
@@ -5002,10 +3801,13 @@ describe("RuntimeDocumentProviderAdapterService — ADR-123 Slice 6 mode B", () 
     });
     assert.equal(result.providerStatus?.state, "success");
     const call = harness.sandboxCalls[0]!;
-    assert.deepEqual(call.mountedFileRefs, ["assistant-file-att-1"]);
-    const sourceMounts = call.args.sourceMounts as Array<{ fileRef: string; mountPath: string }>;
+    assert.deepEqual(call.args.inputPaths, ["uploads/att-1/source.pdf"]);
+    const sourceMounts = call.args.sourceMounts as Array<{
+      storagePath: string;
+      mountPath: string;
+    }>;
     assert.equal(sourceMounts.length, 1);
-    assert.equal(sourceMounts[0]!.fileRef, "assistant-file-att-1");
+    assert.equal(sourceMounts[0]!.storagePath, "uploads/att-1/source.pdf");
     assert.equal(sourceMounts[0]!.mountPath, "sources/source.pdf");
     const sidecars = call.args.textSidecars as Array<{ mountPath: string }>;
     assert.equal(sidecars.length, 0, "digital PDF must not get an OCR sidecar");
@@ -5037,11 +3839,10 @@ describe("RuntimeDocumentProviderAdapterService — ADR-123 Slice 6 mode B", () 
           {
             attachmentId: "att-2",
             kind: "document",
-            objectKey: "uploads/att-2/scan.pdf",
+            storagePath: "uploads/att-2/scan.pdf",
             mimeType: "application/pdf",
-            filename: "scan.pdf",
-            sizeBytes: 8192,
-            fileRef: "assistant-file-att-2"
+            displayName: "scan.pdf",
+            sizeBytes: 8192
           }
         ],
         sourceFiles: [
@@ -5065,7 +3866,7 @@ describe("RuntimeDocumentProviderAdapterService — ADR-123 Slice 6 mode B", () 
     });
     assert.equal(result.providerStatus?.state, "success");
     const call = harness.sandboxCalls[0]!;
-    assert.deepEqual(call.mountedFileRefs, ["assistant-file-att-2"]);
+    assert.deepEqual(call.args.inputPaths, ["uploads/att-2/scan.pdf"]);
     const sidecars = call.args.textSidecars as Array<{ mountPath: string; text: string }>;
     assert.equal(sidecars.length, 1);
     assert.equal(sidecars[0]!.mountPath, "sources/scan.pdf.ocr.txt");

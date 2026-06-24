@@ -844,6 +844,10 @@ export class MaterializeAssistantPublishedVersionService {
       effectivePlanCode,
       apiConfig.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT
     );
+    const sharedQuotaBytes = await this.resolveSharedQuotaBytes(
+      effectivePlanCode,
+      apiConfig.QUOTA_SHARED_STORAGE_BYTES_DEFAULT
+    );
     const planToolBudgets = await this.resolvePlanToolBudgets(effectivePlanCode);
     const hasAnyLoopOverride =
       planToolBudgets.loopLimitByMode.normal !== null ||
@@ -878,6 +882,7 @@ export class MaterializeAssistantPublishedVersionService {
         toolCredentialRefs,
         toolQuotaPolicy: runtimeToolQuotaPolicy,
         workspaceQuotaBytes,
+        sharedQuotaBytes,
         secretRefs: governance.secretRefs,
         auditHook: governance.auditHook
       },
@@ -956,9 +961,22 @@ export class MaterializeAssistantPublishedVersionService {
       bootstrapDocuments: onboardingDocuments
     };
 
+    const siblingHandlesRows = await this.prisma.assistant.findMany({
+      where: {
+        workspaceId: assistant.workspaceId,
+        id: { not: assistant.id }
+      },
+      select: { handle: true }
+    });
+    const siblingAssistantHandles: readonly string[] = siblingHandlesRows
+      .map((row) => row.handle)
+      .filter((handle): handle is string => typeof handle === "string" && handle.length > 0);
+
     const runtimeBundleArtifact = compileAssistantRuntimeBundle({
       metadata: {
         assistantId: assistant.id,
+        assistantHandle: assistant.handle,
+        siblingAssistantHandles,
         workspaceId: assistant.workspaceId,
         publishedVersionId: publishedVersion.id,
         publishedVersion: publishedVersion.version,
@@ -1020,6 +1038,7 @@ export class MaterializeAssistantPublishedVersionService {
         quota: {
           planCode: effectivePlanCode,
           workspaceQuotaBytes,
+          sharedQuotaBytes,
           quotaHook: governance.quotaHook
         },
         auditHook: governance.auditHook
@@ -1707,6 +1726,30 @@ export class MaterializeAssistantPublishedVersionService {
         : null;
     if (!qa) return envDefault;
     const raw = qa.workspaceStorageBytesLimit;
+    return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : envDefault;
+  }
+
+  private async resolveSharedQuotaBytes(
+    planCode: string | null,
+    envDefault: number
+  ): Promise<number> {
+    if (planCode === null) return envDefault;
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) return envDefault;
+    const hints = plan.billingProviderHints;
+    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) return envDefault;
+    const record = hints as Record<string, unknown>;
+    const qa =
+      record.quotaAccounting !== null &&
+      typeof record.quotaAccounting === "object" &&
+      !Array.isArray(record.quotaAccounting)
+        ? (record.quotaAccounting as Record<string, unknown>)
+        : null;
+    if (!qa) return envDefault;
+    const raw = qa.sharedStorageBytesLimit;
     return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : envDefault;
   }
 

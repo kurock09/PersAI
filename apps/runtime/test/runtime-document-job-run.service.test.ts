@@ -17,13 +17,9 @@ describe("RuntimeDocumentJobRunService", () => {
             artifacts: [
               {
                 artifactId: "artifact-1",
-                fileRef: "file-1",
                 file: {
-                  fileRef: "file-1",
-                  origin: "runtime_output",
                   sourceToolCode: "document",
-                  objectKey: "assistant-media/test.pdf",
-                  relativePath: "artifacts/test.pdf",
+                  storagePath: "assistant-media/test.pdf",
                   displayName: "brief.pdf",
                   mimeType: "application/pdf",
                   sizeBytes: 123,
@@ -31,7 +27,7 @@ describe("RuntimeDocumentJobRunService", () => {
                 },
                 kind: "file",
                 sourceToolCode: "document",
-                objectKey: "assistant-media/test.pdf",
+                storagePath: "assistant-media/test.pdf",
                 mimeType: "application/pdf",
                 filename: "brief.pdf",
                 sizeBytes: 123,

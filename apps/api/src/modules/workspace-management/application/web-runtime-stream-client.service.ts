@@ -359,10 +359,10 @@ export class WebRuntimeStreamClientService {
                 ? {}
                 : { turnRouting: event.result.turnRouting }),
               ...(event.result.trace === undefined ? {} : { runtimeTrace: event.result.trace }),
-              ...(event.result.discoveredFileRefIds === undefined ||
-              event.result.discoveredFileRefIds.length === 0
+              ...(event.result.discoveredFilePaths === undefined ||
+              event.result.discoveredFilePaths.length === 0
                 ? {}
-                : { discoveredFileRefIds: event.result.discoveredFileRefIds }),
+                : { discoveredFilePaths: event.result.discoveredFilePaths }),
               ...(event.result.truncated === true ? { truncated: true } : {})
             };
             return;

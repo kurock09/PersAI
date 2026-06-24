@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { getAttachmentDerivativeRefs } from "../src/modules/workspace-management/application/media/media.types";
 import { MediaAttachmentController } from "../src/modules/workspace-management/interface/http/media-attachment.controller";
 
 class FakeResponse {
-  statusCode = 0;
+  statusCode = 200;
   headers = new Map<string, string | number | readonly string[]>();
   body: Buffer | null = null;
 
@@ -20,6 +19,18 @@ async function run(): Promise<void> {
   const controller = new MediaAttachmentController(
     {} as never,
     {
+      async downloadChatFileByPath(input: { path: string; chatId: string }) {
+        assert.equal(input.chatId, "chat-1");
+        assert.equal(input.path, "/shared/out/recommendations.md");
+        return {
+          buffer: Buffer.from("Привет\n", "utf8"),
+          contentType: "text/markdown",
+          mimeType: "text/markdown",
+          originalFilename: "рекомендации.md"
+        };
+      }
+    } as never,
+    {
       async execute({ userId }: { userId: string }) {
         assert.equal(userId, "user-1");
         return {
@@ -28,17 +39,6 @@ async function run(): Promise<void> {
             id: "assistant-1",
             workspaceId: "workspace-1"
           }
-        };
-      }
-    } as never,
-    {
-      async downloadAssistantFile() {
-        return {
-          file: {
-            displayName: "рекомендации.md"
-          },
-          buffer: Buffer.from("Привет\n", "utf8"),
-          contentType: "text/markdown"
         };
       }
     } as never,
@@ -62,15 +62,22 @@ async function run(): Promise<void> {
           renderJobId: "render-pptx-1"
         };
       }
+    } as never,
+    {} as never,
+    {
+      assistantChat: {
+        findFirst: async () => ({ id: "chat-1", assistantId: "assistant-1" })
+      }
     } as never
   );
 
   const req = { resolvedAppUser: { id: "user-1" }, requestId: "req-1" };
   const downloadResponse = new FakeResponse();
-  await controller.downloadAssistantFile(
+  await controller.downloadChatFile(
     req as never,
     downloadResponse as never,
-    "file-ref-1",
+    "chat-1",
+    "/shared/out/recommendations.md",
     "1"
   );
   assert.equal(downloadResponse.headers.get("Content-Type"), "text/markdown; charset=utf-8");
@@ -82,10 +89,11 @@ async function run(): Promise<void> {
   assert.equal(downloadResponse.body!.subarray(3).toString("utf8"), "Привет\n");
 
   const inlineResponse = new FakeResponse();
-  await controller.downloadAssistantFile(
+  await controller.downloadChatFile(
     req as never,
     inlineResponse as never,
-    "file-ref-1",
+    "chat-1",
+    "/shared/out/recommendations.md",
     undefined
   );
   assert.equal(inlineResponse.headers.get("Content-Type"), "text/markdown; charset=utf-8");
@@ -95,54 +103,19 @@ async function run(): Promise<void> {
   );
   assert.equal(inlineResponse.body!.toString("utf8"), "Привет\n");
 
-  const controllerWithoutDisplayName = new MediaAttachmentController(
-    {} as never,
-    {
-      async execute({ userId }: { userId: string }) {
-        assert.equal(userId, "user-1");
-        return {
-          assistantId: "assistant-1",
-          assistant: {
-            id: "assistant-1",
-            workspaceId: "workspace-1"
-          }
-        };
-      }
-    } as never,
-    {
-      async downloadAssistantFile() {
-        return {
-          file: {
-            displayName: null,
-            relativePath: "assistant-files/generated/friendly-name.mp4",
-            mimeType: "video/mp4"
-          },
-          buffer: Buffer.from([1, 2, 3]),
-          contentType: "video/mp4"
-        };
-      }
-    } as never,
-    {
-      async execute() {
-        throw new Error("not used");
-      }
-    } as never
-  );
-  const fallbackNameResponse = new FakeResponse();
-  await controllerWithoutDisplayName.downloadAssistantFile(
-    req as never,
-    fallbackNameResponse as never,
-    "file-ref-video-1",
-    "1"
-  );
-  assert.equal(
-    fallbackNameResponse.headers.get("Content-Disposition"),
-    "attachment; filename=\"friendly-name.mp4\"; filename*=UTF-8''friendly-name.mp4"
-  );
-
   const controllerWithOctetStorageType = new MediaAttachmentController(
     {} as never,
     {
+      async downloadChatFileByPath() {
+        return {
+          buffer: Buffer.from([1, 2, 3]),
+          contentType: "application/octet-stream",
+          mimeType: "video/mp4",
+          originalFilename: "clip.mp4"
+        };
+      }
+    } as never,
+    {
       async execute({ userId }: { userId: string }) {
         assert.equal(userId, "user-1");
         return {
@@ -155,45 +128,26 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async downloadAssistantFile() {
-        return {
-          file: {
-            displayName: "clip.mp4",
-            relativePath: "assistant-files/generated/clip.mp4",
-            mimeType: "video/mp4"
-          },
-          buffer: Buffer.from([1, 2, 3]),
-          contentType: "application/octet-stream"
-        };
-      }
-    } as never,
-    {
       async execute() {
         throw new Error("not used");
+      }
+    } as never,
+    {} as never,
+    {
+      assistantChat: {
+        findFirst: async () => ({ id: "chat-1", assistantId: "assistant-1" })
       }
     } as never
   );
   const octetResponse = new FakeResponse();
-  await controllerWithOctetStorageType.downloadAssistantFile(
+  await controllerWithOctetStorageType.downloadChatFile(
     req as never,
     octetResponse as never,
-    "file-ref-video-octet",
+    "chat-1",
+    "/shared/out/clip.mp4",
     "1"
   );
   assert.equal(octetResponse.headers.get("Content-Type"), "video/mp4");
-
-  assert.deepEqual(
-    getAttachmentDerivativeRefs({
-      thumbnailFileRef: " thumbnail-ref-1 ",
-      posterFileRef: "poster-ref-1",
-      derivativesStatus: "ready"
-    }),
-    {
-      thumbnailFileRef: "thumbnail-ref-1",
-      posterFileRef: "poster-ref-1",
-      derivativesStatus: "ready"
-    }
-  );
 
   assert.deepEqual(
     await controller.preparePresentationPptx(req as never, "doc-1", { versionId: "version-1" }),

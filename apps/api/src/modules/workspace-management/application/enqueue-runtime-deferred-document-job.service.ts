@@ -32,8 +32,8 @@ type DocumentDirectToolExecutionPayload = {
     | "export_or_redeliver"
     | "create_data_document";
   request: AssistantDocumentSourcePayload;
-  /** ADR-097 Slice 4 — AssistantFile.id for cross-chat revise. Mutually exclusive with request.docId. */
-  fileRef?: string | null;
+  /** ADR-126 v3 — workspace storage path for cross-chat revise. Mutually exclusive with request.docId. */
+  path?: string | null;
 };
 
 export type EnqueueRuntimeDeferredDocumentJobInput = {
@@ -99,23 +99,17 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           'attachments[].kind must be one of "image", "audio", "video", "file".'
         );
       }
-      const objectKey = this.requiredString(row.objectKey, "attachments[].objectKey");
+      const storagePath = this.requiredString(row.storagePath, "attachments[].storagePath");
       const mimeType = this.requiredString(row.mimeType, "attachments[].mimeType");
       const sizeBytesRaw = row.sizeBytes;
       const sizeBytes =
         typeof sizeBytesRaw === "number" && Number.isFinite(sizeBytesRaw) && sizeBytesRaw >= 0
           ? sizeBytesRaw
           : 0;
-      const filename =
-        typeof row.filename === "string" && row.filename.trim().length > 0 ? row.filename : null;
-      const fileRef =
-        row.fileRef === undefined
-          ? undefined
-          : row.fileRef === null
-            ? null
-            : typeof row.fileRef === "string" && row.fileRef.trim().length > 0
-              ? row.fileRef
-              : null;
+      const displayName =
+        typeof row.displayName === "string" && row.displayName.trim().length > 0
+          ? row.displayName
+          : null;
       const aliases =
         row.aliases === undefined
           ? undefined
@@ -129,11 +123,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       refs.push({
         attachmentId,
         kind: kindRaw,
-        objectKey,
+        storagePath,
         mimeType,
-        filename,
+        displayName,
         sizeBytes,
-        ...(fileRef === undefined ? {} : { fileRef }),
         ...(aliases === undefined ? {} : { aliases })
       });
     }
@@ -220,26 +213,21 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         ? null
         : input.sourceUserMessageAttachments;
     if (descriptorMode === "revise_document") {
-      const requestedFileRef = input.directToolExecution.fileRef ?? null;
+      const requestedPath = input.directToolExecution.path ?? null;
       const requestedDocId = input.directToolExecution.request.docId ?? null;
 
-      // ADR-097 Slice 4: ambiguous source — model passed both fileRef and docId.
-      if (
-        requestedFileRef !== null &&
-        requestedDocId !== null &&
-        requestedDocId.trim().length > 0
-      ) {
+      if (requestedPath !== null && requestedDocId !== null && requestedDocId.trim().length > 0) {
         return {
           accepted: false,
           code: "revise_document_ambiguous_source",
           message:
-            "revise_document received both fileRef and docId — pass exactly one. Use fileRef for a PDF from any chat (identified by AssistantFile.id), or docId for a PDF created in the current chat.",
+            "revise_document received both path and docId — pass exactly one. Use path for a PDF from any chat (identified by workspace storage path), or docId for a PDF created in the current chat.",
           guidance: null
         };
       }
 
-      if (requestedFileRef !== null) {
-        return this.enqueueRevisionByFileRef({
+      if (requestedPath !== null) {
+        return this.enqueueRevisionByStoragePath({
           assistantId: input.assistantId,
           userId: chat.userId,
           workspaceId: chat.workspaceId,
@@ -253,7 +241,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
             sourceJson: input.directToolExecution.request,
             sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
           },
-          fileRef: requestedFileRef
+          storagePath: requestedPath
         });
       }
 
@@ -630,42 +618,42 @@ export class EnqueueRuntimeDeferredDocumentJobService {
   }
 
   /**
-   * ADR-097 Slice 4 — resolve an AssistantFile.id to a revision context for
+   * ADR-126 v3 — resolve a workspace storage path to a revision context for
    * cross-chat PDF revise. Returns a typed result so the caller can emit the
    * correct user-visible error without silent fallbacks. Pure: no side effects,
    * no logging.
    */
-  private async resolveFileRefToRevisionContext(
+  private async resolveStoragePathToRevisionContext(
     assistantId: string,
-    fileRef: string
+    storagePath: string
   ): Promise<
     | { ok: true; context: AssistantDocumentRevisionContext }
     | { ok: false; code: string; message: string }
   > {
-    const result = await this.assistantDocumentJobService.findRevisionContextByFileRef({
+    const result = await this.assistantDocumentJobService.findRevisionContextByStoragePath({
       assistantId,
-      fileRef
+      storagePath
     });
     if (!result.ok) {
       if (result.reason === "not_pdf_document") {
         return {
           ok: false,
-          code: "revise_document_file_ref_not_a_pdf_document",
+          code: "revise_document_path_not_a_pdf_document",
           message:
-            "The file identified by fileRef is not a PDF document — revise_document only supports PDF documents via fileRef. Presentations and other document types must be revised using docId within the chat where they were created."
+            "The file identified by path is not a PDF document — revise_document only supports PDF documents via path. Presentations and other document types must be revised using docId within the chat where they were created."
         };
       }
       return {
         ok: false,
-        code: "revise_document_file_ref_not_found",
+        code: "revise_document_path_not_found",
         message:
-          "The fileRef does not resolve to a PDF document accessible to this assistant. Verify the fileRef is a valid AssistantFile.id for a document produced by this assistant."
+          "The path does not resolve to a PDF document accessible to this assistant. Verify the path is a valid workspace storage path for a document produced by this assistant."
       };
     }
     return { ok: true, context: result.context };
   }
 
-  private async enqueueRevisionByFileRef(input: {
+  private async enqueueRevisionByStoragePath(input: {
     assistantId: string;
     userId: string;
     workspaceId: string;
@@ -679,7 +667,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       sourceJson: AssistantDocumentSourcePayload;
       sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
     };
-    fileRef: string;
+    storagePath: string;
   }): Promise<
     | {
         accepted: true;
@@ -695,20 +683,21 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         guidance: string | null;
       }
   > {
-    const resolved = await this.resolveFileRefToRevisionContext(input.assistantId, input.fileRef);
+    const resolved = await this.resolveStoragePathToRevisionContext(
+      input.assistantId,
+      input.storagePath
+    );
     if (!resolved.ok) {
       return { accepted: false, code: resolved.code, message: resolved.message, guidance: null };
     }
     const revisionContext = resolved.context;
 
-    // Guard: the cross-chat path only supports PDF documents (pdf_document type).
-    // Presentations must be revised within their origin chat via doc_id.
     if (revisionContext.documentType !== "pdf_document") {
       return {
         accepted: false,
-        code: "revise_document_file_ref_not_a_pdf_document",
+        code: "revise_document_path_not_a_pdf_document",
         message:
-          "The file identified by fileRef is not a PDF document — revise_document only supports PDF documents via fileRef.",
+          "The file identified by path is not a PDF document — revise_document only supports PDF documents via path.",
         guidance: null
       };
     }
@@ -925,14 +914,12 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       );
     }
     const request = this.objectValue(row.request, "directToolExecution.request");
-    const fileRef =
-      typeof request.fileRef === "string" && request.fileRef.trim().length > 0
-        ? request.fileRef.trim()
-        : null;
+    const path =
+      typeof row.path === "string" && row.path.trim().length > 0 ? row.path.trim() : null;
     return {
       toolCode: "document",
       descriptorMode,
-      ...(fileRef !== null ? { fileRef } : {}),
+      ...(path !== null ? { path } : {}),
       request: {
         prompt: this.requiredString(request.prompt, "directToolExecution.request.prompt"),
         instructions: typeof request.instructions === "string" ? request.instructions : null,

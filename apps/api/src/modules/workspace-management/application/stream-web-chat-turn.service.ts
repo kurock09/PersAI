@@ -31,7 +31,6 @@ import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import {
-  getAttachmentDerivativeRefs,
   toAssistantWebChatMessageAttachmentState,
   toRuntimeAttachmentRef
 } from "./media/media.types";
@@ -48,7 +47,7 @@ import {
   finalizePersistedWebTurn,
   runWebTurnPostRuntimeCleanup
 } from "./complete-web-post-runtime-turn";
-import { inferAssistantMediaJobFailureLocale } from "./assistant-media-job-failure-copy.service";
+import { inferAssistantMediaJobFailureLocale } from "./workspace-media-job-failure-copy.service";
 import {
   WebRuntimeStreamClientService,
   type WebRuntimeStreamClientInput
@@ -62,7 +61,7 @@ import {
   DEFAULT_CADENCE_THRESHOLDS,
   type CadenceWatchdogStallReport
 } from "./cadence-watchdog";
-import { AssistantMediaJobService } from "./assistant-media-job.service";
+import { AssistantMediaJobService } from "./workspace-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
@@ -151,7 +150,9 @@ export function resolveWebStreamCadenceWatchdogOptions(
 
 function toAttachmentState(attachment: {
   id: string;
-  assistantFileId: string | null;
+  storagePath: string | null;
+  thumbnailStoragePath: string | null;
+  posterStoragePath: string | null;
   attachmentType: string;
   originalFilename: string | null;
   mimeType: string;
@@ -160,10 +161,11 @@ function toAttachmentState(attachment: {
   metadata: Record<string, unknown> | null;
   createdAt: Date;
 }) {
-  const derivativeRefs = getAttachmentDerivativeRefs(attachment.metadata);
   return toAssistantWebChatMessageAttachmentState({
     id: attachment.id,
-    assistantFileId: attachment.assistantFileId,
+    storagePath: attachment.storagePath,
+    thumbnailStoragePath: attachment.thumbnailStoragePath,
+    posterStoragePath: attachment.posterStoragePath,
     attachmentType: attachment.attachmentType,
     originalFilename: attachment.originalFilename,
     mimeType: attachment.mimeType,
@@ -171,10 +173,7 @@ function toAttachmentState(attachment: {
     processingStatus: attachment.processingStatus,
     metadata: attachment.metadata,
     createdAt: attachment.createdAt,
-    documentLink: readPersistedDocumentLinkMetadata(attachment.metadata),
-    thumbnailFileRef: derivativeRefs.thumbnailFileRef,
-    posterFileRef: derivativeRefs.posterFileRef,
-    derivativesStatus: derivativeRefs.derivativesStatus
+    documentLink: readPersistedDocumentLinkMetadata(attachment.metadata)
   });
 }
 
@@ -359,7 +358,7 @@ export class StreamWebChatTurnService {
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
     let toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"] = undefined;
-    let discoveredFileRefIds: string[] | undefined = undefined;
+    let discoveredFilePaths: string[] | undefined = undefined;
     /** The authoritative final answer from the runtime `completed` event. null until the `done` chunk arrives. */
     let runtimeFinalAnswer: string | null = null;
     /** Working notes from the runtime. Empty when no tools ran or before `done` arrives. */
@@ -385,6 +384,7 @@ export class StreamWebChatTurnService {
     );
     await this.attachmentObjectAvailabilityService.assertRuntimeReadable({
       assistantId: prepared.assistantId,
+      workspaceId: prepared.workspaceId,
       chatId: prepared.chat.id,
       messageId: prepared.userMessage.id,
       channel: "web",
@@ -509,7 +509,7 @@ export class StreamWebChatTurnService {
         turnRouting = result.turnRouting;
         deferredMediaJobs = result.deferredMediaJobs;
         toolInvocations = result.toolInvocations;
-        discoveredFileRefIds = result.discoveredFileRefIds;
+        discoveredFilePaths = result.discoveredFilePaths;
         if (result.finalAnswer !== null) {
           runtimeFinalAnswer = result.finalAnswer;
         }
@@ -702,7 +702,7 @@ export class StreamWebChatTurnService {
         chatId: prepared.chat.id,
         assistantId: prepared.assistantId,
         content: contentToPersist,
-        discoveredFileRefIds,
+        discoveredFilePaths,
         deferredMediaJobCount: deferredMediaJobs?.length,
         sourceUserMessageId: prepared.userMessage.id,
         workingNotes: runtimeWorkingNotes.length > 0 ? runtimeWorkingNotes : undefined,
@@ -1106,7 +1106,7 @@ export class StreamWebChatTurnService {
     turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
     deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"];
     toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"];
-    discoveredFileRefIds: string[] | undefined;
+    discoveredFilePaths: string[] | undefined;
     collectedMedia: RuntimeMediaArtifact[];
     primaryFirstDeltaMs: number | null;
     toolEventCount: number;
@@ -1123,7 +1123,7 @@ export class StreamWebChatTurnService {
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
     let toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"] = undefined;
-    let discoveredFileRefIds: string[] | undefined = undefined;
+    let discoveredFilePaths: string[] | undefined = undefined;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let primaryFirstDeltaMs = input.primaryFirstDeltaMs;
     let toolEventCount = 0;
@@ -1173,7 +1173,7 @@ export class StreamWebChatTurnService {
             turnRouting,
             deferredMediaJobs,
             toolInvocations,
-            discoveredFileRefIds,
+            discoveredFilePaths,
             collectedMedia,
             primaryFirstDeltaMs,
             toolEventCount,
@@ -1315,7 +1315,7 @@ export class StreamWebChatTurnService {
           turnRouting = chunk.turnRouting ?? null;
           deferredMediaJobs = chunk.deferredMediaJobs;
           toolInvocations = chunk.toolInvocations;
-          discoveredFileRefIds = chunk.discoveredFileRefIds;
+          discoveredFilePaths = chunk.discoveredFilePaths;
           // Capture the authoritative final answer and working notes from the runtime.
           if (typeof chunk.finalAnswer === "string") {
             finalAnswer = chunk.finalAnswer;
@@ -1354,7 +1354,7 @@ export class StreamWebChatTurnService {
           turnRouting,
           deferredMediaJobs,
           toolInvocations,
-          discoveredFileRefIds,
+          discoveredFilePaths,
           collectedMedia,
           primaryFirstDeltaMs,
           toolEventCount,
@@ -1385,7 +1385,7 @@ export class StreamWebChatTurnService {
           turnRouting,
           deferredMediaJobs,
           toolInvocations,
-          discoveredFileRefIds,
+          discoveredFilePaths,
           collectedMedia,
           primaryFirstDeltaMs,
           toolEventCount,
@@ -1409,7 +1409,7 @@ export class StreamWebChatTurnService {
         turnRouting,
         deferredMediaJobs,
         toolInvocations,
-        discoveredFileRefIds,
+        discoveredFilePaths,
         collectedMedia,
         primaryFirstDeltaMs,
         toolEventCount,
@@ -1431,7 +1431,7 @@ export class StreamWebChatTurnService {
         turnRouting,
         deferredMediaJobs,
         toolInvocations,
-        discoveredFileRefIds,
+        discoveredFilePaths,
         collectedMedia,
         primaryFirstDeltaMs,
         toolEventCount,
@@ -1450,7 +1450,7 @@ export class StreamWebChatTurnService {
       turnRouting,
       deferredMediaJobs,
       toolInvocations,
-      discoveredFileRefIds,
+      discoveredFilePaths,
       collectedMedia,
       primaryFirstDeltaMs,
       toolEventCount,

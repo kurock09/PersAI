@@ -73,6 +73,22 @@ export class AdminDeleteUserService {
         let workspaceDeleted = false;
         if (assistant) {
           const aid = assistant.id;
+          // ADR-126 Slice 3 — schedule the assistant's `/shared/<wsid>/outbound/<handle>/`
+          // and the GCS-side mirror for deferred GC. We write the lease BEFORE
+          // the source row is deleted so the schedule survives the hard-delete
+          // even though the foreign key relationship is intentionally absent
+          // from the lease table (see `sandbox_workspace_gc_lease`).
+          await tx.sandboxWorkspaceGcLease.create({
+            data: {
+              kind: "assistant_outbound",
+              targetId: aid,
+              scheduledAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              metadata: {
+                workspaceId: assistant.workspaceId,
+                handle: assistant.handle
+              }
+            }
+          });
 
           await tx.assistantPlatformRolloutItem.deleteMany({ where: { assistantId: aid } });
           await tx.assistantAbuseGuardState.deleteMany({ where: { assistantId: aid } });
@@ -85,7 +101,6 @@ export class AdminDeleteUserService {
           await this.deleteByAssistantId(tx, "assistant_media_jobs", aid);
           await this.deleteByAssistantId(tx, "assistant_skill_assignments", aid);
           await this.deleteByAssistantId(tx, "assistant_workspace_leases", aid);
-          await this.deleteByAssistantId(tx, "assistant_files", aid);
           await this.deleteByAssistantId(tx, "sandbox_jobs", aid);
 
           await tx.assistantChatMessageAttachment.deleteMany({ where: { assistantId: aid } });
@@ -204,6 +219,19 @@ export class AdminDeleteUserService {
             });
 
             workspaceDeleted = true;
+
+            // ADR-126 Slice 3 — schedule the workspace-shared subtree for
+            // deferred GC (GCS prefix + warm pods + workspace file metadata).
+            // Lease lives independently of the workspace row so the GC schedule
+            // survives the hard-delete that runs on the next statement.
+            await tx.sandboxWorkspaceGcLease.create({
+              data: {
+                kind: "workspace_shared",
+                targetId: workspaceId,
+                scheduledAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                metadata: {}
+              }
+            });
 
             await tx.workspace.delete({ where: { id: workspaceId } });
           }

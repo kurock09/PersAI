@@ -12,9 +12,8 @@ function createAttachment(
     chatId: "chat-1",
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    assistantFileId: null,
     attachmentType: "image",
-    storagePath: "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-1/image.png",
+    storagePath: "/shared/in/image.png",
     originalFilename: "image.png",
     mimeType: "image/png",
     sizeBytes: 128n,
@@ -31,38 +30,44 @@ function createAttachment(
   };
 }
 
+function createService(exists: boolean) {
+  const checkedKeys: string[] = [];
+  const service = new AttachmentObjectAvailabilityService({
+    buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+      return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
+    },
+    async existsObject(objectKey: string) {
+      checkedKeys.push(objectKey);
+      return exists;
+    }
+  } as never);
+  return { service, checkedKeys };
+}
+
 describe("AttachmentObjectAvailabilityService", () => {
   test("passes when every ready attachment object exists", async () => {
-    const checkedKeys: string[] = [];
-    const service = new AttachmentObjectAvailabilityService({
-      existsObject: async (objectKey: string) => {
-        checkedKeys.push(objectKey);
-        return true;
-      }
-    } as never);
+    const { service, checkedKeys } = createService(true);
 
     await service.assertRuntimeReadable({
       assistantId: "assistant-1",
+      workspaceId: "workspace-1",
       chatId: "chat-1",
       messageId: "message-1",
       channel: "telegram",
       attachments: [createAttachment()]
     });
 
-    assert.deepEqual(checkedKeys, [
-      "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-1/image.png"
-    ]);
+    assert.deepEqual(checkedKeys, ["workspaces/workspace-1/shared/in/image.png"]);
   });
 
   test("fails before runtime when a ready attachment object is missing", async () => {
-    const service = new AttachmentObjectAvailabilityService({
-      existsObject: async () => false
-    } as never);
+    const { service } = createService(false);
 
     await assert.rejects(
       () =>
         service.assertRuntimeReadable({
           assistantId: "assistant-1",
+          workspaceId: "workspace-1",
           chatId: "chat-1",
           messageId: "message-1",
           channel: "web",

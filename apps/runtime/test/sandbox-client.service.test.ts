@@ -74,13 +74,14 @@ test("SandboxClientService waitForCompletion uses bounded long-poll status reque
   try {
     const result = await service.waitForCompletion({
       assistantId: "assistant-1",
+      assistantHandle: "a-test",
+      siblingHandles: [],
       workspaceId: "workspace-1",
       runtimeRequestId: "request-1",
       runtimeSessionId: "session-1",
       toolCode: "files",
       policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
-      args: { action: "list" },
-      mountedFileRefs: []
+      args: { action: "list" }
     });
 
     assert.equal(result.status, "completed");

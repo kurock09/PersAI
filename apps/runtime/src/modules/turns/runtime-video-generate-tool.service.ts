@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   BadRequestException,
   Injectable,
@@ -43,9 +42,8 @@ import {
   ProviderGatewayHttpError,
   ProviderGatewayTimeoutError
 } from "./provider-gateway.client.service";
-import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
-import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
-
+import { SandboxClientService } from "./sandbox-client.service";
+import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
 const VIDEO_GENERATE_TOOL_CODE = "video_generate" as const;
 // ADR-109 Slice 10c: separate credential key for talking-avatar path (E14 Fix #3).
 const VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY = "video_generate_talking_avatar" as const;
@@ -150,7 +148,7 @@ export class RuntimeVideoGenerateToolService {
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService
+    private readonly sandboxClient: SandboxClientService
   ) {}
 
   async executeToolCall(params: {
@@ -559,6 +557,7 @@ export class RuntimeVideoGenerateToolService {
     ];
 
     const selection = await this.resolveReferenceImageSelection(
+      params.bundle.metadata.workspaceId,
       params.availableAttachments,
       normalizedRequest.request
     );
@@ -813,8 +812,10 @@ export class RuntimeVideoGenerateToolService {
         const artifact = await this.persistGeneratedArtifact({
           assistantId: params.bundle.metadata.assistantId,
           workspaceId: params.bundle.metadata.workspaceId,
-          sessionId: params.sessionId,
-          requestId: params.requestId,
+          handle: params.bundle.metadata.assistantHandle,
+          siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+          workspaceQuotaBytes: params.bundle.governance.quota?.workspaceQuotaBytes ?? null,
+          sharedQuotaBytes: params.bundle.governance.quota?.sharedQuotaBytes ?? null,
           filenameHint: request.filename,
           requestPrompt: request.prompt,
           referenceFilename: selection.referenceFilename,
@@ -1918,6 +1919,7 @@ export class RuntimeVideoGenerateToolService {
   }
 
   private async resolveReferenceImageSelection(
+    workspaceId: string,
     attachments: RuntimeAttachmentRef[],
     request: RuntimeVideoGenerateRequest
   ): Promise<ResolvedVideoReferenceSelection> {
@@ -1969,14 +1971,14 @@ export class RuntimeVideoGenerateToolService {
       };
     }
 
-    const loadedReference = await this.loadReferenceImage(resolvedAttachments.primary);
+    const loadedReference = await this.loadReferenceImage(workspaceId, resolvedAttachments.primary);
     if (!loadedReference.ok) {
       return loadedReference;
     }
     const loadedTailReference =
       resolvedAttachments.tail === null
         ? null
-        : await this.loadReferenceImage(resolvedAttachments.tail);
+        : await this.loadReferenceImage(workspaceId, resolvedAttachments.tail);
     if (loadedTailReference !== null && !loadedTailReference.ok) {
       return loadedTailReference;
     }
@@ -1987,7 +1989,7 @@ export class RuntimeVideoGenerateToolService {
       referenceTailImage: loadedTailReference?.image ?? null,
       referenceImageAlias: this.resolvePrimaryAttachmentAlias(resolvedAttachments.primary),
       referenceImageAliases: resolvedAttachments.aliases,
-      referenceFilename: resolvedAttachments.primary.filename
+      referenceFilename: resolvedAttachments.primary.displayName
     };
   }
 
@@ -2048,7 +2050,10 @@ export class RuntimeVideoGenerateToolService {
     };
   }
 
-  private async loadReferenceImage(attachment: RuntimeAttachmentRef): Promise<
+  private async loadReferenceImage(
+    workspaceId: string,
+    attachment: RuntimeAttachmentRef
+  ): Promise<
     | {
         ok: true;
         image: {
@@ -2073,7 +2078,10 @@ export class RuntimeVideoGenerateToolService {
       };
     }
 
-    const buffer = await this.mediaObjectStorage.downloadObject(attachment.objectKey);
+    const buffer = await this.mediaObjectStorage.downloadByWorkspacePath({
+      workspaceId,
+      storagePath: attachment.storagePath
+    });
     if (buffer === null || buffer.length === 0) {
       return {
         ok: false,
@@ -2087,7 +2095,7 @@ export class RuntimeVideoGenerateToolService {
       image: {
         bytesBase64: buffer.toString("base64"),
         mimeType,
-        filename: attachment.filename
+        filename: attachment.displayName
       }
     };
   }
@@ -2095,8 +2103,10 @@ export class RuntimeVideoGenerateToolService {
   private async persistGeneratedArtifact(input: {
     assistantId: string;
     workspaceId: string;
-    sessionId: string;
-    requestId: string;
+    handle: string;
+    siblingHandles: readonly string[];
+    workspaceQuotaBytes: number | null;
+    sharedQuotaBytes: number | null;
     filenameHint: string | null;
     requestPrompt: string;
     referenceFilename: string | null;
@@ -2114,54 +2124,26 @@ export class RuntimeVideoGenerateToolService {
     if (buffer.length === 0) {
       throw new Error("Video provider returned an empty video payload.");
     }
-
-    const artifactId = randomUUID();
     const extension = this.extensionFromMimeType(input.video.mimeType);
-    const objectKey = this.mediaObjectStorage.buildRuntimeOutputObjectKey({
-      assistantId: input.assistantId,
-      sessionId: input.sessionId,
-      requestId: input.requestId,
-      artifactId,
-      extension
-    });
-    const stored = await this.mediaObjectStorage.saveObject({
-      objectKey,
-      buffer,
-      mimeType: input.video.mimeType
-    });
     const filename = this.resolveFilename(input.filenameHint, input.referenceFilename, extension);
-    const semanticSummary = buildGeneratedFileSemanticSummary({
-      requestText: input.requestPrompt,
-      allowWeakRequestFallback: true
-    });
-    const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
+    const slugSourceText = input.requestPrompt.trim() || filename || "video";
+    return writeRuntimeOutboundArtifact({
+      sandboxClient: this.sandboxClient,
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      origin: "runtime_output",
-      referenceId: artifactId,
-      objectKey: stored.objectKey,
-      filename,
-      mimeType: stored.mimeType,
-      sizeBytes: stored.sizeBytes,
-      semanticSummary,
-      semanticSummarySource: semanticSummary === null ? null : "generation_request"
-    });
-    const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(file);
-
-    return {
-      artifactId,
-      fileRef: runtimeFileRef.fileRef,
-      file: runtimeFileRef,
+      handle: input.handle,
+      siblingHandles: input.siblingHandles,
+      workspaceQuotaBytes: input.workspaceQuotaBytes,
+      sharedQuotaBytes: input.sharedQuotaBytes,
+      buffer,
+      mimeType: input.video.mimeType,
+      slugSourceText,
+      filenameHint: filename,
       kind: "video",
-      sourceToolCode: VIDEO_GENERATE_TOOL_CODE,
-      objectKey: stored.objectKey,
-      mimeType: stored.mimeType,
-      filename,
-      sizeBytes: stored.sizeBytes,
-      voiceNote: false,
-      downloadUrl: input.video.downloadUrl ?? null,
-      billingFacts: input.billingFacts ?? null
-    };
+      sourceToolCode: "video_generate",
+      billingFacts: input.billingFacts,
+      downloadUrl: input.video.downloadUrl ?? null
+    });
   }
 
   private resolveWorkerTimeoutMs(bundle: AssistantRuntimeBundle): number {
@@ -2651,7 +2633,10 @@ export class RuntimeVideoGenerateToolService {
         };
       }
 
-      const loadedPortrait = await this.loadReferenceImage(portraitAttachment);
+      const loadedPortrait = await this.loadReferenceImage(
+        bundle.metadata.workspaceId,
+        portraitAttachment
+      );
       if (!loadedPortrait.ok) {
         return {
           payload: {
@@ -2741,8 +2726,10 @@ export class RuntimeVideoGenerateToolService {
       const artifact = await this.persistGeneratedArtifact({
         assistantId: bundle.metadata.assistantId,
         workspaceId: bundle.metadata.workspaceId,
-        sessionId,
-        requestId,
+        handle: bundle.metadata.assistantHandle,
+        siblingHandles: bundle.metadata.siblingAssistantHandles,
+        workspaceQuotaBytes: bundle.governance.quota?.workspaceQuotaBytes ?? null,
+        sharedQuotaBytes: bundle.governance.quota?.sharedQuotaBytes ?? null,
         filenameHint: request.filename,
         requestPrompt: request.prompt,
         referenceFilename: null,
@@ -3004,7 +2991,7 @@ export class RuntimeVideoGenerateToolService {
     if (stickyFileAlias !== undefined) {
       return stickyFileAlias;
     }
-    return aliases[0] ?? attachment.filename ?? "reference image";
+    return aliases[0] ?? attachment.displayName ?? "reference image";
   }
 
   private normalizeAlias(value: string): string {

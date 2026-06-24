@@ -197,6 +197,8 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
   const artifact = compileAssistantRuntimeBundle({
     metadata: {
       assistantId,
+      assistantHandle: "a-test",
+      siblingAssistantHandles: [],
       workspaceId: `workspace-${assistantId}`,
       publishedVersionId,
       publishedVersion: 1,
@@ -277,6 +279,7 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
       quota: {
         planCode: "free",
         workspaceQuotaBytes: 1024,
+        sharedQuotaBytes: 1024,
         quotaHook: null
       },
       auditHook: null
@@ -331,6 +334,8 @@ function createWarmInputMissingToolPolicy() {
   const artifact = compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-missing-policy",
+      assistantHandle: "a-test",
+      siblingAssistantHandles: [],
       workspaceId: "workspace-assistant-missing-policy",
       publishedVersionId: "version-missing-policy",
       publishedVersion: 1,
@@ -413,6 +418,7 @@ function createWarmInputMissingToolPolicy() {
       quota: {
         planCode: "free",
         workspaceQuotaBytes: 1024,
+        sharedQuotaBytes: 1024,
         quotaHook: null
       },
       auditHook: null
@@ -452,6 +458,8 @@ function createWarmInputMissingToolPolicy() {
     bundle: {
       bundleId: "bundle-missing-policy",
       assistantId: "assistant-missing-policy",
+      assistantHandle: "a-test",
+      siblingAssistantHandles: [],
       workspaceId: "workspace-assistant-missing-policy",
       publishedVersionId: "version-missing-policy",
       bundleHash: artifact.hash,

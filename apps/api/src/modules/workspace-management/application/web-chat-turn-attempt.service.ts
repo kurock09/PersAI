@@ -13,10 +13,7 @@ import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-li
 import type { CompletedWebTurnReplayState } from "../domain/assistant-channel-surface-binding.repository";
 import type { AssistantChatSkillDecisionState } from "../domain/assistant-chat.entity";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
-import {
-  getAttachmentDerivativeRefs,
-  toAssistantWebChatMessageAttachmentState
-} from "./media/media.types";
+import { toAssistantWebChatMessageAttachmentState } from "./media/media.types";
 
 export type WebChatTurnAttemptStatus =
   | "unknown"
@@ -72,7 +69,7 @@ function parseSkillDecisionState(value: unknown): AssistantChatSkillDecisionStat
 
 function toAttachmentState(input: {
   id: string;
-  assistantFileId: string | null;
+  storagePath: string | null;
   attachmentType: string;
   originalFilename: string | null;
   mimeType: string;
@@ -85,10 +82,9 @@ function toAttachmentState(input: {
     input.metadata !== null && typeof input.metadata === "object" && !Array.isArray(input.metadata)
       ? (input.metadata as Record<string, unknown>)
       : null;
-  const derivativeRefs = getAttachmentDerivativeRefs(metadata);
   return toAssistantWebChatMessageAttachmentState({
     id: input.id,
-    assistantFileId: input.assistantFileId,
+    storagePath: input.storagePath,
     attachmentType: input.attachmentType,
     originalFilename: input.originalFilename,
     mimeType: input.mimeType,
@@ -96,10 +92,7 @@ function toAttachmentState(input: {
     processingStatus: input.processingStatus,
     metadata,
     createdAt: input.createdAt,
-    documentLink: readPersistedDocumentLinkMetadata(metadata),
-    thumbnailFileRef: derivativeRefs.thumbnailFileRef,
-    posterFileRef: derivativeRefs.posterFileRef,
-    derivativesStatus: derivativeRefs.derivativesStatus
+    documentLink: readPersistedDocumentLinkMetadata(metadata)
   });
 }
 

@@ -24,8 +24,8 @@ async function run(): Promise<void> {
         assistantDocumentVersion: {
           findFirst: async () => versionRow
         },
-        assistantDocumentDeliveredFile: {
-          findFirst: async () => ({ assistantFileId: "file-pptx-1" })
+        assistantChatMessageAttachment: {
+          findFirst: async () => ({ storagePath: "/shared/outbound/self/Forest.pptx" })
         },
         assistantDocumentRenderJob: {
           findFirst: async () => null
@@ -49,7 +49,7 @@ async function run(): Promise<void> {
       status: "ready",
       docId: "doc-1",
       versionId: "version-1",
-      fileRef: "file-pptx-1"
+      path: "/shared/outbound/self/Forest.pptx"
     });
     assert.equal(enqueueCalls.length, 0);
   }
@@ -63,7 +63,7 @@ async function run(): Promise<void> {
         assistantDocumentVersion: {
           findFirst: async () => versionRow
         },
-        assistantDocumentDeliveredFile: {
+        assistantChatMessageAttachment: {
           findFirst: async () => null
         },
         assistantDocumentRenderJob: {
@@ -111,7 +111,7 @@ async function run(): Promise<void> {
         assistantDocumentVersion: {
           findFirst: async () => versionRow
         },
-        assistantDocumentDeliveredFile: {
+        assistantChatMessageAttachment: {
           findFirst: async () => null
         },
         assistantDocumentRenderJob: {

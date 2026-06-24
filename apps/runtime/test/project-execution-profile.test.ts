@@ -49,9 +49,9 @@ describe("project-execution-profile", () => {
           {
             attachmentId: "attachment-1",
             kind: "file",
-            objectKey: "assistant-media/assistants/assistant-1/uploads/spec.pdf",
+            storagePath: "assistant-media/assistants/assistant-1/uploads/spec.pdf",
             mimeType: "application/pdf",
-            filename: "spec.pdf",
+            displayName: "spec.pdf",
             sizeBytes: 2048
           }
         ]

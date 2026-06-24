@@ -71,7 +71,7 @@ async function run(): Promise<void> {
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
-        'Вот он. Скинул в чат.\n\nAssistant sent an attachment: document "recommendations.md", fileRef: "file-ref-1".',
+        'Вот он. Скинул в чат.\n\nAssistant sent an attachment: document "recommendations.md", storagePath: "/shared/workspace-1/outbound/self/recommendations.md".',
       attemptedArtifactCount: 1,
       deliveredAttachmentCount: 1,
       deliveredAttachmentFilenames: ["recommendations.md"],
@@ -84,7 +84,7 @@ async function run(): Promise<void> {
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
-        'Assistant sent an attachment: document "recommendations.md", fileRef: "file-ref-1".',
+        'Assistant sent an attachment: document "recommendations.md", storagePath: "/shared/workspace-1/outbound/self/recommendations.md".',
       attemptedArtifactCount: 1,
       deliveredAttachmentCount: 1,
       deliveredAttachmentFilenames: ["recommendations.md"],
@@ -97,7 +97,7 @@ async function run(): Promise<void> {
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
-        'Вот этот. Отправила в чат:\n\nAssistant sent an attachment: document "recommendations.md", fileRef: "file-ref-1".',
+        'Вот этот. Отправила в чат:\n\nAssistant sent an attachment: document "recommendations.md", storagePath: "/shared/workspace-1/outbound/self/recommendations.md".',
       attemptedArtifactCount: 0,
       deliveredAttachmentCount: 0,
       deliveredAttachmentFilenames: [],

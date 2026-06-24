@@ -65,7 +65,9 @@ function createConfig(): SandboxConfig {
     SANDBOX_EXEC_SESSION_IDLE_TTL_MS: 900_000,
     SANDBOX_EXEC_REAPER_INTERVAL_MS: 120_000,
     SANDBOX_EXEC_POD_PROVISION_BUDGET_MS: 240_000,
-    SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 1
+    SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 1,
+    SANDBOX_SHARED_EMPTYDIR_SIZE_MIB: 512,
+    SANDBOX_GC_INTERVAL_MS: 300_000
   };
 }
 
@@ -495,6 +497,8 @@ test("ExecPodBridgeService: sessionless runInPod creates and deletes ephemeral p
       jobId: "job-001",
       runtimeSessionId: null,
       assistantId: "assistant-eph",
+      assistantHandle: "test-handle",
+      siblingHandles: [],
       workspaceId: "workspace-eph",
       workspaceRoot,
       absoluteCwd: workspaceRoot,
@@ -543,6 +547,8 @@ test("ExecPodBridgeService: workspace push extracts by entry name with --no-same
       jobId: "job-push-001",
       runtimeSessionId: null,
       assistantId: "assistant-push",
+      assistantHandle: "test-handle",
+      siblingHandles: [],
       workspaceId: "workspace-push",
       workspaceRoot,
       absoluteCwd: workspaceRoot,
@@ -584,8 +590,9 @@ test("ExecPodBridgeService: workspace push success comes from the stdin-less ver
     createdPods: [],
     podPhaseSequence: ["Running"],
     execResponses: [
-      { exitCode: 0, stdout: "", stderr: "" },
-      { exitCode: 1, stdout: "", stderr: "" }
+      { exitCode: 0, stdout: "", stderr: "" }, // ensureSharedMountBootstrapped probe
+      { exitCode: 0, stdout: "", stderr: "" }, // execWorkspaceTarPush (exit code ignored)
+      { exitCode: 1, stdout: "", stderr: "" } // verifyWorkspacePushed → marker missing
     ],
     deletedPods: [],
     execCallCount: 0,
@@ -601,6 +608,8 @@ test("ExecPodBridgeService: workspace push success comes from the stdin-less ver
         jobId: "job-verify-001",
         runtimeSessionId: null,
         assistantId: "assistant-verify",
+        assistantHandle: "test-handle",
+        siblingHandles: [],
         workspaceId: "workspace-verify",
         workspaceRoot,
         absoluteCwd: workspaceRoot,
@@ -694,6 +703,8 @@ test("ExecPodBridgeService: session runInPod reuses pod on second call (no recre
       jobId: "job-s1",
       runtimeSessionId: sessionId,
       assistantId,
+      assistantHandle: "test-handle",
+      siblingHandles: [],
       workspaceId,
       workspaceRoot,
       absoluteCwd: workspaceRoot,
@@ -710,6 +721,8 @@ test("ExecPodBridgeService: session runInPod reuses pod on second call (no recre
       jobId: "job-s2",
       runtimeSessionId: sessionId,
       assistantId,
+      assistantHandle: "test-handle",
+      siblingHandles: [],
       workspaceId,
       workspaceRoot,
       absoluteCwd: workspaceRoot,
@@ -897,6 +910,7 @@ test("ExecPodBridgeService: warmSessionPod creates session pod when absent and r
 
   const result = await bridge.warmSessionPod({
     assistantId: "assistant-warm-1",
+    assistantHandle: "test-handle",
     workspaceId: "workspace-warm-1",
     policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
   });
@@ -928,6 +942,7 @@ test("ExecPodBridgeService: warmSessionPod skips create when pod is already Runn
 
   const result = await bridge.warmSessionPod({
     assistantId: "assistant-warm-2",
+    assistantHandle: "test-handle",
     workspaceId: "workspace-warm-2",
     policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
   });
@@ -976,6 +991,7 @@ test("ExecPodBridgeService: warmSessionPod tolerates 409 Conflict from concurren
   // Must NOT throw even though createNamespacedPod returns 409.
   const result = await bridge.warmSessionPod({
     assistantId: "assistant-warm-3",
+    assistantHandle: "test-handle",
     workspaceId: "workspace-warm-3",
     policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
   });

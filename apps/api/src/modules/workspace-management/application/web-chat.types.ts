@@ -40,16 +40,15 @@ export interface AssistantWebChatMessageAttachmentDocumentLink {
 
 export interface AssistantWebChatMessageAttachmentState {
   id: string;
-  fileRef: string | null;
-  thumbnailFileRef?: string | null;
-  posterFileRef?: string | null;
-  derivativesStatus?: "pending" | "ready" | "failed" | null;
+  path: string | null;
+  thumbnailStoragePath: string | null;
+  posterStoragePath: string | null;
   attachmentType: string;
   originalFilename: string | null;
   mimeType: string;
   sizeBytes: number;
   processingStatus: string;
-  fileDeleted?: boolean;
+  unavailable?: boolean;
   /** Provider-hosted download URL when the file is too large to persist inline. */
   externalDownloadUrl?: string | null;
   documentLink?: AssistantWebChatMessageAttachmentDocumentLink | null;

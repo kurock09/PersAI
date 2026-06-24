@@ -79,7 +79,6 @@ export interface RuntimeUrlMediaArtifact {
 
 export interface PersaiObjectStorageRuntimeMediaArtifact {
   source: "persai_object_storage";
-  fileRef?: string | null;
   objectKey: string;
   type: RuntimeMediaArtifactType;
   sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | "document" | null;
@@ -140,8 +139,8 @@ export interface AssistantRuntimeWebChatTurnResult {
     totalMs: number;
     stages: Array<{ key: string; durationMs: number }>;
   };
-  /** ADR-100 Piece 1 — canonical AssistantFile ids discovered this turn. */
-  discoveredFileRefIds?: string[];
+  /** ADR-100 Piece 1 — canonical workspace file paths discovered this turn. */
+  discoveredFilePaths?: string[];
 }
 
 export interface AssistantRuntimeSetupPreviewTurnInput {
@@ -180,7 +179,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   /** ADR-100 Piece 1 — carried on the `done` chunk only. */
-  discoveredFileRefIds?: string[];
+  discoveredFilePaths?: string[];
   /** The authoritative final answer from the runtime `completed` event. Carried on `done` only. */
   finalAnswer?: string;
   /** The texts the model wrote before each tool call across the tool loop. Empty when no tools ran. Carried on `done` only. */
@@ -264,8 +263,7 @@ export function runtimeOutputArtifactsToMediaArtifacts(
     }
     mediaArtifacts.push({
       source: "persai_object_storage",
-      objectKey: artifact.objectKey,
-      fileRef: artifact.fileRef,
+      objectKey: artifact.storagePath,
       type,
       ...(artifact.sourceToolCode === undefined || artifact.sourceToolCode === null
         ? {}

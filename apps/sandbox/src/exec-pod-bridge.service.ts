@@ -2,11 +2,23 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { Readable, Writable } from "node:stream";
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional
+} from "@nestjs/common";
 import { KubeConfig, CoreV1Api, Exec, V1Status } from "@kubernetes/client-node";
 import type { SandboxConfig } from "@persai/config";
-import type { RuntimeSandboxPolicy } from "@persai/runtime-contract";
+import {
+  type RuntimeSandboxPolicy,
+  DEFAULT_RUNTIME_SANDBOX_POLICY
+} from "@persai/runtime-contract";
 import { SANDBOX_CONFIG } from "./sandbox-config";
+import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
+import { SandboxObservabilityService } from "./sandbox-observability.service";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
 
 // Annotations carrying the assistant+workspace identity on the reusable exec pod.
@@ -19,6 +31,28 @@ import { SandboxPrismaService } from "./sandbox-prisma.service";
 // eviction survives control-plane restarts and works across replicas.
 const ASSISTANT_ID_ANNOTATION = "persai.io/assistant-id";
 const WORKSPACE_ID_ANNOTATION = "persai.io/workspace-id";
+// ADR-126 Slice 3 — handle stamped on the pod so other replicas can derive the
+// canonical outbound directory name (`/shared/<workspaceId>/outbound/<handle>/`)
+// without having to re-query the Assistant row from the database.
+const ASSISTANT_HANDLE_ANNOTATION = "persai.io/assistant-handle";
+// Marker file the shared-mount bootstrap writes to record completion so we
+// don't re-run mkdir/chmod on every job dispatched at a warm pod.
+const SHARED_MOUNT_BOOTSTRAP_MARKER = "/tmp/.persai_shared_bootstrap_ok";
+const SHARED_MOUNT_BOOTSTRAP_OK_SENTINEL = "__PERSAI_SHARED_OK__";
+// Sentinel printed by the dirs+symlinks phase to confirm it succeeded before
+// GCS hydrate and chmod run.
+const SHARED_MOUNT_DIRS_OK_SENTINEL = "__PERSAI_DIRS_OK__";
+// Permissive policy used for the GCS hydrate exec writes during pod bootstrap.
+// These are control-plane operations, not model jobs — the tight per-job limits
+// of the user-facing policy do not apply here.
+const BOOTSTRAP_HYDRATE_POLICY: RuntimeSandboxPolicy = {
+  ...DEFAULT_RUNTIME_SANDBOX_POLICY,
+  enabled: true,
+  maxProcessRuntimeMs: 60_000,
+  maxCpuMsPerJob: 60_000,
+  maxStdoutBytes: 4096,
+  maxStderrBytes: 8192
+};
 // Explicit success marker printed by the stdin-less verify probe when the push
 // marker file is present. See pushWorkspace for why success is detected on a
 // separate stdin-less exec rather than the push exec's own return channels.
@@ -149,7 +183,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     @Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig,
-    private readonly prisma: SandboxPrismaService
+    private readonly prisma: SandboxPrismaService,
+    // @Optional() so unit tests that call new ExecPodBridgeService(config, prisma)
+    // without a third argument receive null rather than a DI error.
+    @Optional() private readonly objectStorage: SandboxObjectStorageService | null = null,
+    @Optional() private readonly observability: SandboxObservabilityService | null = null
   ) {
     this.kc = new KubeConfig();
     this.kc.loadFromCluster();
@@ -178,6 +216,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     jobId: string;
     runtimeSessionId: string | null;
     assistantId: string;
+    assistantHandle: string;
+    siblingHandles: readonly string[];
     workspaceId: string;
     workspaceRoot: string;
     absoluteCwd: string;
@@ -200,6 +240,62 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * ADR-126 Slice 3 — public, audited control-plane primitive used by
+   * {@link WorkspaceFileBridgeService} to run inline `bash -lc` against a
+   * warm session pod (e.g. write a file under `/shared/<workspaceId>/input/`).
+   * Idempotently ensures the pod exists and the `/shared` mount has been
+   * bootstrapped (input/outbound directories created, sibling subdirectories
+   * rematerialised, self-symlink wired).
+   *
+   * Unlike {@link runInPod}, this path:
+   *   * does NOT push or pull `/workspace/` — the bridge is meant for the
+   *     /shared/ subtree which is persisted directly to GCS by the caller;
+   *   * does NOT take the workspace lease — the bridge is invoked outside of
+   *     a sandbox-job lifecycle (e.g. during upload hydration) and operates
+   *     on /shared which is not protected by the lease.
+   */
+  async execShellInSessionPod(input: {
+    assistantId: string;
+    assistantHandle: string;
+    siblingHandles: readonly string[];
+    workspaceId: string;
+    policy: RuntimeSandboxPolicy;
+    shellCommand: string;
+    stdin?: Buffer | null;
+  }): Promise<PodExecResult> {
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+    const podName = this.buildSessionPodName(input.assistantId, input.workspaceId);
+    const startedAt = Date.now();
+    await this.ensureSessionPodRunning(
+      podName,
+      namespace,
+      input.policy,
+      input.assistantId,
+      input.workspaceId,
+      input.assistantHandle
+    );
+    await this.ensureSharedMountBootstrapped(
+      podName,
+      namespace,
+      input.workspaceId,
+      input.assistantHandle,
+      input.siblingHandles
+    );
+    const result = await this.execCommand(podName, namespace, {
+      command: "/bin/bash",
+      args: ["-lc", input.shellCommand],
+      podCwd: "/",
+      policy: input.policy,
+      stdin: input.stdin ?? null
+    });
+    return {
+      ...result,
+      durationMs: Date.now() - startedAt,
+      execPodName: podName
+    };
+  }
+
+  /**
    * Reusable workspace pod path: the pod is named after the (assistantId, workspaceId)
    * identity and reused across every chat/job for that assistant workspace. The pod is
    * NOT deleted after the job; the idle-TTL reaper cleans it up.
@@ -211,6 +307,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   private async runInSessionPod(options: {
     jobId: string;
     assistantId: string;
+    assistantHandle: string;
+    siblingHandles: readonly string[];
     workspaceId: string;
     workspaceRoot: string;
     absoluteCwd: string;
@@ -220,11 +318,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     namespace: string;
     startedAt: number;
   }): Promise<PodExecResult> {
-    const { assistantId, workspaceId, namespace } = options;
+    const { assistantId, workspaceId, namespace, assistantHandle, siblingHandles } = options;
     const podName = this.buildSessionPodName(assistantId, workspaceId);
 
     this.logger.log(
-      `exec_pod_session job=${options.jobId} pod=${podName} assistant=${assistantId} workspace=${workspaceId}`
+      `exec_pod_session job=${options.jobId} pod=${podName} assistant=${assistantId} workspace=${workspaceId} handle=${assistantHandle}`
     );
 
     // Idle activity is derived by the reaper from the sandboxJob table keyed by the
@@ -234,7 +332,15 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       namespace,
       options.policy,
       assistantId,
-      workspaceId
+      workspaceId,
+      assistantHandle
+    );
+    await this.ensureSharedMountBootstrapped(
+      podName,
+      namespace,
+      workspaceId,
+      assistantHandle,
+      siblingHandles
     );
     await this.pushWorkspace(podName, namespace, options.workspaceRoot);
     const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
@@ -259,6 +365,9 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
    */
   private async runInEphemeralPod(options: {
     jobId: string;
+    assistantHandle: string;
+    siblingHandles: readonly string[];
+    workspaceId: string;
     workspaceRoot: string;
     absoluteCwd: string;
     command: string;
@@ -272,12 +381,19 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`exec_pod_create job=${options.jobId} pod=${podName} session=none`);
 
-    await this.createExecPod(podName, namespace, options.policy);
+    await this.createExecPod(podName, namespace, options.policy, options.workspaceId);
     try {
       await this.waitForPodRunning(
         podName,
         namespace,
         this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+      );
+      await this.ensureSharedMountBootstrapped(
+        podName,
+        namespace,
+        options.workspaceId,
+        options.assistantHandle,
+        options.siblingHandles
       );
       await this.pushWorkspace(podName, namespace, options.workspaceRoot);
       const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
@@ -308,7 +424,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     namespace: string,
     policy: RuntimeSandboxPolicy,
     assistantId: string,
-    workspaceId: string
+    workspaceId: string,
+    assistantHandle: string
   ): Promise<void> {
     let needsCreate = false;
     try {
@@ -343,10 +460,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (needsCreate) {
-      this.logger.log(`exec_pod_session_create pod=${podName}`);
-      await this.createExecPodIdempotent(podName, namespace, policy, {
+      this.logger.log(`exec_pod_session_create pod=${podName} handle=${assistantHandle}`);
+      await this.createExecPodIdempotent(podName, namespace, policy, workspaceId, {
         [ASSISTANT_ID_ANNOTATION]: assistantId,
-        [WORKSPACE_ID_ANNOTATION]: workspaceId
+        [WORKSPACE_ID_ANNOTATION]: workspaceId,
+        [ASSISTANT_HANDLE_ANNOTATION]: assistantHandle
       });
     }
 
@@ -365,10 +483,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
    */
   async warmSessionPod(input: {
     assistantId: string;
+    assistantHandle: string;
     workspaceId: string;
     policy: RuntimeSandboxPolicy;
   }): Promise<{ podName: string; alreadyRunning: boolean }> {
-    const { assistantId, workspaceId, policy } = input;
+    const { assistantId, assistantHandle, workspaceId, policy } = input;
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const podName = this.buildSessionPodName(assistantId, workspaceId);
 
@@ -395,9 +514,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       // Pod not found — fall through to create.
     }
 
-    await this.createExecPodIdempotent(podName, namespace, policy, {
+    await this.createExecPodIdempotent(podName, namespace, policy, workspaceId, {
       [ASSISTANT_ID_ANNOTATION]: assistantId,
-      [WORKSPACE_ID_ANNOTATION]: workspaceId
+      [WORKSPACE_ID_ANNOTATION]: workspaceId,
+      [ASSISTANT_HANDLE_ANNOTATION]: assistantHandle
     });
 
     await this.waitForPodRunning(
@@ -410,6 +530,59 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       `warm_session_pod pod=${podName} assistant=${assistantId} workspace=${workspaceId} already_running=${String(alreadyRunning)}`
     );
     return { podName, alreadyRunning };
+  }
+
+  /** Whether a session pod for this (assistantId, workspaceId) is currently warm. */
+  async isSessionPodWarm(input: { assistantId: string; workspaceId: string }): Promise<boolean> {
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+    const podName = this.buildSessionPodName(input.assistantId, input.workspaceId);
+    try {
+      const pod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
+      return pod.status?.phase === "Running";
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * List warm session pods belonging to a workspace, returning each pod's
+   * (assistantId, handle) pair via the stamped annotations. Used by upload
+   * hydration and the GC service to fan out work to every warm pod in a
+   * workspace without going through the database.
+   */
+  async listWarmSessionPodsForWorkspace(
+    workspaceId: string
+  ): Promise<Array<{ podName: string; assistantId: string; handle: string }>> {
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+    try {
+      const podList = await this.k8sApi.listNamespacedPod({
+        namespace,
+        labelSelector: "app.kubernetes.io/component=sandbox-exec"
+      });
+      const out: Array<{ podName: string; assistantId: string; handle: string }> = [];
+      for (const pod of podList.items) {
+        const annotations = pod.metadata?.annotations ?? {};
+        if (annotations[WORKSPACE_ID_ANNOTATION] !== workspaceId) {
+          continue;
+        }
+        if (pod.status?.phase !== "Running") {
+          continue;
+        }
+        const assistantId = annotations[ASSISTANT_ID_ANNOTATION];
+        const handle = annotations[ASSISTANT_HANDLE_ANNOTATION];
+        const podName = pod.metadata?.name;
+        if (assistantId === undefined || handle === undefined || podName === undefined) {
+          continue;
+        }
+        out.push({ podName, assistantId, handle });
+      }
+      return out;
+    } catch (error) {
+      this.logger.warn(
+        `list_warm_session_pods_failed workspace=${workspaceId} error=${describeUnknownError(error)}`
+      );
+      return [];
+    }
   }
 
   /**
@@ -531,10 +704,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     podName: string,
     namespace: string,
     policy: RuntimeSandboxPolicy,
+    workspaceId: string,
     annotations?: Record<string, string>
   ): Promise<void> {
     try {
-      await this.createExecPod(podName, namespace, policy, annotations);
+      await this.createExecPod(podName, namespace, policy, workspaceId, annotations);
     } catch (error) {
       const is409 =
         error !== null &&
@@ -555,6 +729,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     podName: string,
     namespace: string,
     policy: RuntimeSandboxPolicy,
+    workspaceId: string,
     annotations?: Record<string, string>
   ): Promise<void> {
     const image = this.config.SANDBOX_EXEC_IMAGE;
@@ -563,6 +738,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     const memMb = Math.ceil(policy.maxMemoryBytesPerJob / (1024 * 1024));
     const memLimit = `${Math.max(memMb, 64)}Mi`;
     const memRequest = `${Math.min(Math.max(memMb, 64), 256)}Mi`;
+    // ADR-126 Slice 3 — the `shared` emptyDir backs `/shared/<workspaceId>/`
+    // inside the pod (input + outbound + sibling outbound). Size is configurable;
+    // GCS is the durable backing store, the emptyDir is the hot working copy.
+    const sharedSizeMib = this.config.SANDBOX_SHARED_EMPTYDIR_SIZE_MIB;
 
     try {
       await this.k8sApi.createNamespacedPod({
@@ -612,6 +791,16 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
                 emptyDir: {
                   sizeLimit: "256Mi"
                 }
+              },
+              {
+                // ADR-126 Slice 3 — `/shared/<workspaceId>/` workspace-wide
+                // input + outbound subtree. The mount itself is an emptyDir;
+                // contents are reconciled with GCS on cold start and persisted
+                // to GCS on every write.
+                name: "shared",
+                emptyDir: {
+                  sizeLimit: `${String(sharedSizeMib)}Mi`
+                }
               }
             ],
             containers: [
@@ -648,6 +837,16 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
                   {
                     name: "tmp",
                     mountPath: "/tmp"
+                  },
+                  {
+                    // The `shared` volume is mounted at the per-workspace path
+                    // `/shared/<workspaceId>/` so the model only ever sees its
+                    // own workspace; the directory itself is created by the
+                    // shared-mount bootstrap script (see
+                    // `ensureSharedMountBootstrapped`) along with input/ and
+                    // outbound/<handle>/ subdirectories.
+                    name: "shared",
+                    mountPath: `/shared/${workspaceId}`
                   }
                 ]
               }
@@ -710,6 +909,182 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       }
 
       await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+
+  /**
+   * ADR-126 Slice 3 — bootstrap the `/shared/<workspaceId>/` subtree inside a
+   * session or ephemeral pod. Runs in four phases:
+   *
+   *   Phase 1 — marker check: if `/tmp/.persai_shared_bootstrap_ok` already
+   *     exists the pod was previously bootstrapped; return immediately.
+   *   Phase 2 — dirs + symlink: create `input/`, `outbound/<handle>/`,
+   *     sibling `outbound/<other>/` dirs, and the `outbound/self` convenience
+   *     symlink.
+   *   Phase 3 — GCS hydrate: pull every object under the workspace's
+   *     `/shared/` GCS prefix into the pod so uploaded files are visible to
+   *     the model immediately on a cold start (ADR-126 Slice 3 C2).
+   *   Phase 4 — chmod + marker: enforce the D2 access matrix
+   *     (`input/` = 0444, `outbound/<self>/` = 0755, sibling `outbound/<other>/`
+   *     = 0555) and write the bootstrap marker. Order: hydrate → chmod ensures
+   *     Phase 3 writes into `input/` before it becomes read-only.
+   *
+   * The bootstrap is idempotent: Phase 1's marker check short-circuits all
+   * subsequent phases on every warm-pod call, so only the first job (or
+   * file-bridge call) after pod creation pays the full setup cost.
+   */
+  private async ensureSharedMountBootstrapped(
+    podName: string,
+    namespace: string,
+    workspaceId: string,
+    assistantHandle: string,
+    siblingHandles: readonly string[]
+  ): Promise<void> {
+    const sharedRoot = `/shared/${workspaceId}`;
+    const outboundRoot = `${sharedRoot}/outbound`;
+    const selfOutbound = `${outboundRoot}/${assistantHandle}`;
+    const inputRoot = `${sharedRoot}/input`;
+
+    // Phase 1: skip the full bootstrap sequence on warm pods.
+    const alreadyBootstrapped = await this.runStdinlessProbe(
+      podName,
+      namespace,
+      `test -f ${posixSingleQuote(SHARED_MOUNT_BOOTSTRAP_MARKER)} && printf '%s' ${posixSingleQuote(SHARED_MOUNT_BOOTSTRAP_OK_SENTINEL)}`,
+      SHARED_MOUNT_BOOTSTRAP_OK_SENTINEL
+    );
+    if (alreadyBootstrapped) {
+      return;
+    }
+
+    // Phase 2: create directories and self-symlink.
+    const siblingMkdir = siblingHandles
+      .filter((handle) => handle !== assistantHandle)
+      .map((handle) => `mkdir -p ${posixSingleQuote(`${outboundRoot}/${handle}`)}`)
+      .join("\n");
+    const dirsScript = [
+      "set -e",
+      `mkdir -p ${posixSingleQuote(inputRoot)}`,
+      `mkdir -p ${posixSingleQuote(selfOutbound)}`,
+      siblingMkdir.length > 0 ? siblingMkdir : ":",
+      // `outbound/self` is a stable shortcut so the model can address its own
+      // outbound directory without knowing its handle.
+      `if [ ! -L ${posixSingleQuote(`${outboundRoot}/self`)} ]; then`,
+      `  ln -sfn ${posixSingleQuote(assistantHandle)} ${posixSingleQuote(`${outboundRoot}/self`)}`,
+      "fi",
+      `printf '%s' ${posixSingleQuote(SHARED_MOUNT_DIRS_OK_SENTINEL)}`
+    ].join("\n");
+    const dirsOk = await this.runStdinlessProbe(
+      podName,
+      namespace,
+      dirsScript,
+      SHARED_MOUNT_DIRS_OK_SENTINEL
+    );
+    if (!dirsOk) {
+      throw createBridgeError(
+        "process_spawn_failed",
+        `Failed to create /shared/${workspaceId} directories for handle=${assistantHandle}.`
+      );
+    }
+
+    // Phase 3: GCS hydrate — pull workspace-shared blobs into the pod.
+    // Must run BEFORE chmod so the hydrate's writes into input/ succeed.
+    // ADR-126 v3 D12 — record cold-pull latency for the shared-blob hydrate layer.
+    const sharedHydrateStartedAt = Date.now();
+    await this.hydrateSharedMountFromGcs(podName, namespace, workspaceId);
+    this.observability?.recordSnapshotColdPull("shared", Date.now() - sharedHydrateStartedAt);
+
+    // Phase 4: enforce D2 access matrix and write the bootstrap marker.
+    const siblingChmod = siblingHandles
+      .filter((handle) => handle !== assistantHandle)
+      .map((handle) => `chmod 0555 ${posixSingleQuote(`${outboundRoot}/${handle}`)}`)
+      .join("\n");
+    const chmodScript = [
+      "set -e",
+      `chmod 0444 ${posixSingleQuote(inputRoot)}`,
+      `chmod 0755 ${posixSingleQuote(selfOutbound)}`,
+      siblingChmod.length > 0 ? siblingChmod : ":",
+      `printf '%s' ${posixSingleQuote(SHARED_MOUNT_BOOTSTRAP_OK_SENTINEL)} > ${posixSingleQuote(SHARED_MOUNT_BOOTSTRAP_MARKER)}`,
+      `printf '%s' ${posixSingleQuote(SHARED_MOUNT_BOOTSTRAP_OK_SENTINEL)}`
+    ].join("\n");
+    const ok = await this.runStdinlessProbe(
+      podName,
+      namespace,
+      chmodScript,
+      SHARED_MOUNT_BOOTSTRAP_OK_SENTINEL
+    );
+    if (!ok) {
+      throw createBridgeError(
+        "process_spawn_failed",
+        `Failed to bootstrap /shared/${workspaceId} for handle=${assistantHandle}.`
+      );
+    }
+  }
+
+  /**
+   * ADR-126 Slice 3 C2 — pull every GCS object under the workspace's shared
+   * prefix into the corresponding pod path. Called once per cold-pod creation
+   * as Phase 3 of {@link ensureSharedMountBootstrapped}, before chmod locks
+   * `input/` to 0444. Best-effort: a list or download failure is logged at
+   * warn but does not abort the bootstrap.
+   */
+  private async hydrateSharedMountFromGcs(
+    podName: string,
+    namespace: string,
+    workspaceId: string
+  ): Promise<void> {
+    if (this.objectStorage === null) {
+      return;
+    }
+    const sharedPrefix = this.objectStorage.buildSharedPrefix({ workspaceId });
+    let keys: string[];
+    try {
+      keys = await this.objectStorage.listPrefix(sharedPrefix);
+    } catch (error) {
+      this.logger.warn(
+        `shared_mount_hydrate_list_failed workspace=${workspaceId} error=${describeUnknownError(error)}`
+      );
+      return;
+    }
+    if (keys.length === 0) {
+      return;
+    }
+    const sharedRoot = `/shared/${workspaceId}/`;
+    for (const key of keys) {
+      const relPath = key.slice(sharedPrefix.length);
+      // Skip GCS "directory" placeholder objects (key ends with "/").
+      if (relPath.length === 0 || relPath.endsWith("/")) {
+        continue;
+      }
+      const absolutePath = `${sharedRoot}${relPath}`;
+      let buffer: Buffer;
+      try {
+        buffer = await this.objectStorage.downloadObject(key);
+      } catch (error) {
+        this.logger.warn(
+          `shared_mount_hydrate_download_failed workspace=${workspaceId} key=${key} error=${describeUnknownError(error)}`
+        );
+        continue;
+      }
+      const parentDir = absolutePath.slice(0, absolutePath.lastIndexOf("/"));
+      const writeShell = `mkdir -p ${posixSingleQuote(parentDir)} && cat > ${posixSingleQuote(absolutePath)}`;
+      try {
+        const result = await this.execCommand(podName, namespace, {
+          command: "/bin/bash",
+          args: ["-lc", writeShell],
+          podCwd: "/",
+          policy: BOOTSTRAP_HYDRATE_POLICY,
+          stdin: buffer
+        });
+        if (result.exitCode !== 0) {
+          this.logger.warn(
+            `shared_mount_hydrate_write_failed workspace=${workspaceId} path=${absolutePath} exit=${String(result.exitCode)}`
+          );
+        }
+      } catch (error) {
+        this.logger.warn(
+          `shared_mount_hydrate_write_failed workspace=${workspaceId} path=${absolutePath} error=${describeUnknownError(error)}`
+        );
+      }
     }
   }
 
@@ -943,6 +1318,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       args: string[];
       podCwd: string;
       policy: RuntimeSandboxPolicy;
+      stdin?: Buffer | null;
     }
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
     const execArgs = [
@@ -962,6 +1338,12 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       `Sandbox stderr exceeded ${String(options.policy.maxStderrBytes)} bytes.`
     );
 
+    const stdinPayload = options.stdin ?? null;
+    const stdinStream =
+      stdinPayload === null
+        ? null
+        : this.readBufferInChunks(stdinPayload, WORKSPACE_PUSH_CHUNK_BYTES);
+
     const resultPromise = new Promise<{ exitCode: number | null; stdout: string; stderr: string }>(
       (resolve, reject) => {
         const statusReceived = { value: false };
@@ -974,7 +1356,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             execArgs,
             stdoutCollector,
             stderrCollector,
-            null,
+            stdinStream,
             false,
             (status: V1Status) => {
               statusReceived.value = true;

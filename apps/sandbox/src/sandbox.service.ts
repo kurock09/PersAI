@@ -3,44 +3,28 @@ import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join, dirname, extname, basename, isAbsolute, resolve } from "node:path";
+import { posix as pathPosix } from "node:path";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { SandboxConfig } from "@persai/config";
 import type {
-  RuntimeFileRef,
   RuntimeSandboxJobRequest,
   RuntimeSandboxJobResult,
   RuntimeSandboxPolicy,
   RuntimeSandboxProducedFile
 } from "@persai/runtime-contract";
+import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import { Prisma } from "@prisma/client";
 import { SANDBOX_CONFIG } from "./sandbox-config";
 import { ExecPodBridgeService } from "./exec-pod-bridge.service";
 import { SandboxObservabilityService } from "./sandbox-observability.service";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
 import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
-
-type WorkspaceFileSnapshot = {
-  relativePath: string;
-  absolutePath: string;
-  buffer: Buffer;
-  mimeType: string;
-  sizeBytes: number;
-  logicalSizeBytes: number | null;
-  sha256: string;
-};
-
-type MountedFileSnapshot = {
-  fileRef: string;
-  relativePath: string;
-  sha256: string;
-  sizeBytes: number;
-  logicalSizeBytes: number | null;
-};
-
-type MountedWorkspaceState = {
-  byRef: Map<string, MountedFileSnapshot>;
-  byPath: Map<string, MountedFileSnapshot>;
-};
+import {
+  WorkspaceFileBridgeService,
+  type WorkspaceBridgeContext
+} from "./workspace-file-bridge.service";
+import { resolveMacOsCollisionBasename } from "./shared-outbound-basename";
+import { WorkspacePathError, assertAllowedMountPrefix } from "./workspace-path";
 
 type WorkspaceStats = {
   fileCount: number;
@@ -54,19 +38,16 @@ const EMPTY_WORKSPACE_STATS: WorkspaceStats = {
   totalBytes: 0
 };
 
-type AssistantWorkspaceFileRecord = {
-  id: string;
-  sandboxJobId: string | null;
-  sourceToolCode: string | null;
-  objectKey: string;
-  relativePath: string;
-  displayName: string | null;
-  mimeType: string;
-  sizeBytes: bigint;
-  logicalSizeBytes: bigint | null;
-  sha256: string | null;
-  metadata: Prisma.JsonValue | null;
-  updatedAt: Date;
+type SandboxToolExecutionResult = {
+  reason: string | null;
+  warning: string | null;
+  exitCode: number | null;
+  stdout: string | null;
+  stderr: string | null;
+  content: string | null;
+  durationMs?: number;
+  execPodName?: string;
+  producedFiles?: RuntimeSandboxProducedFile[];
 };
 
 type WorkspaceLeaseHandle = {
@@ -86,8 +67,6 @@ type WorkspaceLeaseGuard = {
   renewing: boolean;
 };
 
-type SandboxFilesAction = "read" | "write" | "edit" | "delete";
-
 type SandboxPolicyError = Error & {
   code: string;
   blocked: boolean;
@@ -100,6 +79,11 @@ const WORKSPACE_LEASE_ACQUIRE_RETRY_MS = 200;
 const WORKSPACE_LEASE_WAIT_TIMEOUT_MS = 15_000;
 const PENDING_SANDBOX_JOB_STATUSES = ["queued", "running"] as const;
 
+/** POSIX single-quote escaping for shell commands built in sandbox methods. */
+function sandboxPosixSingleQuote(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
 @Injectable()
 export class SandboxService {
   private readonly logger = new Logger(SandboxService.name);
@@ -111,7 +95,8 @@ export class SandboxService {
     private readonly objectStorage: SandboxObjectStorageService,
     private readonly sandboxObservabilityService: SandboxObservabilityService,
     @Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig,
-    private readonly execPodBridgeService: ExecPodBridgeService
+    private readonly execPodBridgeService: ExecPodBridgeService,
+    private readonly workspaceFileBridgeService: WorkspaceFileBridgeService
   ) {}
 
   /**
@@ -220,8 +205,7 @@ export class SandboxService {
       !Array.isArray(job.resultPayload)
         ? (job.resultPayload as Record<string, unknown>)
         : {};
-    const assistantFiles = job.assistantFiles ?? [];
-    const producedFiles = assistantFiles.map((file) => this.toProducedFile(file));
+    const producedFiles = this.readProducedFilesFromJobPayload(payload);
     return {
       jobId: job.id,
       status: job.status,
@@ -243,11 +227,211 @@ export class SandboxService {
     return true;
   }
 
+  /**
+   * ADR-126 Slice 4 Wave 2 — synchronous control-plane write of artefact bytes
+   * into `/shared/outbound/self/<basename>` (collision-aware).
+   */
+  async writeSharedOutbound(input: {
+    assistantId: string;
+    workspaceId: string;
+    assistantHandle?: string | null;
+    siblingHandles?: readonly string[] | null;
+    basename: string;
+    contents: Buffer;
+    mimeType: string;
+    collisionStrategy?: "overwrite" | "numeric_suffix";
+    policy?: RuntimeSandboxPolicy;
+    workspaceQuotaBytes?: number | null;
+    sharedQuotaBytes?: number | null;
+  }): Promise<
+    | { ok: true; workspaceRelPath: string; sizeBytes: number }
+    | { ok: false; reason: string; message: string }
+  > {
+    const policy = input.policy ?? DEFAULT_RUNTIME_SANDBOX_POLICY;
+    const jobId = randomUUID();
+    let leaseGuard: WorkspaceLeaseGuard | null = null;
+    try {
+      await this.prisma.sandboxJob.create({
+        data: {
+          id: jobId,
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          runtimeRequestId: `shared-outbound-write:${jobId}`,
+          toolCode: "shared_outbound_write",
+          status: "running",
+          relativeWorkspace: ".",
+          policySnapshot: this.toJsonValue(policy),
+          requestPayload: this.toJsonValue({
+            basename: input.basename,
+            mimeType: input.mimeType,
+            collisionStrategy: input.collisionStrategy ?? "numeric_suffix",
+            bytes: input.contents.length
+          }),
+          startedAt: new Date()
+        }
+      });
+      const leaseHandle = await this.waitForWorkspaceLease({
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        sandboxJobId: jobId,
+        waitTimeoutMs: this.resolveWorkspaceLeaseWaitTimeoutMs(policy)
+      });
+      leaseGuard = this.startWorkspaceLeaseHeartbeat(leaseHandle);
+      const assistantHandle = await this.resolveAssistantHandle(
+        input.assistantId,
+        input.assistantHandle ?? null
+      );
+      const siblingHandles = await this.resolveSiblingHandles(
+        input.workspaceId,
+        input.assistantId,
+        input.siblingHandles ?? null
+      );
+      const bridgeCtx: WorkspaceBridgeContext = {
+        assistantId: input.assistantId,
+        assistantHandle,
+        siblingHandles,
+        workspaceId: input.workspaceId,
+        policy,
+        workspaceQuotaBytes: input.workspaceQuotaBytes ?? null,
+        sharedQuotaBytes: input.sharedQuotaBytes ?? null
+      };
+      const writeResult = await this.workspaceFileBridgeService.writeSharedOutboundWithCollision(
+        bridgeCtx,
+        {
+          basename: input.basename,
+          contents: input.contents,
+          collisionStrategy: input.collisionStrategy ?? "numeric_suffix"
+        }
+      );
+      if (!writeResult.success) {
+        await this.prisma.sandboxJob.update({
+          where: { id: jobId },
+          data: {
+            status: "failed",
+            completedAt: new Date(),
+            violationCode: writeResult.reason ?? "write_failed",
+            violationMessage: writeResult.reason ?? "shared_outbound_write_failed",
+            resultPayload: {
+              reason: writeResult.reason ?? "write_failed",
+              warning: null,
+              exitCode: null,
+              stdout: null,
+              stderr: null,
+              content: null
+            }
+          }
+        });
+        return {
+          ok: false,
+          reason: writeResult.reason ?? "write_failed",
+          message: writeResult.reason ?? "shared_outbound_write_failed"
+        };
+      }
+      await this.prisma.sandboxJob.update({
+        where: { id: jobId },
+        data: {
+          status: "completed",
+          completedAt: new Date(),
+          resultPayload: {
+            reason: null,
+            warning: null,
+            exitCode: 0,
+            stdout: null,
+            stderr: null,
+            content: JSON.stringify({
+              workspaceRelPath: writeResult.data.workspaceRelPath,
+              sizeBytes: writeResult.data.bytes
+            })
+          }
+        }
+      });
+      return {
+        ok: true,
+        workspaceRelPath: writeResult.data.workspaceRelPath,
+        sizeBytes: writeResult.data.bytes
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.prisma.sandboxJob
+        .update({
+          where: { id: jobId },
+          data: {
+            status: "failed",
+            completedAt: new Date(),
+            violationCode: "shared_outbound_write_failed",
+            violationMessage: message,
+            resultPayload: {
+              reason: "shared_outbound_write_failed",
+              warning: message,
+              exitCode: null,
+              stdout: null,
+              stderr: null,
+              content: null
+            }
+          }
+        })
+        .catch(() => {});
+      return {
+        ok: false,
+        reason: "shared_outbound_write_failed",
+        message
+      };
+    } finally {
+      if (leaseGuard !== null) {
+        await this.stopWorkspaceLeaseHeartbeat(leaseGuard);
+      }
+    }
+  }
+
   private async findJobRecord(jobId: string) {
     return await this.prisma.sandboxJob.findUnique({
-      where: { id: jobId },
-      include: { assistantFiles: true }
+      where: { id: jobId }
     });
+  }
+
+  private readProducedFilesFromJobPayload(
+    payload: Record<string, unknown>
+  ): RuntimeSandboxProducedFile[] {
+    const raw = payload.producedFiles;
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const files: RuntimeSandboxProducedFile[] = [];
+    for (const entry of raw) {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        continue;
+      }
+      const row = entry as Record<string, unknown>;
+      const relativePath = typeof row.relativePath === "string" ? row.relativePath : null;
+      const storagePath = typeof row.storagePath === "string" ? row.storagePath : null;
+      const mimeType = typeof row.mimeType === "string" ? row.mimeType : null;
+      if (relativePath === null || storagePath === null || mimeType === null) {
+        continue;
+      }
+      const sizeBytes =
+        typeof row.sizeBytes === "number" && Number.isFinite(row.sizeBytes) ? row.sizeBytes : 0;
+      const logicalSizeBytes =
+        row.logicalSizeBytes === null
+          ? null
+          : typeof row.logicalSizeBytes === "number" && Number.isFinite(row.logicalSizeBytes)
+            ? row.logicalSizeBytes
+            : null;
+      const displayName =
+        typeof row.displayName === "string"
+          ? row.displayName
+          : row.displayName === null
+            ? null
+            : null;
+      files.push({
+        relativePath,
+        displayName,
+        mimeType,
+        sizeBytes,
+        logicalSizeBytes,
+        storagePath
+      });
+    }
+    return files;
   }
 
   private isTerminalJobStatus(status: RuntimeSandboxJobResult["status"]): boolean {
@@ -442,12 +626,18 @@ export class SandboxService {
     ) {
       // Fire-and-forget: pre-create the session pod so its provisioning overlaps lease wait.
       // The subsequent runInSessionPod call is idempotent and will reuse this pod.
-      void this.execPodBridgeService
-        .warmSessionPod({
-          assistantId: request.assistantId,
-          workspaceId: request.workspaceId,
-          policy: request.policy
-        })
+      // ADR-126 Slice 3: resolve the handle eagerly so the bootstrap script can
+      // create `/shared/<workspaceId>/outbound/<handle>/` and the sibling
+      // mirror in parallel with the cold-start workspace push.
+      void this.resolveAssistantHandle(request.assistantId, request.assistantHandle ?? null)
+        .then((assistantHandle) =>
+          this.execPodBridgeService.warmSessionPod({
+            assistantId: request.assistantId,
+            assistantHandle,
+            workspaceId: request.workspaceId,
+            policy: request.policy
+          })
+        )
         .catch((error: unknown) => {
           this.logger.warn(
             `sandbox_warm_pool_failed assistantId=${request.assistantId} workspaceId=${request.workspaceId} error=${error instanceof Error ? error.message : String(error)}`
@@ -471,35 +661,35 @@ export class SandboxService {
           startedAt: new Date()
         }
       });
-      let existingWorkspaceFiles = await this.loadCurrentAssistantWorkspaceFiles(
-        request.assistantId,
-        request.workspaceId
-      );
       this.assertWorkspaceLeaseActive(leaseGuard);
-      existingWorkspaceFiles = await this.ensureWorkspaceSessionHydrated(
+      await this.ensureWorkspaceSessionReady(
         workspaceRoot,
         request.assistantId,
-        request.workspaceId,
-        existingWorkspaceFiles,
         request.runtimeSessionId ?? null
       );
       this.assertWorkspaceLeaseActive(leaseGuard);
-      const mountedFiles = await this.materializeMountedFiles(
-        workspaceRoot,
-        request.assistantId,
-        request.workspaceId,
-        request.args,
-        request.mountedFileRefs ?? []
-      );
-      this.assertWorkspaceLeaseActive(leaseGuard);
       const baselineWorkspaceStats = await this.computeWorkspaceStats(workspaceRoot);
+
+      // ADR-126 Slice 3 — resolve the handle + sibling handles once per job so
+      // every downstream pod-exec call (runInPod, render_html_to_pdf, doc-code)
+      // can bootstrap the shared-mount subtree deterministically.
+      const assistantHandle = await this.resolveAssistantHandle(
+        request.assistantId,
+        request.assistantHandle ?? null
+      );
+      const siblingHandles = await this.resolveSiblingHandles(
+        request.workspaceId,
+        request.assistantId,
+        request.siblingHandles ?? null
+      );
 
       const result = await this.executeTool({
         workspaceRoot,
         request,
         jobId,
-        mountedFiles,
-        leaseGuard
+        leaseGuard,
+        assistantHandle,
+        siblingHandles
       });
       this.assertWorkspaceLeaseActive(leaseGuard);
 
@@ -507,35 +697,6 @@ export class SandboxService {
       this.assertWorkspaceLeaseActive(leaseGuard);
       this.assertWorkspaceStats(stats, request.policy, baselineWorkspaceStats);
 
-      const files = await this.collectWorkspaceFiles(workspaceRoot);
-      const workspaceDelta = this.resolveWorkspaceDelta(
-        files,
-        existingWorkspaceFiles,
-        mountedFiles
-      );
-      this.assertProducedFileLimits(workspaceDelta.changedFiles, request.policy);
-      this.assertWorkspaceLeaseActive(leaseGuard);
-      const persistedFiles = await this.persistWorkspaceFiles({
-        assistantId: request.assistantId,
-        workspaceId: request.workspaceId,
-        toolCode: request.toolCode,
-        jobId,
-        files: workspaceDelta.changedFiles,
-        existingWorkspaceFiles,
-        leaseGuard
-      });
-      this.assertWorkspaceLeaseActive(leaseGuard);
-      await this.deleteRemovedWorkspaceFiles({
-        workspaceRoot,
-        assistantId: request.assistantId,
-        workspaceId: request.workspaceId,
-        deletedPaths: workspaceDelta.deletedPaths,
-        leaseGuard
-      });
-      await this.writeWorkspaceSessionStateMarker(
-        workspaceRoot,
-        await this.loadCurrentAssistantWorkspaceFiles(request.assistantId, request.workspaceId)
-      );
       if (request.runtimeSessionId !== null && request.runtimeSessionId !== undefined) {
         await this.saveSessionWorkspaceSnapshot(
           request.assistantId,
@@ -555,7 +716,8 @@ export class SandboxService {
             exitCode: result.exitCode,
             stdout: this.stripNulCharactersNullable(result.stdout),
             stderr: this.stripNulCharactersNullable(result.stderr),
-            content: this.stripNulCharactersNullable(result.content)
+            content: this.stripNulCharactersNullable(result.content),
+            producedFiles: this.toJsonValue(result.producedFiles ?? [])
           },
           resourceUsage: {
             workspaceBytes: stats.totalBytes,
@@ -567,11 +729,6 @@ export class SandboxService {
           }
         }
       });
-      if (persistedFiles.length !== workspaceDelta.changedFiles.length) {
-        this.logger.warn(
-          `Sandbox job ${jobId} persisted ${String(persistedFiles.length)} of ${String(workspaceDelta.changedFiles.length)} changed file(s).`
-        );
-      }
     } catch (error) {
       const { code, message, blocked, resourceUsage } = this.normalizeSandboxError(error);
       const safeMessage = this.stripNulCharacters(message);
@@ -593,9 +750,8 @@ export class SandboxService {
           ...(resourceUsage === null ? {} : { resourceUsage: this.toJsonValue(resourceUsage) })
         }
       });
-      await this.resetWorkspaceSessionToCurrentState(
+      await this.resetWorkspaceSessionOnFailure(
         request.assistantId,
-        request.workspaceId,
         workspaceRoot,
         request.runtimeSessionId ?? null
       );
@@ -608,58 +764,28 @@ export class SandboxService {
     workspaceRoot: string;
     request: RuntimeSandboxJobRequest;
     jobId: string;
-    mountedFiles: MountedWorkspaceState;
     leaseGuard: WorkspaceLeaseGuard;
-  }): Promise<{
-    reason: string | null;
-    warning: string | null;
-    exitCode: number | null;
-    stdout: string | null;
-    stderr: string | null;
-    content: string | null;
-    durationMs?: number;
-    execPodName?: string;
-  }> {
+    assistantHandle: string;
+    siblingHandles: readonly string[];
+  }): Promise<SandboxToolExecutionResult> {
     this.assertWorkspaceLeaseActive(input.leaseGuard);
+    const bridgeCtx: WorkspaceBridgeContext = {
+      assistantId: input.request.assistantId,
+      assistantHandle: input.assistantHandle,
+      siblingHandles: input.siblingHandles,
+      workspaceId: input.request.workspaceId,
+      policy: input.request.policy,
+      workspaceQuotaBytes: input.request.workspaceQuotaBytes ?? null,
+      sharedQuotaBytes: input.request.sharedQuotaBytes ?? null
+    };
     switch (input.request.toolCode) {
       case "files": {
-        const action = this.readSandboxFilesAction(input.request.args);
-        switch (action) {
-          case "read":
-            return this.executeFilesReadAction(
-              input.workspaceRoot,
-              input.request.args,
-              input.mountedFiles
-            );
-          case "write":
-            return this.executeFilesWriteAction(
-              input.workspaceRoot,
-              input.request.args,
-              input.request.policy
-            );
-          case "edit":
-            return this.executeFilesEditAction(
-              input.workspaceRoot,
-              input.request.args,
-              input.request.policy
-            );
-          case "delete":
-            return this.executeFilesDeleteAction(input.workspaceRoot, input.request.args);
-        }
-        throw new Error(`Unsupported files action: ${String(action)}`);
+        return this.executeFilesBridgeAction(bridgeCtx, input.request.args);
       }
       case "grep":
-        return this.executeGrepAction(
-          input.workspaceRoot,
-          input.request.args,
-          input.request.policy
-        );
+        return this.executeGrepActionViaPodExec(bridgeCtx, input.request.args);
       case "glob":
-        return this.executeGlobAction(
-          input.workspaceRoot,
-          input.request.args,
-          input.request.policy
-        );
+        return this.executeGlobActionViaPodExec(bridgeCtx, input.request.args);
       case "exec":
         return this.executeExecLike(
           input.workspaceRoot,
@@ -670,6 +796,8 @@ export class SandboxService {
           input.jobId,
           input.request.runtimeSessionId ?? null,
           input.request.assistantId,
+          input.assistantHandle,
+          input.siblingHandles,
           input.request.workspaceId
         );
       case "shell":
@@ -682,6 +810,8 @@ export class SandboxService {
           input.jobId,
           input.request.runtimeSessionId ?? null,
           input.request.assistantId,
+          input.assistantHandle,
+          input.siblingHandles,
           input.request.workspaceId
         );
       case "render_html_to_pdf":
@@ -693,6 +823,8 @@ export class SandboxService {
           input.jobId,
           input.request.runtimeSessionId ?? null,
           input.request.assistantId,
+          input.assistantHandle,
+          input.siblingHandles,
           input.request.workspaceId
         );
       case "execute_document_code":
@@ -700,11 +832,12 @@ export class SandboxService {
           input.workspaceRoot,
           input.request.args,
           input.request.policy,
-          input.mountedFiles,
           input.leaseGuard,
           input.jobId,
           input.request.runtimeSessionId ?? null,
           input.request.assistantId,
+          input.assistantHandle,
+          input.siblingHandles,
           input.request.workspaceId
         );
       default:
@@ -715,10 +848,16 @@ export class SandboxService {
     }
   }
 
-  private async executeFilesReadAction(
-    workspaceRoot: string,
-    args: Record<string, unknown>,
-    mountedFiles: MountedWorkspaceState
+  /**
+   * ADR-126 Slice 3 — unified files bridge dispatcher. Routes the five
+   * model-facing actions (list, read, stat, write, delete) to the
+   * WorkspaceFileBridgeService primitives and translates the result into the
+   * dispatcher return shape expected by executeQueuedJob. Content JSON shapes
+   * match the parsers in runtime-files-tool.service.ts exactly.
+   */
+  private async executeFilesBridgeAction(
+    bridgeCtx: WorkspaceBridgeContext,
+    args: Record<string, unknown>
   ): Promise<{
     reason: string | null;
     warning: string | null;
@@ -727,33 +866,384 @@ export class SandboxService {
     stderr: string | null;
     content: string | null;
   }> {
-    const relativePath = this.resolveFilesReadablePath(args, mountedFiles);
-    const absolutePath = this.resolveWorkspacePath(workspaceRoot, relativePath);
-    const buffer = await fs.readFile(absolutePath);
-    return {
-      reason: null,
-      warning: null,
-      exitCode: null,
-      stdout: null,
-      stderr: null,
-      content: this.stripNulCharacters(buffer.toString("utf8"))
-    };
+    const action = typeof args.action === "string" ? args.action : null;
+    if (
+      action !== "list" &&
+      action !== "read" &&
+      action !== "stat" &&
+      action !== "write" &&
+      action !== "delete" &&
+      action !== "attach"
+    ) {
+      return {
+        reason: "unsupported_action",
+        warning: `Unsupported files action: ${String(action)}`,
+        exitCode: null,
+        stdout: null,
+        stderr: null,
+        content: null
+      };
+    }
+    try {
+      if (action === "list") {
+        const path =
+          typeof args.path === "string" && args.path.trim().length > 0
+            ? args.path.trim()
+            : "/workspace/";
+        const result = await this.workspaceFileBridgeService.workspaceFileList(bridgeCtx, {
+          path
+        });
+        if (!result.success) {
+          return {
+            reason: result.reason,
+            warning: null,
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          };
+        }
+        const includeHidden = args.includeHidden === true;
+        const NOISE_BASENAMES = new Set([
+          "node_modules",
+          ".venv",
+          ".local",
+          ".npm-global",
+          ".cache",
+          "__pycache__"
+        ]);
+        const NOISE_EXT = /\.(pyc|log|lock|tmp)$/;
+        let entries = result.data;
+        if (!includeHidden) {
+          entries = entries.filter((entry) => {
+            const bname = entry.path.split("/").pop() ?? "";
+            if (NOISE_BASENAMES.has(bname)) return false;
+            if (bname.startsWith(".")) return false;
+            if (NOISE_EXT.test(bname)) return false;
+            return true;
+          });
+        }
+        entries.sort((a, b) => {
+          if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+          return a.path.localeCompare(b.path);
+        });
+        const items = entries.map((entry) => ({
+          path: entry.path,
+          type: entry.type,
+          role: this.resolvePathRole(bridgeCtx, entry.path),
+          sizeBytes: entry.sizeBytes,
+          mimeType: this.mimeTypeFromPath(entry.path),
+          modifiedAt: entry.modifiedAt
+        }));
+        return {
+          reason: null,
+          warning: null,
+          exitCode: 0,
+          stdout: null,
+          stderr: null,
+          content: JSON.stringify({ items })
+        };
+      }
+
+      if (action === "read") {
+        const path = this.requireString(args.path, "path");
+        const result = await this.workspaceFileBridgeService.workspaceFileRead(bridgeCtx, {
+          path
+        });
+        if (!result.success || result.data === null) {
+          return {
+            reason: result.reason,
+            warning: null,
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          };
+        }
+        const content = this.stripNulCharacters(result.data.bytes.toString("utf8"));
+        const sha256 = createHash("sha256").update(result.data.bytes).digest("hex");
+        return {
+          reason: null,
+          warning: null,
+          exitCode: 0,
+          stdout: null,
+          stderr: null,
+          content: JSON.stringify({
+            content,
+            sizeBytes: result.data.bytes.length,
+            sha256,
+            truncated: result.data.truncated
+          })
+        };
+      }
+
+      if (action === "stat") {
+        const path = this.requireString(args.path, "path");
+        const result = await this.workspaceFileBridgeService.workspaceFileStat(bridgeCtx, {
+          path
+        });
+        if (!result.success) {
+          return {
+            reason: result.reason,
+            warning: null,
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          };
+        }
+        return {
+          reason: null,
+          warning: null,
+          exitCode: 0,
+          stdout: null,
+          stderr: null,
+          content: JSON.stringify({
+            sizeBytes: result.data.type === "missing" ? 0 : result.data.sizeBytes,
+            mimeType:
+              result.data.type === "missing" ? null : this.mimeTypeFromPath(result.data.path)
+          })
+        };
+      }
+
+      if (action === "write") {
+        const path = this.requireString(args.path, "path");
+        const contentStr = this.requireString(args.content, "content");
+        const mode: "overwrite" | "create_only" =
+          args.mode === "create_only" ? "create_only" : "overwrite";
+        const contents = Buffer.from(contentStr, "utf8");
+        const result = await this.workspaceFileBridgeService.workspaceFileWrite(bridgeCtx, {
+          path,
+          contents,
+          mode
+        });
+        if (!result.success) {
+          return {
+            reason: result.reason,
+            warning: null,
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          };
+        }
+        return {
+          reason: null,
+          warning: null,
+          exitCode: 0,
+          stdout: null,
+          stderr: null,
+          content: JSON.stringify({ sizeBytes: result.data.bytes })
+        };
+      }
+
+      if (action === "attach") {
+        const path = this.requireString(args.path, "path");
+        let sourceResolved;
+        try {
+          const roots = WorkspaceFileBridgeService.buildMountRoots(bridgeCtx.workspaceId);
+          sourceResolved = assertAllowedMountPrefix(path, {
+            roots,
+            assistantHandle: bridgeCtx.assistantHandle,
+            siblingHandles: new Set(bridgeCtx.siblingHandles)
+          });
+        } catch (error) {
+          if (error instanceof WorkspacePathError) {
+            return {
+              reason: "path_not_attachable",
+              warning:
+                "files.attach accepts only /workspace/ or /shared/<wsid>/outbound/self/ paths",
+              exitCode: null,
+              stdout: null,
+              stderr: null,
+              content: null
+            };
+          }
+          throw error;
+        }
+        if (
+          sourceResolved.role.kind !== "workspace" &&
+          sourceResolved.role.kind !== "shared_outbound_self"
+        ) {
+          return {
+            reason: "path_not_attachable",
+            warning: "files.attach accepts only /workspace/ or /shared/<wsid>/outbound/self/ paths",
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          };
+        }
+        const statResult = await this.workspaceFileBridgeService.workspaceFileStat(bridgeCtx, {
+          path: sourceResolved.absolutePath
+        });
+        if (!statResult.success || statResult.data.type !== "file") {
+          return {
+            reason: statResult.reason ?? "path_not_found",
+            warning: null,
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          };
+        }
+        const sourceBasename = pathPosix.basename(sourceResolved.absolutePath);
+        let targetAbsolutePath = sourceResolved.absolutePath;
+        let workspaceRelPath = this.toModelSharedRelPath(
+          sourceResolved.absolutePath,
+          bridgeCtx.workspaceId
+        );
+        if (sourceResolved.role.kind === "workspace") {
+          const outboundDir = `/shared/${bridgeCtx.workspaceId}/outbound/self`;
+          const listResult = await this.workspaceFileBridgeService.workspaceFileList(bridgeCtx, {
+            path: outboundDir
+          });
+          const existingNames = new Set(
+            (listResult.success ? listResult.data : [])
+              .filter((entry) => entry.type === "file")
+              .map((entry) => pathPosix.basename(entry.path))
+          );
+          const resolvedBasename = resolveMacOsCollisionBasename(sourceBasename, existingNames);
+          targetAbsolutePath = `${outboundDir}/${resolvedBasename}`;
+          workspaceRelPath = `/shared/outbound/self/${resolvedBasename}`;
+          const copyResult = await this.workspaceFileBridgeService.workspaceFileCopy(bridgeCtx, {
+            sourcePath: sourceResolved.absolutePath,
+            targetPath: targetAbsolutePath
+          });
+          if (!copyResult.success) {
+            return {
+              reason: copyResult.reason ?? "copy_failed",
+              warning: null,
+              exitCode: null,
+              stdout: null,
+              stderr: null,
+              content: null
+            };
+          }
+        }
+        const mimeType = this.mimeTypeFromPath(targetAbsolutePath) ?? "application/octet-stream";
+        const displayName = pathPosix.basename(workspaceRelPath);
+        return {
+          reason: null,
+          warning: null,
+          exitCode: 0,
+          stdout: null,
+          stderr: null,
+          content: JSON.stringify({
+            action: "attached",
+            attachment: {
+              workspaceRelPath,
+              sourcePath: path,
+              sizeBytes: statResult.data.sizeBytes,
+              mimeType,
+              displayName
+            }
+          })
+        };
+      }
+
+      // action === "delete"
+      const path = this.requireString(args.path, "path");
+      const recursive = args.recursive === true;
+      const result = await this.workspaceFileBridgeService.workspaceFileDelete(bridgeCtx, {
+        path,
+        recursive
+      });
+      if (!result.success) {
+        return {
+          reason: result.reason,
+          warning: null,
+          exitCode: null,
+          stdout: null,
+          stderr: null,
+          content: null
+        };
+      }
+      return {
+        reason: null,
+        warning: null,
+        exitCode: 0,
+        stdout: null,
+        stderr: null,
+        content: JSON.stringify({})
+      };
+    } catch (error) {
+      if (error instanceof WorkspacePathError) {
+        return {
+          reason: error.code,
+          warning: error.message,
+          exitCode: null,
+          stdout: null,
+          stderr: null,
+          content: null
+        };
+      }
+      throw error;
+    }
   }
 
   /**
-   * ADR-123 Slice 7 — inline `grep` tool. Runs the trusted preinstalled `rg`
-   * (ripgrep) binary as a PersAI-owned control-plane subprocess against the
-   * hydrated workspace directory. Model-supplied values (pattern, glob/type,
-   * path) are passed as an argv ARRAY (never through a shell string) with a
-   * leading `--` so they can never be interpreted as ripgrep flags. The
-   * optional path is normalized through `resolveWorkspacePath` so it cannot
-   * escape `workspaceRoot`. This is trusted-binary execution with model data
-   * args; it never spawns an exec pod (D2 control-plane trusted rule holds).
+   * Derive the mount role for a path using the bridge context, for inclusion
+   * in list-action item metadata. Falls back to "workspace" on any resolution
+   * failure so a single bad path never aborts the whole listing.
    */
-  private async executeGrepAction(
-    workspaceRoot: string,
-    args: Record<string, unknown>,
-    policy: RuntimeSandboxPolicy
+  private resolvePathRole(
+    bridgeCtx: WorkspaceBridgeContext,
+    path: string
+  ): "workspace" | "shared_input" | "shared_outbound_self" | "shared_outbound_other" {
+    try {
+      const roots = WorkspaceFileBridgeService.buildMountRoots(bridgeCtx.workspaceId);
+      const resolved = assertAllowedMountPrefix(path, {
+        roots,
+        assistantHandle: bridgeCtx.assistantHandle,
+        siblingHandles: new Set(bridgeCtx.siblingHandles)
+      });
+      return resolved.role.kind;
+    } catch {
+      return "workspace";
+    }
+  }
+
+  /**
+   * Derive a MIME type from a path's file extension using a small inline map.
+   * Returns null for unknown extensions.
+   */
+  private mimeTypeFromPath(path: string): string | null {
+    const dotIdx = path.lastIndexOf(".");
+    if (dotIdx < 0) return null;
+    const ext = path.slice(dotIdx).toLowerCase();
+    const MAP: Record<string, string> = {
+      ".txt": "text/plain",
+      ".csv": "text/csv",
+      ".json": "application/json",
+      ".md": "text/markdown",
+      ".pdf": "application/pdf",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".webp": "image/webp",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    };
+    return MAP[ext] ?? null;
+  }
+
+  private toModelSharedRelPath(absolutePath: string, workspaceId: string): string {
+    const sharedRoot = `/shared/${workspaceId}/`;
+    if (!absolutePath.startsWith(sharedRoot)) {
+      return absolutePath;
+    }
+    return `/shared/${absolutePath.slice(sharedRoot.length)}`;
+  }
+
+  /**
+   * ADR-126 Slice 3 — grep via pod exec. Runs rg inside the session pod via
+   * execShellInSessionPod using a quoted shell command, so the model pattern
+   * never touches a control-plane process. Path containment is enforced by
+   * assertAllowedMountPrefix before the command is composed.
+   */
+  private async executeGrepActionViaPodExec(
+    bridgeCtx: WorkspaceBridgeContext,
+    args: Record<string, unknown>
   ): Promise<{
     reason: string | null;
     warning: string | null;
@@ -765,7 +1255,36 @@ export class SandboxService {
     const pattern = this.requireString(args.pattern, "pattern");
     const maxMatches = 200;
     const lineByteCap = 2_000;
-    const rgArgs: string[] = [
+
+    const rawPath =
+      typeof args.path === "string" && args.path.trim().length > 0
+        ? args.path.trim()
+        : "/workspace/";
+    const roots = WorkspaceFileBridgeService.buildMountRoots(bridgeCtx.workspaceId);
+    let containedPath: string;
+    try {
+      const resolved = assertAllowedMountPrefix(rawPath, {
+        roots,
+        assistantHandle: bridgeCtx.assistantHandle,
+        siblingHandles: new Set(bridgeCtx.siblingHandles)
+      });
+      containedPath = resolved.absolutePath;
+    } catch (error) {
+      if (error instanceof WorkspacePathError) {
+        return {
+          reason: error.code,
+          warning: error.message,
+          exitCode: null,
+          stdout: null,
+          stderr: null,
+          content: JSON.stringify({ matches: [], matchCount: 0, truncated: false })
+        };
+      }
+      throw error;
+    }
+
+    const parts: string[] = [
+      "rg",
       "--line-number",
       "--no-heading",
       "--color=never",
@@ -773,38 +1292,51 @@ export class SandboxService {
       String(maxMatches + 1)
     ];
     if (args.caseInsensitive === true) {
-      rgArgs.push("--ignore-case");
+      parts.push("--ignore-case");
     }
     if (typeof args.contextLines === "number" && Number.isInteger(args.contextLines)) {
-      const context = Math.min(Math.max(args.contextLines, 0), 10);
-      if (context > 0) {
-        rgArgs.push("--context", String(context));
+      const ctx = Math.min(Math.max(args.contextLines, 0), 10);
+      if (ctx > 0) {
+        parts.push("--context", String(ctx));
       }
     }
     if (typeof args.glob === "string" && args.glob.trim().length > 0) {
-      rgArgs.push("--glob", args.glob);
+      parts.push("--glob", sandboxPosixSingleQuote(args.glob.trim()));
     }
     if (typeof args.type === "string" && args.type.trim().length > 0) {
-      rgArgs.push("--type", args.type);
+      parts.push("--type", sandboxPosixSingleQuote(args.type.trim()));
     }
-    const searchRoot = this.resolveOptionalWorkspaceSubdir(workspaceRoot, args.path);
-    // `--` terminates flag parsing so the model pattern/path are pure data.
-    rgArgs.push("--", pattern, searchRoot);
+    parts.push("--", sandboxPosixSingleQuote(pattern), sandboxPosixSingleQuote(containedPath));
 
-    const result = await this.runTrustedControlPlaneBinary("rg", rgArgs, workspaceRoot, policy);
+    const podResult = await this.execPodBridgeService.execShellInSessionPod({
+      assistantId: bridgeCtx.assistantId,
+      assistantHandle: bridgeCtx.assistantHandle,
+      siblingHandles: bridgeCtx.siblingHandles,
+      workspaceId: bridgeCtx.workspaceId,
+      policy: bridgeCtx.policy,
+      shellCommand: parts.join(" "),
+      stdin: null
+    });
+
     // rg exit code 1 = no matches (not an error); 2+ = real error.
-    if (result.exitCode !== 0 && result.exitCode !== 1) {
+    if (podResult.exitCode !== 0 && podResult.exitCode !== 1) {
+      const firstStderrLine =
+        (podResult.stderr ?? "")
+          .split("\n")
+          .find((line) => line.trim().length > 0)
+          ?.trim() ?? null;
       return {
         reason: "grep_failed",
-        warning: result.timedOut ? "grep timed out." : (this.firstLine(result.stderr) ?? null),
-        exitCode: result.exitCode,
+        warning: firstStderrLine,
+        exitCode: podResult.exitCode,
         stdout: null,
-        stderr: result.stderr.slice(0, policy.maxStderrBytes),
+        stderr: (podResult.stderr ?? "").slice(0, bridgeCtx.policy.maxStderrBytes),
         content: JSON.stringify({ matches: [], matchCount: 0, truncated: false })
       };
     }
-    const matches = this.parseRipgrepMatches(result.stdout, workspaceRoot, lineByteCap);
-    const truncated = matches.length > maxMatches || result.truncated;
+
+    const matches = this.parseRipgrepMatchesPod(podResult.stdout ?? "", lineByteCap);
+    const truncated = matches.length > maxMatches;
     const cappedMatches = matches.slice(0, maxMatches);
     return {
       reason: null,
@@ -821,16 +1353,43 @@ export class SandboxService {
   }
 
   /**
-   * ADR-123 Slice 7 — inline `glob` tool. Runs the trusted preinstalled `fd`
-   * binary as a PersAI-owned control-plane subprocess against the hydrated
-   * workspace directory. The model glob pattern and optional path are passed
-   * via an argv ARRAY (never a shell string); the path is contained inside
-   * `workspaceRoot`. Never spawns an exec pod.
+   * Parse `rg --line-number --no-heading` output from a pod exec invocation.
+   * Unlike the legacy control-plane parser, paths are kept as pod-absolute
+   * (e.g. `/workspace/src/app.ts`) since the new files contract is path-based.
    */
-  private async executeGlobAction(
-    workspaceRoot: string,
-    args: Record<string, unknown>,
-    policy: RuntimeSandboxPolicy
+  private parseRipgrepMatchesPod(
+    stdout: string,
+    lineByteCap: number
+  ): Array<{ file: string; line: number; text: string }> {
+    const result: Array<{ file: string; line: number; text: string }> = [];
+    for (const rawLine of stdout.split("\n")) {
+      if (rawLine.length === 0) continue;
+      const firstColon = rawLine.indexOf(":");
+      if (firstColon <= 0) continue;
+      const secondColon = rawLine.indexOf(":", firstColon + 1);
+      if (secondColon <= firstColon) continue;
+      const filePart = rawLine.slice(0, firstColon);
+      const lineNumberPart = rawLine.slice(firstColon + 1, secondColon);
+      const lineNumber = Number.parseInt(lineNumberPart, 10);
+      if (!Number.isFinite(lineNumber) || lineNumber <= 0) continue;
+      const text = rawLine.slice(secondColon + 1);
+      result.push({
+        file: filePart,
+        line: lineNumber,
+        text: this.stripNulCharacters(text).slice(0, lineByteCap)
+      });
+    }
+    return result;
+  }
+
+  /**
+   * ADR-126 Slice 3 — glob via pod exec. Runs fd inside the session pod via
+   * execShellInSessionPod. Path containment is enforced before command
+   * composition. Output paths are pod-absolute (e.g. `/workspace/src/app.ts`).
+   */
+  private async executeGlobActionViaPodExec(
+    bridgeCtx: WorkspaceBridgeContext,
+    args: Record<string, unknown>
   ): Promise<{
     reason: string | null;
     warning: string | null;
@@ -841,8 +1400,36 @@ export class SandboxService {
   }> {
     const pattern = this.requireString(args.pattern, "pattern");
     const maxPaths = 500;
-    const searchRoot = this.resolveOptionalWorkspaceSubdir(workspaceRoot, args.path);
-    const fdArgs: string[] = [
+
+    const rawPath =
+      typeof args.path === "string" && args.path.trim().length > 0
+        ? args.path.trim()
+        : "/workspace/";
+    const roots = WorkspaceFileBridgeService.buildMountRoots(bridgeCtx.workspaceId);
+    let containedPath: string;
+    try {
+      const resolved = assertAllowedMountPrefix(rawPath, {
+        roots,
+        assistantHandle: bridgeCtx.assistantHandle,
+        siblingHandles: new Set(bridgeCtx.siblingHandles)
+      });
+      containedPath = resolved.absolutePath;
+    } catch (error) {
+      if (error instanceof WorkspacePathError) {
+        return {
+          reason: error.code,
+          warning: error.message,
+          exitCode: null,
+          stdout: null,
+          stderr: null,
+          content: JSON.stringify({ paths: [], truncated: false })
+        };
+      }
+      throw error;
+    }
+
+    const shellCommand = [
+      "fd",
       "--type",
       "f",
       "--color",
@@ -851,29 +1438,42 @@ export class SandboxService {
       "--max-results",
       String(maxPaths + 1),
       "--",
-      pattern,
-      searchRoot
-    ];
-    const result = await this.runTrustedControlPlaneBinary("fd", fdArgs, workspaceRoot, policy);
-    if (result.exitCode !== 0) {
+      sandboxPosixSingleQuote(pattern),
+      sandboxPosixSingleQuote(containedPath)
+    ].join(" ");
+
+    const podResult = await this.execPodBridgeService.execShellInSessionPod({
+      assistantId: bridgeCtx.assistantId,
+      assistantHandle: bridgeCtx.assistantHandle,
+      siblingHandles: bridgeCtx.siblingHandles,
+      workspaceId: bridgeCtx.workspaceId,
+      policy: bridgeCtx.policy,
+      shellCommand,
+      stdin: null
+    });
+
+    if (podResult.exitCode !== 0) {
+      const firstStderrLine =
+        (podResult.stderr ?? "")
+          .split("\n")
+          .find((line) => line.trim().length > 0)
+          ?.trim() ?? null;
       return {
         reason: "glob_failed",
-        warning: result.timedOut ? "glob timed out." : (this.firstLine(result.stderr) ?? null),
-        exitCode: result.exitCode,
+        warning: firstStderrLine,
+        exitCode: podResult.exitCode,
         stdout: null,
-        stderr: result.stderr.slice(0, policy.maxStderrBytes),
+        stderr: (podResult.stderr ?? "").slice(0, bridgeCtx.policy.maxStderrBytes),
         content: JSON.stringify({ paths: [], truncated: false })
       };
     }
-    const normalizedRoot = resolve(workspaceRoot);
-    const paths = result.stdout
+
+    const paths = (podResult.stdout ?? "")
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0)
-      .map((absolutePath) => this.toWorkspaceRelative(absolutePath, normalizedRoot))
-      .filter((relativePath): relativePath is string => relativePath !== null)
       .sort((a, b) => a.localeCompare(b));
-    const truncated = paths.length > maxPaths || result.truncated;
+    const truncated = paths.length > maxPaths;
     const cappedPaths = paths.slice(0, maxPaths);
     return {
       reason: null,
@@ -882,256 +1482,6 @@ export class SandboxService {
       stdout: null,
       stderr: null,
       content: JSON.stringify({ paths: cappedPaths, truncated })
-    };
-  }
-
-  /**
-   * Resolve an optional model-supplied search directory to an absolute path
-   * inside `workspaceRoot`. Returns the workspace root itself when no path is
-   * given. Rejects any path that would escape the workspace.
-   */
-  private resolveOptionalWorkspaceSubdir(workspaceRoot: string, value: unknown): string {
-    if (typeof value !== "string" || value.trim().length === 0) {
-      return resolve(workspaceRoot);
-    }
-    return this.resolveWorkspacePath(workspaceRoot, value);
-  }
-
-  private toWorkspaceRelative(absolutePath: string, normalizedRoot: string): string | null {
-    const resolvedPath = resolve(absolutePath);
-    if (resolvedPath === normalizedRoot) {
-      return null;
-    }
-    if (
-      !resolvedPath.startsWith(`${normalizedRoot}/`) &&
-      !resolvedPath.startsWith(normalizedRoot)
-    ) {
-      return null;
-    }
-    const relative = resolvedPath.slice(normalizedRoot.length).replace(/^[/\\]+/, "");
-    return relative.replace(/\\/g, "/");
-  }
-
-  private firstLine(value: string): string | null {
-    const trimmed = value.split("\n").find((line) => line.trim().length > 0);
-    return trimmed === undefined ? null : trimmed.trim();
-  }
-
-  /**
-   * Parse `rg --line-number --no-heading` output lines of the form
-   * `relativePath:lineNumber:text` into structured matches. Absolute search
-   * roots produce absolute file prefixes, so paths are re-based to
-   * workspace-relative. Context lines (`path-lineNumber-text`) are skipped.
-   */
-  private parseRipgrepMatches(
-    stdout: string,
-    workspaceRoot: string,
-    lineByteCap: number
-  ): Array<{ file: string; line: number; text: string }> {
-    const normalizedRoot = resolve(workspaceRoot);
-    const matches: Array<{ file: string; line: number; text: string }> = [];
-    for (const rawLine of stdout.split("\n")) {
-      if (rawLine.length === 0) {
-        continue;
-      }
-      const firstColon = rawLine.indexOf(":");
-      if (firstColon <= 0) {
-        continue;
-      }
-      const secondColon = rawLine.indexOf(":", firstColon + 1);
-      if (secondColon <= firstColon) {
-        continue;
-      }
-      const filePart = rawLine.slice(0, firstColon);
-      const lineNumberPart = rawLine.slice(firstColon + 1, secondColon);
-      const lineNumber = Number.parseInt(lineNumberPart, 10);
-      if (!Number.isFinite(lineNumber) || lineNumber <= 0) {
-        continue;
-      }
-      const text = rawLine.slice(secondColon + 1);
-      const relativeFile =
-        this.toWorkspaceRelative(filePart, normalizedRoot) ??
-        filePart.replace(/\\/g, "/").replace(/^\/+/, "");
-      matches.push({
-        file: relativeFile,
-        line: lineNumber,
-        text: this.stripNulCharacters(text).slice(0, lineByteCap)
-      });
-    }
-    return matches;
-  }
-
-  /**
-   * Spawn a trusted, PersAI-owned binary (`rg`/`fd`) directly on the control
-   * plane with an argv ARRAY (never a shell). Enforces a hard timeout and a
-   * stdout byte cap. This is NOT model-authored command execution: only the
-   * binary name is fixed by PersAI and only data args are model-supplied.
-   */
-  private runTrustedControlPlaneBinary(
-    command: string,
-    args: string[],
-    workspaceRoot: string,
-    policy: RuntimeSandboxPolicy
-  ): Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-    truncated: boolean;
-    timedOut: boolean;
-  }> {
-    return new Promise((resolvePromise) => {
-      const child = spawn(command, args, {
-        cwd: workspaceRoot,
-        shell: false,
-        env: {
-          PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-          HOME: workspaceRoot
-        }
-      });
-      const stdoutCap = policy.maxStdoutBytes;
-      const stderrCap = policy.maxStderrBytes;
-      let stdout = "";
-      let stderr = "";
-      let truncated = false;
-      let timedOut = false;
-      let settled = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGKILL");
-      }, policy.maxProcessRuntimeMs);
-
-      child.stdout.on("data", (chunk: Buffer) => {
-        if (stdout.length >= stdoutCap) {
-          truncated = true;
-          return;
-        }
-        stdout += chunk.toString("utf8");
-        if (stdout.length > stdoutCap) {
-          stdout = stdout.slice(0, stdoutCap);
-          truncated = true;
-        }
-      });
-      child.stderr.on("data", (chunk: Buffer) => {
-        if (stderr.length >= stderrCap) {
-          return;
-        }
-        stderr += chunk.toString("utf8");
-        if (stderr.length > stderrCap) {
-          stderr = stderr.slice(0, stderrCap);
-        }
-      });
-      const settle = (exitCode: number) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timer);
-        resolvePromise({ exitCode, stdout, stderr, truncated, timedOut });
-      };
-      child.on("error", (error) => {
-        stderr += (stderr.length > 0 ? "\n" : "") + (error instanceof Error ? error.message : "");
-        settle(127);
-      });
-      child.on("close", (code) => {
-        settle(timedOut ? 124 : (code ?? 0));
-      });
-    });
-  }
-
-  private async executeFilesWriteAction(
-    workspaceRoot: string,
-    args: Record<string, unknown>,
-    policy: RuntimeSandboxPolicy
-  ) {
-    const relativePath = this.requireRelativePath(args.path, "path");
-    const content = this.requireString(args.content, "content");
-    const sizeBytes = Buffer.byteLength(content, "utf8");
-    if (sizeBytes > policy.maxSingleFileWriteBytes) {
-      this.throwPolicy(
-        "single_file_write_limit_exceeded",
-        `Requested write is ${String(sizeBytes)} bytes, above the per-file limit of ${String(
-          policy.maxSingleFileWriteBytes
-        )}.`
-      );
-    }
-    const absolutePath = this.resolveWorkspacePath(workspaceRoot, relativePath);
-    await fs.mkdir(dirname(absolutePath), { recursive: true });
-    await fs.writeFile(absolutePath, content, "utf8");
-    return {
-      reason: null,
-      warning: null,
-      exitCode: null,
-      stdout: null,
-      stderr: null,
-      content: null
-    };
-  }
-
-  private async executeFilesEditAction(
-    workspaceRoot: string,
-    args: Record<string, unknown>,
-    policy: RuntimeSandboxPolicy
-  ) {
-    const relativePath = this.requireRelativePath(args.path, "path");
-    const oldText = this.requireString(args.oldText, "oldText");
-    const newText = this.requireString(args.newText, "newText");
-    const absolutePath = this.resolveWorkspacePath(workspaceRoot, relativePath);
-    const existing = await fs.readFile(absolutePath, "utf8");
-    if (!existing.includes(oldText)) {
-      this.throwPolicy("edit_target_not_found", "The requested text to replace was not found.");
-    }
-    const next = existing.replace(oldText, newText);
-    const sizeBytes = Buffer.byteLength(next, "utf8");
-    if (sizeBytes > policy.maxSingleFileWriteBytes) {
-      this.throwPolicy(
-        "single_file_write_limit_exceeded",
-        `Edited file would be ${String(sizeBytes)} bytes, above the per-file limit of ${String(
-          policy.maxSingleFileWriteBytes
-        )}.`
-      );
-    }
-    await fs.writeFile(absolutePath, next, "utf8");
-    return {
-      reason: null,
-      warning: null,
-      exitCode: null,
-      stdout: null,
-      stderr: null,
-      content: null
-    };
-  }
-
-  private async executeFilesDeleteAction(workspaceRoot: string, args: Record<string, unknown>) {
-    const relativePath = this.requireRelativePath(args.path, "path");
-    if (relativePath === ".") {
-      this.throwPolicy("invalid_path", "Deleting the workspace root is not allowed.");
-    }
-    const recursive = args.recursive === true;
-    const absolutePath = this.resolveWorkspacePath(workspaceRoot, relativePath);
-    let stats;
-    try {
-      stats = await fs.lstat(absolutePath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        this.throwPolicy("path_not_found", "The requested path to delete was not found.");
-      }
-      throw error;
-    }
-    if (stats.isDirectory()) {
-      if (!recursive) {
-        this.throwPolicy("recursive_required", "Deleting a directory requires recursive=true.");
-      }
-      await fs.rm(absolutePath, { recursive: true, force: false });
-    } else {
-      await fs.rm(absolutePath, { force: false });
-    }
-    return {
-      reason: null,
-      warning: null,
-      exitCode: null,
-      stdout: null,
-      stderr: null,
-      content: null
     };
   }
 
@@ -1144,6 +1494,8 @@ export class SandboxService {
     jobId: string,
     runtimeSessionId: string | null,
     assistantId: string,
+    assistantHandle: string,
+    siblingHandles: readonly string[],
     workspaceId: string
   ) {
     const cwd = args.cwd === undefined ? "." : this.requireRelativePath(args.cwd, "cwd");
@@ -1158,6 +1510,8 @@ export class SandboxService {
         jobId,
         runtimeSessionId,
         assistantId,
+        assistantHandle,
+        siblingHandles,
         workspaceId,
         workspaceRoot,
         absoluteCwd,
@@ -1185,6 +1539,8 @@ export class SandboxService {
       jobId,
       runtimeSessionId,
       assistantId,
+      assistantHandle,
+      siblingHandles,
       workspaceId,
       workspaceRoot,
       absoluteCwd,
@@ -1219,6 +1575,8 @@ export class SandboxService {
     jobId: string,
     runtimeSessionId: string | null,
     assistantId: string,
+    assistantHandle: string,
+    siblingHandles: readonly string[],
     workspaceId: string
   ) {
     const htmlContent = this.requireString(args.htmlContent, "htmlContent");
@@ -1251,6 +1609,8 @@ export class SandboxService {
         jobId,
         runtimeSessionId,
         assistantId,
+        assistantHandle,
+        siblingHandles,
         workspaceId,
         workspaceRoot,
         absoluteCwd: workspaceRoot,
@@ -1258,15 +1618,37 @@ export class SandboxService {
         args: [`/workspace/${inputRelativePath}`, `/workspace/${outputFileName}`],
         policy
       });
+      if (result.exitCode !== 0) {
+        return {
+          reason: "process_failed",
+          warning: null,
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          content: null,
+          durationMs: result.durationMs,
+          execPodName: result.execPodName
+        };
+      }
+      const producedFiles = [
+        await this.stageSandboxJobArtifact({
+          assistantId,
+          jobId,
+          workspaceRoot,
+          relativePath: outputFileName,
+          leaseGuard
+        })
+      ];
       return {
-        reason: result.exitCode === 0 ? null : "process_failed",
+        reason: null,
         warning: null,
         exitCode: result.exitCode,
         stdout: result.stdout,
         stderr: result.stderr,
         content: null,
         durationMs: result.durationMs,
-        execPodName: result.execPodName
+        execPodName: result.execPodName,
+        producedFiles
       };
     } finally {
       // Drop the transient HTML input so it never becomes a produced artifact.
@@ -1279,10 +1661,9 @@ export class SandboxService {
    * program that writes exactly one Office/data file to /workspace/<outputFileName>.
    *
    * Source ingestion (sandbox-first, two-tier — decided by the runtime worker):
-   * - `args.sourceMounts: [{ fileRef, mountPath }]` — the raw source files are
-   *   mounted by the generic mountedFileRefs machinery at their canonical
-   *   relativePath; here we COPY each into the deterministic worker-chosen
-   *   `mountPath` (e.g. sources/<name>) so the program can read a known path.
+   * - `args.sourceMounts: [{ storagePath, mountPath }]` — bytes are pulled from
+   *   the canonical shared GCS key for `storagePath` and written into the
+   *   deterministic worker-chosen `mountPath` (e.g. sources/<name>).
    * - `args.textSidecars: [{ mountPath, text }]` — OCR/extracted text sidecars
    *   (Tier 2) written verbatim into the workspace.
    * All transient source copies/sidecars + the program file live under
@@ -1293,13 +1674,14 @@ export class SandboxService {
     workspaceRoot: string,
     args: Record<string, unknown>,
     policy: RuntimeSandboxPolicy,
-    mountedFiles: MountedWorkspaceState,
     leaseGuard: WorkspaceLeaseGuard,
     jobId: string,
     runtimeSessionId: string | null,
     assistantId: string,
+    assistantHandle: string,
+    siblingHandles: readonly string[],
     workspaceId: string
-  ) {
+  ): Promise<SandboxToolExecutionResult> {
     const programSource = this.requireString(args.programSource, "programSource");
     const outputFileName = this.requireRelativePath(args.outputFileName, "outputFileName");
     const lowerOutput = outputFileName.toLowerCase();
@@ -1334,17 +1716,9 @@ export class SandboxService {
       // Materialize Tier 1 source copies into deterministic mount paths.
       const sourceMounts = this.readDocumentCodeSourceMounts(args.sourceMounts);
       for (const mount of sourceMounts) {
-        const mounted = mountedFiles.byRef.get(mount.fileRef);
-        if (mounted === undefined) {
-          this.throwPolicy(
-            "file_ref_not_found",
-            `Document code source mount references unknown fileRef "${mount.fileRef}".`
-          );
-        }
-        const mountedAbsolute = this.resolveWorkspacePath(workspaceRoot, mounted.relativePath);
+        const buffer = await this.downloadSharedStoragePathBytes(workspaceId, mount.storagePath);
         const targetAbsolute = this.resolveWorkspacePath(workspaceRoot, mount.mountPath);
         await fs.mkdir(dirname(targetAbsolute), { recursive: true });
-        const buffer = await fs.readFile(mountedAbsolute);
         await fs.writeFile(targetAbsolute, buffer);
       }
 
@@ -1362,6 +1736,8 @@ export class SandboxService {
         jobId,
         runtimeSessionId,
         assistantId,
+        assistantHandle,
+        siblingHandles,
         workspaceId,
         workspaceRoot,
         absoluteCwd: workspaceRoot,
@@ -1369,15 +1745,37 @@ export class SandboxService {
         args: [`/workspace/${programRelativePath}`],
         policy
       });
+      if (result.exitCode !== 0) {
+        return {
+          reason: "process_failed",
+          warning: null,
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          content: null,
+          durationMs: result.durationMs,
+          execPodName: result.execPodName
+        };
+      }
+      const producedFiles = [
+        await this.stageSandboxJobArtifact({
+          assistantId,
+          jobId,
+          workspaceRoot,
+          relativePath: outputFileName,
+          leaseGuard
+        })
+      ];
       return {
-        reason: result.exitCode === 0 ? null : "process_failed",
+        reason: null,
         warning: null,
         exitCode: result.exitCode,
         stdout: result.stdout,
         stderr: result.stderr,
         content: null,
         durationMs: result.durationMs,
-        execPodName: result.execPodName
+        execPodName: result.execPodName,
+        producedFiles
       };
     } finally {
       // Remove the program and all transient source copies/sidecars so only the
@@ -1390,14 +1788,14 @@ export class SandboxService {
 
   private readDocumentCodeSourceMounts(
     value: unknown
-  ): Array<{ fileRef: string; mountPath: string }> {
+  ): Array<{ storagePath: string; mountPath: string }> {
     if (value === undefined || value === null) {
       return [];
     }
     if (!Array.isArray(value)) {
       this.throwPolicy("invalid_arguments", "execute_document_code sourceMounts must be an array.");
     }
-    const mounts: Array<{ fileRef: string; mountPath: string }> = [];
+    const mounts: Array<{ storagePath: string; mountPath: string }> = [];
     for (const entry of value as unknown[]) {
       if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
         this.throwPolicy(
@@ -1406,9 +1804,9 @@ export class SandboxService {
         );
       }
       const row = entry as Record<string, unknown>;
-      const fileRef = this.requireString(row.fileRef, "sourceMounts[].fileRef");
+      const storagePath = this.requireString(row.storagePath, "sourceMounts[].storagePath");
       const mountPath = this.requireRelativePath(row.mountPath, "sourceMounts[].mountPath");
-      mounts.push({ fileRef, mountPath });
+      mounts.push({ storagePath, mountPath });
     }
     return mounts;
   }
@@ -1438,6 +1836,70 @@ export class SandboxService {
 
   private buildWorkspaceSessionKey(assistantId: string, workspaceId: string): string {
     return `${assistantId}:${workspaceId}`;
+  }
+
+  /**
+   * ADR-126 Slice 3 — resolve the assistant handle for an in-flight sandbox
+   * job. The runtime worker may supply the handle on the request (the new
+   * contract field is optional during the staged rollout); when absent the
+   * sandbox falls back to a single Assistant lookup, cached on the Prisma
+   * query layer.
+   */
+  private async resolveAssistantHandle(
+    assistantId: string,
+    suppliedHandle: string | null
+  ): Promise<string> {
+    if (suppliedHandle !== null && suppliedHandle.trim().length > 0) {
+      return suppliedHandle;
+    }
+    const fallback = `a-${assistantId.replace(/-/g, "").slice(0, 8)}`;
+    try {
+      const row = await this.prisma.assistant.findUnique({
+        where: { id: assistantId },
+        select: { handle: true }
+      });
+      if (row === null || row.handle.length === 0) {
+        // Defensive: emit a stable fallback so the bootstrap script always
+        // produces a valid `outbound/<handle>` directory name even if the
+        // Assistant row is missing or the column drift happens.
+        return fallback;
+      }
+      return row.handle;
+    } catch (error) {
+      this.logger.warn(
+        `sandbox_resolve_assistant_handle_failed assistant_id=${assistantId} reason=${error instanceof Error ? error.message : String(error)}`
+      );
+      return fallback;
+    }
+  }
+
+  /**
+   * ADR-126 Slice 3 — resolve sibling assistant handles for the
+   * `outbound/<otherHandle>/` mirror inside the workspace.
+   */
+  private async resolveSiblingHandles(
+    workspaceId: string,
+    selfAssistantId: string,
+    suppliedSiblings: readonly string[] | null
+  ): Promise<readonly string[]> {
+    if (suppliedSiblings !== null) {
+      return suppliedSiblings;
+    }
+    try {
+      const rows = await this.prisma.assistant.findMany({
+        where: {
+          workspaceId,
+          NOT: { id: selfAssistantId }
+        },
+        select: { handle: true }
+      });
+      return rows.map((r) => r.handle);
+    } catch (error) {
+      this.logger.warn(
+        `sandbox_resolve_sibling_handles_failed workspace_id=${workspaceId} reason=${error instanceof Error ? error.message : String(error)}`
+      );
+      return [];
+    }
   }
 
   private resolveWorkspaceSessionRoot(assistantId: string, workspaceId: string): string {
@@ -1651,69 +2113,86 @@ export class SandboxService {
     };
   }
 
-  private async ensureWorkspaceSessionHydrated(
+  private async ensureWorkspaceSessionReady(
     workspaceRoot: string,
     assistantId: string,
-    workspaceId: string,
-    existingWorkspaceFiles?: Map<string, AssistantWorkspaceFileRecord>,
-    runtimeSessionId: string | null = null
-  ): Promise<Map<string, AssistantWorkspaceFileRecord>> {
-    let filesByPath =
-      existingWorkspaceFiles ??
-      (await this.loadCurrentAssistantWorkspaceFiles(assistantId, workspaceId));
-    for (let cleanupPass = 0; cleanupPass < 8; cleanupPass += 1) {
-      const stateToken = this.buildWorkspaceStateToken(filesByPath);
-      const readyMarkerPath = this.resolveWorkspaceStateMarkerPath(workspaceRoot);
-      try {
-        const existingMarker = await fs.readFile(readyMarkerPath, "utf8");
-        if (existingMarker.trim() === stateToken) {
-          await fs.access(workspaceRoot);
-          return filesByPath;
-        }
-      } catch {
-        // Fall through to rebuild the local assistant workspace session.
-      }
-      await fs.rm(dirname(workspaceRoot), { recursive: true, force: true });
-      await fs.mkdir(workspaceRoot, { recursive: true });
-      const staleFileIds: string[] = [];
-      for (const file of filesByPath.values()) {
-        const absolutePath = this.resolveWorkspacePath(workspaceRoot, file.relativePath);
-        await fs.mkdir(dirname(absolutePath), { recursive: true });
-        try {
-          const buffer = await this.objectStorage.downloadObject(file.objectKey);
-          const canonicalFile = await this.backfillWorkspaceFileIntegrity(file, buffer);
-          if (canonicalFile !== file) {
-            filesByPath.set(canonicalFile.relativePath, canonicalFile);
-          }
-          await fs.writeFile(absolutePath, buffer);
-        } catch (error) {
-          if (!this.isMissingObjectStorageError(error)) {
-            throw error;
-          }
-          staleFileIds.push(file.id);
-          this.logger.warn(
-            `Skipping stale assistant file ${file.id} (${file.relativePath}) during workspace hydrate because object "${file.objectKey}" is missing.`
-          );
-        }
-      }
-      if (staleFileIds.length === 0) {
-        await this.writeWorkspaceSessionStateMarker(workspaceRoot, filesByPath);
-        // For session jobs: overlay ephemeral files from the GCS session snapshot AFTER
-        // the declared files are written. Declared files already on disk are not overwritten.
-        if (runtimeSessionId !== null) {
-          await this.restoreSessionSnapshotOverlay(assistantId, runtimeSessionId, workspaceRoot);
-        }
-        return filesByPath;
-      }
-      await this.deleteStaleAssistantWorkspaceFiles({
-        assistantId,
-        workspaceId,
-        fileIds: staleFileIds,
-        reason: "workspace_hydrate_missing_object"
-      });
-      filesByPath = await this.loadCurrentAssistantWorkspaceFiles(assistantId, workspaceId);
+    runtimeSessionId: string | null
+  ): Promise<void> {
+    await fs.mkdir(workspaceRoot, { recursive: true });
+    if (runtimeSessionId !== null) {
+      await this.restoreSessionSnapshotOverlay(assistantId, runtimeSessionId, workspaceRoot);
     }
-    throw new Error("Assistant workspace hydrate exceeded stale-file cleanup retries.");
+  }
+
+  private async resetWorkspaceSessionOnFailure(
+    assistantId: string,
+    workspaceRoot: string,
+    runtimeSessionId: string | null
+  ): Promise<void> {
+    await fs.rm(dirname(workspaceRoot), { recursive: true, force: true });
+    await this.ensureWorkspaceSessionReady(workspaceRoot, assistantId, runtimeSessionId);
+  }
+
+  private async downloadSharedStoragePathBytes(
+    workspaceId: string,
+    storagePath: string
+  ): Promise<Buffer> {
+    const objectKey = this.objectStorage.buildSharedObjectKey({
+      workspaceId,
+      workspaceRelPath: storagePath
+    });
+    try {
+      return await this.objectStorage.downloadObject(objectKey);
+    } catch (error) {
+      if (this.isMissingObjectStorageError(error)) {
+        this.throwPolicy(
+          "storage_path_not_found",
+          `Shared storage path "${storagePath}" is not available in object storage.`
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async stageSandboxJobArtifact(input: {
+    assistantId: string;
+    jobId: string;
+    workspaceRoot: string;
+    relativePath: string;
+    leaseGuard: WorkspaceLeaseGuard;
+  }): Promise<RuntimeSandboxProducedFile> {
+    this.assertWorkspaceLeaseActive(input.leaseGuard);
+    const absolutePath = this.resolveWorkspacePath(input.workspaceRoot, input.relativePath);
+    const buffer = await fs.readFile(absolutePath);
+    const mimeType = this.inferMimeType(input.relativePath);
+    if (buffer.length > 0) {
+      const objectKey = this.objectStorage.buildSandboxObjectKey({
+        assistantId: input.assistantId,
+        jobId: input.jobId,
+        relativePath: input.relativePath
+      });
+      await this.objectStorage.saveObject({
+        objectKey,
+        buffer,
+        mimeType
+      });
+      return {
+        relativePath: input.relativePath,
+        displayName: basename(input.relativePath),
+        mimeType,
+        sizeBytes: buffer.length,
+        logicalSizeBytes: buffer.length,
+        storagePath: objectKey
+      };
+    }
+    return {
+      relativePath: input.relativePath,
+      displayName: basename(input.relativePath),
+      mimeType,
+      sizeBytes: 0,
+      logicalSizeBytes: 0,
+      storagePath: ""
+    };
   }
 
   /**
@@ -1754,8 +2233,7 @@ export class SandboxService {
 
   /**
    * Overlay the GCS session snapshot onto an already-hydrated workspace directory.
-   * Only files NOT already present on disk are written (copy-if-absent semantics),
-   * so declared AssistantFile content always takes precedence.
+   * Only files NOT already present on disk are written (copy-if-absent semantics).
    * Missing snapshot (first session) is handled gracefully.
    */
   private async restoreSessionSnapshotOverlay(
@@ -1764,6 +2242,7 @@ export class SandboxService {
     workspaceRoot: string
   ): Promise<void> {
     const objectKey = this.objectStorage.buildSessionSnapshotKey({ assistantId, runtimeSessionId });
+    const startedAt = Date.now();
     let tarBytes: Buffer;
     try {
       tarBytes = await this.objectStorage.downloadObject(objectKey);
@@ -1779,6 +2258,7 @@ export class SandboxService {
     }
     try {
       await this.extractTarOverlay(tarBytes, workspaceRoot);
+      this.sandboxObservabilityService.recordSnapshotColdPull("session", Date.now() - startedAt);
       this.logger.log(
         `[session-snapshot] restored overlay assistantId=${assistantId} session=${runtimeSessionId}`
       );
@@ -1817,8 +2297,7 @@ export class SandboxService {
   }
 
   /**
-   * Overlay a tar archive onto a directory, restoring only files that do not already exist
-   * so declared AssistantFile content always takes precedence.
+   * Overlay a tar archive onto a directory, restoring only files that do not already exist.
    *
    * Implemented as plain extract-to-staging + copy-if-absent rather than tar's own
    * keep/skip flags, because those diverge across implementations: GNU tar's
@@ -1860,501 +2339,6 @@ export class SandboxService {
         }
       });
       extractChild.stdin?.end(tarBytes);
-    });
-  }
-
-  private async resetWorkspaceSessionToCurrentState(
-    assistantId: string,
-    workspaceId: string,
-    workspaceRoot: string,
-    runtimeSessionId: string | null = null
-  ): Promise<void> {
-    const currentWorkspaceFiles = await this.loadCurrentAssistantWorkspaceFiles(
-      assistantId,
-      workspaceId
-    );
-    await fs.rm(dirname(workspaceRoot), { recursive: true, force: true });
-    await this.ensureWorkspaceSessionHydrated(
-      workspaceRoot,
-      assistantId,
-      workspaceId,
-      currentWorkspaceFiles,
-      runtimeSessionId
-    );
-  }
-
-  private async loadCurrentAssistantWorkspaceFiles(
-    assistantId: string,
-    workspaceId: string
-  ): Promise<Map<string, AssistantWorkspaceFileRecord>> {
-    const rows = await this.prisma.assistantFile.findMany({
-      where: {
-        assistantId,
-        workspaceId
-      },
-      orderBy: [{ relativePath: "asc" }, { updatedAt: "desc" }, { id: "desc" }]
-    });
-    const filesByPath = new Map<string, AssistantWorkspaceFileRecord>();
-    for (const row of rows) {
-      if (filesByPath.has(row.relativePath)) {
-        continue;
-      }
-      filesByPath.set(row.relativePath, row);
-    }
-    return filesByPath;
-  }
-
-  private resolveWorkspaceStateMarkerPath(workspaceRoot: string): string {
-    return join(dirname(workspaceRoot), ".persai-workspace-state");
-  }
-
-  private buildWorkspaceStateToken(filesByPath: Map<string, AssistantWorkspaceFileRecord>): string {
-    const hash = createHash("sha256");
-    for (const [relativePath, file] of [...filesByPath.entries()].sort(([left], [right]) =>
-      left.localeCompare(right)
-    )) {
-      hash.update(relativePath);
-      hash.update("\0");
-      hash.update(file.id);
-      hash.update("\0");
-      hash.update(file.objectKey);
-      hash.update("\0");
-      hash.update(file.updatedAt.toISOString());
-      hash.update("\0");
-    }
-    return hash.digest("hex");
-  }
-
-  private async writeWorkspaceSessionStateMarker(
-    workspaceRoot: string,
-    filesByPath: Map<string, AssistantWorkspaceFileRecord>
-  ): Promise<void> {
-    const markerPath = this.resolveWorkspaceStateMarkerPath(workspaceRoot);
-    await fs.mkdir(dirname(markerPath), { recursive: true });
-    await fs.writeFile(markerPath, this.buildWorkspaceStateToken(filesByPath), "utf8");
-  }
-
-  private async deleteStaleAssistantWorkspaceFiles(input: {
-    assistantId: string;
-    workspaceId: string;
-    fileIds: string[];
-    reason: string;
-  }): Promise<void> {
-    if (input.fileIds.length === 0) {
-      return;
-    }
-    const removed = await this.prisma.assistantFile.deleteMany({
-      where: {
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        id: {
-          in: input.fileIds
-        }
-      }
-    });
-    this.logger.warn(
-      `Removed ${String(removed.count)} stale assistant file row(s) for ${input.assistantId}/${input.workspaceId} after ${input.reason}.`
-    );
-  }
-
-  private resolveWorkspaceDelta(
-    files: WorkspaceFileSnapshot[],
-    existingWorkspaceFiles: Map<string, AssistantWorkspaceFileRecord>,
-    mountedFiles: MountedWorkspaceState
-  ): {
-    changedFiles: WorkspaceFileSnapshot[];
-    deletedPaths: string[];
-  } {
-    const currentFilesByPath = new Map(files.map((file) => [file.relativePath, file] as const));
-    const changedFiles = files.filter((file) => {
-      const existing = existingWorkspaceFiles.get(file.relativePath);
-      if (!existing) {
-        return true;
-      }
-      const unchanged =
-        (existing.sha256 ?? null) === file.sha256 && Number(existing.sizeBytes) === file.sizeBytes;
-      if (!unchanged) {
-        return true;
-      }
-      const mounted = mountedFiles.byPath.get(file.relativePath);
-      if (!mounted) {
-        return false;
-      }
-      return mounted.sha256 !== file.sha256 || mounted.sizeBytes !== file.sizeBytes;
-    });
-    const deletedPaths = [...existingWorkspaceFiles.keys()].filter(
-      (relativePath) => !currentFilesByPath.has(relativePath)
-    );
-    return { changedFiles, deletedPaths };
-  }
-
-  private async backfillWorkspaceFileIntegrity(
-    file: AssistantWorkspaceFileRecord,
-    buffer: Buffer
-  ): Promise<AssistantWorkspaceFileRecord> {
-    const computedSha256 = createHash("sha256").update(buffer).digest("hex");
-    const computedSize = BigInt(buffer.length);
-    if (
-      file.sha256 === computedSha256 &&
-      file.sizeBytes === computedSize &&
-      file.logicalSizeBytes === computedSize
-    ) {
-      return file;
-    }
-    return await this.prisma.assistantFile.update({
-      where: { id: file.id },
-      data: {
-        objectKey: file.objectKey,
-        relativePath: file.relativePath,
-        displayName: file.displayName,
-        mimeType: file.mimeType,
-        sandboxJobId: file.sandboxJobId,
-        sourceToolCode: file.sourceToolCode,
-        sizeBytes: computedSize,
-        logicalSizeBytes: computedSize,
-        sha256: computedSha256,
-        metadata: file.metadata ?? Prisma.JsonNull
-      }
-    });
-  }
-
-  private async materializeMountedFiles(
-    workspaceRoot: string,
-    assistantId: string,
-    workspaceId: string,
-    args: Record<string, unknown>,
-    mountedFileRefs: string[] = []
-  ): Promise<MountedWorkspaceState> {
-    const mountedFiles: MountedWorkspaceState = {
-      byRef: new Map(),
-      byPath: new Map()
-    };
-    const requiredRefs = new Set<string>();
-    const singleRef = this.readNullableString(args.fileRef);
-    if (singleRef) {
-      requiredRefs.add(singleRef);
-    }
-    if (Array.isArray(args.mountFileRefs)) {
-      for (const item of args.mountFileRefs) {
-        if (typeof item === "string" && item.trim().length > 0) {
-          requiredRefs.add(item.trim());
-        }
-      }
-    }
-    const mountRefs = new Set<string>(requiredRefs);
-    for (const item of mountedFileRefs) {
-      if (typeof item === "string" && item.trim().length > 0) {
-        mountRefs.add(item.trim());
-      }
-    }
-    if (mountRefs.size === 0) {
-      return mountedFiles;
-    }
-    const requestedRefs = [...mountRefs];
-    const canonicalRefs = await this.prisma.assistantFile.findMany({
-      where: {
-        assistantId,
-        workspaceId,
-        id: {
-          in: requestedRefs
-        }
-      }
-    });
-    const canonicalIds = new Set(canonicalRefs.map((ref) => ref.id));
-    const missingRequiredRefs = [...requiredRefs].filter((ref) => !canonicalIds.has(ref));
-    if (missingRequiredRefs.length > 0) {
-      this.throwPolicy("file_ref_not_found", "One or more sandbox file references were not found.");
-    }
-    const staleFileIds: string[] = [];
-    let requiredMountMissingObject = false;
-    for (const ref of canonicalRefs) {
-      const relativePath = this.requireRelativePath(ref.relativePath, "relativePath");
-      if (mountedFiles.byPath.has(relativePath)) {
-        this.throwPolicy(
-          "mounted_path_conflict",
-          `Mounted file references cannot share the same workspace path "${relativePath}".`
-        );
-      }
-      const absolutePath = this.resolveWorkspacePath(workspaceRoot, relativePath);
-      await fs.mkdir(dirname(absolutePath), { recursive: true });
-      let buffer: Buffer;
-      try {
-        buffer = await this.objectStorage.downloadObject(ref.objectKey);
-      } catch (error) {
-        if (!this.isMissingObjectStorageError(error)) {
-          throw error;
-        }
-        staleFileIds.push(ref.id);
-        requiredMountMissingObject = requiredMountMissingObject || requiredRefs.has(ref.id);
-        this.logger.warn(
-          `Skipping stale mounted assistant file ${ref.id} (${ref.relativePath}) because object "${ref.objectKey}" is missing.`
-        );
-        continue;
-      }
-      await fs.writeFile(absolutePath, buffer);
-      const mounted: MountedFileSnapshot = {
-        fileRef: ref.id,
-        relativePath,
-        sha256: createHash("sha256").update(buffer).digest("hex"),
-        sizeBytes: buffer.length,
-        logicalSizeBytes: buffer.length
-      };
-      mountedFiles.byRef.set(ref.id, mounted);
-      mountedFiles.byPath.set(relativePath, mounted);
-    }
-    if (staleFileIds.length > 0) {
-      await this.deleteStaleAssistantWorkspaceFiles({
-        assistantId,
-        workspaceId,
-        fileIds: staleFileIds,
-        reason: "mounted_file_missing_object"
-      });
-    }
-    if (requiredMountMissingObject) {
-      this.throwPolicy(
-        "file_ref_not_found",
-        "One or more sandbox file references are stale because their stored object is missing."
-      );
-    }
-    return mountedFiles;
-  }
-
-  private async persistWorkspaceFiles(input: {
-    assistantId: string;
-    workspaceId: string;
-    toolCode: string;
-    jobId: string;
-    files: WorkspaceFileSnapshot[];
-    existingWorkspaceFiles: Map<string, AssistantWorkspaceFileRecord>;
-    leaseGuard: WorkspaceLeaseGuard;
-  }): Promise<RuntimeSandboxProducedFile[]> {
-    const produced: RuntimeSandboxProducedFile[] = [];
-    for (const file of input.files) {
-      this.assertWorkspaceLeaseActive(input.leaseGuard);
-      const objectKey = this.objectStorage.buildSandboxObjectKey({
-        assistantId: input.assistantId,
-        jobId: input.jobId,
-        relativePath: file.relativePath
-      });
-      await this.objectStorage.saveObject({
-        objectKey,
-        buffer: file.buffer,
-        mimeType: file.mimeType
-      });
-      const existing = input.existingWorkspaceFiles.get(file.relativePath) ?? null;
-      const assistantFile =
-        existing === null
-          ? await this.prisma.assistantFile.create({
-              data: {
-                assistantId: input.assistantId,
-                workspaceId: input.workspaceId,
-                sandboxJobId: input.jobId,
-                origin: "sandbox_output",
-                sourceToolCode: input.toolCode,
-                objectKey,
-                relativePath: file.relativePath,
-                displayName: basename(file.relativePath),
-                mimeType: file.mimeType,
-                sizeBytes: BigInt(file.sizeBytes),
-                logicalSizeBytes:
-                  file.logicalSizeBytes === null ? null : BigInt(file.logicalSizeBytes),
-                sha256: file.sha256,
-                metadata: {}
-              }
-            })
-          : await this.prisma.assistantFile.update({
-              where: { id: existing.id },
-              data: {
-                sandboxJobId: input.jobId,
-                origin: "sandbox_output",
-                sourceToolCode: input.toolCode,
-                objectKey,
-                relativePath: file.relativePath,
-                displayName: basename(file.relativePath),
-                mimeType: file.mimeType,
-                sizeBytes: BigInt(file.sizeBytes),
-                logicalSizeBytes:
-                  file.logicalSizeBytes === null ? null : BigInt(file.logicalSizeBytes),
-                sha256: file.sha256,
-                metadata: existing.metadata ?? {}
-              }
-            });
-      if (existing !== null) {
-        await this.prisma.assistantFile.deleteMany({
-          where: {
-            assistantId: input.assistantId,
-            workspaceId: input.workspaceId,
-            relativePath: file.relativePath,
-            id: {
-              not: assistantFile.id
-            }
-          }
-        });
-      }
-      const runtimeFileRef: RuntimeFileRef = {
-        fileRef: assistantFile.id,
-        origin: assistantFile.origin,
-        sourceToolCode: assistantFile.sourceToolCode,
-        objectKey: assistantFile.objectKey,
-        relativePath: assistantFile.relativePath,
-        displayName: assistantFile.displayName,
-        mimeType: assistantFile.mimeType,
-        sizeBytes: Number(assistantFile.sizeBytes),
-        logicalSizeBytes:
-          assistantFile.logicalSizeBytes === null ? null : Number(assistantFile.logicalSizeBytes),
-        createdAt: assistantFile.createdAt.toISOString(),
-        authorLabel: "sandbox"
-      };
-      produced.push({
-        relativePath: assistantFile.relativePath,
-        displayName: assistantFile.displayName,
-        mimeType: assistantFile.mimeType,
-        sizeBytes: Number(assistantFile.sizeBytes),
-        logicalSizeBytes:
-          assistantFile.logicalSizeBytes === null ? null : Number(assistantFile.logicalSizeBytes),
-        fileRef: runtimeFileRef
-      });
-    }
-    return produced;
-  }
-
-  private async deleteRemovedWorkspaceFiles(input: {
-    workspaceRoot: string;
-    assistantId: string;
-    workspaceId: string;
-    deletedPaths: string[];
-    leaseGuard: WorkspaceLeaseGuard;
-  }): Promise<void> {
-    if (input.deletedPaths.length === 0) {
-      return;
-    }
-    this.assertWorkspaceLeaseActive(input.leaseGuard);
-    await this.prisma.assistantFile.deleteMany({
-      where: {
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        relativePath: {
-          in: input.deletedPaths
-        }
-      }
-    });
-    await this.pruneEmptyWorkspaceDirectories(input.workspaceRoot, input.deletedPaths);
-  }
-
-  private toProducedFile(row: {
-    id: string;
-    origin: string;
-    sourceToolCode: string | null;
-    objectKey: string;
-    relativePath: string;
-    displayName: string | null;
-    mimeType: string;
-    sizeBytes: bigint;
-    logicalSizeBytes: bigint | null;
-    createdAt: Date;
-  }): RuntimeSandboxProducedFile {
-    return {
-      relativePath: row.relativePath,
-      displayName: row.displayName,
-      mimeType: row.mimeType,
-      sizeBytes: Number(row.sizeBytes),
-      logicalSizeBytes: row.logicalSizeBytes === null ? null : Number(row.logicalSizeBytes),
-      fileRef: {
-        fileRef: row.id,
-        origin: row.origin as RuntimeFileRef["origin"],
-        sourceToolCode: row.sourceToolCode,
-        objectKey: row.objectKey,
-        relativePath: row.relativePath,
-        displayName: row.displayName,
-        mimeType: row.mimeType,
-        sizeBytes: Number(row.sizeBytes),
-        logicalSizeBytes: row.logicalSizeBytes === null ? null : Number(row.logicalSizeBytes),
-        createdAt: row.createdAt.toISOString(),
-        authorLabel: "sandbox"
-      }
-    };
-  }
-
-  private async collectWorkspaceFiles(workspaceRoot: string): Promise<WorkspaceFileSnapshot[]> {
-    const output: WorkspaceFileSnapshot[] = [];
-    const visit = async (currentDir: string): Promise<void> => {
-      const entries = await fs.readdir(currentDir, { withFileTypes: true });
-      for (const entry of entries) {
-        const absolutePath = join(currentDir, entry.name);
-        if (entry.isDirectory()) {
-          await visit(absolutePath);
-          continue;
-        }
-        const buffer = await fs.readFile(absolutePath);
-        const relativePath = absolutePath.slice(workspaceRoot.length + 1).replace(/\\/g, "/");
-        output.push({
-          relativePath,
-          absolutePath,
-          buffer,
-          mimeType: this.inferMimeType(relativePath),
-          sizeBytes: buffer.length,
-          logicalSizeBytes: buffer.length,
-          sha256: createHash("sha256").update(buffer).digest("hex")
-        });
-      }
-    };
-    await visit(workspaceRoot);
-    return output.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
-  }
-
-  private async pruneEmptyWorkspaceDirectories(
-    workspaceRoot: string,
-    deletedPaths: string[]
-  ): Promise<void> {
-    const normalizedRoot = resolve(workspaceRoot);
-    const candidateDirs = new Set<string>();
-    for (const deletedPath of deletedPaths) {
-      const absolutePath = this.resolveWorkspacePath(workspaceRoot, deletedPath);
-      let currentDir = dirname(absolutePath);
-      while (
-        currentDir.startsWith(normalizedRoot) &&
-        currentDir !== normalizedRoot &&
-        currentDir.length >= normalizedRoot.length
-      ) {
-        candidateDirs.add(currentDir);
-        currentDir = dirname(currentDir);
-      }
-    }
-    const orderedCandidates = [...candidateDirs].sort((left, right) => right.length - left.length);
-    for (const candidateDir of orderedCandidates) {
-      try {
-        const entries = await fs.readdir(candidateDir);
-        if (entries.length > 0) {
-          continue;
-        }
-        await fs.rmdir(candidateDir);
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          "code" in error &&
-          ((error as NodeJS.ErrnoException).code === "ENOENT" ||
-            (error as NodeJS.ErrnoException).code === "ENOTEMPTY")
-        ) {
-          continue;
-        }
-        throw error;
-      }
-    }
-  }
-
-  private selectProducedWorkspaceFiles(
-    files: WorkspaceFileSnapshot[],
-    mountedFiles: MountedWorkspaceState
-  ): WorkspaceFileSnapshot[] {
-    if (mountedFiles.byPath.size === 0) {
-      return files;
-    }
-    return files.filter((file) => {
-      const mounted = mountedFiles.byPath.get(file.relativePath);
-      if (!mounted) {
-        return true;
-      }
-      return file.sha256 !== mounted.sha256 || file.sizeBytes !== mounted.sizeBytes;
     });
   }
 
@@ -2408,71 +2392,6 @@ export class SandboxService {
         `Sandbox job increased workspace bytes by ${String(addedBytes)}, above the per-job limit of ${String(policy.maxWorkspaceBytesPerJob)} bytes.`
       );
     }
-  }
-
-  private assertProducedFileLimits(
-    files: WorkspaceFileSnapshot[],
-    policy: RuntimeSandboxPolicy
-  ): void {
-    for (const file of files) {
-      if (file.sizeBytes > policy.maxSingleFileWriteBytes) {
-        this.throwPolicy(
-          "single_file_write_limit_exceeded",
-          `Sandbox job would persist "${file.relativePath}" at ${String(file.sizeBytes)} bytes, above the single-file limit of ${String(policy.maxSingleFileWriteBytes)} bytes.`
-        );
-      }
-    }
-    if (files.length > policy.maxPersistedArtifactsPerJob) {
-      this.throwPolicy(
-        "artifact_count_limit_exceeded",
-        `Sandbox job would persist ${String(files.length)} changed file(s), above the per-job limit of ${String(policy.maxPersistedArtifactsPerJob)}. Changed paths: ${this.describeWorkspacePaths(files.map((file) => file.relativePath))}.`
-      );
-    }
-  }
-
-  private describeWorkspacePaths(paths: string[], maxEntries = 8): string {
-    if (paths.length === 0) {
-      return "(none)";
-    }
-    const visible = [...new Set(paths)].sort((left, right) => left.localeCompare(right));
-    const shown = visible.slice(0, maxEntries);
-    const remainder = visible.length - shown.length;
-    return remainder > 0 ? `${shown.join(", ")} (+${String(remainder)} more)` : shown.join(", ");
-  }
-
-  private readSandboxFilesAction(args: Record<string, unknown>): SandboxFilesAction {
-    if (
-      args.action === "read" ||
-      args.action === "write" ||
-      args.action === "edit" ||
-      args.action === "delete"
-    ) {
-      return args.action;
-    }
-    throw this.createPolicyError(
-      "invalid_arguments",
-      "files action must be one of read, write, edit, or delete."
-    );
-  }
-
-  private resolveFilesReadablePath(
-    args: Record<string, unknown>,
-    mountedFiles: MountedWorkspaceState
-  ): string {
-    if (typeof args.path === "string" && args.path.trim().length > 0) {
-      return this.requireRelativePath(args.path, "path");
-    }
-    if (typeof args.fileRef === "string" && args.fileRef.trim().length > 0) {
-      const mounted = mountedFiles.byRef.get(args.fileRef.trim());
-      if (mounted !== undefined) {
-        return mounted.relativePath;
-      }
-      throw this.createPolicyError(
-        "file_ref_not_found",
-        "The requested fileRef could not be mounted."
-      );
-    }
-    throw this.createPolicyError("path_required", "path is required.");
   }
 
   private resolveWorkspacePath(workspaceRoot: string, relativePath: string): string {

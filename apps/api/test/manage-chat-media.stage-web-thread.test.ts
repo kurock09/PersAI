@@ -50,22 +50,50 @@ const assistant: Assistant = {
   updatedAt: new Date("2026-04-06T00:00:00.000Z")
 };
 
-let lastEnsureAttachmentFileInput: Record<string, unknown> | null = null;
-const fakeAssistantFileRegistry = {
-  async ensureAttachmentFile(input: Record<string, unknown>) {
-    lastEnsureAttachmentFileInput = input;
-    return { fileRef: `file-${String(input.sourceAttachmentId)}` };
+let lastRegisterChatAttachmentInput: Record<string, unknown> | null = null;
+const fakeRegisterChatAttachmentService = {
+  async execute(input: Record<string, unknown>) {
+    lastRegisterChatAttachmentInput = input;
+    return { attachmentId: `att-${String(input.messageId ?? "unknown")}` };
+  }
+};
+const fakeWorkspaceFileMetadataService = {
+  async get() {
+    return null;
   },
-  async ensureMediaDerivativeTracking() {
+  async upsert() {
     return undefined;
   }
 };
 
-const noopUploadMicroDescriptionJobService = {
-  async enqueueIfNeeded() {
-    return { accepted: false, reason: "noop" };
-  }
-} as never;
+function buildAttachmentFromRegisterInput(
+  attachmentId: string,
+  overrides: Record<string, unknown> = {}
+) {
+  const input = lastRegisterChatAttachmentInput ?? {};
+  return {
+    id: attachmentId,
+    messageId: input.messageId ?? "msg-direct-1",
+    chatId: input.chatId ?? "chat-1",
+    assistantId: input.assistantId ?? assistant.id,
+    workspaceId: input.workspaceId ?? assistant.workspaceId,
+    attachmentType: input.attachmentType ?? "document",
+    storagePath: input.storagePath ?? "/shared/in/note.txt",
+    originalFilename: input.originalFilename ?? "note.txt",
+    mimeType: input.mimeType ?? "text/plain",
+    sizeBytes: BigInt(Number(input.sizeBytes ?? 0)),
+    durationMs: input.durationMs ?? null,
+    width: input.width ?? null,
+    height: input.height ?? null,
+    processingStatus: "ready",
+    transcription: input.transcription ?? null,
+    metadata: input.metadata ?? null,
+    clientTurnId: null,
+    clientAttachmentId: null,
+    createdAt: new Date("2026-04-06T00:00:00.000Z"),
+    ...overrides
+  };
+}
 
 async function run(): Promise<void> {
   process.env.APP_ENV = "local";
@@ -77,7 +105,8 @@ async function run(): Promise<void> {
   process.env.QUOTA_TOKEN_BUDGET_DEFAULT = "100";
   process.env.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT = "3";
 
-  let directUploadCreateInput: Record<string, unknown> | null = null;
+  let videoUploadCreateInput: Record<string, unknown> | null = null;
+  lastRegisterChatAttachmentInput = null;
   const directUploadService = new ManageChatMediaService(
     {
       async execute({ userId }: { userId: string }) {
@@ -116,27 +145,8 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async create(input: Record<string, unknown>) {
-        directUploadCreateInput = input;
-        return {
-          id: "att-direct-1",
-          messageId: "msg-direct-1",
-          chatId: "chat-1",
-          assistantId: assistant.id,
-          workspaceId: assistant.workspaceId,
-          attachmentType: "document",
-          storagePath: input.storagePath,
-          originalFilename: input.originalFilename,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes,
-          durationMs: input.durationMs,
-          width: input.width,
-          height: input.height,
-          processingStatus: "ready",
-          transcription: input.transcription,
-          metadata: input.metadata,
-          createdAt: new Date("2026-04-06T00:00:00.000Z")
-        };
+      async findById(id: string) {
+        return buildAttachmentFromRegisterInput(id);
       }
     } as never,
     {
@@ -166,8 +176,8 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-direct-1/note.txt";
+      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
         return {
@@ -206,8 +216,8 @@ async function run(): Promise<void> {
         };
       }
     } as never,
-    fakeAssistantFileRegistry as never,
-    noopUploadMicroDescriptionJobService,
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -224,17 +234,16 @@ async function run(): Promise<void> {
     }
   });
 
-  assert.equal((directUploadCreateInput?.mimeType as string) ?? null, "text/plain");
-  assert.equal(directUpload.assistantFileId, "file-att-direct-1");
-  assert.deepEqual(directUploadCreateInput?.metadata, {
+  assert.equal(directUpload.mimeType, "text/plain");
+  assert.equal(directUpload.storagePath, lastRegisterChatAttachmentInput?.storagePath);
+  assert.deepEqual(lastRegisterChatAttachmentInput?.metadata, {
     source: "chat_upload",
     contentPreview: "line one line two",
     semanticSummary: "line one line two",
     semanticSummarySource: "text_extract"
   });
-  assert.deepEqual(lastEnsureAttachmentFileInput?.semanticSummary, "line one line two");
-  assert.equal(lastEnsureAttachmentFileInput?.semanticSummarySource, "text_extract");
-  assert.deepEqual(directUploadCreateInput?.billingFacts, {
+  assert.deepEqual(lastRegisterChatAttachmentInput?.shortDescription, "line one line two");
+  assert.deepEqual(lastRegisterChatAttachmentInput?.billingFacts, {
     providerKey: "openai",
     modelKey: "gpt-4o-mini-transcribe",
     capability: "speech_to_text",
@@ -246,7 +255,6 @@ async function run(): Promise<void> {
     }
   });
 
-  let videoUploadCreateInput: Record<string, unknown> | null = null;
   const videoUploadService = new ManageChatMediaService(
     {
       async execute({ userId }: { userId: string }) {
@@ -285,27 +293,12 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async create(input: Record<string, unknown>) {
-        videoUploadCreateInput = input;
-        return {
-          id: "att-video-1",
+      async findById(id: string) {
+        videoUploadCreateInput = lastRegisterChatAttachmentInput;
+        return buildAttachmentFromRegisterInput(id, {
           messageId: "msg-video-1",
-          chatId: "chat-1",
-          assistantId: assistant.id,
-          workspaceId: assistant.workspaceId,
-          attachmentType: "video",
-          storagePath: input.storagePath,
-          originalFilename: input.originalFilename,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes,
-          durationMs: input.durationMs,
-          width: input.width,
-          height: input.height,
-          processingStatus: "ready",
-          transcription: input.transcription,
-          metadata: input.metadata,
-          createdAt: new Date("2026-04-06T00:00:00.000Z")
-        };
+          attachmentType: "video"
+        });
       }
     } as never,
     {
@@ -335,8 +328,8 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-video-1/clip.mp4";
+      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
         return {
@@ -375,8 +368,8 @@ async function run(): Promise<void> {
         };
       }
     } as never,
-    fakeAssistantFileRegistry as never,
-    noopUploadMicroDescriptionJobService,
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -410,8 +403,7 @@ async function run(): Promise<void> {
     semanticSummary: "hello from video",
     semanticSummarySource: "transcription"
   });
-  assert.deepEqual(lastEnsureAttachmentFileInput?.semanticSummary, "hello from video");
-  assert.equal(lastEnsureAttachmentFileInput?.semanticSummarySource, "transcription");
+  assert.deepEqual(lastRegisterChatAttachmentInput?.shortDescription, "hello from video");
 
   const metrics = new PlatformHttpMetricsService();
   const deletedStagingMessageIds: string[] = [];
@@ -462,33 +454,13 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async create(input: {
-        storagePath: string;
-        mimeType: string;
-        sizeBytes: bigint;
-        originalFilename: string | null;
-        transcription: string | null;
-        metadata: Record<string, unknown> | null;
-      }) {
-        return {
-          id: "att-1",
+      async findById(id: string) {
+        return buildAttachmentFromRegisterInput(id, {
           messageId: "msg-1",
-          chatId: "chat-1",
-          assistantId: assistant.id,
-          workspaceId: assistant.workspaceId,
           attachmentType: "image",
-          storagePath: input.storagePath,
-          originalFilename: input.originalFilename,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes,
-          durationMs: null,
           width: 100,
-          height: 100,
-          processingStatus: "ready",
-          transcription: input.transcription,
-          metadata: input.metadata,
-          createdAt: new Date("2026-04-06T00:00:00.000Z")
-        };
+          height: 100
+        });
       }
     } as never,
     {
@@ -508,8 +480,8 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png";
+      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
         return {
@@ -572,8 +544,8 @@ async function run(): Promise<void> {
         };
       }
     } as never,
-    fakeAssistantFileRegistry as never,
-    noopUploadMicroDescriptionJobService,
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     metrics,
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -591,7 +563,7 @@ async function run(): Promise<void> {
 
   assert.equal(staged.chatId, "chat-1");
   assert.equal(staged.messageId, "msg-1");
-  assert.equal(staged.attachment.assistantFileId, "file-att-1");
+  assert.equal(staged.attachment.storagePath, lastRegisterChatAttachmentInput?.storagePath);
   assert.deepEqual(deletedStagingMessageIds, []);
   assert.deepEqual(deletedStoragePaths, []);
   assert.deepEqual(releasedBytes, []);
@@ -605,7 +577,6 @@ async function run(): Promise<void> {
     );
   assert.equal(successSeries?.count, 1);
 
-  const stageEnqueueCalls: Array<Record<string, unknown>> = [];
   const existingProjectStageService = new ManageChatMediaService(
     {
       async execute() {
@@ -647,26 +618,12 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async create(input: Record<string, unknown>) {
-        return {
-          id: "att-project-1",
+      async findById(id: string) {
+        return buildAttachmentFromRegisterInput(id, {
           messageId: "msg-project-1",
           chatId: "chat-project-1",
-          assistantId: assistant.id,
-          workspaceId: assistant.workspaceId,
-          attachmentType: "document",
-          storagePath: input.storagePath,
-          originalFilename: input.originalFilename,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes,
-          durationMs: input.durationMs,
-          width: input.width,
-          height: input.height,
-          processingStatus: "ready",
-          transcription: input.transcription,
-          metadata: input.metadata,
-          createdAt: new Date("2026-04-06T00:00:00.000Z")
-        };
+          attachmentType: "document"
+        });
       }
     } as never,
     {
@@ -686,8 +643,8 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-project-1/messages/msg-project-1/spec.txt";
+      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
         return {
@@ -726,13 +683,8 @@ async function run(): Promise<void> {
         };
       }
     } as never,
-    fakeAssistantFileRegistry as never,
-    {
-      async enqueueIfNeeded(input: Record<string, unknown>) {
-        stageEnqueueCalls.push(input);
-        return { accepted: true, reason: "queued" };
-      }
-    } as never,
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -747,16 +699,7 @@ async function run(): Promise<void> {
       originalname: "spec.txt"
     }
   });
-  assert.equal(stagedProject.attachment.assistantFileId, "file-att-project-1");
-  assert.deepEqual(stageEnqueueCalls, [
-    {
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      chatMode: "project",
-      attachmentId: "att-project-1",
-      assistantFileId: "file-att-project-1"
-    }
-  ]);
+  assert.equal(stagedProject.attachment.storagePath, lastRegisterChatAttachmentInput?.storagePath);
 
   const failureMetrics = new PlatformHttpMetricsService();
   const cappedDeletes: string[] = [];
@@ -825,8 +768,8 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png";
+      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject() {
         return {
@@ -889,8 +832,8 @@ async function run(): Promise<void> {
         };
       }
     } as never,
-    fakeAssistantFileRegistry as never,
-    noopUploadMicroDescriptionJobService,
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     failureMetrics,
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -993,8 +936,8 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildChatMessageObjectKey() {
-        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png";
+      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject() {
         throw new Error("storage.objects.create denied");
@@ -1035,8 +978,8 @@ async function run(): Promise<void> {
         };
       }
     } as never,
-    fakeAssistantFileRegistry as never,
-    noopUploadMicroDescriptionJobService,
+    fakeRegisterChatAttachmentService as never,
+    fakeWorkspaceFileMetadataService as never,
     storageFailureMetrics,
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -1094,8 +1037,8 @@ async function run(): Promise<void> {
             return 20;
           }
         } as never,
-        fakeAssistantFileRegistry as never,
-        noopUploadMicroDescriptionJobService,
+        fakeRegisterChatAttachmentService as never,
+        fakeWorkspaceFileMetadataService as never,
         new PlatformHttpMetricsService(),
         noopRecordModelCostLedgerService,
         noopPrisma
@@ -1147,8 +1090,8 @@ async function run(): Promise<void> {
         {} as never,
         {} as never,
         {} as never,
-        fakeAssistantFileRegistry as never,
-        noopUploadMicroDescriptionJobService,
+        fakeRegisterChatAttachmentService as never,
+        fakeWorkspaceFileMetadataService as never,
         new PlatformHttpMetricsService(),
         noopRecordModelCostLedgerService,
         noopPrisma

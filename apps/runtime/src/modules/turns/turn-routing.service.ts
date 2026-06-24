@@ -958,7 +958,9 @@ export class TurnRoutingService {
       return "none";
     }
     return request.message.attachments
-      .map((attachment) => `${attachment.kind}:${attachment.filename ?? attachment.attachmentId}`)
+      .map(
+        (attachment) => `${attachment.kind}:${attachment.displayName ?? attachment.attachmentId}`
+      )
       .join(", ");
   }
 

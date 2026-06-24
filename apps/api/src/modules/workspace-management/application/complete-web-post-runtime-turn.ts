@@ -12,7 +12,7 @@ import type {
   RuntimeMediaArtifact
 } from "./assistant-runtime.facade";
 import type { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
-import type { AssistantMediaJobService } from "./assistant-media-job.service";
+import type { AssistantMediaJobService } from "./workspace-media-job.service";
 import type { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
 import type { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import {
@@ -23,10 +23,7 @@ import type { MediaDeliveryService } from "./media/media-delivery.service";
 import type { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import type { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
-import {
-  getAttachmentDerivativeRefs,
-  toAssistantWebChatMessageAttachmentState
-} from "./media/media.types";
+import { toAssistantWebChatMessageAttachmentState } from "./media/media.types";
 import type { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AssistantWebChatMessageState } from "./web-chat.types";
 import type { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
@@ -48,10 +45,9 @@ function toAttachmentState(attachment: PersistedAttachment) {
     !Array.isArray(attachment.metadata)
       ? (attachment.metadata as Record<string, unknown>)
       : null;
-  const derivativeRefs = getAttachmentDerivativeRefs(metadata);
   return toAssistantWebChatMessageAttachmentState({
     id: attachment.id,
-    assistantFileId: attachment.assistantFileId,
+    storagePath: attachment.storagePath,
     attachmentType: attachment.attachmentType,
     originalFilename: attachment.originalFilename,
     mimeType: attachment.mimeType,
@@ -59,10 +55,7 @@ function toAttachmentState(attachment: PersistedAttachment) {
     processingStatus: attachment.processingStatus,
     metadata,
     createdAt: attachment.createdAt,
-    documentLink: readPersistedDocumentLinkMetadata(metadata),
-    thumbnailFileRef: derivativeRefs.thumbnailFileRef,
-    posterFileRef: derivativeRefs.posterFileRef,
-    derivativesStatus: derivativeRefs.derivativesStatus
+    documentLink: readPersistedDocumentLinkMetadata(metadata)
   });
 }
 

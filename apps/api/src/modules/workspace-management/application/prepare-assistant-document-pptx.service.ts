@@ -21,7 +21,7 @@ export type PrepareAssistantDocumentPptxResult =
       status: "ready";
       docId: string;
       versionId: string;
-      fileRef: string;
+      path: string;
     }
   | {
       status: "already_running";
@@ -65,23 +65,26 @@ export class PrepareAssistantDocumentPptxService {
       };
     }
 
-    const readyPptx = await this.prisma.assistantDocumentDeliveredFile.findFirst({
+    const readyPptx = await this.prisma.assistantChatMessageAttachment.findFirst({
       where: {
-        docId: input.docId,
-        versionId: version.id,
-        outputMimeType: PPTX_MIME_TYPE
+        mimeType: PPTX_MIME_TYPE,
+        storagePath: { not: null },
+        metadata: {
+          path: ["documentLink", "docId"],
+          equals: input.docId
+        }
       },
-      orderBy: [{ deliveredAt: "desc" }, { id: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       select: {
-        assistantFileId: true
+        storagePath: true
       }
     });
-    if (readyPptx !== null) {
+    if (readyPptx?.storagePath !== null && readyPptx?.storagePath !== undefined) {
       return {
         status: "ready",
         docId: input.docId,
         versionId: version.id,
-        fileRef: readyPptx.assistantFileId
+        path: readyPptx.storagePath
       };
     }
 

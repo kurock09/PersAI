@@ -16,7 +16,7 @@ import {
 import {
   AssistantMediaJobService,
   type AssistantMediaJobRequestPayload
-} from "./assistant-media-job.service";
+} from "./workspace-media-job.service";
 import { QuotaGroundedLimitCopyService } from "./quota-grounded-limit-copy.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";

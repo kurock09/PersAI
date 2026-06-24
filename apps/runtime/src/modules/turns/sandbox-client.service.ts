@@ -58,6 +58,60 @@ export class SandboxClientService {
     return current;
   }
 
+  async writeSharedOutbound(input: {
+    assistantId: string;
+    workspaceId: string;
+    handle: string;
+    siblingHandles: readonly string[];
+    basename: string;
+    contentBase64: string;
+    mimeType: string;
+    collisionStrategy?: "overwrite" | "numeric_suffix";
+    workspaceQuotaBytes?: number | null;
+    sharedQuotaBytes?: number | null;
+  }): Promise<{ workspaceRelPath: string; sizeBytes: number }> {
+    const response = await this.fetchJson("/api/v1/jobs/shared-outbound-write", {
+      method: "POST",
+      headers: this.buildHeaders(),
+      body: JSON.stringify({
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        handle: input.handle,
+        siblingHandles: [...input.siblingHandles],
+        basename: input.basename,
+        contentBase64: input.contentBase64,
+        mimeType: input.mimeType,
+        collisionStrategy: input.collisionStrategy ?? "numeric_suffix",
+        ...(input.workspaceQuotaBytes !== undefined
+          ? { workspaceQuotaBytes: input.workspaceQuotaBytes }
+          : {}),
+        ...(input.sharedQuotaBytes !== undefined
+          ? { sharedQuotaBytes: input.sharedQuotaBytes }
+          : {})
+      })
+    });
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        `Sandbox shared-outbound-write failed with status ${String(response.status)}.`
+      );
+    }
+    if (
+      response.body === null ||
+      typeof response.body !== "object" ||
+      Array.isArray(response.body)
+    ) {
+      throw new BadGatewayException("Sandbox shared-outbound-write returned an invalid response.");
+    }
+    const payload = response.body as Record<string, unknown>;
+    if (typeof payload.workspaceRelPath !== "string" || typeof payload.sizeBytes !== "number") {
+      throw new BadGatewayException("Sandbox shared-outbound-write returned an invalid payload.");
+    }
+    return {
+      workspaceRelPath: payload.workspaceRelPath,
+      sizeBytes: payload.sizeBytes
+    };
+  }
+
   private resolveCompletionTimeoutMs(request: RuntimeSandboxJobRequest): number {
     const leaseWaitMs = Math.max(
       15_000,

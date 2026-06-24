@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import type {
   AssistantRuntimeBundle,
@@ -26,18 +25,17 @@ import {
   seriesItemHeaderLine
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
-import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import {
   ProviderGatewayClientService,
   ProviderGatewaySafetyRejectedError
 } from "./provider-gateway.client.service";
-import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
+import { SandboxClientService } from "./sandbox-client.service";
+import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
 import {
   buildImageSafetyRetryFailureWarning,
   rewritePromptAfterProviderSafetyReject
 } from "./image-provider-safety-rewrite";
 import { selectMediaModelForRequest } from "./media-model-routing";
-import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
 const IMAGE_GENERATE_TOOL_CODE = "image_generate" as const;
 const DEFAULT_IMAGE_GENERATE_TIMEOUT_MS = 300_000;
@@ -79,8 +77,7 @@ export class RuntimeImageGenerateToolService {
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService
+    private readonly sandboxClient: SandboxClientService
   ) {}
 
   async executeToolCall(params: {
@@ -474,8 +471,10 @@ export class RuntimeImageGenerateToolService {
             this.persistGeneratedArtifact({
               assistantId: params.bundle.metadata.assistantId,
               workspaceId: params.bundle.metadata.workspaceId,
-              sessionId: params.sessionId,
-              requestId: params.requestId,
+              handle: params.bundle.metadata.assistantHandle,
+              siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+              workspaceQuotaBytes: params.bundle.governance.quota?.workspaceQuotaBytes ?? null,
+              sharedQuotaBytes: params.bundle.governance.quota?.sharedQuotaBytes ?? null,
               filenameHint: request.filename,
               requestPrompt: providerResult.effectivePrompt,
               image,
@@ -533,8 +532,10 @@ export class RuntimeImageGenerateToolService {
               this.persistGeneratedArtifact({
                 assistantId: params.bundle.metadata.assistantId,
                 workspaceId: params.bundle.metadata.workspaceId,
-                sessionId: params.sessionId,
-                requestId: `${params.requestId}:series:${String(index + 1)}`,
+                handle: params.bundle.metadata.assistantHandle,
+                siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+                workspaceQuotaBytes: params.bundle.governance.quota?.workspaceQuotaBytes ?? null,
+                sharedQuotaBytes: params.bundle.governance.quota?.sharedQuotaBytes ?? null,
                 filenameHint: request.filename,
                 requestPrompt: itemPrompt,
                 image,
@@ -759,8 +760,10 @@ export class RuntimeImageGenerateToolService {
   private async persistGeneratedArtifact(input: {
     assistantId: string;
     workspaceId: string;
-    sessionId: string;
-    requestId: string;
+    handle: string;
+    siblingHandles: readonly string[];
+    workspaceQuotaBytes: number | null;
+    sharedQuotaBytes: number | null;
     filenameHint: string | null;
     requestPrompt: string;
     image: {
@@ -778,53 +781,26 @@ export class RuntimeImageGenerateToolService {
     if (buffer.length === 0) {
       throw new Error("Image provider returned an empty image payload.");
     }
-    const artifactId = randomUUID();
     const extension = this.extensionFromMimeType(input.image.mimeType);
-    const objectKey = this.mediaObjectStorage.buildRuntimeOutputObjectKey({
-      assistantId: input.assistantId,
-      sessionId: input.sessionId,
-      requestId: input.requestId,
-      artifactId,
-      extension
-    });
-    const stored = await this.mediaObjectStorage.saveObject({
-      objectKey,
-      buffer,
-      mimeType: input.image.mimeType
-    });
     const filename = this.resolveFilename(input.filenameHint, input.index, extension);
-    const semanticSummary = buildGeneratedFileSemanticSummary({
-      preferredText: input.image.revisedPrompt,
-      requestText: input.requestPrompt,
-      allowWeakRequestFallback: true
-    });
-    const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
+    const slugSourceText =
+      input.image.revisedPrompt?.trim() || input.requestPrompt.trim() || filename || "image";
+    return writeRuntimeOutboundArtifact({
+      sandboxClient: this.sandboxClient,
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      origin: "runtime_output",
-      referenceId: artifactId,
-      objectKey: stored.objectKey,
-      filename,
-      mimeType: stored.mimeType,
-      sizeBytes: stored.sizeBytes,
-      semanticSummary,
-      semanticSummarySource: semanticSummary === null ? null : "generation_request"
-    });
-    const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(file);
-
-    return {
-      artifactId,
-      fileRef: runtimeFileRef.fileRef,
-      file: runtimeFileRef,
+      handle: input.handle,
+      siblingHandles: input.siblingHandles,
+      workspaceQuotaBytes: input.workspaceQuotaBytes,
+      sharedQuotaBytes: input.sharedQuotaBytes,
+      buffer,
+      mimeType: input.image.mimeType,
+      slugSourceText,
+      filenameHint: filename,
       kind: "image",
-      sourceToolCode: IMAGE_GENERATE_TOOL_CODE,
-      objectKey: stored.objectKey,
-      mimeType: stored.mimeType,
-      filename,
-      sizeBytes: stored.sizeBytes,
-      voiceNote: false,
-      billingFacts: input.billingFacts ?? null
-    };
+      sourceToolCode: "image_generate",
+      billingFacts: input.billingFacts
+    });
   }
 
   private resolveAllowedWorkerToolPolicy(

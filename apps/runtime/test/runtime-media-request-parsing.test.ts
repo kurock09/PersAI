@@ -4,15 +4,14 @@ import { InternalRuntimeMediaJobsController } from "../src/modules/turns/interfa
 import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
+import {
+  createFakeMediaObjectStorageForRead,
+  createFakeSandboxClientForOutboundWrite
+} from "./helpers/runtime-outbound-test-doubles";
 
 describe("runtime media request parsing", () => {
   test("image_generate accepts persisted toolCode inside worker request", () => {
-    const service = new RuntimeImageGenerateToolService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never
-    );
+    const service = new RuntimeImageGenerateToolService({} as never, {} as never, {} as never);
     const parsed = (
       service as unknown as {
         readImageGenerateArguments(args: Record<string, unknown>): unknown;
@@ -29,12 +28,7 @@ describe("runtime media request parsing", () => {
   });
 
   test("image_generate accepts explicit series mode with one item per output", () => {
-    const service = new RuntimeImageGenerateToolService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never
-    );
+    const service = new RuntimeImageGenerateToolService({} as never, {} as never, {} as never);
     const parsed = (
       service as unknown as {
         readImageGenerateArguments(args: Record<string, unknown>): unknown;
@@ -57,12 +51,7 @@ describe("runtime media request parsing", () => {
   });
 
   test("image_generate synthesizes an overall prompt for series mode without a top-level prompt", () => {
-    const service = new RuntimeImageGenerateToolService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never
-    );
+    const service = new RuntimeImageGenerateToolService({} as never, {} as never, {} as never);
     const parsed = (
       service as unknown as {
         readImageGenerateArguments(args: Record<string, unknown>): unknown;
@@ -82,12 +71,7 @@ describe("runtime media request parsing", () => {
   });
 
   test("image_generate still rejects a missing prompt outside series mode", () => {
-    const service = new RuntimeImageGenerateToolService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never
-    );
+    const service = new RuntimeImageGenerateToolService({} as never, {} as never, {} as never);
     const parsed = (
       service as unknown as {
         readImageGenerateArguments(args: Record<string, unknown>): unknown;
@@ -104,8 +88,8 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      {} as never,
-      {} as never
+      createFakeMediaObjectStorageForRead() as never,
+      createFakeSandboxClientForOutboundWrite() as never
     );
     const parsed = (
       service as unknown as {
@@ -128,8 +112,8 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      {} as never,
-      {} as never
+      createFakeMediaObjectStorageForRead() as never,
+      createFakeSandboxClientForOutboundWrite() as never
     );
     const parsed = (
       service as unknown as {
@@ -150,8 +134,8 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      {} as never,
-      {} as never
+      createFakeMediaObjectStorageForRead() as never,
+      createFakeSandboxClientForOutboundWrite() as never
     );
     const parsed = (
       service as unknown as {
@@ -178,8 +162,8 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      {} as never,
-      {} as never
+      createFakeMediaObjectStorageForRead() as never,
+      createFakeSandboxClientForOutboundWrite() as never
     );
     const parsed = (
       service as unknown as {
@@ -198,8 +182,8 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      {} as never,
-      {} as never
+      createFakeMediaObjectStorageForRead() as never,
+      createFakeSandboxClientForOutboundWrite() as never
     );
     const parsed = (
       service as unknown as {
@@ -230,8 +214,8 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      {} as never,
-      {} as never
+      createFakeMediaObjectStorageForRead() as never,
+      createFakeSandboxClientForOutboundWrite() as never
     );
     const parsed = (
       service as unknown as {
@@ -255,8 +239,8 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      {} as never,
-      {} as never
+      createFakeMediaObjectStorageForRead() as never,
+      createFakeSandboxClientForOutboundWrite() as never
     );
     const tooMany = Array.from({ length: 16 }, (_, index) => `image #${String(index + 2)}`);
     const parsed = (
@@ -284,8 +268,8 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      {} as never,
-      {} as never
+      createFakeMediaObjectStorageForRead() as never,
+      createFakeSandboxClientForOutboundWrite() as never
     );
     const readImageEditArguments = (
       service as unknown as {
@@ -365,7 +349,7 @@ describe("runtime media request parsing", () => {
     const parsed = (
       controller as unknown as {
         parseInput(body: Record<string, unknown>): {
-          attachments: Array<{ aliases?: string[]; fileRef?: string }>;
+          attachments: Array<{ aliases?: string[]; storagePath?: string }>;
         };
       }
     ).parseInput({
@@ -386,11 +370,10 @@ describe("runtime media request parsing", () => {
         {
           attachmentId: "attachment-1",
           kind: "image",
-          objectKey: "assistant-media/path.png",
+          storagePath: "assistant-media/path.png",
           mimeType: "image/png",
-          filename: "input.png",
+          displayName: "input.png",
           sizeBytes: 123,
-          fileRef: "file-1",
           aliases: ["current attachment #1", "current image #1"]
         }
       ],
@@ -408,6 +391,6 @@ describe("runtime media request parsing", () => {
     });
 
     assert.deepEqual(parsed.attachments[0]?.aliases, ["current attachment #1", "current image #1"]);
-    assert.equal(parsed.attachments[0]?.fileRef, "file-1");
+    assert.equal(parsed.attachments[0]?.storagePath, "assistant-media/path.png");
   });
 });

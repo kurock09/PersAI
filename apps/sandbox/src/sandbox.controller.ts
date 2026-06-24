@@ -61,6 +61,60 @@ export class SandboxController {
     return this.sandboxService.submitJob(body);
   }
 
+  @Post("/api/v1/jobs/shared-outbound-write")
+  async writeSharedOutbound(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() body: unknown
+  ) {
+    this.assertAuthorized(authorization);
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      throw new ServiceUnavailableException("Request body must be an object.");
+    }
+    const row = body as Record<string, unknown>;
+    const assistantId = this.requireNonEmptyString(row.assistantId, "assistantId");
+    const workspaceId = this.requireNonEmptyString(row.workspaceId, "workspaceId");
+    const basename = this.requireNonEmptyString(row.basename, "basename");
+    const contentBase64 = this.requireNonEmptyString(row.contentBase64, "contentBase64");
+    const mimeType =
+      typeof row.mimeType === "string" && row.mimeType.trim().length > 0
+        ? row.mimeType.trim()
+        : "application/octet-stream";
+    const collisionStrategy =
+      row.collisionStrategy === "overwrite" ? "overwrite" : "numeric_suffix";
+    const assistantHandle =
+      typeof row.handle === "string" && row.handle.trim().length > 0 ? row.handle.trim() : null;
+    const siblingHandles = Array.isArray(row.siblingHandles)
+      ? row.siblingHandles.filter(
+          (value): value is string => typeof value === "string" && value.trim().length > 0
+        )
+      : null;
+    const contents = Buffer.from(contentBase64, "base64");
+    const workspaceQuotaBytes = this.parseOptionalNullableNumber(row.workspaceQuotaBytes);
+    const sharedQuotaBytes = this.parseOptionalNullableNumber(row.sharedQuotaBytes);
+    const result = await this.sandboxService.writeSharedOutbound({
+      assistantId,
+      workspaceId,
+      assistantHandle,
+      siblingHandles,
+      basename,
+      contents,
+      mimeType,
+      collisionStrategy,
+      workspaceQuotaBytes,
+      sharedQuotaBytes
+    });
+    if (!result.ok) {
+      throw new ServiceUnavailableException({
+        reason: result.reason,
+        message: result.message
+      });
+    }
+    return {
+      workspaceRelPath: result.workspaceRelPath,
+      sizeBytes: result.sizeBytes
+    };
+  }
+
   @Get("/api/v1/jobs/:jobId")
   async getJob(
     @Headers("authorization") authorization: string | undefined,
@@ -91,5 +145,22 @@ export class SandboxController {
       return 0;
     }
     return parsed;
+  }
+
+  private requireNonEmptyString(value: unknown, field: string): string {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new ServiceUnavailableException(`Field "${field}" must be a non-empty string.`);
+    }
+    return value.trim();
+  }
+
+  private parseOptionalNullableNumber(value: unknown): number | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return null;
+    }
+    return value;
   }
 }

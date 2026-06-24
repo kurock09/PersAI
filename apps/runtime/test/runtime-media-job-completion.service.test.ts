@@ -21,7 +21,7 @@ function createCompletionService(overrides?: {
     text: string;
     usage: null;
   }>;
-  downloadObject?: (objectKey: string) => Promise<Buffer | null>;
+  downloadObject?: (storagePath: string) => Promise<Buffer | null>;
 }) {
   let acceptedRequest: RuntimeTurnRequest | null = null;
   let providerRequest: ProviderGatewayTextGenerateRequest | null = null;
@@ -181,8 +181,7 @@ describe("RuntimeMediaJobCompletionService", () => {
           {
             type: "image",
             filename: "skyline.png",
-            fileRef: "file-ref-1",
-            objectKey: null
+            storagePath: null
           }
         ]
       }
@@ -430,7 +429,7 @@ describe("RuntimeMediaJobCompletionService", () => {
         currentHistory: [],
         workerResult: {
           assistantText: "ready",
-          artifacts: [{ type: "image", filename: null, fileRef: null, objectKey: null }]
+          artifacts: [{ type: "image", filename: null, storagePath: null }]
         },
         failure: {
           code: null,
@@ -440,15 +439,15 @@ describe("RuntimeMediaJobCompletionService", () => {
           retryable: false,
           stage: "execution"
         }
-      } as RuntimeMediaJobCompletionRequest),
+      } as unknown as RuntimeMediaJobCompletionRequest),
       /cannot carry both workerResult and failure/
     );
   });
 
   test("attaches vision image blocks when plan enables mediaCompletionVisionEnabled", async () => {
     const ctx = createCompletionService({
-      downloadObject: async (objectKey: string) => {
-        return objectKey === "runtime-output/out.png" ? Buffer.from("png-bytes") : null;
+      downloadObject: async (storagePath: string) => {
+        return storagePath === "runtime-output/out.png" ? Buffer.from("png-bytes") : null;
       }
     });
 
@@ -506,8 +505,7 @@ describe("RuntimeMediaJobCompletionService", () => {
           {
             type: "image",
             filename: "out.png",
-            fileRef: "file-out-1",
-            objectKey: "runtime-output/out.png",
+            storagePath: "runtime-output/out.png",
             mimeType: "image/png",
             role: "output"
           }

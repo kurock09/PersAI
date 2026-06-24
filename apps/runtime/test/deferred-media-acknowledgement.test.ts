@@ -23,7 +23,7 @@ describe("deferred media acknowledgement", () => {
     const service = createBareTurnExecutionService() as unknown as {
       buildToolLoopDeveloperInstructions: (
         existing: unknown[],
-        availableWorkingFileRefs: unknown[],
+        availableWorkingFileHandles: unknown[],
         closedOpenLoopRefs: string[],
         hasToolHistory: boolean,
         toolHistory: unknown[],
@@ -72,7 +72,7 @@ describe("deferred media acknowledgement", () => {
     const service = createBareTurnExecutionService() as unknown as {
       buildToolLoopDeveloperInstructions: (
         existing: unknown[],
-        availableWorkingFileRefs: unknown[],
+        availableWorkingFileHandles: unknown[],
         closedOpenLoopRefs: string[],
         hasToolHistory: boolean,
         toolHistory: unknown[],

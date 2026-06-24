@@ -100,6 +100,8 @@ function createBundle(
   return compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
+      assistantHandle: "a-test",
+      siblingAssistantHandles: [],
       workspaceId: "workspace-1",
       publishedVersionId: "version-1",
       publishedVersion: 1,
@@ -216,6 +218,7 @@ function createBundle(
       quota: {
         planCode: "starter_trial",
         workspaceQuotaBytes: 1024,
+        sharedQuotaBytes: 1024,
         quotaHook: null
       },
       auditHook: null
@@ -660,11 +663,10 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     {
       attachmentId: "attachment-1",
       kind: "file",
-      objectKey: "assistant-media/assistants/assistant-1/uploads/tax.pdf",
+      storagePath: "assistant-media/assistants/assistant-1/uploads/tax.pdf",
       mimeType: "application/pdf",
-      filename: "tax.pdf",
-      sizeBytes: 1024,
-      fileRef: "file-1"
+      displayName: "tax.pdf",
+      sizeBytes: 1024
     }
   ];
   const stickySkillWithFileDecision = await service.decide({
@@ -936,9 +938,9 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
     {
       attachmentId: "attachment-project-1",
       kind: "file",
-      objectKey: "assistant-media/assistants/assistant-1/uploads/spec.pdf",
+      storagePath: "assistant-media/assistants/assistant-1/uploads/spec.pdf",
       mimeType: "application/pdf",
-      filename: "spec.pdf",
+      displayName: "spec.pdf",
       sizeBytes: 4096
     }
   ];

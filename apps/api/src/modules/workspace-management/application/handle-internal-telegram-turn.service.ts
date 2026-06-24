@@ -31,7 +31,7 @@ import {
   type SendNativeTelegramTurnInput
 } from "./send-native-telegram-turn.service";
 import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
-import { AssistantMediaJobService } from "./assistant-media-job.service";
+import { AssistantMediaJobService } from "./workspace-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
@@ -39,7 +39,6 @@ import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
-import { AssistantUploadMicroDescriptionJobService } from "./assistant-upload-micro-description-job.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
 import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
 
@@ -109,9 +108,7 @@ export class HandleInternalTelegramTurnService {
     @Optional()
     private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService,
     @Optional()
-    private readonly backgroundCompactionQueueService?: BackgroundCompactionQueueService,
-    @Optional()
-    private readonly assistantUploadMicroDescriptionJobService?: AssistantUploadMicroDescriptionJobService
+    private readonly backgroundCompactionQueueService?: BackgroundCompactionQueueService
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
@@ -274,15 +271,10 @@ export class HandleInternalTelegramTurnService {
         enrichedMessage = resolvedInboundMedia.enrichedMessage;
         await this.attachmentObjectAvailabilityService.assertRuntimeReadable({
           assistantId: resolved.assistantId,
+          workspaceId: resolved.workspaceId,
           chatId: chat.id,
           messageId: userMessage.id,
           channel: "telegram",
-          attachments: resolvedInboundMedia.attachments
-        });
-        await this.enqueueTelegramUploadMicroDescriptions({
-          assistantId: resolved.assistantId,
-          workspaceId: resolved.workspaceId,
-          chatMode: "chatMode" in chat && typeof chat.chatMode === "string" ? chat.chatMode : null,
           attachments: resolvedInboundMedia.attachments
         });
         runtimeAttachments = resolvedInboundMedia.attachments.map((attachment) =>
@@ -402,7 +394,7 @@ export class HandleInternalTelegramTurnService {
           chatId: chat.id,
           assistantId: resolved.assistantId,
           content: assistantMessage,
-          discoveredFileRefIds: runtimeResponse.discoveredFileRefIds,
+          discoveredFilePaths: runtimeResponse.discoveredFilePaths,
           deferredMediaJobCount: runtimeResponse.deferredMediaJobs?.length,
           sourceUserMessageId: userMessage.id,
           toolInvocations:
@@ -533,36 +525,6 @@ export class HandleInternalTelegramTurnService {
       trace.finish({ status: "failed" });
       throw error;
     }
-  }
-
-  private async enqueueTelegramUploadMicroDescriptions(input: {
-    assistantId: string;
-    workspaceId: string;
-    chatMode: string | null;
-    attachments: Array<{ id: string; assistantFileId: string | null }>;
-  }): Promise<void> {
-    if (this.assistantUploadMicroDescriptionJobService === undefined) {
-      return;
-    }
-    await Promise.all(
-      input.attachments.map(async (attachment) => {
-        try {
-          await this.assistantUploadMicroDescriptionJobService?.enqueueIfNeeded({
-            assistantId: input.assistantId,
-            workspaceId: input.workspaceId,
-            chatMode: input.chatMode,
-            attachmentId: attachment.id,
-            assistantFileId: attachment.assistantFileId
-          });
-        } catch (error) {
-          this.logger.warn(
-            `Failed to enqueue Telegram upload micro-description for attachment ${attachment.id}: ${
-              error instanceof Error ? error.message : String(error)
-            }`
-          );
-        }
-      })
-    );
   }
 
   private async claimTelegramUpdateIfNeeded(

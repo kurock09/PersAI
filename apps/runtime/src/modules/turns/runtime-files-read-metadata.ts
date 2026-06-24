@@ -1,6 +1,13 @@
 import type { RuntimeFilesReadExtractionQuality } from "@persai/runtime-contract";
-import type { InternalRuntimeFileExtractionOutcome } from "./persai-internal-api.client.service";
 import { MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS } from "./sanitize-tool-result-for-model";
+
+type DocumentReadExtractionOutcome = {
+  extracted: true;
+  text: string;
+  note: string | null;
+  quality: unknown;
+  cached?: boolean;
+};
 
 export function normalizeRuntimeFilesReadExtractionQuality(
   quality: unknown
@@ -32,9 +39,7 @@ export function normalizeRuntimeFilesReadExtractionQuality(
   };
 }
 
-export function buildDocumentReadMetadata(
-  extraction: Extract<InternalRuntimeFileExtractionOutcome, { extracted: true }>
-): {
+export function buildDocumentReadMetadata(extraction: DocumentReadExtractionOutcome): {
   charCount: number;
   truncated: boolean;
   readNote: string | null;

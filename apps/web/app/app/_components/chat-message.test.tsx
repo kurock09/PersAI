@@ -111,21 +111,24 @@ vi.mock("../assistant-api-client", () => ({
       options?.versionId ? `?versionId=${options.versionId}` : ""
     }`,
   getAssistantAttachmentPreviewUrl: (input: {
-    fileRef: string | null;
-    thumbnailFileRef?: string | null;
-    posterFileRef?: string | null;
+    chatId: string;
+    path: string | null;
+    thumbnailStoragePath?: string | null;
+    posterStoragePath?: string | null;
     attachmentType?: string | null;
   }) => {
-    if (input.attachmentType === "image" && input.thumbnailFileRef) {
-      return `/api/assistant-file/${input.thumbnailFileRef}`;
+    if (input.attachmentType === "image" && input.thumbnailStoragePath) {
+      return `/api/v1/assistant/chats/web/${input.chatId}/files?path=${encodeURIComponent(input.thumbnailStoragePath)}`;
     }
-    if (input.attachmentType === "video" && input.posterFileRef) {
-      return `/api/assistant-file/${input.posterFileRef}`;
+    if (input.attachmentType === "video" && input.posterStoragePath) {
+      return `/api/v1/assistant/chats/web/${input.chatId}/files?path=${encodeURIComponent(input.posterStoragePath)}`;
     }
-    return input.fileRef ? `/api/assistant-file/${input.fileRef}` : null;
+    return input.path
+      ? `/api/v1/assistant/chats/web/${input.chatId}/files?path=${encodeURIComponent(input.path)}`
+      : null;
   },
-  getAssistantFileDownloadUrl: (fileRef: string, options?: { download?: boolean }) =>
-    `/api/assistant-file/${fileRef}${options?.download ? "?download=1" : ""}`
+  buildChatFileUrl: (input: { chatId: string; storagePath: string; download?: boolean }) =>
+    `/api/v1/assistant/chats/web/${input.chatId}/files?path=${encodeURIComponent(input.storagePath)}${input.download ? "&download=1" : ""}`
 }));
 
 // react-markdown is heavy and unrelated to the indicator under test —
@@ -202,7 +205,9 @@ function makeUserMessage(
 function makeImageAttachment(id: string): NonNullable<ChatMessage["attachments"]>[number] {
   return {
     id,
-    fileRef: null,
+    path: "/shared/input/photo.jpg",
+    thumbnailStoragePath: "/shared/input/photo.jpg.thumb.webp",
+    posterStoragePath: null,
     attachmentType: "image",
     originalFilename: "photo.jpg",
     mimeType: "image/jpeg",
@@ -215,7 +220,9 @@ function makeImageAttachment(id: string): NonNullable<ChatMessage["attachments"]
 function makeVideoAttachment(id: string): NonNullable<ChatMessage["attachments"]>[number] {
   return {
     id,
-    fileRef: "file-ref-video-1",
+    path: "/shared/input/clip.mp4",
+    thumbnailStoragePath: null,
+    posterStoragePath: "/shared/input/clip.mp4.poster.jpg",
     attachmentType: "video",
     originalFilename: "clip.mp4",
     mimeType: "video/mp4",
@@ -281,7 +288,7 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
   });
 
   it("does not render the spinner before the short delay elapses", () => {
-    render(<ChatMessageBubble message={makeUserMessage("sending")} />);
+    render(<ChatMessageBubble chatId="chat-1" message={makeUserMessage("sending")} />);
 
     expect(screen.queryByTestId(SENDING_INDICATOR_TESTID)).not.toBeInTheDocument();
 
@@ -293,7 +300,7 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
   });
 
   it("renders the spinner after the short sustained `sending` delay", () => {
-    render(<ChatMessageBubble message={makeUserMessage("sending")} />);
+    render(<ChatMessageBubble chatId="chat-1" message={makeUserMessage("sending")} />);
 
     act(() => {
       vi.advanceTimersByTime(250);
@@ -305,6 +312,7 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
   it("does not render the off-bubble spinner for attachment sends", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("sending", {
           attachments: [{ ...makeImageAttachment("att-pending"), processingStatus: "pending" }]
         })}
@@ -321,6 +329,7 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
   it("shows a compact upload percent inside pending attachment cards", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("sending", {
           attachments: [
             {
@@ -337,20 +346,24 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
   });
 
   it("removes the spinner when the bubble flips to `committed`", () => {
-    const { rerender } = render(<ChatMessageBubble message={makeUserMessage("sending")} />);
+    const { rerender } = render(
+      <ChatMessageBubble chatId="chat-1" message={makeUserMessage("sending")} />
+    );
 
     act(() => {
       vi.advanceTimersByTime(250);
     });
     expect(screen.getByTestId(SENDING_INDICATOR_TESTID)).toBeInTheDocument();
 
-    rerender(<ChatMessageBubble message={makeUserMessage("committed")} />);
+    rerender(<ChatMessageBubble chatId="chat-1" message={makeUserMessage("committed")} />);
 
     expect(screen.queryByTestId(SENDING_INDICATOR_TESTID)).not.toBeInTheDocument();
   });
 
   it("never shows the spinner when `send_failed` lands before the short delay", () => {
-    const { rerender } = render(<ChatMessageBubble message={makeUserMessage("sending")} />);
+    const { rerender } = render(
+      <ChatMessageBubble chatId="chat-1" message={makeUserMessage("sending")} />
+    );
 
     act(() => {
       vi.advanceTimersByTime(100);
@@ -359,6 +372,7 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
 
     rerender(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("send_failed")}
         onRetryPendingSend={vi.fn()}
         onCancelPendingSend={vi.fn()}
@@ -374,7 +388,9 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
   });
 
   it("removes the spinner and surfaces `Not delivered` when send_failed lands after the spinner is visible", () => {
-    const { rerender } = render(<ChatMessageBubble message={makeUserMessage("sending")} />);
+    const { rerender } = render(
+      <ChatMessageBubble chatId="chat-1" message={makeUserMessage("sending")} />
+    );
 
     act(() => {
       vi.advanceTimersByTime(250);
@@ -383,6 +399,7 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
 
     rerender(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("send_failed")}
         onRetryPendingSend={vi.fn()}
         onCancelPendingSend={vi.fn()}
@@ -398,6 +415,7 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
   it("does not render the literal '(attached files)' placeholder when the user sent only attachments", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
           attachments: [makeImageAttachment("att-1")]
@@ -411,6 +429,7 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
   it("does not render any user text node when content is empty after trim and attachments are present", () => {
     const { container } = render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: "   ",
           attachments: [makeImageAttachment("att-2")]
@@ -424,6 +443,7 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
   it("still renders the user's real text when both text and attachments are present", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: "Look at this please",
           attachments: [makeImageAttachment("att-3")]
@@ -437,6 +457,7 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
   it("renders user attachments before the caption text when both are present", () => {
     const { container } = render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: "Look at this please",
           attachments: [
@@ -462,6 +483,7 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
   it("keeps user image preview radii aligned with the media bubble shell", () => {
     const { container } = render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
           attachments: [
@@ -488,6 +510,7 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
   it("renders the placeholder text verbatim when there are no attachments (defensive — should never happen in production)", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT
         })}
@@ -505,11 +528,20 @@ describe("ChatMessageBubble — canonical file attachments", () => {
   it("passes same-message image attachments as a gallery to the lightbox", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
           attachments: [
-            { ...makeImageAttachment("att-image-1"), fileRef: "file-ref-image-1" },
-            { ...makeImageAttachment("att-image-2"), fileRef: "file-ref-image-2" }
+            {
+              ...makeImageAttachment("att-image-1"),
+              path: "/shared/input/photo-1.jpg",
+              thumbnailStoragePath: "/shared/input/photo-1.jpg.thumb.webp"
+            },
+            {
+              ...makeImageAttachment("att-image-2"),
+              path: "/shared/input/photo-2.jpg",
+              thumbnailStoragePath: "/shared/input/photo-2.jpg.thumb.webp"
+            }
           ]
         })}
       />
@@ -519,16 +551,23 @@ describe("ChatMessageBubble — canonical file attachments", () => {
     fireEvent.click(imageButtons[0]!);
 
     const lightbox = screen.getByTestId("mock-image-lightbox");
-    expect(lightbox).toHaveAttribute("data-src", "/api/assistant-file/file-ref-image-1");
+    expect(lightbox).toHaveAttribute(
+      "data-src",
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Finput%2Fphoto-1.jpg"
+    );
     expect(lightbox).toHaveAttribute("data-gallery-count", "2");
     expect(lightbox).toHaveAttribute("data-current-index", "0");
     expect(imageLightboxMock).toHaveBeenCalledWith(
       expect.objectContaining({
         open: true,
-        src: "/api/assistant-file/file-ref-image-1",
+        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Finput%2Fphoto-1.jpg",
         galleryItems: [
-          expect.objectContaining({ src: "/api/assistant-file/file-ref-image-1" }),
-          expect.objectContaining({ src: "/api/assistant-file/file-ref-image-2" })
+          expect.objectContaining({
+            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Finput%2Fphoto-1.jpg"
+          }),
+          expect.objectContaining({
+            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Finput%2Fphoto-2.jpg"
+          })
         ],
         currentIndex: 0,
         onNavigate: expect.any(Function)
@@ -536,17 +575,20 @@ describe("ChatMessageBubble — canonical file attachments", () => {
     );
   });
 
-  it("uses fileRef download URLs when an attachment is linked to a canonical File", () => {
+  it("uses path download URLs when an attachment is linked to workspace storage", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           attachments: [
             {
-              ...makeImageAttachment("att-file-ref"),
+              ...makeImageAttachment("att-file-path"),
               attachmentType: "document",
               originalFilename: "spec.pdf",
               mimeType: "application/pdf",
-              fileRef: "file-ref-1"
+              path: "/shared/input/spec.pdf",
+              thumbnailStoragePath: null,
+              posterStoragePath: null
             }
           ]
         })}
@@ -555,18 +597,21 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /spec\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/assistant-file/file-ref-1?download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Finput%2Fspec.pdf&download=1"
     );
   });
 
-  it("keeps history-loaded fileRef attachments downloadable after refresh", () => {
+  it("keeps history-loaded path attachments downloadable after refresh", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           attachments: [
             {
               id: "persisted-att-1",
-              fileRef: "persisted-file-ref-1",
+              path: "/shared/input/after-refresh.pdf",
+              thumbnailStoragePath: null,
+              posterStoragePath: null,
               attachmentType: "document",
               originalFilename: "after-refresh.pdf",
               mimeType: "application/pdf",
@@ -581,18 +626,21 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /after-refresh\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/assistant-file/persisted-file-ref-1?download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Finput%2Fafter-refresh.pdf&download=1"
     );
   });
 
   it("renders a quiet secondary PPTX action for PDF presentation attachments", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           attachments: [
             {
               id: "presentation-pdf-1",
-              fileRef: "presentation-file-ref-1",
+              path: "/shared/outbound/self/board-deck.pdf",
+              thumbnailStoragePath: null,
+              posterStoragePath: null,
               attachmentType: "document",
               originalFilename: "board-deck.pdf",
               mimeType: "application/pdf",
@@ -617,13 +665,8 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /board-deck\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/assistant-file/presentation-file-ref-1?download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Foutbound%2Fself%2Fboard-deck.pdf&download=1"
     );
-    // The PPTX affordance is now a quiet text button below the PDF banner that
-    // fetches the BFF in-page (no `target="_blank"`, no shouty pill inside the
-    // banner, and no full-page redirect on expired Gamma exports). The test
-    // harness stubs `useTranslations` to echo the i18n key, so we match on
-    // that key here.
     const pptxButton = screen.getByRole("button", {
       name: /presentationDownloadPptxAction|Download PPTX|Скачать PPTX/i
     });
@@ -633,11 +676,14 @@ describe("ChatMessageBubble — canonical file attachments", () => {
   it("renders the PPTX action when descriptorMode marks a presentation even if documentType is missing", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           attachments: [
             {
               id: "presentation-pdf-2",
-              fileRef: "presentation-file-ref-2",
+              path: "/shared/outbound/self/school-deck.pdf",
+              thumbnailStoragePath: null,
+              posterStoragePath: null,
               attachmentType: "document",
               originalFilename: "school-deck.pdf",
               mimeType: "application/pdf",
@@ -667,17 +713,20 @@ describe("ChatMessageBubble — canonical file attachments", () => {
     ).toBeInTheDocument();
   });
 
-  it("does not render a fallback download link when a committed file lacks fileRef", () => {
+  it("does not render a fallback download link when a committed file lacks path", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           attachments: [
             {
-              ...makeImageAttachment("att-without-file-ref"),
+              ...makeImageAttachment("att-without-path"),
               attachmentType: "document",
               originalFilename: "legacy.pdf",
               mimeType: "application/pdf",
-              fileRef: null
+              path: null,
+              thumbnailStoragePath: null,
+              posterStoragePath: null
             }
           ]
         })}
@@ -691,6 +740,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
   it("renders a quiet deleted-file status instead of a broken download card", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           attachments: [
             {
@@ -698,8 +748,10 @@ describe("ChatMessageBubble — canonical file attachments", () => {
               attachmentType: "document",
               originalFilename: "deleted.pdf",
               mimeType: "application/pdf",
-              fileRef: null,
-              fileDeleted: true
+              path: null,
+              thumbnailStoragePath: null,
+              posterStoragePath: null,
+              unavailable: true
             }
           ]
         })}
@@ -716,6 +768,7 @@ describe("ChatMessageBubble — video attachment preview", () => {
   it("renders a deterministic premium play placeholder before metadata or frames load", () => {
     const { container } = render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
           attachments: [makeVideoAttachment("video-att-1")]
@@ -734,6 +787,7 @@ describe("ChatMessageBubble — video attachment preview", () => {
   it("opens the video lightbox through the existing card click path", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
           attachments: [makeVideoAttachment("video-att-2")]
@@ -744,17 +798,20 @@ describe("ChatMessageBubble — video attachment preview", () => {
     fireEvent.click(screen.getByRole("button", { name: "openVideo" }));
 
     const lightbox = screen.getByTestId("mock-image-lightbox");
-    expect(lightbox).toHaveAttribute("data-src", "/api/assistant-file/file-ref-video-1");
+    expect(lightbox).toHaveAttribute(
+      "data-src",
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Finput%2Fclip.mp4"
+    );
     expect(lightbox).toHaveAttribute(
       "data-download-url",
-      "/api/assistant-file/file-ref-video-1?download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Finput%2Fclip.mp4&download=1"
     );
     expect(lightbox).toHaveAttribute("data-filename", "clip.mp4");
     expect(lightbox).toHaveAttribute("data-media-type", "video");
     expect(imageLightboxMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         open: true,
-        src: "/api/assistant-file/file-ref-video-1",
+        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Finput%2Fclip.mp4",
         mediaType: "video"
       })
     );
@@ -763,6 +820,7 @@ describe("ChatMessageBubble — video attachment preview", () => {
   it("updates the compact duration label and preview geometry after metadata loads", () => {
     const { container } = render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
           attachments: [makeVideoAttachment("video-att-3")]
@@ -793,6 +851,7 @@ describe("ChatMessageBubble — video attachment preview", () => {
   it("uses a stable square preset for near-square videos", () => {
     const { container } = render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
           attachments: [makeVideoAttachment("video-att-square")]
@@ -823,6 +882,7 @@ describe("ChatMessageBubble — video attachment preview", () => {
     mockCanvasVideoThumbnail();
     const { container } = render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
           attachments: [makeVideoAttachment("video-att-4")]
@@ -861,6 +921,7 @@ describe("ChatMessageBubble — video attachment preview", () => {
     (window as unknown as { PersaiNative?: unknown }).PersaiNative = {};
     const { container } = render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
           attachments: [makeVideoAttachment("video-att-5")]
@@ -894,6 +955,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("shows thinking before the first assistant token", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage()}
         preResponseStatus={{ kind: "thinking" }}
       />
@@ -905,6 +967,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("shows the live activity label while work is active before text starts", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage()}
         preResponseStatus={{
           kind: "activity",
@@ -923,6 +986,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("keeps the inline cursor status below visible streaming text", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({ content: "Hello" })}
         preResponseStatus={{
           kind: "activity",
@@ -940,7 +1004,9 @@ describe("ChatMessageBubble — pre-response status", () => {
   });
 
   it("keeps an empty inline cursor while assistant text is streaming without activity", () => {
-    render(<ChatMessageBubble message={makeAssistantMessage({ content: "Hello" })} />);
+    render(
+      <ChatMessageBubble chatId="chat-1" message={makeAssistantMessage({ content: "Hello" })} />
+    );
 
     expect(screen.getByText("Hello")).toBeInTheDocument();
     expect(screen.getByTestId("streaming-cursor")).toBeInTheDocument();
@@ -950,6 +1016,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("shows only the empty cursor while text deltas are active even with prior activity", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({ content: "Hello", streamingTextActive: true })}
         preResponseStatus={{
           kind: "activity",
@@ -970,6 +1037,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("renders table working notes inline as content blocks without a process badge", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Финал.",
@@ -987,6 +1055,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("renders list working notes with at least three items inline as content", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Финал.",
@@ -1004,6 +1073,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("renders heading working notes inline as content", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Финал.",
@@ -1020,6 +1090,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("groups only short connective working notes into one process badge", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
@@ -1039,6 +1110,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("groups tools without text into a search process badge", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
@@ -1059,6 +1131,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("preserves order for mixed connective text, content, then connective text plus tool", () => {
     const { container } = render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Итог.",
@@ -1081,6 +1154,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("skips empty working notes between tools and groups only tool pieces", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
@@ -1100,6 +1174,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("always renders the final answer text inline even when it is short", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "ок",
@@ -1115,6 +1190,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("expands a process badge to show text and tool rows", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
@@ -1138,6 +1214,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("renders only final text for an empty assistant message body with no working notes or tools", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Только ответ."
@@ -1152,6 +1229,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("streaming mode preserves per-iter ordering", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "streaming",
           content: "Итог.",
@@ -1176,6 +1254,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("committed mode collapses all process pieces into one top badge", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Итог.",
@@ -1196,6 +1275,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("committed badge label adapts to single tool type", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
@@ -1213,6 +1293,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("committed badge label falls back to worked when mixed tools", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
@@ -1230,6 +1311,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("image_edit gets editedImages label", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
@@ -1244,6 +1326,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("document gets preparedDocuments label", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
@@ -1261,6 +1344,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("shell gets ranCommands label", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
@@ -1275,6 +1359,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("expand committed badge shows all pieces in chronological order", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
@@ -1306,6 +1391,7 @@ describe("ChatMessageBubble — pre-response status", () => {
   it("never renders an engagement annotation in the process badge row", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Done.",
@@ -1349,11 +1435,14 @@ describe("ChatMessageBubble — file attachment pill layout", () => {
   it("keeps file size on one line inside the pill", () => {
     render(
       <ChatMessageBubble
+        chatId="chat-1"
         message={makeUserMessage("committed", {
           attachments: [
             {
               id: "att-word-1",
-              fileRef: "file-ref-word",
+              path: "/shared/input/report.docx",
+              thumbnailStoragePath: null,
+              posterStoragePath: null,
               attachmentType: "document",
               originalFilename: "Новый документ (3).docx",
               mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

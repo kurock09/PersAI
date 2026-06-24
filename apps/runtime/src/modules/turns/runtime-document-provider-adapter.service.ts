@@ -17,13 +17,11 @@ import type {
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
-import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import {
   ProviderGatewayClientService,
   ProviderGatewayTimeoutError
 } from "./provider-gateway.client.service";
-import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 import {
   applySectionPatches,
   buildStructureFromExtractedText,
@@ -46,6 +44,7 @@ import {
 } from "./persai-document-structure";
 import { resolveModelOutputBudget } from "./model-output-budget";
 import { SandboxClientService } from "./sandbox-client.service";
+import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
 
 type SupportedDocumentProvider = "sandbox" | "gamma";
 type NativeManagedProvider = "openai" | "anthropic";
@@ -224,7 +223,6 @@ export class RuntimeDocumentProviderAdapterService {
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService,
     private readonly sandboxClientService: SandboxClientService
   ) {}
 
@@ -539,8 +537,6 @@ export class RuntimeDocumentProviderAdapterService {
           outputFormat: input.request.job.outputFormat,
           requestedName: filename,
           sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
-          assistantFileRegistryAvailable:
-            typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function",
           ...(lastProviderFailure.providerStatus === null
             ? {}
             : { providerFailure: lastProviderFailure.providerStatus })
@@ -573,8 +569,6 @@ export class RuntimeDocumentProviderAdapterService {
           outputFormat: input.request.job.outputFormat,
           requestedName: filename,
           sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
-          assistantFileRegistryAvailable:
-            typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function",
           validation: lastValidationFailure?.metadata ?? {},
           providerFailure: null
         }
@@ -583,8 +577,10 @@ export class RuntimeDocumentProviderAdapterService {
     const artifact = await this.persistGeneratedArtifact({
       assistantId: input.bundle.metadata.assistantId,
       workspaceId: input.bundle.metadata.workspaceId,
-      sessionId: input.request.job.chatId,
-      requestId: input.request.job.id,
+      handle: input.bundle.metadata.assistantHandle,
+      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
+      workspaceQuotaBytes: input.bundle.governance.quota?.workspaceQuotaBytes ?? null,
+      sharedQuotaBytes: input.bundle.governance.quota?.sharedQuotaBytes ?? null,
       filename,
       requestPrompt: input.request.directToolExecution.request.prompt,
       requestedName: input.request.directToolExecution.request.requestedName ?? null,
@@ -631,9 +627,7 @@ export class RuntimeDocumentProviderAdapterService {
         state: "success",
         outputFormat: input.request.job.outputFormat,
         requestedName: filename,
-        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
-        assistantFileRegistryAvailable:
-          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt)
       }
     };
   }
@@ -807,8 +801,10 @@ export class RuntimeDocumentProviderAdapterService {
     const artifact = await this.persistGeneratedArtifact({
       assistantId: input.bundle.metadata.assistantId,
       workspaceId: input.bundle.metadata.workspaceId,
-      sessionId: input.request.job.chatId,
-      requestId: input.request.job.id,
+      handle: input.bundle.metadata.assistantHandle,
+      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
+      workspaceQuotaBytes: input.bundle.governance.quota?.workspaceQuotaBytes ?? null,
+      sharedQuotaBytes: input.bundle.governance.quota?.sharedQuotaBytes ?? null,
       filename: input.filename,
       requestPrompt: input.request.directToolExecution.request.prompt,
       requestedName: input.request.directToolExecution.request.requestedName ?? null,
@@ -835,9 +831,7 @@ export class RuntimeDocumentProviderAdapterService {
         state: "success",
         outputFormat: input.request.job.outputFormat,
         requestedName: input.filename,
-        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
-        assistantFileRegistryAvailable:
-          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt)
       }
     };
   }
@@ -1055,8 +1049,10 @@ export class RuntimeDocumentProviderAdapterService {
     const artifact = await this.persistGeneratedArtifact({
       assistantId: input.bundle.metadata.assistantId,
       workspaceId: input.bundle.metadata.workspaceId,
-      sessionId: input.request.job.chatId,
-      requestId: input.request.job.id,
+      handle: input.bundle.metadata.assistantHandle,
+      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
+      workspaceQuotaBytes: input.bundle.governance.quota?.workspaceQuotaBytes ?? null,
+      sharedQuotaBytes: input.bundle.governance.quota?.sharedQuotaBytes ?? null,
       filename: input.filename,
       requestPrompt: input.request.directToolExecution.request.prompt,
       requestedName: input.request.directToolExecution.request.requestedName ?? null,
@@ -1088,9 +1084,7 @@ export class RuntimeDocumentProviderAdapterService {
         requestedName: input.filename,
         sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
         structuredReviseOperation: operation,
-        structuredReviseLazyUpgraded: reviseState.lazyUpgraded,
-        assistantFileRegistryAvailable:
-          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+        structuredReviseLazyUpgraded: reviseState.lazyUpgraded
       }
     };
   }
@@ -1313,9 +1307,7 @@ export class RuntimeDocumentProviderAdapterService {
         message: failure.message,
         outputFormat: input.request.job.outputFormat,
         requestedName: input.filename,
-        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
-        assistantFileRegistryAvailable:
-          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt)
       }
     };
   }
@@ -1509,8 +1501,6 @@ export class RuntimeDocumentProviderAdapterService {
           outputFormat: input.request.job.outputFormat,
           requestedName: filename,
           sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
-          assistantFileRegistryAvailable:
-            typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function",
           ...(providerOutcome.providerStatus === null
             ? {}
             : { providerFailure: providerOutcome.providerStatus })
@@ -1521,8 +1511,10 @@ export class RuntimeDocumentProviderAdapterService {
     const artifact = await this.persistGeneratedArtifact({
       assistantId: input.bundle.metadata.assistantId,
       workspaceId: input.bundle.metadata.workspaceId,
-      sessionId: input.request.job.chatId,
-      requestId: input.request.job.id,
+      handle: input.bundle.metadata.assistantHandle,
+      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
+      workspaceQuotaBytes: input.bundle.governance.quota?.workspaceQuotaBytes ?? null,
+      sharedQuotaBytes: input.bundle.governance.quota?.sharedQuotaBytes ?? null,
       filename,
       requestPrompt: input.request.directToolExecution.request.prompt,
       requestedName: input.request.directToolExecution.request.requestedName ?? null,
@@ -1552,9 +1544,7 @@ export class RuntimeDocumentProviderAdapterService {
         ...providerResult.providerStatus,
         outputFormat: input.request.job.outputFormat,
         requestedName: filename,
-        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
-        assistantFileRegistryAvailable:
-          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt)
       }
     };
   }
@@ -2455,8 +2445,10 @@ export class RuntimeDocumentProviderAdapterService {
   private async persistGeneratedArtifact(input: {
     assistantId: string;
     workspaceId: string;
-    sessionId: string;
-    requestId: string;
+    handle: string;
+    siblingHandles: readonly string[];
+    workspaceQuotaBytes: number | null;
+    sharedQuotaBytes: number | null;
     filename: string;
     requestPrompt: string;
     requestedName: string | null;
@@ -2471,52 +2463,24 @@ export class RuntimeDocumentProviderAdapterService {
     if (input.buffer.length === 0) {
       throw new Error("Document provider returned an empty document payload.");
     }
-    const artifactId = randomUUID();
-    const objectKey = this.mediaObjectStorage.buildRuntimeOutputObjectKey({
-      assistantId: input.assistantId,
-      sessionId: input.sessionId,
-      requestId: input.requestId,
-      artifactId,
-      extension
-    });
-    const stored = await this.mediaObjectStorage.saveObject({
-      objectKey,
-      buffer: input.buffer,
-      mimeType: input.mimeType
-    });
-    const semanticSummary = buildGeneratedFileSemanticSummary({
-      requestText: input.requestPrompt,
-      requestedName: input.requestedName,
-      allowWeakRequestFallback: input.mimeType !== "application/pdf"
-    });
-    const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
+    const slugSourceText =
+      input.requestedName?.trim() || input.requestPrompt.trim() || input.filename || "document";
+    return writeRuntimeOutboundArtifact({
+      sandboxClient: this.sandboxClientService,
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      origin: "runtime_output",
-      referenceId: artifactId,
-      objectKey: stored.objectKey,
-      filename: input.filename,
-      mimeType: stored.mimeType,
-      sizeBytes: stored.sizeBytes,
-      semanticSummary,
-      semanticSummarySource: semanticSummary === null ? null : "generation_request"
-    });
-    const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(file);
-    return {
-      artifactId,
-      fileRef: runtimeFileRef.fileRef,
-      file: runtimeFileRef,
+      handle: input.handle,
+      siblingHandles: input.siblingHandles,
+      workspaceQuotaBytes: input.workspaceQuotaBytes,
+      sharedQuotaBytes: input.sharedQuotaBytes,
+      buffer: input.buffer,
+      mimeType: input.mimeType,
+      slugSourceText,
+      filenameHint: input.filename,
       kind: "file",
       sourceToolCode: "document",
-      objectKey: stored.objectKey,
-      mimeType: stored.mimeType,
-      filename: input.filename,
-      sizeBytes: stored.sizeBytes,
-      voiceNote: false,
-      ...(input.billingFacts === undefined || input.billingFacts === null
-        ? {}
-        : { billingFacts: input.billingFacts })
-    };
+      billingFacts: input.billingFacts ?? null
+    });
   }
 
   private extensionForMimeType(mimeType: string): "pdf" | "pptx" | "xlsx" | "docx" | null {
@@ -3250,13 +3214,14 @@ export class RuntimeDocumentProviderAdapterService {
     try {
       result = await this.sandboxClientService.waitForCompletion({
         assistantId: input.bundle.metadata.assistantId,
+        assistantHandle: input.bundle.metadata.assistantHandle,
+        siblingHandles: input.bundle.metadata.siblingAssistantHandles,
         workspaceId: input.bundle.metadata.workspaceId,
         runtimeRequestId: input.jobId,
-        runtimeSessionId: null, // ephemeral pod — never touches user session workspace
+        runtimeSessionId: null,
         toolCode: "render_html_to_pdf",
         policy: renderPolicy,
-        args: { htmlContent: input.html, outputFileName: input.filename },
-        mountedFileRefs: []
+        args: { htmlContent: input.html, outputFileName: input.filename }
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -3283,7 +3248,7 @@ export class RuntimeDocumentProviderAdapterService {
         retryable: false
       };
     }
-    const bytes = await this.mediaObjectStorage.downloadObject(producedPdf.fileRef.objectKey);
+    const bytes = await this.mediaObjectStorage.downloadObject(producedPdf.storagePath);
     if (bytes === null) {
       return {
         ok: false,
@@ -3291,16 +3256,6 @@ export class RuntimeDocumentProviderAdapterService {
         message: "Failed to download rendered PDF from object storage.",
         retryable: true
       };
-    }
-    // The sandbox auto-creates a sandbox_output AssistantFile for the produced PDF.
-    // persistGeneratedArtifact will create the canonical runtime_output artifact.
-    // Delete the transient sandbox file to avoid a duplicate per-document.
-    try {
-      await this.runtimeAssistantFileRegistryService.deleteById(producedPdf.fileRef.fileRef);
-    } catch (err) {
-      this.logger.warn(
-        `[document-pdf-render-cleanup] Failed to delete transient sandbox file: ${String(err)}`
-      );
     }
     return { ok: true, bytes, mimeType: "application/pdf" };
   }
@@ -3453,14 +3408,14 @@ export class RuntimeDocumentProviderAdapterService {
    * the already-present pdf-parse probe (no sandbox round-trip).
    */
   private async buildDataDocumentSourcePlan(request: RuntimeDocumentJobRunRequest): Promise<{
-    mountedFileRefs: string[];
-    sourceMounts: Array<{ fileRef: string; mountPath: string }>;
+    inputPaths: string[];
+    sourceMounts: Array<{ storagePath: string; mountPath: string }>;
     textSidecars: Array<{ mountPath: string; text: string }>;
     descriptors: string[];
   }> {
     const plan = {
-      mountedFileRefs: [] as string[],
-      sourceMounts: [] as Array<{ fileRef: string; mountPath: string }>,
+      inputPaths: [] as string[],
+      sourceMounts: [] as Array<{ storagePath: string; mountPath: string }>,
       textSidecars: [] as Array<{ mountPath: string; text: string }>,
       descriptors: [] as string[]
     };
@@ -3469,7 +3424,7 @@ export class RuntimeDocumentProviderAdapterService {
     const usedNames = new Set<string>();
     for (const attachment of attachments) {
       const mime = attachment.mimeType.trim().toLowerCase();
-      let baseName = this.sanitizeSourceBasename(attachment.filename, attachment.attachmentId);
+      let baseName = this.sanitizeSourceBasename(attachment.displayName, attachment.attachmentId);
       while (usedNames.has(baseName.toLowerCase())) {
         baseName = `${randomUUID().slice(0, 4)}_${baseName}`;
       }
@@ -3484,33 +3439,33 @@ export class RuntimeDocumentProviderAdapterService {
         matchedSource.text.trim().length > 0
           ? matchedSource.text.trim()
           : null;
-      const fileRef =
-        typeof attachment.fileRef === "string" && attachment.fileRef.trim().length > 0
-          ? attachment.fileRef.trim()
+      const mountableStoragePath =
+        typeof attachment.storagePath === "string" && attachment.storagePath.trim().length > 0
+          ? attachment.storagePath.trim()
           : null;
       const isPdf = mime === "application/pdf" || mime === "application/x-pdf";
       const isImage = mime.startsWith("image/");
 
-      // Without a mountable AssistantFile id we cannot mount the raw file.
+      // Without a mountable storage path we cannot mount the raw file.
       // Fall back to the extracted-text sidecar when available.
-      if (fileRef === null) {
+      if (mountableStoragePath === null) {
         if (ocrText !== null) {
           const sidecarPath = `sources/${baseName}.txt`;
           plan.textSidecars.push({ mountPath: sidecarPath, text: ocrText });
           plan.descriptors.push(
             `/workspace/${sidecarPath} — extracted text of "${
-              attachment.filename ?? baseName
+              attachment.displayName ?? baseName
             }" (raw file not mountable). Read this text file.`
           );
         }
         continue;
       }
 
-      plan.mountedFileRefs.push(fileRef);
-      plan.sourceMounts.push({ fileRef, mountPath });
+      plan.inputPaths.push(mountableStoragePath);
+      plan.sourceMounts.push({ storagePath: mountableStoragePath, mountPath });
 
       if (isPdf) {
-        const probe = await this.probePdfTextLayer(attachment.objectKey);
+        const probe = await this.probePdfTextLayer(attachment.storagePath);
         if (probe.hasTextLayer) {
           plan.descriptors.push(
             `${wsPath} — PDF WITH a text layer (digital). Read it directly with pdfplumber (import pdfplumber).`
@@ -3698,8 +3653,8 @@ export class RuntimeDocumentProviderAdapterService {
     filename: string;
     jobId: string;
     sourcePlan: {
-      mountedFileRefs: string[];
-      sourceMounts: Array<{ fileRef: string; mountPath: string }>;
+      inputPaths: string[];
+      sourceMounts: Array<{ storagePath: string; mountPath: string }>;
       textSidecars: Array<{ mountPath: string; text: string }>;
       descriptors: string[];
     };
@@ -3722,6 +3677,8 @@ export class RuntimeDocumentProviderAdapterService {
     try {
       result = await this.sandboxClientService.waitForCompletion({
         assistantId: input.bundle.metadata.assistantId,
+        assistantHandle: input.bundle.metadata.assistantHandle,
+        siblingHandles: input.bundle.metadata.siblingAssistantHandles,
         workspaceId: input.bundle.metadata.workspaceId,
         runtimeRequestId: input.jobId,
         runtimeSessionId: null,
@@ -3731,9 +3688,9 @@ export class RuntimeDocumentProviderAdapterService {
           programSource: input.programSource,
           outputFileName: input.filename,
           sourceMounts: input.sourcePlan.sourceMounts,
-          textSidecars: input.sourcePlan.textSidecars
-        },
-        mountedFileRefs: input.sourcePlan.mountedFileRefs
+          textSidecars: input.sourcePlan.textSidecars,
+          inputPaths: input.sourcePlan.inputPaths
+        }
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -3772,7 +3729,7 @@ export class RuntimeDocumentProviderAdapterService {
     const { bundle, request, filename, targetMime, producedFile } = input;
     const jobId = request.job.id;
 
-    const bytes = await this.mediaObjectStorage.downloadObject(producedFile.fileRef.objectKey);
+    const bytes = await this.mediaObjectStorage.downloadObject(producedFile.storagePath);
     if (bytes === null) {
       return this.buildCodeDocumentFailResult({
         request,
@@ -3792,12 +3749,6 @@ export class RuntimeDocumentProviderAdapterService {
       this.logger.error(
         `[document-code-validation-failed] jobId=${jobId} code=${validationFailure.code} message=${validationFailure.message}`
       );
-      // Best-effort cleanup of the transient sandbox file before failing.
-      try {
-        await this.runtimeAssistantFileRegistryService.deleteById(producedFile.fileRef.fileRef);
-      } catch {
-        /* ignore */
-      }
       return this.buildCodeDocumentFailResult({
         request,
         filename,
@@ -3809,23 +3760,16 @@ export class RuntimeDocumentProviderAdapterService {
     const artifact = await this.persistGeneratedArtifact({
       assistantId: bundle.metadata.assistantId,
       workspaceId: bundle.metadata.workspaceId,
-      sessionId: request.job.chatId,
-      requestId: jobId,
+      handle: bundle.metadata.assistantHandle,
+      siblingHandles: bundle.metadata.siblingAssistantHandles,
+      workspaceQuotaBytes: bundle.governance.quota?.workspaceQuotaBytes ?? null,
+      sharedQuotaBytes: bundle.governance.quota?.sharedQuotaBytes ?? null,
       filename,
       requestPrompt: request.directToolExecution.request.prompt,
       requestedName: request.directToolExecution.request.requestedName ?? null,
       buffer: bytes,
       mimeType: targetMime
     });
-
-    // Delete the transient sandbox_output file to avoid a duplicate per-document.
-    try {
-      await this.runtimeAssistantFileRegistryService.deleteById(producedFile.fileRef.fileRef);
-    } catch (err) {
-      this.logger.warn(
-        `[document-code-cleanup] Failed to delete transient sandbox file: ${String(err)}`
-      );
-    }
 
     this.logger.log(
       `[document-code-path-done] jobId=${jobId} filename=${filename} bytes=${String(bytes.length)}`
@@ -3843,9 +3787,7 @@ export class RuntimeDocumentProviderAdapterService {
         state: "success",
         outputFormat: request.job.outputFormat,
         requestedName: filename,
-        sourcePromptHash: this.hashPrompt(request.directToolExecution.request.prompt),
-        assistantFileRegistryAvailable:
-          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+        sourcePromptHash: this.hashPrompt(request.directToolExecution.request.prompt)
       }
     };
   }
@@ -3871,9 +3813,7 @@ export class RuntimeDocumentProviderAdapterService {
         message: input.message,
         outputFormat: input.request.job.outputFormat,
         requestedName: input.filename,
-        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
-        assistantFileRegistryAvailable:
-          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt)
       }
     };
   }

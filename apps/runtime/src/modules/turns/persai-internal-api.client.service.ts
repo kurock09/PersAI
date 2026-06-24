@@ -400,42 +400,40 @@ export type InternalEnqueueDeferredDocumentJobInput = {
       | "revise_document"
       | "export_or_redeliver"
       | "create_data_document";
+    path?: string | null;
     request: RuntimeDocumentJobRunRequest["directToolExecution"]["request"];
   };
 };
 
-export type InternalRuntimeFileExtractionOutcome =
-  | {
-      extracted: true;
-      file: {
-        fileRef: string;
-        displayName: string | null;
-        relativePath: string;
-        mimeType: string;
-        sizeBytes: number;
-      };
-      text: string;
-      markdown: string | null;
-      note: string | null;
-      provider: unknown;
-      quality: unknown;
-      cached: boolean;
-    }
-  | {
-      extracted: false;
-      file: {
-        fileRef: string;
-        displayName: string | null;
-        relativePath: string;
-        mimeType: string;
-        sizeBytes: number;
-      } | null;
-      text: null;
-      markdown: null;
-      note: string;
-      provider: null;
-      quality: null;
-    };
+export type RegisterChatAttachmentKind =
+  | "user_upload"
+  | "image_generate"
+  | "image_edit"
+  | "document"
+  | "files.attach"
+  | "tts"
+  | "video_generate";
+
+export type RegisterChatAttachmentInput = {
+  assistantId: string;
+  workspaceId: string;
+  channel: PersaiRuntimeChannel;
+  externalThreadKey: string;
+  messageId?: string | null;
+  storagePath: string;
+  attachmentType: "image" | "document" | "audio" | "video" | "voice";
+  mimeType: string;
+  sizeBytes: number;
+  originalFilename: string;
+  kind: RegisterChatAttachmentKind;
+  clientTurnId?: string | null;
+  clientAttachmentId?: string | null;
+};
+
+export type RegisterChatAttachmentOutcome = {
+  attachmentId: string;
+  storagePath: string;
+};
 
 // ADR-074 Slice M3 — opt-in explicit close of an active open-loop entry,
 // driven by the model setting `closeOpenLoop: true` on `memory_write`.
@@ -710,15 +708,13 @@ export class PersaiInternalApiClientService {
     );
   }
 
-  async extractAssistantFileText(input: {
-    assistantId: string;
-    workspaceId: string;
-    fileRef: string;
-  }): Promise<InternalRuntimeFileExtractionOutcome> {
+  async registerChatAttachment(
+    input: RegisterChatAttachmentInput
+  ): Promise<RegisterChatAttachmentOutcome> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
     }
-    const response = await this.fetchJson("/api/v1/internal/runtime/files/extract", {
+    const response = await this.fetchJson("/api/v1/internal/runtime/files/chat-attachments", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
@@ -726,26 +722,75 @@ export class PersaiInternalApiClientService {
       },
       body: JSON.stringify(input)
     });
-    const payload = this.asObject(response.body);
-    if (response.ok) {
-      const parsed = this.parseRuntimeFileExtractionOutcome(payload);
-      if (parsed !== null) {
-        return parsed;
+    if (!response.ok) {
+      const error = this.extractError(response.body);
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException(
+          error.message ?? "PersAI internal API register-chat-attachment failed."
+        );
       }
-      throw new BadGatewayException(
-        "PersAI internal API returned an invalid runtime file extraction response."
-      );
+      throw new BadRequestException(error.message ?? "register-chat-attachment rejected.");
     }
+    const payload = this.asObject(response.body);
+    if (
+      payload === null ||
+      typeof payload.attachmentId !== "string" ||
+      typeof payload.storagePath !== "string"
+    ) {
+      throw new BadGatewayException("Invalid register-chat-attachment response.");
+    }
+    return {
+      attachmentId: payload.attachmentId,
+      storagePath: payload.storagePath
+    };
+  }
 
-    const error = this.extractError(response.body);
-    if (response.status >= 500) {
-      throw new ServiceUnavailableException(
-        error.message ?? "PersAI internal API runtime file extraction failed."
-      );
+  /**
+   * ADR-126 v3 — batch join `workspace_file_metadata.shortDescription`
+   * by pod-absolute path. Returns `{path, shortDescription | null}[]` for the
+   * runtime `files.list` enrichment.
+   */
+  async listWorkspaceFileShortDescriptions(input: {
+    workspaceId: string;
+    paths: readonly string[];
+  }): Promise<Array<{ path: string; shortDescription: string | null }>> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
     }
-    throw new BadRequestException(
-      error.message ?? "PersAI internal API rejected runtime file extraction."
-    );
+    if (input.paths.length === 0) {
+      return [];
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/files/short-descriptions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ workspaceId: input.workspaceId, paths: [...input.paths] })
+    });
+    if (!response.ok) {
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException(
+          "PersAI internal API short-descriptions request failed."
+        );
+      }
+      return input.paths.map((path) => ({ path, shortDescription: null }));
+    }
+    const payload = this.asObject(response.body);
+    const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+    return rows
+      .filter(
+        (entry): entry is { path: unknown; shortDescription: unknown } =>
+          entry !== null && typeof entry === "object"
+      )
+      .map((entry) => ({
+        path: typeof entry.path === "string" ? entry.path : "",
+        shortDescription:
+          typeof entry.shortDescription === "string" && entry.shortDescription.length > 0
+            ? entry.shortDescription
+            : null
+      }))
+      .filter((row) => row.path.length > 0);
   }
 
   async consumeToolDailyLimit(input: {
@@ -1798,56 +1843,6 @@ export class PersaiInternalApiClientService {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
-  }
-
-  private parseRuntimeFileExtractionOutcome(
-    payload: Record<string, unknown> | null
-  ): InternalRuntimeFileExtractionOutcome | null {
-    if (payload?.ok !== true || typeof payload.extracted !== "boolean") {
-      return null;
-    }
-    const file = this.asObject(payload.file);
-    const fileSummary =
-      file !== null &&
-      typeof file.fileRef === "string" &&
-      (typeof file.displayName === "string" || file.displayName === null) &&
-      typeof file.relativePath === "string" &&
-      typeof file.mimeType === "string" &&
-      typeof file.sizeBytes === "number"
-        ? {
-            fileRef: file.fileRef,
-            displayName: file.displayName,
-            relativePath: file.relativePath,
-            mimeType: file.mimeType,
-            sizeBytes: file.sizeBytes
-          }
-        : null;
-    if (payload.extracted === false) {
-      return typeof payload.note === "string"
-        ? {
-            extracted: false,
-            file: fileSummary,
-            text: null,
-            markdown: null,
-            note: payload.note,
-            provider: null,
-            quality: null
-          }
-        : null;
-    }
-    if (fileSummary === null || typeof payload.text !== "string") {
-      return null;
-    }
-    return {
-      extracted: true,
-      file: fileSummary,
-      text: payload.text,
-      markdown: typeof payload.markdown === "string" ? payload.markdown : null,
-      note: typeof payload.note === "string" ? payload.note : null,
-      provider: payload.provider,
-      quality: payload.quality,
-      cached: payload.cached === true
-    };
   }
 
   private isInternalScheduledActionItem(value: unknown): value is InternalScheduledActionItem {

@@ -88,6 +88,8 @@ function createBundle(options?: {
   return compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
+      assistantHandle: "a-test",
+      siblingAssistantHandles: [],
       workspaceId: "workspace-1",
       publishedVersionId: "version-1",
       publishedVersion: 1,
@@ -252,6 +254,7 @@ function createBundle(options?: {
       quota: {
         planCode: "paid",
         workspaceQuotaBytes: 1024,
+        sharedQuotaBytes: 1024,
         quotaHook: null
       },
       auditHook: null
@@ -383,14 +386,14 @@ function createToolCall(argumentsObject: Record<string, unknown>): ProviderGatew
 
 function createReferenceAttachment(
   aliases: string[] = ["image #1", "current attachment #1"],
-  options?: { objectKey?: string; filename?: string; attachmentId?: string }
+  options?: { storagePath?: string; displayName?: string; attachmentId?: string }
 ): RuntimeAttachmentRef {
   return {
     attachmentId: options?.attachmentId ?? "attachment-1",
     kind: "image",
-    objectKey: options?.objectKey ?? "media/reference-1.png",
+    storagePath: options?.storagePath ?? "media/reference-1.png",
     mimeType: "image/png",
-    filename: options?.filename ?? "forest.png",
+    displayName: options?.displayName ?? "forest.png",
     sizeBytes: 10,
     aliases
   };
@@ -560,7 +563,7 @@ class FakePersaiInternalApiClientService {
 }
 
 class FakePersaiMediaObjectStorageService {
-  savedObjects: Array<{ objectKey: string; mimeType: string; sizeBytes: number }> = [];
+  savedObjects: Array<{ storagePath: string; mimeType: string; sizeBytes: number }> = [];
   sourceObjects = new Map<string, Buffer>();
 
   buildRuntimeOutputObjectKey(input: { artifactId: string; extension: string | null }): string {
@@ -568,12 +571,12 @@ class FakePersaiMediaObjectStorageService {
   }
 
   async saveObject(input: {
-    objectKey: string;
+    storagePath: string;
     buffer: Buffer;
     mimeType: string;
-  }): Promise<{ objectKey: string; mimeType: string; sizeBytes: number }> {
+  }): Promise<{ storagePath: string; mimeType: string; sizeBytes: number }> {
     const stored = {
-      objectKey: input.objectKey,
+      storagePath: input.storagePath,
       mimeType: input.mimeType,
       sizeBytes: input.buffer.length
     };
@@ -581,55 +584,35 @@ class FakePersaiMediaObjectStorageService {
     return stored;
   }
 
-  async downloadObject(objectKey: string): Promise<Buffer | null> {
-    return this.sourceObjects.get(objectKey) ?? null;
+  async downloadByWorkspacePath(input: {
+    workspaceId: string;
+    storagePath: string;
+  }): Promise<Buffer | null> {
+    return this.sourceObjects.get(input.storagePath) ?? null;
+  }
+
+  async downloadObject(storagePath: string): Promise<Buffer | null> {
+    return this.sourceObjects.get(storagePath) ?? null;
   }
 }
-
-const fakeRuntimeAssistantFileRegistryService = {
-  async ensureAttachmentBackedFile(input: {
-    referenceId: string;
-    objectKey: string;
-    filename: string | null;
-    mimeType: string;
-    sizeBytes: number;
-  }) {
-    return {
-      fileRef: `file-${input.referenceId}`,
-      origin: "runtime_output",
-      sourceToolCode: null,
-      objectKey: input.objectKey,
-      relativePath: `artifacts/${input.referenceId}/${input.filename ?? "file"}`,
-      displayName: input.filename,
-      mimeType: input.mimeType,
-      sizeBytes: input.sizeBytes,
-      logicalSizeBytes: input.sizeBytes
-    };
-  },
-  toRuntimeFileRef(record: {
-    fileRef: string;
-    origin: "runtime_output";
-    sourceToolCode: null;
-    objectKey: string;
-    relativePath: string;
-    displayName: string | null;
-    mimeType: string;
-    sizeBytes: number;
-    logicalSizeBytes: number;
-  }) {
-    return record;
-  }
-};
 
 export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   const providerGatewayClientService = new FakeProviderGatewayClientService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
+  const sandboxClient = {
+    async writeSharedOutbound(input: { contentBase64: string }) {
+      return {
+        workspaceRelPath: "/shared/outbound/self/video.mp4",
+        sizeBytes: Buffer.from(input.contentBase64, "base64").length
+      };
+    }
+  };
   const service = new RuntimeVideoGenerateToolService(
     providerGatewayClientService as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
     mediaObjectStorage as unknown as PersaiMediaObjectStorageService,
-    fakeRuntimeAssistantFileRegistryService as never
+    sandboxClient as never
   );
 
   const bundle = createBundle();
@@ -1515,13 +1498,13 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     }),
     availableAttachments: [
       createReferenceAttachment(["image #1"], {
-        objectKey: "media/reference-1.png",
-        filename: "forest.png",
+        storagePath: "media/reference-1.png",
+        displayName: "forest.png",
         attachmentId: "attachment-1"
       }),
       createReferenceAttachment(["image #2"], {
-        objectKey: "media/reference-2.png",
-        filename: "forest-2.png",
+        storagePath: "media/reference-2.png",
+        displayName: "forest-2.png",
         attachmentId: "attachment-2"
       })
     ],
@@ -2497,9 +2480,9 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       {
         attachmentId: "attachment-portrait-1",
         kind: "image",
-        objectKey: "assistant-media/portrait.png",
+        storagePath: "assistant-media/portrait.png",
         mimeType: "image/png",
-        filename: "portrait.png",
+        displayName: "portrait.png",
         sizeBytes: Buffer.byteLength("portrait-image-binary"),
         aliases: ["image #1", "file #1"]
       }

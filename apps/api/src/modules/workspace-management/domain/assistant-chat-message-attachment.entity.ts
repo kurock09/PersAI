@@ -2,7 +2,7 @@ import type { RuntimeBillingFacts } from "@persai/runtime-contract";
 
 export type AttachmentType = "image" | "audio" | "voice" | "video" | "document" | "tool_output";
 
-export type AttachmentProcessingStatus = "pending" | "ready" | "failed";
+export type AttachmentProcessingStatus = "pending" | "ready" | "failed" | "unavailable";
 
 export type AssistantChatMessageAttachment = {
   id: string;
@@ -10,9 +10,10 @@ export type AssistantChatMessageAttachment = {
   chatId: string;
   assistantId: string;
   workspaceId: string;
-  assistantFileId: string | null;
   attachmentType: AttachmentType;
-  storagePath: string;
+  storagePath: string | null;
+  thumbnailStoragePath: string | null;
+  posterStoragePath: string | null;
   originalFilename: string | null;
   mimeType: string;
   sizeBytes: bigint;

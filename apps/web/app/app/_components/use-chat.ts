@@ -2623,7 +2623,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           : pendingFiles.map(() => createClientTurnId());
       const localAttachments: ChatAttachment[] = pendingFiles.map((f, i) => ({
         id: clientAttachmentIds[i] ?? `local-att-${Date.now()}-${String(i)}`,
-        fileRef: null,
+        path: null,
+        thumbnailStoragePath: null,
+        posterStoragePath: null,
         attachmentType: f.type.startsWith("image/")
           ? "image"
           : f.type.startsWith("audio/")

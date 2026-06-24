@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
-import { ExtractInternalRuntimeAssistantFileService } from "../../application/extract-internal-runtime-assistant-file.service";
+import { ListWorkspaceFileShortDescriptionsService } from "../../application/list-workspace-file-short-descriptions.service";
+import { RegisterChatAttachmentService } from "../../application/register-chat-attachment.service";
 import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
 
 type InternalRequestLike = {
@@ -9,22 +10,31 @@ type InternalRequestLike = {
 @Controller("api/v1/internal/runtime/files")
 export class InternalRuntimeFilesController {
   constructor(
-    private readonly extractInternalRuntimeAssistantFileService: ExtractInternalRuntimeAssistantFileService
+    private readonly listWorkspaceFileShortDescriptionsService: ListWorkspaceFileShortDescriptionsService,
+    private readonly registerChatAttachmentService: RegisterChatAttachmentService
   ) {}
 
   @HttpCode(200)
-  @Post("extract")
-  async extract(@Req() req: InternalRequestLike, @Body() body: unknown) {
+  @Post("short-descriptions")
+  async listShortDescriptions(@Req() req: InternalRequestLike, @Body() body: unknown) {
     this.assertAuthorized(req);
-    const input = this.extractInternalRuntimeAssistantFileService.parseInput(body);
-    return this.extractInternalRuntimeAssistantFileService.execute(input);
+    const input = this.listWorkspaceFileShortDescriptionsService.parseInput(body);
+    return this.listWorkspaceFileShortDescriptionsService.execute(input);
+  }
+
+  @HttpCode(200)
+  @Post("chat-attachments")
+  async registerChatAttachment(@Req() req: InternalRequestLike, @Body() body: unknown) {
+    this.assertAuthorized(req);
+    const input = this.registerChatAttachmentService.parseRuntimeInput(body);
+    return this.registerChatAttachmentService.executeFromRuntime(input);
   }
 
   private assertAuthorized(req: InternalRequestLike): void {
     assertPersaiInternalApiAuthorized(
       req,
-      "PERSAI_INTERNAL_API_TOKEN must be configured for internal runtime file extraction.",
-      "Internal runtime file extraction authorization failed."
+      "PERSAI_INTERNAL_API_TOKEN must be configured for internal runtime file APIs.",
+      "Internal runtime file authorization failed."
     );
   }
 }

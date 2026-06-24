@@ -7,6 +7,9 @@ import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
 import { SandboxObservabilityService } from "./sandbox-observability.service";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
 import { SandboxService } from "./sandbox.service";
+import { WorkspaceAuditService } from "./workspace-audit.service";
+import { WorkspaceFileBridgeService } from "./workspace-file-bridge.service";
+import { WorkspaceGcService } from "./workspace-gc.service";
 
 @Module({
   imports: [SandboxConfigModule],
@@ -17,6 +20,9 @@ import { SandboxService } from "./sandbox.service";
     SandboxObservabilityService,
     SandboxMetricsService,
     ExecPodBridgeService,
+    WorkspaceAuditService,
+    WorkspaceFileBridgeService,
+    WorkspaceGcService,
     SandboxService
   ]
 })

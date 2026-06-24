@@ -46,7 +46,17 @@ const baseSandboxConfigSchema = z.object({
   // Per-(assistantId, workspaceId) warm-pool size. v1: 1 = pre-create the session pod
   // in parallel with lease wait so cold pod-provisioning overlaps lease acquisition.
   // 0 = disable pre-warm (job's runInPod still creates lazily as before).
-  SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: z.coerce.number().int().min(0).max(1).default(1)
+  SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: z.coerce.number().int().min(0).max(1).default(1),
+  // ADR-126 Slice 3 — size of the `/shared/<workspaceId>/` emptyDir volume mounted
+  // into every session pod. Backs `/shared/input/`, `/shared/outbound/<handle>/`, and
+  // sibling outbound mirrors. Persisted asynchronously to GCS; the emptyDir is the
+  // hot working copy. Default 512 MiB matches the per-workspace shared quota.
+  SANDBOX_SHARED_EMPTYDIR_SIZE_MIB: z.coerce.number().int().positive().default(512),
+  // ADR-126 Slice 3 — interval between WorkspaceGcService sweeps over
+  // `sandbox_workspace_gc_lease` rows whose `scheduledAt <= now() AND purgedAt IS NULL`.
+  // Default 5 minutes. The chat-scratch path also calls the reaper in-process after
+  // a `hardDeleteChat` commit so the user does not wait for the next tick.
+  SANDBOX_GC_INTERVAL_MS: z.coerce.number().int().positive().default(300_000)
 });
 
 const localSandboxConfigSchema = baseSandboxConfigSchema.extend({

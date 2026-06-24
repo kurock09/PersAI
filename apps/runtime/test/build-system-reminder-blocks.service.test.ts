@@ -60,6 +60,8 @@ function createBundle(
   return compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
+      assistantHandle: "a-test",
+      siblingAssistantHandles: [],
       workspaceId: "workspace-1",
       publishedVersionId: "version-1",
       publishedVersion: 1,
@@ -154,7 +156,12 @@ function createBundle(
       tasksControl: null,
       toolCredentialRefs: {},
       toolPolicies: [],
-      quota: { planCode: "paid", workspaceQuotaBytes: 1024, quotaHook: null },
+      quota: {
+        planCode: "paid",
+        workspaceQuotaBytes: 1024,
+        sharedQuotaBytes: 1024,
+        quotaHook: null
+      },
       auditHook: null
     },
     channels: {

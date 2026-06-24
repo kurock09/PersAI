@@ -9,7 +9,7 @@ export const MEDIA_JOB_COMPLETION_VISION_MAX_IMAGES = 10;
 const VISION_MAX_IMAGE_DIMENSION = 2048;
 
 export type MediaJobCompletionVisionArtifactRef = {
-  objectKey: string;
+  storagePath: string;
   mimeType: string;
   filename: string | null;
   role: "output" | "source_reference";
@@ -49,6 +49,7 @@ async function normalizeVisionImageBuffer(
 }
 
 export async function hydrateMediaJobCompletionVisionContent(input: {
+  workspaceId: string;
   mediaObjectStorage: PersaiMediaObjectStorageService;
   artifacts: MediaJobCompletionVisionArtifactRef[];
 }): Promise<ProviderGatewayMessageContentBlock[]> {
@@ -58,7 +59,10 @@ export async function hydrateMediaJobCompletionVisionContent(input: {
     if (!artifact.mimeType.startsWith("image/")) {
       continue;
     }
-    const downloaded = await input.mediaObjectStorage.downloadObject(artifact.objectKey);
+    const downloaded = await input.mediaObjectStorage.downloadByWorkspacePath({
+      workspaceId: input.workspaceId,
+      storagePath: artifact.storagePath
+    });
     if (downloaded === null) {
       continue;
     }

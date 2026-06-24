@@ -90,6 +90,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   const artifact = compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
+      assistantHandle: "a-test",
+      siblingAssistantHandles: [],
       workspaceId: "workspace-1",
       publishedVersionId: "version-1",
       publishedVersion: 1,
@@ -361,9 +363,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           toolCode: "files",
           displayName: "Files",
           description:
-            "List, search, inspect, read, write, write-and-send, edit, or send assistant-managed files.",
+            "Path-driven workspace file operations. Six actions: list, read, preview, write, delete, attach. Address files by pod-absolute path under /workspace/ (assistant-private) or /shared/<workspaceId>/ (shared space).",
           usageGuidance:
-            "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. When you already know the target file, prefer a working-file alias first, then relativePath, then query; do not rely on raw fileRef values from free text. If the user asks you to send, resend, attach, or share an existing file, discovering or reading that file is not enough: call files.send in the same turn. A working-file alias, relativePath, filename, or markdown link is not a substitute for delivery. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep shell and exec for actual process execution only.",
+            "WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace/shared file to chat. PATHS: /workspace/ = assistant-private read/write area. /shared/<workspaceId>/input/ = user uploads (read-only). /shared/<workspaceId>/outbound/self/ = your published artefacts. SIX ACTIONS: list, read, preview, write, delete, attach. Supply a pod-absolute path for every call. GOTCHAS: For list supply the directory path; for read/preview/write/delete/attach supply the file path. attach delivers an EXISTING file; write it first if it does not yet exist. Keep exec and shell for actual process execution only. Use grep for content search and glob for filename discovery.",
           kind: "plan",
           executionMode: "inline",
           usageRule: "allowed",
@@ -472,6 +474,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       quota: {
         planCode: "starter_trial",
         workspaceQuotaBytes: 1024,
+        sharedQuotaBytes: 1024,
         quotaHook: null
       },
       auditHook: null
@@ -570,54 +573,58 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     webSearch?.description,
     "Search the public web for current external facts.\nUse this when the answer depends on recent external information or links. May be called in parallel with other independent searches."
   );
-  assert.match(files?.description ?? "", /write-and-send/);
-  assert.match(files?.description ?? "", /files\.write_and_send when the user asks/);
-  assert.match(files?.description ?? "", /files\.search with a non-empty query/);
-  assert.match(files?.description ?? "", /call files\.send in the same turn/);
-  assert.match(files?.description ?? "", /not a substitute for delivery/);
-  assert.match(files?.description ?? "", /Do not claim a file was sent unless/);
+  assert.match(files?.description ?? "", /pod-absolute path/);
+  // ADR-126 v3 D6 — files surface is six actions: list, read, preview, write, delete, attach.
+  assert.match(files?.description ?? "", /six actions|Six actions/i);
+  assert.match(files?.description ?? "", /list.*read.*preview.*write.*delete.*attach/i);
+  assert.doesNotMatch(files?.description ?? "", /write.and.send|files\.send|files\.search/);
+  assert.doesNotMatch(files?.description ?? "", /fileRef|alias|relativePath/);
   assert.ok(
     Array.isArray(
       (files?.inputSchema as { properties?: { action?: { enum?: unknown[] } } })?.properties?.action
         ?.enum
     )
   );
+  const filesActionEnum =
+    (files?.inputSchema as { properties?: { action?: { enum?: unknown[] } } })?.properties?.action
+      ?.enum ?? [];
+  assert.ok(filesActionEnum.includes("list"), "files enum must include list");
+  assert.ok(filesActionEnum.includes("read"), "files enum must include read");
+  assert.ok(filesActionEnum.includes("preview"), "files enum must include preview");
+  assert.ok(filesActionEnum.includes("write"), "files enum must include write");
+  assert.ok(filesActionEnum.includes("delete"), "files enum must include delete");
+  // ADR-126 v3 Slice 4 — attach is part of the files surface, not a separate tool.
+  assert.ok(filesActionEnum.includes("attach"), "files enum must include attach");
   assert.ok(
-    (
-      (files?.inputSchema as { properties?: { action?: { enum?: unknown[] } } })?.properties?.action
-        ?.enum ?? []
-    ).includes("write_and_send")
+    !filesActionEnum.includes("write_and_send"),
+    "files enum must not include write_and_send"
   );
+  assert.ok(!filesActionEnum.includes("send"), "files enum must not include send");
+  assert.ok(!filesActionEnum.includes("search"), "files enum must not include search");
   const filesProperties = (
     files?.inputSchema as {
       properties?: {
-        query?: { description?: string };
         path?: { description?: string };
-        alias?: { description?: string };
-        aliases?: { description?: string };
-        filename?: { description?: string };
+        dir?: { description?: string };
+        content?: { description?: string };
+        mode?: { description?: string };
+        maxBytes?: { description?: string };
+        maxDepth?: { description?: string };
       };
     }
   )?.properties;
-  assert.match(
-    filesProperties?.query?.description ?? "",
-    /call action="send" with the resolved target/
+  assert.match(filesProperties?.path?.description ?? "", /pod-absolute path/i);
+  assert.match(filesProperties?.content?.description ?? "", /write/i);
+  assert.equal(
+    filesProperties?.["alias" as keyof typeof filesProperties],
+    undefined,
+    "files schema must not have alias property"
   );
-  assert.match(filesProperties?.path?.description ?? "", /canonical save location/);
-  assert.match(
-    filesProperties?.alias?.description ?? "",
-    /Human-readable sticky working-file alias/
+  assert.equal(
+    filesProperties?.["query" as keyof typeof filesProperties],
+    undefined,
+    "files schema must not have query property"
   );
-  assert.match(filesProperties?.alias?.description ?? "", /file #1|image #1/);
-  assert.doesNotMatch(
-    filesProperties?.alias?.description ?? "",
-    /current attachment|previous attachment|found attachment|listed attachment|read attachment/i
-  );
-  assert.match(
-    filesProperties?.aliases?.description ?? "",
-    /Human-readable working-file aliases to deliver/
-  );
-  assert.match(filesProperties?.filename?.description ?? "", /does not replace path/);
   assert.match(exec?.description ?? "", /assistant sandbox workspace/);
   assert.doesNotMatch(exec?.description ?? "", /same turn stay mounted/i);
   assert.match(shell?.description ?? "", /assistant sandbox workspace/);
@@ -835,7 +842,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       properties?: {
         descriptorMode?: { enum?: unknown[] };
         docId?: { description?: string };
-        fileRef?: { description?: string };
+        storagePath?: { description?: string };
         visualStyle?: { enum?: unknown[]; description?: string };
         imagePolicy?: { enum?: unknown[]; description?: string };
         visualDensity?: { enum?: unknown[]; description?: string };
@@ -861,21 +868,21 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /doc_id/,
     "docId description must not mention snake_case doc_id"
   );
-  // ADR-097 Slice 5 — descriptor sharpening assertions
+  // ADR-126 v3 — cross-chat revise uses storagePath (path identity)
   assert.match(
-    documentProperties?.fileRef?.description ?? "",
-    /MUST be a UUID/,
-    "fileRef description must contain 'MUST be a UUID'"
+    documentProperties?.storagePath?.description ?? "",
+    /Workspace storage path for cross-chat revise_document/,
+    "storagePath description must teach cross-chat path identity"
   );
   assert.match(
-    documentProperties?.fileRef?.description ?? "",
-    /deadbeef/,
-    "fileRef description must contain an example UUID"
+    documentProperties?.storagePath?.description ?? "",
+    /\/shared\//,
+    "storagePath description must contain a /shared/ path example"
   );
   assert.doesNotMatch(
     document?.description ?? "",
     /file_ref/,
-    "tool description must not use snake_case file_ref (should be camelCase fileRef)"
+    "tool description must not use snake_case file_ref"
   );
   assert.match(
     documentProperties?.docId?.description ?? "",
@@ -884,8 +891,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     documentProperties?.docId?.description ?? "",
-    /fileRef/,
-    "docId description must reference camelCase fileRef (the cross-chat alternative)"
+    /storagePath/,
+    "docId description must reference storagePath (the cross-chat alternative)"
   );
   assert.deepEqual(documentProperties?.visualStyle?.enum, [
     "professional_modern",
@@ -908,9 +915,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.match(documentProperties?.imagePolicy?.description ?? "", /visual deck/);
   assert.match(documentProperties?.visualDensity?.description ?? "", /denser slide copy/);
   assert.doesNotMatch(
-    documentProperties?.fileRef?.description ?? "",
+    documentProperties?.storagePath?.description ?? "",
     /current attachment|previous attachment|found attachment|listed attachment|read attachment/i,
-    "fileRef description must not teach legacy attachment aliases"
+    "storagePath description must not teach legacy attachment aliases"
   );
   const scheduledActionKindDescription = (
     scheduledAction?.inputSchema as {
@@ -1931,6 +1938,8 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
   const artifact = compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "sanity-1",
+      assistantHandle: "a-test",
+      siblingAssistantHandles: [],
       workspaceId: "ws-1",
       publishedVersionId: "ver-1",
       publishedVersion: 1,
@@ -2077,6 +2086,7 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
       quota: {
         planCode: "starter_trial",
         workspaceQuotaBytes: 1024,
+        sharedQuotaBytes: 1024,
         quotaHook: null
       },
       auditHook: null
@@ -2168,6 +2178,8 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
     const knowledgeBundle = compileAssistantRuntimeBundle({
       metadata: {
         assistantId: "slice7-1",
+        assistantHandle: "a-test",
+        siblingAssistantHandles: [],
         workspaceId: "ws-slice7",
         publishedVersionId: "ver-slice7",
         publishedVersion: 1,
@@ -2404,6 +2416,7 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
         quota: {
           planCode: "starter_trial",
           workspaceQuotaBytes: 1024,
+          sharedQuotaBytes: 1024,
           quotaHook: null
         },
         auditHook: null
@@ -2572,6 +2585,8 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
     const truncationBundle = compileAssistantRuntimeBundle({
       metadata: {
         assistantId: "slice7-trunc",
+        assistantHandle: "a-test",
+        siblingAssistantHandles: [],
         workspaceId: "ws-trunc",
         publishedVersionId: "ver-trunc",
         publishedVersion: 1,
@@ -2678,7 +2693,12 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
             dailyCallLimit: null
           }
         ],
-        quota: { planCode: "starter_trial", workspaceQuotaBytes: 1024, quotaHook: null },
+        quota: {
+          planCode: "starter_trial",
+          workspaceQuotaBytes: 1024,
+          sharedQuotaBytes: 1024,
+          quotaHook: null
+        },
         auditHook: null
       },
       channels: {

@@ -340,7 +340,9 @@ export class InternalRuntimeDocumentJobsController {
       throw new BadRequestException("attachments must be an array when provided.");
     }
     return value.map((entry, index) => {
-      const row = this.objectField(entry, `attachments[${index}]`);
+      const fieldPrefix = `attachments[${index}]`;
+      const row = this.objectField(entry, fieldPrefix);
+      this.rejectLegacyPathFields(row, fieldPrefix);
       const kind = row.kind;
       if (kind !== "image" && kind !== "audio" && kind !== "video" && kind !== "file") {
         throw new BadRequestException(
@@ -352,12 +354,13 @@ export class InternalRuntimeDocumentJobsController {
         typeof sizeBytesRaw === "number" && Number.isFinite(sizeBytesRaw) && sizeBytesRaw >= 0
           ? sizeBytesRaw
           : 0;
-      const fileRef =
-        row.fileRef === undefined
-          ? undefined
-          : row.fileRef === null
+      const storagePath = this.requiredString(row.storagePath, `${fieldPrefix}.storagePath`);
+      const displayName =
+        row.displayName === null || row.displayName === undefined
+          ? row.filename === null || row.filename === undefined
             ? null
-            : this.stringValue(row.fileRef, `attachments[${index}].fileRef`);
+            : this.stringValue(row.filename, `attachments[${index}].filename`)
+          : this.stringValue(row.displayName, `attachments[${index}].displayName`);
       const aliases =
         row.aliases === undefined
           ? undefined
@@ -371,14 +374,10 @@ export class InternalRuntimeDocumentJobsController {
       return {
         attachmentId: this.requiredString(row.attachmentId, `attachments[${index}].attachmentId`),
         kind,
-        objectKey: this.requiredString(row.objectKey, `attachments[${index}].objectKey`),
+        storagePath,
         mimeType: this.requiredString(row.mimeType, `attachments[${index}].mimeType`),
-        filename:
-          row.filename === null || row.filename === undefined
-            ? null
-            : this.stringValue(row.filename, `attachments[${index}].filename`),
+        displayName,
         sizeBytes,
-        ...(fileRef === undefined ? {} : { fileRef }),
         ...(aliases === undefined ? {} : { aliases })
       };
     });
@@ -465,7 +464,9 @@ export class InternalRuntimeDocumentJobsController {
       throw new BadRequestException("workerResult.artifacts must be an array.");
     }
     return value.map((entry, index) => {
-      const row = this.objectField(entry, `workerResult.artifacts[${index}]`);
+      const fieldPrefix = `workerResult.artifacts[${index}]`;
+      const row = this.objectField(entry, fieldPrefix);
+      this.rejectLegacyPathFields(row, fieldPrefix);
       const type = row.type;
       if (type !== "file" && type !== "image" && type !== "audio" && type !== "video") {
         throw new BadRequestException(
@@ -478,11 +479,20 @@ export class InternalRuntimeDocumentJobsController {
           row.filename === null || row.filename === undefined
             ? null
             : this.stringValue(row.filename, `workerResult.artifacts[${index}].filename`),
-        fileRef:
-          row.fileRef === null || row.fileRef === undefined
+        storagePath:
+          row.storagePath === null || row.storagePath === undefined
             ? null
-            : this.stringValue(row.fileRef, `workerResult.artifacts[${index}].fileRef`)
+            : this.stringValue(row.storagePath, `${fieldPrefix}.storagePath`)
       };
     });
+  }
+
+  private rejectLegacyPathFields(row: Record<string, unknown>, fieldPrefix: string): void {
+    if (row.fileRef !== undefined && row.fileRef !== null) {
+      throw new BadRequestException(`${fieldPrefix}.fileRef is retired; use storagePath.`);
+    }
+    if (row.objectKey !== undefined && row.objectKey !== null) {
+      throw new BadRequestException(`${fieldPrefix}.objectKey is retired; use storagePath.`);
+    }
   }
 }

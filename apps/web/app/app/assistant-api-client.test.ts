@@ -1,11 +1,10 @@
 import { ContractsApiError } from "@persai/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildChatFileUrl,
   compactChat,
-  cleanupAssistantFilesCache,
   getAssistantDocumentPptxPrepareUrl,
-  getAssistantFileDownloadUrl,
-  getAssistantFiles,
+  listChatWorkspaceFiles,
   getAssistantLifecycleView,
   getAssistantList,
   getAdminSupportAttachmentUrl,
@@ -470,13 +469,24 @@ describe("memory center close-open-loop client (ADR-074 M3.1)", () => {
 });
 
 describe("assistant files client", () => {
-  it("returns the inline assistant file url by default", () => {
-    expect(getAssistantFileDownloadUrl("file-ref-1")).toBe("/api/assistant-file/file-ref-1");
+  it("returns the path-based chat file url by default", () => {
+    expect(
+      buildChatFileUrl({
+        chatId: "chat-1",
+        storagePath: "/shared/input/photo.jpg"
+      })
+    ).toBe("/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Finput%2Fphoto.jpg");
   });
 
-  it("adds explicit assistant file download mode when requested", () => {
-    expect(getAssistantFileDownloadUrl("file-ref-1", { download: true })).toBe(
-      "/api/assistant-file/file-ref-1?download=1"
+  it("adds explicit chat file download mode when requested", () => {
+    expect(
+      buildChatFileUrl({
+        chatId: "chat-1",
+        storagePath: "/shared/input/photo.jpg",
+        download: true
+      })
+    ).toBe(
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fshared%2Finput%2Fphoto.jpg&download=1"
     );
   });
 
@@ -534,81 +544,56 @@ describe("assistant files client", () => {
     });
   });
 
-  it("loads assistant files with query and limit", async () => {
+  it("loads workspace files with type and limit", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
           files: [
             {
-              fileRef: "file-ref-1",
-              origin: "uploaded_attachment",
-              displayName: "spec.pdf",
-              filename: "spec.pdf",
+              storagePath: "/shared/input/spec.pdf",
+              thumbnailStoragePath: null,
+              posterStoragePath: null,
+              originalFilename: "spec.pdf",
               mimeType: "application/pdf",
               sizeBytes: 1024,
-              logicalSizeBytes: 1024,
-              fileBucket: "user_files",
-              cleanupEligible: false,
-              cleanupReason: null,
-              createdAt: "2026-05-02T00:00:00.000Z"
+              attachmentType: "document",
+              createdAt: "2026-05-02T00:00:00.000Z",
+              chatId: "chat-1",
+              messageId: "msg-1"
             }
           ],
-          cleanup: { eligibleCount: 1, eligibleBytes: 42 }
+          nextCursor: null
         }),
         { status: 200, headers: { "content-type": "application/json" } }
       )
     );
     global.fetch = fetchMock;
 
-    await expect(getAssistantFiles("token-1", { query: "spec", limit: 20 })).resolves.toEqual({
+    await expect(
+      listChatWorkspaceFiles("token-1", { chatId: "chat-1", type: "document", limit: 20 })
+    ).resolves.toEqual({
       files: [
         {
-          fileRef: "file-ref-1",
-          origin: "uploaded_attachment",
-          displayName: "spec.pdf",
-          filename: "spec.pdf",
+          storagePath: "/shared/input/spec.pdf",
+          thumbnailStoragePath: null,
+          posterStoragePath: null,
+          originalFilename: "spec.pdf",
           mimeType: "application/pdf",
           sizeBytes: 1024,
-          logicalSizeBytes: 1024,
-          fileBucket: "user_files",
-          cleanupEligible: false,
-          cleanupReason: null,
-          createdAt: "2026-05-02T00:00:00.000Z"
+          attachmentType: "document",
+          createdAt: "2026-05-02T00:00:00.000Z",
+          chatId: "chat-1",
+          messageId: "msg-1"
         }
       ],
-      cleanup: { eligibleCount: 1, eligibleBytes: 42 }
+      nextCursor: null
     });
-    expect(fetchMock).toHaveBeenCalledWith("/api/v1/assistant/files?q=spec&limit=20", {
-      headers: { Authorization: "Bearer token-1" }
-    });
-  });
-
-  it("cleans assistant file cache through the dedicated endpoint", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          cleanup: {
-            eligibleCount: 2,
-            eligibleBytes: 128,
-            deletedCount: 2,
-            deletedBytes: 128
-          }
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      )
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/assistant/chats/web/chat-1/workspace-files?type=document&limit=20",
+      {
+        headers: { Authorization: "Bearer token-1" }
+      }
     );
-    global.fetch = fetchMock;
-
-    await expect(cleanupAssistantFilesCache("token-1")).resolves.toEqual({
-      eligibleCount: 2,
-      eligibleBytes: 128,
-      deletedCount: 2,
-      deletedBytes: 128
-    });
-    expect(fetchMock).toHaveBeenCalledWith("/api/v1/assistant/files/cleanup-cache", {
-      method: "POST",
-      headers: { Authorization: "Bearer token-1" }
-    });
   });
 });
 

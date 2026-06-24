@@ -23,7 +23,7 @@ describe("deferred document acknowledgement", () => {
     const service = createBareTurnExecutionService() as unknown as {
       buildToolLoopDeveloperInstructions: (
         existing: unknown[],
-        availableWorkingFileRefs: unknown[],
+        availableWorkingFileHandles: unknown[],
         closedOpenLoopRefs: string[],
         hasToolHistory: boolean,
         toolHistory: unknown[],
@@ -86,7 +86,7 @@ describe("deferred document acknowledgement", () => {
     const service = createBareTurnExecutionService() as unknown as {
       buildToolLoopDeveloperInstructions: (
         existing: unknown[],
-        availableWorkingFileRefs: unknown[],
+        availableWorkingFileHandles: unknown[],
         closedOpenLoopRefs: string[],
         hasToolHistory: boolean,
         toolHistory: unknown[],
@@ -121,7 +121,11 @@ describe("deferred document acknowledgement", () => {
     );
     assert.ok(instructions?.includes("accepted for async background processing"));
     assert.ok(instructions?.includes("pending_delivery with canSendFileNow=false"));
-    assert.ok(instructions?.includes("Do not call files.send"));
+    assert.ok(
+      instructions?.includes(
+        "Do not attempt to deliver this document or any file from this turn via the files tool."
+      )
+    );
     assert.ok(instructions?.includes("final document will arrive separately when ready"));
   });
 
@@ -129,7 +133,7 @@ describe("deferred document acknowledgement", () => {
     const service = createBareTurnExecutionService() as unknown as {
       buildToolLoopDeveloperInstructions: (
         existing: unknown[],
-        availableWorkingFileRefs: unknown[],
+        availableWorkingFileHandles: unknown[],
         closedOpenLoopRefs: string[],
         hasToolHistory: boolean,
         toolHistory: unknown[],
@@ -165,7 +169,11 @@ describe("deferred document acknowledgement", () => {
 
     assert.ok(instructions?.includes("may continue with other independent work"));
     assert.ok(instructions?.includes("Do not describe the final document as already generated"));
-    assert.ok(instructions?.includes("Do not call files.send"));
+    assert.ok(
+      instructions?.includes(
+        "Do not attempt to deliver this document or any file from this turn via the files tool."
+      )
+    );
     assert.ok(instructions?.includes("Do not print raw tool JSON"));
     assert.equal(instructions?.includes("Write only a brief acknowledgement"), false);
   });
@@ -247,124 +255,7 @@ describe("deferred document acknowledgement", () => {
     );
   });
 
-  test("blocks files.send while a document from the same turn is pending delivery", async () => {
-    const service = createBareTurnExecutionService() as unknown as {
-      executeProjectedToolCall: (
-        execution: unknown,
-        acceptedTurn: unknown,
-        input: unknown,
-        toolCall: { id: string; name: string; arguments: Record<string, unknown> },
-        currentUserMessageId: string | null,
-        currentArtifacts: unknown[],
-        currentFileRefs: unknown[],
-        availableWorkingFileRefs: unknown[],
-        currentDeferredDocumentJobs: Array<{
-          jobId: string;
-          toolCode: "document";
-          descriptorMode: "revise_document";
-          documentType: "pdf_document";
-        }>
-      ) => Promise<{ payload: { action?: string; reason?: string | null } }>;
-    };
-
-    const outcome = await service.executeProjectedToolCall(
-      {
-        projectedTools: { tools: [{ name: "files" }] },
-        bundle: {
-          runtime: {
-            sharedCompaction: {
-              summarizeToolCode: "summarize_context",
-              compactToolCode: "compact_context"
-            }
-          }
-        }
-      },
-      {},
-      {},
-      {
-        id: "tool-files-send-1",
-        name: "files",
-        arguments: { action: "send", alias: "previous attachment #1" }
-      },
-      "user-message-1",
-      [],
-      [],
-      [],
-      [
-        {
-          jobId: "doc-job-1",
-          toolCode: "document",
-          descriptorMode: "revise_document",
-          documentType: "pdf_document"
-        }
-      ]
-    );
-
-    assert.equal(outcome.payload.action, "skipped");
-    assert.equal(outcome.payload.reason, "document_pending_delivery");
-  });
-
-  test("blocks files.write_and_send while a document from the same turn is pending delivery", async () => {
-    const service = createBareTurnExecutionService() as unknown as {
-      executeProjectedToolCall: (
-        execution: unknown,
-        acceptedTurn: unknown,
-        input: unknown,
-        toolCall: { id: string; name: string; arguments: Record<string, unknown> },
-        currentUserMessageId: string | null,
-        currentArtifacts: unknown[],
-        currentFileRefs: unknown[],
-        availableWorkingFileRefs: unknown[],
-        currentDeferredDocumentJobs: Array<{
-          jobId: string;
-          toolCode: "document";
-          descriptorMode: "create_pdf_document";
-          documentType: "pdf_document";
-        }>
-      ) => Promise<{
-        payload: { action?: string; reason?: string | null; requestedAction?: string | null };
-      }>;
-    };
-
-    const outcome = await service.executeProjectedToolCall(
-      {
-        projectedTools: { tools: [{ name: "files" }] },
-        bundle: {
-          runtime: {
-            sharedCompaction: {
-              summarizeToolCode: "summarize_context",
-              compactToolCode: "compact_context"
-            }
-          }
-        }
-      },
-      {},
-      {},
-      {
-        id: "tool-files-was-1",
-        name: "files",
-        arguments: { action: "write_and_send", alias: "result.pdf", content: "..." }
-      },
-      "user-message-2",
-      [],
-      [],
-      [],
-      [
-        {
-          jobId: "doc-job-2",
-          toolCode: "document",
-          descriptorMode: "create_pdf_document",
-          documentType: "pdf_document"
-        }
-      ]
-    );
-
-    assert.equal(outcome.payload.action, "skipped");
-    assert.equal(outcome.payload.reason, "document_pending_delivery");
-    assert.equal(outcome.payload.requestedAction, "write_and_send");
-  });
-
-  test("reorders batch so document executes before files.send when model emits files.send first", () => {
+  test("reorders batch so document executes before files when model emits files first", () => {
     const service = createBareTurnExecutionService() as unknown as {
       reorderToolCallsDocumentFirst: (
         toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>
@@ -380,7 +271,7 @@ describe("deferred document acknowledgement", () => {
     assert.equal(reordered[1]?.name, "files");
   });
 
-  test("reorderToolCallsDocumentFirst preserves relative order within document and files groups", () => {
+  test("reorderToolCallsDocumentFirst preserves relative order within document and non-document groups", () => {
     const service = createBareTurnExecutionService() as unknown as {
       reorderToolCallsDocumentFirst: (
         toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>
