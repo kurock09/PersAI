@@ -87,6 +87,24 @@ export class IdentityAccessModule implements NestModule {
         path: "api/v1/assistant/chats/web/:chatId/files",
         method: RequestMethod.DELETE
       },
+      // ADR-127 W1+W3 follow-up (2026-06-25 founder report): workspace-scoped
+      // tile gallery routes added by W1 (download/preview) and W3 (delete)
+      // for the assistant Files panel were missing from this allowlist, so
+      // the UI returned 401 "Authenticated user context is missing." when
+      // the user tried to delete or open a file via the workspace-scoped
+      // panel. Same regression class as the W5 chat-scoped fix above.
+      {
+        path: "api/v1/assistant/workspaces/:workspaceId/files",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/assistant/workspaces/:workspaceId/files/preview",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/assistant/workspaces/:workspaceId/files",
+        method: RequestMethod.DELETE
+      },
       {
         path: "api/v1/assistant/documents/:docId/prepare-pptx",
         method: RequestMethod.POST

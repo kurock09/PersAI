@@ -290,6 +290,23 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
       path: "api/v1/assistant/chats/web/:chatId/files",
       method: RequestMethod.DELETE
     },
+    // ADR-127 W1+W3 follow-up (2026-06-25) — workspace-scoped tile-gallery
+    // download/preview/delete routes. W1 added download+preview, W3 added
+    // delete; all three were missing from ClerkAuthMiddleware so the UI's
+    // "Файлы ассистента" panel returned 401 on delete and 401 on opening
+    // a tile. Same regression class as the W5 chat-scoped fix above.
+    {
+      path: "api/v1/assistant/workspaces/:workspaceId/files",
+      method: RequestMethod.GET
+    },
+    {
+      path: "api/v1/assistant/workspaces/:workspaceId/files/preview",
+      method: RequestMethod.GET
+    },
+    {
+      path: "api/v1/assistant/workspaces/:workspaceId/files",
+      method: RequestMethod.DELETE
+    },
     {
       path: "api/v1/assistant/documents/:docId/prepare-pptx",
       method: RequestMethod.POST
