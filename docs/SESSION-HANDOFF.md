@@ -1,5 +1,23 @@
 # SESSION-HANDOFF
 
+## 2026-06-26 — ADR-128 opened: single `/workspace/` namespace, retire `/shared/<wsid>/`
+
+Status: open. Baseline SHA: `a0400818`.
+
+Founder live test on 2026-06-25 (evening) surfaced that ADR-126 v3 + ADR-127 closures left a structural gap: two pod namespaces (`/workspace/` for assistant scratch, `/shared/<wsid>/` for shared files) with different semantics — persistence, GCS sync, manifest. Model is biased toward `/workspace/` and on a fresh xlsx upload tried `read /workspace/X.xlsx` first (audit: `path_not_found`), then made 5 more fallback tool calls before giving up. The xlsx file was correctly placed in `/shared/<wsid>/input/`, in GCS, and in the manifest. Symlinks fix from the 2026-06-25 closure follow-up (`/shared/input → /shared/<wsid>/input`) did not help because the model crossed namespaces, not paths within `/shared/`.
+
+Diagnosis details verified in dev cluster:
+- exec pod (`ses-cf94...`) created post-deploy at 20:46:21 UTC has the two `/shared/...` symlinks correctly. Symlinks fix itself is working.
+- file written to pod at `/shared/<wsid>/input/PersAI_B2B_FinModel_v3.xlsx`, 15121 bytes, audit ok.
+- manifest row created with `path=/shared/input/PersAI_B2B_FinModel_v3.xlsx`, full `shortDescription`, MIME, size.
+- `AssistantChatMessageAttachment` row created with same `storagePath`.
+- `/shared/<wsid>/input/` directory mode is `0444` (no execute bit) — `files.list /shared/input` fails EACCES even with correct path.
+- manifest contains ONLY the new xlsx for this workspace; the other 7 files visible in the UI gallery come from a different (older) chat in the same workspace, written before W1 deploy → no manifest rows.
+
+ADR-127 closure follow-up symlinks fix (commit `d3db1c93`) is acknowledged in retrospect as a kludge layered on top of the dual-namespace structure. ADR-128 retires `/shared/<wsid>/` and establishes a single `/workspace/` root with `input/`, `outbound/`, and free area.
+
+Six slices planned (S1 pod bootstrap + path containment, S2 sandbox bridge, S3 API + runtime path generation, S4 DB back-fill migration, S5 GCS layout + transitional dual-prefix read, S6 closure + docs + legacy GCS wipe runbook). See `docs/ADR/128-single-workspace-namespace-retire-shared.md`. Next step: start Slice 1.
+
 ## 2026-06-25 — ADR-127 closure follow-up: pod-side symlinks for /shared/ model-canonical paths
 
 Scope: closure follow-up to ADR-127 (not a new ADR). Baseline SHA: `ee3fcbad` (W5 docs, post-push on `origin/main`).
