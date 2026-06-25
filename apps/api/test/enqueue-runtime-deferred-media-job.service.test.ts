@@ -486,6 +486,135 @@ async function run(): Promise<void> {
     assert.equal(enqueueCalls.count, 1);
   }
 
+  // ── ADR-127 W4: storagePath attachment is accepted (v3 validator, regression) ──
+  {
+    const { service, reserveCalls, enqueueCalls } = buildService({});
+    const parsed = service.parseInput({
+      assistantId: "assistant-1",
+      sourceUserMessageId: "message-w4-sp",
+      sourceUserMessageText: "Edit this photo",
+      attachments: [
+        {
+          attachmentId: "att-w4-sp",
+          kind: "image",
+          storagePath: "/shared/input/photo.jpg",
+          mimeType: "image/jpeg",
+          displayName: "photo.jpg",
+          sizeBytes: 1024,
+          aliases: ["image #1"]
+        }
+      ],
+      directToolExecution: {
+        toolCode: "image_edit",
+        request: {
+          toolCode: "image_edit",
+          count: 1,
+          prompt: "make it brighter",
+          filename: null,
+          size: null,
+          background: "auto",
+          sourceImageAlias: "image #1",
+          referenceImageAliases: []
+        }
+      }
+    });
+    const result = await service.execute(parsed);
+    assert.equal(
+      result.accepted,
+      true,
+      "ADR-127 W4: storagePath attachment must be accepted after fallback removal"
+    );
+    assert.equal(enqueueCalls.count, 1);
+    assert.equal(reserveCalls[0]?.toolCode, "image_edit");
+  }
+
+  // ── ADR-127 W4: objectKey-only attachment is rejected (fallback removed) ──
+  {
+    const { service } = buildService({});
+    assert.throws(
+      () =>
+        service.parseInput({
+          assistantId: "assistant-1",
+          sourceUserMessageId: "message-w4-ok",
+          sourceUserMessageText: "Edit photo",
+          attachments: [
+            {
+              attachmentId: "att-w4-ok",
+              kind: "image",
+              objectKey: "assistant-media/foo.jpg",
+              mimeType: "image/jpeg",
+              displayName: "foo.jpg",
+              sizeBytes: 1024,
+              aliases: ["image #1"]
+            }
+          ],
+          directToolExecution: {
+            toolCode: "image_edit",
+            request: {
+              toolCode: "image_edit",
+              count: 1,
+              prompt: "adjust",
+              filename: null,
+              size: null,
+              background: "auto",
+              sourceImageAlias: "image #1",
+              referenceImageAliases: []
+            }
+          }
+        }),
+      /attachments must contain valid runtime attachment refs/,
+      "ADR-127 W4: objectKey-only attachment must be rejected after fallback removal"
+    );
+  }
+
+  // ── ADR-127 W4: mixed attachments (one storagePath + one objectKey-only) rejected ──
+  {
+    const { service } = buildService({});
+    assert.throws(
+      () =>
+        service.parseInput({
+          assistantId: "assistant-1",
+          sourceUserMessageId: "message-w4-mixed",
+          sourceUserMessageText: "Edit photos",
+          attachments: [
+            {
+              attachmentId: "att-w4-good",
+              kind: "image",
+              storagePath: "/shared/input/good.jpg",
+              mimeType: "image/jpeg",
+              displayName: "good.jpg",
+              sizeBytes: 1024,
+              aliases: ["image #1"]
+            },
+            {
+              attachmentId: "att-w4-bad",
+              kind: "image",
+              objectKey: "assistant-media/bad.jpg",
+              mimeType: "image/jpeg",
+              displayName: "bad.jpg",
+              sizeBytes: 2048,
+              aliases: ["image #2"]
+            }
+          ],
+          directToolExecution: {
+            toolCode: "image_edit",
+            request: {
+              toolCode: "image_edit",
+              count: 1,
+              prompt: "collage",
+              filename: null,
+              size: null,
+              background: "auto",
+              sourceImageAlias: "image #1",
+              referenceImageAliases: ["image #2"]
+            }
+          }
+        }),
+      /attachments must contain valid runtime attachment refs/,
+      "ADR-127 W4: mixed attachments must be rejected when any element is objectKey-only"
+    );
+  }
+
   console.log("[enqueue-runtime-deferred-media-job.service.test] All scenarios passed.");
 }
 

@@ -1,6 +1,24 @@
 # SESSION-HANDOFF
 
-## 2026-06-25 — ADR-127 W3 landed (delete-everywhere symmetry, D5 delete-side + D7)
+## 2026-06-25 — ADR-127 W4 landed (drop objectKey fallback in isAttachmentRef + data migration)
+
+Scope: ADR-127 D8 only. Remove the legacy `objectKey` fallback branches from both `isAttachmentRef` validators plus a one-shot Prisma SQL migration that rewrites any in-flight `assistant_media_jobs.request_json` rows still carrying `objectKey`. Baseline SHA: `e65d21df` (W3 commit). Residuals: W4.5 (`PERSAI_MEDIA_OBJECT_PREFIX` rename) and W5 (GCS wipe runbook) remain open. Migration SQL is locally authored; live application happens on the next dev deploy.
+
+### What changed
+
+- `apps/api/prisma/migrations/20260625000000_adr127_w4_drop_objectkey_fallback_data_migration/migration.sql` (new): idempotent `UPDATE assistant_media_jobs SET request_json = ... WHERE request_json ? 'attachments' AND jsonb_typeof(...) = 'array' AND EXISTS (SELECT 1 ... WHERE att ? 'objectKey' AND NOT (att ? 'storagePath'))` — renames `objectKey` → `storagePath` per attachment element; rows without `objectKey` are untouched.
+- `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-media-job.service.ts` — `isAttachmentRef` now requires `storagePath`; `objectKey` fallback branch removed.
+- `apps/api/src/modules/workspace-management/application/workspace-media-job-scheduler.service.ts` — same change in the scheduler's `isAttachmentRef`.
+- `apps/api/test/enqueue-runtime-deferred-media-job.service.test.ts` — 3 new ADR-127 W4 cases: storagePath accepted, objectKey-only rejected, mixed rejected.
+- `apps/api/test/workspace-media-job-scheduler.service.test.ts` — 3 new ADR-127 W4 cases: same contract, validated via scheduler `processDueJobsBatch`.
+
+### Residuals
+
+- W4.5 / D9: `PERSAI_MEDIA_OBJECT_PREFIX` rename remains open.
+- W5 / D10: GCS wipe runbook execution remains open (operational only, no code change).
+- Migration SQL is unit-test-only until deployed; live application on the next dev rollout.
+
+
 
 Scope: ADR-127 W3 only. Land delete-side symmetry so every active delete path updates durable truth (`workspace_file_metadata` + GCS) and treats pod FS eviction as best-effort cache cleanup. Baseline SHA: `180b0d61`.
 

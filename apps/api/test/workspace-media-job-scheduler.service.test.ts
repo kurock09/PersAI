@@ -956,6 +956,177 @@ describe("AssistantMediaJobSchedulerService", () => {
     assert.deepEqual(leaseService.releaseCalls, [{ key: "media_job", token: "lease-media-1" }]);
   });
 
+  test("ADR-127 W4 — storagePath attachment is accepted by scheduler validator", async () => {
+    const { service, finalUpdates } = createService({
+      queryRows: [
+        {
+          id: "job-w4-sp",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          surface: "web",
+          kind: "image",
+          sourceUserMessageId: "user-message-1",
+          requestJson: {
+            attachments: [
+              {
+                attachmentId: "att-sp-1",
+                kind: "image",
+                storagePath: "/shared/input/photo.jpg",
+                mimeType: "image/jpeg",
+                displayName: "photo.jpg",
+                sizeBytes: 1024
+              }
+            ],
+            sourceUserMessageText: "edit this photo",
+            sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            directToolExecution: {
+              toolCode: "image_generate",
+              request: {
+                toolCode: "image_generate",
+                prompt: "draw a sunset",
+                count: 1,
+                filename: null,
+                size: "1024x1024",
+                background: "auto"
+              }
+            }
+          },
+          attemptCount: 0,
+          maxAttempts: 5
+        }
+      ]
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.length, 1);
+    assert.equal(
+      finalUpdates[0]?.data?.status,
+      "completion_pending",
+      "ADR-127 W4: storagePath attachment must pass scheduler validator"
+    );
+  });
+
+  test("ADR-127 W4 — objectKey-only attachment is rejected by scheduler validator", async () => {
+    const { service, finalUpdates, releaseCalls } = createService({
+      queryRows: [
+        {
+          id: "job-w4-ok",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          surface: "web",
+          kind: "image",
+          sourceUserMessageId: "user-message-1",
+          requestJson: {
+            attachments: [
+              {
+                attachmentId: "att-ok-1",
+                kind: "image",
+                objectKey: "assistant-media/foo.jpg",
+                mimeType: "image/jpeg",
+                displayName: "foo.jpg",
+                sizeBytes: 1024
+              }
+            ],
+            sourceUserMessageText: "edit this photo",
+            sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            directToolExecution: {
+              toolCode: "image_generate",
+              request: {
+                toolCode: "image_generate",
+                prompt: "draw a sunset",
+                count: 1,
+                filename: null,
+                size: "1024x1024",
+                background: "auto"
+              }
+            }
+          },
+          attemptCount: 0,
+          maxAttempts: 5
+        }
+      ]
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(
+      finalUpdates[0]?.data?.status,
+      "failed",
+      "ADR-127 W4: objectKey-only attachment must fail scheduler validation"
+    );
+    assert.equal(finalUpdates[0]?.data?.lastErrorCode, "invalid_request_payload");
+    assert.equal(releaseCalls.length, 1, "failJob releases the reserved unit on invalid payload");
+  });
+
+  test("ADR-127 W4 — mixed attachments (one valid, one objectKey-only) are rejected by scheduler validator", async () => {
+    const { service, finalUpdates } = createService({
+      queryRows: [
+        {
+          id: "job-w4-mixed",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          surface: "web",
+          kind: "image",
+          sourceUserMessageId: "user-message-1",
+          requestJson: {
+            attachments: [
+              {
+                attachmentId: "att-mixed-good",
+                kind: "image",
+                storagePath: "/shared/input/good.jpg",
+                mimeType: "image/jpeg",
+                displayName: "good.jpg",
+                sizeBytes: 1024
+              },
+              {
+                attachmentId: "att-mixed-bad",
+                kind: "image",
+                objectKey: "assistant-media/bad.jpg",
+                mimeType: "image/jpeg",
+                displayName: "bad.jpg",
+                sizeBytes: 2048
+              }
+            ],
+            sourceUserMessageText: "combine these",
+            sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            directToolExecution: {
+              toolCode: "image_generate",
+              request: {
+                toolCode: "image_generate",
+                prompt: "draw a sunset",
+                count: 1,
+                filename: null,
+                size: "1024x1024",
+                background: "auto"
+              }
+            }
+          },
+          attemptCount: 0,
+          maxAttempts: 5
+        }
+      ]
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(
+      finalUpdates[0]?.data?.status,
+      "failed",
+      "ADR-127 W4: any objectKey-only element must fail scheduler validation"
+    );
+    assert.equal(finalUpdates[0]?.data?.lastErrorCode, "invalid_request_payload");
+  });
+
   test("pushes telegram failure notice when scheduler failJob runs on telegram surface", async () => {
     const { service, finalUpdates, outboundCalls } = createService({
       queryRows: [
