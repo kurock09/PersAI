@@ -600,3 +600,87 @@ test("files.write /shared/ upsert failure is swallowed; write still succeeds", a
   assert.equal(result.isError, false);
   assert.equal(result.payload.action, "written");
 });
+
+test("files.delete /shared/ path deletes manifest after sandbox rm", async () => {
+  let manifestDeleteCalled = false;
+  let manifestDeleteInput: Record<string, unknown> | undefined;
+  const service = createService({
+    sandboxJob: {
+      status: "completed",
+      reason: null,
+      warning: null,
+      violationMessage: null,
+      content: JSON.stringify({})
+    },
+    apiClient: {
+      async deleteWorkspaceFileFromManifest(input: Record<string, unknown>) {
+        manifestDeleteCalled = true;
+        manifestDeleteInput = input;
+      }
+    }
+  });
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-delete-shared",
+      name: "files",
+      arguments: {
+        action: "delete",
+        path: "/shared/outbound/self/note.txt"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: null,
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.action, "deleted");
+  assert.equal(manifestDeleteCalled, true);
+  assert.equal(manifestDeleteInput?.workspaceId, "workspace-1");
+  assert.equal(manifestDeleteInput?.path, "/shared/outbound/self/note.txt");
+});
+
+test("files.delete /workspace/ path does NOT delete manifest", async () => {
+  let manifestDeleteCalled = false;
+  const service = createService({
+    sandboxJob: {
+      status: "completed",
+      reason: null,
+      warning: null,
+      violationMessage: null,
+      content: JSON.stringify({})
+    },
+    apiClient: {
+      async deleteWorkspaceFileFromManifest() {
+        manifestDeleteCalled = true;
+      }
+    }
+  });
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-delete-workspace",
+      name: "files",
+      arguments: {
+        action: "delete",
+        path: "/workspace/scratch.txt"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: null,
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.action, "deleted");
+  assert.equal(manifestDeleteCalled, false);
+});

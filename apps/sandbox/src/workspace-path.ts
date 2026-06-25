@@ -273,7 +273,10 @@ export function assertAllowedMountPrefix(
  * that already point inside the workspace's shared root (i.e. their second
  * path segment matches the workspaceId) are also returned unchanged.
  */
-function injectWorkspaceIdSegmentIfMissing(normalizedInput: string, sharedRoot: string): string {
+export function injectWorkspaceIdSegmentIfMissing(
+  normalizedInput: string,
+  sharedRoot: string
+): string {
   const sharedPrefix = `${POSIX_SEPARATOR}shared${POSIX_SEPARATOR}`;
   if (!normalizedInput.startsWith(sharedPrefix) && normalizedInput !== "/shared") {
     return normalizedInput;

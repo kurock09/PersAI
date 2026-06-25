@@ -20,6 +20,7 @@ import {
   buildChatFileUrl,
   buildWorkspaceFileUrl,
   deleteChatWorkspaceFile,
+  deleteWorkspaceFile,
   listChatWorkspaceFiles,
   type ChatWorkspaceFileTile
 } from "../assistant-api-client";
@@ -269,27 +270,26 @@ export function WorkspaceFilesGallery({
 
   const handleDelete = useCallback(
     async (file: ChatWorkspaceFileTile) => {
-      // ADR-127 W1 — delete UI for orphan files (`chatId === null`) ships
-      // in W3 with the matching workspace-scoped DELETE endpoint. For
-      // now, ignore the click to avoid 4xx noise; the menu still renders
-      // so the affordance is visible.
-      if (file.chatId === null) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          "workspace-files-gallery: delete skipped — orphan tile (chatId=null) handled in ADR-127 W3."
-        );
-        return;
-      }
-      const chatIdForDelete = file.chatId;
       const token = await getToken({ skipCache: true });
       if (!token) return;
+      if (file.chatId === null && workspaceId === null) {
+        setFeedback(t("filesDeleteFailed"));
+        return;
+      }
       setBusyPath(file.storagePath);
       setFeedback(null);
       try {
-        await deleteChatWorkspaceFile(token, {
-          chatId: chatIdForDelete,
-          storagePath: file.storagePath
-        });
+        if (file.chatId !== null) {
+          await deleteChatWorkspaceFile(token, {
+            chatId: file.chatId,
+            storagePath: file.storagePath
+          });
+        } else {
+          await deleteWorkspaceFile(token, {
+            workspaceId: workspaceId!,
+            storagePath: file.storagePath
+          });
+        }
         setFiles((current) => current.filter((row) => row.storagePath !== file.storagePath));
       } catch (error) {
         setFeedback(error instanceof Error ? error.message : t("filesDeleteFailed"));
@@ -297,7 +297,7 @@ export function WorkspaceFilesGallery({
         setBusyPath(null);
       }
     },
-    [getToken, t]
+    [getToken, t, workspaceId]
   );
 
   if (!chatId) {

@@ -1,5 +1,40 @@
 # SESSION-HANDOFF
 
+## 2026-06-25 — ADR-127 W3 landed (delete-everywhere symmetry, D5 delete-side + D7)
+
+Scope: ADR-127 W3 only. Land delete-side symmetry so every active delete path updates durable truth (`workspace_file_metadata` + GCS) and treats pod FS eviction as best-effort cache cleanup. Baseline SHA: `180b0d61`.
+
+### What changed
+
+API (`apps/api`):
+
+- `application/manage-chat-media.service.ts` now factors a shared durable delete flow used by both chat-scoped delete and the new workspace-scoped orphan delete. Order is now GCS delete -> manifest delete -> attachment-status clear (chat-backed only) -> best-effort hot-pod rm.
+- `deleteChatWorkspaceFile` keeps its existing auth/chat ownership checks but now also deletes the manifest row and best-effort evicts the pod-side cached copy. Pod-rm failures are logged and swallowed; manifest delete remains fatal.
+- New `deleteWorkspaceFile({ assistantId, workspaceId, path })` supports manifest-only/orphan tiles with no attachment row. It returns 404 only when both the manifest row and the GCS object are absent.
+- `interface/http/media-attachment.controller.ts` adds `DELETE /api/v1/assistant/workspaces/:workspaceId/files?path=...` (assistant-authenticated, workspace ownership enforced, `/shared/...` only). Existing `DELETE /assistant/chats/web/:chatId/files` remains intact for attachment-backed tiles.
+- `interface/http/internal-workspace-files.controller.ts` adds idempotent internal-token `DELETE /api/v1/internal/workspaces/:workspaceId/files/metadata?path=...` for runtime-side manifest deletes.
+- `application/sandbox-control-plane.client.service.ts` adds `removeSharedFileFromHotPods`, a best-effort control-plane hop into sandbox for cache eviction only.
+
+Runtime / sandbox / web:
+
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` now deletes manifest rows after successful sandbox `files.delete` for `/shared/...` paths, while `/workspace/...` scratch deletes stay pod-only. Manifest-delete failures are warned and swallowed so the model still sees success once the pod delete completed.
+- `apps/sandbox` adds `POST /api/v1/control/workspaces/:workspaceId/shared/rm` plus `ExecPodBridgeService.removeSharedFileFromWarmPods()`, which fan-outs `rm -f -- ...` to all running workspace session pods using model-canonical `/shared/...` input rewritten to pod-physical `/shared/<workspaceId>/...`.
+- `apps/web/app/app/_components/workspace-files-gallery.tsx` no longer short-circuits orphan-tile delete; `assistant-api-client.ts` now calls the new workspace-scoped DELETE when `chatId === null`.
+
+### Tests
+
+- `apps/api/test/manage-chat-media.delete-workspace-file.test.ts` (new): chat-scoped durable delete, hot-pod best-effort swallow, manifest-delete fatal path, orphan-workspace delete, absent-manifest/object 404.
+- `apps/api/test/internal-workspace-files.controller.test.ts` (new): internal delete 204, idempotent absent-row 204, `/shared/` validation, token auth.
+- `apps/api/test/media-attachment.controller.test.ts`: workspace-scoped public delete happy path + 400/401/403 validation coverage.
+- `apps/runtime/test/runtime-files-tool.service.test.ts`: focused `files.delete` manifest-delete coverage for `/shared/...` vs `/workspace/...`.
+- `apps/sandbox/test/exec-pod-bridge.service.test.ts`: warm-pod rm path translation + no-hot-pod no-op coverage.
+
+### Residuals
+
+- W4/W4.5/W5 remain untouched by design: `objectKey` fallback removal, `PERSAI_MEDIA_OBJECT_PREFIX` default rename, and the GCS wipe runbook are still open follow-ups.
+- Runtime test file `apps/runtime/test/runtime-files-tool.service.test.ts` still contains the 3 pre-existing `files.attach` baseline failures already documented in the 2026-06-25 W1 checkpoint; W3 added filtered `files.delete` runs instead of claiming the full file clean.
+- Pod-side cache eviction is intentionally best-effort only. If sandbox is down or no warm pod exists, the manifest and GCS remain authoritative and the next hydrate/list cycle reconciles visibility.
+
 ## 2026-06-25 — ADR-127 W2 landed (parallel cold-start hydrate)
 
 Scope: ADR-127 D6 only. Out of W2: D7 delete-side symmetry, D8 `isAttachmentRef` `objectKey` fallback drop, D9 `PERSAI_MEDIA_OBJECT_PREFIX` rename, D10 GCS wipe runbook. Baseline SHA: `76473a89`.

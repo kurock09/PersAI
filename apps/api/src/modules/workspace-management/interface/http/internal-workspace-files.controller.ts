@@ -1,6 +1,18 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  Req
+} from "@nestjs/common";
 import { ListWorkspaceFilesFromManifestService } from "../../application/list-workspace-files-from-manifest.service";
 import { UpsertWorkspaceFileMetadataFromRuntimeService } from "../../application/upsert-workspace-file-metadata-from-runtime.service";
+import { WorkspaceFileMetadataService } from "../../application/workspace-file-metadata.service";
 import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
 
 type InternalRequestLike = {
@@ -16,7 +28,8 @@ type InternalRequestLike = {
 export class InternalWorkspaceFilesController {
   constructor(
     private readonly listWorkspaceFilesFromManifestService: ListWorkspaceFilesFromManifestService,
-    private readonly upsertWorkspaceFileMetadataFromRuntimeService: UpsertWorkspaceFileMetadataFromRuntimeService
+    private readonly upsertWorkspaceFileMetadataFromRuntimeService: UpsertWorkspaceFileMetadataFromRuntimeService,
+    private readonly workspaceFileMetadataService: WorkspaceFileMetadataService
   ) {}
 
   @HttpCode(200)
@@ -53,6 +66,24 @@ export class InternalWorkspaceFilesController {
       workspaceId
     });
     await this.upsertWorkspaceFileMetadataFromRuntimeService.execute(input);
+  }
+
+  @HttpCode(204)
+  @Delete(":workspaceId/files/metadata")
+  async deleteMetadata(
+    @Req() req: InternalRequestLike,
+    @Param("workspaceId") workspaceId: string,
+    @Query("path") path: string | undefined
+  ): Promise<void> {
+    this.assertAuthorized(req);
+    const trimmedPath = typeof path === "string" ? path.trim() : "";
+    if (!trimmedPath.startsWith("/shared/")) {
+      throw new BadRequestException('path must start with "/shared/".');
+    }
+    await this.workspaceFileMetadataService.delete({
+      workspaceId,
+      path: trimmedPath
+    });
   }
 
   private assertAuthorized(req: InternalRequestLike): void {

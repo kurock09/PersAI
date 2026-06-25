@@ -20,6 +20,7 @@ import { SANDBOX_CONFIG } from "./sandbox-config";
 import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
 import { SandboxObservabilityService } from "./sandbox-observability.service";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
+import { buildSharedRoot, injectWorkspaceIdSegmentIfMissing } from "./workspace-path";
 
 // Annotations carrying the assistant+workspace identity on the reusable exec pod.
 // The exec pod is keyed by (assistantId, workspaceId), NOT by chat session, so all
@@ -662,6 +663,59 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       );
       return [];
     }
+  }
+
+  async removeSharedFileFromWarmPods(input: {
+    workspaceId: string;
+    path: string;
+    policy?: RuntimeSandboxPolicy;
+  }): Promise<{ removedFromPods: number; failures: Array<{ podName: string; reason: string }> }> {
+    const warmPods = await this.listWarmSessionPodsForWorkspace(input.workspaceId);
+    if (warmPods.length === 0) {
+      this.logger.log(
+        `shared_file_hot_pod_rm_skipped workspace=${input.workspaceId} path=${input.path} reason=no_hot_pods`
+      );
+      return { removedFromPods: 0, failures: [] };
+    }
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+    const absolutePath = injectWorkspaceIdSegmentIfMissing(
+      input.path.replace(/\\/g, "/"),
+      buildSharedRoot(input.workspaceId)
+    );
+    const shellCommand = `rm -f -- ${posixSingleQuote(absolutePath)}`;
+    const policy = input.policy ?? BOOTSTRAP_HYDRATE_POLICY;
+    let removedFromPods = 0;
+    const failures: Array<{ podName: string; reason: string }> = [];
+    for (const pod of warmPods) {
+      try {
+        const result = await this.execCommand(pod.podName, namespace, {
+          command: "/bin/bash",
+          args: ["-lc", shellCommand],
+          podCwd: "/",
+          policy,
+          stdin: null
+        });
+        if (result.exitCode === 0) {
+          removedFromPods += 1;
+          continue;
+        }
+        const reason =
+          result.stderr.trim() ||
+          result.stdout.trim() ||
+          `exit_${result.exitCode === null ? "unknown" : String(result.exitCode)}`;
+        failures.push({ podName: pod.podName, reason });
+        this.logger.warn(
+          `shared_file_hot_pod_rm_failed workspace=${input.workspaceId} pod=${pod.podName} path=${absolutePath} reason=${reason}`
+        );
+      } catch (error) {
+        const reason = describeUnknownError(error);
+        failures.push({ podName: pod.podName, reason });
+        this.logger.warn(
+          `shared_file_hot_pod_rm_failed workspace=${input.workspaceId} pod=${pod.podName} path=${absolutePath} reason=${reason}`
+        );
+      }
+    }
+    return { removedFromPods, failures };
   }
 
   /**

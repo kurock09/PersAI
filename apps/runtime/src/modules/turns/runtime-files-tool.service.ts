@@ -564,6 +564,18 @@ export class RuntimeFilesToolService {
         isError: true
       };
     }
+    if (this.isSharedWritePath(request.path)) {
+      try {
+        await this.persaiInternalApiClientService.deleteWorkspaceFileFromManifest({
+          workspaceId: params.bundle.metadata.workspaceId,
+          path: request.path
+        });
+      } catch (error) {
+        this.logger.warn(
+          `files_delete_manifest_delete_failed path=${request.path} reason=${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
     return {
       payload: {
         toolCode: "files",

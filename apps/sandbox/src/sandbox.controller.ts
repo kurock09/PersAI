@@ -170,6 +170,28 @@ export class SandboxController {
     };
   }
 
+  @Post("/api/v1/control/workspaces/:workspaceId/shared/rm")
+  async removeSharedFileFromHotPods(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("workspaceId") workspaceId: string,
+    @Body() body: unknown
+  ) {
+    this.assertAuthorized(authorization);
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      throw new ServiceUnavailableException("Request body must be an object.");
+    }
+    const row = body as Record<string, unknown>;
+    const path = this.requireNonEmptyString(row.path, "path");
+    const result = await this.sandboxService.removeSharedFileFromHotPods({
+      workspaceId,
+      path
+    });
+    return {
+      removedFromPods: result.removedFromPods,
+      failures: result.failures
+    };
+  }
+
   @Get("/api/v1/jobs/:jobId")
   async getJob(
     @Headers("authorization") authorization: string | undefined,

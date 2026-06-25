@@ -4,6 +4,7 @@ import {
   ConflictException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   NotFoundException,
@@ -213,6 +214,31 @@ export class MediaAttachmentController {
       userId,
       chatId,
       storagePath
+    });
+  }
+
+  @Delete("assistant/workspaces/:workspaceId/files")
+  @HttpCode(204)
+  async deleteWorkspaceFile(
+    @Req() req: RequestWithPlatformContext,
+    @Param("workspaceId") workspaceId: string,
+    @Query("path") path: string | undefined
+  ): Promise<void> {
+    const assistant = await this.resolveRequestAssistant(req);
+    if (assistant.workspaceId !== workspaceId) {
+      throw new ForbiddenException("Workspace does not belong to the active assistant.");
+    }
+    const storagePath = typeof path === "string" ? path.trim() : "";
+    if (storagePath.length === 0) {
+      throw new BadRequestException("path query parameter is required.");
+    }
+    if (!storagePath.startsWith("/shared/")) {
+      throw new BadRequestException('path must start with "/shared/".');
+    }
+    await this.manageChatMediaService.deleteWorkspaceFile({
+      assistantId: assistant.id,
+      workspaceId,
+      path: storagePath
     });
   }
 

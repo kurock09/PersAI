@@ -4468,6 +4468,25 @@ export async function deleteChatWorkspaceFile(
   }
 }
 
+export async function deleteWorkspaceFile(
+  token: string,
+  input: { workspaceId: string; storagePath: string }
+): Promise<void> {
+  const base = getApiBaseUrl();
+  const params = new URLSearchParams();
+  params.set("path", input.storagePath);
+  const res = await fetch(
+    `${base}/assistant/workspaces/${encodeURIComponent(input.workspaceId)}/files?${params.toString()}`,
+    {
+      method: "DELETE",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to delete workspace file."));
+  }
+}
+
 export function getAssistantDocumentPptxPrepareUrl(
   docId: string,
   options: { versionId?: string | null }

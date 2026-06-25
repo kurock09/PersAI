@@ -94,6 +94,75 @@ export class SandboxControlPlaneClientService {
     }
   }
 
+  async removeSharedFileFromHotPods(input: {
+    workspaceId: string;
+    path: string;
+  }): Promise<{ removedFromPods: number; failures: Array<{ podName: string; reason: string }> }> {
+    const baseUrl = this.config.PERSAI_SANDBOX_BASE_URL?.trim();
+    const token = this.config.PERSAI_INTERNAL_API_TOKEN?.trim();
+    if (!baseUrl || !token) {
+      return { removedFromPods: 0, failures: [] };
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.config.PERSAI_SANDBOX_TIMEOUT_MS);
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/v1/control/workspaces/${encodeURIComponent(input.workspaceId)}/shared/rm`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ path: input.path }),
+          signal: controller.signal
+        }
+      );
+      if (!response.ok) {
+        const body = await this.safeReadBodyText(response);
+        this.logger.warn(
+          `shared_hot_pod_rm_http_error workspace=${input.workspaceId} path=${input.path} status=${String(response.status)} body=${body.slice(0, 256)}`
+        );
+        return { removedFromPods: 0, failures: [] };
+      }
+      const body = (await this.safeParseJson(response)) as Record<string, unknown> | null;
+      const removedFromPods =
+        typeof body?.removedFromPods === "number" && Number.isFinite(body.removedFromPods)
+          ? body.removedFromPods
+          : 0;
+      const failures = Array.isArray(body?.failures)
+        ? body.failures.flatMap((entry) => {
+            if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+              return [];
+            }
+            const row = entry as Record<string, unknown>;
+            return typeof row.podName === "string" && typeof row.reason === "string"
+              ? [{ podName: row.podName, reason: row.reason }]
+              : [];
+          })
+        : [];
+      if (removedFromPods === 0 && failures.length === 0) {
+        this.logger.log(
+          `shared_hot_pod_rm_deferred workspace=${input.workspaceId} path=${input.path} reason=no_hot_pods`
+        );
+      }
+      if (failures.length > 0) {
+        this.logger.warn(
+          `shared_hot_pod_rm_partial_failure workspace=${input.workspaceId} path=${input.path} failures=${JSON.stringify(failures).slice(0, 512)}`
+        );
+      }
+      return { removedFromPods, failures };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `shared_hot_pod_rm_failed workspace=${input.workspaceId} path=${input.path} error=${message}`
+      );
+      return { removedFromPods: 0, failures: [] };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   private async safeReadBodyText(response: Response): Promise<string> {
     try {
       return await response.text();

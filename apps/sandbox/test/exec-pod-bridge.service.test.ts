@@ -1294,3 +1294,75 @@ test("ExecPodBridgeService: createExecPod injects no env vars when proxy URL is 
   assert.ok(container !== undefined);
   assert.deepEqual(container.env, [], "env must be empty when proxy URL is not configured");
 });
+
+test("ExecPodBridgeService: removeSharedFileFromWarmPods translates model path and rm's each warm pod", async () => {
+  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
+  const execCalls: Array<{ podName: string; shellCommand: string }> = [];
+  Object.defineProperty(bridge, "k8sApi", {
+    configurable: true,
+    value: {
+      async listNamespacedPod() {
+        return {
+          items: [
+            {
+              metadata: {
+                name: "ses-pod-1",
+                annotations: {
+                  "persai.io/workspace-id": "ws-rm",
+                  "persai.io/assistant-id": "assistant-1",
+                  "persai.io/assistant-handle": "bot-one"
+                }
+              },
+              status: { phase: "Running" }
+            }
+          ]
+        };
+      }
+    }
+  });
+  Object.defineProperty(bridge, "execCommand", {
+    configurable: true,
+    value: async (
+      podName: string,
+      _namespace: string,
+      request: { args: string[] }
+    ): Promise<{ exitCode: number | null }> => {
+      execCalls.push({ podName, shellCommand: request.args[1] ?? "" });
+      return { exitCode: 0 };
+    }
+  });
+
+  const result = await bridge.removeSharedFileFromWarmPods({
+    workspaceId: "ws-rm",
+    path: "/shared/input/report.txt"
+  });
+
+  assert.equal(result.removedFromPods, 1);
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(execCalls, [
+    {
+      podName: "ses-pod-1",
+      shellCommand: "rm -f -- '/shared/ws-rm/input/report.txt'"
+    }
+  ]);
+});
+
+test("ExecPodBridgeService: removeSharedFileFromWarmPods returns zero when no warm pod exists", async () => {
+  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
+  Object.defineProperty(bridge, "k8sApi", {
+    configurable: true,
+    value: {
+      async listNamespacedPod() {
+        return { items: [] };
+      }
+    }
+  });
+
+  const result = await bridge.removeSharedFileFromWarmPods({
+    workspaceId: "ws-empty",
+    path: "/shared/input/missing.txt"
+  });
+
+  assert.equal(result.removedFromPods, 0);
+  assert.deepEqual(result.failures, []);
+});

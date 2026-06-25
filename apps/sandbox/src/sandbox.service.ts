@@ -309,6 +309,27 @@ export class SandboxService {
     }
   }
 
+  async removeSharedFileFromHotPods(input: {
+    workspaceId: string;
+    path: string;
+    policy?: RuntimeSandboxPolicy;
+  }): Promise<{
+    ok: true;
+    removedFromPods: number;
+    failures: Array<{ podName: string; reason: string }>;
+  }> {
+    const result = await this.execPodBridgeService.removeSharedFileFromWarmPods({
+      workspaceId: input.workspaceId,
+      path: input.path,
+      ...(input.policy === undefined ? {} : { policy: input.policy })
+    });
+    return {
+      ok: true,
+      removedFromPods: result.removedFromPods,
+      failures: result.failures
+    };
+  }
+
   /**
    * ADR-126 Slice 4 Wave 2 — synchronous control-plane write of artefact bytes
    * into `/shared/outbound/self/<basename>` (collision-aware).

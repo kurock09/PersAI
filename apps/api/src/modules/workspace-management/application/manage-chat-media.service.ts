@@ -611,27 +611,90 @@ export class ManageChatMediaService {
       }
     }
 
-    for (const workspaceRelPath of pathsToDelete) {
+    await this.deleteWorkspaceFileDurably({
+      assistantId: assistant.id,
+      workspaceId: chat.workspaceId,
+      storagePath: params.storagePath,
+      gcsPathsToDelete: [...pathsToDelete],
+      clearAttachmentRows: async () => {
+        await this.prisma.assistantChatMessageAttachment.updateMany({
+          where: {
+            assistantId: assistant.id,
+            workspaceId: chat.workspaceId,
+            storagePath: params.storagePath
+          },
+          data: {
+            processingStatus: "unavailable",
+            storagePath: null,
+            thumbnailStoragePath: null,
+            posterStoragePath: null
+          }
+        });
+      }
+    });
+  }
+
+  async deleteWorkspaceFile(params: {
+    assistantId: string;
+    workspaceId: string;
+    path: string;
+  }): Promise<void> {
+    const storagePath = params.path.trim();
+    const manifestRow = await this.workspaceFileMetadataService.get({
+      workspaceId: params.workspaceId,
+      path: storagePath
+    });
+    const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+      workspaceId: params.workspaceId,
+      workspaceRelPath: storagePath
+    });
+    const objectExists = await this.mediaObjectStorage.existsObject(objectKey);
+    if (manifestRow === null && !objectExists) {
+      throw new NotFoundException("File not found.");
+    }
+
+    await this.deleteWorkspaceFileDurably({
+      assistantId: params.assistantId,
+      workspaceId: params.workspaceId,
+      storagePath,
+      gcsPathsToDelete: [storagePath]
+    });
+  }
+
+  private async deleteWorkspaceFileDurably(input: {
+    assistantId: string;
+    workspaceId: string;
+    storagePath: string;
+    gcsPathsToDelete: readonly string[];
+    clearAttachmentRows?: () => Promise<void>;
+  }): Promise<void> {
+    for (const workspaceRelPath of input.gcsPathsToDelete) {
       const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
-        workspaceId: chat.workspaceId,
+        workspaceId: input.workspaceId,
         workspaceRelPath
       });
       await this.mediaObjectStorage.deleteObject(objectKey);
     }
 
-    await this.prisma.assistantChatMessageAttachment.updateMany({
-      where: {
-        assistantId: assistant.id,
-        workspaceId: chat.workspaceId,
-        storagePath: params.storagePath
-      },
-      data: {
-        processingStatus: "unavailable",
-        storagePath: null,
-        thumbnailStoragePath: null,
-        posterStoragePath: null
-      }
+    await this.workspaceFileMetadataService.delete({
+      workspaceId: input.workspaceId,
+      path: input.storagePath
     });
+
+    if (input.clearAttachmentRows) {
+      await input.clearAttachmentRows();
+    }
+
+    try {
+      await this.sandboxControlPlaneClient.removeSharedFileFromHotPods({
+        workspaceId: input.workspaceId,
+        path: input.storagePath
+      });
+    } catch (error) {
+      this.logger.warn(
+        `workspace_file_hot_pod_rm_failed workspace=${input.workspaceId} assistant=${input.assistantId} path=${input.storagePath} error=${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   private async ensureMediaStorageQuotaApplied(params: {

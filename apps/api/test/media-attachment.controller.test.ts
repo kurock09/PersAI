@@ -16,8 +16,13 @@ class FakeResponse {
 }
 
 async function run(): Promise<void> {
+  let deletedWorkspaceFileInput: Record<string, unknown> | null = null;
   const controller = new MediaAttachmentController(
-    {} as never,
+    {
+      async deleteWorkspaceFile(input: Record<string, unknown>) {
+        deletedWorkspaceFileInput = input;
+      }
+    } as never,
     {
       async downloadChatFileByPath(input: { path: string; chatId: string }) {
         assert.equal(input.chatId, "chat-1");
@@ -148,6 +153,28 @@ async function run(): Promise<void> {
     "1"
   );
   assert.equal(octetResponse.headers.get("Content-Type"), "video/mp4");
+
+  await assert.doesNotReject(() =>
+    controller.deleteWorkspaceFile(req as never, "workspace-1", "/shared/outbound/self/orphan.txt")
+  );
+  assert.deepEqual(deletedWorkspaceFileInput, {
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    path: "/shared/outbound/self/orphan.txt"
+  });
+
+  await assert.rejects(
+    controller.deleteWorkspaceFile(req as never, "workspace-2", "/shared/outbound/self/orphan.txt"),
+    { name: "ForbiddenException" }
+  );
+  await assert.rejects(
+    controller.deleteWorkspaceFile(req as never, "workspace-1", "/workspace/scratch.txt"),
+    { name: "BadRequestException" }
+  );
+  await assert.rejects(
+    controller.deleteWorkspaceFile({} as never, "workspace-1", "/shared/outbound/self/orphan.txt"),
+    { name: "UnauthorizedException" }
+  );
 
   assert.deepEqual(
     await controller.preparePresentationPptx(req as never, "doc-1", { versionId: "version-1" }),

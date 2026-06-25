@@ -865,6 +865,36 @@ export class PersaiInternalApiClientService {
     );
   }
 
+  async deleteWorkspaceFileFromManifest(input: {
+    workspaceId: string;
+    path: string;
+  }): Promise<void> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const url =
+      `/api/v1/internal/workspaces/${encodeURIComponent(input.workspaceId)}/files/metadata` +
+      `?path=${encodeURIComponent(input.path)}`;
+    const response = await this.fetchJson(url, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`
+      }
+    });
+    if (response.status === 204 || response.ok || response.status === 404) {
+      return;
+    }
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API workspace file metadata delete failed."
+      );
+    }
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the workspace file metadata delete."
+    );
+  }
+
   /**
    * ADR-126 v3 — batch join `workspace_file_metadata.shortDescription`
    * by pod-absolute path. Returns `{path, shortDescription | null}[]` for the
