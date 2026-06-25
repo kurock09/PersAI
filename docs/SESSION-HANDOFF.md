@@ -1,5 +1,33 @@
 # SESSION-HANDOFF
 
+## 2026-06-25 (evening) — ADR-126 v3: `image_edit` attachment-ref validation fix — CHECKPOINT (local, not committed)
+
+### Scope / root cause
+
+Live dev after `adeff5c0` deploy: upload + vision + disk path (`find` sees `/shared/.../input/3534.jpg`) work; `files.read`/`files.preview` on JPEG correctly return null/empty (text tools, not vision); `shell ls` on `input/` permission-denied is expected (D2 RO). **`image_edit` still fails** with `runtime_degraded` — "attachments must contain valid runtime attachment refs".
+
+Root cause: ADR-126 v3 cutover moved `RuntimeAttachmentRef` to `storagePath` + `displayName`, but two API validators were never updated:
+- `apps/api/.../enqueue-runtime-deferred-media-job.service.ts:isAttachmentRef`
+- `apps/api/.../workspace-media-job-scheduler.service.ts:isAttachmentRef`
+
+Runtime sends valid `storagePath` refs; API rejects them because it still required `objectKey`.
+
+### What changed
+
+- Both `isAttachmentRef` helpers now validate `storagePath` (legacy `objectKey` fallback for old persisted payloads).
+- New test in `apps/api/test/enqueue-runtime-deferred-media-job.service.test.ts` — `image_edit` with `/shared/input/3534.jpg` attachment parses and enqueues.
+
+### Gate (local)
+
+- `pnpm exec tsx test/enqueue-runtime-deferred-media-job.service.test.ts` PASS
+- `pnpm --filter @persai/api run typecheck` PASS
+
+### Next recommended step
+
+1. Commit + push this fix; pin dev api image.
+2. Re-test live: upload JPEG → `image_edit` on `image #N` alias.
+3. Continue ADR-126 live closure checklist (`files.attach`, gallery, cold-pod upload).
+
 ## 2026-06-25 (late) — ADR-126 v3 amendment: model-canonical /shared/... path translation + hot-pod inbound bytes-push — CHECKPOINT
 
 ### Scope / root cause

@@ -1060,12 +1060,26 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       return false;
     }
     const row = value as Record<string, unknown>;
+    const storagePath =
+      typeof row.storagePath === "string" && row.storagePath.trim().length > 0
+        ? row.storagePath.trim()
+        : typeof row.objectKey === "string" && row.objectKey.trim().length > 0
+          ? row.objectKey.trim()
+          : null;
+    if (storagePath === null) {
+      return false;
+    }
+    const displayNameOk =
+      row.displayName === null ||
+      typeof row.displayName === "string" ||
+      row.filename === null ||
+      typeof row.filename === "string" ||
+      row.displayName === undefined;
     return (
       typeof row.attachmentId === "string" &&
       typeof row.kind === "string" &&
-      typeof row.objectKey === "string" &&
       typeof row.mimeType === "string" &&
-      (row.filename === null || typeof row.filename === "string") &&
+      displayNameOk &&
       typeof row.sizeBytes === "number"
     );
   }

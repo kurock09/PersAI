@@ -434,6 +434,46 @@ async function run(): Promise<void> {
     assert.equal(enqueueCalls.count, 1);
   }
 
+  // ── ADR-126 v3: image_edit accepts storagePath attachment refs (not objectKey)
+  {
+    const { service, reserveCalls, enqueueCalls } = buildService({});
+    const parsed = service.parseInput({
+      assistantId: "assistant-1",
+      sourceUserMessageId: "message-img-edit",
+      sourceUserMessageText: "Edit this photo",
+      attachments: [
+        {
+          attachmentId: "att-1",
+          kind: "image",
+          storagePath: "/shared/input/3534.jpg",
+          mimeType: "image/jpeg",
+          displayName: "3534.jpg",
+          sizeBytes: 2800000,
+          aliases: ["image #3"]
+        }
+      ],
+      directToolExecution: {
+        toolCode: "image_edit",
+        request: {
+          toolCode: "image_edit",
+          count: 1,
+          prompt: "instagram carousel slide",
+          filename: null,
+          size: null,
+          background: "auto",
+          sourceImageAlias: "image #3",
+          referenceImageAliases: []
+        }
+      }
+    });
+    const result = await service.execute(parsed);
+
+    assert.equal(result.accepted, true, "image_edit with storagePath attachment must enqueue");
+    assert.equal(reserveCalls.length, 1);
+    assert.equal(reserveCalls[0]!.toolCode, "image_edit");
+    assert.equal(enqueueCalls.count, 1);
+  }
+
   // ── ADR-108 Slice 2: image_generate enqueue NEVER consults the wallet ────
   {
     // The VC repo mock throws on any access; if image_generate accidentally
