@@ -1815,7 +1815,7 @@ export class TurnContextHydrationService {
     workspaceId: string,
     objectKey: string
   ): Promise<Buffer | null> {
-    if (objectKey.startsWith("/shared/") || objectKey.startsWith("/workspace/")) {
+    if (objectKey.startsWith("/workspace/")) {
       return await this.mediaObjectStorage.downloadByWorkspacePath({
         workspaceId,
         storagePath: objectKey

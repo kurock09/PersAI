@@ -11,12 +11,12 @@ async function extractsSupportedSourcesThroughSharedDocumentExtraction(): Promis
   const extractionCalls: unknown[] = [];
   const service = new DocumentSourceAttachmentExtractionService(
     {
-      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+      buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
         const relative = input.workspaceRelPath
-          .replace(/^\/shared\//, "")
+          .replace(/^\/workspace\//, "")
           .replace(/^\/+/, "")
           .replace(/\\/g, "/");
-        return `media/workspaces/${input.workspaceId}/shared/${relative}`;
+        return `media/workspaces/${input.workspaceId}/workspace/${relative}`;
       },
       async downloadObject(objectKey: string) {
         downloadCalls.push(objectKey);
@@ -56,7 +56,7 @@ async function extractsSupportedSourcesThroughSharedDocumentExtraction(): Promis
       {
         attachmentId: "att-1",
         kind: "file",
-        storagePath: "/shared/workspace-1/outbound/self/source.md",
+        storagePath: "/workspace/outbound/self/source.md",
         mimeType: "text/markdown",
         displayName: "source.md",
         sizeBytes: 128
@@ -65,7 +65,7 @@ async function extractsSupportedSourcesThroughSharedDocumentExtraction(): Promis
   });
 
   assert.deepEqual(downloadCalls, [
-    "media/workspaces/workspace-1/shared/workspace-1/outbound/self/source.md"
+    "media/workspaces/workspace-1/workspace/outbound/self/source.md"
   ]);
   assert.equal(extractionCalls.length, 1);
   assert.equal(result.length, 1);
@@ -80,12 +80,12 @@ async function skipsUnsupportedBinaryAttachments(): Promise<void> {
   let extractionCalled = false;
   const service = new DocumentSourceAttachmentExtractionService(
     {
-      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+      buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
         const relative = input.workspaceRelPath
-          .replace(/^\/shared\//, "")
+          .replace(/^\/workspace\//, "")
           .replace(/^\/+/, "")
           .replace(/\\/g, "/");
-        return `media/workspaces/${input.workspaceId}/shared/${relative}`;
+        return `media/workspaces/${input.workspaceId}/workspace/${relative}`;
       },
       async downloadObject() {
         downloadCalled = true;
@@ -108,7 +108,7 @@ async function skipsUnsupportedBinaryAttachments(): Promise<void> {
       {
         attachmentId: "att-image",
         kind: "image",
-        storagePath: "/shared/workspace-1/outbound/self/photo.png",
+        storagePath: "/workspace/outbound/self/photo.png",
         mimeType: "image/png",
         displayName: "photo.png",
         sizeBytes: 1024

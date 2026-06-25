@@ -226,8 +226,8 @@ export class RegisterChatAttachmentService {
   }
 
   private assertStoragePathAllowed(storagePath: string): void {
-    if (!storagePath.startsWith("/shared/") && !storagePath.startsWith("/workspace/")) {
-      throw new BadRequestException("storagePath must be under /shared/ or /workspace/.");
+    if (!storagePath.startsWith("/workspace/")) {
+      throw new BadRequestException("storagePath must be under /workspace/.");
     }
     if (storagePath.includes("..")) {
       throw new BadRequestException("storagePath must not contain '..'.");

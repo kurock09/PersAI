@@ -28,7 +28,7 @@ describe("workspace-media-job-completion-artifacts", () => {
         {
           artifactId: "artifact-1",
           kind: "image",
-          storagePath: "/shared/workspace-1/outbound/self/out.png",
+          storagePath: "/workspace/outbound/self/out.png",
           mimeType: "image/png",
           filename: "out.png",
           sizeBytes: 10,
@@ -39,7 +39,7 @@ describe("workspace-media-job-completion-artifacts", () => {
 
     assert.equal(artifacts.length, 1);
     assert.equal(artifacts[0]?.role, "output");
-    assert.equal(artifacts[0]?.storagePath, "/shared/workspace-1/outbound/self/out.png");
+    assert.equal(artifacts[0]?.storagePath, "/workspace/outbound/self/out.png");
   });
 
   test("ignores non-image outputs", () => {
@@ -48,7 +48,7 @@ describe("workspace-media-job-completion-artifacts", () => {
         {
           artifactId: "artifact-audio",
           kind: "audio",
-          storagePath: "/shared/workspace-1/outbound/self/out.mp3",
+          storagePath: "/workspace/outbound/self/out.mp3",
           mimeType: "audio/mpeg",
           filename: "out.mp3",
           sizeBytes: 10,
@@ -57,7 +57,7 @@ describe("workspace-media-job-completion-artifacts", () => {
         {
           artifactId: "artifact-1",
           kind: "image",
-          storagePath: "/shared/workspace-1/outbound/self/out.png",
+          storagePath: "/workspace/outbound/self/out.png",
           mimeType: "image/png",
           filename: "out.png",
           sizeBytes: 10,
@@ -76,7 +76,7 @@ describe("workspace-media-job-completion-artifacts", () => {
         {
           artifactId: "artifact-1",
           kind: "image",
-          storagePath: "/shared/workspace-1/outbound/self/out.png",
+          storagePath: "/workspace/outbound/self/out.png",
           mimeType: "image/png",
           filename: "out.png",
           sizeBytes: 10,

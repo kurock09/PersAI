@@ -512,7 +512,7 @@ export class RuntimeDocumentToolService {
     if (trimmed.length === 0) {
       return null;
     }
-    if (!trimmed.startsWith("/shared/") && !trimmed.startsWith("/workspace/")) {
+    if (!trimmed.startsWith("/workspace/")) {
       return null;
     }
     return trimmed;

@@ -710,7 +710,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     assistantApiMocks.listChatWorkspaceFiles.mockResolvedValue({
       files: [
         {
-          storagePath: "/shared/input/brief.pdf",
+          storagePath: "/workspace/input/brief.pdf",
           thumbnailStoragePath: null,
           posterStoragePath: null,
           originalFilename: "brief.pdf",
@@ -766,7 +766,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
         attachments: [
           {
             id: "att-old",
-            path: "/shared/input/report.pdf",
+            path: "/workspace/input/report.pdf",
             thumbnailStoragePath: null,
             posterStoragePath: null,
             attachmentType: "document",
@@ -788,7 +788,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
         attachments: [
           {
             id: "att-new",
-            path: "/shared/input/report.pdf",
+            path: "/workspace/input/report.pdf",
             thumbnailStoragePath: null,
             posterStoragePath: null,
             attachmentType: "document",

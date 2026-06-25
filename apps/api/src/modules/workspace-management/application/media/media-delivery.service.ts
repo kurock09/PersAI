@@ -46,7 +46,7 @@ import {
   RegisterChatAttachmentService,
   type RegisterChatAttachmentKind
 } from "../register-chat-attachment.service";
-import { resolveUniqueSharedInputStoragePath } from "../resolve-shared-input-storage-path";
+import { resolveUniqueWorkspaceInputStoragePath } from "../resolve-workspace-input-storage-path";
 import { WorkspaceFileMetadataService } from "../workspace-file-metadata.service";
 import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
 import {
@@ -495,7 +495,7 @@ export class MediaDeliveryService {
         originalFilename: attachment.originalFilename
       };
     }
-    const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
       workspaceId: input.workspaceId,
       workspaceRelPath: attachment.storagePath
     });
@@ -528,7 +528,7 @@ export class MediaDeliveryService {
   /**
    * ADR-127 W1 — workspace-scoped delivery for files that may not have a
    * chat-attachment row (model `files.write` orphans). Existence comes from
-   * `workspace_file_metadata`; bytes from GCS via `buildSharedObjectKey`.
+   * `workspace_file_metadata`; bytes from GCS via `buildWorkspaceObjectKey`.
    * The chat-scoped variants above stay live for backward compatibility.
    */
   async downloadWorkspaceFileByPath(input: { workspaceId: string; path: string }): Promise<{
@@ -544,7 +544,7 @@ export class MediaDeliveryService {
     if (metadata === null) {
       throw new NotFoundException("File not found.");
     }
-    const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
       workspaceId: input.workspaceId,
       workspaceRelPath: input.path
     });
@@ -593,7 +593,7 @@ export class MediaDeliveryService {
 
   private isWorkspaceStoragePath(value: string): boolean {
     const normalized = value.trim();
-    return normalized.startsWith("/shared/") || normalized.startsWith("/workspace/");
+    return normalized.startsWith("/workspace/");
   }
 
   private resolvePersistedStoragePath(input: {
@@ -609,7 +609,7 @@ export class MediaDeliveryService {
     ) {
       return Promise.resolve(input.artifact.objectKey);
     }
-    return resolveUniqueSharedInputStoragePath({
+    return resolveUniqueWorkspaceInputStoragePath({
       workspaceId: input.workspaceId,
       filename: input.filename,
       mimeType: input.mimeType,
@@ -632,7 +632,7 @@ export class MediaDeliveryService {
     ) {
       return;
     }
-    const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
       workspaceId: input.workspaceId,
       workspaceRelPath: input.storagePath
     });
@@ -856,7 +856,7 @@ export class MediaDeliveryService {
     workspaceId: string
   ): Promise<{ buffer: Buffer; contentType: string } | null> {
     if (artifact.source === "persai_object_storage") {
-      const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+      const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
         workspaceId,
         workspaceRelPath: artifact.objectKey
       });

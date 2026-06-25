@@ -363,9 +363,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           toolCode: "files",
           displayName: "Files",
           description:
-            "Path-driven workspace file operations. Six actions: list, read, preview, write, delete, attach. Address files by pod-absolute path under /workspace/ (assistant-private) or /shared/<workspaceId>/ (shared space).",
+            "Path-driven workspace operations on `/workspace/...`. Three regions:\n- `/workspace/input/` — files the user has shared with this assistant (read-only).\n- `/workspace/outbound/self/` — files this assistant produces and delivers to the user (read-write).\n- `/workspace/<anywhere else>` — model scratch (ephemeral, not delivered, not preserved across pod restart).",
           usageGuidance:
-            "WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace/shared file to chat. PATHS: /workspace/ = assistant-private read/write area. /shared/<workspaceId>/input/ = user uploads (read-only). /shared/<workspaceId>/outbound/self/ = your published artefacts. SIX ACTIONS: list, read, preview, write, delete, attach. Supply a pod-absolute path for every call. GOTCHAS: For list supply the directory path; for read/preview/write/delete/attach supply the file path. attach delivers an EXISTING file; write it first if it does not yet exist. Keep exec and shell for actual process execution only. Use grep for content search and glob for filename discovery.",
+            "Path-driven workspace operations on `/workspace/...`. Three regions:\n- `/workspace/input/` — files the user has shared with this assistant (read-only).\n- `/workspace/outbound/self/` — files this assistant produces and delivers to the user (read-write).\n- `/workspace/<anywhere else>` — model scratch (ephemeral, not delivered, not preserved across pod restart).",
           kind: "plan",
           executionMode: "inline",
           usageRule: "allowed",
@@ -573,10 +573,14 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     webSearch?.description,
     "Search the public web for current external facts.\nUse this when the answer depends on recent external information or links. May be called in parallel with other independent searches."
   );
-  assert.match(files?.description ?? "", /pod-absolute path/);
+  assert.match(
+    files?.description ?? "",
+    /Path-driven workspace operations on `\/workspace\/\.\.\.`/
+  );
+  assert.match(files?.description ?? "", /`\/workspace\/input\/`/);
+  assert.match(files?.description ?? "", /`\/workspace\/outbound\/self\/`/);
+  assert.match(files?.description ?? "", /`\/workspace\/<anywhere else>`/);
   // ADR-126 v3 D6 — files surface is six actions: list, read, preview, write, delete, attach.
-  assert.match(files?.description ?? "", /six actions|Six actions/i);
-  assert.match(files?.description ?? "", /list.*read.*preview.*write.*delete.*attach/i);
   assert.doesNotMatch(files?.description ?? "", /write.and.send|files\.send|files\.search/);
   assert.doesNotMatch(files?.description ?? "", /fileRef|alias|relativePath/);
   assert.ok(
@@ -876,8 +880,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     documentProperties?.storagePath?.description ?? "",
-    /\/shared\//,
-    "storagePath description must contain a /shared/ path example"
+    /\/workspace\/outbound\/self\//,
+    "storagePath description must contain a /workspace/ path example"
   );
   assert.doesNotMatch(
     document?.description ?? "",
@@ -1827,7 +1831,7 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
   // The inner Markdown headings are replaced by XML structure with Skills-first gate.
   assert.match(
     bootstrapSource,
-    /tools:\s*`<tool_usage_policy>\nUse only the machine-readable tools/,
+    /tools:\s*`<tool_usage_policy>\r?\nUse only the machine-readable tools/,
     `Selection guide presence: ${bootstrapPath} must seed the tool usage policy in the tools block (XML priority-ordered)`
   );
   // ADR-119 Slice 9: <memory_protocol> block moved to the dedicated `memory_protocol`

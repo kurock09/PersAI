@@ -13,19 +13,19 @@ export class PersaiMediaObjectStorageService {
       config.APP_ENV === "dev" ? new Storage({ projectId: config.GCP_PROJECT_ID }) : new Storage();
   }
 
-  buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }): string {
+  buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }): string {
     const relative = input.workspaceRelPath
-      .replace(/^\/shared\//, "")
+      .replace(/^\/workspace\//, "")
       .replace(/^\/+/, "")
       .replace(/\\/g, "/");
-    return `${this.getObjectPrefix()}/workspaces/${input.workspaceId}/shared/${relative}`;
+    return `${this.getObjectPrefix()}/workspaces/${input.workspaceId}/workspace/${relative}`;
   }
 
   async downloadByWorkspacePath(input: {
     workspaceId: string;
     storagePath: string;
   }): Promise<Buffer | null> {
-    const objectKey = this.buildSharedObjectKey({
+    const objectKey = this.buildWorkspaceObjectKey({
       workspaceId: input.workspaceId,
       workspaceRelPath: input.storagePath
     });

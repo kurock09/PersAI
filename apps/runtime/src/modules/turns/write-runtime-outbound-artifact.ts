@@ -27,7 +27,7 @@ export async function writeRuntimeOutboundArtifact(input: {
     slugSourceText: input.slugSourceText,
     extension
   });
-  const writeResult = await input.sandboxClient.writeSharedOutbound({
+  const writeResult = await input.sandboxClient.writeWorkspaceOutbound({
     assistantId: input.assistantId,
     workspaceId: input.workspaceId,
     handle: input.handle,

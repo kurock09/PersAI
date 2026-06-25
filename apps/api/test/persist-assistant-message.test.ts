@@ -30,8 +30,8 @@ async function run(): Promise<void> {
       assistantId: "assistant-1",
       content: "Done.",
       discoveredFilePaths: [
-        "/shared/workspace-1/outbound/self/file-1.md",
-        "/shared/workspace-1/outbound/self/file-2.md"
+        "/workspace/outbound/self/file-1.md",
+        "/workspace/outbound/self/file-2.md"
       ],
       deferredMediaJobCount: 2,
       sourceUserMessageId: "user-message-1"
@@ -46,8 +46,8 @@ async function run(): Promise<void> {
         content: "Done.",
         metadata: {
           discoveredFilePaths: [
-            "/shared/workspace-1/outbound/self/file-1.md",
-            "/shared/workspace-1/outbound/self/file-2.md"
+            "/workspace/outbound/self/file-1.md",
+            "/workspace/outbound/self/file-2.md"
           ]
         }
       }

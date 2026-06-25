@@ -37,7 +37,7 @@ export class AttachmentObjectAvailabilityService {
         unavailable.push(attachment);
         continue;
       }
-      const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+      const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
         workspaceId: input.workspaceId,
         workspaceRelPath: storagePath
       });

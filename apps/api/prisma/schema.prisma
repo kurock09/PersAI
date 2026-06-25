@@ -819,8 +819,8 @@ model Assistant {
   workspaceId                          String                                @map("workspace_id") @db.Uuid
   /// ADR-126 Slice 3 — stable, URL/path-safe identifier for this assistant
   /// inside its workspace. Used as the directory name under
-  /// `/shared/<workspaceId>/outbound/<handle>/` inside session pods and the
-  /// corresponding GCS prefix `workspaces/<workspaceId>/shared/outbound/<handle>/`.
+  /// `/workspace/outbound/<handle>/` inside session pods and the
+  /// corresponding GCS prefix `workspaces/<workspaceId>/workspace/outbound/<handle>/`.
   /// Generated from `draft_display_name` via
   /// `generateAssistantHandle(displayName)` and de-duplicated via
   /// `ensureHandleUnique(prisma, workspaceId, base)`. Unique per workspace;

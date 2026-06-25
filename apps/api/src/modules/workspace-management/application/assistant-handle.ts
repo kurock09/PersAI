@@ -5,8 +5,8 @@ import { Prisma, type Prisma as PrismaTypes } from "@prisma/client";
  *
  * The handle is the stable, URL/path-safe identifier used to name the
  * per-assistant outbound directory inside session pods
- * (`/shared/<workspaceId>/outbound/<handle>/`) and the corresponding GCS
- * prefix (`workspaces/<workspaceId>/shared/outbound/<handle>/`). Once written
+ * (`/workspace/outbound/<handle>/`) and the corresponding GCS
+ * prefix (`workspaces/<workspaceId>/workspace/outbound/<handle>/`). Once written
  * at creation time it must remain stable across rename — renaming an
  * assistant does NOT re-slug.
  *

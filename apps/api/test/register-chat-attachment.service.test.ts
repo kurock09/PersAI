@@ -4,7 +4,7 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { RegisterChatAttachmentService } from "../src/modules/workspace-management/application/register-chat-attachment.service";
 
 describe("register-chat-attachment.service", () => {
-  test("rejects storage paths outside /shared/ and /workspace/", async () => {
+  test("rejects storage paths outside /workspace/ and /workspace/", async () => {
     const service = new RegisterChatAttachmentService(
       { assistantChat: { findFirst: async () => null } } as never,
       {
@@ -67,7 +67,7 @@ describe("register-chat-attachment.service", () => {
       workspaceId: "workspace-1",
       chatId: "chat-1",
       messageId: "message-1",
-      storagePath: "/shared/input/report.csv",
+      storagePath: "/workspace/input/report.csv",
       attachmentType: "document",
       mimeType: "text/csv",
       sizeBytes: 12,
@@ -77,11 +77,11 @@ describe("register-chat-attachment.service", () => {
     });
 
     assert.equal(result.attachmentId, "attachment-1");
-    assert.equal(result.storagePath, "/shared/input/report.csv");
-    assert.equal(createdInput?.storagePath, "/shared/input/report.csv");
+    assert.equal(result.storagePath, "/workspace/input/report.csv");
+    assert.equal(createdInput?.storagePath, "/workspace/input/report.csv");
     assert.equal(createdInput?.processingStatus, "ready");
     assert.deepEqual((createdInput?.metadata as Record<string, unknown>)?.kind, "user_upload");
-    assert.equal(upsertInput?.path, "/shared/input/report.csv");
+    assert.equal(upsertInput?.path, "/workspace/input/report.csv");
     assert.equal(upsertInput?.shortDescription, "Quarterly report");
   });
 
@@ -116,18 +116,18 @@ describe("register-chat-attachment.service", () => {
       workspaceId: "workspace-1",
       chatId: "chat-1",
       messageId: "message-1",
-      storagePath: "/shared/input/clip.mp4",
+      storagePath: "/workspace/input/clip.mp4",
       attachmentType: "video",
       mimeType: "video/mp4",
       sizeBytes: 1024,
       originalFilename: "clip.mp4",
       kind: "user_upload",
-      thumbnailStoragePath: "/shared/input/photo.jpg.thumb.webp",
-      posterStoragePath: "/shared/input/clip.mp4.poster.jpg"
+      thumbnailStoragePath: "/workspace/input/photo.jpg.thumb.webp",
+      posterStoragePath: "/workspace/input/clip.mp4.poster.jpg"
     });
 
-    assert.equal(createdInput?.thumbnailStoragePath, "/shared/input/photo.jpg.thumb.webp");
-    assert.equal(createdInput?.posterStoragePath, "/shared/input/clip.mp4.poster.jpg");
+    assert.equal(createdInput?.thumbnailStoragePath, "/workspace/input/photo.jpg.thumb.webp");
+    assert.equal(createdInput?.posterStoragePath, "/workspace/input/clip.mp4.poster.jpg");
   });
   test("runtime attachment with null messageId does not fall back to running attempt userMessageId", async () => {
     const service = new RegisterChatAttachmentService(
@@ -155,7 +155,7 @@ describe("register-chat-attachment.service", () => {
           channel: "web",
           externalThreadKey: "web-thread-1",
           messageId: null,
-          storagePath: "/shared/outbound/self/report.csv",
+          storagePath: "/workspace/outbound/self/report.csv",
           attachmentType: "document",
           mimeType: "text/csv",
           sizeBytes: 12,

@@ -34,7 +34,7 @@ function makeSandboxSuccessResult(objectKey = "sandbox-output/render.pdf") {
 type SandboxTestClient = {
   savedObjects: Array<{ storagePath: string; mimeType: string; bytes: Buffer }>;
   waitForCompletion: () => Promise<unknown>;
-  writeSharedOutbound: (input: {
+  writeWorkspaceOutbound: (input: {
     basename: string;
     contentBase64: string;
     mimeType: string;
@@ -47,7 +47,7 @@ type SandboxTestClient = {
 };
 function makeSandboxMock(overrides?: {
   waitForCompletion?: (...args: unknown[]) => Promise<unknown>;
-  writeSharedOutbound?: SandboxTestClient["writeSharedOutbound"];
+  writeWorkspaceOutbound?: SandboxTestClient["writeWorkspaceOutbound"];
 }): SandboxTestClient {
   const savedObjects: Array<{ storagePath: string; mimeType: string; bytes: Buffer }> = [];
   const mock = {
@@ -55,7 +55,7 @@ function makeSandboxMock(overrides?: {
     async waitForCompletion() {
       return makeSandboxSuccessResult();
     },
-    async writeSharedOutbound(input: {
+    async writeWorkspaceOutbound(input: {
       basename: string;
       contentBase64: string;
       mimeType: string;
@@ -63,11 +63,11 @@ function makeSandboxMock(overrides?: {
       workspaceQuotaBytes?: number | null;
       sharedQuotaBytes?: number | null;
     }) {
-      if (overrides?.writeSharedOutbound) {
-        return overrides.writeSharedOutbound(input);
+      if (overrides?.writeWorkspaceOutbound) {
+        return overrides.writeWorkspaceOutbound(input);
       }
       const bytes = Buffer.from(input.contentBase64, "base64");
-      const storagePath = `/shared/workspace-1/outbound/self/${input.basename}`;
+      const storagePath = `/workspace/outbound/self/${input.basename}`;
       savedObjects.push({ storagePath, mimeType: input.mimeType, bytes });
       return { workspaceRelPath: storagePath, sizeBytes: bytes.length };
     },
@@ -3606,7 +3606,7 @@ function createModeBService(config: {
         });
         return config.waitForCompletion(request);
       },
-      async writeSharedOutbound(input: {
+      async writeWorkspaceOutbound(input: {
         basename: string;
         contentBase64: string;
         mimeType: string;
@@ -3614,7 +3614,7 @@ function createModeBService(config: {
         sharedQuotaBytes?: number | null;
       }) {
         const bytes = Buffer.from(input.contentBase64, "base64");
-        const storagePath = `/shared/workspace-1/outbound/self/${input.basename}`;
+        const storagePath = `/workspace/outbound/self/${input.basename}`;
         savedObjects.push({ storagePath, mimeType: input.mimeType, bytes });
         return { workspaceRelPath: storagePath, sizeBytes: bytes.length };
       }

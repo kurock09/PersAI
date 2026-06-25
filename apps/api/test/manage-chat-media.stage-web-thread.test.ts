@@ -16,7 +16,7 @@ const noopSandboxControlPlaneClient = {
   isConfigured() {
     return false;
   },
-  async pushSharedInboundBytes() {
+  async pushWorkspaceInboundBytes() {
     return { mode: "deferred" as const, reason: "not_configured" as const };
   }
 } as never;
@@ -91,7 +91,7 @@ function buildAttachmentFromRegisterInput(
     assistantId: input.assistantId ?? assistant.id,
     workspaceId: input.workspaceId ?? assistant.workspaceId,
     attachmentType: input.attachmentType ?? "document",
-    storagePath: input.storagePath ?? "/shared/in/note.txt",
+    storagePath: input.storagePath ?? "/workspace/input/note.txt",
     originalFilename: input.originalFilename ?? "note.txt",
     mimeType: input.mimeType ?? "text/plain",
     sizeBytes: BigInt(Number(input.sizeBytes ?? 0)),
@@ -189,7 +189,7 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+      buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
         return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
@@ -342,7 +342,7 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+      buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
         return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
@@ -495,7 +495,7 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+      buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
         return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
@@ -659,7 +659,7 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+      buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
         return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
@@ -785,7 +785,7 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+      buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
         return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject() {
@@ -954,7 +954,7 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {
-      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+      buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
         return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
       },
       async saveObject() {

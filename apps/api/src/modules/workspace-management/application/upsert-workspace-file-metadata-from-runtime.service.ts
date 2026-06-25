@@ -9,10 +9,10 @@ export type UpsertWorkspaceFileMetadataFromRuntimeInput = {
   shortDescription: string | null;
 };
 
-// ADR-127 W1 — runtime-driven manifest writes after a successful sandbox
-// `files.write` on a `/shared/...` path. The API owns the upsert so the
-// sandbox does not need any DB access. Only `/shared/...` paths are
-// accepted; `/workspace/...` scratch stays pod-only by design.
+// ADR-128 Slice 2 — runtime-driven manifest writes after a successful sandbox
+// `files.write` on a persisted `/workspace/input/...` or `/workspace/outbound/...`
+// path. The API owns the upsert so the sandbox does not need DB access.
+// Scratch paths elsewhere under `/workspace/...` stay pod-only by design.
 @Injectable()
 export class UpsertWorkspaceFileMetadataFromRuntimeService {
   constructor(private readonly workspaceFileMetadataService: WorkspaceFileMetadataService) {}
@@ -23,9 +23,9 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
     }
     const row = body as Record<string, unknown>;
     const path = this.requiredString(row.path, "path");
-    if (!path.startsWith("/shared/")) {
+    if (!this.isPersistedWorkspacePath(path)) {
       throw new BadRequestException(
-        'path must start with "/shared/" — only shared files are tracked in the manifest.'
+        'path must start with "/workspace/input/" or "/workspace/outbound/" — only persisted workspace files are tracked in the manifest.'
       );
     }
     if (path.includes("..")) {
@@ -65,5 +65,9 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
       throw new BadRequestException(`Field "${field}" must be a non-empty string.`);
     }
     return value.trim();
+  }
+
+  private isPersistedWorkspacePath(path: string): boolean {
+    return path.startsWith("/workspace/input/") || path.startsWith("/workspace/outbound/");
   }
 }

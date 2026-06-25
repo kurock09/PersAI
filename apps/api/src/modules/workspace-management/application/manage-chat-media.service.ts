@@ -26,7 +26,7 @@ import {
 import { RegisterChatAttachmentService } from "./register-chat-attachment.service";
 import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
-import { resolveUniqueSharedInputStoragePath } from "./resolve-shared-input-storage-path";
+import { resolveUniqueWorkspaceInputStoragePath } from "./resolve-workspace-input-storage-path";
 import {
   createAssistantInboundConflict,
   createMediaStorageQuotaExceededError
@@ -79,14 +79,14 @@ export class ManageChatMediaService {
   }
 
   /**
-   * Strip the canonical `/shared/input/` prefix off a model-facing storage
-   * path and return the basename used by `resolveUniqueSharedInputStoragePath`.
-   * Returns `null` for anything that is not a shared-input path (defence-
+   * Strip the canonical `/workspace/input/` prefix off a model-facing storage
+   * path and return the basename used by `resolveUniqueWorkspaceInputStoragePath`.
+   * Returns `null` for anything that is not a workspace-input path (defence-
    * in-depth — the caller already constructed the path through that helper,
    * so a non-match should never happen in practice).
    */
-  private extractSharedInputBasename(storagePath: string): string | null {
-    const prefix = "/shared/input/";
+  private extractWorkspaceInputBasename(storagePath: string): string | null {
+    const prefix = "/workspace/input/";
     if (!storagePath.startsWith(prefix)) {
       return null;
     }
@@ -167,14 +167,14 @@ export class ManageChatMediaService {
     });
     const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
     const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
-    const storagePath = await resolveUniqueSharedInputStoragePath({
+    const storagePath = await resolveUniqueWorkspaceInputStoragePath({
       workspaceId: assistant.workspaceId,
       filename: validated.originalFilename,
       mimeType,
       referenceId: message.id,
       workspaceFileMetadataService: this.workspaceFileMetadataService
     });
-    const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
       workspaceId: assistant.workspaceId,
       workspaceRelPath: storagePath
     });
@@ -320,14 +320,14 @@ export class ManageChatMediaService {
 
       const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
       const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
-      const storagePath = await resolveUniqueSharedInputStoragePath({
+      const storagePath = await resolveUniqueWorkspaceInputStoragePath({
         workspaceId: assistant.workspaceId,
         filename: validated.originalFilename,
         mimeType,
         referenceId: stagingMessage.id,
         workspaceFileMetadataService: this.workspaceFileMetadataService
       });
-      const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+      const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
         workspaceId: assistant.workspaceId,
         workspaceRelPath: storagePath
       });
@@ -394,14 +394,14 @@ export class ManageChatMediaService {
       // wrote; this push is a latency optimisation so the running pod sees
       // the file on the *next turn* instead of only after the next cold-start
       // hydrate. Any failure (sandbox unreachable, pod cold, write rejected)
-      // is logged at warn and never blocks the upload — `hydrateSharedMountFromGcs`
+      // is logged at warn and never blocks the upload — `hydrateWorkspaceMountFromGcs`
       // is the authoritative recovery path.
-      const sharedInputBasename = this.extractSharedInputBasename(storagePath);
-      if (sharedInputBasename !== null) {
-        await this.sandboxControlPlaneClient.pushSharedInboundBytes({
+      const workspaceInputBasename = this.extractWorkspaceInputBasename(storagePath);
+      if (workspaceInputBasename !== null) {
+        await this.sandboxControlPlaneClient.pushWorkspaceInboundBytes({
           assistantId: assistant.id,
           workspaceId: assistant.workspaceId,
-          basename: sharedInputBasename,
+          basename: workspaceInputBasename,
           contents: fileBuffer,
           mimeType
         });
@@ -644,7 +644,7 @@ export class ManageChatMediaService {
       workspaceId: params.workspaceId,
       path: storagePath
     });
-    const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
       workspaceId: params.workspaceId,
       workspaceRelPath: storagePath
     });
@@ -669,7 +669,7 @@ export class ManageChatMediaService {
     clearAttachmentRows?: () => Promise<void>;
   }): Promise<void> {
     for (const workspaceRelPath of input.gcsPathsToDelete) {
-      const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+      const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
         workspaceId: input.workspaceId,
         workspaceRelPath
       });
@@ -686,7 +686,7 @@ export class ManageChatMediaService {
     }
 
     try {
-      await this.sandboxControlPlaneClient.removeSharedFileFromHotPods({
+      await this.sandboxControlPlaneClient.removeWorkspaceFileFromHotPods({
         workspaceId: input.workspaceId,
         path: input.storagePath
       });

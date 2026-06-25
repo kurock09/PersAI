@@ -91,7 +91,7 @@ function buildAttachment(
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
     attachmentType: "video",
-    storagePath: "/shared/outbound/self/clip.mp4",
+    storagePath: "/workspace/outbound/self/clip.mp4",
     originalFilename: "clip.mp4",
     mimeType: "video/mp4",
     sizeBytes: BigInt(64),
@@ -164,11 +164,11 @@ function buildVideoSettleService(opts?: {
   } as never;
 
   const objectStorage = {
-    buildSharedObjectKey(scope: { workspaceId: string; workspaceRelPath: string }) {
+    buildWorkspaceObjectKey(scope: { workspaceId: string; workspaceRelPath: string }) {
       return `workspaces/${scope.workspaceId}${scope.workspaceRelPath}`;
     },
     buildChatMessageObjectKey() {
-      return "workspaces/workspace-1/shared/outbound/self/clip.mp4";
+      return "workspaces/workspace-1/workspace/outbound/self/clip.mp4";
     },
     async downloadObject() {
       return {
@@ -178,7 +178,7 @@ function buildVideoSettleService(opts?: {
     },
     async saveObject() {
       return {
-        objectKey: "workspaces/workspace-1/shared/outbound/self/clip.mp4",
+        objectKey: "workspaces/workspace-1/workspace/outbound/self/clip.mp4",
         sizeBytes: 8,
         mimeType: "video/mp4"
       };
@@ -188,7 +188,7 @@ function buildVideoSettleService(opts?: {
 
   const registerChatAttachment = {
     async execute() {
-      return { attachmentId: "att-vid-1", storagePath: "/shared/outbound/self/clip.mp4" };
+      return { attachmentId: "att-vid-1", storagePath: "/workspace/outbound/self/clip.mp4" };
     }
   } as never;
 
@@ -313,7 +313,7 @@ async function runVideoGenerateSettleDebitsInTx(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/clip.mp4",
+        objectKey: "/workspace/outbound/clip.mp4",
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -356,7 +356,7 @@ async function runKlingVideoSettleDebitsCorrectly(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/kling.mp4",
+        objectKey: "/workspace/outbound/kling.mp4",
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -398,7 +398,7 @@ async function runOpenAIVideoSettleDebitsCorrectly(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/sora.mp4",
+        objectKey: "/workspace/outbound/sora.mp4",
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -433,7 +433,7 @@ async function runImageGenerateDoesNotConsultVcoin(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/render.png",
+        objectKey: "/workspace/outbound/render.png",
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -472,7 +472,7 @@ async function runVideoSettleFailureRollsBackWithoutLegacyReconciliation(): Prom
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/clip.mp4",
+        objectKey: "/workspace/outbound/clip.mp4",
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -522,7 +522,7 @@ async function runVideoSettleMissingBillingFactsSkipsLegacyReconciliation(): Pro
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/clip.mp4",
+        objectKey: "/workspace/outbound/clip.mp4",
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",

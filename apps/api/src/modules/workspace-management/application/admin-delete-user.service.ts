@@ -73,7 +73,7 @@ export class AdminDeleteUserService {
         let workspaceDeleted = false;
         if (assistant) {
           const aid = assistant.id;
-          // ADR-126 Slice 3 — schedule the assistant's `/shared/<wsid>/outbound/<handle>/`
+          // ADR-126 Slice 3 — schedule the assistant's `/workspace/outbound/<handle>/`
           // and the GCS-side mirror for deferred GC. We write the lease BEFORE
           // the source row is deleted so the schedule survives the hard-delete
           // even though the foreign key relationship is intentionally absent

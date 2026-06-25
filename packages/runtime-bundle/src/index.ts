@@ -24,8 +24,7 @@ export interface AssistantRuntimeBundleMetadata {
   /**
    * Workspace-unique handle assigned at assistant creation. Names the
    * assistant's outbound directory inside session pods
-   * (`/shared/<workspaceId>/outbound/<handle>/`) and the corresponding GCS
-   * prefix.
+   * (`/workspace/outbound/<handle>/`) and the corresponding workspace GCS prefix.
    */
   assistantHandle: string;
   /**

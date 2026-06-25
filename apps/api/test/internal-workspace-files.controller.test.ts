@@ -38,11 +38,11 @@ test("internal workspace metadata delete returns 204 semantics for shared paths"
     controller.deleteMetadata(
       { headers: { authorization: `Bearer ${TOKEN}` } },
       "workspace-1",
-      "/shared/input/report.txt"
+      "/workspace/input/report.txt"
     )
   );
 
-  assert.deepEqual(deletes, [{ workspaceId: "workspace-1", path: "/shared/input/report.txt" }]);
+  assert.deepEqual(deletes, [{ workspaceId: "workspace-1", path: "/workspace/input/report.txt" }]);
 });
 
 test("internal workspace metadata delete is idempotent when row is absent", async () => {
@@ -53,7 +53,7 @@ test("internal workspace metadata delete is idempotent when row is absent", asyn
     controller.deleteMetadata(
       { headers: { authorization: `Bearer ${TOKEN}` } },
       "workspace-1",
-      "/shared/outbound/self/missing.txt"
+      "/workspace/outbound/self/missing.txt"
     )
   );
 });
@@ -77,14 +77,14 @@ test("internal workspace metadata delete requires the internal token", async () 
   const { controller } = createController();
 
   await assert.rejects(
-    controller.deleteMetadata({ headers: {} }, "workspace-1", "/shared/input/report.txt"),
+    controller.deleteMetadata({ headers: {} }, "workspace-1", "/workspace/input/report.txt"),
     UnauthorizedException
   );
   await assert.rejects(
     controller.deleteMetadata(
       { headers: { authorization: "Bearer wrong-token" } },
       "workspace-1",
-      "/shared/input/report.txt"
+      "/workspace/input/report.txt"
     ),
     UnauthorizedException
   );

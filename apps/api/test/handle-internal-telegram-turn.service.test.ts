@@ -681,7 +681,7 @@ async function run(): Promise<void> {
             {
               id: "telegram-upload-att-1",
               attachmentType: "image",
-              storagePath: "/shared/in/image-1.png",
+              storagePath: "/workspace/input/image-1.png",
               mimeType: "image/png",
               originalFilename: "image-1.png",
               sizeBytes: BigInt(10)
@@ -689,7 +689,7 @@ async function run(): Promise<void> {
             {
               id: "telegram-upload-att-2",
               attachmentType: "document",
-              storagePath: "/shared/in/brief.pdf",
+              storagePath: "/workspace/input/brief.pdf",
               mimeType: "application/pdf",
               originalFilename: "brief.pdf",
               sizeBytes: BigInt(20)

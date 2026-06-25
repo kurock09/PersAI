@@ -13,7 +13,7 @@ function createAttachment(
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
     attachmentType: "image",
-    storagePath: "/shared/in/image.png",
+    storagePath: "/workspace/input/image.png",
     originalFilename: "image.png",
     mimeType: "image/png",
     sizeBytes: 128n,
@@ -33,7 +33,7 @@ function createAttachment(
 function createService(exists: boolean) {
   const checkedKeys: string[] = [];
   const service = new AttachmentObjectAvailabilityService({
-    buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+    buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
       return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
     },
     async existsObject(objectKey: string) {
@@ -57,7 +57,7 @@ describe("AttachmentObjectAvailabilityService", () => {
       attachments: [createAttachment()]
     });
 
-    assert.deepEqual(checkedKeys, ["workspaces/workspace-1/shared/in/image.png"]);
+    assert.deepEqual(checkedKeys, ["workspaces/workspace-1/workspace/input/image.png"]);
   });
 
   test("fails before runtime when a ready attachment object is missing", async () => {

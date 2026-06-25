@@ -96,7 +96,7 @@ describe("SendNativeTelegramTurnService", () => {
             artifact: {
               artifactId: "artifact-1",
               kind: "audio",
-              storagePath: "/shared/workspace-1/outbound/self/reply.ogg",
+              storagePath: "/workspace/outbound/self/reply.ogg",
               mimeType: "audio/ogg",
               filename: "reply.ogg",
               sizeBytes: 256,
@@ -113,7 +113,7 @@ describe("SendNativeTelegramTurnService", () => {
                 {
                   artifactId: "artifact-1",
                   kind: "audio",
-                  storagePath: "/shared/workspace-1/outbound/self/reply.ogg",
+                  storagePath: "/workspace/outbound/self/reply.ogg",
                   mimeType: "audio/ogg",
                   filename: "reply.ogg",
                   sizeBytes: 256,
@@ -222,7 +222,7 @@ describe("SendNativeTelegramTurnService", () => {
       assert.deepEqual(result.media, [
         {
           source: "persai_object_storage",
-          objectKey: "/shared/workspace-1/outbound/self/reply.ogg",
+          objectKey: "/workspace/outbound/self/reply.ogg",
           type: "audio",
           mimeType: "audio/ogg",
           filename: "reply.ogg",
@@ -615,7 +615,7 @@ describe("SendNativeTelegramTurnService", () => {
             artifact: {
               artifactId: "artifact-degraded-1",
               kind: "image",
-              storagePath: "/shared/workspace-1/outbound/self/degraded.png",
+              storagePath: "/workspace/outbound/self/degraded.png",
               mimeType: "image/png",
               filename: "degraded.png",
               sizeBytes: 512,
@@ -633,7 +633,7 @@ describe("SendNativeTelegramTurnService", () => {
               {
                 artifactId: "artifact-degraded-1",
                 kind: "image",
-                storagePath: "/shared/workspace-1/outbound/self/degraded.png",
+                storagePath: "/workspace/outbound/self/degraded.png",
                 mimeType: "image/png",
                 filename: "degraded.png",
                 sizeBytes: 512,
@@ -673,7 +673,7 @@ describe("SendNativeTelegramTurnService", () => {
       assert.deepEqual(result.media, [
         {
           source: "persai_object_storage",
-          objectKey: "/shared/workspace-1/outbound/self/degraded.png",
+          objectKey: "/workspace/outbound/self/degraded.png",
           type: "image",
           mimeType: "image/png",
           filename: "degraded.png",

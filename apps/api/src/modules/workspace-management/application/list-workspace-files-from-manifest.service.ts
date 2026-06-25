@@ -12,8 +12,8 @@ export type ListWorkspaceFilesFromManifestOutcome = {
   items: RuntimeFilesToolItem[];
 };
 
-// ADR-127 W1 — manifest-as-index reader for model-facing `files.list` over
-// `/shared/...`. Returns one-level-deep entries derived from the
+// ADR-128 Slice 2 — manifest-as-index reader for model-facing `files.list` over
+// persisted `/workspace/input/...` and `/workspace/outbound/...` paths. Returns one-level-deep entries derived from the
 // `workspace_file_metadata` rows whose path falls under `pathPrefix`.
 // Directories are synthesised from path components (no FS access).
 @Injectable()
@@ -41,7 +41,7 @@ export class ListWorkspaceFilesFromManifestService {
   async execute(
     input: ListWorkspaceFilesFromManifestInput
   ): Promise<ListWorkspaceFilesFromManifestOutcome> {
-    this.assertSharedPrefix(input.pathPrefix);
+    this.assertWorkspacePrefix(input.pathPrefix);
     const normalizedPrefix = this.normalizeDirectoryPrefix(input.pathPrefix);
     const searchPrefix = `${normalizedPrefix}/`;
 
@@ -118,10 +118,10 @@ export class ListWorkspaceFilesFromManifestService {
     return { items };
   }
 
-  private assertSharedPrefix(pathPrefix: string): void {
-    if (!pathPrefix.startsWith("/shared/") && pathPrefix !== "/shared") {
+  private assertWorkspacePrefix(pathPrefix: string): void {
+    if (!this.isPersistedWorkspacePrefix(pathPrefix)) {
       throw new BadRequestException(
-        'pathPrefix must start with "/shared/" (the manifest is only authoritative for shared paths).'
+        'pathPrefix must start with "/workspace/input" or "/workspace/outbound" (the manifest is authoritative for input/outbound workspace paths).'
       );
     }
     if (pathPrefix.includes("..")) {
@@ -130,25 +130,31 @@ export class ListWorkspaceFilesFromManifestService {
   }
 
   private normalizeDirectoryPrefix(pathPrefix: string): string {
-    return pathPrefix.replace(/\/+$/, "") || "/shared";
+    return pathPrefix.replace(/\/+$/, "") || "/workspace";
+  }
+
+  private isPersistedWorkspacePrefix(pathPrefix: string): boolean {
+    return (
+      pathPrefix === "/workspace/input" ||
+      pathPrefix.startsWith("/workspace/input/") ||
+      pathPrefix === "/workspace/outbound" ||
+      pathPrefix.startsWith("/workspace/outbound/")
+    );
   }
 
   private classifyRole(path: string, assistantHandle: string): RuntimeFilesToolItem["role"] {
-    if (path.startsWith("/workspace/") || path === "/workspace") {
-      return "workspace";
+    if (path === "/workspace/input" || path.startsWith("/workspace/input/")) {
+      return "workspace_input";
     }
-    if (path === "/shared/input" || path.startsWith("/shared/input/")) {
-      return "shared_input";
-    }
-    if (path === "/shared/outbound" || path.startsWith("/shared/outbound/")) {
-      const tail = path.slice("/shared/outbound/".length);
+    if (path === "/workspace/outbound" || path.startsWith("/workspace/outbound/")) {
+      const tail = path.slice("/workspace/outbound/".length);
       const handle = tail.split("/", 1)[0] ?? "";
-      if (handle.length > 0 && handle === assistantHandle) {
-        return "shared_outbound_self";
+      if (handle === "self" || (handle.length > 0 && handle === assistantHandle)) {
+        return "workspace_outbound_self";
       }
-      return "shared_outbound_other";
+      return "workspace_outbound_other";
     }
-    return "shared_input";
+    return "workspace_scratch";
   }
 
   private requiredString(value: unknown, field: string): string {

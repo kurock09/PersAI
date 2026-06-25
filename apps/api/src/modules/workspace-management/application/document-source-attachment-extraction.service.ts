@@ -59,7 +59,7 @@ export class DocumentSourceAttachmentExtractionService {
       }
 
       try {
-        const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+        const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
           workspaceId: input.workspaceId,
           workspaceRelPath: attachment.storagePath
         });

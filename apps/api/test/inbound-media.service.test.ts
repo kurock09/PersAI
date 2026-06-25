@@ -10,7 +10,7 @@ describe("inbound-media.service", () => {
     const releasedBytes: bigint[] = [];
     let registerCalls = 0;
     const metrics = new PlatformHttpMetricsService();
-    const sharedObjectKey = "workspaces/workspace-1/shared/in/photo.jpg";
+    const sharedObjectKey = "workspaces/workspace-1/workspace/input/photo.jpg";
 
     const service = new InboundMediaService(
       {
@@ -39,7 +39,7 @@ describe("inbound-media.service", () => {
         }
       } as never,
       {
-        buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
           return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
         },
         async saveObject() {
@@ -150,7 +150,7 @@ describe("inbound-media.service", () => {
   test("generates image thumbnail path and saves derivative after primary upload", async () => {
     const savedObjectKeys: string[] = [];
     let registerInput: Record<string, unknown> | null = null;
-    const storagePath = "/shared/input/photo.jpg";
+    const storagePath = "/workspace/input/photo.jpg";
     const thumbBuffer = Buffer.from("thumb");
 
     const attachment: AssistantChatMessageAttachment = {
@@ -213,7 +213,7 @@ describe("inbound-media.service", () => {
         }
       } as never,
       {
-        buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
           return `workspaces/${input.workspaceId}${input.workspaceRelPath}`;
         },
         async saveObject(input: { objectKey: string }) {

@@ -170,11 +170,12 @@ export class RuntimeFilesToolService {
     },
     request: FilesListRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    // ADR-127 D3 — `/shared/...` listings come from the authoritative
+    // ADR-128 Slice 2 — persisted `/workspace/input` and `/workspace/outbound`
+    // listings come from the authoritative
     // `workspace_file_metadata` manifest, not from a pod `find`. Pod FS is
     // a cache and may be stale; the manifest is the single source of
-    // truth for "what files exist" in the shared workspace.
-    if (this.isSharedListPath(request.path)) {
+    // truth for "what files exist" in the persisted workspace.
+    if (this.isPersistedWorkspaceListPath(request.path)) {
       return this.executeListFromManifest(params, request);
     }
     const job = await this.runSandboxJob(params, {
@@ -262,8 +263,13 @@ export class RuntimeFilesToolService {
     }
   }
 
-  private isSharedListPath(path: string): boolean {
-    return path === "/shared" || path.startsWith("/shared/");
+  private isPersistedWorkspaceListPath(path: string): boolean {
+    return (
+      path === "/workspace/input" ||
+      path.startsWith("/workspace/input/") ||
+      path === "/workspace/outbound" ||
+      path.startsWith("/workspace/outbound/")
+    );
   }
 
   private async executeReadAction(
@@ -470,13 +476,13 @@ export class RuntimeFilesToolService {
       };
     }
     const writeOutcome = this.parseWriteContent(job.content);
-    // ADR-127 D5 create-side — propagate the sandbox-side write to the
-    // authoritative manifest for `/shared/...` paths. `/workspace/...` is
-    // per-assistant scratch and stays pod-only by design. The upsert is
+    // ADR-128 Slice 2 — propagate persisted workspace writes to the
+    // authoritative manifest. Scratch elsewhere under `/workspace/...` stays
+    // pod-only by design. The upsert is
     // best-effort: failure is logged at warn and the write outcome is
     // still surfaced to the model. W3 will tighten consistency once
     // delete-side symmetry lands.
-    if (this.isSharedWritePath(request.path)) {
+    if (this.isPersistedWorkspaceWritePath(request.path)) {
       const sizeBytes = writeOutcome.sizeBytes ?? request.content.length;
       try {
         await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
@@ -506,8 +512,8 @@ export class RuntimeFilesToolService {
     };
   }
 
-  private isSharedWritePath(path: string): boolean {
-    return path.startsWith("/shared/");
+  private isPersistedWorkspaceWritePath(path: string): boolean {
+    return path.startsWith("/workspace/input/") || path.startsWith("/workspace/outbound/");
   }
 
   // The model passes raw text content via `files.write`. Without sniffing
@@ -564,7 +570,7 @@ export class RuntimeFilesToolService {
         isError: true
       };
     }
-    if (this.isSharedWritePath(request.path)) {
+    if (this.isPersistedWorkspaceWritePath(request.path)) {
       try {
         await this.persaiInternalApiClientService.deleteWorkspaceFileFromManifest({
           workspaceId: params.bundle.metadata.workspaceId,
@@ -907,10 +913,10 @@ export class RuntimeFilesToolService {
 
   private readListRole(value: unknown): RuntimeFilesToolItem["role"] | null {
     if (
-      value === "workspace" ||
-      value === "shared_input" ||
-      value === "shared_outbound_self" ||
-      value === "shared_outbound_other"
+      value === "workspace_scratch" ||
+      value === "workspace_input" ||
+      value === "workspace_outbound_self" ||
+      value === "workspace_outbound_other"
     ) {
       return value;
     }

@@ -601,9 +601,9 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
   const sandboxClient = {
-    async writeSharedOutbound(input: { contentBase64: string }) {
+    async writeWorkspaceOutbound(input: { contentBase64: string }) {
       return {
-        workspaceRelPath: "/shared/outbound/self/video.mp4",
+        workspaceRelPath: "/workspace/outbound/self/video.mp4",
         sizeBytes: Buffer.from(input.contentBase64, "base64").length
       };
     }

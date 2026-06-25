@@ -110,7 +110,7 @@ describe("TurnExecutionService working files developer section", () => {
       baseSections,
       [
         workingFile({
-          storagePath: "/shared/workspace-1/input/photo.jpg",
+          storagePath: "/workspace/input/photo.jpg",
           displayName: "photo.jpg",
           mimeType: "image/jpeg",
           sizeBytes: 123,
@@ -138,7 +138,7 @@ describe("TurnExecutionService working files developer section", () => {
   test("renders working files with sticky labels and marker column", () => {
     const section = buildSection([
       workingFile({
-        storagePath: "/shared/workspace-1/input/old.txt",
+        storagePath: "/workspace/input/old.txt",
         displayName: "old.txt",
         mimeType: "text/plain",
         aliases: ["file #1"],
@@ -147,7 +147,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Older user draft."
       }),
       workingFile({
-        storagePath: "/shared/workspace-1/outbound/self/portrait.png",
+        storagePath: "/workspace/outbound/self/portrait.png",
         displayName: "portrait.png",
         mimeType: "image/png",
         aliases: ["image #1", "file #2"],
@@ -205,7 +205,7 @@ describe("TurnExecutionService working files developer section", () => {
   test("keeps both same-name files visible and disambiguates them", () => {
     const section = buildSection([
       workingFile({
-        storagePath: "/shared/workspace-1/outbound/self/foo-1.png",
+        storagePath: "/workspace/outbound/self/foo-1.png",
         displayName: "foo.png",
         mimeType: "image/png",
         aliases: ["image #1", "file #1"],
@@ -215,7 +215,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Makeup strengthened."
       }),
       workingFile({
-        storagePath: "/shared/workspace-1/outbound/self/foo-2.png",
+        storagePath: "/workspace/outbound/self/foo-2.png",
         displayName: "foo.png",
         mimeType: "image/png",
         aliases: ["image #2", "file #2"],
@@ -234,7 +234,7 @@ describe("TurnExecutionService working files developer section", () => {
   test("document priority note remains without rendering legacy role sections", () => {
     const section = buildSection([
       workingFile({
-        storagePath: "/shared/workspace-1/input/proposal.docx",
+        storagePath: "/workspace/input/proposal.docx",
         displayName: "proposal.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
@@ -244,7 +244,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Current source document for the new PDF."
       }),
       workingFile({
-        storagePath: "/shared/workspace-1/outbound/self/proposal.pdf",
+        storagePath: "/workspace/outbound/self/proposal.pdf",
         displayName: "proposal.pdf",
         mimeType: "application/pdf",
         sizeBytes: 1024,
@@ -278,7 +278,7 @@ describe("TurnExecutionService working files developer section", () => {
   test("keeps current source and last delivered anchors visible when older files exceed the cap", () => {
     const extraFiles = Array.from({ length: 20 }, (_, index) =>
       workingFile({
-        storagePath: `/shared/workspace-1/outbound/self/extra-${String(index + 1)}.png`,
+        storagePath: `/workspace/outbound/self/extra-${String(index + 1)}.png`,
         displayName: `extra-${String(index + 1)}.png`,
         mimeType: "image/png",
         aliases: [`image #${String(index + 1)}`, `file #${String(index + 1 + 2)}`],
@@ -292,7 +292,7 @@ describe("TurnExecutionService working files developer section", () => {
     );
     const section = buildSection([
       workingFile({
-        storagePath: "/shared/workspace-1/input/proposal.docx",
+        storagePath: "/workspace/input/proposal.docx",
         displayName: "proposal.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
@@ -303,7 +303,7 @@ describe("TurnExecutionService working files developer section", () => {
       }),
       ...extraFiles,
       workingFile({
-        storagePath: "/shared/workspace-1/outbound/self/proposal.pdf",
+        storagePath: "/workspace/outbound/self/proposal.pdf",
         displayName: "proposal.pdf",
         mimeType: "application/pdf",
         sizeBytes: 1024,
@@ -330,7 +330,7 @@ describe("TurnExecutionService working files developer section", () => {
   test("always shows microdescriptions when present and keeps recovery instructions", () => {
     const section = buildSection([
       workingFile({
-        storagePath: "/shared/workspace-1/input/final-client-brief.docx",
+        storagePath: "/workspace/input/final-client-brief.docx",
         displayName: "final-client-brief.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
@@ -359,7 +359,7 @@ describe("TurnExecutionService working files developer section", () => {
       }
     ).mergeAssistantTurnText(
       "",
-      'Here you go.\n\nAssistant sent an attachment: document "plan.md", storagePath: "/shared/workspace-1/outbound/self/plan.md".'
+      'Here you go.\n\nAssistant sent an attachment: document "plan.md", storagePath: "/workspace/outbound/self/plan.md".'
     );
 
     assert.equal(merged.trimEnd(), "Here you go.");
@@ -369,7 +369,7 @@ describe("TurnExecutionService working files developer section", () => {
   test("adding a newer file does not renumber existing sticky labels", () => {
     const originalSection = buildSection([
       workingFile({
-        storagePath: "/shared/workspace-1/outbound/self/older.png",
+        storagePath: "/workspace/outbound/self/older.png",
         displayName: "older.png",
         mimeType: "image/png",
         aliases: ["image #1", "file #1"],
@@ -379,7 +379,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Older image."
       }),
       workingFile({
-        storagePath: "/shared/workspace-1/input/brief.docx",
+        storagePath: "/workspace/input/brief.docx",
         displayName: "brief.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         aliases: ["file #2"],
@@ -390,7 +390,7 @@ describe("TurnExecutionService working files developer section", () => {
     ]);
     const expandedSection = buildSection([
       workingFile({
-        storagePath: "/shared/workspace-1/outbound/self/older.png",
+        storagePath: "/workspace/outbound/self/older.png",
         displayName: "older.png",
         mimeType: "image/png",
         aliases: ["image #1", "file #1"],
@@ -400,7 +400,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Older image."
       }),
       workingFile({
-        storagePath: "/shared/workspace-1/input/brief.docx",
+        storagePath: "/workspace/input/brief.docx",
         displayName: "brief.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         aliases: ["file #2"],
@@ -409,7 +409,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Older document."
       }),
       workingFile({
-        storagePath: "/shared/workspace-1/outbound/self/newer.png",
+        storagePath: "/workspace/outbound/self/newer.png",
         displayName: "newer.png",
         mimeType: "image/png",
         aliases: ["image #2", "file #3"],

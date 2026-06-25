@@ -14,7 +14,7 @@ export type Assistant = {
   workspaceId: string;
   /**
    * ADR-126 Slice 3 — stable, URL/path-safe identifier used as the directory
-   * name under `/shared/<workspaceId>/outbound/<handle>/` inside session pods.
+   * name under `/workspace/outbound/<handle>/` inside session pods.
    * Generated from `draftDisplayName` and de-duplicated per workspace; remains
    * stable across rename.
    */

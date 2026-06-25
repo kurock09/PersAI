@@ -50,8 +50,8 @@ const baseSandboxConfigSchema = z.object({
   // in parallel with lease wait so cold pod-provisioning overlaps lease acquisition.
   // 0 = disable pre-warm (job's runInPod still creates lazily as before).
   SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: z.coerce.number().int().min(0).max(1).default(1),
-  // ADR-126 Slice 3 — size of the `/shared/<workspaceId>/` emptyDir volume mounted
-  // into every session pod. Backs `/shared/input/`, `/shared/outbound/<handle>/`, and
+  // ADR-126 Slice 3 — size of the `/workspace/` emptyDir volume mounted
+  // into every session pod. Backs `/workspace/input/`, `/workspace/outbound/<handle>/`, and
   // sibling outbound mirrors. Persisted asynchronously to GCS; the emptyDir is the
   // hot working copy. Default 512 MiB matches the per-workspace shared quota.
   SANDBOX_SHARED_EMPTYDIR_SIZE_MIB: z.coerce.number().int().positive().default(512),

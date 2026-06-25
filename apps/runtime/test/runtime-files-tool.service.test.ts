@@ -52,7 +52,7 @@ function createService(input: {
     async registerChatAttachment() {
       return {
         attachmentId: "attachment-1",
-        storagePath: "/shared/outbound/self/report.csv"
+        storagePath: "/workspace/outbound/self/report.csv"
       };
     },
     ...input.apiClient
@@ -84,7 +84,7 @@ test("files.attach happy path workspace source creates API row and hides attachm
       content: JSON.stringify({
         action: "attached",
         attachment: {
-          workspaceRelPath: "/shared/outbound/self/report.csv",
+          workspaceRelPath: "/workspace/outbound/self/report.csv",
           sourcePath: "/workspace/report.csv",
           sizeBytes: 12,
           mimeType: "text/csv",
@@ -98,7 +98,7 @@ test("files.attach happy path workspace source creates API row and hides attachm
         apiInput = input as Record<string, unknown>;
         return {
           attachmentId: "attachment-1",
-          storagePath: "/shared/outbound/self/report.csv"
+          storagePath: "/workspace/outbound/self/report.csv"
         };
       }
     }
@@ -120,15 +120,18 @@ test("files.attach happy path workspace source creates API row and hides attachm
   assert.equal(apiInput?.chatId, undefined);
   assert.equal(result.isError, false);
   assert.equal(result.payload.action, "attached");
-  assert.equal(result.payload.path, "/shared/outbound/self/report.csv");
+  assert.equal(result.payload.path, "/workspace/outbound/self/report.csv");
   assert.equal(result.payload.sizeBytes, 12);
-  assert.equal(result.discoveredFileHandles?.[0]?.storagePath, "/shared/outbound/self/report.csv");
+  assert.equal(
+    result.discoveredFileHandles?.[0]?.storagePath,
+    "/workspace/outbound/self/report.csv"
+  );
   const modelJson = stringifyToolResultPayloadForModel(result.payload);
   assert.ok(!modelJson.includes("attachment-1"));
   assert.ok(!modelJson.includes('"attachmentId"'));
 });
 
-test("files.attach happy path shared_outbound_self still calls API", async () => {
+test("files.attach happy path workspace_outbound_self still calls API", async () => {
   let apiCalled = false;
   const service = createService({
     sandboxJob: {
@@ -138,8 +141,8 @@ test("files.attach happy path shared_outbound_self still calls API", async () =>
       violationMessage: null,
       content: JSON.stringify({
         attachment: {
-          workspaceRelPath: "/shared/outbound/self/report.csv",
-          sourcePath: "/shared/outbound/self/report.csv",
+          workspaceRelPath: "/workspace/outbound/self/report.csv",
+          sourcePath: "/workspace/outbound/self/report.csv",
           sizeBytes: 12,
           mimeType: "text/csv",
           displayName: "report.csv"
@@ -152,7 +155,7 @@ test("files.attach happy path shared_outbound_self still calls API", async () =>
         assert.equal(input.channel, "web");
         assert.equal(input.externalThreadKey, "web-1782153682653");
         assert.equal(input.chatId, undefined);
-        return { attachmentId: "attachment-2", storagePath: "/shared/outbound/self/report.csv" };
+        return { attachmentId: "attachment-2", storagePath: "/workspace/outbound/self/report.csv" };
       }
     }
   });
@@ -162,7 +165,7 @@ test("files.attach happy path shared_outbound_self still calls API", async () =>
     toolCall: {
       id: "tc-2",
       name: "files",
-      arguments: { action: "attach", path: "/shared/outbound/self/report.csv" }
+      arguments: { action: "attach", path: "/workspace/outbound/self/report.csv" }
     },
     ...attachToolCallParams
   });
@@ -177,14 +180,14 @@ test("files.attach sandbox path_not_attachable does not call API", async () => {
     sandboxJob: {
       status: "completed",
       reason: "path_not_attachable",
-      warning: "files.attach accepts only /workspace/ or /shared/<wsid>/outbound/self/ paths",
+      warning: "files.attach accepts only /workspace/ or /workspace/outbound/self/ paths",
       violationMessage: null,
       content: null
     },
     apiClient: {
       async registerChatAttachment() {
         apiCalled = true;
-        return { attachmentId: "attachment-3", storagePath: "/shared/outbound/self/report.csv" };
+        return { attachmentId: "attachment-3", storagePath: "/workspace/outbound/self/report.csv" };
       }
     }
   });
@@ -194,7 +197,7 @@ test("files.attach sandbox path_not_attachable does not call API", async () => {
     toolCall: {
       id: "tc-3",
       name: "files",
-      arguments: { action: "attach", path: "/shared/input/sales.csv" }
+      arguments: { action: "attach", path: "/workspace/input/sales.csv" }
     },
     ...attachToolCallParams
   });
@@ -213,7 +216,7 @@ test("files.attach API failure returns files_attach_failed", async () => {
       violationMessage: null,
       content: JSON.stringify({
         attachment: {
-          workspaceRelPath: "/shared/outbound/self/report.csv",
+          workspaceRelPath: "/workspace/outbound/self/report.csv",
           sourcePath: "/workspace/report.csv",
           sizeBytes: 12,
           mimeType: "text/csv",
@@ -292,7 +295,7 @@ test("files.write shared_quota_exhausted surfaces stable reason to model", async
       name: "files",
       arguments: {
         action: "write",
-        path: "/shared/outbound/self/out.csv",
+        path: "/workspace/outbound/self/out.csv",
         content: "data"
       }
     },
@@ -310,10 +313,10 @@ test("files.write shared_quota_exhausted surfaces stable reason to model", async
   assert.equal(result.payload.reason, "shared_quota_exhausted");
 });
 
-// ADR-127 W1 — `/shared/...` listings come from `workspace_file_metadata`,
+// ADR-127 W1 — `/workspace/...` listings come from `workspace_file_metadata`,
 // not from the pod FS. The runtime must call the internal API and ignore
 // the sandbox `find` for shared paths.
-test("files.list /shared/ path reads from manifest API and skips sandbox", async () => {
+test("files.list /workspace/ path reads from manifest API and skips sandbox", async () => {
   let manifestCalled = false;
   let sandboxCalled = false;
   const service = new RuntimeFilesToolService(
@@ -337,14 +340,14 @@ test("files.list /shared/ path reads from manifest API and skips sandbox", async
       async listWorkspaceFilesFromManifest(input: Record<string, unknown>) {
         manifestCalled = true;
         assert.equal(input.workspaceId, "workspace-1");
-        assert.equal(input.pathPrefix, "/shared/input");
+        assert.equal(input.pathPrefix, "/workspace/input");
         assert.equal(input.assistantHandle, "my-bot");
         return {
           items: [
             {
-              path: "/shared/input/photo.jpg",
+              path: "/workspace/input/photo.jpg",
               type: "file",
-              role: "shared_input",
+              role: "workspace_input",
               sizeBytes: 1200,
               mimeType: "image/jpeg",
               modifiedAt: "2026-06-20T10:00:00.000Z",
@@ -361,7 +364,7 @@ test("files.list /shared/ path reads from manifest API and skips sandbox", async
     toolCall: {
       id: "tc-list-shared",
       name: "files",
-      arguments: { action: "list", path: "/shared/input" }
+      arguments: { action: "list", path: "/workspace/input" }
     },
     sessionId: "session-1",
     requestId: "request-1",
@@ -380,7 +383,7 @@ test("files.list /shared/ path reads from manifest API and skips sandbox", async
   assert.ok(Array.isArray(items));
   assert.equal(items.length, 1);
   const first = items[0] as Record<string, unknown>;
-  assert.equal(first.path, "/shared/input/photo.jpg");
+  assert.equal(first.path, "/workspace/input/photo.jpg");
   assert.equal(first.shortDescription, "front-door selfie");
 });
 
@@ -402,7 +405,7 @@ test("files.list /workspace/ path keeps sandbox find behavior", async () => {
               {
                 path: "/workspace/scratch.txt",
                 type: "file",
-                role: "workspace",
+                role: "workspace_scratch",
                 sizeBytes: 4,
                 mimeType: "text/plain",
                 modifiedAt: "2026-06-20T10:00:00.000Z"
@@ -447,10 +450,10 @@ test("files.list /workspace/ path keeps sandbox find behavior", async () => {
   assert.equal(result.payload.action, "listed");
 });
 
-// ADR-127 W1 — after a successful sandbox write on `/shared/...`, the
+// ADR-127 W1 — after a successful sandbox write on `/workspace/...`, the
 // runtime upserts `workspace_file_metadata` via the internal API. A
 // `/workspace/...` write must NOT upsert (scratch stays pod-only).
-test("files.write /shared/ path upserts manifest", async () => {
+test("files.write /workspace/ path upserts manifest", async () => {
   let upsertCalled = false;
   let upsertInput: Record<string, unknown> | undefined;
   const service = new RuntimeFilesToolService(
@@ -484,7 +487,7 @@ test("files.write /shared/ path upserts manifest", async () => {
       name: "files",
       arguments: {
         action: "write",
-        path: "/shared/outbound/self/notes.md",
+        path: "/workspace/outbound/self/notes.md",
         content: "# notes\nhello"
       }
     },
@@ -500,7 +503,7 @@ test("files.write /shared/ path upserts manifest", async () => {
   assert.equal(result.payload.action, "written");
   assert.equal(upsertCalled, true);
   assert.equal(upsertInput?.workspaceId, "workspace-1");
-  assert.equal(upsertInput?.path, "/shared/outbound/self/notes.md");
+  assert.equal(upsertInput?.path, "/workspace/outbound/self/notes.md");
   assert.equal(upsertInput?.mimeType, "text/markdown");
   assert.equal(upsertInput?.sizeBytes, 42);
 });
@@ -554,7 +557,7 @@ test("files.write /workspace/ path does NOT upsert manifest", async () => {
   assert.equal(upsertCalled, false);
 });
 
-test("files.write /shared/ upsert failure is swallowed; write still succeeds", async () => {
+test("files.write /workspace/ upsert failure is swallowed; write still succeeds", async () => {
   const service = new RuntimeFilesToolService(
     {
       isConfigured: () => true,
@@ -585,7 +588,7 @@ test("files.write /shared/ upsert failure is swallowed; write still succeeds", a
       name: "files",
       arguments: {
         action: "write",
-        path: "/shared/outbound/self/note.txt",
+        path: "/workspace/outbound/self/note.txt",
         content: "abc"
       }
     },
@@ -601,7 +604,7 @@ test("files.write /shared/ upsert failure is swallowed; write still succeeds", a
   assert.equal(result.payload.action, "written");
 });
 
-test("files.delete /shared/ path deletes manifest after sandbox rm", async () => {
+test("files.delete /workspace/ path deletes manifest after sandbox rm", async () => {
   let manifestDeleteCalled = false;
   let manifestDeleteInput: Record<string, unknown> | undefined;
   const service = createService({
@@ -627,7 +630,7 @@ test("files.delete /shared/ path deletes manifest after sandbox rm", async () =>
       name: "files",
       arguments: {
         action: "delete",
-        path: "/shared/outbound/self/note.txt"
+        path: "/workspace/outbound/self/note.txt"
       }
     },
     sessionId: "session-1",
@@ -642,7 +645,7 @@ test("files.delete /shared/ path deletes manifest after sandbox rm", async () =>
   assert.equal(result.payload.action, "deleted");
   assert.equal(manifestDeleteCalled, true);
   assert.equal(manifestDeleteInput?.workspaceId, "workspace-1");
-  assert.equal(manifestDeleteInput?.path, "/shared/outbound/self/note.txt");
+  assert.equal(manifestDeleteInput?.path, "/workspace/outbound/self/note.txt");
 });
 
 test("files.delete /workspace/ path does NOT delete manifest", async () => {

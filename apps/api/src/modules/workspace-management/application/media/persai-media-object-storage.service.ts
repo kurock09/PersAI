@@ -38,20 +38,16 @@ export class PersaiMediaObjectStorageService {
   }
 
   /**
-   * ADR-126 Slice 3 — GCS object key for a workspace-shared path so the API
-   * can mirror upload bytes into the same GCS subtree that the sandbox pod
-   * bootstrap hydrates from. Mirrors `SandboxObjectStorageService.buildSharedObjectKey`
-   * — both services share the same bucket (`PERSAI_MEDIA_BUCKET_NAME`) and prefix
-   * (`PERSAI_MEDIA_OBJECT_PREFIX`), so keys are interchangeable.
-   *
-   * `workspaceRelPath` is the model-facing pod path, e.g. `/shared/input/<name>`.
+   * ADR-128 Slice 2 — GCS object key for a persisted `/workspace/...` path.
+   * Mirrors `SandboxObjectStorageService.buildWorkspaceObjectKey` so API and
+   * sandbox hydrate/delete the same subtree.
    */
-  buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }): string {
+  buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }): string {
     const relative = input.workspaceRelPath
-      .replace(/^\/shared\//, "")
+      .replace(/^\/workspace\//, "")
       .replace(/^\/+/, "")
       .replace(/\\/g, "/");
-    return `${this.getObjectPrefix()}/workspaces/${input.workspaceId}/shared/${relative}`;
+    return `${this.getObjectPrefix()}/workspaces/${input.workspaceId}/workspace/${relative}`;
   }
 
   async saveObject(input: {

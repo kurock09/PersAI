@@ -21,7 +21,7 @@ type InternalRequestLike = {
 
 // ADR-127 W1 — workspace-scoped internal endpoints that treat
 // `workspace_file_metadata` as the source of truth for the runtime
-// `files.list` (over `/shared/...`) and `files.write` (manifest upsert)
+// `files.list` (over persisted `/workspace/...`) and `files.write` (manifest upsert)
 // paths. Same internal-token auth pattern as the other `internal/runtime/*`
 // surfaces.
 @Controller("api/v1/internal/workspaces")
@@ -77,8 +77,13 @@ export class InternalWorkspaceFilesController {
   ): Promise<void> {
     this.assertAuthorized(req);
     const trimmedPath = typeof path === "string" ? path.trim() : "";
-    if (!trimmedPath.startsWith("/shared/")) {
-      throw new BadRequestException('path must start with "/shared/".');
+    if (
+      !trimmedPath.startsWith("/workspace/input/") &&
+      !trimmedPath.startsWith("/workspace/outbound/")
+    ) {
+      throw new BadRequestException(
+        'path must start with "/workspace/input/" or "/workspace/outbound/".'
+      );
     }
     await this.workspaceFileMetadataService.delete({
       workspaceId,

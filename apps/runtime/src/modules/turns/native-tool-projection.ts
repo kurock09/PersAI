@@ -1368,7 +1368,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         storagePath: {
           type: "string",
           description:
-            'Workspace storage path for cross-chat revise_document (pod-absolute path under /shared/... or /workspace/... visible in Working Files). Example: "/shared/<workspaceId>/outbound/<handle>/report.pdf". Mutually exclusive with `docId`; do not pass both.'
+            'Workspace storage path for cross-chat revise_document (pod-absolute path under /workspace/... visible in Working Files). Example: "/workspace/outbound/self/report.pdf". Mutually exclusive with `docId`; do not pass both.'
         },
         requestedName: {
           type: "string",
@@ -1611,7 +1611,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "files",
     description: resolveToolDefinitionDescription(
       policy,
-      "Path-driven workspace operations on `/workspace/...` and `/shared/<workspaceId>/...`. Six actions: list, read, preview, write, delete, attach. Address files by pod-absolute path; there is no UUID identity and no alias. Use attach({path}) to publish a file from /workspace/ or /shared/outbound/self/ to the current chat as a user-visible attachment."
+      "Path-driven workspace operations on `/workspace/...`. Three regions:\n- `/workspace/input/` — files the user has shared with this assistant (read-only).\n- `/workspace/outbound/self/` — files this assistant produces and delivers to the user (read-write).\n- `/workspace/<anywhere else>` — model scratch (ephemeral, not delivered, not preserved across pod restart)."
     ),
     inputSchema: {
       type: "object",
@@ -1622,12 +1622,12 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
           description:
-            'One files action: "list", "read", "preview", "write", "delete", or "attach". Address every file by pod-absolute path. attach delivers a /workspace/... or /shared/<workspaceId>/outbound/self/... file to the current chat as a user-visible attachment.'
+            'One files action: "list", "read", "preview", "write", "delete", or "attach". Address every file by pod-absolute /workspace/... path. attach delivers a /workspace/... or /workspace/outbound/self/... file to the current chat as a user-visible attachment.'
         },
         path: {
           type: "string",
           description:
-            'Pod-absolute path under `/workspace/` (assistant private) or `/shared/<workspaceId>/input/...`, `/shared/<workspaceId>/outbound/self/...` (or `/shared/<workspaceId>/outbound/<otherHandle>/...` for read-only sibling outputs). Required for read, preview, write, and delete; required as the directory for list (use "dir" as an alias).'
+            'Pod-absolute path under `/workspace/...`. Use `/workspace/input/...` for user uploads, `/workspace/outbound/self/...` for delivered assistant outputs, `/workspace/outbound/<otherHandle>/...` for read-only sibling outputs, and any other `/workspace/...` path for scratch. Required for read, preview, write, and delete; required as the directory for list (use "dir" as an alias).'
         },
         dir: {
           type: "string",

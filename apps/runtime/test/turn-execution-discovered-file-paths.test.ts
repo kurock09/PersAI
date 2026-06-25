@@ -113,9 +113,9 @@ async function run(): Promise<void> {
     }
   ).applyToolExecutionOutcome.bind(service);
 
-  const discoveredPath = "/shared/workspace-1/outbound/self/persai_logo.png";
-  const sharedPath1 = "/shared/workspace-1/input/input.png";
-  const sharedPath2 = "/shared/workspace-1/outbound/self/report.txt";
+  const discoveredPath = "/workspace/outbound/self/persai_logo.png";
+  const sharedPath1 = "/workspace/input/input.png";
+  const sharedPath2 = "/workspace/outbound/self/report.txt";
 
   {
     const turnState = createTurnState();

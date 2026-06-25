@@ -232,8 +232,13 @@ export class MediaAttachmentController {
     if (storagePath.length === 0) {
       throw new BadRequestException("path query parameter is required.");
     }
-    if (!storagePath.startsWith("/shared/")) {
-      throw new BadRequestException('path must start with "/shared/".');
+    if (
+      !storagePath.startsWith("/workspace/input/") &&
+      !storagePath.startsWith("/workspace/outbound/")
+    ) {
+      throw new BadRequestException(
+        'path must start with "/workspace/input/" or "/workspace/outbound/".'
+      );
     }
     await this.manageChatMediaService.deleteWorkspaceFile({
       assistantId: assistant.id,

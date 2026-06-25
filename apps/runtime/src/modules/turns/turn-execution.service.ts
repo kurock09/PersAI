@@ -2101,7 +2101,7 @@ export class TurnExecutionService {
 
     lines.push(
       "",
-      "Address files by their pod-absolute path under `/workspace/` or `/shared/<workspaceId>/`."
+      "Address files by their pod-absolute path under `/workspace/` or `/workspace/`."
     );
     lines.push(
       "Recover a forgotten path with `files.list` or `files.read`; use `files.preview` for sampled content. Do not answer from this block alone."

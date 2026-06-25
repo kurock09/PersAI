@@ -12,7 +12,7 @@ const noopSandboxControlPlaneClient = {
   isConfigured() {
     return false;
   },
-  async pushSharedInboundBytes() {
+  async pushWorkspaceInboundBytes() {
     return { mode: "deferred" as const, reason: "not_configured" as const };
   }
 } as never;

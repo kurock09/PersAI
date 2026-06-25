@@ -18,7 +18,7 @@ function createAttachment(
     chatId: "chat-1",
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    storagePath: "/shared/input/out.bin",
+    storagePath: "/workspace/input/out.bin",
     originalFilename: "out.bin",
     mimeType: "application/octet-stream",
     sizeBytes: BigInt(1),
@@ -92,16 +92,16 @@ function fakeMediaObjectStorage(
 ) {
   const defaultPngBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
   return {
-    buildSharedObjectKey(scope: { workspaceId: string; workspaceRelPath: string }) {
+    buildWorkspaceObjectKey(scope: { workspaceId: string; workspaceRelPath: string }) {
       return `workspaces/${scope.workspaceId}${scope.workspaceRelPath}`;
     },
     buildChatMessageObjectKey() {
-      return input.saveObjectKey ?? "workspaces/workspace-1/shared/input/file.bin";
+      return input.saveObjectKey ?? "workspaces/workspace-1/workspace/input/file.bin";
     },
     async saveObject(saveInput: { mimeType: string; buffer: Buffer }) {
       input.onSaveMime?.(saveInput.mimeType);
       return {
-        objectKey: input.saveObjectKey ?? "workspaces/workspace-1/shared/input/file.bin",
+        objectKey: input.saveObjectKey ?? "workspaces/workspace-1/workspace/input/file.bin",
         sizeBytes: saveInput.buffer.length,
         mimeType: saveInput.mimeType
       };
@@ -233,7 +233,7 @@ async function run(): Promise<void> {
 
   assert.equal(uploadedMime, "image/png");
   assert.equal(delivered.attachments.length, 1);
-  assert.ok((delivered.attachments[0]?.path ?? "").startsWith("/shared/input/"));
+  assert.ok((delivered.attachments[0]?.path ?? "").startsWith("/workspace/input/"));
   assert.equal(delivered.attachments[0]?.mimeType, "image/png");
   assert.equal(delivered.attachments[0]?.originalFilename, "render.png");
   const successSeries = safeMetrics
@@ -256,7 +256,7 @@ async function run(): Promise<void> {
     {
       async execute() {
         legacyObjectKeyRegisterCalls += 1;
-        return { attachmentId: "att-legacy", storagePath: "/shared/input/ignored.png" };
+        return { attachmentId: "att-legacy", storagePath: "/workspace/input/ignored.png" };
       }
     } as never,
     fakeWorkspaceFileMetadataService as never,
@@ -341,7 +341,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/generated.png",
+        objectKey: "/workspace/outbound/generated.png",
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -364,7 +364,7 @@ async function run(): Promise<void> {
       },
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/generated.mp3",
+        objectKey: "/workspace/outbound/generated.mp3",
         type: "audio",
         sourceToolCode: "tts",
         mimeType: "audio/mpeg",
@@ -420,7 +420,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/generated-existing.png",
+        objectKey: "/workspace/outbound/generated-existing.png",
         type: "image",
         mimeType: "image/png",
         filename: "generated-existing.png",
@@ -436,7 +436,7 @@ async function run(): Promise<void> {
 
   assert.equal(
     existingWorkspacePathDelivered.attachments[0]?.path,
-    "/shared/outbound/generated-existing.png"
+    "/workspace/outbound/generated-existing.png"
   );
 
   let adapterTarget: {
@@ -463,7 +463,7 @@ async function run(): Promise<void> {
     ],
     fakeMediaObjectStorage({
       downloadObject: async (objectKey: string) => {
-        assert.equal(objectKey, "workspaces/workspace-1/shared/outbound/telegram.png");
+        assert.equal(objectKey, "workspaces/workspace-1/workspace/outbound/telegram.png");
         return {
           buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
           contentType: "image/png"
@@ -484,7 +484,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/telegram.png",
+        objectKey: "/workspace/outbound/telegram.png",
         type: "image",
         mimeType: "image/png",
         filename: "telegram.png",
@@ -566,7 +566,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/settled.png",
+        objectKey: "/workspace/outbound/settled.png",
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -609,7 +609,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/reconcile.png",
+        objectKey: "/workspace/outbound/reconcile.png",
         type: "image",
         sourceToolCode: "image_edit",
         mimeType: "image/png",
@@ -637,7 +637,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/not-delivered.png",
+        objectKey: "/workspace/outbound/not-delivered.png",
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -646,7 +646,7 @@ async function run(): Promise<void> {
       },
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/ignored.png",
+        objectKey: "/workspace/outbound/ignored.png",
         type: "image",
         mimeType: "image/png",
         filename: "ignored.png",
@@ -669,7 +669,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/shared/outbound/user-stopped.png",
+        objectKey: "/workspace/outbound/user-stopped.png",
         type: "image",
         sourceToolCode: "video_generate",
         mimeType: "image/png",

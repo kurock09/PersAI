@@ -215,7 +215,7 @@ describe("RuntimeImageGenerateToolService", () => {
     const service = new RuntimeImageGenerateToolService(
       providerGatewayClient as never,
       {} as never,
-      createFakeSandboxClientForOutboundWrite("/shared/outbound/self/image-1.png") as never
+      createFakeSandboxClientForOutboundWrite("/workspace/outbound/self/image-1.png") as never
     );
 
     const result = await service.executeToolCall({
@@ -343,7 +343,7 @@ describe("RuntimeImageGenerateToolService", () => {
         }
       } as never,
       {} as never,
-      createFakeSandboxClientForOutboundWrite("/shared/outbound/self/image-series.png") as never
+      createFakeSandboxClientForOutboundWrite("/workspace/outbound/self/image-series.png") as never
     );
 
     const result = await service.executeToolCall({
@@ -426,10 +426,10 @@ describe("RuntimeImageGenerateToolService", () => {
       } as never,
       {} as never,
       {
-        async writeSharedOutbound(input: { contentBase64: string }) {
+        async writeWorkspaceOutbound(input: { contentBase64: string }) {
           savedArtifacts += 1;
           return {
-            workspaceRelPath: `/shared/outbound/self/generate-partial-${String(savedArtifacts)}.png`,
+            workspaceRelPath: `/workspace/outbound/self/generate-partial-${String(savedArtifacts)}.png`,
             sizeBytes: Buffer.from(input.contentBase64, "base64").length
           };
         }

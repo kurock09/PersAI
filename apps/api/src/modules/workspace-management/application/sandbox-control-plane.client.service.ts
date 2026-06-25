@@ -12,7 +12,7 @@ type ResolvedSandboxConfig = ReturnType<typeof loadApiConfig>;
  * Design constraints:
  *   * The api MUST treat this client as best-effort. The canonical store for
  *     inbound bytes is GCS (already written by `manage-chat-media`). The
- *     sandbox cold-start hydrate path (`hydrateSharedMountFromGcs`) is the
+ *     sandbox cold-start hydrate path (`hydrateWorkspaceMountFromGcs`) is the
  *     authoritative recovery mechanism. Failing or skipping the hot-pod push
  *     never blocks the upload or corrupts state.
  *   * The api MUST NOT throw on misconfiguration, network failure, or
@@ -43,7 +43,7 @@ export class SandboxControlPlaneClientService {
     );
   }
 
-  async pushSharedInboundBytes(input: {
+  async pushWorkspaceInboundBytes(input: {
     assistantId: string;
     workspaceId: string;
     basename: string;
@@ -58,7 +58,7 @@ export class SandboxControlPlaneClientService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.PERSAI_SANDBOX_TIMEOUT_MS);
     try {
-      const response = await fetch(`${baseUrl}/api/v1/jobs/shared-inbound-write`, {
+      const response = await fetch(`${baseUrl}/api/v1/jobs/workspace-inbound-write`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -76,7 +76,7 @@ export class SandboxControlPlaneClientService {
       if (!response.ok) {
         const body = await this.safeReadBodyText(response);
         this.logger.warn(
-          `shared_inbound_push_http_error workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} status=${String(response.status)} body=${body.slice(0, 256)}`
+          `workspace_inbound_push_http_error workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} status=${String(response.status)} body=${body.slice(0, 256)}`
         );
         return { mode: "error", reason: `http_${response.status}` };
       }
@@ -86,7 +86,7 @@ export class SandboxControlPlaneClientService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
-        `shared_inbound_push_failed workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} error=${message}`
+        `workspace_inbound_push_failed workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} error=${message}`
       );
       return { mode: "error", reason: message };
     } finally {
@@ -94,7 +94,7 @@ export class SandboxControlPlaneClientService {
     }
   }
 
-  async removeSharedFileFromHotPods(input: {
+  async removeWorkspaceFileFromHotPods(input: {
     workspaceId: string;
     path: string;
   }): Promise<{ removedFromPods: number; failures: Array<{ podName: string; reason: string }> }> {
@@ -107,7 +107,7 @@ export class SandboxControlPlaneClientService {
     const timeout = setTimeout(() => controller.abort(), this.config.PERSAI_SANDBOX_TIMEOUT_MS);
     try {
       const response = await fetch(
-        `${baseUrl}/api/v1/control/workspaces/${encodeURIComponent(input.workspaceId)}/shared/rm`,
+        `${baseUrl}/api/v1/control/workspaces/${encodeURIComponent(input.workspaceId)}/workspace/rm`,
         {
           method: "POST",
           headers: {
@@ -121,7 +121,7 @@ export class SandboxControlPlaneClientService {
       if (!response.ok) {
         const body = await this.safeReadBodyText(response);
         this.logger.warn(
-          `shared_hot_pod_rm_http_error workspace=${input.workspaceId} path=${input.path} status=${String(response.status)} body=${body.slice(0, 256)}`
+          `workspace_hot_pod_rm_http_error workspace=${input.workspaceId} path=${input.path} status=${String(response.status)} body=${body.slice(0, 256)}`
         );
         return { removedFromPods: 0, failures: [] };
       }
@@ -143,19 +143,19 @@ export class SandboxControlPlaneClientService {
         : [];
       if (removedFromPods === 0 && failures.length === 0) {
         this.logger.log(
-          `shared_hot_pod_rm_deferred workspace=${input.workspaceId} path=${input.path} reason=no_hot_pods`
+          `workspace_hot_pod_rm_deferred workspace=${input.workspaceId} path=${input.path} reason=no_hot_pods`
         );
       }
       if (failures.length > 0) {
         this.logger.warn(
-          `shared_hot_pod_rm_partial_failure workspace=${input.workspaceId} path=${input.path} failures=${JSON.stringify(failures).slice(0, 512)}`
+          `workspace_hot_pod_rm_partial_failure workspace=${input.workspaceId} path=${input.path} failures=${JSON.stringify(failures).slice(0, 512)}`
         );
       }
       return { removedFromPods, failures };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
-        `shared_hot_pod_rm_failed workspace=${input.workspaceId} path=${input.path} error=${message}`
+        `workspace_hot_pod_rm_failed workspace=${input.workspaceId} path=${input.path} error=${message}`
       );
       return { removedFromPods: 0, failures: [] };
     } finally {

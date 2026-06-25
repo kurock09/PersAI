@@ -242,8 +242,8 @@ export interface RuntimeSandboxJobRequest {
   assistantId: string;
   /**
    * Workspace-unique handle that names this assistant's outbound directory
-   * inside session pods (`/shared/<workspaceId>/outbound/<handle>/`) and
-   * the corresponding GCS prefix.
+   * inside session pods (`/workspace/outbound/<handle>/`) and the corresponding
+   * workspace GCS prefix.
    */
   assistantHandle: string;
   /**
@@ -299,10 +299,14 @@ export type RuntimeFileCapability = (typeof PERSAI_RUNTIME_FILE_CAPABILITIES)[nu
  * field — addressing is by pod-absolute `path` only.
  */
 export interface RuntimeFilesToolItem {
-  /** Pod-absolute path: `/workspace/...` or `/shared/<workspaceId>/...`. */
+  /** Pod-absolute path under the single `/workspace/...` namespace. */
   path: string;
   type: "file" | "directory";
-  role: "workspace" | "shared_input" | "shared_outbound_self" | "shared_outbound_other";
+  role:
+    | "workspace_scratch"
+    | "workspace_input"
+    | "workspace_outbound_self"
+    | "workspace_outbound_other";
   sizeBytes: number;
   mimeType: string | null;
   modifiedAt: string | null;
@@ -2742,8 +2746,7 @@ export interface RuntimeDocumentJobRunRequest {
        * ADR-126 v3 — cross-chat revise via workspace path identity.
        *
        * Canonical chat-delivery identity for an existing chat attachment via its
-       * `storagePath` (workspace path under `/shared/<wsid>/` or
-       * `/workspace/<aid>/<wsid>/`). Mutually exclusive with `docId`. When present,
+       * `storagePath` (workspace path under `/workspace/...`). Mutually exclusive with `docId`. When present,
        * the API resolves to the latest `AssistantDocumentVersion` whose attachment
        * row has a matching `storagePath` for the assistant's workspace.
        */

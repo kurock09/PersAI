@@ -1169,7 +1169,8 @@ export class SandboxService {
         ) {
           return {
             reason: "path_not_attachable",
-            warning: "files.attach accepts only /workspace scratch or /workspace/outbound/self/ paths",
+            warning:
+              "files.attach accepts only /workspace scratch or /workspace/outbound/self/ paths",
             exitCode: null,
             stdout: null,
             stderr: null,

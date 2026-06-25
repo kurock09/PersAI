@@ -45,7 +45,7 @@ function createService(input?: {
     {} as never,
     {} as never,
     {
-      buildSharedObjectKey({
+      buildWorkspaceObjectKey({
         workspaceRelPath
       }: {
         workspaceId: string;
@@ -88,7 +88,7 @@ function createService(input?: {
     {} as never,
     {} as never,
     {
-      async removeSharedFileFromHotPods(row: { workspaceId: string; path: string }) {
+      async removeWorkspaceFileFromHotPods(row: { workspaceId: string; path: string }) {
         hotPodRemovals.push(row);
         if (input?.removeHotPodsError) {
           throw input.removeHotPodsError;
@@ -102,8 +102,8 @@ function createService(input?: {
           return (
             input?.attachments ?? [
               {
-                thumbnailStoragePath: "/shared/input/report-thumb.png",
-                posterStoragePath: "/shared/input/report-poster.png"
+                thumbnailStoragePath: "/workspace/input/report-thumb.png",
+                posterStoragePath: "/workspace/input/report-poster.png"
               }
             ]
           );
@@ -131,19 +131,19 @@ test("deleteChatWorkspaceFile removes manifest row and best-effort hot pod copy"
   await harness.service.deleteChatWorkspaceFile({
     userId: "user-1",
     chatId: "chat-1",
-    storagePath: "/shared/input/report.txt"
+    storagePath: "/workspace/input/report.txt"
   });
 
   assert.deepEqual(harness.deletedObjectKeys, [
-    "gcs:/shared/input/report.txt",
-    "gcs:/shared/input/report-thumb.png",
-    "gcs:/shared/input/report-poster.png"
+    "gcs:/workspace/input/report.txt",
+    "gcs:/workspace/input/report-thumb.png",
+    "gcs:/workspace/input/report-poster.png"
   ]);
   assert.deepEqual(harness.manifestDeletes, [
-    { workspaceId: "workspace-1", path: "/shared/input/report.txt" }
+    { workspaceId: "workspace-1", path: "/workspace/input/report.txt" }
   ]);
   assert.deepEqual(harness.hotPodRemovals, [
-    { workspaceId: "workspace-1", path: "/shared/input/report.txt" }
+    { workspaceId: "workspace-1", path: "/workspace/input/report.txt" }
   ]);
   assert.equal(harness.attachmentUpdates.length, 1);
 });
@@ -157,7 +157,7 @@ test("deleteChatWorkspaceFile swallows hot pod rm failure after durable delete",
     harness.service.deleteChatWorkspaceFile({
       userId: "user-1",
       chatId: "chat-1",
-      storagePath: "/shared/input/report.txt"
+      storagePath: "/workspace/input/report.txt"
     })
   );
   assert.equal(harness.manifestDeletes.length, 1);
@@ -172,7 +172,7 @@ test("deleteChatWorkspaceFile surfaces manifest delete failure", async () => {
     harness.service.deleteChatWorkspaceFile({
       userId: "user-1",
       chatId: "chat-1",
-      storagePath: "/shared/input/report.txt"
+      storagePath: "/workspace/input/report.txt"
     }),
     /db down/
   );
@@ -187,15 +187,15 @@ test("deleteWorkspaceFile deletes GCS + manifest + hot pod copy for orphan tiles
   await harness.service.deleteWorkspaceFile({
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    path: "/shared/outbound/self/orphan.txt"
+    path: "/workspace/outbound/self/orphan.txt"
   });
 
-  assert.deepEqual(harness.deletedObjectKeys, ["gcs:/shared/outbound/self/orphan.txt"]);
+  assert.deepEqual(harness.deletedObjectKeys, ["gcs:/workspace/outbound/self/orphan.txt"]);
   assert.deepEqual(harness.manifestDeletes, [
-    { workspaceId: "workspace-1", path: "/shared/outbound/self/orphan.txt" }
+    { workspaceId: "workspace-1", path: "/workspace/outbound/self/orphan.txt" }
   ]);
   assert.deepEqual(harness.hotPodRemovals, [
-    { workspaceId: "workspace-1", path: "/shared/outbound/self/orphan.txt" }
+    { workspaceId: "workspace-1", path: "/workspace/outbound/self/orphan.txt" }
   ]);
   assert.equal(harness.attachmentUpdates.length, 0);
 });
@@ -211,7 +211,7 @@ test("deleteWorkspaceFile returns 404 when manifest row and object are both abse
     harness.service.deleteWorkspaceFile({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/shared/outbound/self/missing.txt"
+      path: "/workspace/outbound/self/missing.txt"
     }),
     NotFoundException
   );

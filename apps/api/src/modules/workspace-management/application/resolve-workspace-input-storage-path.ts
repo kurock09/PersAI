@@ -1,6 +1,6 @@
 import type { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 
-export function sanitizeSharedFilename(filename: string): string {
+export function sanitizeWorkspaceFilename(filename: string): string {
   const trimmed = filename.trim();
   const collapsed = trimmed.replace(/[\\/]+/g, "-");
   return collapsed.length > 0 ? collapsed : "file";
@@ -25,15 +25,15 @@ export function deriveFilenameFromMime(referenceId: string, mimeType: string): s
   return `${referenceId}.bin`;
 }
 
-export function buildSharedInputStoragePath(
+export function buildWorkspaceInputStoragePath(
   filename: string | null,
   mimeType: string,
   referenceId: string
 ): string {
-  const basename = sanitizeSharedFilename(
+  const basename = sanitizeWorkspaceFilename(
     filename ?? deriveFilenameFromMime(referenceId, mimeType)
   );
-  return `/shared/input/${basename}`;
+  return `/workspace/input/${basename}`;
 }
 
 function applyNumericSuffix(basename: string, index: number): string {
@@ -46,18 +46,18 @@ function applyNumericSuffix(basename: string, index: number): string {
   return `${stem} (${index})${ext}`;
 }
 
-/** ADR-126 v3 — macOS-style collision suffix for `/shared/input/` uploads. */
-export async function resolveUniqueSharedInputStoragePath(input: {
+/** ADR-128 Slice 2 — macOS-style collision suffix for `/workspace/input/` uploads. */
+export async function resolveUniqueWorkspaceInputStoragePath(input: {
   workspaceId: string;
   filename: string | null;
   mimeType: string;
   referenceId: string;
   workspaceFileMetadataService: WorkspaceFileMetadataService;
 }): Promise<string> {
-  const preferredBasename = sanitizeSharedFilename(
+  const preferredBasename = sanitizeWorkspaceFilename(
     input.filename ?? deriveFilenameFromMime(input.referenceId, input.mimeType)
   );
-  let candidate = `/shared/input/${preferredBasename}`;
+  let candidate = `/workspace/input/${preferredBasename}`;
   let suffix = 2;
   while (
     await input.workspaceFileMetadataService.get({
@@ -65,7 +65,7 @@ export async function resolveUniqueSharedInputStoragePath(input: {
       path: candidate
     })
   ) {
-    candidate = `/shared/input/${applyNumericSuffix(preferredBasename, suffix)}`;
+    candidate = `/workspace/input/${applyNumericSuffix(preferredBasename, suffix)}`;
     suffix += 1;
   }
   return candidate;

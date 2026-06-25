@@ -132,7 +132,7 @@ describe("RuntimeImageEditToolService", () => {
       providerGatewayClient as never,
       {} as never,
       createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite("/shared/outbound/self/image-edit-1.png") as never
+      createFakeSandboxClientForOutboundWrite("/workspace/outbound/self/image-edit-1.png") as never
     );
 
     const attachments = [
@@ -281,7 +281,9 @@ describe("RuntimeImageEditToolService", () => {
       } as never,
       {} as never,
       createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite("/shared/outbound/self/image-edit-ref.png") as never
+      createFakeSandboxClientForOutboundWrite(
+        "/workspace/outbound/self/image-edit-ref.png"
+      ) as never
     );
 
     const attachments = [
@@ -479,7 +481,7 @@ describe("RuntimeImageEditToolService", () => {
       } as never,
       {} as never,
       createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite("/shared/outbound/self/edit-series.png") as never
+      createFakeSandboxClientForOutboundWrite("/workspace/outbound/self/edit-series.png") as never
     );
 
     const attachments = [
@@ -575,10 +577,10 @@ describe("RuntimeImageEditToolService", () => {
       {} as never,
       createFakeMediaObjectStorageForRead() as never,
       {
-        async writeSharedOutbound(input: { contentBase64: string }) {
+        async writeWorkspaceOutbound(input: { contentBase64: string }) {
           savedArtifacts += 1;
           return {
-            workspaceRelPath: `/shared/outbound/self/edit-partial-${String(savedArtifacts)}.png`,
+            workspaceRelPath: `/workspace/outbound/self/edit-partial-${String(savedArtifacts)}.png`,
             sizeBytes: Buffer.from(input.contentBase64, "base64").length
           };
         }

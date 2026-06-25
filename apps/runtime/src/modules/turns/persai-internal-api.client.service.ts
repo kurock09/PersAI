@@ -747,8 +747,8 @@ export class PersaiInternalApiClientService {
   }
 
   /**
-   * ADR-127 W1 — list workspace files from `workspace_file_metadata` for a
-   * `/shared/...` prefix. The manifest is the authoritative file index;
+   * ADR-128 Slice 2 — list persisted workspace files from `workspace_file_metadata`
+   * for a `/workspace/...` prefix. The manifest is the authoritative file index;
    * the runtime calls this instead of a sandbox `find` for `files.list`.
    * Returns one-level-deep entries; directories are derived from path
    * components.
@@ -796,10 +796,10 @@ export class PersaiInternalApiClientService {
       if (
         typeof row.path !== "string" ||
         (row.type !== "file" && row.type !== "directory") ||
-        (row.role !== "workspace" &&
-          row.role !== "shared_input" &&
-          row.role !== "shared_outbound_self" &&
-          row.role !== "shared_outbound_other") ||
+        (row.role !== "workspace_scratch" &&
+          row.role !== "workspace_input" &&
+          row.role !== "workspace_outbound_self" &&
+          row.role !== "workspace_outbound_other") ||
         typeof row.sizeBytes !== "number" ||
         (row.mimeType !== null && typeof row.mimeType !== "string") ||
         (row.modifiedAt !== null && typeof row.modifiedAt !== "string")
@@ -825,8 +825,8 @@ export class PersaiInternalApiClientService {
   }
 
   /**
-   * ADR-127 W1 — upsert a `workspace_file_metadata` row after a successful
-   * runtime `files.write` on `/shared/...`. The API is the only writer of
+   * ADR-128 Slice 2 — upsert a `workspace_file_metadata` row after a successful
+   * runtime `files.write` on a persisted `/workspace/...` path. The API is the only writer of
    * the manifest; the runtime is the only caller of this endpoint.
    */
   async upsertWorkspaceFileMetadata(input: {

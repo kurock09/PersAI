@@ -973,7 +973,7 @@ describe("AssistantMediaJobSchedulerService", () => {
               {
                 attachmentId: "att-sp-1",
                 kind: "image",
-                storagePath: "/shared/input/photo.jpg",
+                storagePath: "/workspace/input/photo.jpg",
                 mimeType: "image/jpeg",
                 displayName: "photo.jpg",
                 sizeBytes: 1024
@@ -1082,7 +1082,7 @@ describe("AssistantMediaJobSchedulerService", () => {
               {
                 attachmentId: "att-mixed-good",
                 kind: "image",
-                storagePath: "/shared/input/good.jpg",
+                storagePath: "/workspace/input/good.jpg",
                 mimeType: "image/jpeg",
                 displayName: "good.jpg",
                 sizeBytes: 1024

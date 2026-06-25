@@ -337,16 +337,14 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs executes every file whe
   assert.ok(
     writes.some(
       (write) =>
-        write.shell.includes("/workspace/input/a.txt") &&
-        write.stdin.equals(Buffer.from("alpha"))
+        write.shell.includes("/workspace/input/a.txt") && write.stdin.equals(Buffer.from("alpha"))
     ),
     "a.txt must be written with its downloaded buffer"
   );
   assert.ok(
     writes.some(
       (write) =>
-        write.shell.includes("/workspace/input/b.txt") &&
-        write.stdin.equals(Buffer.from("beta"))
+        write.shell.includes("/workspace/input/b.txt") && write.stdin.equals(Buffer.from("beta"))
     ),
     "b.txt must be written with its downloaded buffer"
   );
@@ -453,9 +451,7 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs non-zero exec exit
     }
   });
 
-  await assert.doesNotReject(() =>
-    hydrateWorkspaceMountFromGcs("pod-5", "persai-dev", "ws-exit")
-  );
+  await assert.doesNotReject(() => hydrateWorkspaceMountFromGcs("pod-5", "persai-dev", "ws-exit"));
 
   assert.equal(executed.length, keys.length, "non-zero exits must not stop other writes");
   assert.ok(

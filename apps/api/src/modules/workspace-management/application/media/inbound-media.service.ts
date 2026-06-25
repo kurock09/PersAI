@@ -19,7 +19,7 @@ import { validatePersaiMediaFile } from "./media-security-policy";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { RegisterChatAttachmentService } from "../register-chat-attachment.service";
 import { WorkspaceFileMetadataService } from "../workspace-file-metadata.service";
-import { resolveUniqueSharedInputStoragePath } from "../resolve-shared-input-storage-path";
+import { resolveUniqueWorkspaceInputStoragePath } from "../resolve-workspace-input-storage-path";
 
 class MediaStorageQuotaExceededError extends Error {
   constructor(
@@ -74,14 +74,14 @@ export class InboundMediaService {
           raw.originalFilename
         );
 
-        const storagePath = await resolveUniqueSharedInputStoragePath({
+        const storagePath = await resolveUniqueWorkspaceInputStoragePath({
           workspaceId: params.workspaceId,
           filename: raw.originalFilename,
           mimeType: processed.normalizedMime,
           referenceId: params.messageId,
           workspaceFileMetadataService: this.workspaceFileMetadataService
         });
-        const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+        const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
           workspaceId: params.workspaceId,
           workspaceRelPath: storagePath
         });
@@ -137,7 +137,7 @@ export class InboundMediaService {
           if (thumb !== null) {
             thumbnailStoragePath = `${storagePath}.thumb.webp`;
             await this.mediaObjectStorage.saveObject({
-              objectKey: this.mediaObjectStorage.buildSharedObjectKey({
+              objectKey: this.mediaObjectStorage.buildWorkspaceObjectKey({
                 workspaceId: params.workspaceId,
                 workspaceRelPath: thumbnailStoragePath
               }),
@@ -150,7 +150,7 @@ export class InboundMediaService {
           if (poster !== null) {
             posterStoragePath = `${storagePath}.poster.jpg`;
             await this.mediaObjectStorage.saveObject({
-              objectKey: this.mediaObjectStorage.buildSharedObjectKey({
+              objectKey: this.mediaObjectStorage.buildWorkspaceObjectKey({
                 workspaceId: params.workspaceId,
                 workspaceRelPath: posterStoragePath
               }),
